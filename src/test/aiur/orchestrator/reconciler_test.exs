@@ -508,6 +508,88 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
     end
   end
 
+  describe "blocking Command running-agent stop (#1965)" do
+    test "stops a running agent when its ticket opens a blocking Command" do
+      parent = self()
+      identity = tracker_identity("I-blocked-running")
+
+      issue = %Issue{
+        id: "issue-blocked-running",
+        identifier: "I-blocked-running",
+        state: "in-progress",
+        tracker_identity: identity
+      }
+
+      state = %State{
+        blocked_ticket_ids: MapSet.new([issue.id]),
+        running: %{
+          issue.id => %{
+            pid: nil,
+            ref: make_ref(),
+            identifier: issue.identifier,
+            issue: issue,
+            started_at: DateTime.utc_now(),
+            control: %{status: :working}
+          }
+        },
+        claimed: MapSet.new([issue.id])
+      }
+
+      result =
+        Reconciler.reconcile_issue_state(
+          issue,
+          state,
+          MapSet.new(["in-progress"]),
+          MapSet.new(),
+          fn observed_identity, lifecycle ->
+            send(parent, {observed_identity, lifecycle})
+            :ok
+          end
+        )
+
+      assert_received {^identity, :replaced}
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+    end
+
+    test "does not stop a running agent when the blocked set is unknown or the store is unavailable" do
+      for blocked_ticket_ids <- [nil, :unavailable, MapSet.new(["other-issue"])] do
+        issue = %Issue{
+          id: "issue-stays-running",
+          identifier: "I-stays-running",
+          state: "in-progress"
+        }
+
+        state = %State{
+          blocked_ticket_ids: blocked_ticket_ids,
+          running: %{
+            issue.id => %{
+              pid: nil,
+              ref: make_ref(),
+              identifier: issue.identifier,
+              issue: issue,
+              started_at: DateTime.utc_now(),
+              control: %{status: :working}
+            }
+          },
+          claimed: MapSet.new([issue.id])
+        }
+
+        result =
+          Reconciler.reconcile_issue_state(
+            issue,
+            state,
+            MapSet.new(["in-progress"]),
+            MapSet.new(),
+            fn _identity, _lifecycle -> :ok end
+          )
+
+        assert Map.has_key?(result.running, issue.id),
+               "a running agent must survive blocked_ticket_ids=#{inspect(blocked_ticket_ids)}"
+      end
+    end
+  end
+
   defp paused_control do
     %{
       status: :paused,

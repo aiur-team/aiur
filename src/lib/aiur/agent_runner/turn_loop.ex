@@ -175,6 +175,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       confirm_restore_for_replacement(orchestrator, issue, opts, error)
     else
       TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
+      TurnAlerts.maybe_emit_route_failure_alert(issue, workspace, worker_host, reason)
 
       best_effort_queue_bookkeeping(
         Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),

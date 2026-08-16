@@ -10,6 +10,7 @@ defmodule Aiur.ModelAvailability do
   """
 
   alias Aiur.{CodingAgent, Workflow}
+  alias Aiur.Config.RoutingValue
 
   @windows ~w(hourly weekly monthly)
   @unknown_reset_ttl_seconds 3_600
@@ -54,8 +55,22 @@ defmodule Aiur.ModelAvailability do
     observe(backend, %{"limited" => true, "reset_at" => reset_at}, opts)
   end
 
+  @doc """
+  The ledger key for a backend **or a full route**. A route is reduced to its
+  backend first, because a usage limit is an account-level fact: every
+  `openrouter:*` route shares one OpenRouter account and one quota, so they
+  share one entry. Keying on the route instead would let a limit observed on
+  one model leave the same exhausted account looking available under another.
+
+  Reducing to the backend family is also what keeps direct and via-OpenRouter
+  routes to the *same* model independent — `claude` keys on `claude` and
+  `openrouter:anthropic/claude-sonnet-5` keys on `openrouter` — so a
+  first-party 429 never marks the OpenRouter route limited.
+  """
   @spec backend_key(String.t()) :: String.t()
   def backend_key(backend) do
+    backend = RoutingValue.routing_backend(backend) || backend
+
     case CodingAgent.family_for(backend) do
       family when is_binary(family) -> family
       _ -> backend
