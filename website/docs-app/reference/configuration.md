@@ -305,6 +305,85 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
 
+## Model discovery
+
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers
+release models faster than that list is edited, so for OpenAI-compatible backends aiur
+also asks the provider's own catalogue endpoint which models it currently serves, and
+caches the answer.
+
+Discovery **extends** the curated list; it never replaces it. Reasoning-effort
+vocabularies, capability flags, derived family aliases, presentation, and the models
+`aiur init` offers stay registry-owned, and where a discovered id collides with a
+curated one the curated metadata wins.
+
+| Backend | Endpoint | Credential | Returns |
+| --- | --- | --- | --- |
+| `openrouter` | `GET https://openrouter.ai/api/v1/models` | none required (sent when `OPENROUTER_API_KEY` is set, so the request is attributed to your account) | identifiers, context window, **and pricing** |
+| `deepseek` | `GET https://api.deepseek.com/models` | `DEEPSEEK_API_KEY` | identifiers only |
+| `kimi` | `GET https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` | identifiers only |
+
+`codex` and `claude` are not listed: they answer `model/list` over their own CLI
+transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
+plus `anthropic-version`) has an adapter for operators who point an OpenAI-compatible
+backend straight at it; it returns identifiers and display names, no pricing.
+
+### Cache, TTL, and cold start
+
+| Property | Value |
+| --- | --- |
+| Location | `model-catalog.json`, beside the active workflow config and `model-usage.json` |
+| TTL | 24 hours |
+| Refresh trigger | lazy and backgrounded — reading the usable model set (e.g. when an agent session starts) schedules a refresh only if the cache is older than the TTL |
+| Cold offline start | the discovered set is empty and aiur uses exactly the curated list, i.e. it behaves as it did before discovery existed |
+| Corrupt cache | treated as absent; falls back to the curated list |
+
+Writes are atomic (temp file plus rename) and a concurrent refresh is a no-op rather
+than a duplicate request.
+
+**Config validation never makes a network call.** Validation reads the cache and
+nothing else. An absent or stale cache means "cannot verify", and a model aiur cannot
+verify is **accepted**, never rejected.
+
+### Identifiers aiur refuses
+
+Two classes of catalogue id are rejected at ingest, with the reason recorded in the
+cache under `rejected`:
+
+- **`reserved_routing_separator`** — an id containing `:`, such as
+  `moonshotai/kimi-k2.7-code:batch`. Aiur routing values are `backend:model:effort`, so
+  `openrouter:moonshotai/kimi-k2.7-code:batch` would parse `batch` as a reasoning
+  effort. Pin such a variant only if and when aiur gains a way to escape the separator.
+- **`unstable_identifier_prefix`** — an id starting with `~`, such as
+  `~moonshotai/kimi-latest`, which OpenRouter uses for a non-canonical pointer rather
+  than an addressable model.
+
+### Pricing is advisory
+
+OpenRouter is the only catalogue that quotes prices. Aiur records those numbers in the
+cache and compares them to the curated price table, and stops there. Fetched prices are
+**never** written into the price table, and a curated row always wins. A disagreement
+larger than 5% logs a price-drift warning naming both numbers, which turns a stale
+curated row (the failure mode where output spend is under-reported) into something you
+can see — without letting a vendor feed silently rewrite what aiur reports having spent.
+
+A discovered model with **no** curated price row is usable but visibly unpriced: its
+usage reports unknown cost with an `unknown_price_model` coverage reason. It is never
+costed at zero. A refresh logs how many discovered models are unpriced.
+
+### Per-backend opt-out
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend's catalogue endpoint. The curated list keeps working. |
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      model_discovery: false
+```
+
 ## hooks
 
 | Key | Type | Default | Controls |
