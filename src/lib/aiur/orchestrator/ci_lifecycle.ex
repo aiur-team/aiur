@@ -544,37 +544,51 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp draft_stall_state(result) do
+    case pr_visibility_state(result) do
+      :observable -> observed_draft_stall_state(result)
+      visibility_state -> visibility_state
+    end
+  end
+
+  # A PR the poll can no longer see is gone; one it cannot see yet is not an
+  # observation at all, so neither can decide a stall.
+  defp pr_visibility_state(result) do
     case Map.get(result, :pending_reason) do
-      :open_pr_no_longer_visible ->
-        :pr_gone
-
-      :open_pr_not_yet_visible ->
-        :unknown
-
-      _pending_reason ->
-        observed_draft_stall_state(result)
+      :open_pr_no_longer_visible -> :pr_gone
+      :open_pr_not_yet_visible -> :unknown
+      _other -> :observable
     end
   end
 
   defp observed_draft_stall_state(result) do
-    case result do
-      %{decision: :passed, draft?: true, review_decision: "APPROVED"} ->
-        :active
-
-      %{decision: decision, draft?: _draft?} when decision != :passed ->
-        :clear
-
-      %{decision: _decision, draft?: false} ->
-        :clear
-
-      %{decision: :passed, draft?: true, review_decision: review_decision}
-      when is_binary(review_decision) ->
-        :clear
-
-      _incomplete_observation ->
-        :unknown
+    cond do
+      not complete_draft_observation?(result) -> :unknown
+      stall_ruled_out?(result) -> :clear
+      true -> draft_review_state(result)
     end
   end
+
+  defp complete_draft_observation?(result) do
+    Map.has_key?(result, :decision) and Map.has_key?(result, :draft?)
+  end
+
+  # CI that is not green, or a PR that is no longer a draft, cannot be stalled
+  # by the draft gate.
+  defp stall_ruled_out?(result) do
+    Map.get(result, :decision) != :passed or Map.get(result, :draft?) == false
+  end
+
+  defp draft_review_state(result) do
+    if Map.get(result, :draft?) == true do
+      review_decision_state(Map.get(result, :review_decision))
+    else
+      :unknown
+    end
+  end
+
+  defp review_decision_state("APPROVED"), do: :active
+  defp review_decision_state(review_decision) when is_binary(review_decision), do: :clear
+  defp review_decision_state(_review_decision), do: :unknown
 
   defp emit_draft_stall_alert(state, issue, result, target, active_alerts, opts) do
     if MapSet.member?(active_alerts, target) do
