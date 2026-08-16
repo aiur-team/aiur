@@ -80,6 +80,27 @@ defmodule Aiur.AlertsTest do
            end)
   end
 
+  # The base-branch change announcement is a semantic event (structured
+  # old -> new) delivered through the alert's Exchange payload, so agents
+  # subscribed to `system.config.base_branch.changed` see one event carrying
+  # both fields rather than a duplicate.
+  test "exchange_payload fields ride the Exchange event" do
+    :ok = Exchange.subscribe("system.config.base_branch.changed")
+
+    assert :ok =
+             Alerts.emit_system("system.config.base_branch.changed",
+               message: "tracker.base_branch changed from develop to main",
+               reason: "tracker.base_branch changed from develop to main",
+               exchange_payload: %{old_base: "develop", new_base: "main", source: :system}
+             )
+
+    assert_receive {:event, event}, 500
+    assert event.topic == "system.config.base_branch.changed"
+    assert event.old_base == "develop"
+    assert event.new_base == "main"
+    assert event["message"] == "tracker.base_branch changed from develop to main"
+  end
+
   # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
   # scopes (`task.*`, `agent.*`, `chat.*`). That gate moved to Ticket A's
   # `emit_event` tool allowlist — server-side `Alerts` no longer policies
