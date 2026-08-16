@@ -113,6 +113,31 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert rule =~ "var(--blocking)"
   end
 
+  test "dashboard progress bars match the Stream Deck progress contract" do
+    contract =
+      Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)
+      |> File.read!()
+      |> Jason.decode!()
+
+    root = declarations(css_rule(":root"))
+    assert root["--progress-fill"] == contract["progress"]["fill"]
+    assert root["--progress-complete-fill"] == contract["progress"]["complete_fill"]
+
+    assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
+    assert css_rule(".ut-pbar > i") =~ "min-width: 5px"
+    assert css_rule(".ut-pbar > i.is-complete") =~ "var(--progress-complete-fill)"
+    assert css_rule(".ut-pbar > i.is-stale") =~ "opacity: 0.5"
+    refute @css |> File.read!() |> String.contains?(".ut-pbar > i.is-blocked")
+    refute @css |> File.read!() |> String.contains?(".ut-pbar > i.has-alert")
+    assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
+    assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
+    assert css_rule(".run-summary-progress-fill.is-stale") =~ "opacity: 0.5"
+    assert css_rule(".sd-strip-cmd-progress > i") =~ "min-width: 0.34rem"
+    assert css_rule(".sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i") =~ "opacity: 0.5"
+    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before") =~ "background: transparent"
+    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress") =~ "border: 1px dashed"
+  end
+
   # Text on a filled control needs its own token pair: a fill tuned to carry
   # ink, and the ink itself. `.btn` used to paint `#fff` straight onto --accent,
   # which is 3.51:1 in the dark theme, and `.btn.danger` inherited that white
