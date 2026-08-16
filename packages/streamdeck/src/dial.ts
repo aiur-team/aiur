@@ -199,7 +199,18 @@ export const dial3ValueFromOffset = (columnOffset: number, agentCount: number): 
 // ---------------------------------------------------------------------------
 
 /**
+ * Events shown per page in logs mode. LIVE is pinned to the rightmost key and
+ * never scrolls, so a page holds this many events (seven) plus the pinned LIVE
+ * key — one fewer than the physical eight keys. Paging advances by this many
+ * events so a page turn never skips or overlaps one.
+ */
+export const EVENTS_PER_PAGE = 7;
+
+/**
  * Maximum event page offset in logs mode.
+ * `eventCount` is the total key count (events plus the pinned LIVE key), and
+ * the bound is `eventCount − 8` because the window is EVENTS_PER_PAGE events
+ * plus one pinned LIVE key.
  * bound = max(0, eventCount − 8)
  */
 export const maxEventOffset = (eventCount: number): number => Math.max(0, eventCount - 8);
@@ -229,10 +240,10 @@ export const cycleEventPage = (
   const safeOffset = Math.max(0, currentEventOffset);
 
   // When at or beyond the clamped maximum, wrap back to 0; otherwise advance
-  // by one page and clamp. Using >= maxOff (not a page-number comparison) avoids
-  // the stuck-at-last-page bug that occurs when the clamped offset falls
-  // mid-page according to floor division.
-  const offset = safeOffset >= maxOff ? 0 : Math.min(safeOffset + 8, maxOff);
+  // by one page (EVENTS_PER_PAGE events) and clamp. Using >= maxOff (not a
+  // page-number comparison) avoids the stuck-at-last-page bug that occurs when
+  // the clamped offset falls mid-page according to floor division.
+  const offset = safeOffset >= maxOff ? 0 : Math.min(safeOffset + EVENTS_PER_PAGE, maxOff);
 
   return { eventOffset: offset, dial3Value: dial3ValueFromEventOffset(offset, eventCount) };
 };
