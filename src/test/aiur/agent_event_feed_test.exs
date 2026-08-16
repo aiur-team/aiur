@@ -267,6 +267,120 @@ defmodule Aiur.AgentEventFeedTest do
     assert %{type: "diff", path: "lib/header.ex", additions: 0, deletions: 1, line: "old"} = header
   end
 
+  # ---------------------------------------------------------------------------
+  # Shared event bus
+  # ---------------------------------------------------------------------------
+
+  describe "bus_events/2" do
+    test "reads the ticket's published events oldest first", %{identifier: identifier} do
+      write_bus_log(identifier, [
+        "2026-07-30T00:01:00Z [event:emit] id=11 ticket.#{identifier}.pr.opened: PR #1904",
+        "2026-07-30T00:02:00Z [event:consumed] id=12 ticket.#{identifier}.issue.commented: please rotate refresh too",
+        "2026-07-30T00:03:00Z [event:self] id=13 ticket.#{identifier}.agent.progress: 72%"
+      ])
+
+      assert [first, second, third] = AgentEventFeed.bus_events(identifier)
+      assert Enum.map([first, second, third], & &1.id) == [11, 12, 13]
+      assert Enum.map([first, second, third], & &1.label) == ["PR opened", "Comment", "Progress"]
+      assert Enum.map([first, second, third], & &1.badge) == ["EMIT", "CONSUME", "AGENT"]
+      assert first.body == "PR #1904"
+      assert first.timestamp == "2026-07-30T00:01:00Z"
+    end
+
+    test "a ticket that has published nothing is an empty list, not an error", %{identifier: identifier} do
+      assert AgentEventFeed.bus_events(identifier) == []
+    end
+
+    # A log written by an older build can hold a byte-sliced summary that is not
+    # valid UTF-8. `Jason` raises on such a byte, and Phoenix serialises from the
+    # socket transport process, so the raise would tear down the whole Stream
+    # Deck socket — then the sidecar reconnects, re-reads the same durable line
+    # and dies again. Scrubbing on read is what stops one bad byte from being a
+    # permanent outage.
+    test "survives a summary that is not valid UTF-8, and stays JSON-encodable", %{identifier: identifier} do
+      corrupt = binary_part("progress: 🚀 shipping", 0, 13)
+      refute String.valid?(corrupt)
+
+      write_bus_log(identifier, [
+        "2026-07-30T00:01:00Z [event:emit] id=1 ticket.#{identifier}.agent.progress: #{corrupt}"
+      ])
+
+      assert [event] = AgentEventFeed.bus_events(identifier)
+      assert String.valid?(event.body)
+      assert event.body == "progress:"
+      assert {:ok, _encoded} = Jason.encode(%{"body" => event.body})
+    end
+
+    test "honours the limit so a long-lived ticket cannot flood the wire", %{identifier: identifier} do
+      write_bus_log(
+        identifier,
+        Enum.map(1..30, &"2026-07-30T00:00:00Z [event:emit] id=#{&1} ticket.#{identifier}.pr.opened: e#{&1}")
+      )
+
+      assert length(AgentEventFeed.bus_events(identifier, limit: 5)) == 5
+    end
+  end
+
+  describe "topic_label/1" do
+    test "writes out the topics a ticket actually publishes" do
+      assert AgentEventFeed.topic_label("ticket.401.pr.merged") == "PR merged"
+      assert AgentEventFeed.topic_label("ticket.401.ci.failed") == "CI failed"
+      assert AgentEventFeed.topic_label("ticket.401.agent.progress.checkin") == "Progress check-in"
+      assert AgentEventFeed.topic_label("ticket.401.decision.requested") == "Decision requested"
+    end
+
+    # A routing key is precise and unreadable at key-face size, but degrading to
+    # its own segments still beats a blank key.
+    test "degrades an unknown topic to its own segments rather than to nothing" do
+      assert AgentEventFeed.topic_label("ticket.401.agent.some_new_thing") == "Agent some new thing"
+      assert AgentEventFeed.topic_label("system.main.branch.push") == "Branch push"
+      assert AgentEventFeed.topic_label(nil) == "Event"
+      assert AgentEventFeed.topic_label("") == "Event"
+    end
+  end
+
+  describe "badge_for_kind/1" do
+    # Direction is what the marker kind records. Deriving it from the topic
+    # would make the same `pr.merged` read EMIT when published and CONSUME when
+    # received.
+    test "maps each marker kind onto its direction" do
+      assert AgentEventFeed.badge_for_kind("consumed") == "CONSUME"
+      assert AgentEventFeed.badge_for_kind("emit_alert") == "SYSTEM"
+      assert AgentEventFeed.badge_for_kind("self") == "AGENT"
+      assert AgentEventFeed.badge_for_kind("emit") == "EMIT"
+      assert AgentEventFeed.badge_for_kind(:self) == "AGENT"
+      assert AgentEventFeed.badge_for_kind("something else") == "EMIT"
+    end
+  end
+
+  # The Stream Deck's bottom panel renders a real diff, so the feed has to carry
+  # the lines rather than only the first changed one.
+  test "carries a bounded window of real hunk lines for a provider diff", %{identifier: identifier} do
+    hunk =
+      Enum.join(
+        ["diff --git a/lib/a.ex b/lib/a.ex", "--- a/lib/a.ex", "+++ b/lib/a.ex", "@@ -1,3 +1,3 @@", " context", "-gone", "+added"],
+        "\n"
+      )
+
+    write_events(identifier, [
+      event("tool", "edit lib/a.ex", %{"tool" => "edit", "changes" => [%{"path" => "lib/a.ex", "diff" => hunk}]})
+    ])
+
+    assert {:ok, %{events: [diff]}} = AgentEventFeed.list(identifier)
+
+    assert diff.lines == [
+             %{sign: " ", text: "context"},
+             %{sign: "-", text: "gone"},
+             %{sign: "+", text: "added"}
+           ]
+  end
+
+  defp write_bus_log(identifier, lines) do
+    path = IssueLog.event_log_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
+  end
+
   defp write_events(identifier, events) do
     path = IssueLog.transcript_path(identifier)
     File.mkdir_p!(Path.dirname(path))

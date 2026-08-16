@@ -5,3 +5,10 @@
 
 [build.environment]
   NODE_VERSION = "20"
+
+# The Overview page absorbed /docs/concepts/what-is-aiur, which was linked from
+# the docs landing page and the sidebar, so external links to it still exist.
+[[redirects]]
+  from = "/docs/concepts/what-is-aiur"
+  to = "/docs/"
+  status = 301

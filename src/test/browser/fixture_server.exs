@@ -2351,8 +2351,35 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       :ok
     else
       write_feed(IssueLog.transcript_path(identifier))
+      write_bus_feed(IssueLog.event_log_path(identifier), identifier)
       :persistent_term.put(key, true)
     end
+  end
+
+  # The shared event bus, which is what the logs surface's keys come from. The
+  # transcript written above is the detail underneath them, not a source of
+  # keys: grouping transcript turns into events is exactly the defect the logs
+  # rebuild removed, so a fixture that only wrote a transcript would exercise a
+  # surface with no events on it at all.
+  #
+  # Kinds are chosen to cover every direction the badge mapping produces:
+  # `self` -> AGENT, `consumed` -> CONSUME, `emit_alert` -> SYSTEM, `emit` ->
+  # EMIT. INFO is the origin anchor's, which every projection synthesises.
+  defp write_bus_feed(path, identifier) do
+    File.mkdir_p!(Path.dirname(path))
+    # On the *last* four events, because the eight-key window opens at the
+    # newest end: kinds placed on events 1..4 would sit off-screen behind the
+    # origin anchor and no spec could read their badges without scrolling first.
+    kinds = %{7 => "self", 8 => "consumed", 9 => "emit_alert", 10 => "emit"}
+
+    lines =
+      Enum.map(1..10, fn index ->
+        kind = Map.get(kinds, index, "emit")
+        minute = String.pad_leading(to_string(index), 2, "0")
+        "2026-08-02T00:#{minute}:00Z [event:#{kind}] id=#{index} ticket.#{identifier}.pr.opened: event-#{index}"
+      end)
+
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
   end
 
   defp write_feed(path) do
@@ -2369,7 +2396,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         %{
           "role" => Map.get(roles, index, "assistant"),
           "body" => "event-#{index}",
-          "timestamp" => "2026-08-02T00:00:00Z",
+          # After every bus event, so the transcript sits under the newest one
+          # rather than under the origin. `read_tail/2` treats the last line as
+          # newest, and this file is written 10-first, so index 1 is newest.
+          "timestamp" => "2026-08-02T00:#{String.pad_leading(to_string(31 - index), 2, "0")}:00Z",
           "msg_id" => nil,
           "sequence" => index,
           "turn_id" => "fixture-#{index}",

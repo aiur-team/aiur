@@ -125,7 +125,7 @@ mix dialyzer
   policy module"). Small, focused commits.
 - **Never mention AI, models, or tools** in a commit message or a PR
   description.
-- **PRs target the canonical `develop` branch.** A PR description starts with
+- **PRs target the canonical `main` branch.** A PR description starts with
   `Closes #<issue-number>` and follows
   `.github/pull_request_template.md` exactly (validate with
   `mix pr_body.check --file <path>` from `src/`).

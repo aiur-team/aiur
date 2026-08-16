@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckStripTest do
   use ExUnit.Case, async: true
 
+  alias AiurWeb.StreamdeckKeyFaceContract
   alias AiurWeb.StreamdeckStrip
 
   test "describes the focused command panel with the key progress hue" do
@@ -24,6 +25,28 @@ defmodule AiurWeb.StreamdeckStripTest do
              percent: 50,
              progress_colour: "hsl(63 72% 50%)"
            }
+  end
+
+  test "agrees with the key face that unknown progress has no percentage and no hue" do
+    command = StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: nil})
+
+    assert command.percent == nil
+    assert command.progress_colour == nil
+  end
+
+  test "keeps a stale-but-real percentage instead of reading it as zero" do
+    command = StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: 70})
+
+    assert command.percent == 70
+    assert command.progress_colour == StreamdeckKeyFaceContract.progress_color(70)
+  end
+
+  test "rounds a float percentage rather than dropping it" do
+    assert StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: 70.5}).percent == 71
+  end
+
+  test "an absent progress key reads as unknown, not as no progress" do
+    assert StreamdeckStrip.command(%{identifier: "1582", bucket: :running}).percent == nil
   end
 
   test "every bucket takes its own accent and wording from the key-face contract" do
@@ -81,5 +104,20 @@ defmodule AiurWeb.StreamdeckStripTest do
     assert tool == %{shape: :message, speaker: :tool, text: "mix test"}
     assert ci == %{shape: :message, speaker: :ci, text: "CI passed"}
     assert you == %{shape: :message, speaker: :you, text: "please continue"}
+  end
+
+  # The feed unrolls a hunk into one row per line. Without a clause of its own
+  # every one of those rows fell to the catch-all and painted as an empty `:ci`
+  # message, so a diff on the strip was a header followed by blank rows.
+  test "maps an unrolled hunk line to its own shape, keeping its sign" do
+    assert StreamdeckStrip.entries([
+             %{kind: :diff_line, sign: "+", text: "  added()"},
+             %{kind: :diff_line, sign: "-", text: "  removed()"},
+             %{kind: :diff_line, sign: " ", text: "  context()"}
+           ]) == [
+             %{shape: :diff_line, line: "+  added()", line_kind: :addition},
+             %{shape: :diff_line, line: "-  removed()", line_kind: :deletion},
+             %{shape: :diff_line, line: "   context()", line_kind: :context}
+           ]
   end
 end

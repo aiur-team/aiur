@@ -18,7 +18,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `tracker.kind` | string | required | Selects `linear`, `github`, or `memory`. |
-| `tracker.base_branch` | string | repo default | Branch agents target with PRs. |
+| `tracker.base_branch` | string | required | Branch agents target with PRs. `aiur init` offers the repository default read from GitHub, but there is no runtime fallback: an unset value raises. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
@@ -46,7 +46,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 ### Choosing a poll interval
 
 Polling spends GitHub GraphQL points at a rate inversely proportional to the
-interval, and that spend is fixed cost — it does not depend on how many agents
+interval, and that spend is a fixed cost. It does not depend on how many agents
 are running. Against GitHub's 5,000 point/hour budget:
 
 | `interval_seconds` | Approximate poll spend | Worst-case wake latency |
@@ -61,23 +61,23 @@ agent makes a request, which is why the default is 120. Tightening it below 60
 is only safe on a small fleet.
 
 The figures above are what each interval costs if it is actually applied. GitHub
-also sends an `X-Poll-Interval` header on the repo-events endpoint — 60 seconds
-by default — and Aiur treats it as a floor. The interval actually used is the
+also sends an `X-Poll-Interval` header on the repo-events endpoint, 60 seconds
+by default, and Aiur treats it as a floor. The interval actually used is the
 wider of the two, so setting `interval_seconds` below 60 generally does not
 speed polling up, while setting it above 60 does slow polling down.
 
 Widening past 120 seconds is the flat part of the curve: each further step
 saves less quota than the last while the wake latency grows proportionally.
-Aiur's poll is state-based — it reads current issue labels and pull request
-state rather than replaying an event log — so a longer interval delays a wake
-but does not lose one. The exception is comment-driven wakes, where a comment
+Aiur's poll is state-based: it reads current issue labels and pull request
+state rather than replaying an event log. A longer interval therefore delays a
+wake but does not lose one. The exception is comment-driven wakes, where a comment
 posted and answered between two polls is not distinguishable from no comment.
 
 ## webhooks
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `webhooks.repos` | list of `owner/name` | `[]` | Repos expected to deliver webhooks. A hint only — a listed repo keeps polling at full rate until it actually delivers. |
+| `webhooks.repos` | list of `owner/name` | `[]` | Repos expected to deliver webhooks. A hint only. A listed repo keeps polling at full rate until it actually delivers. |
 | `webhooks.silence_threshold_seconds` | integer | 900 | How long a proven repo may go without a delivery before it degrades back to full polling and raises a needs-attention alert. |
 | `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
 | `webhooks.poll_widen_factor` | float | 2.0 | Multiplier applied to `polling.interval_seconds` for repos proven webhook-backed. Values below 1.0 are rejected. |
@@ -92,7 +92,7 @@ repo at a time based on that repo's observed state:
 | --- | --- |
 | Never configured for webhooks | `interval_seconds` |
 | Configured but has never delivered | `interval_seconds` |
-| Proven — has delivered at least once | `interval_seconds × poll_widen_factor` |
+| Proven, has delivered at least once | `interval_seconds × poll_widen_factor` |
 | Proven, then silent past the threshold | `interval_seconds` |
 
 Only an observed, signature-verified delivery promotes a repo to the widened
@@ -103,7 +103,7 @@ all work.
 The last row is the safety property worth stating on its own: when deliveries
 stop, the silence sweep degrades that repo, the alert names it, and the next poll
 tick is computed at the tighter interval automatically. There is no operator
-action and no separate restore path — a fleet that goes blind polls at full rate
+action and no separate restore path. A fleet that goes blind polls at full rate
 while it is blind. A delivery arriving later restores webhook mode on its own.
 
 `X-Poll-Interval` and connectivity backoffs remain floors on top of all of this:
@@ -284,7 +284,7 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 
 `POST /api/v1/github/webhook` accepts GitHub webhook deliveries. It has no configuration keys and no bearer credential: every delivery is authenticated by the `X-Hub-Signature-256` HMAC-SHA256 digest GitHub computes over the raw request body, using the shared secret in `AIUR_GITHUB_WEBHOOK_SECRET`. Set that variable to the same secret configured on the GitHub webhook.
 
-The receiver fails closed. A delivery is rejected with `401` when the signature header is absent, malformed, or does not match, and when `AIUR_GITHUB_WEBHOOK_SECRET` is unset or blank — the latter also raises a needs-attention `system.github_webhook.secret_missing` alert, because a misconfigured deployment must never accept unsigned deliveries. The legacy SHA-1 `X-Hub-Signature` header is ignored and is never accepted as a fallback. Deliveries larger than 25 MB, GitHub's own delivery ceiling, are refused.
+The receiver fails closed. A delivery is rejected with `401` when the signature header is absent, malformed, or does not match, and when `AIUR_GITHUB_WEBHOOK_SECRET` is unset or blank. The unset case also raises a needs-attention `system.github_webhook.secret_missing` alert, because a misconfigured deployment must never accept unsigned deliveries. The legacy SHA-1 `X-Hub-Signature` header is ignored and is never accepted as a fallback. Deliveries larger than 25 MB, GitHub's own delivery ceiling, are refused.
 
 ## decisions
 

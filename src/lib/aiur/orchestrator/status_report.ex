@@ -29,7 +29,20 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
 
-  @activity_snapshot_timeout_ms 100
+  # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
+  # node, so the work itself is microseconds; the only thing this budget has to
+  # cover is queueing. 100 ms did not: behind a burst of ticket events, or any
+  # ordinary VM pause, the call timed out and the whole fleet's progress
+  # collapsed to a single failure value at once.
+  #
+  # 500 ms is bounded from both sides. Below, it is five times the budget that
+  # was observed to fail, which puts it far outside normal mailbox queueing for
+  # a projection this small. Above, this call blocks the Orchestrator process
+  # while it runs and snapshots are rebuilt on every state change, so it must
+  # stay comfortably inside the smallest caller budget in the tree (1 s, e.g.
+  # `Orchestrator.snapshot/2`) and leave room for the rest of the payload. Half
+  # of that is the largest value that still does.
+  @activity_snapshot_timeout_ms 500
   @repo_base_status_timeout_ms 100
   @waiting_for_human_alert_after_seconds 600
 
@@ -471,10 +484,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
-      progress_percent: progress_percent(Issue.tracker_identity(metadata.issue), activity_by_identity),
       activity_stage: activity_stage(Issue.tracker_identity(metadata.issue), activity_by_identity),
       ci_result: cached_ci_result(state, metadata.identifier)
     }
+    |> Map.merge(progress_facts(Issue.tracker_identity(metadata.issue), activity_by_identity))
     |> Map.merge(running_execution_facts(metadata))
   end
 
@@ -507,10 +520,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
-      progress_percent: progress_percent(tracker_identity, activity_by_identity),
       activity_stage: activity_stage(tracker_identity, activity_by_identity),
       ci_result: cached_ci_result(state, identifier)
     }
+    |> Map.merge(progress_facts(tracker_identity, activity_by_identity))
     |> Map.merge(issue_execution_facts(issue))
   end
 
@@ -582,10 +595,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),
-      progress_percent: progress_percent(Issue.tracker_identity(issue), activity_by_identity),
       activity_stage: activity_stage(Issue.tracker_identity(issue), activity_by_identity),
       ci_result: cached_ci_result(state, identifier)
     }
+    |> Map.merge(progress_facts(Issue.tracker_identity(issue), activity_by_identity))
     |> Map.merge(issue_execution_facts(issue))
   end
 
@@ -670,6 +683,11 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp open_decision_count(_identifier), do: {0, :unavailable}
 
+  # An unreachable, unstarted or too-slow TicketActivity yields an empty join,
+  # which `progress_facts/2` reads as `:unknown` for every identity it looks
+  # up. That distinction is the whole point: the failure path must say "we
+  # could not measure", never "every agent is at 0%", which is what the fleet
+  # used to report in unison on any transient hiccup here.
   defp activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),
          %{entries: entries} when is_list(entries) <-
@@ -689,22 +707,49 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  defp progress_percent(identity, activity_by_identity) do
+  # Progress has three honest states, and every consumer gets all three:
+  #
+  #   :fresh   - observed inside the TicketActivity staleness window.
+  #   :stale   - a real reading exists but is older than the window. The
+  #              percent is RETAINED. `Projection.progress_snapshot/3` keeps
+  #              the measured value on purpose and only annotates its age; the
+  #              honest reading of an aged 70% is "70%, a while ago", never 0%.
+  #   :unknown - nothing was ever observed for this ticket, or TicketActivity
+  #              could not be consulted at all. The percent is `nil`.
+  #
+  # This used to substitute integer `0` for both of the latter two, which made
+  # the Stream Deck flicker 0 -> 70 -> 0 on a ticket that was progressing
+  # perfectly well: agents do not re-emit progress every minute, so a good
+  # reading went stale about a minute after it landed and was replaced by a
+  # measurement nobody took.
+  defp progress_facts(identity, activity_by_identity) do
     case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :progress]) do
-      %{freshness: :fresh, percent: percent} when is_integer(percent) and percent in 0..100 ->
-        percent
+      %{status: :known, freshness: freshness, percent: percent}
+      when freshness in [:fresh, :stale] ->
+        known_progress_facts(freshness, normalized_percent(percent))
 
       _ ->
-        0
+        %{progress_percent: nil, progress_freshness: :unknown}
     end
   end
 
-  # Sibling of `progress_percent/2` over the same joined TicketActivity entry:
+  defp known_progress_facts(_freshness, nil), do: %{progress_percent: nil, progress_freshness: :unknown}
+
+  defp known_progress_facts(freshness, percent), do: %{progress_percent: percent, progress_freshness: freshness}
+
+  # Agents emit whole percentages today, but a float is a real measurement and
+  # rounding keeps it. The previous `is_integer/1` guard silently turned 70.5
+  # into 0 — the one thing a percent must never be turned into.
+  defp normalized_percent(percent) when is_integer(percent) and percent in 0..100, do: percent
+  defp normalized_percent(percent) when is_float(percent), do: percent |> round() |> normalized_percent()
+  defp normalized_percent(_percent), do: nil
+
+  # Sibling of `progress_facts/2` over the same joined TicketActivity entry:
   # the agent's workflow stage (brainstorm/plan/work/review).
   #
-  # Deliberately NOT gated on `:fresh`, where progress is. The two look alike
-  # and are not. Progress is a measurement that decays: an hour-old 40% may no
-  # longer be true, so a stale reading is discarded. A stage is a *state* with
+  # Deliberately NOT annotated with freshness, where progress is. The two look
+  # alike and are not. Progress is a measurement that decays: an hour-old 40%
+  # may no longer be true, so its age travels with it. A stage is a *state* with
   # explicit transitions — it changes only when the agent emits
   # `phase.<stage>.start|end`, and `observed_at` records that transition, not a
   # confirmation that the state still holds. Requiring it to be recent asks the

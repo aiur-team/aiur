@@ -35,9 +35,9 @@ async function anchor(locator) {
   })
 }
 
-async function openUnits(page) {
+async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
-  await page.goto('/units')
+  await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
@@ -902,10 +902,23 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await openStreamdeck(page)
 
   const units = await context.newPage()
-  await openUnits(units)
-  await units.getByRole('button', { name: 'Select all preceding filters' }).click()
+  // Apply the "Select all preceding filters" selection at mount instead of
+  // clicking the button. The click is a phx-click LiveView drops silently when
+  // the socket is still settling under CI load (the handler returns without
+  // pushing when the view is momentarily disconnected), which left the view on
+  // the default `:live` scope. Removing a unit against that stale scope
+  // collapses `#units-rows` to the single remaining live unit and the sync
+  // assertions below fail even though the emulator never desynced. Loading the
+  // selection from the URL keeps the scope deterministic.
+  const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
+  await openUnits(units, `/units?v=1&scope=unfinished&conditions=${allConditions}`)
 
   const rows = units.locator('#units-rows tr.units-row')
+  // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
+  // rendered scope before mutating makes the assumption this test asserts on
+  // explicit, so a stale selection fails loudly here instead of as a one-row
+  // table later.
+  await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
   const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
   await rows.first().locator('td.ut-id-cell').click()
   await units.locator('#remove-selected-unit').evaluate((button) => button.click())
@@ -948,51 +961,86 @@ test('clicking a logs event key positions the flattened transcript at that event
 
   const logKeys = page.locator('#sd-log-keys')
   await expect(logKeys.locator('.sd-key')).toHaveCount(8)
-  // Index 0 is LIVE, never an event row.
-  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
-  await expect(logKeys.locator('[data-log-event-index="0"] .sd-log-dir')).toHaveCount(0)
-  await expect(logKeys.locator('[data-log-event-index="0"] .sd-live-dot')).toHaveCount(1)
 
-  // The fixture feed gives events 1..5 the five roles that map onto the five
-  // direction badges, so each badge — and each badge's colour — is exercised.
-  const directions = ['AGENT', 'CONSUME', 'SYSTEM', 'INFO', 'EMIT']
+  // The surface reads oldest-left to newest-right, so the window opens at the
+  // right-hand end: LIVE is the last key, and the origin anchor at index 0 is
+  // off-screen behind it.
+  const liveIndex = await logKeys.locator('.sd-live-key').getAttribute('data-log-event-index')
+  await expect(logKeys.locator('.sd-live-key')).toContainText('LIVE')
+  await expect(logKeys.locator('.sd-live-key .sd-live-dot')).toHaveCount(1)
+  await expect(logKeys.locator('.sd-live-key .sd-log-dir')).toHaveCount(0)
+  await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
+
+  // The fixture's bus kinds cover four of the five directions on the four
+  // newest events — the ones inside the window as it opens — and the origin
+  // anchor carries the fifth. Direction comes from the marker kind, not the
+  // topic, so this is asserting the kind -> badge mapping end to end.
+  const directions = { 7: 'AGENT', 8: 'CONSUME', 9: 'SYSTEM', 10: 'EMIT' }
   const inks = new Set()
-  for (const [slot, direction] of directions.entries()) {
-    const badge = logKeys.locator(`[data-log-event-index="${slot + 1}"] .sd-log-dir`)
+  for (const [index, direction] of Object.entries(directions)) {
+    const badge = logKeys.locator(`[data-log-event-index="${index}"] .sd-log-dir`)
     await expect(badge).toContainText(direction)
     await expect(badge).toHaveAttribute('data-dir', direction)
     inks.add(await badge.evaluate((el) => getComputedStyle(el).color))
   }
-  // EMIT and AGENT share one blue by design; the other three are distinct.
+  // EMIT and AGENT share one blue by design; the other two are distinct.
+  expect(inks.size).toBe(3)
+
+  // The origin anchor is the far-left key and always exists. Page the window
+  // fully left to reach it — that is also the only way an operator sees the
+  // beginning of a long ticket.
+  const dialDKnob = page.locator('.sd-knob').nth(3)
+  for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [90, 0, -90])
+  await expect(logKeys).toHaveAttribute('data-offset', '0')
+  const origin = logKeys.locator('[data-log-event-index="0"] .sd-log-dir')
+  await expect(origin).toContainText('INFO')
+  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('Ticket opened')
+  inks.add(await origin.evaluate((el) => getComputedStyle(el).color))
   expect(inks.size).toBe(4)
+  // LIVE is pinned: even scrolled fully left to the origin, it still occupies
+  // the last (bottom-right) key rather than scrolling away.
+  await expect(logKeys.locator('.sd-live-key')).toHaveCount(1)
+  await expect(logKeys.locator('.sd-key').last()).toHaveClass(/sd-live-key/)
+
+  // Back to where it opened, so the assertions below read the live end.
+  for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [-90, 0, 90])
+  await expect(logKeys).toHaveAttribute('data-offset', String(Number(await logKeys.getAttribute('data-max-offset'))))
 
   const strip = page.locator('#sd-screen')
-  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
-  await expect(strip).toContainText('event-1')
+  const transcript = page.locator('#sd-log-transcript')
+  const maxOffset = await transcript.getAttribute('data-max-offset')
+  // Requirement: logs opens where the agent is working, not at the ticket's
+  // first line.
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 
-  // SP-302's three entry shapes, not a single flattened line per row.
-  await expect(page.locator('.sd-log-entry-evhdr')).toBeVisible()
-  await expect(page.locator('.sd-log-entry-message')).toBeVisible()
+  // Three entry shapes, not a single flattened line per row.
+  await expect(page.locator('.sd-log-entry-message').first()).toBeVisible()
 
-  // Dial A's hint arrows are state: at the head of the transcript there is
-  // nothing older, so the left arrow is hidden and the right one is not.
-  await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
-  await expect(page.locator('.sd-dial-hint').first().locator('span').last()).toHaveCSS('visibility', 'visible')
+  // Dial A's hint arrows are state: pinned at the newest end there is nothing
+  // newer, so the down arrow is hidden and the up one is not.
+  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
+  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'false')
 
-  await logKeys.locator('[data-log-event-index="2"]').click()
-  await expect(strip).toHaveAttribute('data-transcript-offset', '2')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
-  await expect(strip).toContainText('event-2')
-  // The strip moved off the pre-click head rather than merely gaining a line.
-  // `event-1` starts at offset 0 and `event-10` at 18, so neither belongs in
-  // the two-line window at offset 2.
-  await expect(strip).not.toContainText('event-1')
-  await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
+  // Pressing an event key makes it the active one and LIVE inactive, and moves
+  // the strip to that event's own header. Keys 7 and 8 are inside the window
+  // as it opens; the far-left ones were reached by paging, above.
+  await logKeys.locator('[data-log-event-index="8"]').click()
+  await expect(logKeys.locator('[data-log-event-index="8"]')).toHaveAttribute('aria-current', 'true')
+  await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'false')
+  await expect(strip).not.toHaveAttribute('data-transcript-offset', maxOffset)
+  await expect(page.locator('.sd-log-entry-evhdr').first()).toBeVisible()
+  const atEventEight = await transcript.getAttribute('data-offset')
 
-  await logKeys.locator('[data-log-event-index="1"]').press('Enter')
-  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
-  await expect(strip).toContainText('event-1')
+  // A different event key moves it somewhere else again.
+  await logKeys.locator('[data-log-event-index="7"]').press('Enter')
+  await expect(logKeys.locator('[data-log-event-index="7"]')).toHaveAttribute('aria-current', 'true')
+  await expect(transcript).not.toHaveAttribute('data-offset', atEventEight)
+
+  // Returning to LIVE reverses it: back to the newest end, LIVE active again.
+  await logKeys.locator('.sd-live-key').click()
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
+  await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
+  await expect(logKeys.locator(`[data-log-event-index="${liveIndex}"]`)).toHaveAttribute('aria-current', 'true')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
@@ -1003,12 +1051,18 @@ test('dial A pointer direction controls transcript scroll direction in logs mode
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
-  const dialA = page.locator('.sd-knob').first()
-  await dragDialThroughAngles(page, dialA, [-90, 0, 90])
-  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '1')
+  // The surface opens pinned at the newest end, so the only way to move is
+  // back into history first; dragging the other way returns to the end.
+  const strip = page.locator('#sd-screen')
+  const maxOffset = await page.locator('#sd-log-transcript').getAttribute('data-max-offset')
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 
+  const dialA = page.locator('.sd-knob').first()
   await dragDialThroughAngles(page, dialA, [90, 0, -90])
-  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toHaveAttribute('data-transcript-offset', String(Number(maxOffset) - 1))
+
+  await dragDialThroughAngles(page, dialA, [-90, 0, 90])
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 })
 
 test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {
@@ -1019,11 +1073,16 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
-  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
-  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '1')
+  // Same direction contract on the key window, which also opens at its end.
+  const logKeys = page.locator('#sd-log-keys')
+  const maxOffset = await logKeys.getAttribute('data-max-offset')
+  await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 
   await dragDialThroughAngles(page, dialD, [90, 0, -90])
-  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '0')
+  await expect(logKeys).toHaveAttribute('data-offset', String(Number(maxOffset) - 1))
+
+  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
+  await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 })
 
 test('touch strip renders two provider meters and design segment geometry', async ({ page }) => {

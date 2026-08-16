@@ -176,4 +176,81 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert reconciled.running[issue_id].issue.state == "rework"
     assert reconciled.running[issue_id].lifecycle_fence.authoritative_state == "rework"
   end
+
+  @approved_review_event %{
+    id: 1,
+    topic: "ticket.1577.pr.review_comment",
+    issue_number: "1577",
+    author_trusted?: true,
+    comment: %{"id" => 1, "user" => %{"login" => "its-everdred"}, "state" => "APPROVED"},
+    pull_request: %{"review_decision" => "APPROVED", "head_committed_at" => "2026-08-10T04:29:00Z"}
+  }
+
+  @changes_requested_review_event %{
+    id: 2,
+    topic: "ticket.1577.pr.review_comment",
+    issue_number: "1577",
+    author_trusted?: true,
+    comment: %{"id" => 2, "user" => %{"login" => "its-everdred"}, "state" => "CHANGES_REQUESTED"},
+    pull_request: %{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => "2026-08-10T04:29:00Z"}
+  }
+
+  # #1754: a trusted comment digest on an APPROVED PR must not arm the fence
+  # with an authoritative "rework" state, or the fence restores a human-review
+  # ticket to rework while `reviewDecision` is APPROVED (the no-op dispatch
+  # loop). The CHANGES_REQUESTED pairing guards against an always-skip gate.
+  test "an APPROVED PR comment digest does not arm the fence with rework" do
+    state = running_entry_state()
+    fenced = LifecycleFence.protect_queued_item(state, "1577", digest_item(1, [@approved_review_event]))
+    entry = fenced.running["issue-approved-digest"]
+
+    refute fence_authoritative_rework?(entry)
+
+    observed = %Issue{id: "issue-approved-digest", identifier: "1577", state: "human-review"}
+    assert :admit = LifecycleFence.reconcile_observed_state(fenced, observed)
+  end
+
+  test "a CHANGES_REQUESTED comment digest still arms the rework fence" do
+    state = running_entry_state()
+    fenced = LifecycleFence.protect_queued_item(state, "1577", digest_item(2, [@changes_requested_review_event]))
+    entry = fenced.running["issue-approved-digest"]
+
+    assert fence_authoritative_rework?(entry)
+
+    observed = %Issue{id: "issue-approved-digest", identifier: "1577", state: "human-review"}
+    assert {:fenced, reconciled} = LifecycleFence.reconcile_observed_state(fenced, observed)
+    assert reconciled.running["issue-approved-digest"].issue.state == "rework"
+  end
+
+  defp running_entry_state do
+    issue_id = "issue-approved-digest"
+
+    %State{
+      running: %{
+        issue_id => %{
+          identifier: "1577",
+          issue: %Issue{id: issue_id, identifier: "1577", state: "in-progress"},
+          control: %{status: :working}
+        }
+      }
+    }
+  end
+
+  defp digest_item(id, events) do
+    %Aiur.AgentQueueItem{
+      id: id,
+      category: :coordination_event,
+      event_type: :events_digest,
+      target_issue_identifier: "1577",
+      body: %{summary: "PR review comment", events: events, urgent: false},
+      source: :github_comments_poller
+    }
+  end
+
+  defp fence_authoritative_rework?(entry) do
+    case Map.get(entry, :lifecycle_fence) do
+      %{authoritative_state: "rework"} -> true
+      _other -> false
+    end
+  end
 end

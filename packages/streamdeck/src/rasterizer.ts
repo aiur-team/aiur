@@ -59,6 +59,8 @@ const FOOTER_BASE = 110;
 const BAR_HEIGHT = 6;
 const DOT_SIZE = 9;
 const TAG_HEIGHT = 13;
+/** Width of the left rail that marks the active event key. */
+const SELECTION_RAIL = 5;
 
 const EMPTY_FILL = "#0a0b0d";
 const TEXT_PRIMARY = "#f1f3f6";
@@ -243,10 +245,19 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   }
 
   const dotY = FOOTER_BASE - DOT_SIZE;
+  const unknown = face.footer.percent === null;
   context.beginPath();
-  context.arc(PAD_X + DOT_SIZE / 2, dotY + DOT_SIZE / 2, DOT_SIZE / 2, 0, Math.PI * 2);
-  context.fillStyle = face.accent;
-  context.fill();
+  context.arc(PAD_X + DOT_SIZE / 2, dotY + DOT_SIZE / 2, DOT_SIZE / 2 - (unknown ? 0.75 : 0), 0, Math.PI * 2);
+  if (unknown) {
+    // Hollow dot: the key still reports its bucket, but nothing is claimed
+    // about how far along it is.
+    context.strokeStyle = face.accent;
+    context.lineWidth = 1.5;
+    context.stroke();
+  } else {
+    context.fillStyle = face.accent;
+    context.fill();
+  }
 
   const barX = PAD_X + DOT_SIZE + 7;
   const barWidth = KEY_IMAGE_SIZE - PAD_X - barX;
@@ -255,11 +266,40 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   context.fillStyle = BAR_TRACK;
   context.fill();
 
-  const filled = Math.round((barWidth * face.footer.percent) / 100);
-  if (filled > 0) {
-    roundedPath(context, barX, barY, Math.max(filled, BAR_HEIGHT), BAR_HEIGHT, BAR_HEIGHT / 2);
-    context.fillStyle = face.footer.barColor;
-    context.fill();
+  if (unknown) {
+    // A dashed track, and no fill at all. This is the state that used to be
+    // indistinguishable from a real 0%: both painted an empty track, so a
+    // ticket whose reading had merely gone stale looked like a ticket that had
+    // done nothing. Dashes say "no reading", a solid stub says "zero".
+    context.strokeStyle = face.footer.barColor;
+    context.lineWidth = BAR_HEIGHT;
+    context.setLineDash([4, 5]);
+    context.beginPath();
+    context.moveTo(barX + 2, barY + BAR_HEIGHT / 2);
+    context.lineTo(barX + barWidth - 2, barY + BAR_HEIGHT / 2);
+    context.stroke();
+    context.setLineDash([]);
+    context.lineWidth = 1;
+    return;
+  }
+
+  // `Math.max(..., BAR_HEIGHT)` deliberately applies at 0 as well: a known 0%
+  // paints a visible stub. Skipping the fill there is what made "just started"
+  // and "no reading" the same picture.
+  const filled = Math.max(Math.round((barWidth * face.footer.percent) / 100), BAR_HEIGHT);
+  // A retained-but-stale reading is the truth, drawn as not-current rather than
+  // replaced by a fabricated zero.
+  const stale = face.footer.freshness === "stale";
+  if (stale) context.globalAlpha = 0.5;
+  roundedPath(context, barX, barY, filled, BAR_HEIGHT, BAR_HEIGHT / 2);
+  context.fillStyle = face.footer.barColor;
+  context.fill();
+  context.globalAlpha = 1;
+  if (stale) {
+    context.strokeStyle = face.footer.barColor;
+    context.lineWidth = 1;
+    roundedPath(context, barX, barY, barWidth, BAR_HEIGHT, BAR_HEIGHT / 2);
+    context.stroke();
   }
 };
 
@@ -316,32 +356,53 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
  * gives it a green plate and a pulsing dot; a static JPEG keeps the plate and
  * the dot without the pulse.
  */
+/** Bright green plate for "you are watching this live", loud on purpose. */
+const LIVE_GLOW = "linear-gradient(180deg,#37d97e,#1f9c56)";
+const LIVE_FACE = "linear-gradient(180deg,#17402a,#0f2419)";
+
+/**
+ * The LIVE key: a root-level agent key whose title slot reads `LIVE`.
+ *
+ * It carries the same furniture as a grid key — lane icon chip, provider mark,
+ * ticket number, and the progress bar — because it is the only key on the logs
+ * surface that describes the ticket rather than one thing that happened to it.
+ * Painting it as a bare green label meant that opening logs hid the very
+ * numbers the operator had been watching one screen earlier.
+ *
+ * When LIVE is the active view the whole plate goes bright green, which is the
+ * loudest state available on a 120px key and the point of the requirement: from
+ * across a desk you can see whether you are watching the agent work or reading
+ * back through history.
+ */
 const drawLiveKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
-  // No selected variant: LIVE is a jump to the newest entry, not an event, so
-  // the strip is never "reading" it — the highlight lands on the newest event
-  // key instead (see `eventKeyAtOffset`).
-  context.fillStyle = createPaint(context, "linear-gradient(180deg,#227a4d,#17583a)", 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE);
+  context.fillStyle = createPaint(context, face.selected ? LIVE_GLOW : face.glow, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE);
   context.fill();
 
   const inner = KEY_IMAGE_SIZE - FACE_INSET * 2;
   roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
-  context.fillStyle = createPaint(context, "linear-gradient(180deg,#132420,#0d1713)", FACE_INSET, FACE_INSET, inner, inner);
+  context.fillStyle = createPaint(context, face.selected ? LIVE_FACE : face.face, FACE_INSET, FACE_INSET, inner, inner);
   context.fill();
 
-  context.font = "800 22px sans-serif";
+  drawKeyHeader(context, face);
+
+  // Centred, where an agent key's wrapped title would start. A single word in
+  // the title slot is the whole difference between this key and a grid key.
   const label = face.title === "" ? "LIVE" : face.title;
+  context.font = "800 20px sans-serif";
   const labelWidth = context.measureText(label).width;
-  const dot = 10;
-  const startX = (KEY_IMAGE_SIZE - (labelWidth + dot + 9)) / 2;
+  const dot = 9;
+  const startX = (KEY_IMAGE_SIZE - (labelWidth + dot + 8)) / 2;
 
   context.beginPath();
-  context.arc(startX + dot / 2, KEY_IMAGE_SIZE / 2 - 6, dot / 2, 0, Math.PI * 2);
-  context.fillStyle = "#4ade80";
+  context.arc(startX + dot / 2, TITLE_TOP - 5, dot / 2, 0, Math.PI * 2);
+  context.fillStyle = face.selected ? "#eafff3" : "#4ade80";
   context.fill();
 
-  context.fillStyle = "#8fe0a8";
-  context.fillText(label, startX + dot + 9, KEY_IMAGE_SIZE / 2 + 2);
+  context.fillStyle = face.selected ? "#eafff3" : "#8fe0a8";
+  context.fillText(label, startX + dot + 8, TITLE_TOP + 2);
+
+  drawKeyFooter(context, face);
 };
 
 /**
@@ -364,7 +425,7 @@ const drawEventKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
   context.fillStyle = createPaint(
     context,
-    face.selected ? "linear-gradient(180deg,#2b3341,#1b2029)" : "linear-gradient(180deg,#171a20,#0f1216)",
+    face.selected ? "linear-gradient(180deg,#39445a,#232a3a)" : "linear-gradient(180deg,#171a20,#0f1216)",
     FACE_INSET,
     FACE_INSET,
     inner,
@@ -372,12 +433,32 @@ const drawEventKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   );
   context.fill();
 
+  // Three signals rather than one, because a gradient shift alone was not
+  // legible at arm's length and the operator could not tell which key he was
+  // reading: a full-height rail in the badge colour down the left edge, an
+  // inverted badge chip, and the brighter face above.
+  if (face.selected) {
+    roundedPath(context, FACE_INSET, FACE_INSET, SELECTION_RAIL, inner, SELECTION_RAIL / 2);
+    context.fillStyle = badge;
+    context.fill();
+  }
+
+  const badgeText = face.subLabel.toUpperCase();
   context.font = "700 11px monospace";
-  context.fillStyle = badge;
-  context.fillText(face.subLabel.toUpperCase(), PAD_X, 24);
+  if (face.selected) {
+    const chipWidth = context.measureText(badgeText).width + 10;
+    roundedPath(context, PAD_X, 13, chipWidth, TAG_HEIGHT, TAG_HEIGHT / 2);
+    context.fillStyle = badge;
+    context.fill();
+    context.fillStyle = "#0f1216";
+    context.fillText(badgeText, PAD_X + 5, 24);
+  } else {
+    context.fillStyle = badge;
+    context.fillText(badgeText, PAD_X, 24);
+  }
 
   context.font = "600 13px sans-serif";
-  context.fillStyle = TEXT_TITLE;
+  context.fillStyle = face.selected ? TEXT_PRIMARY : TEXT_TITLE;
   // One line fewer when a timestamp occupies the bottom strip, so the text
   // cannot run underneath it.
   const textLines = face.timeLabel === "" ? 4 : 3;
@@ -474,6 +555,19 @@ export const createRasterizer = (options: RasterizerOptions = {}) => {
      * a different width is a different image.
      */
     segment: (content: SegmentContent, width: number = SEGMENT_WIDTH): Uint8Array => {
+      // The chat readout is deliberately not cached.
+      //
+      // Its content changes every frame while a message is being revealed, so
+      // every lookup is a guaranteed miss followed by an insert. Left in the
+      // shared LRU, one reveal evicts every cached key face and leaves the map
+      // full of 800x100 JPEGs that can never be hit again — the cache did not
+      // merely fail to help, it actively threw away the entries that were
+      // working.
+      if (content.kind === "chatLog") {
+        const canvas = createCanvas(width, SEGMENT_HEIGHT);
+        drawSegment(canvas, content, width);
+        return encode(canvas);
+      }
       // The minute is part of the identity. A panel's content can be unchanged
       // while the pixels are not: `resetLabel` and `ageLabel` render relative
       // times off `Date.now()`, so a cache keyed on content alone would freeze
