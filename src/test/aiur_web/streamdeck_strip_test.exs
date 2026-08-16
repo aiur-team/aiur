@@ -100,10 +100,14 @@ defmodule AiurWeb.StreamdeckStripTest do
     assert %{shape: :diff, file: "lib/strip.ex", additions: 0, deletions: 0, line_kind: :context} = diff
     assert %{shape: :diff, line: "+added", line_kind: :addition} = addition
     assert %{shape: :diff, line: "-removed", line_kind: :deletion} = deletion
-    assert message == %{shape: :message, speaker: :agent, text: "working"}
-    assert tool == %{shape: :message, speaker: :tool, text: "mix test"}
-    assert ci == %{shape: :message, speaker: :ci, text: "CI passed"}
-    assert you == %{shape: :message, speaker: :you, text: "please continue"}
+    # #1960: the speaker label is gone — the strip carries the row class (which
+    # drives the per-kind colour) and the glyph gutter instead. Prose rows have
+    # no glyph; tool rows take the `⚙` fallback when the body carries no
+    # `read `/`write `/`edit ` prefix.
+    assert message == %{shape: :message, kind: :agent, glyph: nil, text: "working"}
+    assert tool == %{shape: :message, kind: :command, glyph: "⚙", text: "mix test"}
+    assert ci == %{shape: :message, kind: :logs, glyph: nil, text: "CI passed"}
+    assert you == %{shape: :message, kind: :user, glyph: nil, text: "please continue"}
   end
 
   # The feed unrolls a hunk into one row per line. Without a clause of its own

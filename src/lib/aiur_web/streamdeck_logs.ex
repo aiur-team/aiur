@@ -505,11 +505,21 @@ defmodule AiurWeb.StreamdeckLogs do
         }
 
       _ ->
+        role = value(entry, :role, "system")
+        raw_body = body(entry)
+
         %{
           kind: :message,
-          role: value(entry, :role, "system"),
-          body: body(entry),
+          role: role,
+          # The verb prefix (`read `/`edit `/`write `) is stripped from tool
+          # bodies because the glyph gutter carries the verb; a tool row reads
+          # `→ lib/aiur.ex` rather than `→ read lib/aiur.ex`. Both the emulator
+          # strip and the device DTO consume this body, so the physical deck
+          # shows the same path the emulator shows. Non-tool prose is untouched.
+          body: if(role in ["tool", :tool], do: tool_display(raw_body), else: raw_body),
           tool: value(entry, :tool),
+          row_kind: row_kind(role),
+          glyph: glyph(role, raw_body),
           timestamp: value(entry, :timestamp)
         }
     end
@@ -552,6 +562,59 @@ defmodule AiurWeb.StreamdeckLogs do
   defp relative_time(_timestamp, _now), do: ""
 
   defp body(entry), do: value(entry, :body, "") |> to_string() |> String.replace(~r/\R/u, " ") |> String.trim()
+
+  # Row kind drives the per-kind colour on both the emulator and the device.
+  # Commands and tool rows are one class (the agent acting on an external
+  # surface); agent prose is another; system/reasoning/alert are the "logs"
+  # class. The third distinct colour (tan) belongs to logs.
+  @doc false
+  def row_kind(role) when role in ["assistant", :assistant], do: :agent
+  def row_kind(role) when role in ["command", :command, "tool", :tool], do: :command
+  def row_kind(role) when role in ["user", :user], do: :user
+  def row_kind(_role), do: :logs
+
+  # The opencode-style glyph gutter (#1934): `$` commands, `→` read, `←`
+  # edit/write, `⚙` generic tools. The verb is detected from the RAW body
+  # (before the prefix is stripped).
+  @doc false
+  def glyph(role, body) when role in ["tool", :tool] and is_binary(body) do
+    case tool_verb(body) do
+      :read -> "→"
+      :write -> "←"
+      :edit -> "←"
+      nil -> "⚙"
+    end
+  end
+
+  def glyph(role, _body) when role in ["command", :command], do: "$"
+  def glyph(_role, _body), do: nil
+
+  @doc false
+  def tool_display(body) when is_binary(body) do
+    case tool_verb(body) do
+      verb when verb in [:read, :write, :edit] ->
+        case String.split(body, " ", parts: 2) do
+          [_verb, rest] -> rest
+          _ -> body
+        end
+
+      nil ->
+        body
+    end
+  end
+
+  def tool_display(body), do: body
+
+  defp tool_verb(body) when is_binary(body) do
+    cond do
+      String.starts_with?(body, "read ") -> :read
+      String.starts_with?(body, "write ") -> :write
+      String.starts_with?(body, "edit ") -> :edit
+      true -> nil
+    end
+  end
+
+  defp tool_verb(_body), do: nil
 
   defp value(map, key, default \\ nil) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))

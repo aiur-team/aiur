@@ -24,16 +24,19 @@ defmodule Aiur.OpenAICompat.Transcript do
   end
 
   def extract(%{event: :tool_call, payload: %{name: name} = payload} = event, turn_id) when is_binary(name) do
-    transcript_payload = %{tool: name, input: payload[:arguments] || %{}, output: "", title: name}
-    {:ok, AgentEvents.transcript_event(:tool, name, common_opts(event, payload, turn_id, transcript_payload))}
+    arguments = payload[:arguments] || %{}
+    body = Aiur.AgentEvents.tool_call_body(name, arguments)
+    transcript_payload = %{tool: name, input: arguments, output: "", title: name}
+    {:ok, AgentEvents.transcript_event(:tool, body, common_opts(event, payload, turn_id, transcript_payload))}
   end
 
-  def extract(%{event: :tool_result, payload: %{name: name, output: output} = payload} = event, turn_id)
-      when is_binary(name) and is_binary(output) do
-    title = if payload[:success] == false, do: "#{name} (error)", else: name
-    transcript_payload = %{tool: name, input: %{}, output: output, title: title, success: payload[:success]}
-    {:ok, AgentEvents.transcript_event(:tool, title, common_opts(event, payload, turn_id, transcript_payload))}
-  end
+  # The tool_call row already carries the command or path, and opencode renders
+  # one row per tool (muted once complete) rather than a second "result" row. A
+  # separate tool_result transcript row would only repeat the bare tool name
+  # (`tool read file`), so it is skipped here rather than persisted into the
+  # Stream Deck feed. The opencode conversation state is updated separately in
+  # `Aiur.OpenAICompat.CodingAgent`, so nothing downstream of that is affected.
+  def extract(%{event: :tool_result, payload: %{name: _name, output: _output}}, _turn_id), do: :skip
 
   def extract(_event, _turn_id), do: :skip
 

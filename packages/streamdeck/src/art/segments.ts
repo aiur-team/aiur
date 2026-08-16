@@ -18,7 +18,7 @@
  */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
-import type { DiffLine, TranscriptRow } from "../channel.js";
+import { rowKindOfRole, type ChatKind, type DiffLine, type TranscriptRow } from "../channel.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import { encoderCenterX } from "../touchStrip/geometry.js";
 import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelRow } from "../touchStrip/providerPanel.js";
@@ -539,6 +539,21 @@ const ROLE_GLYPHS: Readonly<Record<string, string>> = {
   ci: "✓",
 };
 
+/**
+ * Per-kind row colours, #1960: commands and tool rows are one class, agent
+ * prose another, and system/reasoning/alert rows the third. The palette is the
+ * emulator's existing logs palette (#1934, borrowed from opencode's default
+ * theme and documented there) so the physical deck and the emulator agree —
+ * and so the low-contrast hues of the plain opencode `text`/`textMuted`
+ * inks do not wash out on a small backlit LCD.
+ */
+const CHAT_COLOURS: Readonly<Record<ChatKind, string>> = {
+  command: "#88e0a6",
+  agent: "#9fd0ff",
+  logs: "#ffcf87",
+  user: "#c69bff",
+};
+
 /** Left gutter (glyph column), then the body column: opencode's `paddingLeft: 3`. */
 const CHAT_GLYPH_X = PAD;
 const CHAT_BODY_X = PAD + 22;
@@ -576,27 +591,8 @@ const runText = (context: SKRSContext2D, text: string, x: number, baseline: numb
   return context.measureText(clipped).width;
 };
 
-/** Tool name as opencode prints it: Title Case, never uppercased. */
-const toolTitle = (tool: string | null): string => {
-  const parts = (tool ?? "").split(/[_\-\s]+/).filter((part) => part.length > 0);
-  if (parts.length === 0) return "Tool";
-  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join(" ");
-};
-
 /** Gutter glyph for a named tool; `⚙` for one the map does not know. */
 const toolGlyph = (tool: string | null): string => TOOL_GLYPHS[(tool ?? "").toLowerCase().replace(/[_\-\s]/g, "")] ?? "⚙";
-
-const ARG_PAIR = /^[\w.:/-]+=.*$/;
-
-/**
- * A tool body rendered as opencode's `[k=v, k=v]` argument list, or null when
- * the body is prose rather than arguments — a tool that reports a sentence must
- * keep printing the sentence.
- */
-const bracketArgs = (body: string): string | null => {
-  const parts = body.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
-  return parts.length > 0 && parts.every((part) => ARG_PAIR.test(part)) ? `[${parts.join(", ")}]` : null;
-};
 
 /** The sign a bare hunk string carries, for a feed that sent no `lines`. */
 const signOf = (line: string): DiffLine["sign"] => (line.startsWith("+") ? "+" : line.startsWith("-") ? "-" : " ");
@@ -633,56 +629,65 @@ const drawEventHeaderRow = (
 };
 
 /**
- * A message row, in opencode's speaker grammar.
+ * A message row, in opencode's speaker grammar, colour-coded by row class.
  *
  * Assistant prose is the case with no gutter token at all; every other role
  * takes a glyph, a fill or a bar so that "nothing in the gutter" stays a
- * reliable reading of "the agent is talking".
+ * reliable reading of "the agent is talking". #1960 adds the per-kind colour:
+ * commands/tools green, agent prose blue, logs/system tan, the user purple —
+ * the same `row_kind` the server projects, so the physical deck and the
+ * emulator paint the same class with the same ink. The `row_kind`/`glyph`
+ * fields come from the server; a row that carries neither derives both from
+ * its role.
  */
 const drawMessageRow = (context: SKRSContext2D, row: TranscriptRow & { kind: "message" }, width: number, baseline: number): void => {
   const right = width - PAD;
   const budget = right - CHAT_BODY_X;
+  const kind = row.rowKind ?? rowKindOfRole(row.role);
+  const colour = CHAT_COLOURS[kind];
 
-  if (row.role === "assistant" || row.role === "agent" || row.role === "reasoning") {
+  if (kind === "agent") {
     context.font = CHAT_BODY_FONT;
-    runText(context, row.body, CHAT_BODY_X, baseline, row.role === "reasoning" ? OPENCODE.reasoning : OPENCODE.text, budget);
+    runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
     return;
   }
 
-  if (row.role === "command") {
+  if (kind === "command") {
+    if (row.role === "tool") {
+      // The row shows the command or path, not the tool name: the server
+      // already carried the argument in `body` (verb stripped) and the glyph
+      // in `glyph`, so a tool row reads `→ lib/aiur.ex` rather than
+      // `Read [path=lib/aiur.ex]`.
+      context.font = CHAT_GLYPH_FONT;
+      runText(context, row.glyph ?? toolGlyph(row.tool), CHAT_GLYPH_X, baseline, colour, CHAT_BODY_X - CHAT_GLYPH_X);
+      context.font = CHAT_MONO_FONT;
+      runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
+      return;
+    }
     // opencode gives bash no colour of its own: the `$` is the differentiator.
     chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
     context.font = CHAT_GLYPH_FONT;
-    runText(context, "$", CHAT_GLYPH_X, baseline, OPENCODE.text, CHAT_BODY_X - CHAT_GLYPH_X);
+    runText(context, "$", CHAT_GLYPH_X, baseline, colour, CHAT_BODY_X - CHAT_GLYPH_X);
     context.font = CHAT_MONO_FONT;
-    runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.text, budget);
+    runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
     return;
   }
 
-  if (row.role === "tool") {
-    context.font = CHAT_GLYPH_FONT;
-    runText(context, toolGlyph(row.tool), CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
-    context.font = CHAT_BODY_FONT;
-    const nameWidth = runText(context, toolTitle(row.tool), CHAT_BODY_X, baseline, OPENCODE.textMuted, budget);
-    const argsX = CHAT_BODY_X + nameWidth + 6;
-    context.font = CHAT_MONO_FONT;
-    runText(context, bracketArgs(row.body) ?? row.body, argsX, baseline, OPENCODE.textMuted, right - argsX);
-    return;
-  }
-
-  if (row.role === "user") {
+  if (kind === "user") {
     chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
     context.fillStyle = OPENCODE.secondary;
     context.fillRect(CHAT_BAR_X, baseline - CHAT_ROW_RISE, CHAT_BAR_WIDTH, CHAT_LINE_HEIGHT);
     context.font = CHAT_BODY_FONT;
-    runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.text, budget);
+    runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
     return;
   }
 
+  // logs: system/reasoning/alert/ci rows keep a role glyph so they are not
+  // read as prose, but take the tan log colour like the emulator.
   context.font = CHAT_GLYPH_FONT;
-  runText(context, ROLE_GLYPHS[row.role] ?? "·", CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
+  runText(context, ROLE_GLYPHS[row.role] ?? "·", CHAT_GLYPH_X, baseline, colour, CHAT_BODY_X - CHAT_GLYPH_X);
   context.font = CHAT_BODY_FONT;
-  runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.textMuted, budget);
+  runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
 };
 
 /**
