@@ -33,6 +33,11 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
   # Refresh open-PR evidence when a ticket's local anchor age is this close to
   # the first threshold, so the first alert carries fresh evidence.
   @pr_margin_hours 1
+  # A tracked ticket absent from the snapshot for at least this long is treated
+  # as out of the run scope: its active advisory is resolved and its state is
+  # forgotten. Hours, not one tick, so a transient gap (daemon boot, orchestrator
+  # restart) never resets a convergence clock.
+  @scope_grace_hours 2
 
   @type state :: %{
           interval_ms: pos_integer(),
@@ -98,6 +103,7 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
         process_ticket(state, ticket, thresholds, now)
       end)
 
+      reconcile_out_of_scope(state, tickets, now)
       :ok
     rescue
       error ->
@@ -108,6 +114,30 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
         Logger.warning("executor_takeover tick caught #{kind}: #{inspect(reason)}")
         Logger.flush()
     end
+  end
+
+  # A ticket the monitor previously tracked but that has now disappeared from
+  # the snapshot (terminal or out of run scope) is resolved and forgotten once
+  # it has been absent long enough that a transient gap can be ruled out. This
+  # is what stops continuous alerts when a ticket leaves the configured run
+  # scope without first being observed as terminal.
+  defp reconcile_out_of_scope(state, tickets, now) do
+    seen = MapSet.new(tickets, &Map.fetch!(&1, :identifier))
+
+    state.store
+    |> Store.identifiers()
+    |> Enum.reject(&MapSet.member?(seen, &1))
+    |> Enum.each(fn identifier ->
+      absent_hours =
+        case Store.last_seen_at(identifier, state.store) do
+          %DateTime{} = last_seen -> TakeoverAlert.age_hours(last_seen, now)
+          _other -> @scope_grace_hours
+        end
+
+      if absent_hours >= @scope_grace_hours do
+        resolve_if_active(state, identifier, now)
+      end
+    end)
   end
 
   defp process_ticket(state, ticket, thresholds, now) do

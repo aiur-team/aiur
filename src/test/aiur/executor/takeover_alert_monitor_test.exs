@@ -234,6 +234,36 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
     refute_receive {:alert, _payload}, 100
   end
 
+  test "a ticket that leaves the run scope is resolved after a grace period, not on a transient gap", %{} do
+    state_dir = tmp_state_dir()
+    store = start_store(state_dir)
+    {now_fun, set_time, _} = start_clock(@t0)
+    {snapshot_fun, snapshot_agent} = start_agent_snapshot([healthy_ticket("101")])
+
+    pid = start_monitor(store.name, now_fun, %{first_hours: 8, continuous_hours: 1}, snapshot_fun)
+
+    tick_and_wait(pid, store.name, "101")
+    set_time.(hours(8))
+    send(pid, :tick)
+    assert_receive {:alert, %{identifier: "101"}}, 500
+
+    # The ticket disappears from the snapshot. A short absence (a transient gap,
+    # e.g. a daemon/orchestrator restart) must not resolve it or reset the clock.
+    Agent.update(snapshot_agent, fn _tickets -> [] end)
+    set_time.(hours(8.5))
+    send(pid, :tick)
+    wait_until(fn -> stored(store.name, "101").last_seen_at == hours(8) end)
+    refute_receive {:resolution, _payload}, 100
+    assert Store.record("101", store.name) != nil
+
+    # Once the absence exceeds the scope grace period, the out-of-scope ticket is
+    # resolved and forgotten.
+    set_time.(hours(11))
+    send(pid, :tick)
+    assert_receive {:resolution, %{identifier: "101"}}, 500
+    wait_until(fn -> Store.record("101", store.name) == nil end)
+  end
+
   test "multiple tickets alert independently", %{} do
     state_dir = tmp_state_dir()
     store = start_store(state_dir)
@@ -304,8 +334,12 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
   end
 
   defp tmp_state_dir do
-    dir = Path.join(System.tmp_dir!(), "takeover_monitor_#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "takeover_monitor_#{System.unique_integer([:positive, :monotonic])}")
     File.mkdir_p!(dir)
+    # unique_integer values are reused across VM boots (see test_helper.exs), so
+    # a leaked dir from a previous run can collide with a fresh one and the store
+    # would load stale convergence state. Always clean the dir up.
+    on_exit(fn -> File.rm_rf!(dir) end)
     dir
   end
 end

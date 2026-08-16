@@ -19,6 +19,7 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
 
   @type record :: %{
           anchor_at: DateTime.t() | nil,
+          last_seen_at: DateTime.t() | nil,
           last_alert_at: DateTime.t() | nil,
           dispatches: non_neg_integer(),
           live_owner?: boolean(),
@@ -47,7 +48,8 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
   @doc """
   Records one observation of a nonterminal in-scope ticket.
 
-  Ensures the durable `anchor_at` (set once, never reset), updates the live
+  Ensures the durable `anchor_at` (set once, never reset), records the last
+  time the monitor saw the ticket in scope (`last_seen_at`), updates the live
   owner state and increments `dispatches` on a false→true owner transition
   (a durable proxy for worker dispatch/restart episodes). Returns the updated
   record.
@@ -85,6 +87,18 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
     GenServer.call(server, {:record, identifier}, @default_timeout)
   end
 
+  @doc "Returns the identifiers of all tickets with stored convergence state."
+  @spec identifiers(GenServer.server()) :: [String.t()]
+  def identifiers(server \\ __MODULE__) do
+    GenServer.call(server, :identifiers, @default_timeout)
+  end
+
+  @doc "Returns the last time the monitor observed `identifier` in scope, or `nil`."
+  @spec last_seen_at(String.t(), GenServer.server()) :: DateTime.t() | nil
+  def last_seen_at(identifier, server \\ __MODULE__) do
+    GenServer.call(server, {:last_seen_at, identifier}, @default_timeout)
+  end
+
   @impl true
   def init(opts) do
     case path(opts) do
@@ -99,7 +113,7 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
   @impl true
   def handle_call({:observe, identifier, live_owner?, now}, _from, state) do
     previous = Map.get(state.records, identifier, new_record())
-    record = previous |> ensure_anchor(now) |> observe_owner(live_owner?)
+    record = previous |> ensure_anchor(now) |> observe_owner(live_owner?) |> Map.put(:last_seen_at, now)
 
     if record == previous do
       {:reply, record, state}
@@ -135,6 +149,14 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
     {:reply, Map.get(state.records, identifier), state}
   end
 
+  def handle_call(:identifiers, _from, state) do
+    {:reply, Map.keys(state.records), state}
+  end
+
+  def handle_call({:last_seen_at, identifier}, _from, state) do
+    {:reply, get_in(state.records, [identifier, :last_seen_at]), state}
+  end
+
   defp put_record(state, identifier, nil) do
     state = %{state | records: Map.delete(state.records, identifier)}
     persist(state)
@@ -150,6 +172,7 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
   defp new_record do
     %{
       anchor_at: nil,
+      last_seen_at: nil,
       last_alert_at: nil,
       dispatches: 0,
       live_owner?: false,
@@ -209,6 +232,7 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
   defp decode_record(raw) when is_map(raw) do
     %{
       anchor_at: decode_datetime(Map.get(raw, "anchor_at")),
+      last_seen_at: decode_datetime(Map.get(raw, "last_seen_at")),
       last_alert_at: decode_datetime(Map.get(raw, "last_alert_at")),
       dispatches: Map.get(raw, "dispatches", 0) || 0,
       live_owner?: Map.get(raw, "live_owner", false) == true,
@@ -274,6 +298,7 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
   defp encode_record(record) do
     %{
       "anchor_at" => encode_datetime(record.anchor_at),
+      "last_seen_at" => encode_datetime(record.last_seen_at),
       "last_alert_at" => encode_datetime(record.last_alert_at),
       "dispatches" => record.dispatches,
       "live_owner" => record.live_owner?,

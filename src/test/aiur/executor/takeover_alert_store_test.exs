@@ -1,5 +1,7 @@
 defmodule Aiur.Executor.TakeoverAlert.StoreTest do
-  use ExUnit.Case, async: true
+  # Registers real named GenServers; serial so concurrent async tests can never
+  # race registered-name or state-dir interactions.
+  use ExUnit.Case, async: false
 
   alias Aiur.Executor.TakeoverAlert.Store
 
@@ -10,8 +12,11 @@ defmodule Aiur.Executor.TakeoverAlert.StoreTest do
   end
 
   defp tmp_state_dir do
-    dir = Path.join(System.tmp_dir!(), "takeover_store_#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "takeover_store_#{System.unique_integer([:positive, :monotonic])}")
     File.mkdir_p!(dir)
+    # unique_integer values are reused across VM boots, so clean the dir up to
+    # prevent a later run's "fresh" store from loading a prior run's state file.
+    on_exit(fn -> File.rm_rf!(dir) end)
     dir
   end
 
@@ -71,6 +76,20 @@ defmodule Aiur.Executor.TakeoverAlert.StoreTest do
       Store.observe("101", true, @t0, name)
       assert %{pr: nil, pr_checked_at: checked} = Store.record_pr("101", nil, @t0, name)
       assert checked == @t0
+    end
+
+    test "tracks the last seen time and lists tracked identifiers" do
+      {dir, name} = {tmp_state_dir(), unique_name()}
+      start_store(dir, name)
+
+      assert Store.identifiers(name) == []
+
+      Store.observe("101", true, @t0, name)
+      Store.observe("202", false, @t0, name)
+
+      assert Store.identifiers(name) |> Enum.sort() == ["101", "202"]
+      assert Store.last_seen_at("101", name) == @t0
+      assert Store.last_seen_at("404", name) == nil
     end
   end
 
