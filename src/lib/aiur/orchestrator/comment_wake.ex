@@ -406,8 +406,13 @@ defmodule Aiur.Orchestrator.CommentWake do
           true -> :active
         end
 
-      {:ok, :missing} ->
-        {:skip, :missing}
+      # The tracker has no record to read the labels off — a non-GitHub backend
+      # that does not index by id, or an issue this repo does not own. Absence of
+      # a record is NOT evidence of a parked ticket, so the gate must fail open
+      # and leave the pre-#1971 behaviour (attempt the transition, let the
+      # tracker write decide) exactly as it was.
+      {:ok, :unresolved} ->
+        :active
 
       {:error, reason} ->
         {:error, reason}
@@ -444,7 +449,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     case fetcher.([to_string(issue_number)]) do
       {:ok, [%Issue{} = issue | _]} -> {:ok, issue}
-      {:ok, []} -> {:ok, :missing}
+      {:ok, []} -> {:ok, :unresolved}
       {:error, reason} -> {:error, reason}
     end
   end

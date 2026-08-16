@@ -250,6 +250,23 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       # scheduled), proving the labelled polled view passed the gate.
       refute log =~ "ignored for idle issue"
     end
+
+    test "still routes when the tracker holds no record to read labels from" do
+      # Trackers that do not index by id (and issues this repo does not own)
+      # answer the gate's read with an empty list. Absence of a record is not
+      # evidence of a park, so the gate must fail open to the pre-#1971 path
+      # rather than swallow every comment on such a backend.
+      state = base_state()
+
+      event = %{author_trusted?: true, issue_state_fetcher: fn _ids -> {:ok, []} end}
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "1971", "issue comment", event, 1)
+        end)
+
+      refute log =~ "ignored for idle issue"
+    end
   end
 
   describe "comment_rework_retry_delay_ms/1" do
