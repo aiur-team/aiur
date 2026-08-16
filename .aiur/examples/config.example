@@ -67,7 +67,7 @@ agent:
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
   # stall_timeout_ms: 3600000            # watchdog for a silent agent (60 min; long test/coverage runs are silent)
-  # max_load_average: 1.5                # per-scheduler load gate; set null to disable
+  # max_load_average: 1.5                # load ceiling, CPU-corroborated; set null to disable
   # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases

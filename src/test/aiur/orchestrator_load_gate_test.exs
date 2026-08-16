@@ -167,13 +167,29 @@ defmodule Aiur.OrchestratorLoadGateTest do
       assert {8, nil} = Orchestrator.load_envelope(8, nil, 10.0, options)
     end
 
+    test "treats niced CPU time as reclaimable despite a large runnable queue" do
+      options =
+        envelope_options(
+          static_limit: 8,
+          cpu_headroom: %{
+            idle_percent: 10.0,
+            nice_percent: 70.0,
+            reclaimable_percent: 80.0,
+            runnable: 74
+          },
+          queued_work?: true
+        )
+
+      assert {7, 1_000} = Orchestrator.load_envelope(4, 1_000, 143.0, options)
+    end
+
     test "does not fast-ramp above target before a backoff records recovery state" do
       options = envelope_options(static_limit: 8, cpu_headroom: %{idle_percent: 75.0, runnable: 3}, queued_work?: true)
 
       assert {4, 1_000} = Orchestrator.load_envelope(8, nil, 13.0, %{options | now_ms: 1_000})
     end
 
-    test "keeps additive recovery without demand, clear idle headroom, or low runnable pressure" do
+    test "keeps additive recovery without demand or clear reclaimable headroom" do
       assert {4, nil} =
                Orchestrator.load_envelope(
                  3,
@@ -188,14 +204,6 @@ defmodule Aiur.OrchestratorLoadGateTest do
                  nil,
                  10.0,
                  envelope_options(cpu_headroom: %{idle_percent: 59.9, runnable: 3}, queued_work?: true)
-               )
-
-      assert {4, nil} =
-               Orchestrator.load_envelope(
-                 3,
-                 nil,
-                 10.0,
-                 envelope_options(cpu_headroom: %{idle_percent: 75.0, runnable: 12}, queued_work?: true)
                )
 
       assert {4, nil} = Orchestrator.load_envelope(3, nil, 10.0, envelope_options(queued_work?: true))

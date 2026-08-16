@@ -839,13 +839,11 @@ defmodule Aiur.Config do
 
   def default_synthetic_load_process_cap(_schedulers), do: 1
 
-  # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). Defaults
-  # to 1.5 so high-concurrency runs are protected out of the box; explicit YAML
-  # null disables the gate. The orchestrator holds new dispatch while the load
-  # average exceeds this value times System.schedulers_online/0 (BEAM online
-  # schedulers, ~= cores unless +S-limited). A value well under 1.0 can hold
-  # dispatch on any busy box — watch for the `aiur_perf load_hold` log if a run
-  # never dispatches.
+  # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
+  # load is corroborated with short-window reclaimable CPU before holding. The
+  # default is 1.5; explicit YAML null disables the gate. The threshold is
+  # multiplied by System.schedulers_online/0 (BEAM online schedulers, ~= cores
+  # unless +S-limited).
   @spec max_load_average() :: float() | nil
   def max_load_average do
     settings!().agent.max_load_average
