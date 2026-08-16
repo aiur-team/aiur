@@ -52,8 +52,8 @@ A progress bar has three states, and they are deliberately different pictures:
 
 | State | What it means | How it looks |
 | --- | --- | --- |
-| Fresh | A recent reading | Solid bar, hue-mapped red-to-green |
-| Stale | A real reading that has aged past its freshness window | The same bar, dimmed, with the full track outlined |
+| Fresh | A recent reading | Solid green bar; a slightly brighter green at 100% |
+| Stale | A real reading that has aged past its freshness window | The same borderless green bar, dimmed |
 | Unknown | No reading at all | Dashed track and a hollow status dot; no bar |
 
 A genuine 0% shows a short solid stub, so “just started” never looks like “no reading”. If a bar drops to an empty track and back, that is a bug — report it.
@@ -168,6 +168,6 @@ If a microphone stops producing audio, capture reports it rather than appearing 
 
 ## Shared key-face contract
 
-The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, progress hue, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
+The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, the normal and completed progress fills, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
 
 That code-level contract is now composed with the live channel and HID runtime. It is still not a substitute for the required Executor-root hardware proof.

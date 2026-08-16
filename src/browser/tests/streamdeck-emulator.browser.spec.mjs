@@ -285,7 +285,7 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
 
-test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
+test('agent key face matches the design geometry and single-colour progress contract', async ({ page }) => {
   await openStreamdeck(page)
 
   const key = page.locator('.sd-agent-key:not(.is-empty)').first()
@@ -320,7 +320,6 @@ test('agent key face matches the design geometry and hue-mapped progress', async
       },
       topGap: css(top).gap,
       topChildrenFit,
-      progress: Number(bar.getAttribute('aria-valuenow')),
       fill: css(fill).backgroundColor
     }
   })
@@ -340,20 +339,11 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   expect(geometry.topGap).toBe('5.6px')
   expect(geometry.topChildrenFit).toBe(true)
 
-  const hue = Math.round((geometry.progress / 100) * 125)
-  const expectedFill = await page.evaluate((h) => {
-    const sample = document.createElement('i')
-    sample.style.background = `hsl(${h} 72% 50%)`
-    document.body.append(sample)
-    const color = getComputedStyle(sample).backgroundColor
-    sample.remove()
-    return color
-  }, hue)
+  expect(geometry.fill).toBe('rgb(63, 185, 80)')
 
-  expect(geometry.fill).toBe(expectedFill)
-
-  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(219, 36, 36)')
-  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
+  // A measured 0% keeps the ordinary green stub; only completion brightens.
+  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(63, 185, 80)')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(116, 212, 127)')
 })
 
 // Pressing a fleet-control key needs a writable dashboard: read-only renders
