@@ -26,7 +26,7 @@ Aiur retains token usage by ticket and resolves API-equivalent cost only when it
 
 The dashboard shows provider meters with the age of each observation; `aiur usage` prints limit headroom observed from live agent sessions. Codex and Claude show percentage use of renewing allotment windows. DeepSeek and OpenRouter expose prepaid dollar or credit balances instead of remaining-quota headers. DeepSeek also has a separately displayed local concurrency cap. A DeepSeek percentage can appear only when Aiur has a durable prepaid-balance baseline, and means spend against that baseline, not a provider quota. Kimi is session-observation only and has no account-balance probe.
 
-Non-model APIs are metered alongside them. GitHub reports its Core and GraphQL budgets as percentage used. ElevenLabs, when a key is configured, reports the account credit quota as credits remaining — ElevenLabs publishes no dollar balance, and its speech-to-text billing is per minute of audio rather than in those characters. See [API meters](/guide/executor-control-center#api-meters).
+Non-model APIs are metered alongside them. GitHub reports its Core and GraphQL budgets as percentage used. ElevenLabs, when a key is configured, reports its account credit quota the same way and separately labels the amount due on the next invoice; that amount is not a balance, and speech-to-text billing is per minute of audio rather than in those characters. See [API meters](/guide/executor-control-center#api-meters).
 
 ## Pause / resume
 

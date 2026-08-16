@@ -3787,11 +3787,13 @@ html[data-theme="light"] .toggle-icon .moon {
 
 /* The GitHub mark ships as a black glyph; the dashboard's default theme is
    dark, so invert it to a light glyph. The light theme shows the native mark. */
-.rs-github-mark {
+.rs-github-mark,
+.rs-elevenlabs-mark {
   filter: invert(1);
 }
 
-html[data-theme="light"] .rs-github-mark {
+html[data-theme="light"] .rs-github-mark,
+html[data-theme="light"] .rs-elevenlabs-mark {
   filter: none;
 }
 
@@ -3892,6 +3894,12 @@ html[data-theme="light"] .rs-github-mark {
   font-family: "JetBrains Mono", "SFMono-Regular", monospace;
   font-size: 0.7rem;
   color: var(--muted);
+}
+
+/* This row is intentionally compressed to the same one-line density as Core
+   and GraphQL; the invoice amount lives in the provider head above it. */
+.rs-elevenlabs .rs-limit-meta.is-compact {
+  white-space: nowrap;
 }
 
 .rs-meter {
@@ -4134,11 +4142,10 @@ html[data-theme="light"] .rs-github-mark {
   }
 }
 
-/* True phone widths keep full-width stacked sections: three ~110px cards on a
-   390px screen are legible in a screenshot but cramped in the hand, and the
-   provider cards are reference data rather than something scanned at a glance.
-   Tablets and split-view windows above this keep the three-up row. */
-@media (max-width: 480px) {
+/* Tablets, split views and phones keep full-width stacked sections. The API
+   pane's compact provider lines are deliberately single-line reference data;
+   below this point a one-third column cannot hold them without clipping. */
+@media (max-width: 1024px) {
   .run-summary {
     grid-template-columns: 1fr;
   }
