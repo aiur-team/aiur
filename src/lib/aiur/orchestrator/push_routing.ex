@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, IssueSync, PauseResume, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, PauseResume, State}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -799,9 +799,9 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   # The single place that decides "this running entry is parked on THIS blocker
   # and nothing else still blocks it".
-  defp cleared_dependency_match(%State{} = state, blockee, blocker) do
-    with true <- is_map(blockee) and is_map(blocker),
-         blockee_identifier when is_binary(blockee_identifier) <- Map.get(blockee, :identifier),
+  defp cleared_dependency_match(%State{} = state, blockee, blocker)
+       when is_map(blockee) and is_map(blocker) do
+    with blockee_identifier when is_binary(blockee_identifier) <- Map.get(blockee, :identifier),
          blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier(blocker),
          entry when is_map(entry) <- State.find_running_by_identifier(state.running, blockee_identifier),
          {:ok, _generation} <- matching_blocker_pause_generation(entry, blocker_identifier),
@@ -812,6 +812,8 @@ defmodule Aiur.Orchestrator.PushRouting do
       _ -> :error
     end
   end
+
+  defp cleared_dependency_match(%State{}, _blockee, _blocker), do: :error
 
   defp other_open_blockers?(blockee, cleared_blocker_identifier) do
     blockee
