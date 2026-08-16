@@ -179,6 +179,24 @@ Rules:
 
 When you complete `ce-plan` on a ticket that is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if `ce-plan` surfaced an unresolved operator decision, a dependency blocker, or a scope question that genuinely requires human input before implementation can begin. Interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
 
+### Docs ship in the same PR as the change
+
+Documentation is part of the work, never a follow-up ticket. Update
+`website/docs-app/` **in this PR** when your change adds or alters a config key
+(→ `reference/configuration.md`), a CLI command or flag (→ `reference/cli.md`),
+an environment variable an operator would set, or a user-facing surface such as
+a dashboard page, TUI view, or Stream Deck mode (→ `guide/`) — and whenever it
+makes a page that exists today wrong.
+
+Docs are **not** required for internal refactors, bug fixes that restore
+already-documented behavior, test-only changes, or performance work with no
+interface change. Do not pad a small change with prose.
+
+Prefer editing an existing page over adding one, and keep it concise: a wrong
+doc is worse than a missing one, so correct every page your change falsifies
+before writing anything new. The `using-aiur` skill's `dev-loop.md` has the full
+map; `ce-code-review` treats a doc this rule required as a blocking finding.
+
 ### Scratch files and staging comment bodies
 
 Concurrent Aiur agents share the host's `/tmp`. Two agents that independently

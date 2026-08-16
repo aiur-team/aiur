@@ -287,16 +287,18 @@ defmodule Aiur.Alerts do
   end
 
   defp publish_to_exchange(topic, message, metadata, opts) do
-    payload = %{
-      "message" => message || "",
-      "source" => "alert",
-      "reason" => metadata.reason,
-      "severity" => metadata.severity,
-      "needs_attention" => metadata.needs_attention,
-      "source_ticket_id" => metadata.source_ticket_id,
-      "topic" => topic,
-      source: Keyword.get(opts, :event_source, :system)
-    }
+    payload =
+      %{
+        "message" => message || "",
+        "source" => "alert",
+        "reason" => metadata.reason,
+        "severity" => metadata.severity,
+        "needs_attention" => metadata.needs_attention,
+        "source_ticket_id" => metadata.source_ticket_id,
+        "topic" => topic,
+        source: Keyword.get(opts, :event_source, :system)
+      }
+      |> Map.merge(Keyword.get(opts, :exchange_payload, %{}))
 
     Publisher.publish(topic, payload,
       issue_number: issue_number_for(opts),

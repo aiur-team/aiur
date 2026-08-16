@@ -85,6 +85,32 @@ defmodule Aiur.PromptBuilder do
     """
   end
 
+  @doc """
+  Restates the authoritative integration branch for continuation turn prompts.
+
+  The cold-start prompt carries the full statement, but
+  `Aiur.AgentRunner.TurnPrompt.build_turn_prompt/4` only builds it on turn one,
+  so a mid-run `tracker.base_branch` change would otherwise never be re-stated
+  to a running agent whose process env still holds the old value. This shorter
+  block names the current branch and makes it authoritative over any stale
+  `AIUR_BASE_BRANCH` in a long-lived session.
+  """
+  @spec integration_branch_restatement() :: String.t()
+  def integration_branch_restatement do
+    base_branch = Config.base_branch()
+
+    """
+
+    ## Authoritative integration branch (restated)
+
+    `tracker.base_branch` is currently `#{base_branch}`. This is re-stated because the setting can change while an
+    agent run is live. If a long-lived session's `AIUR_BASE_BRANCH` process-environment value differs from this,
+    treat this stated value as authoritative: create or retarget pull requests with `--base "#{base_branch}"`, never
+    from `origin/HEAD`, and verify an existing pull request's base before CI handoff.
+
+    """
+  end
+
   # Appends the dev-configured guidance for the issue's complexity level
   # (agent.complexity_prompts) to the end of the rendered prompt. No label
   # or no configured string for that level leaves the prompt untouched.
