@@ -1206,6 +1206,7 @@ defmodule Aiur.AgentControlCLI do
     details =
       [
         waiting_reason_detail(status),
+        dispatch_decline_detail(status),
         pause_reason_detail(status),
         blocked_by_detail(status)
       ]
@@ -1223,6 +1224,11 @@ defmodule Aiur.AgentControlCLI do
     do: "waiting=#{WaitingReason.render(reason)}"
 
   defp waiting_reason_detail(_status), do: nil
+
+  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when not is_nil(reason),
+    do: "dispatch_decline=#{reason}"
+
+  defp dispatch_decline_detail(_status), do: nil
 
   defp pause_reason_detail(%{pause_reason: reason}) when not is_nil(reason),
     do: "pause_reason=#{reason}"
