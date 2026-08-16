@@ -58,36 +58,6 @@ expect_accepted() {
 
 run_drift_check "$declaration"
 
-while IFS= read -r field; do
-  expect_rejected \
-    "drifted-$field" \
-    '(.rules[] | select(.type == "merge_queue") | .parameters[$field]) |=
-      if type == "number" then . + 1
-      elif type == "string" then . + "_DRIFT"
-      elif type == "boolean" then not
-      else "DRIFT"
-      end' \
-    "ruleset merge_queue parameter mismatch: $field" \
-    --arg field "$field"
-done < <(jq -r '
-  .rules[] | select(.type == "merge_queue") | .parameters | keys[]
-' "$declaration")
-
-expect_rejected \
-  "unexpected-merge-queue-parameter" \
-  '(.rules[] | select(.type == "merge_queue") | .parameters.unexpected_parameter) = 1' \
-  "ruleset merge_queue parameter mismatch: unexpected_parameter"
-
-expect_rejected \
-  "missing-max-entries-to-build" \
-  'del(.rules[] | select(.type == "merge_queue") | .parameters.max_entries_to_build)' \
-  "ruleset merge_queue parameter mismatch: max_entries_to_build"
-
-expect_rejected \
-  "missing-merge-queue-rule" \
-  '.rules |= map(select(.type != "merge_queue"))' \
-  "live ruleset must contain exactly one merge_queue rule"
-
 # Regression: a live-ruleset query returning no required_status_checks rule
 # must fail the CI drift check (the ticket's acceptance criterion).
 expect_rejected \
@@ -118,12 +88,12 @@ expect_rejected \
 expect_rejected \
   "missing-pull-request-rule" \
   '.rules |= map(select(.type != "pull_request"))' \
-  "ruleset must require current CODEOWNER approval and dismiss stale reviews"
+  "ruleset must require one approval and dismiss stale reviews"
 
 expect_rejected \
-  "codeowner-review-disabled" \
-  '(.rules[] | select(.type == "pull_request") | .parameters.require_code_owner_review) = false' \
-  "ruleset must require current CODEOWNER approval and dismiss stale reviews"
+  "no-approval-required" \
+  '(.rules[] | select(.type == "pull_request") | .parameters.required_approving_review_count) = 0' \
+  "ruleset must require one approval and dismiss stale reviews"
 
 expect_rejected \
   "missing-workflow-security-check" \

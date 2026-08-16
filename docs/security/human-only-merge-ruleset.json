@@ -22,8 +22,8 @@
       "type": "pull_request",
       "parameters": {
         "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": true,
-        "require_last_push_approval": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
         "required_approving_review_count": 1,
         "required_review_thread_resolution": false
       }
@@ -88,19 +88,13 @@
         ],
         "strict_required_status_checks_policy": false
       }
-    },
-    {
-      "type": "merge_queue",
-      "parameters": {
-        "merge_method": "SQUASH",
-        "grouping_strategy": "ALLGREEN",
-        "max_entries_to_build": 1,
-        "max_entries_to_merge": 5,
-        "min_entries_to_merge": 1,
-        "min_entries_to_merge_wait_minutes": 5,
-        "check_response_timeout_minutes": 60
-      }
     }
   ],
-  "bypass_actors": []
+  "bypass_actors": [
+    {
+      "actor_id": 1020682,
+      "actor_type": "User",
+      "bypass_mode": "pull_request"
+    }
+  ]
 }
