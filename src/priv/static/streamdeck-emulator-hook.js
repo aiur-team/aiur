@@ -511,9 +511,10 @@
           var push = function () {
             self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
           };
-          // Logs replaces the command keys, so leave its flash visible before
-          // asking the server-authoritative mode machine to enter logs.
-          if (command === "logs") setTimeout(push, 500);
+          // Logs and Settings each replace the command keys with a pane of
+          // their own, so leave the flash visible before asking the
+          // server-authoritative mode machine to change mode.
+          if (command === "logs" || command === "settings") setTimeout(push, 500);
           else push();
         };
         key.addEventListener("click", handler);

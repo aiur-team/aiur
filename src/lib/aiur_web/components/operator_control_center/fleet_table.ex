@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview}
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, Overview}
 
   attr(:fleet, :map, required: true)
   attr(:decisions, :list, default: [])
@@ -72,7 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                 <div class="fleet-actions">
                   <.link
                     :if={decision_id = @decision_links[row.issue_identifier]}
-                    patch={"/decisions/#{decision_id}"}
+                    patch={DecisionPath.detail(decision_id, :all)}
                     class="fleet-action decision"
                     title="Open pending Command"
                     aria-label="Open pending Command"

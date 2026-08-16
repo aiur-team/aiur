@@ -8,7 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPath do
   def inbox(filter), do: inbox(filter, %{})
 
   @spec inbox(atom(), map()) :: String.t()
-  def inbox(filter, query) when is_map(query), do: with_query("/decisions", filter, query)
+  def inbox(filter, query) when is_map(query), do: with_query("/commands", filter, query)
 
   @spec detail(String.t(), atom()) :: String.t()
   def detail(decision_id, filter), do: detail(decision_id, filter, %{})
@@ -16,7 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPath do
   @spec detail(String.t(), atom(), map()) :: String.t()
   def detail(decision_id, filter, query) when is_binary(decision_id) and is_map(query) do
     decision_id = URI.encode(decision_id, &URI.char_unreserved?/1)
-    with_query("/decisions/#{decision_id}", filter, query)
+    with_query("/commands/#{decision_id}", filter, query)
   end
 
   defp with_query(path, filter, query) do

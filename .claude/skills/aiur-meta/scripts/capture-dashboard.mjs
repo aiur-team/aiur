@@ -34,7 +34,7 @@ const BOOTSTRAP_PATH = process.env.AIUR_META_BOOTSTRAP_PATH
 
 const PAGES = [
   ['units', '/'],
-  ['commands', '/decisions'],
+  ['commands', '/commands'],
   ['build-orders', '/build-orders'],
   ['analytics', '/analytics']
 ]

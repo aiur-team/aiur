@@ -1,10 +1,11 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Config, DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
+  @voice_unconfigured_reason "Aiur has no ElevenLabs API key - transcription is off"
   @default_usage_interval_seconds 300
   @stale_after_intervals 2
   @session_window_tokens ~w(session primary five_hour hourly)
@@ -16,10 +17,45 @@ defmodule AiurWeb.StreamdeckProjection do
       version: @version,
       fleet: fleet(),
       usage: provider_meters(),
-      decisions: decisions()
+      decisions: decisions(),
+      voice: voice()
     }
     |> external_value()
   end
+
+  @doc """
+  Whether voice input can transcribe, and why not when it cannot.
+
+  The device carries this in the join snapshot so the microphone key can say why
+  it is off without a round trip. Only the *presence* of a credential is ever
+  reported — never the credential, nor any part of it.
+  """
+  @spec voice() :: map()
+  def voice do
+    if configured_elevenlabs_key?() do
+      %{available: true, reason: nil}
+    else
+      %{available: false, reason: @voice_unconfigured_reason}
+    end
+  end
+
+  # The seam injects the *answer*, never the credential: it is a boolean reader,
+  # so no configuration key anywhere can be made to carry an API key into this
+  # projection. An unreadable configuration reads as "not configured", which is
+  # the honest answer — a key that cannot be read cannot be used.
+  defp configured_elevenlabs_key? do
+    case endpoint_config(:streamdeck_voice_available_fun) do
+      fun when is_function(fun, 0) -> fun.() == true
+      _absent -> present?(Config.elevenlabs_api_key())
+    end
+  rescue
+    _unavailable -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  defp present?(key) when is_binary(key), do: String.trim(key) != ""
+  defp present?(_key), do: false
 
   @spec fleet_agents([map()]) :: [map()]
   def fleet_agents(summaries) when is_list(summaries), do: Enum.map(summaries, &agent/1)

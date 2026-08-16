@@ -735,6 +735,26 @@ defmodule Aiur.Config do
     with {:ok, settings} <- settings(), do: {:ok, settings.alerts}
   end
 
+  @doc """
+  First Executor takeover advisory threshold in hours, or `0` when disabled.
+  A nonterminal ticket first emits an advisory alert once its convergence age
+  reaches this value.
+  """
+  @spec executor_takeover_first_alert_hours() :: non_neg_integer()
+  def executor_takeover_first_alert_hours do
+    settings!().executor_takeover_first_alert_hours
+  end
+
+  @doc """
+  Repeated Executor takeover advisory cadence in hours, or `0` when disabled.
+  After the first advisory, the monitor re-alerts at most this often while the
+  ticket remains nonterminal and unresolved.
+  """
+  @spec executor_takeover_continuous_alert_hours() :: non_neg_integer()
+  def executor_takeover_continuous_alert_hours do
+    settings!().executor_takeover_continuous_alert_hours
+  end
+
   @spec max_retry_attempts() :: pos_integer()
   def max_retry_attempts do
     settings!().agent.max_retry_attempts

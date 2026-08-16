@@ -285,11 +285,11 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
           {:chat, "/chat/42?capability=private"},
           {:chat, "/chat/42#token=private"},
           {:chat, "/chat/41"},
-          {:chat, "/decisions/42"},
-          {:commands, "/decisions/42?token=private"},
-          {:commands, "/decisions/42#capability=private"},
+          {:chat, "/commands/42"},
+          {:commands, "/commands/42?token=private"},
+          {:commands, "/commands/42#capability=private"},
           {:commands, "/chat/42"},
-          {:commands, "/commands/42"}
+          {:commands, "/commands"}
         ] do
       [capability] =
         TicketContextPresenter.present(detail_state(identity), history(identity), [
@@ -308,12 +308,12 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
       TicketContextPresenter.present(detail_state(identity), history(identity), [
         %{kind: :chat, available?: true, href: "/chat/42"},
         %{kind: :chat, available?: true, href: "/chat/42?capability=replacement"},
-        %{kind: :commands, available?: true, href: "/decisions/42"}
+        %{kind: :commands, available?: true, href: "/commands/42"}
       ])
 
     assert Enum.map(context.capabilities, &{&1.label, &1.href}) == [
              {"Chat", "/chat/42"},
-             {"Commands", "/decisions/42"}
+             {"Commands", "/commands/42"}
            ]
   end
 
@@ -365,7 +365,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
           href: "https://github.com/owner/repo/pull/7"
         },
         %{kind: :chat, available?: true, href: "/chat/42"},
-        %{kind: :commands, available?: true, href: "/decisions/42"},
+        %{kind: :commands, available?: true, href: "/commands/42"},
         %{kind: :document, available?: true, href: "https://github.com/owner/repo/blob/main/doc.md"}
       ])
 

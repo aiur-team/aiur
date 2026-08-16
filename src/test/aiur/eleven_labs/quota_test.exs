@@ -8,10 +8,22 @@ defmodule Aiur.ElevenLabs.QuotaTest do
   @now ~U[2026-08-15 12:00:00Z]
   @reset_unix 1_788_000_000
 
-  test "projects the subscription response into a remaining-credit window" do
+  test "projects usage and the next invoice amount due from the subscription response" do
     quota = start_quota()
 
-    Quota.observe(quota, {:ok, response(%{"character_count" => 25_000, "character_limit" => 100_000, "tier" => "creator", "next_character_count_reset_unix" => @reset_unix})})
+    Quota.observe(
+      quota,
+      {:ok,
+       response(%{
+         "character_count" => 25_000,
+         "character_limit" => 100_000,
+         "tier" => "creator",
+         "next_character_count_reset_unix" => @reset_unix,
+         "currency" => "usd",
+         "current_overage" => %{"amount" => "1.25", "currency" => "usd"},
+         "next_invoice" => %{"amount_due_cents" => 500}
+       })}
+    )
 
     snapshot = Quota.snapshot(quota)
 
@@ -23,7 +35,8 @@ defmodule Aiur.ElevenLabs.QuotaTest do
              limit: 100_000,
              used: 25_000,
              remaining: 75_000,
-             remaining_percent: 75.0,
+             used_percent: 25.0,
+             next_invoice: %{amount_due_cents: 500, currency: "USD"},
              tier: "creator",
              reset_at: DateTime.from_unix!(@reset_unix),
              observed_at: @now
@@ -103,8 +116,9 @@ defmodule Aiur.ElevenLabs.QuotaTest do
     end
   end
 
-  # A zero limit is a real answer from a real account; it is simply not a meter.
-  # It must neither divide by zero nor render as a full or an empty bar.
+  # A zero limit is a real answer from a real account; it simply has no
+  # percentage. The component renders that unknown percentage as an empty used
+  # track, matching the neighboring meter idiom.
   test "a zero character limit reports no percentage instead of dividing by zero" do
     quota = start_quota()
     Quota.observe(quota, {:ok, response(%{"character_count" => 0, "character_limit" => 0})})
@@ -114,18 +128,18 @@ defmodule Aiur.ElevenLabs.QuotaTest do
     assert snapshot.state == :observed
     assert snapshot.window.limit == 0
     assert snapshot.window.remaining == 0
-    assert snapshot.window.remaining_percent == nil
+    assert snapshot.window.used_percent == nil
   end
 
-  test "the remaining percentage clamps to its bounds without a Float.round/2 integer" do
+  test "the used percentage clamps to its bounds without a Float.round/2 integer" do
     cases = [
-      {0, 100_000, 100.0},
-      {100_000, 100_000, 0.0},
-      # An overage reports more consumed than the limit; remaining clamps at
-      # zero rather than rendering a negative bar.
-      {150_000, 100_000, 0.0},
-      {33_333, 100_000, 66.7},
-      {1, 3, 66.7}
+      {0, 100_000, 0.0},
+      {100_000, 100_000, 100.0},
+      # An overage reports more consumed than the limit; used clamps at 100
+      # rather than overflowing the meter track.
+      {150_000, 100_000, 100.0},
+      {33_333, 100_000, 33.3},
+      {1, 3, 33.3}
     ]
 
     for {used, limit, expected} <- cases do
@@ -134,10 +148,66 @@ defmodule Aiur.ElevenLabs.QuotaTest do
 
       window = Quota.snapshot(quota).window
 
-      assert window.remaining_percent == expected
-      assert is_float(window.remaining_percent)
-      assert window.remaining_percent >= 0.0 and window.remaining_percent <= 100.0
+      assert window.used_percent == expected
+      assert is_float(window.used_percent)
+      assert window.used_percent >= 0.0 and window.used_percent <= 100.0
     end
+  end
+
+  test "missing or malformed invoice data does not invalidate the credit quota" do
+    for invoice <- [nil, %{}, %{"amount_due_cents" => -1}, %{"amount_due_cents" => "500"}] do
+      quota = start_quota()
+
+      Quota.observe(
+        quota,
+        {:ok,
+         response(%{
+           "character_count" => 25,
+           "character_limit" => 100,
+           "currency" => "usd",
+           "next_invoice" => invoice
+         })}
+      )
+
+      assert %{state: :observed, window: %{next_invoice: nil}} = Quota.snapshot(quota)
+    end
+  end
+
+  test "the guaranteed invoice cents survive absent or malformed currency metadata" do
+    for overage <- [nil, "invalid", [], %{}] do
+      quota = start_quota()
+
+      Quota.observe(
+        quota,
+        {:ok,
+         response(%{
+           "character_count" => 25,
+           "character_limit" => 100,
+           "current_overage" => overage,
+           "next_invoice" => %{"amount_due_cents" => 500}
+         })}
+      )
+
+      assert %{state: :observed, window: %{next_invoice: %{amount_due_cents: 500, currency: "USD"}}} = Quota.snapshot(quota)
+      assert Process.alive?(quota)
+    end
+  end
+
+  test "current overage currency is used when the top-level currency is absent" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      {:ok,
+       response(%{
+         "character_count" => 25,
+         "character_limit" => 100,
+         "current_overage" => %{"currency" => "eur"},
+         "next_invoice" => %{"amount_due_cents" => 500}
+       })}
+    )
+
+    assert Quota.snapshot(quota).window.next_invoice == %{amount_due_cents: 500, currency: "EUR"}
   end
 
   test "an absent authority reports an absent account rather than a failure" do

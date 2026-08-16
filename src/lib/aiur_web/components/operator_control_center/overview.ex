@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, UnitsPresentation}
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, UnitsPresentation}
 
   @fleet_stats [
     {:running, "Active", "good"},
@@ -28,7 +28,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   attr(:decisions, :list, default: [])
   attr(:retained_counts, :map, required: true)
-  # Routes outside the dashboard LiveView cannot patch into /decisions; they
+  # Routes outside the dashboard LiveView cannot patch into /commands; they
   # live-navigate instead. Same live session either way, so no full page load.
   attr(:navigate, :boolean, default: false)
 
@@ -47,8 +47,8 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     ~H"""
     <.link
       :if={is_integer(@open) and @open > 0}
-      patch={!@navigate && "/decisions"}
-      navigate={@navigate && "/decisions"}
+      patch={!@navigate && DecisionPath.inbox(:all)}
+      navigate={@navigate && DecisionPath.inbox(:all)}
       class={["decisions-banner", @blocking > 0 && "blocking"]}
       aria-label={"#{@open} retained Commands awaiting the operator, #{@blocking} blocking"}
     >
