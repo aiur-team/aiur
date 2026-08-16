@@ -18,6 +18,7 @@ defmodule AiurWeb.StaticAssets do
     conversation-drawer-hook.js
     conversation-voice-controller.js
     dashboard.css
+    elevenlabs-symbol.svg
     streamdeck-emulator-hook.js
     ticket-context-dialog-hook.js
     time-brush-hook.js
@@ -46,6 +47,7 @@ defmodule AiurWeb.StaticAssets do
     "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
+    "/elevenlabs-symbol.svg" => {"image/svg+xml", "priv/static/elevenlabs-symbol.svg"},
     "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"},
     "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
   }

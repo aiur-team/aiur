@@ -153,8 +153,8 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
           <button id="route-shell-action" type="button">Reachable action</button>
         </section>
         <%!-- Command history is an accordion whose rows patch to the Command's
-              own URL, so it can only be exercised on the real `/decisions` and
-              `/decisions/:decision_id` routes the shell fixture already owns. --%>
+              own URL, so it can only be exercised on the real `/commands` and
+              `/commands/:decision_id` routes the shell fixture already owns. --%>
         <History.history
           :if={@live_action in [:decisions, :decision]}
           rows={history_decisions()}
@@ -798,7 +798,7 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
       chat: %{available?: true, destination: "/chat/#{identity.identifier}", identity: identity, active?: true, readable?: true},
-      commands: %{available?: true, destination: "/decisions/#{identity.identifier}", identity: identity, readable?: true}
+      commands: %{available?: true, destination: "/commands/#{identity.identifier}", identity: identity, readable?: true}
     }
   end
 
@@ -1997,7 +1997,14 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
     ~H"""
     <main class="app-shell" data-meter-row-fixture="true">
       <h1 class="sr-only">Provider meter row fixture</h1>
-      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+      <RunSummaryStrip.run_summary_strip
+        run={run()}
+        usage={usage()}
+        meters={meters()}
+        github_quota={github_quota()}
+        elevenlabs_quota={elevenlabs_quota()}
+        now={@now}
+      />
     </main>
     """
   end
@@ -2067,6 +2074,24 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
         }
       },
       backoffs: []
+    }
+  end
+
+  defp elevenlabs_quota do
+    %{
+      state: :observed,
+      failure: nil,
+      observed_at: @now,
+      window: %{
+        limit: 100_000,
+        used: 25_000,
+        remaining: 75_000,
+        used_percent: 25.0,
+        next_invoice: %{amount_due_cents: 500, currency: "USD"},
+        tier: "creator",
+        reset_at: DateTime.add(@now, 3, :day),
+        observed_at: @now
+      }
     }
   end
 end
@@ -2215,8 +2240,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
     live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
-    live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
-    live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
+    live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
+    live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
   end
 
   scope "/" do

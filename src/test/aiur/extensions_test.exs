@@ -1289,15 +1289,15 @@ defmodule Aiur.ExtensionsTest do
       control_center_cache: cache
     }
 
-    {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
+    {:ok, inbox_view, inbox_html} = live(build_conn(), "/commands")
     assert inbox_html =~ "Commands inbox"
 
-    assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"])),
+    assert has_element?(inbox_view, ~s(a[href="/commands/decision-live-route"])),
            dashboard_route_diagnostic(inbox_html, providers)
 
-    refute has_element?(inbox_view, ~s(a[href="/decisions/unrelated-decision-50"]))
+    refute has_element?(inbox_view, ~s(a[href="/commands/unrelated-decision-50"]))
 
-    {:ok, detail_view, detail_html} = live(build_conn(), "/decisions/decision-live-route")
+    {:ok, detail_view, detail_html} = live(build_conn(), "/commands/decision-live-route")
 
     assert has_element?(detail_view, "#decision-detail-decision-live-route"),
            dashboard_route_diagnostic(detail_html, providers)
@@ -1307,7 +1307,7 @@ defmodule Aiur.ExtensionsTest do
     assert detail_html =~ "Read-only mode · Command mutation controls are hidden."
     refute detail_html =~ "phx-click=\"answer-decision\""
 
-    {:ok, _missing_view, missing_html} = live(build_conn(), "/decisions/not-present")
+    {:ok, _missing_view, missing_html} = live(build_conn(), "/commands/not-present")
     assert missing_html =~ "Command not found"
     assert missing_html =~ "not-present"
 

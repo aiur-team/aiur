@@ -52,6 +52,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
   end
 
   test "keeps direct Decision URLs inside the Commands route" do
+    assert {:ok, %{path: "/commands"}} = RouteRegistry.route(:commands, %{})
     assert %{id: :commands} = RouteRegistry.current_route(:decisions)
     assert %{id: :commands} = RouteRegistry.current_route(:decision)
     assert %{id: :units} = RouteRegistry.current_route(:unknown)
@@ -73,12 +74,12 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
   test "preserves shareable retained-page state without exposing it to non-All filters" do
     assert DecisionPath.inbox(:all, %{search: "AIUR-42", cursor: "opaque"}) ==
-             "/decisions?cursor=opaque&search=AIUR-42"
+             "/commands?cursor=opaque&search=AIUR-42"
 
     assert DecisionPath.detail("dec /42", :blocking, %{cursor: "opaque"}) ==
-             "/decisions/dec%20%2F42?cursor=opaque&filter=blocking"
+             "/commands/dec%20%2F42?cursor=opaque&filter=blocking"
 
-    assert DecisionPath.inbox(:all, %{search: "", ignored: "secret"}) == "/decisions"
+    assert DecisionPath.inbox(:all, %{search: "", ignored: "secret"}) == "/commands"
   end
 
   test "registers the Build Order catalog and selected actions as one live owner" do

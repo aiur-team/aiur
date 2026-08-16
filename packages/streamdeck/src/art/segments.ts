@@ -85,10 +85,11 @@ const caption = (context: SKRSContext2D, text: string, x: number, y: number, col
 /**
  * Fill for the strip's mini-bars, matching the mock's `.sd-mini-bar > i`.
  *
- * Deliberately NOT the key's hue map. These bars show *consumption* — quota
- * used, build completed — and hue-mapping them would paint a provider at 100%
- * of its rate limit bright green, which reads as healthy when it means the
- * opposite. The hue map belongs to agent progress, where more really is better.
+ * Deliberately NOT the agent progress fill. These bars show *consumption* —
+ * quota used, build completed — and painting them in the same green as a
+ * progress bar would make a provider at 100% of its rate limit read healthy
+ * when it means the opposite. Agent progress is a single green because more
+ * really is better; consumption stays blue.
  */
 const MINI_BAR_FILL = "linear-gradient(90deg,#3f8bff,#8fbcff)";
 
@@ -105,6 +106,8 @@ const meter = (
   fraction: number,
   color: string | CanvasGradient,
   height = METER_HEIGHT,
+  showZeroStub = false,
+  fillAlpha = 1,
 ): void => {
   const clamped = clamp(fraction, 0, 1);
   context.beginPath();
@@ -112,11 +115,13 @@ const meter = (
   context.fillStyle = TRACK;
   context.fill();
   const filled = Math.round(width * clamped);
-  if (filled > 0) {
+  if (filled > 0 || showZeroStub) {
     context.beginPath();
     context.roundRect(x, y, Math.max(filled, height), height, height / 2);
     context.fillStyle = color;
+    context.globalAlpha = fillAlpha;
     context.fill();
+    context.globalAlpha = 1;
   }
 };
 
@@ -875,7 +880,9 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
     context.lineWidth = 1;
     return;
   }
-  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10);
+  // A measured 0% is a solid stub. The unknown branch above remains a dashed
+  // track, so the strip makes the same no-reading/zero distinction as the key.
+  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true, model.freshness === "stale" ? 0.5 : 1);
 };
 
 /* Voice panel geometry. The trace is the panel; everything else sits around it. */

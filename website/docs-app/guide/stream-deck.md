@@ -52,8 +52,8 @@ A progress bar has three states, and they are deliberately different pictures:
 
 | State | What it means | How it looks |
 | --- | --- | --- |
-| Fresh | A recent reading | Solid bar, hue-mapped red-to-green |
-| Stale | A real reading that has aged past its freshness window | The same bar, dimmed, with the full track outlined |
+| Fresh | A recent reading | Solid green bar; a slightly brighter green at 100% |
+| Stale | A real reading that has aged past its freshness window | The same borderless green bar, dimmed |
 | Unknown | No reading at all | Dashed track and a hollow status dot; no bar |
 
 A genuine 0% shows a short solid stub, so “just started” never looks like “no reading”. If a bar drops to an empty track and back, that is a bug — report it.
@@ -125,7 +125,7 @@ elevenlabs:
 
 Prefer the `$ELEVENLABS_API_KEY` reference over pasting the key into the file. See [Configuration](/reference/configuration) for the field reference.
 
-A configured key also puts an ElevenLabs meter on the Dashboard Units page. It reads the account **credit quota** and shows credits remaining; ElevenLabs publishes no dollar balance, so no cost figure is shown. Note that it is not a meter of what dictation costs: speech-to-text bills per minute of audio, while the character quota is primarily the text-to-speech credit pool. See [API meters](/guide/executor-control-center#api-meters).
+A configured key also puts an ElevenLabs meter on the Dashboard Units page. It shows the account **credit quota** as percentage used and labels the amount due on the next invoice; that dollar figure is money owed, not a remaining balance. Note that it is not a meter of what dictation costs: speech-to-text bills per minute of audio, while the character quota is primarily the text-to-speech credit pool. See [API meters](/guide/executor-control-center#api-meters).
 
 ### Without a key
 
@@ -169,6 +169,6 @@ If a microphone stops producing audio, capture reports it rather than appearing 
 
 ## Shared key-face contract
 
-The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, progress hue, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
+The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, the normal and completed progress fills, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
 
 That code-level contract is now composed with the live channel and HID runtime. It is still not a substitute for the required Executor-root hardware proof.

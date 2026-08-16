@@ -52,6 +52,10 @@
   --blocking-line: rgba(255, 123, 114, 0.34);
   --good: #3fb950;
   --good-ink: #74d47f;
+  /* Shared with key-face-contract.json. Progress stays green at every measured
+     value; only exact completion steps up to the brighter shade. */
+  --progress-fill: #3fb950;
+  --progress-complete-fill: #74d47f;
   --good-soft: rgba(63, 185, 80, 0.14);
   --good-line: rgba(63, 185, 80, 0.32);
   --super: #c69bff;
@@ -3557,15 +3561,21 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  min-width: 5px;
+  background: var(--progress-fill);
 }
 
-.ut-pbar > i.is-blocked {
-  background: var(--blocking, #f2836b);
+.ut-pbar > i.is-complete {
+  background: var(--progress-complete-fill);
 }
 
-.ut-pbar > i.has-alert {
-  background: var(--attention, #e3b341);
+.ut-pbar > i.is-stale {
+  opacity: 0.5;
+}
+
+.ut-pbar.is-unknown {
+  border: 1px dashed var(--muted);
+  background: transparent;
 }
 
 .ut-latest-meta {
@@ -3787,11 +3797,13 @@ html[data-theme="light"] .toggle-icon .moon {
 
 /* The GitHub mark ships as a black glyph; the dashboard's default theme is
    dark, so invert it to a light glyph. The light theme shows the native mark. */
-.rs-github-mark {
+.rs-github-mark,
+.rs-elevenlabs-mark {
   filter: invert(1);
 }
 
-html[data-theme="light"] .rs-github-mark {
+html[data-theme="light"] .rs-github-mark,
+html[data-theme="light"] .rs-elevenlabs-mark {
   filter: none;
 }
 
@@ -3892,6 +3904,12 @@ html[data-theme="light"] .rs-github-mark {
   font-family: "JetBrains Mono", "SFMono-Regular", monospace;
   font-size: 0.7rem;
   color: var(--muted);
+}
+
+/* This row is intentionally compressed to the same one-line density as Core
+   and GraphQL; the invoice amount lives in the provider head above it. */
+.rs-elevenlabs .rs-limit-meta.is-compact {
+  white-space: nowrap;
 }
 
 .rs-meter {
@@ -4134,11 +4152,10 @@ html[data-theme="light"] .rs-github-mark {
   }
 }
 
-/* True phone widths keep full-width stacked sections: three ~110px cards on a
-   390px screen are legible in a screenshot but cramped in the hand, and the
-   provider cards are reference data rather than something scanned at a glance.
-   Tablets and split-view windows above this keep the three-up row. */
-@media (max-width: 480px) {
+/* Tablets, split views and phones keep full-width stacked sections. The API
+   pane's compact provider lines are deliberately single-line reference data;
+   below this point a one-third column cannot hold them without clipping. */
+@media (max-width: 1024px) {
   .run-summary {
     grid-template-columns: 1fr;
   }
@@ -6882,8 +6899,17 @@ html[data-theme="light"] .rs-github-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  min-width: 0.55rem;
+  background: var(--progress-fill);
   transition: width 0.3s ease;
+}
+
+.run-summary-progress-fill.is-complete {
+  background: var(--progress-complete-fill);
+}
+
+.run-summary-progress-fill.is-stale {
+  opacity: 0.5;
 }
 
 .run-summary-progress-value {
@@ -8626,6 +8652,11 @@ html[data-theme="light"] .rs-github-mark {
   background: var(--sd-accent);
 }
 
+.sd-ag-foot.is-progress-unknown .sd-ag-dot {
+  border: 1px solid var(--sd-accent);
+  background: transparent;
+}
+
 /* Pulse timings come from key-face-contract.json via @key_face_css. */
 
 .sd-ag-bar {
@@ -8643,6 +8674,14 @@ html[data-theme="light"] .rs-github-mark {
   height: 100%;
   border-radius: inherit;
   background: var(--sd-progress-fill);
+  min-width: 6px;
+}
+
+.sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
+
+.sd-ag-foot.is-progress-unknown .sd-ag-bar {
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  background: transparent;
 }
 
 /* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
@@ -8834,7 +8873,23 @@ html[data-theme="light"] .rs-github-mark {
 .sd-strip-cmd-progress > i {
   display: block;
   height: 100%;
+  min-width: 0.34rem;
   border-radius: inherit;
+}
+
+.sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i {
+  opacity: 0.5;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress {
+  border: 1px dashed var(--muted);
+  background: transparent;
 }
 
 .sd-strip-logs {
