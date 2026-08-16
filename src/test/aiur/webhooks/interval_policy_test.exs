@@ -55,11 +55,14 @@ defmodule Aiur.Webhooks.IntervalPolicyTest do
       assert IntervalPolicy.poll_interval_ms(@base_ms, @webhook_repo, server: registry, widen_factor: 2.5) == 75_000
     end
 
-    test "the default factor changes no interval at all" do
+    test "the configured factor is read from settings" do
       registry = start_registry([@webhook_repo])
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
 
-      assert IntervalPolicy.poll_interval_ms(@base_ms, @webhook_repo, server: registry) == @base_ms
+      configured_factor = Aiur.Config.settings!().webhooks.poll_widen_factor
+
+      assert IntervalPolicy.poll_interval_ms(@base_ms, @webhook_repo, server: registry) ==
+               IntervalPolicy.widen(@base_ms, configured_factor)
     end
 
     test "a factor below 1.0 cannot shorten the interval" do

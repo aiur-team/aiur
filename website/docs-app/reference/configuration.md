@@ -45,13 +45,13 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 
 ### Choosing a poll interval
 
 Polling spends GitHub GraphQL points at a rate inversely proportional to the
-interval, and that spend is a fixed cost. It does not depend on how many agents
-are running. Against GitHub's 5,000 point/hour budget:
+interval. While agents are running, against GitHub's 5,000 point/hour budget:
 
 | `interval_seconds` | Approximate poll spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -69,6 +69,21 @@ also sends an `X-Poll-Interval` header on the repo-events endpoint, 60 seconds
 by default, and Aiur treats it as a floor. The interval actually used is the
 wider of the two, so setting `interval_seconds` below 60 generally does not
 speed polling up, while setting it above 60 does slow polling down.
+
+When no agents are actively running, including when every parked agent is
+paused or completed, Aiur multiplies the effective interval by
+`idle_widen_factor`. The default turns the 120-second base into a 10-minute idle
+sweep. The first startup sweep remains immediate, verified label webhooks and
+the dashboard refresh action wake reconciliation immediately, and
+admission-changing operator actions (`aiur --todo`, `aiur set max-agents`, and
+global resume) request a fresh sweep. A ticket is therefore refreshed before
+its first dispatch rather than admitted from the older idle snapshot.
+
+Idle and webhook widening compose. With both defaults active, a proven
+webhook-backed repo and an idle fleet poll every
+`120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still
+wins. `aiur status` prints an explicit `POLL idle backoff active` line with the
+base, effective interval, factor, and next sweep countdown.
 
 Widening past 120 seconds is the flat part of the curve: each further step
 saves less quota than the last while the wake latency grows proportionally.

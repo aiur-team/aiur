@@ -102,6 +102,9 @@ defmodule AiurWeb.PresenterTest do
             total_tokens: 920_023,
             seconds_running: 73
           },
+          poll_interval_ms: 120_000,
+          effective_poll_interval_ms: 600_000,
+          idle_poll_backoff: %{active?: true, factor: 5.0},
           agent_rate_limits: %{
             primary: %{remaining_percent: 93, resets_at: "reset-financial-sentinel"}
           },
@@ -147,6 +150,15 @@ defmodule AiurWeb.PresenterTest do
 
     assert payload.counts == %{running: 1, retrying: 1, idle: 1}
     assert payload.agent_totals == %{seconds_running: 73}
+
+    assert payload.polling == %{
+             checking?: false,
+             next_poll_in_ms: nil,
+             poll_interval_ms: 120_000,
+             effective_interval_ms: 600_000,
+             idle_backoff: %{active?: true, factor: 5.0}
+           }
+
     refute Map.has_key?(payload, :rate_limits)
 
     assert [running_row] = payload.running

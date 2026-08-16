@@ -65,6 +65,11 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call(:snapshot_count, _from, state) do
       {:reply, state.snapshot_count, state}
     end
+
+    def handle_call(:request_refresh, _from, state) do
+      if is_pid(state.report), do: send(state.report, {:dashboard_refresh_requested, self()})
+      {:reply, %{coalesced: false}, state}
+    end
   end
 
   defmodule GlobalPauseFailureOrchestrator do
@@ -4622,8 +4627,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsPanelOrchestrator)
-    orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
+    orchestrator = start_counting_orchestrator(orchestrator_name, report: test_pid)
 
     replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
@@ -4692,6 +4697,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_received {:add_label, "2101", "complexity:3"}
     assert_received {:add_label, "2101", ^model_label}
     assert_received {:remove_label, "2101", "complexity:5"}
+    assert_received {:dashboard_refresh_requested, ^orchestrator}
     assert render(view) =~ "Applied"
   end
 

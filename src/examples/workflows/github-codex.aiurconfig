@@ -61,6 +61,7 @@ observability:
   telemetry_retention_max_age_days: 30
 polling:
   interval_seconds: 30
+  idle_widen_factor: 5.0
 server:
   host: 127.0.0.1
   port: 4000

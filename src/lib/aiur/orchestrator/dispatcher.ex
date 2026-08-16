@@ -40,7 +40,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def run_poll_cycle(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
     state = maybe_dispatch(state)
-    state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
+    schedule = TrackerHealth.poll_schedule(state)
+
+    state =
+      state
+      |> Lifecycle.schedule_tick(schedule.delay_ms)
+      |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
+      |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
+
     state = %{state | poll_check_in_progress: false}
 
     state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())

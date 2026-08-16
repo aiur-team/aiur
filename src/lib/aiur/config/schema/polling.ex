@@ -4,6 +4,7 @@ defmodule Aiur.Config.Schema.Polling do
   import Ecto.Changeset
 
   @min_usage_interval_seconds 120
+  @max_idle_widen_factor 100.0
 
   @primary_key false
   embedded_schema do
@@ -22,6 +23,10 @@ defmodule Aiur.Config.Schema.Polling do
     # value under 60 mostly does not tighten the loop, and the real saving from
     # this 120s default is measured against an effective 60s, not against 30s.
     field(:interval_seconds, :integer, default: 120)
+    # With no agent actively running, reconciliation is housekeeping rather
+    # than an input to active work. Operator and webhook wakes still schedule
+    # an immediate fresh sweep before new work is admitted.
+    field(:idle_widen_factor, :float, default: 5.0)
     # Usage endpoint allows ~1 request/2min, per account. Measured floor 120s.
     field(:usage_interval_seconds, :integer, default: 300)
   end
@@ -35,8 +40,13 @@ defmodule Aiur.Config.Schema.Polling do
     end
 
     schema
-    |> cast(attrs, [:interval_seconds, :usage_interval_seconds], empty_values: [])
+    |> cast(attrs, [:interval_seconds, :idle_widen_factor, :usage_interval_seconds], empty_values: [])
     |> validate_number(:interval_seconds, greater_than: 0)
+    |> validate_number(:idle_widen_factor,
+      greater_than_or_equal_to: 1.0,
+      less_than_or_equal_to: @max_idle_widen_factor,
+      message: "must be between 1.0 and #{@max_idle_widen_factor}"
+    )
     # Below the floor the meters degrade silently, so fail loudly instead.
     |> validate_number(:usage_interval_seconds,
       greater_than_or_equal_to: @min_usage_interval_seconds,
