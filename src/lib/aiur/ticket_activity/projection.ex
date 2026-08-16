@@ -60,6 +60,74 @@ defmodule Aiur.TicketActivity.Projection do
     prune(state, now)
   end
 
+  @doc """
+  Seeds projection entries from durable retained progress readings.
+
+  Called at boot, after `refresh_members/3`, so a projection or daemon restart
+  does not re-enter `unknown` for tickets that already reported: every retained
+  reading becomes a projection entry whose freshness is computed honestly from
+  its own `observed_at` (a just-landed reading stays `:fresh`, an old one
+  renders `:stale` — both with the real percent). A ticket with no retained
+  reading stays `:unknown`, which is exactly the "never reported" state.
+
+  Does not prune: retained `:recent` readings may outlive the in-memory
+  retention window at boot and are trimmed by the normal prune cycle, while the
+  durable store (and `StatusReport`'s retained fallback) keep showing the last
+  known value. A newer progress `order` already present on an existing entry
+  wins over the seed.
+  """
+  @spec seed_progress(t(), [{TrackerIdentity.t(), map()}], DateTime.t()) :: t()
+  def seed_progress(%__MODULE__{} = state, retained, now \\ DateTime.utc_now()) when is_list(retained) do
+    entries =
+      Enum.reduce(retained, state.entries, &seed_progress_entry(&1, &2, state, now))
+
+    %{state | entries: entries, generation: state.generation + 1}
+  end
+
+  defp seed_progress_entry({identity, progress}, entries, state, now) do
+    entry_key = key(identity)
+
+    if is_nil(entry_key) or not is_map(progress) do
+      entries
+    else
+      Map.put(entries, entry_key, winning_seed_entry(entries, entry_key, state, identity, progress, now))
+    end
+  end
+
+  defp winning_seed_entry(entries, entry_key, state, identity, progress, now) do
+    case Map.get(entries, entry_key) do
+      %{progress: %{order: existing_order}} = existing when is_tuple(existing_order) ->
+        if newer_progress?(progress, existing_order),
+          do: seeded_entry(state, identity, progress, now),
+          else: existing
+
+      _existing ->
+        seeded_entry(state, identity, progress, now)
+    end
+  end
+
+  defp seeded_entry(state, identity, progress, now) do
+    observed_at = Map.get(progress, :observed_at) || now
+
+    %{
+      identity: identity,
+      retention: if(MapSet.member?(state.current_keys, key(identity)), do: :current, else: :recent),
+      first_observed_at: observed_at,
+      last_observed_at: observed_at,
+      provenance: Map.get(progress, :provenance),
+      latest_evidence: nil,
+      progress: progress,
+      progress_order: Map.get(progress, :order),
+      stage: nil,
+      stage_order: nil
+    }
+  end
+
+  defp newer_progress?(%{order: order}, existing_order) when is_tuple(order) and is_tuple(existing_order),
+    do: order > existing_order
+
+  defp newer_progress?(_progress, _existing_order), do: true
+
   @spec apply(t(), TicketObservation.t()) :: {:accepted, t()} | {:ignored, atom(), t()}
   def apply(%__MODULE__{} = state, %TicketObservation{} = observation) do
     cond do
@@ -130,6 +198,28 @@ defmodule Aiur.TicketActivity.Projection do
       diagnostics: state.diagnostics
     }
   end
+
+  @doc """
+  The raw ordered progress reading held for `identity`, or `nil`.
+
+  The durable retention store needs the reading itself — `percent`, `source`,
+  `provenance`, `occurred_at`, `observed_at`, `event_id`, `order` — rather than
+  the freshness-resolved `snapshot/3` projection of it. Returns `nil` for an
+  unknown identity or for an entry that has never carried an ordered reading,
+  which keeps the entry map behind the opaque projection boundary.
+  """
+  @spec ordered_progress(t(), TrackerIdentity.t()) :: map() | nil
+  def ordered_progress(%__MODULE__{} = state, %TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      nil -> nil
+      entry_key -> state.entries |> Map.get(entry_key) |> entry_ordered_progress()
+    end
+  end
+
+  def ordered_progress(_state, _identity), do: nil
+
+  defp entry_ordered_progress(%{progress: %{order: _} = progress}), do: progress
+  defp entry_ordered_progress(_entry), do: nil
 
   @spec generation(t()) :: non_neg_integer()
   def generation(%__MODULE__{generation: generation}), do: generation

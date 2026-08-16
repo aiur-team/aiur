@@ -2376,11 +2376,29 @@ defmodule AiurWeb.DashboardLiveTest do
     decision = request_dashboard_decision(store, "dashboard-action")
     start_counting_orchestrator(orchestrator_name)
 
+    # The delivery outcome is produced asynchronously: the store dispatches on
+    # a background task, records the failure, and only then broadcasts
+    # {:decision_changed, ...}, which the LiveView reflects through a payload
+    # reload. The default reload path throttles that reload by
+    # @reload_min_interval_ms (400ms), and under load the whole async chain
+    # can outrun any wall-clock wait — the flake #1920 observed (fails
+    # ~1-in-10 under load). render/1 already synchronizes with the LiveView
+    # process (a ping that drains its mailbox), so removing the artificial
+    # reload delay here is a real synchronization point: as soon as the store
+    # records the failure, the next render reflects it. This uses the same
+    # control_center_reload_timer hook the burst-throttle test relies on, and
+    # changes no production timing.
+    reload_timer = fn destination, message, _delay_ms ->
+      send(destination, message)
+      make_ref()
+    end
+
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
       decision_store: decision_store_name,
-      dashboard_writable: true
+      dashboard_writable: true,
+      control_center_reload_timer: reload_timer
     )
 
     {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
@@ -2400,8 +2418,13 @@ defmodule AiurWeb.DashboardLiveTest do
       "answer" => %{"choice" => "option:ship", "rationale" => "Checks are green"}
     }
 
-    _html = render_submit(view, "answer-decision", params)
-    html = render(view)
+    # render_submit returns the render produced by the submit handler itself,
+    # before the async delivery-failure broadcast reaches the LiveView, so the
+    # transient "Answer recorded" notice is still visible here. With the
+    # immediate reload timer, the follow-up reload clears the notice as soon as
+    # the failure lands — which is exactly what "Delivery failed" replaces it
+    # with below.
+    html = render_submit(view, "answer-decision", params)
     assert html =~ "Answer recorded"
 
     assert eventually(fn ->
@@ -2409,6 +2432,11 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :failed
            end)
 
+    # The delivery outcome is produced asynchronously: background dispatch task
+    # -> store records the failure -> {:decision_changed, ...} broadcast. With
+    # the immediate reload timer, render/1 (whose ping drains the LiveView
+    # mailbox) reflects that failure on the next call, so this wait is
+    # deterministic rather than a wall-clock guess at the whole async chain.
     assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
     html = render(view)
     assert html =~ "Recorded answer"

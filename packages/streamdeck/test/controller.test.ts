@@ -543,8 +543,8 @@ describe("physical controller composition", () => {
       });
       expect(controller.state().transcriptRows).toEqual([
         { kind: "diff", path: "lib/b.ex", additions: 0, deletions: 0, line: null },
-        { kind: "message", role: "system", body: "hello", tool: null },
-        { kind: "message", role: "system", body: "no kind", tool: null },
+        { kind: "message", role: "system", body: "hello", tool: null, rowKind: "logs", glyph: null },
+        { kind: "message", role: "system", body: "no kind", tool: null, rowKind: "logs", glyph: null },
       ]);
     });
 

@@ -176,7 +176,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # itself fails and the transition is left untouched.
       assert next.running == state.running
       assert next.ci_lifecycle.poll_cache == %{identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head"}}
-      assert Map.delete(next.ci_lifecycle, :poll_cache) == Map.delete(state.ci_lifecycle, :poll_cache)
+
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts])
+
       assert MapSet.member?(next.claimed, identifier)
     end
 
@@ -421,8 +424,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head"}
              }
 
-      assert Map.delete(next.ci_lifecycle, :poll_cache) ==
-               Map.delete(armed.ci_lifecycle, :poll_cache)
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do
@@ -687,14 +690,156 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     end
   end
 
-  defp poll_ci(state, issue, result) do
+  describe "parked-ready recovery alert" do
+    defp capture_alert_emitter(test_pid, ref) do
+      fn topic, opts ->
+        send(test_pid, {:parked_alert, ref, topic, opts})
+        :ok
+      end
+    end
+
+    defp parked_observation(overrides \\ %{}) do
+      Map.merge(
+        %{
+          decision: :passed,
+          pr_number: 77,
+          head_sha: "parked-head",
+          draft?: false,
+          review_decision: "APPROVED",
+          mergeable: "MERGEABLE",
+          merge_state_status: "BLOCKED",
+          auto_merge_request: nil,
+          merge_queue_entry: nil
+        },
+        overrides
+      )
+    end
+
+    test "emits a needs-attention parked-ready alert for an approved ready mergeable unarmed PR" do
+      identifier = unique_identifier("parked-ready-emit")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+
+      next = poll_ci(state, issue, parked_observation(), alert_emitter: capture_alert_emitter(self(), ref))
+      topic = "ticket.#{identifier}.pr.parked_ready"
+
+      assert_received {:parked_alert, ^ref, ^topic, opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :central) == true
+      assert MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
+    end
+
+    test "does not re-emit for a still-parked PR already tracked" do
+      identifier = unique_identifier("parked-ready-dedupe")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
+      assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
+
+      second = poll_ci(first, issue, parked_observation(), alert_emitter: emitter)
+
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert second.ci_lifecycle.parked_ready_alerts == first.ci_lifecycle.parked_ready_alerts
+    end
+
+    test "resolves the alert once the PR reports an auto-merge request" do
+      identifier = unique_identifier("parked-ready-resolve")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
+      assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      armed = parked_observation(%{auto_merge_request: %{"enabledAt" => "2026-08-13T20:00:00Z"}})
+      next = poll_ci(first, issue, armed, alert_emitter: emitter)
+      resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
+
+      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}
+      assert Keyword.get(resolve_opts, :needs_attention) == false
+      refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
+    end
+
+    test "does not emit or clear on a transient poll failure" do
+      identifier = unique_identifier("parked-ready-unknown")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+
+      result = %{decision: :pending, pending_reason: :ci_lookup_unavailable, error: :test}
+      next = poll_ci(state, issue, result, alert_emitter: capture_alert_emitter(self(), ref))
+
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert next.ci_lifecycle.parked_ready_alerts == MapSet.new()
+    end
+
+    test "resolves the alert when the open PR is no longer visible" do
+      identifier = unique_identifier("parked-ready-gone")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
+      assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      gone = %{decision: :pending, pending_reason: :open_pr_not_yet_visible}
+      next = poll_ci(first, issue, gone, alert_emitter: emitter)
+      resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
+
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}
+      refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
+    end
+
+    test "resolves the alert when the issue leaves the poll set" do
+      identifier = unique_identifier("parked-ready-depart")
+      issue = issue(identifier, "human-review")
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      state =
+        running_state(issue, self(), :working, [])
+        |> Map.update!(:ci_lifecycle, &Map.put(&1, :parked_ready_alerts, MapSet.new([identifier])))
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
+          alert_emitter: emitter,
+          parked_ready_alert_loader: fn -> MapSet.new() end
+        )
+
+      resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
+
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}
+      refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
+    end
+  end
+
+  defp poll_ci(state, issue, result, opts \\ []) do
     next =
-      CiLifecycle.poll_github_ci(state,
-        ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
-        ci_poller: fn [target], _opts ->
-          assert target == issue.identifier
-          {:ok, %{results: [Map.put(result, :target, target)], errors: []}}
-        end
+      CiLifecycle.poll_github_ci(
+        state,
+        Keyword.merge(
+          [
+            # Hermetic: parked-ready restart dedupe seeds from the durable
+            # alert ledger; tests never read the real ledger.
+            parked_ready_alert_loader: fn -> MapSet.new() end,
+            ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+            ci_poller: fn [target], _opts ->
+              assert target == issue.identifier
+              {:ok, %{results: [Map.put(result, :target, target)], errors: []}}
+            end
+          ],
+          opts
+        )
       )
 
     maybe_route_ci_terminal(next, issue, result)

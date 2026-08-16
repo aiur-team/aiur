@@ -85,6 +85,28 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon-private retained-progress state directory.
+
+  Retained progress is the durable last-known progress reading per ticket
+  (`Aiur.ProgressRetention`); it survives projection and daemon restarts so the
+  fleet never re-enters `unknown` for a ticket that already reported. It owns
+  its own leaf so it can never be mistaken for, or replayed as, decision or
+  membership state.
+  """
+  @spec progress_retention_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def progress_retention_state_dir do
+    case Application.get_env(:aiur, :progress_retention_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "progress-retention")}
+        end
+    end
+  end
+
+  @doc """
   Resolves the daemon-private canonical usage-ledger state directory.
 
   It deliberately uses a separate leaf from decision and membership state so

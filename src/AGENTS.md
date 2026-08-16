@@ -100,8 +100,26 @@ mix pr_body.check --file /path/to/pr_body.md
 
 ## Docs Update Policy
 
-If behavior/config changes, update docs in the same PR:
+Documentation ships in the same PR as the change. The threshold, the "not
+required" list, and the page-by-page map live in
+[`../AGENTS.md#docs-ship-with-the-change`](../AGENTS.md#docs-ship-with-the-change)
+— read it there rather than guessing. The short form: a new or changed config
+key, CLI command or flag, operator-set environment variable, new user-facing
+surface, or any change that makes an existing page wrong must be documented in
+`../website/docs-app/` before the PR is ready for review. Internal refactors,
+bug fixes restoring documented behavior, test-only changes, and performance work
+with no interface change need nothing.
 
-- `../README.md` for project concept and goals.
-- `README.md` for Elixir implementation and run instructions.
-- `.aiur/config` (the `.aiurconfig.example` template + `examples/workflows/` reference configs) for config contract changes.
+From this directory, the ones you will hit most often:
+
+- `../website/docs-app/reference/configuration.md` — every `Aiur.Config.Schema.*`
+  field, by full dotted path. `../scripts/check-config-docs.py` fails the
+  required `lint` job when one is missing; it is the only part of this policy a
+  machine checks.
+- `../website/docs-app/reference/cli.md` — every `aiur` / `aiurdev` command and flag.
+
+Also update, in the same PR, the artifacts that carry the config contract:
+
+- `../.aiur/examples/*.example` and `examples/workflows/` reference configs.
+- `../README.md` for project concept and goals; `README.md` for Elixir
+  implementation and run instructions.
