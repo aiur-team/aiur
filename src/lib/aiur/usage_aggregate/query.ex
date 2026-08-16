@@ -18,6 +18,7 @@ defmodule Aiur.UsageAggregate.Query do
     by_ticket: :ticket,
     by_agent_family: :agent_family,
     by_backend: :backend,
+    by_upstream_provider: :upstream_provider,
     by_model: :resolved_model,
     by_auth_mode: :auth_mode,
     by_account_generation: :account_generation,
@@ -170,12 +171,13 @@ defmodule Aiur.UsageAggregate.Query do
   end
 
   defp unknown_attribution(selected) do
-    Enum.reduce(selected, %{run_id: 0, ticket: 0, account_generation: 0, resolved_model: 0, pricing_date: 0}, fn
+    Enum.reduce(selected, %{run_id: 0, ticket: 0, account_generation: 0, upstream_provider: 0, resolved_model: 0, pricing_date: 0}, fn
       {{dims, _measure}, _value}, acc ->
         acc
         |> bump(:run_id, is_nil(dims.run_id))
         |> bump(:ticket, dims.ticket == :unknown)
         |> bump(:account_generation, is_nil(dims.account_generation))
+        |> bump(:upstream_provider, dims.provider == :openrouter and is_nil(dims.upstream_provider))
         |> bump(:resolved_model, is_nil(dims.resolved_model))
         |> bump(:pricing_date, is_nil(dims.pricing_date))
     end)

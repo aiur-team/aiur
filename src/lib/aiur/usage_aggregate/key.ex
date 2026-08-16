@@ -33,6 +33,7 @@ defmodule Aiur.UsageAggregate.Key do
           account_generation: String.t() | nil,
           backend: atom(),
           agent_family: atom(),
+          upstream_provider: String.t() | nil,
           resolved_model: String.t() | nil,
           auth_mode: atom(),
           context_tier: :short_context | :long_context | :not_applicable | nil,
@@ -67,6 +68,7 @@ defmodule Aiur.UsageAggregate.Key do
       account_generation: envelope.account_generation.generation,
       backend: envelope.backend,
       agent_family: envelope.agent_family,
+      upstream_provider: envelope.upstream_provider,
       resolved_model: envelope.resolved_model,
       auth_mode: envelope.auth_mode,
       context_tier: envelope.context_tier,
@@ -133,6 +135,7 @@ defmodule Aiur.UsageAggregate.Key do
       "account_generation" => dims.account_generation,
       "backend" => Atom.to_string(dims.backend),
       "agent_family" => Atom.to_string(dims.agent_family),
+      "upstream_provider" => dims.upstream_provider,
       "resolved_model" => dims.resolved_model,
       "auth_mode" => Atom.to_string(dims.auth_mode),
       "context_tier" => if(dims.context_tier, do: Atom.to_string(dims.context_tier)),
@@ -160,6 +163,7 @@ defmodule Aiur.UsageAggregate.Key do
          {:ok, run_id} <- opaque_or_nil(raw["run_id"]),
          {:ok, attempt_id} <- opaque_or_nil(raw["attempt_id"]),
          {:ok, account_generation} <- opaque_or_nil(raw["account_generation"]),
+         {:ok, upstream_provider} <- ledger_identifier_or_nil(raw["upstream_provider"]),
          {:ok, resolved_model} <- opaque_or_nil(raw["resolved_model"]),
          {:ok, context_tier} <- partition(raw["context_tier"], @context_tiers),
          {:ok, cache_write_duration} <- partition(raw["cache_write_duration"], @cache_write_durations),
@@ -174,6 +178,7 @@ defmodule Aiur.UsageAggregate.Key do
          account_generation: account_generation,
          backend: backend,
          agent_family: agent_family,
+         upstream_provider: upstream_provider,
          resolved_model: resolved_model,
          auth_mode: auth_mode,
          context_tier: context_tier,
@@ -250,6 +255,15 @@ defmodule Aiur.UsageAggregate.Key do
 
   defp opaque_or_nil(nil), do: {:ok, nil}
   defp opaque_or_nil(value), do: opaque(value)
+
+  defp ledger_identifier_or_nil(nil), do: {:ok, nil}
+
+  defp ledger_identifier_or_nil(value) do
+    case UsageEnvelope.ledger_safe_identifier(value) do
+      nil -> :error
+      identifier -> {:ok, identifier}
+    end
+  end
 
   defp currency(value) when is_binary(value) do
     if String.match?(value, ~r/^[A-Z]{3}$/), do: {:ok, value}, else: :error

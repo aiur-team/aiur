@@ -10,8 +10,10 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   those facts and keeps the distinct states (locked, loading, empty, partial,
   stale, unavailable, ready) and the distinct monetary bases (provider-reported
   estimate vs API-equivalent estimate) visibly separate. It also exposes a
-  ranked `models` view (`view.models`) for the tokens-by-model chart: additive,
-  non-overlapping token dimensions per model, capped with an `Other` tail.
+  ranked `models` view (`view.models`) for the tokens-by-model chart and a
+  structured `routes` view (`view.routes`) for cost-by-provider-route rows.
+  Model totals use additive, non-overlapping token dimensions per model and are
+  capped with an `Other` tail.
 
   ## Truthfulness invariants
 
@@ -36,7 +38,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   labelled stale rather than presenting zeros.
   """
 
-  alias Aiur.Usage.GroupedScopes
+  alias Aiur.{CodingAgent, Usage.GroupedScopes}
 
   @type snapshot :: map()
   @type view :: map()
@@ -102,6 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
       scope: present_scope(Map.get(source, :scope, %{})),
       tokens: present_tokens(Map.get(source, :tokens, %{})),
       models: present_models(get_in(source, [:contributors, :by_model]) || []),
+      routes: present_routes(get_in(source, [:contributors, :by_provider_route]) || [], subscription_currencies),
       providers: present_providers(get_in(source, [:contributors, :by_provider]) || [], subscription_currencies),
       api_equivalent: present_api_equivalent(Map.get(source, :api_equivalent_estimate, %{}), subscription_currencies),
       provider_reported: present_provider_reported(Map.get(source, :provider_reported_estimate, %{})),
@@ -157,6 +160,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
     [
       scope_sentence(state, view),
       tokens_sentence(view.tokens),
+      routes_sentence(view.routes),
       api_equivalent_sentence(view.api_equivalent),
       provider_reported_sentence(view.provider_reported),
       tier_sentence(view.tier),
@@ -304,6 +308,78 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   defp model_label(:unknown), do: "Unknown"
   defp model_label(label) when is_binary(label), do: label
   defp model_label(label), do: to_string(label)
+
+  # --- provider routes -----------------------------------------------------
+
+  defp present_routes(entries, subscription_currencies) when is_list(entries) do
+    presented = Enum.map(entries, &present_route(&1, subscription_currencies))
+    %{entries: presented, any?: presented != []}
+  end
+
+  defp present_routes(_entries, _subscription_currencies), do: %{entries: [], any?: false}
+
+  defp present_route(entry, subscription_currencies) do
+    key = Map.get(entry, :key, %{})
+    provider = Map.get(key, :provider)
+    upstream_provider = Map.get(key, :upstream_provider)
+    provider_reported = money_by_currency(Map.get(entry, :provider_reported, %{}), subscription_currencies, false)
+    api_equivalent = money_by_currency(get_in(entry, [:api_equivalent, :amount]) || %{}, subscription_currencies, true)
+    {label, accessible_label} = provider_route_labels(provider, upstream_provider)
+
+    %{
+      key: key,
+      provider: provider,
+      upstream_provider: upstream_provider,
+      label: label,
+      accessible_label: accessible_label,
+      tokens: present_tokens(Map.get(entry, :tokens, %{})),
+      provider_reported: provider_reported,
+      provider_reported_label: money_label(provider_reported),
+      api_equivalent: api_equivalent,
+      api_equivalent_label: money_label(api_equivalent)
+    }
+  end
+
+  defp provider_route_labels(provider, upstream_provider) when is_binary(upstream_provider) do
+    provider = provider_label(provider)
+    {"#{provider} -> #{upstream_provider}", "#{provider} routed through #{upstream_provider}"}
+  end
+
+  defp provider_route_labels(provider, nil) when provider in [:openrouter, "openrouter"] do
+    {"OpenRouter -> upstream unknown", "OpenRouter routed through upstream provider unknown"}
+  end
+
+  defp provider_route_labels(provider, _upstream_provider) do
+    provider = provider_label(provider)
+    {provider, provider}
+  end
+
+  defp provider_label(provider) when is_atom(provider) or is_binary(provider) do
+    case CodingAgent.provider_descriptor(provider) do
+      %{label: label} -> label
+      _unknown -> fallback_provider_label(provider)
+    end
+  end
+
+  defp provider_label(_provider), do: "Unknown"
+
+  defp fallback_provider_label(provider) when is_atom(provider) do
+    provider
+    |> to_string()
+    |> String.split("_")
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
+
+  defp fallback_provider_label(provider) when is_binary(provider), do: provider
+
+  defp money_label([]), do: "Unknown"
+
+  defp money_label(entries) do
+    Enum.map_join(entries, " + ", fn entry ->
+      marker = if entry.subscription_marked?, do: "*", else: ""
+      "#{entry.amount} #{entry.currency}#{marker}"
+    end)
+  end
 
   # --- API-equivalent estimate ---------------------------------------------
 
@@ -586,6 +662,15 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   defp provider_reported_sentence(%{by_currency: by_currency}) do
     parts = Enum.map_join(by_currency, ", ", fn entry -> "#{entry.amount} #{entry.currency}" end)
     "Provider-reported estimate #{parts}."
+  end
+
+  defp routes_sentence(%{any?: false}), do: ""
+
+  defp routes_sentence(%{entries: entries}) do
+    {announced, remainder} = Enum.split(entries, 3)
+    labels = Enum.map(announced, & &1.accessible_label)
+    labels = if remainder == [], do: labels, else: labels ++ ["and #{length(remainder)} more"]
+    "Provider routes: #{Enum.join(labels, "; ")}."
   end
 
   defp tier_sentence(%{joined_count: 0, unjoined_count: 0}), do: ""

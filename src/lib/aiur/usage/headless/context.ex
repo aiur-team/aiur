@@ -29,6 +29,7 @@ defmodule Aiur.Usage.Headless.Context do
     :resolved_model,
     :effort,
     :query_source,
+    :upstream_provider,
     :account_generation,
     :source_sequence,
     :observed_source_version,
@@ -86,6 +87,7 @@ defmodule Aiur.Usage.Headless.Context do
       resolved_model: string_or_nil(Keyword.get(opts, :resolved_model)),
       effort: string_or_nil(Keyword.get(opts, :effort)),
       query_source: string_or_nil(Keyword.get(opts, :query_source)),
+      upstream_provider: nil,
       account_generation: generation,
       source_sequence: source_sequence(opts),
       observed_source_version: string_or_nil(Keyword.get(opts, :observed_source_version))

@@ -11,6 +11,8 @@ defmodule Aiur.UsageEnvelope do
 
   @version 1
   @max_opaque_bytes 256
+  @ledger_identifier ~r/\A[A-Za-z0-9._:-]+\z/
+  @sensitive_identifier ~r/(?:sk[-_][A-Za-z0-9]|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret|password|credential|bearer|authorization|api[-_]?key|prompt)/i
   # Registry-derived at compile time: the provider families that meter, so a new
   # backend's envelopes validate without editing this list.
   @providers Aiur.CodingAgent.provider_families()
@@ -76,6 +78,7 @@ defmodule Aiur.UsageEnvelope do
     :transport,
     :auth_mode,
     :query_source,
+    :upstream_provider,
     :effort,
     :requested_model,
     :resolved_model,
@@ -129,6 +132,7 @@ defmodule Aiur.UsageEnvelope do
     :transport,
     :auth_mode,
     :query_source,
+    :upstream_provider,
     :effort,
     :requested_model,
     :resolved_model,
@@ -187,6 +191,8 @@ defmodule Aiur.UsageEnvelope do
          {:ok, auth_mode} <- enum(value_of(attributes, :auth_mode), @auth_modes, :invalid_auth_mode),
          {:ok, query_source} <-
            optional_opaque_result(value_of(attributes, :query_source), :invalid_query_source),
+         {:ok, upstream_provider} <-
+           optional_ledger_identifier(value_of(attributes, :upstream_provider)),
          {:ok, effort} <- optional_opaque_result(value_of(attributes, :effort), :invalid_effort),
          {:ok, requested_model} <-
            optional_opaque_result(value_of(attributes, :requested_model), :invalid_requested_model),
@@ -234,6 +240,7 @@ defmodule Aiur.UsageEnvelope do
          transport: transport,
          auth_mode: auth_mode,
          query_source: query_source,
+         upstream_provider: upstream_provider,
          effort: effort,
          requested_model: requested_model,
          resolved_model: resolved_model,
@@ -333,6 +340,7 @@ defmodule Aiur.UsageEnvelope do
       "transport" => Atom.to_string(envelope.transport),
       "auth_mode" => Atom.to_string(envelope.auth_mode),
       "query_source" => envelope.query_source,
+      "upstream_provider" => envelope.upstream_provider,
       "effort" => envelope.effort,
       "requested_model" => envelope.requested_model,
       "resolved_model" => envelope.resolved_model,
@@ -420,6 +428,26 @@ defmodule Aiur.UsageEnvelope do
 
   defp optional_opaque_result(nil, _error), do: {:ok, nil}
   defp optional_opaque_result(value, error), do: opaque(value, error)
+
+  defp optional_ledger_identifier(nil), do: {:ok, nil}
+
+  defp optional_ledger_identifier(value) do
+    case ledger_safe_identifier(value) do
+      nil -> {:error, :invalid_upstream_provider}
+      identifier -> {:ok, identifier}
+    end
+  end
+
+  @doc false
+  @spec ledger_safe_identifier(term()) :: String.t() | nil
+  def ledger_safe_identifier(value)
+      when is_binary(value) and byte_size(value) in 1..@max_opaque_bytes do
+    if String.valid?(value) and String.match?(value, @ledger_identifier) and
+         not String.match?(value, @sensitive_identifier),
+       do: value
+  end
+
+  def ledger_safe_identifier(_value), do: nil
 
   # Occurrence-time price-partition context is optional when an adapter cannot
   # determine it. When present it is checked against the owning provider's
