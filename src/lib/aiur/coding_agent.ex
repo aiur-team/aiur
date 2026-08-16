@@ -14,6 +14,7 @@ defmodule Aiur.CodingAgent do
   """
 
   alias Aiur.CodingAgent.Models
+  alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
@@ -315,6 +316,23 @@ defmodule Aiur.CodingAgent do
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
 
+  @doc """
+  Whether a backend refuses to pick a model for itself, so every route to it
+  must name one. True for an aggregator that fronts a whole catalog
+  (OpenRouter) rather than a product: it registers models but deliberately no
+  `default_model`, because there is no defensible default across hundreds of
+  differently-priced upstreams. Derived from the registry rather than declared,
+  so a new aggregator cannot forget the flag and regress to a runtime
+  `:missing_model` at dispatch.
+  """
+  @spec model_required?(backend()) :: boolean()
+  def model_required?(backend) do
+    case get_in(backends(), [backend, :openai_compat]) do
+      %{} = compat -> is_nil(Map.get(compat, :default_model))
+      _ -> false
+    end
+  end
+
   @doc "Backends currently eligible for dispatch, including explicit config opt-ins."
   @spec dispatchable_backends(map()) :: [backend()]
   def dispatchable_backends(backend_configs \\ %{}) when is_map(backend_configs) do
@@ -611,6 +629,10 @@ defmodule Aiur.CodingAgent do
     end)
   end
 
+  @doc "The concrete models a backend's registry entry lists. Stale by design; see `known_model?/2`."
+  @spec models(backend()) :: [String.t()]
+  def models(backend), do: backends() |> Map.get(backend, %{}) |> Map.get(:models, [])
+
   @doc """
   Generic model tags for a backend that name a family rather than a version.
   Empty when the backend's own CLI already resolves aliases (`:native`, the
@@ -695,21 +717,77 @@ defmodule Aiur.CodingAgent do
     if (is_binary(issue.selected_backend) or override_backend(issue)) || routing_backend(issue) do
       {:ok, issue}
     else
-      candidates =
-        Keyword.get(opts, :backends, Config.switch_model_on_ratelimit())
-        |> Enum.filter(&(&1 in configured_backends(opts)))
+      candidates = eligible_routes(opts)
 
       cond do
         candidates == [] -> {:ok, issue}
-        backend = ModelAvailability.first_available(candidates, opts) -> {:ok, %{issue | selected_backend: backend}}
+        route = ModelAvailability.first_available(candidates, opts) -> {:ok, select_route(issue, route)}
         true -> {:all_limited, candidates}
       end
     end
   end
 
+  # The candidate routes for one claim. `agent.priority` is read **fresh per
+  # claim and reduced through an ordered chain**, never treated as a fixed
+  # literal resolved once at config load: that is what lets a later policy drop
+  # or reorder entries per dispatch.
+  #
+  # Two policies ship here — the backend must be dispatchable, and the route
+  # must have its credential — and `:route_policies` is the seam for the rest.
+  # #1456's peak-pricing policy is the intended next occupant: it needs to
+  # compare entries by cost at the moment of selection, which it can, because a
+  # route already resolves to a price identity via `route_price_identity/1`.
+  # A policy that returns [] falls through to `{:ok, issue}` (dispatch with no
+  # pinned route) rather than stranding the claim.
+  defp eligible_routes(opts) do
+    Keyword.get(opts, :backends, Config.switch_model_on_ratelimit())
+    |> Enum.filter(&(RoutingValue.routing_backend(&1) in configured_backends(opts) and RouteCredentials.usable?(&1, opts)))
+    |> apply_route_policies(opts)
+  end
+
+  defp apply_route_policies(routes, opts) do
+    opts
+    |> Keyword.get(:route_policies, [])
+    |> Enum.reduce(routes, fn policy, acc -> policy.(acc) end)
+  end
+
+  @doc """
+  The price-table identity a route bills under: the billing-path provider and
+  the model slug, which together with the usual dimensions key
+  `Aiur.Usage.PriceTable.lookup/2`.
+
+  The provider is the **route's own backend family**, never the upstream that
+  ultimately served the request — spend through OpenRouter is billed by
+  OpenRouter at OpenRouter's rates even when the selected endpoint is
+  Anthropic's. Exposing this as a pure function of the route is what lets a
+  cost-aware selection policy (#1456) compare candidates before dispatch
+  instead of reconstructing cost after the fact.
+
+  `nil` for the model half means the route pins no model and the backend's own
+  default applies.
+  """
+  @spec route_price_identity(String.t()) :: %{provider: atom() | nil, model: String.t() | nil}
+  def route_price_identity(route) when is_binary(route) do
+    backend = RoutingValue.routing_backend(route)
+    model = RoutingValue.routing_model(route)
+
+    %{
+      provider: backend && family_for(backend) && String.to_existing_atom(family_for(backend)),
+      model: resolve_model(backend, model)
+    }
+  rescue
+    ArgumentError -> %{provider: nil, model: RoutingValue.routing_model(route)}
+  end
+
+  # A route carries both halves; persisting only the backend would let session
+  # start-up re-resolve a different model than the one selection chose.
+  defp select_route(issue, route) do
+    %{issue | selected_backend: RoutingValue.routing_backend(route), selected_model: RoutingValue.routing_model(route)}
+  end
+
   defp configured_backends(opts) do
     Keyword.get_lazy(opts, :configured_backends, fn ->
-      (Config.agent_priority() ++
+      (Config.agent_priority_backends() ++
          [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)])
       |> Enum.filter(&(&1 in known_backends()))
       |> Enum.uniq()
@@ -727,6 +805,12 @@ defmodule Aiur.CodingAgent do
   model when routing names that same backend.
   """
   @spec model_for(Issue.t()) :: String.t() | nil
+  # `backend_for/1` already resolves `selected_backend` ahead of everything
+  # else, so the model half of the same selected route has to win here too —
+  # otherwise dispatch picks `openrouter:anthropic/claude-sonnet-5` and the
+  # session starts on whatever the routing table happens to say instead.
+  def model_for(%Issue{selected_model: model}) when is_binary(model) and model != "", do: model
+
   def model_for(%Issue{} = issue) do
     case override_backend(issue) do
       # With no override, the complexity-routing value names the model for the

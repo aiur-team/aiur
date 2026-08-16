@@ -77,7 +77,8 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.priority` | array | `[]` | Ordered dispatch preference. Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when a backend hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`) — see [Routes in `agent.priority`](#routes-in-agent-priority). Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when an entry hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Whether dispatch routes away from a provider's peak-pricing window, falling through to the next `agent.priority` entry. `false` means ignore pricing windows entirely and use `agent.priority` exactly as written — it never changes how spend is *reported*. Shape only today; the behaviour lands with time-of-day routing. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -109,6 +110,88 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
 | `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
+
+### Routes in `agent.priority`
+
+Each entry is a **route**, not just a backend name. A route uses the same
+grammar `agent.routing` has always used:
+
+```
+<backend>[:<model>[:<effort>]][+remote]
+```
+
+- `claude` — the backend's own direct connection, exactly as before.
+- `openrouter:anthropic/claude-sonnet-5` — that model reached through OpenRouter.
+
+A colon-free entry means what it has always meant, so **existing configs need
+no change**.
+
+```yaml
+agent:
+  priority:
+    - claude                                # Anthropic direct
+    - openrouter:anthropic/claude-sonnet-5  # same model, billed by OpenRouter
+    - codex                                 # OpenAI direct
+    - openrouter:moonshotai/kimi-k2.7-code  # no direct Moonshot key: OpenRouter only
+
+  backend_configs:
+    openrouter:
+      provider:
+        order: [Anthropic, "Together AI"]
+        allow_fallbacks: true
+        ignore: [Azure]
+        sort: price
+
+  pricing_policy:
+    avoid_peak_pricing: true
+```
+
+**A model reachable two ways may appear twice, and the order is the fallback
+order.** Duplicate *routes* are rejected; duplicate backends are not.
+
+**Model names.** The canonical form is the provider's full slug, which is also
+the key cost reporting uses. A short family alias works too — `openrouter:claude`
+resolves to the newest `anthropic/claude-*` — and is widened to the concrete
+slug before the request is sent, so aliased calls are priced normally. An alias
+claimed by more than one vendor is rejected at config load rather than resolved
+by coin flip. Aggregator ids beginning with `~` are rejected: they are floating
+pointers whose target can change under a running fleet.
+
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a
+product, so a bare `openrouter` entry is a config error.
+
+**An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
+means direct-only, always. Routing through OpenRouter is something you write.
+
+#### What happens when a route fails
+
+| Cause | Behaviour |
+| --- | --- |
+| **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
+| **Usage or rate limit (429)** | Advances to the next entry and records the backend in `model-usage.json` with its reset time. Self-healing. |
+| **Transient error (5xx, timeout, malformed response)** | Retries, then advances **for that claim only**, and raises an operator attention. Deliberately *not* written to `model-usage.json`: that file means "rate-limited until `reset_at`", and recording an outage there would make the outage indistinguishable from a quota event. |
+| **Auth rejected (401)** | Does **not** advance. Hard failure plus an attention. A key that is present and wrong is a config error, and falling through would move spend silently onto another route while the broken credential stayed hidden. |
+
+#### `backend_configs.openrouter`
+
+Settings for the OpenRouter *transport*. Nothing here selects anything —
+selection lives entirely in `agent.priority`.
+
+| Key | Type | Controls |
+| --- | --- | --- |
+| `backend_configs.openrouter.provider.order` | array of strings | Preferred upstream providers, most preferred first. |
+| `backend_configs.openrouter.provider.ignore` | array of strings | Upstream providers to exclude. |
+| `backend_configs.openrouter.provider.allow_fallbacks` | boolean | Whether OpenRouter may cross to another upstream within one request. |
+| `backend_configs.openrouter.provider.sort` | string | `price`, `throughput`, or `latency`. |
+
+#### Cost attribution
+
+Spend is priced by the **route**, never by whichever upstream ended up serving
+the request. A call through `openrouter:anthropic/claude-sonnet-5` prices
+against OpenRouter's rows for that slug even when the selected upstream was
+Anthropic, because OpenRouter is who bills it. Direct and via-OpenRouter routes
+to the same model are separate identities and may legitimately carry different
+rates.
 
 | Build-gate behavior | Detail |
 | --- | --- |
@@ -157,6 +240,85 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
+
+## Model discovery
+
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers
+release models faster than that list is edited, so for OpenAI-compatible backends aiur
+also asks the provider's own catalogue endpoint which models it currently serves, and
+caches the answer.
+
+Discovery **extends** the curated list; it never replaces it. Reasoning-effort
+vocabularies, capability flags, derived family aliases, presentation, and the models
+`aiur init` offers stay registry-owned, and where a discovered id collides with a
+curated one the curated metadata wins.
+
+| Backend | Endpoint | Credential | Returns |
+| --- | --- | --- | --- |
+| `openrouter` | `GET https://openrouter.ai/api/v1/models` | none required (sent when `OPENROUTER_API_KEY` is set, so the request is attributed to your account) | identifiers, context window, **and pricing** |
+| `deepseek` | `GET https://api.deepseek.com/models` | `DEEPSEEK_API_KEY` | identifiers only |
+| `kimi` | `GET https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` | identifiers only |
+
+`codex` and `claude` are not listed: they answer `model/list` over their own CLI
+transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
+plus `anthropic-version`) has an adapter for operators who point an OpenAI-compatible
+backend straight at it; it returns identifiers and display names, no pricing.
+
+### Cache, TTL, and cold start
+
+| Property | Value |
+| --- | --- |
+| Location | `model-catalog.json`, beside the active workflow config and `model-usage.json` |
+| TTL | 24 hours |
+| Refresh trigger | lazy and backgrounded — reading the usable model set (e.g. when an agent session starts) schedules a refresh only if the cache is older than the TTL |
+| Cold offline start | the discovered set is empty and aiur uses exactly the curated list, i.e. it behaves as it did before discovery existed |
+| Corrupt cache | treated as absent; falls back to the curated list |
+
+Writes are atomic (temp file plus rename) and a concurrent refresh is a no-op rather
+than a duplicate request.
+
+**Config validation never makes a network call.** Validation reads the cache and
+nothing else. An absent or stale cache means "cannot verify", and a model aiur cannot
+verify is **accepted**, never rejected.
+
+### Identifiers aiur refuses
+
+Two classes of catalogue id are rejected at ingest, with the reason recorded in the
+cache under `rejected`:
+
+- **`reserved_routing_separator`** — an id containing `:`, such as
+  `moonshotai/kimi-k2.7-code:batch`. Aiur routing values are `backend:model:effort`, so
+  `openrouter:moonshotai/kimi-k2.7-code:batch` would parse `batch` as a reasoning
+  effort. Pin such a variant only if and when aiur gains a way to escape the separator.
+- **`unstable_identifier_prefix`** — an id starting with `~`, such as
+  `~moonshotai/kimi-latest`, which OpenRouter uses for a non-canonical pointer rather
+  than an addressable model.
+
+### Pricing is advisory
+
+OpenRouter is the only catalogue that quotes prices. Aiur records those numbers in the
+cache and compares them to the curated price table, and stops there. Fetched prices are
+**never** written into the price table, and a curated row always wins. A disagreement
+larger than 5% logs a price-drift warning naming both numbers, which turns a stale
+curated row (the failure mode where output spend is under-reported) into something you
+can see — without letting a vendor feed silently rewrite what aiur reports having spent.
+
+A discovered model with **no** curated price row is usable but visibly unpriced: its
+usage reports unknown cost with an `unknown_price_model` coverage reason. It is never
+costed at zero. A refresh logs how many discovered models are unpriced.
+
+### Per-backend opt-out
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend's catalogue endpoint. The curated list keeps working. |
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      model_discovery: false
+```
 
 ## hooks
 
