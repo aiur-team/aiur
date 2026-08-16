@@ -111,6 +111,12 @@ A search field under the panel title narrows the list as you type. It matches ti
 
 Confirming the add-agent dialog is a writable control. It applies the configured first active-state label — which is what makes a ticket dispatchable at all — plus the selected `complexity:` tag and `model:` overrides, and removes the labels those replace. A tracker other than GitHub reports the panel as unsupported rather than unavailable.
 
+## Usage and cost
+
+The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**. A routed call names both hops, such as `OpenRouter -> DeepSeek`; a direct provider appears without an arrow, and OpenRouter usage whose selected upstream was not reported says `OpenRouter -> upstream unknown`. Provider-reported and API-equivalent estimates remain separate, and an unavailable estimate reads **Unknown**, never zero.
+
+The same route dimension is available from `mix aiur.cost_report`. Its `--json` output keeps `provider` and `upstream_provider` as separate fields instead of requiring consumers to parse the human route label.
+
 ## Decision history
 
 History is projected from the append-only decision audit. It attributes human Executor, supervising-Executor, ticket-agent, and system facts only when the canonical record identifies them. Dispatch, acknowledgement, revision, and follow-up results remain visible after the active card changes.

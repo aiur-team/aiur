@@ -2,6 +2,7 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
   @moduledoc false
 
   alias Aiur.Usage.Headless.Adapter
+  alias Aiur.UsageEnvelope
 
   @spec relationship_definition(atom(), String.t(), String.t(), :additive | {:subset_of, :input}) :: map()
   def relationship_definition(provider, source, revision, cache_relationship) do
@@ -25,7 +26,7 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
   def extract(adapter, payload, context, ingested_at) when is_map(payload) do
     with usage when is_map(usage) <- payload["usage"] || payload[:usage],
          true <- measurement?(usage) do
-      context = actual_attribution(context, payload)
+      context = actual_attribution(adapter, context, payload)
       dimensions = dimensions(adapter.provider(), usage)
 
       [
@@ -48,11 +49,16 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
 
   def extract(_adapter, _payload, _context, _ingested_at), do: []
 
-  defp actual_attribution(context, payload) do
+  defp actual_attribution(adapter, context, payload) do
     resolved_model = string(payload["model"] || payload[:model]) || context.resolved_model
-    selected_provider = string(payload["selected_provider"] || payload[:selected_provider] || payload["provider"] || payload[:provider])
+    raw_upstream_provider = payload["upstream_provider"] || payload[:upstream_provider]
 
-    %{context | resolved_model: resolved_model, query_source: selected_provider || context.query_source}
+    upstream_provider =
+      if adapter.provider() == :openrouter do
+        UsageEnvelope.ledger_safe_identifier(raw_upstream_provider)
+      end
+
+    %{context | resolved_model: resolved_model, upstream_provider: upstream_provider}
   end
 
   defp dimensions(:deepseek, usage) do
@@ -122,6 +128,7 @@ defmodule Aiur.Usage.Headless.OpenAICompat.RequestUsage do
         payload["request_id"] || payload[:request_id] || context.request_id || context.turn_id,
         context.source_sequence,
         context.resolved_model,
+        context.upstream_provider,
         dimensions.input,
         dimensions.output,
         dimensions.provider_reported_total

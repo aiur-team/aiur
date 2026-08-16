@@ -12,11 +12,15 @@ defmodule Aiur.UsageEnvelope.CodecTest do
     assert record["cost"]["unit"] == "major"
     assert record["cost"]["source_representation"] == "minor"
     assert record["query_source"] == "repl_main_thread"
+    assert record["upstream_provider"] == "DeepSeek"
     assert {:ok, decoded} = Codec.decode(record)
     assert decoded == envelope
 
     assert {:ok, json_decoded} = record |> Jason.encode!() |> Jason.decode!() |> Codec.decode()
     assert json_decoded == envelope
+
+    assert {:ok, legacy} = record |> Map.delete("upstream_provider") |> Codec.decode()
+    assert legacy.upstream_provider == nil
   end
 
   test "rejects forged derived dates and unexpected content-bearing fields" do
@@ -75,6 +79,7 @@ defmodule Aiur.UsageEnvelope.CodecTest do
       transport: :app_server,
       auth_mode: :chatgpt,
       query_source: "repl_main_thread",
+      upstream_provider: "DeepSeek",
       account_generation: %{
         provider: :codex,
         backend: :app_server,

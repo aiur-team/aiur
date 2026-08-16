@@ -7219,6 +7219,15 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   gap: 1rem;
 }
 
+.usage-provider-routes-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.usage-provider-routes-table {
+  min-width: 38rem;
+}
+
 /* Two-pane token chart: cumulative per-model line on the left, tokens-by-
    destination bars on the right. */
 .usage-token-grid {
