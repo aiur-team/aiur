@@ -180,8 +180,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head", draft?: false, review_decision: nil}
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts]) ==
-               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts])
+      assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
+
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
 
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -238,6 +240,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       identifier = unique_identifier("ci-draft-stall")
       alert_topic = "ticket.#{identifier}.pr.draft_approved_green"
       recorder = start_recorder(alert_topic)
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
       issue = issue(identifier, "human-review")
 
       state =
@@ -252,12 +256,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         review_decision: "APPROVED"
       }
 
-      next = poll_ci(state, issue, result)
+      next = poll_ci(state, issue, result, alert_emitter: emitter)
       sync_recorder(recorder)
 
       # Approved + green + draft is always wrong: the daemon alerts so the
       # stall is loud instead of an indistinguishable BLOCKED.
-      assert_received {:recorded, _position, {:event, %{"needs_attention" => true, topic: ^alert_topic}}}
+      assert_received {:parked_alert, ^ref, ^alert_topic, alert_opts}
+      assert Keyword.get(alert_opts, :needs_attention) == true
 
       # The projection records draft state so the Executor queue surfaces DRAFT.
       assert next.ci_lifecycle.poll_cache == %{
@@ -270,10 +275,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                }
              }
 
+      assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+
       # Re-polling the identical stalled head must not re-alert every cycle.
-      _again = poll_ci(next, issue, result)
+      _again = poll_ci(next, issue, result, alert_emitter: emitter)
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
+      refute_received {:parked_alert, ^ref, ^alert_topic, _opts}
     end
 
     test "does not alert for a ready (non-draft) green PR" do
@@ -515,8 +522,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head", draft?: false, review_decision: nil}
              }
 
-      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts]) ==
-               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts])
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
     end
 
     test "a pre-existing operator pause does not arm the CI fallback" do
@@ -914,6 +921,162 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     end
   end
 
+  describe "approved green draft alert lifecycle" do
+    defp draft_stall_observation(overrides \\ %{}) do
+      Map.merge(
+        %{
+          decision: :passed,
+          pr_number: 941,
+          head_sha: "stalled-head",
+          draft?: true,
+          review_decision: "APPROVED"
+        },
+        overrides
+      )
+    end
+
+    test "resolves the attention when the PR becomes ready" do
+      identifier = unique_identifier("draft-stall-resolve")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
+      assert MapSet.member?(first.ci_lifecycle.draft_stall_alerts, identifier)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      next = poll_ci(first, issue, draft_stall_observation(%{draft?: false}), alert_emitter: emitter)
+      resolved_topic = "ticket.#{identifier}.pr.draft_approved_green.resolved"
+
+      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}
+      assert Keyword.get(resolve_opts, :needs_attention) == false
+      refute MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+    end
+
+    test "keeps the attention latched across an incomplete poll" do
+      identifier = unique_identifier("draft-stall-transient")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      transient = %{decision: :pending, pending_reason: :ci_lookup_unavailable, error: :test}
+      second = poll_ci(first, issue, transient, alert_emitter: emitter)
+      assert second.ci_lifecycle.poll_cache[identifier].draft? == true
+      assert second.ci_lifecycle.poll_cache[identifier].review_decision == "APPROVED"
+
+      third = poll_ci(second, issue, draft_stall_observation(), alert_emitter: emitter)
+
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert MapSet.member?(third.ci_lifecycle.draft_stall_alerts, identifier)
+    end
+
+    test "keeps the attention latched when REST fallback cannot observe approval" do
+      identifier = unique_identifier("draft-stall-rest-fallback")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      fallback = draft_stall_observation(%{review_decision: nil})
+      next = poll_ci(first, issue, fallback, alert_emitter: emitter)
+
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+    end
+
+    test "keeps the attention latched through a transient branch-list miss" do
+      identifier = unique_identifier("draft-stall-not-visible")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      transient = %{decision: :pending, pending_reason: :open_pr_not_yet_visible}
+      next = poll_ci(first, issue, transient, alert_emitter: emitter)
+
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+    end
+
+    test "resolves and clears the draft projection when a visible PR disappears" do
+      identifier = unique_identifier("draft-stall-gone")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
+      assert_received {:parked_alert, ^ref, _topic, _opts}
+
+      gone = %{decision: :pending, pending_reason: :open_pr_no_longer_visible}
+      next = poll_ci(first, issue, gone, alert_emitter: emitter)
+      resolved_topic = "ticket.#{identifier}.pr.draft_approved_green.resolved"
+
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _opts}
+      refute MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+      assert next.ci_lifecycle.poll_cache[identifier].draft? == false
+      assert next.ci_lifecycle.poll_cache[identifier].review_decision == nil
+    end
+
+    test "keeps the attention active while the ticket temporarily leaves the poll set" do
+      identifier = unique_identifier("draft-stall-depart")
+      issue = issue(identifier, "human-review")
+      ref = make_ref()
+      emitter = capture_alert_emitter(self(), ref)
+
+      state =
+        running_state(issue, self(), :working, [])
+        |> Map.update!(:ci_lifecycle, &Map.put(&1, :draft_stall_alerts, MapSet.new([identifier])))
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
+          alert_emitter: emitter,
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end
+        )
+
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+
+      ready_issue = issue(identifier, "human-review")
+
+      resolved =
+        poll_ci(next, ready_issue, draft_stall_observation(%{draft?: false}), alert_emitter: emitter)
+
+      resolved_topic = "ticket.#{identifier}.pr.draft_approved_green.resolved"
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _opts}
+      refute MapSet.member?(resolved.ci_lifecycle.draft_stall_alerts, identifier)
+    end
+
+    test "seeds an active attention after restart instead of re-emitting it" do
+      identifier = unique_identifier("draft-stall-restart")
+      issue = issue(identifier, "human-review")
+      state = running_state(issue, self(), :working, [])
+      ref = make_ref()
+
+      next =
+        poll_ci(state, issue, draft_stall_observation(),
+          alert_emitter: capture_alert_emitter(self(), ref),
+          draft_stall_alert_loader: fn -> MapSet.new([identifier]) end
+        )
+
+      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
+    end
+  end
+
   defp poll_ci(state, issue, result, opts \\ []) do
     next =
       CiLifecycle.poll_github_ci(
@@ -923,6 +1086,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
             # Hermetic: parked-ready restart dedupe seeds from the durable
             # alert ledger; tests never read the real ledger.
             parked_ready_alert_loader: fn -> MapSet.new() end,
+            draft_stall_alert_loader: fn -> MapSet.new() end,
             ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
             ci_poller: fn [target], _opts ->
               assert target == issue.identifier

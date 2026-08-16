@@ -504,13 +504,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp apply_ci_poll_result_for_target(state, result, issues_by_target, opts) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
-        previous = cached_ci_projection(state, issue)
-
         state
+        |> reconcile_draft_stall_alert(issue, result, opts)
         |> reconcile_parked_ready_alert(issue, result, opts)
         |> reconcile_base_repair_invalidation(issue, result)
         |> stash_last_ci_result(issue, result)
-        |> maybe_alert_approved_green_draft(issue, result, previous)
         |> apply_ci_poll_result(issue, result)
 
       _ ->
@@ -518,52 +516,127 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Edge-triggered, once per stalled head: approved + CI-green + still a draft
-  # is always wrong and is precisely the "finished work silently parked" case
-  # (#1974). The previous poll_cache projection carries the last observed
-  # stall state, so a genuinely new observation (fresh stall or a re-push of
-  # the same stall) alerts while a repeated poll of the identical stalled head
-  # stays silent.
-  defp maybe_alert_approved_green_draft(%State{} = state, %Issue{} = issue, result, previous) do
-    if stalled_approved_green_draft?(result) and not already_alerted_for_stall?(previous, result) do
-      emit_approved_green_draft_alert(state, issue, result)
+  defp reconcile_draft_stall_alert(%State{} = state, %Issue{} = issue, result, opts) do
+    target = ci_target_for_issue(issue)
+
+    if is_binary(target) do
+      state
+      |> ensure_draft_stall_alerts_seeded(opts)
+      |> reconcile_draft_stall_alert_for_target(issue, result, target, opts)
     else
       state
     end
   end
 
-  defp already_alerted_for_stall?(nil, _result), do: false
+  defp reconcile_draft_stall_alert_for_target(state, issue, result, target, opts) do
+    active_alerts = Map.get(state.ci_lifecycle, :draft_stall_alerts, MapSet.new())
 
-  defp already_alerted_for_stall?(previous, result) do
-    stalled_approved_green_draft?(previous) and
-      Map.get(previous, :head_sha) == Map.get(result, :head_sha)
-  end
+    case draft_stall_state(result) do
+      :active ->
+        emit_draft_stall_alert(state, issue, result, target, active_alerts, opts)
 
-  defp stalled_approved_green_draft?(nil), do: false
+      status when status in [:clear, :pr_gone] ->
+        resolve_draft_stall_alert(state, issue, result, target, active_alerts, opts)
 
-  defp stalled_approved_green_draft?(result) do
-    Map.get(result, :decision) == :passed and
-      Map.get(result, :draft?) == true and
-      Map.get(result, :review_decision) == "APPROVED"
-  end
-
-  defp emit_approved_green_draft_alert(%State{} = state, %Issue{} = issue, result) do
-    case ci_target_for_issue(issue) do
-      target when is_binary(target) ->
-        pr_number = Map.get(result, :pr_number)
-
-        Alerts.emit_system(
-          "ticket.#{target}.pr.draft_approved_green",
-          message: "Approved and CI-green PR ##{pr_number} is still a draft and cannot auto-merge",
-          reason:
-            "A draft blocks the merge queue: the PR is approved, CI is green, and it is still " <>
-              "a draft (#1974). Mark the PR ready to resume auto-merge; until then finished work sits.",
-          needs_attention: true
-        )
-
+      :unknown ->
         state
+    end
+  end
 
-      _ ->
+  defp draft_stall_state(result) do
+    cond do
+      Map.get(result, :pending_reason) == :open_pr_no_longer_visible ->
+        :pr_gone
+
+      Map.get(result, :pending_reason) == :open_pr_not_yet_visible ->
+        :unknown
+
+      not Map.has_key?(result, :decision) or not Map.has_key?(result, :draft?) ->
+        :unknown
+
+      Map.get(result, :decision) != :passed or Map.get(result, :draft?) == false ->
+        :clear
+
+      Map.get(result, :draft?) == true and Map.get(result, :review_decision) == "APPROVED" ->
+        :active
+
+      Map.get(result, :draft?) == true and is_binary(Map.get(result, :review_decision)) ->
+        :clear
+
+      true ->
+        :unknown
+    end
+  end
+
+  defp emit_draft_stall_alert(state, issue, result, target, active_alerts, opts) do
+    if MapSet.member?(active_alerts, target) do
+      state
+    else
+      topic = draft_stall_alert_topic(target)
+      pr_number = Map.get(result, :pr_number)
+      message = "Approved and CI-green PR ##{pr_number} is still a draft and cannot auto-merge"
+
+      case alert_emitter(opts).(topic,
+             issue: issue,
+             central: true,
+             message: message,
+             reason:
+               "A draft blocks the merge queue: the PR is approved, CI is green, and it is still " <>
+                 "a draft (#1974). Mark the PR ready to resume auto-merge; until then finished work sits.",
+             needs_attention: true
+           ) do
+        :ok -> put_draft_stall_alerts(state, MapSet.put(active_alerts, target))
+        {:error, reason} -> log_draft_stall_alert_error(state, topic, reason)
+      end
+    end
+  end
+
+  defp resolve_draft_stall_alert(state, issue, result, target, active_alerts, opts) do
+    if MapSet.member?(active_alerts, target) do
+      topic = draft_stall_alert_topic(target) <> ".resolved"
+
+      message =
+        case Map.get(result, :pr_number) do
+          pr_number when is_integer(pr_number) ->
+            "Pull request ##{pr_number} is no longer approved, CI-green, and draft."
+
+          _ ->
+            "Ticket #{target} is no longer stalled by an approved, CI-green draft pull request."
+        end
+
+      case alert_emitter(opts).(topic,
+             issue: issue,
+             central: true,
+             message: message,
+             reason: message,
+             needs_attention: false
+           ) do
+        :ok -> put_draft_stall_alerts(state, MapSet.delete(active_alerts, target))
+        {:error, reason} -> log_draft_stall_alert_error(state, topic, reason)
+      end
+    else
+      state
+    end
+  end
+
+  defp draft_stall_alert_topic(target), do: "ticket.#{target}.pr.draft_approved_green"
+
+  defp put_draft_stall_alerts(%State{} = state, alerts) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :draft_stall_alerts, alerts)}
+  end
+
+  defp log_draft_stall_alert_error(state, topic, reason) do
+    Logger.warning("Draft-stall alert emission failed: topic=#{topic} reason=#{inspect(reason)}")
+    state
+  end
+
+  defp ensure_draft_stall_alerts_seeded(%State{} = state, opts) do
+    case Map.get(state.ci_lifecycle, :draft_stall_alerts) do
+      nil ->
+        alerts = seed_active_alerts(opts, :draft_stall_alert_loader, "draft_approved_green")
+        %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :draft_stall_alerts, alerts)}
+
+      _alerts ->
         state
     end
   end
@@ -750,32 +823,36 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   # re-fire it for a still-parked PR. Targets that left the poll set entirely
   # are resolved by `resolve_departed_parked_ready_alerts/3` instead.
   defp seed_parked_ready_alerts(opts) do
-    case Keyword.fetch(opts, :parked_ready_alert_loader) do
+    seed_active_alerts(opts, :parked_ready_alert_loader, "parked_ready")
+  end
+
+  defp seed_active_alerts(opts, loader_key, alert_name) do
+    case Keyword.fetch(opts, loader_key) do
       {:ok, loader} ->
         loader.()
 
       :error ->
         [log_roots: [Paths.log_root_dir()], needs_attention: true]
         |> AlertFeed.list()
-        |> Enum.reduce(MapSet.new(), &collect_parked_ready_alert_target/2)
+        |> Enum.reduce(MapSet.new(), &collect_active_alert_target(&1, &2, alert_name))
     end
   end
 
-  defp collect_parked_ready_alert_target(alert, acc) do
-    case parked_ready_alert_target(alert) do
+  defp collect_active_alert_target(alert, acc, alert_name) do
+    case active_pr_alert_target(alert, alert_name) do
       nil -> acc
       target -> MapSet.put(acc, target)
     end
   end
 
-  defp parked_ready_alert_target(%{"topic" => "ticket." <> rest}) do
+  defp active_pr_alert_target(%{"topic" => "ticket." <> rest}, alert_name) do
     case String.split(rest, ".", parts: 3) do
-      [target, "pr", "parked_ready"] -> target
+      [target, "pr", ^alert_name] -> target
       _ -> nil
     end
   end
 
-  defp parked_ready_alert_target(_alert), do: nil
+  defp active_pr_alert_target(_alert, _alert_name), do: nil
 
   # Read-only projection of the poll result for OCC-5's fleet-state row (PR
   # number / CI decision), cached by ticket identifier independently of
@@ -792,8 +869,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         state
 
       target ->
-        projection = ci_result_projection(result)
         poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+        projection = ci_result_projection(result, Map.get(poll_cache, target))
 
         if Map.get(poll_cache, target) == projection do
           state
@@ -804,20 +881,22 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp ci_result_projection(result) do
+  defp ci_result_projection(result, previous) do
     %{
       decision: Map.get(result, :decision),
       pr_number: Map.get(result, :pr_number),
       head_sha: Map.get(result, :head_sha),
-      draft?: Map.get(result, :draft?) == true,
-      review_decision: Map.get(result, :review_decision)
+      draft?: projection_value(result, previous, :draft?, false) == true,
+      review_decision: projection_value(result, previous, :review_decision, nil)
     }
   end
 
-  defp cached_ci_projection(%State{} = state, %Issue{} = issue) do
-    case ci_target_for_issue(issue) do
-      target when is_binary(target) -> Map.get(Map.get(state.ci_lifecycle, :poll_cache, %{}), target)
-      _ -> nil
+  defp projection_value(result, previous, key, default) do
+    cond do
+      Map.has_key?(result, key) -> Map.get(result, key)
+      Map.get(result, :pending_reason) == :open_pr_no_longer_visible -> default
+      is_map(previous) -> Map.get(previous, key, default)
+      true -> default
     end
   end
 
@@ -1157,6 +1236,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     state =
       state
+      |> ensure_draft_stall_alerts_seeded(opts)
       |> ensure_parked_ready_alerts_seeded(opts)
       |> resolve_departed_parked_ready_alerts(targets, opts)
 
