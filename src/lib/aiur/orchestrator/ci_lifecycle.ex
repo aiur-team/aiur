@@ -544,26 +544,34 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp draft_stall_state(result) do
-    cond do
-      Map.get(result, :pending_reason) == :open_pr_no_longer_visible ->
+    case Map.get(result, :pending_reason) do
+      :open_pr_no_longer_visible ->
         :pr_gone
 
-      Map.get(result, :pending_reason) == :open_pr_not_yet_visible ->
+      :open_pr_not_yet_visible ->
         :unknown
 
-      not Map.has_key?(result, :decision) or not Map.has_key?(result, :draft?) ->
-        :unknown
+      _pending_reason ->
+        observed_draft_stall_state(result)
+    end
+  end
 
-      Map.get(result, :decision) != :passed or Map.get(result, :draft?) == false ->
-        :clear
-
-      Map.get(result, :draft?) == true and Map.get(result, :review_decision) == "APPROVED" ->
+  defp observed_draft_stall_state(result) do
+    case result do
+      %{decision: :passed, draft?: true, review_decision: "APPROVED"} ->
         :active
 
-      Map.get(result, :draft?) == true and is_binary(Map.get(result, :review_decision)) ->
+      %{decision: decision, draft?: _draft?} when decision != :passed ->
         :clear
 
-      true ->
+      %{decision: _decision, draft?: false} ->
+        :clear
+
+      %{decision: :passed, draft?: true, review_decision: review_decision}
+      when is_binary(review_decision) ->
+        :clear
+
+      _incomplete_observation ->
         :unknown
     end
   end
