@@ -2,25 +2,57 @@ import { expect, test } from '@playwright/test'
 import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
-const surfaces = ['analytics-link', 'decision-inbox', 'decision', 'fleet', 'history', 'overview', 'recent-outcomes']
+// One screenshot per documented dashboard surface. Adding a surface here means
+// adding it to website/scripts/capture-dashboard.mjs and recapturing.
+const surfaces = ['build-orders', 'commands', 'streamdeck', 'units']
 const expectedAssets = surfaces.map((surface) => `${surface}-dark.png`).sort()
 
-test('Dashboard guide publishes one desktop screenshot for every surface', async () => {
-  const websiteRoot = path.resolve(import.meta.dirname, '..')
-  const guide = await readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8')
-  const imagePaths = [...guide.matchAll(/<img src="(\/images\/dashboard\/[a-z-]+-dark\.png)"/g)].map(
+// Each surface's screenshot belongs on the page that explains that surface. The
+// Dashboard guide keeps exactly one, so it stays a short index rather than a
+// duplicate of Concepts.
+const surfacePages: Record<string, string> = {
+  'units': 'docs-app/concepts/units.md',
+  'commands': 'docs-app/concepts/commands.md',
+  'build-orders': 'docs-app/concepts/build-orders.md',
+  'streamdeck': 'docs-app/guide/stream-deck.md'
+}
+
+function imagePathsIn(markdown: string): string[] {
+  return [...markdown.matchAll(/<img src="(\/images\/dashboard\/[a-z-]+-dark\.png)"/g)].map(
     ([, imagePath]) => imagePath
   )
+}
+
+test('every dashboard surface screenshot is published on the page that explains it', async () => {
+  const websiteRoot = path.resolve(import.meta.dirname, '..')
+
+  for (const [surface, page] of Object.entries(surfacePages)) {
+    const markdown = await readFile(path.join(websiteRoot, page), 'utf8')
+    const imagePaths = imagePathsIn(markdown)
+
+    expect(imagePaths, `${page} must show ${surface}-dark.png`).toContain(
+      `/images/dashboard/${surface}-dark.png`
+    )
+    expect(markdown, `${page} must label its screenshot as fixture data`).toContain('synthetic')
+
+    for (const imagePath of imagePaths) {
+      const bytes = await readFile(path.join(websiteRoot, 'public', imagePath))
+      expect(bytes.byteLength).toBeGreaterThan(1_000)
+    }
+  }
+})
+
+test('the Dashboard guide keeps exactly one screenshot', async () => {
+  const websiteRoot = path.resolve(import.meta.dirname, '..')
+  const guide = await readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8')
+  const imagePaths = imagePathsIn(guide)
 
   expect(guide).toContain('# Dashboard')
   expect(guide).toContain('Every screenshot on this page was captured')
-  expect(imagePaths).toHaveLength(7)
-  expect(imagePaths.map((imagePath) => path.basename(imagePath)).sort()).toEqual(expectedAssets)
+  expect(imagePaths).toEqual(['/images/dashboard/units-dark.png'])
 
-  for (const imagePath of imagePaths) {
-    const bytes = await readFile(path.join(websiteRoot, 'public', imagePath))
-    expect(bytes.byteLength).toBeGreaterThan(1_000)
-  }
+  const bytes = await readFile(path.join(websiteRoot, 'public', imagePaths[0]))
+  expect(bytes.byteLength).toBeGreaterThan(1_000)
 })
 
 test('parity guides are linked and contain their operational contracts', async () => {
@@ -97,11 +129,26 @@ test('capture inputs and checked-in assets stay example-only', async () => {
   expect(fixture).toContain('synthetic_workflow')
   expect(fixture).not.toMatch(/\.aiur\/config|github\.com|its-everdred|AIUR-\d+/i)
 
+  // The fixture must never start the live provider-meter probes: they read the
+  // operator's real Claude and Codex account quota over HTTP. Synthetic meters
+  // are installed through the endpoint's :provider_meter_source seam instead.
+  expect(fixture).toContain('provider_meter_source: MeterSource')
+  expect(fixture).not.toMatch(/ProviderMeterRefresh\.start_link|ProviderMeterProjection\.start_link/)
+  // Likewise the GitHub quota card: started, but with refreshing disabled.
+  expect(fixture).toContain('refresh?: false')
+  // Build Order and Stream Deck render from fixture data, never a live source.
+  expect(fixture).toContain('build_order_planning_pack')
+  expect(fixture).toContain('streamdeck_snapshot_fun')
+
   expect(captureScript).toContain('allocatePort')
   expect(captureScript).toContain('syntheticMarkerPresent')
   expect(captureScript).toContain('AIUR_DOCS_TMP: docsTmp')
   expect(captureScript).toContain('rm(fixture.docsTmp')
   expect(captureScript).toContain('AIUR_DASHBOARD_USERNAME: ""')
+  expect(captureScript).toContain('forbiddenPatterns')
+  expect(captureScript).toContain('assertMetersAreSynthetic')
+  expect(captureScript).toContain('its-everdred')
+  expect(captureScript).toContain('its-applekid')
   expect(captureScript).not.toContain('4099')
   expect(captureScript).not.toContain('mobile')
   expect(assets).toEqual(expectedAssets)
@@ -109,9 +156,13 @@ test('capture inputs and checked-in assets stay example-only', async () => {
   for (const surface of surfaces) {
     const bytes = await readFile(path.join(assetsRoot, `${surface}-dark.png`))
     const dimensions = pngDimensions(bytes)
-    expect(dimensions.width).toBeGreaterThan(390)
-    expect(dimensions.height).toBeGreaterThan(0)
-    expect(bytes.byteLength).toBeGreaterThan(1_000)
+    // Desktop-width capture. The dashboard shell is a hair narrower than the
+    // 1280px viewport (page gutter), so accept any solid desktop width.
+    expect(dimensions.width).toBeGreaterThan(1100)
+    expect(dimensions.height).toBeGreaterThan(600)
+    expect(bytes.byteLength).toBeGreaterThan(20_000)
+    // Checked-in documentation assets stay small enough to ship with the site.
+    expect(bytes.byteLength).toBeLessThan(500_000)
   }
 })
 
