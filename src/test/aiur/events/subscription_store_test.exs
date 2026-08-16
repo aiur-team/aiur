@@ -322,6 +322,158 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "enqueue failure handling" do
+    test "cursor does not advance when enqueue fails", %{identifier: id} do
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      # Sync call ensures the message is processed before we snapshot.
+      _ = SubscriptionStore.snapshot(id)
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == nil
+    end
+
+    test "a later event is held behind a stalled event (no leapfrog, no loss)", %{identifier: id} do
+      test_pid = self()
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # Event 100 fails enqueue → stall forms, cursor held at 99.
+      SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+
+      # Event 101 would succeed, but must NOT be delivered past the stall:
+      # it is buffered, so a restart during the stall replays it exactly once.
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        send(test_pid, {:enqueued, ev})
+        :ok
+      end)
+
+      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      refute_receive {:enqueued, %{id: 101}}, 100
+
+      # Cursor must not have advanced past the stalled event 100.
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      # Once the stall resolves, event 100 delivers first, then 101 in order.
+      send(pid, {:retry_stalled})
+      assert_receive {:enqueued, %{id: 100}}, 500
+      assert_receive {:enqueued, %{id: 101}}, 500
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 101
+    end
+
+    test "buffered events survive repeated stall retries and are not dropped", %{identifier: id} do
+      test_pid = self()
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      {:ok, counter} = Agent.start(fn -> 0 end)
+      on_exit(fn -> Agent.stop(counter) end)
+
+      # Event 100 fails twice (attempt 1 + retry 1), then succeeds.
+      # Event 101 arrives during the stall and is buffered, never enqueued
+      # until 100 has been delivered.
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        n = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if n <= 2,
+          do: {:error, :timeout},
+          else: send(test_pid, {:enqueued, ev}) && :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+
+      # 101 arrives while 100 is still stalled → buffered, not enqueued.
+      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      refute_receive {:enqueued, %{id: 101}}, 100
+
+      # Retry 1 fails again (n=2); retry 2 succeeds → both events delivered
+      # in order, and neither is lost.
+      send(pid, {:retry_stalled})
+      send(pid, {:retry_stalled})
+      assert_receive {:enqueued, %{id: 100}}, 500
+      assert_receive {:enqueued, %{id: 101}}, 500
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 101
+    end
+  end
+
+  describe "stall retry and dead-letter" do
+    test "cursor advances when retry succeeds after initial transient failure", %{identifier: id} do
+      test_pid = self()
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      {:ok, counter} = Agent.start(fn -> 0 end)
+      on_exit(fn -> Agent.stop(counter) end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        n = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if n == 1,
+          do: {:error, :timeout},
+          else: send(test_pid, {:enqueued, ev}) && :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # First delivery: transient failure, cursor holds
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      # Manually trigger a retry (avoids 1-second real timer)
+      send(pid, {:retry_stalled})
+      assert_receive {:enqueued, %{id: 100}}, 500
+      _ = SubscriptionStore.snapshot(id)
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 100
+    end
+
+    test "cursor advances past failed event after max retry attempts (dead-letter)", %{identifier: id} do
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # Initial failure (attempt 1)
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      # Retries 1, 2, 3 — on attempt 3 the latch dead-letters and releases cursor
+      Enum.each(1..3, fn _ ->
+        send(pid, {:retry_stalled})
+        _ = SubscriptionStore.snapshot(id)
+      end)
+
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 100
+    end
+  end
+
   describe "cursor redelivery defense" do
     test "events with id <= last_seen_event_id are dropped on handle_info", %{identifier: id} do
       test_pid = self()
