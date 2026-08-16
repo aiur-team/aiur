@@ -205,6 +205,9 @@ defmodule Aiur.AgentSkillsTest do
     for skill <- AgentSkills.issue_worker_skills() do
       assert File.exists?(Path.join([ws, ".fake", "skills", skill, "SKILL.md"]))
     end
+
+    assert File.read!(Path.join([ws, ".fake", "skills", "using-aiur", "dictated-input.md"])) =~
+             "Voice-originated text may render **Aiur**"
   end
 
   test "keeps registry-declared skill paths out of workspace status", %{workspace: ws} do
