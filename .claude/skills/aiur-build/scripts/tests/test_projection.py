@@ -8,6 +8,7 @@ from helpers import ValidatorCase, example, report_for
 from validation_common import Report
 from validation_github_approved import ApprovedIssueExpectations
 from validation_github_rendering import render_ticket_body, inspect_issue_body
+from validation_header import validate_label_projection
 from validation_publication_authority import PublicationAuthority
 
 
@@ -21,6 +22,35 @@ def github(repository: str, number: int, node_id: str):
 
 
 class ProjectionTests(ValidatorCase):
+    def test_executable_tickets_require_dispatch_without_dispatching_root(self) -> None:
+        data = example()
+
+        self.assertIn("agent:todo", data["label_projection"]["required_ticket_labels"])
+        self.assertNotIn("agent:todo", data["label_projection"]["forbidden_labels"])
+        self.assertEqual("build-order", data["label_projection"]["build_order"])
+
+        data["label_projection"]["required_ticket_labels"].remove("agent:todo")
+        self.assert_error(data, "must contain exactly one lifecycle todo label")
+
+    def test_custom_lifecycle_todo_is_bound_by_publication_authority(self) -> None:
+        data = example()
+        required = data["label_projection"]["required_ticket_labels"]
+        required[required.index("agent:todo")] = "workflow:todo"
+
+        standalone = Report()
+        validate_label_projection(data, standalone)
+        self.assertEqual([], standalone.errors)
+
+        bound = Report()
+        validate_label_projection(data, bound, "agent")
+        self.assertTrue(any("must equal agent:todo" in error for error in bound.errors))
+
+    def test_projection_rejects_multiple_lifecycle_todo_labels(self) -> None:
+        data = example()
+        data["label_projection"]["required_ticket_labels"].append("workflow:todo")
+
+        self.assert_error(data, "must contain exactly one lifecycle todo label")
+
     def test_critical_path_must_resolve_to_runnable_ticket(self) -> None:
         data = example()
         data["feature_boundary"]["critical_path_ticket_ids"] = ["BO-999"]

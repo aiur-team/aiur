@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.{ProgressRetention, TrackerIdentity}
 
   test "calculates the remaining poll interval" do
     assert StatusReport.next_poll_in_ms(nil, 10) == nil
@@ -193,5 +194,140 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
     assert %{waiting_for_human_episodes: %{^identifier => %{alerted?: true}}} =
              StatusReport.sync_waiting_for_human_episodes(state, now)
+  end
+
+  test "serves the retained last-known progress when the live projection cannot (#1963)" do
+    ticket = identity()
+
+    # `StatusReport` reads `ProgressRetention.all/0`, the supervised default
+    # instance the test application runs, so the durable reading is retained
+    # into that instance and served through the fallback. The identity is
+    # test-unique, so nothing else in the suite reads this key.
+    observed_at = DateTime.utc_now()
+
+    assert :ok =
+             ProgressRetention.retain(ticket, %{
+               percent: 40,
+               source: :phase,
+               provenance: %{run_id: "run-1", attempt: 1},
+               occurred_at: observed_at,
+               observed_at: observed_at,
+               event_id: 1,
+               order: {DateTime.to_unix(observed_at, :microsecond), 1}
+             })
+
+    # Synchronize: the retain is an async cast, and `flush` is a call that
+    # queues behind it in the same mailbox, so after it returns the mirror the
+    # fallback reads is guaranteed to hold the reading.
+    assert :ok = ProgressRetention.flush()
+
+    # The live TicketActivity projection is absent (not running in this unit
+    # test), so the durable reading is the only source of the percent. The
+    # reading is served as the real value with a stale freshness — never a
+    # placeholder 0, never unknown for a ticket that has reported.
+    issue = %Issue{id: "retained", identifier: "repo#retained", state: "in-progress", title: "Retained", tracker_identity: ticket}
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      }
+    }
+
+    [row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
+    assert row.progress_percent == 40
+    assert row.progress_freshness == :stale
+  end
+
+  test "keeps progress unknown when a ticket has never reported" do
+    issue = %Issue{id: "never", identifier: "repo#never", state: "in-progress", title: "Never reported"}
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      }
+    }
+
+    [row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
+    assert row.progress_percent == nil
+    assert row.progress_freshness == :unknown
+  end
+
+  test "a retained reading wins over a live entry that has no progress of its own (#1963)" do
+    ticket = identity("I-1963-edge")
+    observed_at = DateTime.utc_now()
+
+    assert :ok =
+             ProgressRetention.retain(ticket, %{
+               percent: 60,
+               source: :phase,
+               provenance: %{run_id: "run-1", attempt: 1},
+               occurred_at: observed_at,
+               observed_at: observed_at,
+               event_id: 1,
+               order: {DateTime.to_unix(observed_at, :microsecond), 1}
+             })
+
+    assert :ok = ProgressRetention.flush()
+
+    # A stage-only event creates a live projection entry for the ticket that
+    # carries no progress reading. Without the per-identity merge refinement
+    # that live `:unknown` would blank the retained 60%.
+    send(Aiur.TicketActivity, {:event, %{ticket_observation: stage_only(ticket)}})
+
+    issue = %Issue{id: "edge", identifier: "repo#edge", state: "in-progress", title: "Edge", tracker_identity: ticket}
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      }
+    }
+
+    [row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
+    assert row.progress_percent == 60
+    assert row.progress_freshness == :stale
+  end
+
+  defp identity(provider_id \\ "I-42") do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: provider_id,
+      identifier: "42",
+      reason: nil
+    }
+  end
+
+  defp stage_only(ticket) do
+    now = DateTime.utc_now()
+
+    %Aiur.TicketObservation{
+      status: :joinable,
+      reason: nil,
+      tracker_identity: ticket,
+      source: %{kind: :agent_alert, name: "phase.work.start"},
+      event_id: 9,
+      provenance: %{run_id: "run-1", attempt: 1},
+      occurred_at: now,
+      observed_at: now,
+      attributes: %{stage: :work, transition: :start}
+    }
   end
 end

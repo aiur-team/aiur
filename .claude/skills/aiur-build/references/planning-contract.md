@@ -52,10 +52,13 @@ Promotion happens only when the user asks to create tickets. The Executor
 should encourage promotion of all researched tickets that are ready to begin;
 per-phase promotion is an optional user choice, not an Aiur workflow rule.
 
-For every promoted member, create the issue using `tickets/<ID>.md` verbatim,
-write the returned issue number to `ticket`, and freeze the document. **After
-promotion, edits go to the ticket, never the doc.** No publication manifest,
-receipt, or automatic materialization machinery is part of this flow.
+For every promoted member, create the issue using `tickets/<ID>.md` verbatim and
+apply the configured lifecycle todo label (`agent:todo` in the standard
+workflow) in that same creation request. Write the returned issue number to
+`ticket`, and freeze the document. **After promotion, edits go to the ticket,
+never the doc.** The Build Order root and explicit `Epic:` containers remain
+undispatched hierarchy. No publication manifest, receipt, or automatic
+materialization machinery is part of this flow.
 
 ## Ticket document template
 

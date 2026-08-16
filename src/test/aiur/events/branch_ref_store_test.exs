@@ -188,7 +188,14 @@ defmodule Aiur.Events.BranchRefStoreTest do
 
     File.rm!(blocker)
     File.mkdir_p!(blocker)
-    assert_eventually(fn -> BranchRefStore.latest("99", store) == %{ref: ref, sha: sha} end)
+
+    # The failed write retries on an exponential backoff that can reach
+    # @persist_retry_max_ms (1000ms); guessing a wall-clock deadline for when
+    # that retry lands is the race #1727 observed in CI. await_settled/2 is the
+    # store's own synchronization point — it blocks until the in-flight retry
+    # actually persists, so the assertion below is deterministic.
+    :ok = BranchRefStore.await_settled(store)
+    assert BranchRefStore.latest("99", store) == %{ref: ref, sha: sha}
     GenServer.stop(store)
 
     {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
@@ -220,10 +227,9 @@ defmodule Aiur.Events.BranchRefStoreTest do
     File.rm!(blocker)
     File.mkdir_p!(blocker)
 
-    assert_eventually(fn ->
-      BranchRefStore.latest("99", store) == metadata and
-        BranchRefStore.ready_unblock("99", store) == metadata
-    end)
+    :ok = BranchRefStore.await_settled(store)
+    assert BranchRefStore.latest("99", store) == metadata
+    assert BranchRefStore.ready_unblock("99", store) == metadata
 
     GenServer.stop(store)
 
@@ -260,9 +266,8 @@ defmodule Aiur.Events.BranchRefStoreTest do
     File.rm!(blocker)
     File.mkdir_p!(blocker)
 
-    assert_eventually(fn ->
-      BranchRefStore.latest("99") == %{ref: ref, sha: sha}
-    end)
+    :ok = BranchRefStore.await_settled()
+    assert BranchRefStore.latest("99") == %{ref: ref, sha: sha}
 
     {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
     assert BranchRefStore.latest("99", restarted) == %{ref: ref, sha: sha}
@@ -316,16 +321,4 @@ defmodule Aiur.Events.BranchRefStoreTest do
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
   defp restore_system_env(key, nil), do: System.delete_env(key)
   defp restore_system_env(key, value), do: System.put_env(key, value)
-
-  defp assert_eventually(fun, attempts \\ 50)
-  defp assert_eventually(fun, 0), do: assert(fun.())
-
-  defp assert_eventually(fun, attempts) do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(20)
-      assert_eventually(fun, attempts - 1)
-    end
-  end
 end

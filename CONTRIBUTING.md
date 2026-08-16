@@ -6,7 +6,9 @@ onto aiur's Elixir stack. They are the house style the production-readiness
 refactor codifies. Every norm below maps onto tooling that is already wired
 (`make ci` and the `mix` gate); this document names the norm and the check
 that enforces it. When a norm and a check disagree, the check wins — fix the
-code, then fix this doc in the same change.
+code, then fix this doc in the same change. The one deliberate exception is
+[Documentation](#documentation), which is a review expectation with only a
+narrow config-key check behind it; it says so in place.
 
 ## Code structure
 
@@ -80,6 +82,29 @@ not fail a build on line count alone.
   and do not return `:ok` when something failed. Fail loud: surface the
   error, log it with issue/session context (`docs/logging.md`), or propagate
   it. "Completed" is wrong if anything was skipped silently.
+
+## Documentation
+
+- **Functionality ships with its documentation, in the same PR.** Docs are
+  required when a change adds or changes a config key, a CLI command or flag,
+  an environment variable an operator would set, a new user-facing surface (a
+  dashboard page, a TUI view, a Stream Deck mode, a panel), or when it changes
+  documented behavior so an existing page is now wrong. Docs are **not**
+  required for internal refactors, bug fixes that restore already-documented
+  behavior, test-only changes, or performance work with no interface change.
+- **Prefer editing an existing page over adding a new one.** Concise and correct
+  beats comprehensive — a wrong doc is worse than a missing one.
+- Docs live in `website/docs-app/`: config keys in
+  `reference/configuration.md`, commands and flags in `reference/cli.md`,
+  user-facing surfaces in `guide/`, explanations in `concepts/`. A new page also
+  needs a sidebar entry in `website/docs-app/.vitepress/config.ts`. The full map
+  is [`AGENTS.md`](AGENTS.md#docs-ship-with-the-change).
+- **This norm is mostly not tool-enforced, unlike the rest of this document.**
+  `scripts/check-config-docs.py` covers config keys only — it resolves each key
+  to its full dotted path and fails the required `lint` job when one has no
+  entry in the reference. CLI flags, new surfaces, and falsified pages have no
+  check behind them, so a reviewer treating a missing doc as a blocking finding
+  is the whole enforcement.
 
 ## Repository renames
 

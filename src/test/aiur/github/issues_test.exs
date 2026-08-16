@@ -564,6 +564,31 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.state == "in-progress"
     end
 
+    test "marks parked issues and keeps the marker out of workflow state selection" do
+      # #1971: `agent:parked` is an explicit operator-held marker. Even when a
+      # real state label is present, the ticket must read as parked (so dispatch
+      # and comment-driven rework refuse it), and the marker must never be
+      # mistaken for a workflow state itself.
+      gh = %{
+        "number" => 19,
+        "title" => "Parked",
+        "body" => nil,
+        "html_url" => "https://github.com/owner/repo/issues/19",
+        "labels" => [%{"name" => "sym:parked"}, %{"name" => "sym:todo"}],
+        "assignee" => nil,
+        "state" => "open",
+        "created_at" => "2026-01-01T00:00:00Z",
+        "updated_at" => "2026-01-02T00:00:00Z"
+      }
+
+      issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
+
+      assert issue.parked == true
+      assert issue.state == "todo"
+      assert "sym:parked" in issue.labels
+      refute "parked" in issue.state_labels
+    end
+
     test "does not choose between contradictory workflow state labels" do
       gh = %{
         "number" => 18,

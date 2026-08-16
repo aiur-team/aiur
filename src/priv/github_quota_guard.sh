@@ -2,6 +2,19 @@
 
 # Fleet guard for agent-launched `gh` calls. The daemon prepends this wrapper's
 # directory to agent PATH and supplies the real executable separately.
+# #1793: a ticket filed without a dispatch disposition is undispatchable and
+# invisible. The repo PreToolUse hook and the agent-suite tests invoke this
+# wrapper in validate-only mode to check a `gh` issue command's disposition
+# without requiring a real gh executable or touching any quota/budget state.
+validate_only=0
+if [ "${1:-}" = --validate-issue-command ]; then
+  validate_only=1
+  shift
+fi
+
+dispatch_prefix=${AIUR_GITHUB_LABEL_PREFIX:-agent}
+direct_issue_api=0
+
 real_gh=${AIUR_REAL_GH:-}
 is_guard_gh() {
   case "$1" in
@@ -25,7 +38,7 @@ if [ -z "$real_gh" ]; then
   IFS=$guard_old_ifs
   unset guard_dir guard_path guard_old_ifs guard_entry guard_candidate
 fi
-if [ -z "$real_gh" ] || [ ! -x "$real_gh" ]; then
+if [ "$validate_only" -eq 0 ] && { [ -z "$real_gh" ] || [ ! -x "$real_gh" ]; }; then
   printf '%s\n' 'aiur: real gh executable is unavailable' >&2
   exit 127
 fi
@@ -293,6 +306,161 @@ if [ "${1:-}" = api ]; then
 
   unset api_options api_method api_payload api_mutation api_method_expected api_argument
 fi
+
+# #1793: direct GitHub issue API creation bypasses the `issue create`
+# disposition enforcement below, so refuse it outright and point at the
+# sanctioned path. Detect both REST issue endpoints and GraphQL `createIssue`
+# mutations, including file- and stdin-backed GraphQL bodies. Paginated calls
+# are owned by the pagination guard below, which already refuses every
+# paginated write and non-replayable body, so leave those to it.
+if [ "${1:-}" = api ] && [ "$api_paginated" -eq 0 ]; then
+  for direct_arg in "$@"; do
+    case "$direct_arg" in
+      *createIssue*|*CreateIssue*) direct_issue_api=1 ;;
+    esac
+  done
+
+  if [ "$direct_issue_api" -eq 0 ]; then
+    direct_endpoint=$(api_command_endpoint "$@") || direct_endpoint=
+    case "$direct_endpoint" in
+      *repos/*/*/issues|*repos/*/*/issues?*)
+        direct_method=
+        direct_payload=0
+        direct_method_expected=0
+        for direct_arg in "$@"; do
+          [ "$direct_method_expected" -eq 1 ] && { direct_method=$direct_arg; direct_method_expected=0; continue; }
+          case "$direct_arg" in
+            --) break ;;
+            -X|--method) direct_method_expected=1 ;;
+            -XGET|-X=GET|--method=GET|-Xget|-X=get|--method=get) direct_method=get ;;
+            -XPOST|-X=POST|--method=POST|-Xpost|-X=post|--method=post) direct_method=post ;;
+            -X*) direct_method=${direct_arg#-X} ;;
+            --method=*) direct_method=${direct_arg#--method=} ;;
+            -F|-f|--field|--raw-field|--input|--input=*) direct_payload=1 ;;
+            -F*|-f*|--field=*|--raw-field=*) direct_payload=1 ;;
+          esac
+        done
+        case "$direct_method" in
+          =*) direct_method=${direct_method#=} ;;
+        esac
+        case "$direct_method" in
+          GET|get) ;;
+          '') [ "$direct_payload" -eq 1 ] && direct_issue_api=1 ;;
+          *) direct_issue_api=1 ;;
+        esac
+        ;;
+    esac
+  fi
+
+  # File- and stdin-backed GraphQL bodies are opaque to the argv scan above.
+  if [ "$direct_issue_api" -eq 0 ]; then
+    direct_graphql_file=
+    direct_prior=
+    for direct_arg in "$@"; do
+      case "$direct_prior" in
+        --input) direct_graphql_file=$direct_arg ;;
+      esac
+      case "$direct_arg" in
+        --input=*) direct_graphql_file=${direct_arg#--input=} ;;
+        query=@*|-Fquery=@*|-F=query=@*|-fquery=@*|-f=query=@*|--field=query=@*|--raw-field=query=@*) direct_graphql_file=${direct_arg#*@} ;;
+      esac
+      direct_prior=$direct_arg
+    done
+    if [ -n "$direct_graphql_file" ]; then
+      case "$direct_graphql_file" in
+        @*) direct_graphql_file=${direct_graphql_file#@} ;;
+      esac
+      # Only a body this process can read AND prove creates an issue is
+      # claimed by the #1793 guard. A stdin, unreadable, or otherwise opaque
+      # body cannot be confirmed as issue creation, so it is left to the
+      # pre-existing merge gate, which denies every unreadable GraphQL body
+      # outright because it cannot rule out a merge. Claiming an opaque body
+      # here would mislabel a possible merge as issue creation.
+      if [ -f "$direct_graphql_file" ] && grep -q 'createIssue' "$direct_graphql_file" 2>/dev/null; then
+        direct_issue_api=1
+      fi
+    fi
+  fi
+fi
+
+if [ "$direct_issue_api" -eq 1 ]; then
+  printf '%s\n' 'aiur: refusing direct GitHub issue API creation (#1793).' >&2
+  printf '%s\n' 'aiur: use `gh issue create --label ...` so the dispatch disposition is explicit and enforceable.' >&2
+  exit 78
+fi
+
+dispatch_disposition() {
+  label=$1
+  case "$label" in
+    "$dispatch_prefix:todo"|human:todo|needs-triage|build-order|epic) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# #1793: a ticket created without a lifecycle label is undispatchable AND
+# invisible - no agent can claim it and it appears in no state-scoped view, so
+# it reads to the operator as "no work left". 29 accumulated in one run. The
+# skills tell every filing path to set the disposition in the same request;
+# this refuses the call that does not, because an unlabelled issue that already
+# exists cannot be un-filed. Hierarchy that is deliberately not runnable
+# (Build Order roots, epics) and deliberately parked work still pass by naming
+# their own disposition.
+command_name=
+subcommand_name=
+skip_root_value=0
+for arg in "$@"; do
+  if [ "$skip_root_value" -eq 1 ]; then
+    skip_root_value=0
+    continue
+  fi
+  case "$arg" in
+    -R|--repo|--hostname) skip_root_value=1; continue ;;
+    -R?*|--repo=*|--hostname=*) continue ;;
+  esac
+  if [ -z "$command_name" ]; then
+    command_name=$arg
+  else
+    subcommand_name=$arg
+    break
+  fi
+done
+command_key="$command_name $subcommand_name"
+
+if [ "$command_key" = "issue create" ]; then
+  disposition=0
+  prior=
+  for arg in "$@"; do
+    label_value=
+    case "$arg" in
+      --label=*) label_value=${arg#--label=} ;;
+      -l?*) label_value=${arg#-l} ;;
+      *)
+        case "$prior" in
+          --label|-l) label_value=$arg ;;
+        esac
+        ;;
+    esac
+    prior=$arg
+    [ -n "$label_value" ] || continue
+    # `gh` accepts repeated flags and comma-separated lists in one flag.
+    old_ifs=$IFS
+    IFS=,
+    for label in $label_value; do
+      if dispatch_disposition "$label"; then disposition=1; fi
+    done
+    IFS=$old_ifs
+  done
+
+  if [ "$disposition" -eq 0 ]; then
+    printf '%s\n' 'aiur: refusing `gh issue create` with no dispatch disposition (#1793).' >&2
+    printf '%s\n' 'aiur: an unlabelled ticket is undispatchable and invisible, so it reads as no work left.' >&2
+    printf 'aiur: pass --label %s:todo for executable work, or --label needs-triage / human:todo\n' "$dispatch_prefix" >&2
+    printf '%s\n' 'aiur: to park it deliberately, or --label build-order / epic for a non-runnable container.' >&2
+    exit 78
+  fi
+fi
+
+if [ "$validate_only" -eq 1 ]; then exit 0; fi
 
 admission_resource=$resource
 [ "$admission_resource" != none ] || admission_resource=core

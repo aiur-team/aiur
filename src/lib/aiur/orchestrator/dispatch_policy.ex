@@ -554,6 +554,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :not_routable
           | :unauthorized
           | :paused
+          | :parked
           | :inactive_state
           | :no_agent_work_state
           | :terminal_state
@@ -674,6 +675,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
+      not issue_not_parked?(issue) -> {:skip, :parked}
       true -> :dispatch
     end
   end
@@ -799,6 +801,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @spec issue_not_paused?(Issue.t()) :: boolean()
   def issue_not_paused?(%Issue{} = issue), do: not Issue.paused?(issue)
+
+  @spec issue_not_parked?(Issue.t()) :: boolean()
+  def issue_not_parked?(%Issue{} = issue), do: not Issue.parked?(issue)
 
   @spec issue_routable_to_worker?(term()) :: boolean()
   def issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
