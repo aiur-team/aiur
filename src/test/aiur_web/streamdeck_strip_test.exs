@@ -4,7 +4,7 @@ defmodule AiurWeb.StreamdeckStripTest do
   alias AiurWeb.StreamdeckKeyFaceContract
   alias AiurWeb.StreamdeckStrip
 
-  test "describes the focused command panel with the key progress hue" do
+  test "describes the focused command panel with the key progress colour" do
     command =
       StreamdeckStrip.command(%{
         identifier: "1582",
@@ -23,7 +23,8 @@ defmodule AiurWeb.StreamdeckStripTest do
              status: "Running",
              accent: "#9fd0ff",
              percent: 50,
-             progress_colour: "hsl(63 72% 50%)"
+             progress_freshness: :fresh,
+             progress_colour: "#3fb950"
            }
   end
 
@@ -31,13 +32,15 @@ defmodule AiurWeb.StreamdeckStripTest do
     command = StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: nil})
 
     assert command.percent == nil
+    assert command.progress_freshness == :unknown
     assert command.progress_colour == nil
   end
 
   test "keeps a stale-but-real percentage instead of reading it as zero" do
-    command = StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: 70})
+    command = StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: 70, progress_freshness: :stale})
 
     assert command.percent == 70
+    assert command.progress_freshness == :stale
     assert command.progress_colour == StreamdeckKeyFaceContract.progress_color(70)
   end
 

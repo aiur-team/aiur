@@ -225,8 +225,10 @@ will run the agent.
 ## Compound Engineering
 
 Repo-local CE settings live at `.compound-engineering/config.local.yaml`
-(gitignored). The committed example is `config.local.example.yaml`. Run
-`/ce-setup` to install the supporting CLI tools and skills.
+(gitignored). The committed example is `config.local.example.yaml`. Aiur vendors
+its pinned Compound Engineering skills into this repository and dispatched
+workspaces; run `/ce-setup` to check project settings and optional supporting
+CLI tools.
 
 ## Local notes
 

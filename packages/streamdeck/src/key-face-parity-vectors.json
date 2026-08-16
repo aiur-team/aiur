@@ -47,14 +47,14 @@
     }
   ],
   "progress": [
-    { "percent": -20, "color": "hsl(0 72% 50%)" },
-    { "percent": 0, "color": "hsl(0 72% 50%)" },
-    { "percent": 25, "color": "hsl(31 72% 50%)" },
-    { "percent": 50, "color": "hsl(63 72% 50%)" },
-    { "percent": 75, "color": "hsl(94 72% 50%)" },
-    { "percent": 99.5, "color": "hsl(124 72% 50%)" },
-    { "percent": 100, "color": "hsl(125 72% 50%)" },
-    { "percent": 140, "color": "hsl(125 72% 50%)" }
+    { "percent": -20, "color": "#3fb950" },
+    { "percent": 0, "color": "#3fb950" },
+    { "percent": 25, "color": "#3fb950" },
+    { "percent": 50, "color": "#3fb950" },
+    { "percent": 75, "color": "#3fb950" },
+    { "percent": 99.5, "color": "#3fb950" },
+    { "percent": 100, "color": "#74d47f" },
+    { "percent": 140, "color": "#74d47f" }
   ],
   "direction_badges": [
     { "badge": "EMIT", "color": "#9fd0ff" },

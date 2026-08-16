@@ -5,7 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+  alias AiurWeb.{OperatorControlCenter.RunSummaryStrip, StaticAssets}
 
   @now ~U[2026-07-20 12:00:00Z]
 
@@ -1373,11 +1373,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   # ---- ElevenLabs credit quota ----
   #
-  # ElevenLabs publishes a character/credit quota and no dollar balance at all,
-  # so the row meters credits and never money. It is also the one meter on the
-  # page that reads *remaining*: its label says "left" and its bar depletes, so
-  # the two agree with each other even though they run opposite to the used-
-  # percentage meters beside them.
+  # ElevenLabs publishes a character/credit quota plus the amount due on the
+  # next invoice. The latter is owed money, never a spendable balance. Like the
+  # other meters on this strip, the credit bar fills as usage is consumed.
 
   test "an unconfigured ElevenLabs account leaves no trace on the strip" do
     html = strip(elevenlabs_quota: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
@@ -1403,23 +1401,24 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "1 API"
   end
 
-  test "a configured account renders a depleting credits-remaining meter beside GitHub" do
+  test "a configured account renders a filling used-credit meter and invoice amount beside GitHub" do
     html = strip(elevenlabs_quota: elevenlabs_quota_view())
     row = elevenlabs_row(html)
 
     assert html =~ "2 APIs"
     assert html =~ "Github"
     assert row =~ "ElevenLabs"
-    assert row =~ "Credits remaining"
-    assert row =~ "75.0K/100.0K credits left"
-    assert row =~ "75% left"
-    assert row =~ ~s(style="width:75.0%")
-    assert row =~ "resets in 3d"
+    assert row =~ ~s(src="/elevenlabs-symbol.svg")
+    assert row =~ "Credits"
+    assert row =~ "75.0K left · 25% used · resets 3d"
+    assert row =~ ~s(style="width:25.0%")
+    assert row =~ "Next invoice due"
+    assert row =~ "$5.00"
+    refute row =~ "100.0K"
+    refute row =~ "credits left"
 
-    # The label is the whole point: nothing here may read as consumption, and
-    # no dollar figure exists to render.
-    refute row =~ "used"
-    refute row =~ "$"
+    assert {:ok, "image/svg+xml", svg} = StaticAssets.fetch("/elevenlabs-symbol.svg")
+    assert svg =~ ~s(<svg width="180" height="292")
   end
 
   test "the label names the quota it meters and the billing it does not" do
@@ -1427,16 +1426,39 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     assert row =~ "account credit quota"
     assert row =~ "Speech-to-text is billed per minute of audio and is not counted here."
-    assert row =~ "ElevenLabs publishes no dollar balance."
+    assert row =~ "The dollar figure is the amount due on the next invoice, not a balance."
   end
 
-  test "a configured key with no answer yet says so and draws no bar" do
+  test "an absent next invoice does not hide the credit meter" do
+    row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(next_invoice: nil)))
+
+    assert row =~ "75.0K left · 25% used · resets 3d"
+    assert row =~ ~s(style="width:25.0%")
+    refute row =~ "Next invoice due"
+    refute row =~ "$"
+  end
+
+  test "compact reset copy chooses one truthful unit" do
+    cases = [
+      {DateTime.add(@now, -1, :second), "reset time passed"},
+      {DateTime.add(@now, 3, :day), "resets 3d"},
+      {DateTime.add(@now, 5, :hour), "resets 5h"},
+      {DateTime.add(@now, 45, :minute), "resets 45m"},
+      {nil, "reset unavailable"}
+    ]
+
+    for {reset_at, expected} <- cases do
+      row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(reset_at: reset_at)))
+      assert row =~ expected
+    end
+  end
+
+  test "a configured key with no answer yet says so and draws an empty bar" do
     row = elevenlabs_row(strip(elevenlabs_quota: %{state: :unknown, window: nil, failure: nil, observed_at: nil}))
 
     assert row =~ "Awaiting ElevenLabs response"
-    # An empty track under a "remaining" label would read as an exhausted
-    # account, which is precisely what an unread quota is not known to be.
-    refute row =~ "rs-meter"
+    assert row =~ ~s(class="rs-meter")
+    assert row =~ ~s(style="width:0%")
   end
 
   test "a configured key whose read failed surfaces the failure without the credential" do
@@ -1450,28 +1472,30 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       row = elevenlabs_row(strip(elevenlabs_quota: %{state: :failed, window: nil, failure: failure, observed_at: nil}))
 
       assert row =~ "Unavailable · " <> sentence
-      refute row =~ "rs-meter"
+      assert row =~ ~s(class="rs-meter")
+      assert row =~ ~s(style="width:0%")
     end
   end
 
   test "a nearly exhausted quota warns and an exhausted one is critical" do
-    warning = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 95_000, remaining_percent: 5.0)))
-    assert warning =~ ~s(class="is-warning" style="width:5.0%")
+    warning = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 95_000)))
+    assert warning =~ ~s(class="is-warning" style="width:95.0%")
 
-    critical = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 100_000, remaining_percent: 0.0)))
-    assert critical =~ ~s(class="is-critical" style="width:0.0%")
+    critical = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 100_000)))
+    assert critical =~ ~s(class="is-critical" style="width:100.0%")
 
     healthy = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view()))
     refute healthy =~ "is-warning"
     refute healthy =~ "is-critical"
   end
 
-  test "a zero character limit renders the counts and no bar at all" do
-    row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(limit: 0, used: 0, remaining_percent: nil)))
+  test "a zero character limit renders the credits and an empty bar" do
+    row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(limit: 0, used: 0)))
 
-    assert row =~ "0/0 credits left"
-    refute row =~ "rs-meter"
-    refute row =~ "% left"
+    assert row =~ "0 left"
+    assert row =~ ~s(class="rs-meter")
+    assert row =~ ~s(style="width:0%")
+    refute row =~ "% used"
   end
 
   # Everything after the ElevenLabs row's marker class and before the next pane.
@@ -1496,13 +1520,25 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       window: %{
         limit: limit,
         used: used,
-        remaining: Keyword.get(opts, :remaining, max(limit - used, 0)),
-        remaining_percent: Keyword.get(opts, :remaining_percent, 75.0),
+        remaining: max(limit - used, 0),
+        used_percent: test_used_percent(used, limit),
+        next_invoice: Keyword.get(opts, :next_invoice, %{amount_due_cents: 500, currency: "USD"}),
         tier: "creator",
-        reset_at: DateTime.add(@now, 3, :day),
+        reset_at: Keyword.get(opts, :reset_at, DateTime.add(@now, 3, :day)),
         observed_at: @now
       }
     }
+  end
+
+  defp test_used_percent(_used, limit) when limit <= 0, do: nil
+
+  defp test_used_percent(used, limit) do
+    used
+    |> Kernel./(limit)
+    |> Kernel.*(100)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(1)
   end
 
   # Every pane in the strip is an `.rs-block`: the GitHub card and the models

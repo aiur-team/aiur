@@ -54,7 +54,12 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
-ExUnit.start(exclude: [:perf_regression, :quarantine] ++ real_proc_exclude)
+# `:external` tests call a third-party API over the network with a real
+# credential. They are evidence gathered on demand — a measurement or a contract
+# check against the live provider — never a gate, because a gate that needs the
+# internet and someone's API key fails for reasons that have nothing to do with
+# the change under test. Run one with `mix test --only external`.
+ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
 
 ExUnit.after_suite(fn _result ->
   case original_home do

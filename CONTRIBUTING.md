@@ -131,10 +131,11 @@ mix credo --strict
 mix dialyzer
 ```
 
-- **`mix lint` is `specs.check` then `credo --strict`** — both are
-  mandatory. `specs.check` fails the build when any public `def` in `lib/`
-  lacks an adjacent `@spec` (`@impl` callbacks are exempt); `credo --strict`
-  runs after it. Running `mix credo --strict` alone misses half the gate.
+- **`mix lint` runs both `specs.check` and `credo --strict`** — both are
+  mandatory, and both run even when the other fails so one pass reports every
+  lint failure. `specs.check` fails the build when any public `def` in `lib/`
+  lacks an adjacent `@spec` (`@impl` callbacks are exempt). Running
+  `mix credo --strict` alone misses half the gate.
 - **Zero-new-warnings ratchet.** `mix compile --warnings-as-errors` is part
   of the gate: a change may not introduce a new compiler warning. The warning
   count only goes down.

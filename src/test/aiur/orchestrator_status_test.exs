@@ -3909,15 +3909,17 @@ defmodule Aiur.OrchestratorStatusTest do
     assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
   end
 
-  test "tracker rework after completed CI wait honors all-limited model admission" do
+  @tag :tmp_dir
+  test "tracker rework after completed CI wait honors all-limited model admission", %{tmp_dir: tmp_dir} do
     issue = %{completed_rework_issue("all-limited") | selected_backend: nil}
+    workflow_path = Path.join(tmp_dir, ".aiurconfig")
+    Workflow.set_workflow_file_path(workflow_path)
 
     configure_completed_revalidation!([issue],
       max_concurrent_agents: 3,
       agent_routing: %{"4" => "claude"}
     )
 
-    workflow_path = Workflow.workflow_file_path()
     workflow = File.read!(workflow_path)
 
     workflow =

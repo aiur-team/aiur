@@ -76,21 +76,55 @@ describe("Stream Deck mode state", () => {
     expect(transitionMode(state, { type: "back" })).toEqual({ state, effects: [] });
   });
 
-  it("renders exactly four commands and the expected toggled labels", () => {
-    expect(commandKeys({ paused: true, prioritized: true })).toEqual([
+  // The order is a parity contract with the Elixir emulator's command row, so
+  // it is asserted as a whole rather than key by key.
+  it("renders pause, logs, mic and settings, with the pause label toggled", () => {
+    expect(commandKeys({ paused: true })).toEqual([
       { command: "pause", label: "Play" },
-      { command: "priority", label: "Deprioritize" },
       { command: "logs", label: "Logs" },
       { command: "mic", label: "Mic" },
+      { command: "settings", label: "Settings" },
       null,
       null,
       null,
       null,
     ]);
-    expect(commandKeys({ paused: false, prioritized: false }).slice(0, 2)).toEqual([
-      { command: "pause", label: "Pause" },
-      { command: "priority", label: "Prioritize" },
+    expect(commandKeys({ paused: false })[0]).toEqual({ command: "pause", label: "Pause" });
+  });
+
+  // Nothing to send before the operator has spoken: a lit Send key would invite
+  // a press that delivers an empty message.
+  it("adds Send and Cancel only while the buffer holds text", () => {
+    expect(commandKeys({ paused: false }, true).slice(4)).toEqual([
+      { command: "send", label: "Send" },
+      { command: "cancel", label: "Cancel" },
+      null,
+      null,
     ]);
+  });
+
+  it("opens settings from commands and returns to commands, not to the grid", () => {
+    const settings = transitionMode(commandState(), { type: "command.press", command: "settings" }).state;
+    expect(settings).toMatchObject({ mode: "settings", activeAgentId: "agent-1" });
+    expect(transitionMode(settings, { type: "back" }).state).toMatchObject({ mode: "cmd", activeAgentId: "agent-1" });
+  });
+
+  it("ignores a settings press from anywhere but commands", () => {
+    const state = createModeState();
+    expect(transitionMode(state, { type: "command.press", command: "settings" })).toEqual({ state, effects: [] });
+  });
+
+  it("holds and releases TestMic on the settings surface", () => {
+    const settings = transitionMode(commandState(), { type: "command.press", command: "settings" }).state;
+    const held = transitionMode(settings, { type: "mic.down" }).state;
+    expect(held.micHeld).toBe(true);
+    expect(transitionMode(held, { type: "mic.up" }).state.micHeld).toBe(false);
+  });
+
+  it("ignores a mic hold in a mode with no mic key", () => {
+    const state = createModeState();
+    expect(transitionMode(state, { type: "mic.down" })).toEqual({ state, effects: [] });
+    expect(transitionMode(state, { type: "mic.up" })).toEqual({ state, effects: [] });
   });
 
   it.each(["mic.up", "mic.leave", "mic.cancel"] as const)("releases mic on %s", (type) => {
