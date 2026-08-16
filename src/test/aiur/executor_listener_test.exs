@@ -5,7 +5,9 @@ defmodule Aiur.ExecutorListenerTest do
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.ExecutorEvents
+  alias Aiur.ExecutorBindings
   alias Aiur.ExecutorListener
+  alias Aiur.ExecutorWakeInbox
   alias Aiur.JsonStore
 
   @listener_name Aiur.ExecutorListener.Test
@@ -14,7 +16,15 @@ defmodule Aiur.ExecutorListenerTest do
     # The listener reads/writes its durable watermark under the per-test log
     # root (TestSupport isolates :log_file), so a "restart" in a test starts a
     # fresh process over the same watermark.
+    previous_health_alert_fun = Application.get_env(:aiur, :executor_listener_health_alert_fun)
+
     on_exit(fn ->
+      if previous_health_alert_fun do
+        Application.put_env(:aiur, :executor_listener_health_alert_fun, previous_health_alert_fun)
+      else
+        Application.delete_env(:aiur, :executor_listener_health_alert_fun)
+      end
+
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
       :ok
     end)
@@ -70,7 +80,7 @@ defmodule Aiur.ExecutorListenerTest do
     # Let several re-subscribe ticks pass: the Exchange binding table is a
     # duplicate bag, so an unconditional re-subscribe would multiply delivery.
     Process.sleep(200)
-    assert Exchange.bindings_for(pid) == ["executor.#"]
+    assert Enum.sort(Exchange.bindings_for(pid)) == Enum.sort(ExecutorBindings.patterns())
     assert ExecutorListener.alive?(@listener_name)
   end
 
@@ -149,6 +159,59 @@ defmodule Aiur.ExecutorListenerTest do
     assert {:ok, _id, _count} = ExecutorEvents.publish("executor.notify.release", %{message: "ready"})
     refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
     refute_receive {:event, %{"topic" => "executor.command.deferred"}}, 100
+  end
+
+  test "non-executor events become wakes without advancing the command watermark" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+    start_listener()
+
+    id = System.unique_integer([:positive])
+
+    Exchange.publish("ticket.42.pr.opened", %{
+      id: id,
+      topic: "ticket.42.pr.opened",
+      action: "opened",
+      pr: %{"number" => 2030, "draft" => false, "head" => %{"sha" => String.duplicate("a", 40)}}
+    })
+
+    assert {:ok, [%{"ticket" => "42", "pr_number" => 2030}]} = ExecutorWakeInbox.wait(500)
+    assert watermark() == nil
+  end
+
+  test "reports a degraded binding transition once and resolves it after repair" do
+    parent = self()
+
+    Application.put_env(:aiur, :executor_listener_health_alert_fun, fn name, message, opts ->
+      send(parent, {:health_alert, name, message, opts})
+      :ok
+    end)
+
+    patterns = ["executor.#", "ticket.*.pr.opened"]
+    pid = start_listener(patterns: patterns, reconcile?: false, resubscribe_interval_ms: 60_000)
+    refute_receive {:health_alert, _, _, _}, 50
+
+    table = :persistent_term.get({{Aiur.Events.Exchange, :table}, Aiur.Events.Exchange})
+    :ets.match_delete(table, {"ticket.*.pr.opened", pid, :_})
+    assert ExecutorListener.bindings(@listener_name) == ["executor.#"]
+
+    send(pid, :resubscribe)
+
+    assert_receive {:health_alert, "executor.bindings.incomplete", message, opts}, 500
+    assert message =~ "ticket.*.pr.opened"
+    assert opts[:needs_attention] == true
+    assert_receive {:health_alert, "executor.bindings.incomplete.resolved", _, resolved_opts}, 500
+    assert resolved_opts[:needs_attention] == false
+    refute_receive {:health_alert, _, _, _}, 100
+
+    ExecutorListener.bindings(@listener_name)
+    ExecutorListener.missing_defaults(@listener_name)
+    refute_receive {:health_alert, _, _, _}, 50
+
+    Application.put_env(:aiur, :executor_listener_health_alert_fun, fn _, _, _ -> raise "alert failed" end)
+    :ets.match_delete(table, {"ticket.*.pr.opened", pid, :_})
+    send(pid, :resubscribe)
+    assert eventually(fn -> Enum.sort(Exchange.bindings_for(pid)) == Enum.sort(patterns) end)
+    assert Process.alive?(pid)
   end
 
   test "a restarted listener replays only events newer than its durable watermark" do

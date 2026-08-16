@@ -326,6 +326,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
+       aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
@@ -2414,6 +2415,25 @@ cmd_executor_listen() {
   run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))"
 }
 
+cmd_executor_wait() {
+  local timeout=300 json=0 arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --timeout) shift; timeout="${1:-}" ;;
+      --timeout=*) timeout="${arg#--timeout=}" ;;
+      --json) json=1 ;;
+      *) echo "aiur: executor-wait accepts --timeout <seconds> and --json" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; exit 64; }
+  local json_arg=false
+  if [ "$json" -eq 1 ]; then json_arg=true; fi
+  AIUR_CONTROL_COMMAND="executor-wait"
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg)"
+}
+
 cmd_executor_emit() {
   local topic="${1:-}" payload="" arg
   shift 2>/dev/null || true
@@ -3051,6 +3071,10 @@ aiur_engine_main() {
     executor-listen)
       shift
       cmd_executor_listen "$@"
+      ;;
+    executor-wait)
+      shift
+      cmd_executor_wait "$@"
       ;;
     executor-emit)
       shift

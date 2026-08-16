@@ -13,6 +13,7 @@ defmodule Aiur.AgentControlCLI do
     ExecutorCommandCLI,
     ExecutorEvents,
     ExecutorListener,
+    ExecutorWakeInbox,
     Issue,
     Orchestrator,
     PauseContainment,
@@ -335,6 +336,34 @@ defmodule Aiur.AgentControlCLI do
 
   @spec executor_listen(keyword()) :: no_return()
   def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
+
+  @spec executor_wait(keyword()) :: :ok
+  def executor_wait(opts \\ []) do
+    timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
+    json? = Keyword.get(opts, :json, false)
+
+    case ExecutorWakeInbox.wait(timeout_ms) do
+      {:ok, records} ->
+        print_executor_wakes(records, json?)
+        exit_marker(0)
+
+      :timeout ->
+        exit_marker(75)
+
+      {:error, reason} ->
+        control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
+
+  defp print_executor_wakes(records, true), do: IO.puts(Jason.encode!(records))
+
+  defp print_executor_wakes(records, false) do
+    Enum.each(records, fn record ->
+      ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
+      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]}")
+    end)
+  end
 
   defp executor_subscription_result(:ok, action, topic) do
     IO.puts("#{action} #{topic}")
@@ -1613,13 +1642,21 @@ defmodule Aiur.AgentControlCLI do
   # Exchange binding, not "was started once": a listener that lost its binding
   # (Exchange restart) or a launch that forgot `--executor` both report absent.
   defp print_executor_listener_status do
-    alive? =
-      Application.get_env(:aiur, :executor_listener_alive_fun, &ExecutorListener.alive?/0).()
+    bindings = Application.get_env(:aiur, :executor_listener_alive_fun, &ExecutorListener.bindings/0).()
+    bindings = if is_list(bindings), do: bindings, else: if(bindings, do: ["executor.#"], else: [])
+    defaults = Aiur.ExecutorBindings.patterns()
+    bound = MapSet.new(bindings)
+    missing = Enum.reject(defaults, &MapSet.member?(bound, &1))
 
-    if alive? do
-      IO.puts("LISTENER present (executor.#)")
-    else
-      IO.puts("LISTENER absent (executor.decision.requested will not wake the Executor)")
+    cond do
+      bindings == [] ->
+        IO.puts("LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)")
+
+      missing == [] ->
+        IO.puts("LISTENER present (#{length(defaults)} bindings: #{Enum.join(defaults, ", ")})")
+
+      true ->
+        IO.puts("LISTENER degraded (#{length(defaults) - length(missing)}/#{length(defaults)} bindings; MISSING: #{Enum.join(missing, ", ")})")
     end
   end
 
