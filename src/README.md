@@ -621,14 +621,18 @@ path parameter and is never browser-cacheable.
   worker workspaces parked instead of moving them to an unrunnable backend.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
   per scheduler): queued cold starts seed daemon capacity from active and
-  reserved ticket slots plus observed idle CPU headroom, bounded by the static
-  cap. That bootstrap seed is one-shot and never lowers a warmed envelope. Later
+  reserved ticket slots plus observed reclaimable CPU headroom (idle and niced
+  time), bounded by the static cap. That bootstrap seed is one-shot and never
+  lowers a warmed envelope. Later
   capacity grows by `agent.load_ramp_step` below the target, and high samples
   halve it no more often than `agent.load_cooldown_seconds`. Set the target to
   `null` to use only the static cap and hard gate.
-- `agent.max_load_average` remains the separate per-scheduler hard ceiling for
-  new dispatch (default `1.5`); it holds work above the ceiling even when the
-  adaptive envelope is enabled.
+- `agent.max_load_average` remains the separate per-scheduler ceiling for new
+  dispatch (default `1.5`). Aiur holds only when the ceiling is exceeded and a
+  consecutive `/proc/stat` sample shows less than 60% reclaimable CPU; idle and
+  niced time are reclaimable because niced work yields to agent processes. If a
+  CPU delta is unavailable, the load-only decision remains the conservative
+  fallback. The optional run-queue gate uses the same corroboration.
 - `agent.min_free_memory_mb` optionally sets a Linux `MemAvailable` floor for
   normal new-work dispatch and local agent `mix compile` / `mix test` commands.
   Omit it to disable memory admission. Values are whole MB derived from

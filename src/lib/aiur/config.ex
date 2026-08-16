@@ -735,6 +735,26 @@ defmodule Aiur.Config do
     with {:ok, settings} <- settings(), do: {:ok, settings.alerts}
   end
 
+  @doc """
+  First Executor takeover advisory threshold in hours, or `0` when disabled.
+  A nonterminal ticket first emits an advisory alert once its convergence age
+  reaches this value.
+  """
+  @spec executor_takeover_first_alert_hours() :: non_neg_integer()
+  def executor_takeover_first_alert_hours do
+    settings!().executor_takeover_first_alert_hours
+  end
+
+  @doc """
+  Repeated Executor takeover advisory cadence in hours, or `0` when disabled.
+  After the first advisory, the monitor re-alerts at most this often while the
+  ticket remains nonterminal and unresolved.
+  """
+  @spec executor_takeover_continuous_alert_hours() :: non_neg_integer()
+  def executor_takeover_continuous_alert_hours do
+    settings!().executor_takeover_continuous_alert_hours
+  end
+
   @spec max_retry_attempts() :: pos_integer()
   def max_retry_attempts do
     settings!().agent.max_retry_attempts
@@ -810,13 +830,11 @@ defmodule Aiur.Config do
 
   def default_synthetic_load_process_cap(_schedulers), do: 1
 
-  # Per-scheduler 1-min load ceiling for the dispatch load gate (#465). Defaults
-  # to 1.5 so high-concurrency runs are protected out of the box; explicit YAML
-  # null disables the gate. The orchestrator holds new dispatch while the load
-  # average exceeds this value times System.schedulers_online/0 (BEAM online
-  # schedulers, ~= cores unless +S-limited). A value well under 1.0 can hold
-  # dispatch on any busy box — watch for the `aiur_perf load_hold` log if a run
-  # never dispatches.
+  # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
+  # load is corroborated with short-window reclaimable CPU before holding. The
+  # default is 1.5; explicit YAML null disables the gate. The threshold is
+  # multiplied by System.schedulers_online/0 (BEAM online schedulers, ~= cores
+  # unless +S-limited).
   @spec max_load_average() :: float() | nil
   def max_load_average do
     settings!().agent.max_load_average
