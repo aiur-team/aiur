@@ -71,7 +71,8 @@ defmodule Aiur.Config.Schema.Agent do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex}
+  alias Aiur.Config.RoutingValue
+  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy}
 
   @primary_key false
   embedded_schema do
@@ -176,6 +177,7 @@ defmodule Aiur.Config.Schema.Agent do
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:pricing_policy, PricingPolicy, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -243,15 +245,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
     |> validate_dispatch_selections()
-    |> validate_change(:priority, fn :priority, backends ->
-      known = Aiur.CodingAgent.known_backends()
-
-      cond do
-        backends != Enum.uniq(backends) -> [priority: "must not contain duplicate backends"]
-        Enum.all?(backends, &(&1 in known)) -> []
-        true -> [priority: "contains an unknown backend; known backends: #{inspect(known)}"]
-      end
-    end)
+    |> AgentValidation.validate_agent_priority(:priority)
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -275,6 +269,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
   end
 
   defp validate_dispatch_selections(changeset) do
@@ -288,7 +283,11 @@ defmodule Aiur.Config.Schema.Agent do
   end
 
   defp dispatchable_with_priority(changeset) do
-    priority = Ecto.Changeset.get_field(changeset, :priority) || []
+    priority =
+      (Ecto.Changeset.get_field(changeset, :priority) || [])
+      |> Enum.map(&RoutingValue.routing_backend/1)
+      |> Enum.reject(&is_nil/1)
+
     base = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
     Enum.uniq(priority ++ base)
   end
