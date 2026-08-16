@@ -140,6 +140,15 @@ export interface StreamDeckChannelOptions {
 export interface StreamDeckChannel {
   focus(identifier: string): void;
   control(identifier: string, action: "pause" | "resume" | "prioritize" | "deprioritize" | "mic"): void;
+  /**
+   * Delivers a transcribed message to an agent.
+   *
+   * This is a separate event from `control` because it carries operator text
+   * rather than a fixed verb: the server validates and length-caps it, then
+   * hands it to the same AgentChat path as the dashboard chat box, so a spoken
+   * message and a typed one are indistinguishable downstream.
+   */
+  say(identifier: string, text: string): void;
   close(): void;
 }
 
@@ -255,6 +264,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   return {
     focus: (identifier) => send("focus", { identifier }),
     control: (identifier, action) => send("control", { identifier, action }),
+    say: (identifier, text) => send("say", { identifier, text }),
     close: () => { stopped = true; joined = false; if (heartbeat !== null) clearInterval(heartbeat); heartbeat = null; socket.close(); },
   };
 };

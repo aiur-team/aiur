@@ -132,6 +132,7 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
+    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
 
     cli_children =
       if interactive_cli? do
@@ -172,6 +173,10 @@ defmodule Aiur.Application do
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
       Aiur.GitHub.Quota,
+      # The ElevenLabs account credit quota, read on its own schedule. Absent an
+      # API key it observes nothing at all, so an unconfigured account costs a
+      # boot-time config read and never a request.
+      Aiur.ElevenLabs.Quota,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
@@ -235,6 +240,11 @@ defmodule Aiur.Application do
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
       Aiur.Logs.Retention,
+      # The daemon-resident Executor listener (the Command inbox) is started only
+      # for an Executor-owned run (`--executor`). It must come after the Exchange
+      # and the Publisher it subscribes to and alerts through, so it sits at the
+      # end of the always-on block.
+      if(executor_mode?, do: Aiur.ExecutorListener),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
