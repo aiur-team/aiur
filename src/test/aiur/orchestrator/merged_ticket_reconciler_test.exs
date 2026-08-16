@@ -75,7 +75,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     assert opts[:message] =~ "no dependent agents were waiting on it"
     assert opts[:severity] == "info"
     refute opts[:needs_attention]
-    assert opts[:reason] =~ "develop"
+    assert opts[:reason] =~ "best-effort"
+    refute opts[:reason] =~ "develop"
     refute opts[:reason] =~ "atomic"
   end
 

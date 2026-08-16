@@ -2,11 +2,13 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   @moduledoc """
   Closes tickets that a merged pull request named with a closing keyword.
 
-  GitHub only auto-closes referenced issues when a pull request merges into the
-  repository's default branch. Work here merges into `develop`, so `Closes #N`
-  never fires on its own and this reconciler is the ordinary way a merged
-  ticket reaches `done` — not a repair for a GitHub failure. Alerts are worded
-  and rated accordingly.
+  GitHub auto-closes referenced issues only when a pull request merges into the
+  repository's default branch, and that mechanism is best-effort: a keyword the
+  parser misses, a merge into a non-default branch, or a delivery gap leaves
+  the ticket open with no signal. This reconciler is the reliable completion
+  path — it also releases dependency-paused agents, which auto-close does not —
+  rather than a repair for a one-off GitHub failure. Alerts are worded and
+  rated accordingly.
 
   Two guards keep a retained merge record from re-closing a ticket that is
   legitimately open again. A merge reconciles a given ticket at most once per
@@ -148,7 +150,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       issue: issue,
       message: "Merged PR ##{merge.number} closed ticket #{issue.identifier}; marked it done#{resumed_phrase(resumed, blocked_before)}.",
       reason:
-        "Pull requests here merge into develop rather than the default branch, so GitHub does not auto-close the tickets they reference. " <>
+        "GitHub auto-close is best-effort and can silently miss a referenced ticket, so a merged PR does not reliably close the tickets it names. " <>
           "Ticket #{issue.identifier} is named by merged PR ##{merge.number}, so it was transitioned to done by compare-and-set" <>
           "#{resumed_reason(resumed, blocked_before)}.",
       needs_attention: false,
