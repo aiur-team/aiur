@@ -39,6 +39,11 @@ if config_env() == :test do
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available
 
+  # No test may reach a provider's model catalogue over the network. Discovery
+  # tests drive `Aiur.ModelDiscovery.refresh/2` with an injected fetcher; the
+  # lazy background refresh every other test could trip is off entirely.
+  config :aiur, :model_discovery_refresh?, false
+
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production
   # default, but this singleton must not poll across sequential test boundaries.
