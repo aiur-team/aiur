@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.{ProgressRetention, TrackerIdentity}
 
   test "calculates the remaining poll interval" do
     assert StatusReport.next_poll_in_ms(nil, 10) == nil
@@ -177,5 +178,79 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
     assert %{waiting_for_human_episodes: %{^identifier => %{alerted?: true}}} =
              StatusReport.sync_waiting_for_human_episodes(state, now)
+  end
+
+  test "serves the retained last-known progress when the live projection cannot (#1963)" do
+    ticket = identity()
+
+    # `StatusReport` reads `ProgressRetention.all/0`, the supervised default
+    # instance the test application runs, so the durable reading is retained
+    # into that instance and served through the fallback. The identity is
+    # test-unique, so nothing else in the suite reads this key.
+    observed_at = DateTime.utc_now()
+
+    assert :ok =
+             ProgressRetention.retain(ticket, %{
+               percent: 40,
+               source: :phase,
+               provenance: %{run_id: "run-1", attempt: 1},
+               occurred_at: observed_at,
+               observed_at: observed_at,
+               event_id: 1,
+               order: {DateTime.to_unix(observed_at, :microsecond), 1}
+             })
+
+    # The live TicketActivity projection is absent (not running in this unit
+    # test), so the durable reading is the only source of the percent. The
+    # reading is served as the real value with a stale freshness — never a
+    # placeholder 0, never unknown for a ticket that has reported.
+    issue = %Issue{id: "retained", identifier: "repo#retained", state: "in-progress", title: "Retained", tracker_identity: ticket}
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      }
+    }
+
+    [row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
+    assert row.progress_percent == 40
+    assert row.progress_freshness == :stale
+  end
+
+  test "keeps progress unknown when a ticket has never reported" do
+    issue = %Issue{id: "never", identifier: "repo#never", state: "in-progress", title: "Never reported"}
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      }
+    }
+
+    [row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
+    assert row.progress_percent == nil
+    assert row.progress_freshness == :unknown
+  end
+
+  defp identity do
+    %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I-42",
+      identifier: "42",
+      reason: nil
+    }
   end
 end

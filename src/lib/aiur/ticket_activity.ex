@@ -9,7 +9,7 @@ defmodule Aiur.TicketActivity do
 
   use GenServer
 
-  alias Aiur.{CurrentRunMembership, TicketObservation, TrackerIdentity}
+  alias Aiur.{CurrentRunMembership, ProgressRetention, TicketObservation, TrackerIdentity}
   alias Aiur.Events.Exchange
   alias Aiur.TicketActivity.Projection
 
@@ -45,14 +45,28 @@ defmodule Aiur.TicketActivity do
   def init(opts) do
     membership_snapshot_fun = Keyword.get(opts, :membership_snapshot_fun, &CurrentRunMembership.snapshot/0)
     now_fun = Keyword.get(opts, :now_fun, &DateTime.utc_now/0)
+    retention_all_fun = Keyword.get(opts, :retention_all_fun, &ProgressRetention.all/0)
+    retention_retain_fun = Keyword.get(opts, :retention_retain_fun, &ProgressRetention.retain/2)
     current_members = current_members(membership_snapshot_fun)
-    projection = opts |> Projection.new() |> Projection.refresh_members(current_members, now_fun.())
+    now = now_fun.()
+
+    # Seed the projection from durable retained progress so a restart does not
+    # re-enter `unknown` for tickets that already reported (#1963). Freshness
+    # is recomputed from each reading's own `observed_at`, so a just-landed
+    # reading renders fresh and an aged one renders stale — both with the real
+    # percent.
+    projection =
+      opts
+      |> Projection.new()
+      |> Projection.refresh_members(current_members, now)
+      |> seed_from_retention(retention_all_fun, now)
 
     state = %{
       projection: projection,
       current_members: Map.new(current_members, &{TrackerIdentity.github_key(&1), &1}),
       membership_snapshot_fun: membership_snapshot_fun,
       now_fun: now_fun,
+      retention_retain_fun: retention_retain_fun,
       prune_interval_ms: positive_opt(opts, :prune_interval_ms, @default_prune_interval_ms)
     }
 
@@ -60,6 +74,34 @@ defmodule Aiur.TicketActivity do
     _ = Keyword.get(opts, :membership_subscribe_fun, &CurrentRunMembership.subscribe/0).()
     schedule_prune(state.prune_interval_ms)
     {:ok, state}
+  end
+
+  # `ProgressRetention.all/0` degrades to `%{}` when the store is not running
+  # (pre-boot, tests), so a missing store is just an unseeded boot, never a
+  # crash. Malformed retained entries (a bug or corruption in the store) are
+  # skipped rather than allowed to crash the projection at boot.
+  defp seed_from_retention(projection, all_fun, now) do
+    case all_fun.() do
+      retained when is_map(retained) ->
+        entries =
+          Enum.flat_map(retained, fn
+            {_key, %{identity: identity, progress: progress}}
+            when is_struct(identity, TrackerIdentity) and is_map(progress) ->
+              [{identity, progress}]
+
+            _malformed ->
+              []
+          end)
+
+        if entries == [] do
+          projection
+        else
+          Projection.seed_progress(projection, entries, now)
+        end
+
+      _ ->
+        projection
+    end
   end
 
   @impl true
@@ -76,6 +118,7 @@ defmodule Aiur.TicketActivity do
     case Projection.apply(state.projection, observation) do
       {:accepted, projection} ->
         state = %{state | projection: projection}
+        retain_progress(state, observation.tracker_identity)
         broadcast_changed(observation.tracker_identity, projection, state.now_fun.())
         {:noreply, state}
 
@@ -117,6 +160,20 @@ defmodule Aiur.TicketActivity do
       %{state | current_members: current_members, projection: projection}
     else
       state
+    end
+  end
+
+  # Best-effort, fire-and-forget: every accepted observation that leaves the
+  # entry with a progress reading is handed to the durable store, which is
+  # latest-`order`-wins and idempotent, so redundant casts are no-ops and the
+  # store never blocks this projection process.
+  defp retain_progress(%{projection: projection, retention_retain_fun: retain_fun}, identity) do
+    with key when not is_nil(key) <- TrackerIdentity.github_key(identity),
+         %{progress: %{order: _} = progress} <- Map.get(projection.entries, key) do
+      _ = retain_fun.(identity, progress)
+      :ok
+    else
+      _ -> :ok
     end
   end
 

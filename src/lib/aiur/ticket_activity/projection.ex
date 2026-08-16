@@ -60,6 +60,74 @@ defmodule Aiur.TicketActivity.Projection do
     prune(state, now)
   end
 
+  @doc """
+  Seeds projection entries from durable retained progress readings.
+
+  Called at boot, after `refresh_members/3`, so a projection or daemon restart
+  does not re-enter `unknown` for tickets that already reported: every retained
+  reading becomes a projection entry whose freshness is computed honestly from
+  its own `observed_at` (a just-landed reading stays `:fresh`, an old one
+  renders `:stale` — both with the real percent). A ticket with no retained
+  reading stays `:unknown`, which is exactly the "never reported" state.
+
+  Does not prune: retained `:recent` readings may outlive the in-memory
+  retention window at boot and are trimmed by the normal prune cycle, while the
+  durable store (and `StatusReport`'s retained fallback) keep showing the last
+  known value. A newer progress `order` already present on an existing entry
+  wins over the seed.
+  """
+  @spec seed_progress(t(), [{TrackerIdentity.t(), map()}], DateTime.t()) :: t()
+  def seed_progress(%__MODULE__{} = state, retained, now \\ DateTime.utc_now()) when is_list(retained) do
+    entries =
+      Enum.reduce(retained, state.entries, fn {identity, progress}, acc ->
+        entry_key = key(identity)
+
+        if is_nil(entry_key) or not is_map(progress) do
+          acc
+        else
+          entry =
+            case Map.get(acc, entry_key) do
+              nil ->
+                seeded_entry(state, identity, progress, now)
+
+              %{progress: %{order: existing_order}} = existing when is_tuple(existing_order) ->
+                if newer_progress?(progress, existing_order),
+                  do: seeded_entry(state, identity, progress, now),
+                  else: existing
+
+              _existing ->
+                seeded_entry(state, identity, progress, now)
+            end
+
+          Map.put(acc, entry_key, entry)
+        end
+      end)
+
+    %{state | entries: entries, generation: state.generation + 1}
+  end
+
+  defp seeded_entry(state, identity, progress, now) do
+    observed_at = Map.get(progress, :observed_at) || now
+
+    %{
+      identity: identity,
+      retention: if(MapSet.member?(state.current_keys, key(identity)), do: :current, else: :recent),
+      first_observed_at: observed_at,
+      last_observed_at: observed_at,
+      provenance: Map.get(progress, :provenance),
+      latest_evidence: nil,
+      progress: progress,
+      progress_order: Map.get(progress, :order),
+      stage: nil,
+      stage_order: nil
+    }
+  end
+
+  defp newer_progress?(%{order: order}, existing_order) when is_tuple(order) and is_tuple(existing_order),
+    do: order > existing_order
+
+  defp newer_progress?(_progress, _existing_order), do: true
+
   @spec apply(t(), TicketObservation.t()) :: {:accepted, t()} | {:ignored, atom(), t()}
   def apply(%__MODULE__{} = state, %TicketObservation{} = observation) do
     cond do
