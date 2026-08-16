@@ -379,8 +379,14 @@ defmodule Aiur.GitHub.QuotaTest do
   # remaining. The primary window is healthy, so nothing held the caller back
   # and every rejected call was retried straight away.
   test "a secondary limit holds the resource even though the primary window reads healthy" do
+    parent = self()
     {:ok, clock} = Agent.start_link(fn -> @now end)
-    quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
+
+    quota =
+      start_quota(
+        clock: fn -> Agent.get(clock, & &1) end,
+        recovery_fun: fn -> send(parent, :github_quota_recovered) end
+      )
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4077))
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
@@ -393,7 +399,11 @@ defmodule Aiur.GitHub.QuotaTest do
     # The backoff is resource-scoped; GraphQL was never refused.
     assert :ok = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
 
+    token = :sys.get_state(quota).recovery_timer_token
     Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
+    send(quota, {:dispatch_recovery, token})
+
+    assert_receive :github_quota_recovered
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
   end
 
@@ -487,8 +497,87 @@ defmodule Aiur.GitHub.QuotaTest do
     assert_receive :refreshed, 500
   end
 
+  test "a scheduled refresh that restores headroom wakes fleet admission without restarting" do
+    parent = self()
+    name = :"github-quota-recovery-#{System.unique_integer([:positive])}"
+    {:ok, quota_state} = Agent.start_link(fn -> {@now, 500} end)
+
+    refresh_fun = fn ->
+      {now, remaining} = Agent.get(quota_state, & &1)
+      reset = now |> DateTime.add(900, :second) |> DateTime.to_unix()
+
+      Quota.observe(
+        name,
+        request(:get, "/rate_limit"),
+        {:ok,
+         %{
+           status: 200,
+           headers: [],
+           body: %{
+             "resources" => %{
+               "core" => %{"limit" => 5000, "remaining" => remaining, "reset" => reset},
+               "graphql" => %{"limit" => 5000, "remaining" => 5000, "reset" => reset}
+             }
+           }
+         }}
+      )
+    end
+
+    quota =
+      start_quota(
+        name: name,
+        refresh?: true,
+        refresh_interval_ms: 10,
+        refresh_fun: refresh_fun,
+        clock: fn -> quota_state |> Agent.get(&elem(&1, 0)) end,
+        recovery_fun: fn -> send(parent, :github_quota_recovered) end
+      )
+
+    assert eventually(fn -> match?({:hold, %{resource: "core", remaining: 500}}, Quota.dispatch_status(quota)) end)
+    refute_receive :github_quota_recovered
+
+    Agent.update(quota_state, fn {_now, _remaining} -> {DateTime.add(@reset, 1, :second), 4500} end)
+
+    assert_receive :github_quota_recovered, 500
+    assert eventually(fn -> Quota.dispatch_status(quota) == :available end)
+    refute_receive :github_quota_recovered, 30
+  end
+
+  test "a primary window reset wakes fleet admission without another observation" do
+    parent = self()
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+
+    quota =
+      start_quota(
+        clock: fn -> Agent.get(clock, & &1) end,
+        recovery_fun: fn -> send(parent, :github_quota_recovered) end
+      )
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 500))
+    assert {:hold, %{resource: "core"}} = Quota.dispatch_status(quota)
+
+    token = :sys.get_state(quota).recovery_timer_token
+    Agent.update(clock, fn _ -> DateTime.add(@reset, 1, :second) end)
+    send(quota, {:dispatch_recovery, token})
+
+    assert_receive :github_quota_recovered
+    assert Quota.dispatch_status(quota) == :available
+  end
+
   defp start_quota(opts \\ []) do
     start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
+  end
+
+  defp eventually(fun, attempts \\ 50)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
   end
 
   defp request(method, path) do
