@@ -698,14 +698,23 @@ defmodule Aiur.Orchestrator.StatusReport do
   # Retained readings from `ProgressRetention` backfill every identity the live
   # projection cannot see — a `TicketActivity.snapshots/1` timeout, a projection
   # that has not finished seeding after a restart, or a `:recent` entry pruned
-  # after its in-memory retention window. Live projection entries always win;
-  # a ticket that never reported has neither, so `:unknown` survives as
+  # after its in-memory retention window. Live projection entries always win
+  # when they carry a `:known` reading; a live entry whose progress is
+  # `:unknown` (nil — e.g. a `:recent` entry recreated by a stage-only event
+  # after the progress entry was pruned) must not blank a retained value. A
+  # ticket that never reported has neither, so `:unknown` survives as
   # "never reported" (#1963).
   defp activity_by_identity do
     retained = retained_activity_by_identity()
     live = live_activity_by_identity()
-    Map.merge(retained, live)
+
+    Map.merge(retained, live, fn _key, retained_entry, live_entry ->
+      if live_progress_known?(live_entry), do: live_entry, else: retained_entry
+    end)
   end
+
+  defp live_progress_known?(%{progress: %{status: :known}}), do: true
+  defp live_progress_known?(_entry), do: false
 
   defp live_activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),

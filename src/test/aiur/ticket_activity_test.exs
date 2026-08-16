@@ -11,6 +11,12 @@ defmodule Aiur.TicketActivityTest do
         exchange_subscribe_fun: fn -> :ok end,
         membership_subscribe_fun: fn -> :ok end,
         membership_snapshot_fun: fn -> %{members: []} end,
+        # These standalone servers test the projection in isolation, not the
+        # retention wiring (covered by the restart-retention test). No-op
+        # retention keeps them deterministic even when the suite's supervised
+        # default store holds retained readings from other tests.
+        retention_retain_fun: fn _identity, _progress -> :ok end,
+        retention_all_fun: fn -> %{} end,
         prune_interval_ms: 60_000
       )
 
@@ -68,6 +74,8 @@ defmodule Aiur.TicketActivityTest do
         name: nil,
         membership_subscribe_fun: fn -> :ok end,
         membership_snapshot_fun: fn -> %{members: []} end,
+        retention_retain_fun: fn _identity, _progress -> :ok end,
+        retention_all_fun: fn -> %{} end,
         prune_interval_ms: 60_000
       )
 
