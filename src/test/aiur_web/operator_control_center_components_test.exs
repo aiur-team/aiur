@@ -436,6 +436,43 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "priority overview"
   end
 
+  test "surfaces DRAFT so a draft PR is never indistinguishable from a blocked one" do
+    fleet = %{
+      running: [
+        fleet_row("AIUR-42", :active,
+          title: "Drafting ticket",
+          state: "human-review",
+          review: :awaiting,
+          ci: %{decision: :passed, pr_number: 77, head_sha: "head-77", draft?: true}
+        )
+      ],
+      retrying: [],
+      idle: []
+    }
+
+    html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    assert html =~ "PR #77"
+    assert html =~ "DRAFT"
+    assert html =~ "Review awaiting"
+
+    ready_fleet = put_in(fleet, [:running, Access.at(0), :ci, :draft?], false)
+
+    ready_html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: ready_fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    refute ready_html =~ "DRAFT"
+  end
+
   defp fleet_row(identifier, waiting_reason, attrs \\ []) do
     Map.merge(
       %{
