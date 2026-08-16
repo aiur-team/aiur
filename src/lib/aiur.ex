@@ -274,6 +274,7 @@ defmodule Aiur.Application do
       # for an Executor-owned run (`--executor`). It must come after the Exchange
       # and the Publisher it subscribes to and alerts through, so it sits at the
       # end of the always-on block.
+      if(executor_mode?, do: Aiur.ExecutorWakeInbox),
       if(executor_mode?, do: Aiur.ExecutorListener),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.

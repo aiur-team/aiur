@@ -20,6 +20,8 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Events.Topic
   alias Aiur.JSONSafe
   alias Aiur.JsonStore
+  alias Aiur.ExecutorBindings
+  alias Aiur.ExecutorWakeProjection
 
   @default_topic "executor.#"
 
@@ -62,7 +64,7 @@ defmodule Aiur.ExecutorEvents do
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
     source = Keyword.get(opts, :source, :executor_cli)
 
-    with :ok <- validate_topic(topic),
+    with :ok <- validate_publish_topic(topic),
          :ok <- reject_github_source(source),
          :ok <- reject_github_payload_source(payload),
          {:ok, id} <- IdGenerator.reserve_durable_id(),
@@ -74,23 +76,42 @@ defmodule Aiur.ExecutorEvents do
 
   @spec subscribe(String.t()) :: :ok | {:error, term()}
   def subscribe(topic) when is_binary(topic) do
-    with :ok <- validate_topic(topic) do
+    with :ok <- validate_binding_topic(topic) do
       state = subscription_state()
-      subscriptions = Enum.uniq(state["subscribed_to"] ++ [topic])
+      subscriptions = add_subscription(state["subscribed_to"], topic, "manual:executor")
       persist_subscription_state(%{state | "subscribed_to" => subscriptions})
     end
   end
 
   @spec unsubscribe(String.t()) :: :ok | {:error, term()}
   def unsubscribe(topic) when is_binary(topic) do
-    with :ok <- validate_topic(topic) do
+    with :ok <- validate_binding_topic(topic) do
       state = subscription_state()
-      persist_subscription_state(%{state | "subscribed_to" => Enum.reject(state["subscribed_to"], &(&1 == topic))})
+      persist_subscription_state(%{state | "subscribed_to" => Enum.reject(state["subscribed_to"], &(&1["topic"] == topic))})
     end
   end
 
   @spec subscriptions() :: [String.t()]
-  def subscriptions, do: subscription_state()["subscribed_to"]
+  def subscriptions, do: Enum.map(subscription_state()["subscribed_to"], & &1["topic"])
+
+  @doc false
+  @spec subscription_entries() :: [map()]
+  def subscription_entries, do: subscription_state()["subscribed_to"]
+
+  @doc false
+  @spec reconcile_subscriptions([{String.t(), String.t()}]) :: :ok | {:error, term()}
+  def reconcile_subscriptions(defaults) when is_list(defaults) do
+    state = subscription_state()
+    default_topics = MapSet.new(defaults, &elem(&1, 0))
+
+    kept =
+      Enum.reject(state["subscribed_to"], fn entry ->
+        String.ends_with?(entry["reason"], ":auto") and not MapSet.member?(default_topics, entry["topic"])
+      end)
+
+    subscriptions = Enum.reduce(defaults, kept, fn {topic, reason}, entries -> add_subscription(entries, topic, reason) end)
+    persist_subscription_state(%{state | "subscribed_to" => subscriptions})
+  end
 
   @spec last_seen_event_id() :: non_neg_integer() | nil
   def last_seen_event_id, do: subscription_state()["last_seen_event_id"]
@@ -145,11 +166,28 @@ defmodule Aiur.ExecutorEvents do
   end
 
   defp deliver(event) do
+    topic = Map.get(event, :topic) || Map.get(event, "topic")
+
+    if is_binary(topic) and String.starts_with?(topic, "executor.") do
+      deliver_executor_event(event)
+    else
+      deliver_wake_event(event)
+    end
+  end
+
+  defp deliver_executor_event(event) do
     id = Map.get(event, :id) || Map.get(event, "id")
 
     if not is_integer(id) or id > (last_seen_event_id() || 0) do
       IO.puts(Jason.encode!(scrub_untrusted_output(event)))
       advance_cursor(id)
+    end
+  end
+
+  defp deliver_wake_event(event) do
+    case ExecutorWakeProjection.project(event) do
+      {:ok, record} -> IO.puts(Jason.encode!(record))
+      :ignore -> :ok
     end
   end
 
@@ -212,12 +250,35 @@ defmodule Aiur.ExecutorEvents do
 
   defp advance_cursor(_id), do: :ok
 
-  defp validate_topic(topic) do
-    if not String.starts_with?(topic, "executor.") or String.trim(topic) == "" or String.starts_with?(topic, ".") or
-         String.ends_with?(topic, ".") or String.contains?(topic, "..") do
+  @doc false
+  @spec validate_syntax(String.t()) :: :ok | {:error, :invalid_topic}
+  def validate_syntax(topic) do
+    if String.trim(topic) == "" or String.starts_with?(topic, ".") or String.ends_with?(topic, ".") or String.contains?(topic, "..") do
       {:error, :invalid_topic}
     else
       :ok
+    end
+  end
+
+  @doc false
+  @spec validate_publish_topic(String.t()) :: :ok | {:error, :invalid_topic}
+  def validate_publish_topic(topic) do
+    with :ok <- validate_syntax(topic), true <- String.starts_with?(topic, "executor.") do
+      :ok
+    else
+      false -> {:error, :invalid_topic}
+      error -> error
+    end
+  end
+
+  @doc false
+  @spec validate_binding_topic(String.t()) :: :ok | {:error, :invalid_topic | :binding_not_allowlisted}
+  def validate_binding_topic(topic) do
+    with :ok <- validate_syntax(topic), true <- ExecutorBindings.allowlisted?(topic) do
+      :ok
+    else
+      false -> {:error, :binding_not_allowlisted}
+      error -> error
     end
   end
 
@@ -387,7 +448,7 @@ defmodule Aiur.ExecutorEvents do
     case JsonStore.read(subscription_path()) do
       {:ok, %{} = state} ->
         %{
-          "subscribed_to" => List.wrap(state["subscribed_to"]),
+          "subscribed_to" => normalize_subscriptions(state["subscribed_to"]),
           "last_seen_event_id" => state["last_seen_event_id"]
         }
 
@@ -401,6 +462,35 @@ defmodule Aiur.ExecutorEvents do
     :ok
   rescue
     error -> {:error, {:subscription_store_unavailable, Exception.message(error)}}
+  end
+
+  defp add_subscription(entries, topic, reason) do
+    if Enum.any?(entries, &(&1["topic"] == topic)) do
+      entries
+    else
+      entries ++
+        [
+          %{
+            "topic" => topic,
+            "reason" => reason,
+            "subscription_created_at_event_id" => IdGenerator.peek()
+          }
+        ]
+    end
+  end
+
+  defp normalize_subscriptions(subscriptions) do
+    Enum.map(List.wrap(subscriptions), fn
+      topic when is_binary(topic) ->
+        %{"topic" => topic, "reason" => "manual:legacy", "subscription_created_at_event_id" => 0}
+
+      %{} = entry ->
+        %{
+          "topic" => entry["topic"] || entry[:topic],
+          "reason" => entry["reason"] || entry[:reason] || "manual:legacy",
+          "subscription_created_at_event_id" => entry["subscription_created_at_event_id"] || entry[:subscription_created_at_event_id] || 0
+        }
+    end)
   end
 
   defp matches_any?(patterns, topic) when is_binary(topic), do: Enum.any?(patterns, &Topic.matches?(&1, topic))

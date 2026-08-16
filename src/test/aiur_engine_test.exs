@@ -1003,6 +1003,21 @@ defmodule AiurEngineTest do
     refute out =~ "GenServer"
   end
 
+  test "executor-wait dispatches a bounded RPC and validates timeout usage" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }
+cmd_executor_wait --timeout 2 --json|,
+        []
+      )
+
+    assert out =~ "TIMEOUT:12"
+    assert out =~ "Aiur.AgentControlCLI.executor_wait(timeout_ms: 2000, json: true)"
+
+    {bad, 64} = run_sourced_engine("cmd_executor_wait --timeout nope", [])
+    assert bad =~ "executor-wait --timeout expects a positive integer"
+  end
+
   test "streaming control rpc preserves an unexpected crash marker" do
     marker = Path.join(System.tmp_dir!(), "aiur-stream-crash-#{System.unique_integer([:positive])}")
     File.write!(marker, "reason=boom\n")

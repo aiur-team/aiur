@@ -587,13 +587,18 @@ defmodule Aiur.AgentControlCLITest do
       end
     end)
 
-    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> true end)
+    defaults = Aiur.ExecutorBindings.patterns()
+    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> defaults end)
     present = capture_io(fn -> AgentControlCLI.status() end)
-    assert present =~ "LISTENER present (executor.#)"
+    assert present =~ "LISTENER present (#{length(defaults)} bindings: executor.#"
 
-    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> false end)
+    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> tl(defaults) end)
+    degraded = capture_io(fn -> AgentControlCLI.status() end)
+    assert degraded =~ "LISTENER degraded (#{length(defaults) - 1}/#{length(defaults)} bindings; MISSING: executor.#)"
+
+    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> [] end)
     absent = capture_io(fn -> AgentControlCLI.status() end)
-    assert absent =~ "LISTENER absent (executor.decision.requested will not wake the Executor)"
+    assert absent =~ "LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)"
   end
 
   test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
