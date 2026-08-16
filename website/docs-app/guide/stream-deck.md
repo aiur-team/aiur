@@ -139,7 +139,8 @@ The path a spoken word takes is:
 1. The sidecar captures 16 kHz mono audio from the microphone on its own machine.
 2. It sends that audio to **Aiur**, over the same authenticated Stream Deck channel it already uses for fleet state — not to any third party.
 3. **Aiur** opens the connection to ElevenLabs, using the key from its own configuration, and streams the audio on.
-4. ElevenLabs returns text, Aiur pushes it back to the deck, and the finished message is delivered to the agent through the ordinary AgentChat path.
+4. ElevenLabs returns text and Aiur pushes it back to the deck. Before display or delivery, the sidecar corrects unambiguous mishearings of the coined name — `aeor`, `iyer`, `ayer`, and `A, your` become **Aiur**. Real words and acronyms such as `higher`, `iron`, `ire`, and `IR` are left unchanged rather than risk silently corrupting the operator's meaning.
+5. The finished message is delivered to the agent through the ordinary AgentChat path.
 
 The consequences of that arrangement:
 

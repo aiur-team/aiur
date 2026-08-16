@@ -196,6 +196,13 @@ describe("Stream Deck Phoenix channel", () => {
       expect(events.voiceClosed).toHaveBeenCalledWith("s-1");
     });
 
+    it("corrects unambiguous Aiur dictation before the operator or agent sees it", async () => {
+      const events = voiceEvents();
+      const { socket } = await joined(events);
+      socket.message(["4", "9", "streamdeck:fleet", "voice", { session: "s-1", kind: "final", text: "A, your fleet follows AEOR" }]);
+      expect(events.voice).toHaveBeenCalledWith("s-1", "final", "Aiur fleet follows Aiur");
+    });
+
     // `final_transcript` is still revisable upstream, so anything not explicitly
     // final is a partial — the direction that keeps text out of the settled buffer.
     it("normalises a malformed voice push instead of dropping it", async () => {
