@@ -84,17 +84,17 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok =
              Budget.observe(
                issues,
-               {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "1"}], body: %{"message" => "rate limit exceeded"}}},
+               {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}], body: %{"message" => "rate limit exceeded"}}},
                opts
              )
 
-    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, Keyword.put(opts, :timeout_ms, 10))
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, Keyword.put(opts, :timeout_ms, 1_000))
   end
 
-  test "a configured broker failure fails closed", %{root: root} do
+  test "a configured broker failure is not reported as shared quota exhaustion", %{root: root} do
     opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 10]
 
-    assert {:hold, %{reason: :shared_budget}} =
+    assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
@@ -111,7 +111,7 @@ defmodule Aiur.GitHub.BudgetTest do
 
     started_at = System.monotonic_time(:millisecond)
 
-    assert {:hold, %{reason: :shared_budget}} =
+    assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(
                request(token, "/repos/owner/repo/issues/1477"),
                opts |> Keyword.put(:python, python) |> Keyword.put(:timeout_ms, 300)
@@ -134,9 +134,8 @@ defmodule Aiur.GitHub.BudgetTest do
 
     # The setup acquire spawns `python3` and creates the broker database. That is
     # not the window under test, so it must not be charged the 300 ms deadline
-    # the release is measured against: on a loaded runner one admission alone
-    # costs more than that, `Budget.command/3` kills the port, and the acquire
-    # answers `{:hold, :shared_budget}` before the lock is even taken (#1983).
+    # the release is measured against. A loaded runner can spend more than that
+    # on one admission before the database lock is even taken (#1983).
     assert {:ok, lease} = Budget.acquire(request, opts)
     lock = lock_database(Budget.database_path(opts))
     deadline_at = System.monotonic_time(:millisecond) + 300
@@ -193,12 +192,12 @@ defmodule Aiur.GitHub.BudgetTest do
     assert {:error, {:unsafe_budget_state_dir, ^path, :regular}} = Budget.ensure_state_dir(state_dir: path)
   end
 
-  test "a malformed broker wait response fails closed", %{root: root} do
+  test "a malformed broker wait response is not reported as shared quota exhaustion", %{root: root} do
     fake_python = Path.join(root, "malformed-broker")
     File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'wait malformed'\n")
     File.chmod!(fake_python, 0o755)
 
-    assert {:hold, %{reason: :shared_budget}} =
+    assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(
                request("shared-token", "/repos/owner/repo/issues/1477"),
                state_dir: root,
@@ -228,7 +227,7 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.observe(core, response, opts)
 
     assert {:hold, %{reason: :shared_budget, resource: "graphql"}} =
-             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 10))
+             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 1_000))
 
     assert {:ok, lease} = Budget.acquire(core, opts)
     assert :ok = Budget.release(lease, opts)
@@ -315,7 +314,10 @@ defmodule Aiur.GitHub.BudgetTest do
   end
 
   defp os_process_alive?(pid) do
-    match?({_output, 0}, System.cmd("kill", ["-0", pid], stderr_to_stdout: true))
+    case System.cmd("ps", ["-o", "stat=", "-p", pid], stderr_to_stdout: true) do
+      {status, 0} -> not String.starts_with?(String.trim(status), "Z")
+      {_output, _status} -> false
+    end
   end
 
   defp wait_until(predicate, attempts \\ 100) do

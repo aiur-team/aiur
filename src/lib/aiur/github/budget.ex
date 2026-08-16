@@ -23,7 +23,6 @@ defmodule Aiur.GitHub.Budget do
   @default_stagger_ms 75
   @default_timeout_ms 30_000
   @lease_grace_ms 5_000
-  @broker_failure_backoff_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
 
@@ -92,7 +91,7 @@ defmodule Aiur.GitHub.Budget do
   @spec guard_settings(keyword()) :: map()
   def guard_settings(opts \\ []), do: settings(opts)
 
-  @spec acquire(map(), keyword()) :: {:ok, lease()} | {:hold, hold()} | :bypass
+  @spec acquire(map(), keyword()) :: {:ok, lease()} | {:hold, hold()} | {:error, :github_budget_broker_unavailable} | :bypass
   def acquire(request, opts \\ []) do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
@@ -101,7 +100,7 @@ defmodule Aiur.GitHub.Budget do
       do_acquire(request, key, python, opts, deadline(opts))
     else
       false -> :bypass
-      _unavailable -> {:hold, hold(request, @broker_failure_backoff_ms)}
+      _unavailable -> {:error, :github_budget_broker_unavailable}
     end
   end
 
@@ -171,22 +170,22 @@ defmodule Aiur.GitHub.Budget do
         retry_admission(request, key, python, opts, deadline_at, milliseconds)
 
       _unavailable ->
-        {:hold, hold(request, @broker_failure_backoff_ms)}
+        {:error, :github_budget_broker_unavailable}
     end
   end
 
   defp retry_admission(request, key, python, opts, deadline_at, milliseconds) do
     case Integer.parse(String.trim(milliseconds)) do
       {delay, ""} when delay > 0 -> retry_or_hold(request, key, python, opts, deadline_at, delay)
-      _invalid -> {:hold, hold(request, @broker_failure_backoff_ms)}
+      _invalid -> {:error, :github_budget_broker_unavailable}
     end
   end
 
-  defp grant_or_hold(id, request, key) do
+  defp grant_or_hold(id, _request, key) do
     if valid_lease_id?(id) do
       {:ok, %{id: id, token_key: key}}
     else
-      {:hold, hold(request, @broker_failure_backoff_ms)}
+      {:error, :github_budget_broker_unavailable}
     end
   end
 
@@ -344,7 +343,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp broker_unavailable(status, output) do
     Logger.warning("github_budget_broker_unavailable status=#{inspect(status)} output=#{inspect(String.trim(output))}")
-    :bypass
+    {:error, :github_budget_broker_unavailable}
   end
 
   defp python_executable(opts), do: Keyword.get(opts, :python, System.find_executable("python3"))
