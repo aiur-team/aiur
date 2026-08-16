@@ -38,25 +38,32 @@ defmodule Aiur.FindingsCLI do
 
   defp do_run(%{unfiled: unfiled, slugs: slugs, scope: scope}, puts) do
     opts = %{unfiled: unfiled, slugs: slugs, scope: scope}
-    reader = if opts.unfiled, do: &Findings.unfiled/1, else: &Findings.all/1
+
+    reader = if opts.unfiled, do: &Findings.unfiled_with_diagnostics/1, else: &Findings.all_with_diagnostics/1
 
     case reader.(scope: opts.scope) do
-      {:ok, findings} when opts.slugs ->
-        findings
-        |> Enum.map(& &1["slug"])
-        |> Enum.uniq()
-        |> Enum.sort()
-        |> Enum.each(puts)
-
-        exit_code(opts, findings)
-
-      {:ok, findings} ->
-        Enum.each(findings, fn finding -> puts.(Jason.encode!(finding)) end)
-        exit_code(opts, findings)
+      {:ok, findings, errors} ->
+        Enum.each(errors, fn error -> puts.("aiur findings: skipping unreadable ledger entry: #{format_error(error)}") end)
+        render_findings(findings, opts, puts)
 
       {:error, reason} ->
         write_error(puts, reason)
     end
+  end
+
+  defp render_findings(findings, %{slugs: true} = opts, puts) do
+    findings
+    |> Enum.map(& &1["slug"])
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(puts)
+
+    exit_code(opts, findings)
+  end
+
+  defp render_findings(findings, opts, puts) do
+    Enum.each(findings, fn finding -> puts.(Jason.encode!(finding)) end)
+    exit_code(opts, findings)
   end
 
   defp validate_repo_slug(repo) do
