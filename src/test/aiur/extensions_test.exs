@@ -205,7 +205,7 @@ defmodule Aiur.ExtensionsTest do
     assert {:error, _reason} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
 
-    third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "third.aiurconfig")
+    third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "thirdconfig.yaml")
     write_workflow_file!(third_workflow, prompt: "Third prompt")
     Workflow.set_workflow_file_path(third_workflow)
     assert {:ok, %{prompt: "Third prompt"}} = Workflow.current()
@@ -271,13 +271,13 @@ defmodule Aiur.ExtensionsTest do
     ensure_workflow_store_running()
     original_path = Workflow.workflow_file_path()
 
-    config_path = Path.join(Path.dirname(original_path), "prompt_reload.aiurconfig")
+    config_path = Path.join(Path.dirname(original_path), "prompt_reloadconfig.yaml")
     write_workflow_file!(config_path, prompt: "Original prompt body")
     Workflow.set_workflow_file_path(config_path)
 
     assert {:ok, %{prompt: "Original prompt body"}} = Workflow.current()
 
-    # Edit only the referenced prompt_file; the .aiurconfig bytes are untouched.
+    # Edit only the referenced prompt_file; the config.yaml bytes are untouched.
     prompt_basename = String.trim_leading(Path.basename(config_path), ".") <> ".prompt.md"
     File.write!(Path.join(Path.dirname(config_path), prompt_basename), "Edited prompt body\n")
     send(WorkflowStore, :poll)
@@ -291,7 +291,7 @@ defmodule Aiur.ExtensionsTest do
   end
 
   test "workflow store init stops on missing workflow file" do
-    missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "missing.aiurconfig")
+    missing_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "missingconfig.yaml")
     Workflow.set_workflow_file_path(missing_path)
 
     assert {:stop, {:missing_workflow_file, ^missing_path, :enoent}} = WorkflowStore.init([])
@@ -303,8 +303,8 @@ defmodule Aiur.ExtensionsTest do
     # mid-test failure can't leak a down store to a later sequential module.
     on_exit(fn -> ensure_workflow_store_running() end)
     existing_path = Workflow.workflow_file_path()
-    manual_path = Path.join(Path.dirname(existing_path), "manual.aiurconfig")
-    missing_path = Path.join(Path.dirname(existing_path), "manual-missing.aiurconfig")
+    manual_path = Path.join(Path.dirname(existing_path), "manualconfig.yaml")
+    missing_path = Path.join(Path.dirname(existing_path), "manual-missingconfig.yaml")
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
 

@@ -793,7 +793,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     observed_at = ~U[2026-08-02 08:53:00Z]
     dir = Path.join(System.tmp_dir!(), "aiur-strip-durable-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    workflow_path = Path.join(dir, ".aiurconfig")
+    workflow_path = Path.join(dir, "config.yaml")
 
     previous_path = Application.get_env(:aiur, :workflow_file_path)
 

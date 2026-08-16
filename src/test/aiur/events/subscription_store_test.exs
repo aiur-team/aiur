@@ -316,7 +316,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
 
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
-      # The test config's authoritative base is `main` (fixtures/test.aiurconfig),
+      # The test config's authoritative base is `main` (fixtures/test.yaml),
       # so the reconcile must swap the trunk topic for the main one.
       send(pid, {:event, %{id: 1, topic: "system.config.base_branch.changed"}})
 

@@ -100,10 +100,6 @@ defmodule Aiur.InitTest do
         load_config: fn t ->
           with {:ok, loaded} <- Workflow.load(t), do: {:ok, loaded.config}
         end,
-        migrate_layout: fn opts ->
-          send(parent, {:migrate, opts})
-          {:ok, %{moved: [opts.new_config]}}
-        end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
         detect_default_branch: fn _repo -> "main" end,
@@ -872,37 +868,15 @@ defmodule Aiur.InitTest do
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
     end
 
-    test "resume migrates a legacy root config into .aiur/ when confirmed", %{dir: dir, target: target} do
+    test "refuses a legacy root config with the canonical destination", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
       File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\nagent:\n  kind: claude\n")
 
-      answers = %{confirm: %{"Migrate them into .aiur/ now?" => true}}
-      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
-
-      assert_received {:migrate, %{legacy_config: ^legacy, new_config: ^target, ignore: false}}
-    end
-
-    test "resume leaves the legacy layout when migration is declined", %{dir: dir, target: target} do
-      legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
-
-      answers = %{confirm: %{"Migrate them into .aiur/ now?" => false}}
-      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
-
-      refute_received {:migrate, _opts}
-    end
-
-    test "resume migration passes ignore: true when the gitignore opt-in is accepted", %{dir: dir, target: target} do
-      legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
-
-      answers = %{
-        confirm: %{"Migrate them into .aiur/ now?" => true, "Also add .aiur/ to .gitignore?" => true}
-      }
-
-      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
-
-      assert_received {:migrate, %{ignore: true}}
+      assert {:error, message} = Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+      assert message =~ "#{legacy} is no longer supported"
+      assert message =~ "Move it to #{target}"
+      assert message =~ "relative prompt_file and hooks_file paths"
+      refute_received {:repo_state, _tracker}
     end
 
     test "resume verifies an existing enabled prewarm config", %{target: target} do
@@ -1062,188 +1036,6 @@ defmodule Aiur.InitTest do
       assert File.read!(target) == before
       refute_received {:append, ^target}
       refute_received {:prewarm_build, _url, _cmd}
-    end
-  end
-
-  describe "migrate_layout/1" do
-    setup do
-      repo = Path.join(System.tmp_dir!(), "aiur-migrate-#{System.unique_integer([:positive])}")
-      File.mkdir_p!(repo)
-      {_, 0} = System.cmd("git", ["init", "-q"], cd: repo)
-      {_, 0} = System.cmd("git", ["config", "user.email", "t@example.com"], cd: repo)
-      {_, 0} = System.cmd("git", ["config", "user.name", "Tester"], cd: repo)
-      on_exit(fn -> File.rm_rf!(repo) end)
-      {:ok, repo: repo}
-    end
-
-    defp git_commit_all(repo) do
-      {_, 0} = System.cmd("git", ["add", "."], cd: repo)
-      {_, 0} = System.cmd("git", ["commit", "-q", "-m", "init"], cd: repo)
-    end
-
-    test "moves tracked files into .aiur/, rewrites pointers, removes legacy, preserves settings", %{repo: repo} do
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks_file: .aiurhooks\nprompt_file: AIUR.md\n")
-      File.write!(Path.join(repo, ".aiurhooks"), "after_create: echo hi\n")
-      File.write!(Path.join(repo, "AIUR.md"), "# prompt {{ issue.title }}\n")
-      git_commit_all(repo)
-
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, %{moved: _}} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-
-      assert File.regular?(new)
-      assert File.regular?(Path.join([repo, ".aiur", "hooks"]))
-      assert File.regular?(Path.join([repo, ".aiur", "prompt.md"]))
-      refute File.regular?(legacy)
-      refute File.regular?(Path.join(repo, ".aiurhooks"))
-      refute File.regular?(Path.join(repo, "AIUR.md"))
-
-      cfg = File.read!(new)
-      assert cfg =~ "hooks_file: hooks"
-      assert cfg =~ "prompt_file: prompt.md"
-      # non-pointer settings preserved verbatim
-      assert cfg =~ "kind: memory"
-      assert File.read!(Path.join([repo, ".aiur", "hooks"])) =~ "echo hi"
-
-      {tracked, 0} = System.cmd("git", ["ls-files"], cd: repo)
-      assert tracked =~ ".aiur/config"
-      refute tracked =~ ~r/^\.aiurconfig$/m
-    end
-
-    test "ignore: true appends .aiur/ to .gitignore and leaves new files untracked", %{repo: repo} do
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
-      git_commit_all(repo)
-
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: true})
-
-      assert File.read!(Path.join(repo, ".gitignore")) =~ ".aiur/"
-      refute File.regular?(legacy)
-      {tracked, 0} = System.cmd("git", ["ls-files"], cd: repo)
-      refute tracked =~ ".aiur/config"
-    end
-
-    test "untracked legacy files migrate via plain move", %{repo: repo} do
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
-
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      assert File.regular?(new)
-      refute File.regular?(legacy)
-    end
-
-    test "a missing legacy config returns an error and leaves nothing behind", %{repo: repo} do
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:error, _reason} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      refute File.regular?(new)
-    end
-
-    test "a write failure leaves the legacy config intact (move-order safety)", %{repo: repo} do
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      # A read+execute-only .aiur/ dir makes writing .aiur/config fail mid-migration.
-      aiur_dir = Path.join(repo, ".aiur")
-      File.mkdir_p!(aiur_dir)
-      File.chmod!(aiur_dir, 0o500)
-
-      assert {:error, _reason} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      assert File.regular?(legacy)
-      refute File.regular?(new)
-
-      File.chmod!(aiur_dir, 0o755)
-    end
-
-    test "a pointer target outside the repo is never copied or deleted", %{repo: repo} do
-      outside = Path.join(System.tmp_dir!(), "aiur-outside-#{System.unique_integer([:positive])}.md")
-      File.write!(outside, "external prompt\n")
-      on_exit(fn -> File.rm_rf!(outside) end)
-
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nprompt_file: #{outside}\n")
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-
-      # external file untouched; pointer left absolute (still resolves) and not rewritten
-      assert File.regular?(outside)
-      refute File.regular?(Path.join([repo, ".aiur", "prompt.md"]))
-      assert File.read!(new) =~ "prompt_file: #{outside}"
-    end
-
-    test "a config with inline hooks (no hooks_file) migrates without a spurious pointer", %{repo: repo} do
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks:\n  after_create: echo hi\n")
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      cfg = File.read!(new)
-      refute cfg =~ "hooks_file:"
-      assert cfg =~ "after_create: echo hi"
-      refute File.regular?(Path.join([repo, ".aiur", "hooks"]))
-    end
-
-    test "a custom hooks_file path migrates to .aiur/hooks and rewrites the pointer", %{repo: repo} do
-      File.mkdir_p!(Path.join(repo, "scripts"))
-      File.write!(Path.join([repo, "scripts", "wh"]), "after_create: echo hi\n")
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks_file: scripts/wh\n")
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      assert File.regular?(Path.join([repo, ".aiur", "hooks"]))
-      assert File.read!(new) =~ "hooks_file: hooks"
-    end
-
-    test "a quoted prompt_file value containing a space is rewritten whole", %{repo: repo} do
-      File.write!(Path.join(repo, "my prompt.md"), "# p\n")
-      File.write!(Path.join(repo, ".aiurconfig"), ~s(tracker:\n  kind: memory\nprompt_file: "my prompt.md"\n))
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      cfg = File.read!(new)
-      assert cfg =~ "prompt_file: prompt.md"
-      refute cfg =~ "my prompt.md"
-      assert File.regular?(Path.join([repo, ".aiur", "prompt.md"]))
-    end
-
-    test "ignore: true is idempotent — .aiur/ appears once in .gitignore", %{repo: repo} do
-      File.write!(Path.join(repo, ".gitignore"), ".aiur/\n")
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: true})
-
-      occurrences =
-        Path.join(repo, ".gitignore")
-        |> File.read!()
-        |> String.split("\n")
-        |> Enum.count(&(String.trim(&1) == ".aiur/"))
-
-      assert occurrences == 1
-    end
-
-    test "the migrated config loads via Workflow.load", %{repo: repo} do
-      File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\nhooks_file: .aiurhooks\nprompt_file: AIUR.md\n")
-      File.write!(Path.join(repo, ".aiurhooks"), "after_create: echo hi\n")
-      File.write!(Path.join(repo, "AIUR.md"), "# prompt {{ issue.title }}\n")
-      legacy = Path.join(repo, ".aiurconfig")
-      new = Path.join([repo, ".aiur", "config"])
-
-      assert {:ok, _} = Init.migrate_layout(%{legacy_config: legacy, new_config: new, ignore: false})
-      assert {:ok, loaded} = Workflow.load(new)
-      assert loaded.config["hooks"]["after_create"] == "echo hi"
-      assert loaded.prompt =~ "{{ issue.title }}"
     end
   end
 
@@ -1538,7 +1330,7 @@ defmodule Aiur.InitTest do
       assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker for new work/i))
     end
 
-    # The scaffold writes the interval into .aiurconfig explicitly, so a new
+    # The scaffold writes the interval into .aiur/config explicitly, so a new
     # install polls at this value rather than at Schema.Polling's default.
     # Leaving it at 30 would have made the widened schema default a no-op for
     # everyone who ran `aiur init`.

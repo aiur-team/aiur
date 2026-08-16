@@ -86,14 +86,7 @@ if config_env() == :test do
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
 
-  workflow_file_path_for_tests =
-    [
-      "../../.aiur/config",
-      "../../.aiurconfig",
-      "../test/fixtures/test.aiurconfig"
-    ]
-    |> Enum.map(&Path.expand(&1, __DIR__))
-    |> Enum.find(&File.exists?/1)
+  workflow_file_path_for_tests = Path.expand("../test/fixtures/test.yaml", __DIR__)
 
   if workflow_file_path_for_tests do
     config :aiur, :workflow_file_path, workflow_file_path_for_tests

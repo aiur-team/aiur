@@ -168,31 +168,31 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   end
 
   def log_tracker_preflight_error(:missing_linear_api_token),
-    do: Logger.error("Linear API token missing in .aiurconfig")
+    do: Logger.error("Linear API token missing in .aiur/config")
 
   def log_tracker_preflight_error(:missing_linear_project_slug),
-    do: Logger.error("Linear project slug missing in .aiurconfig")
+    do: Logger.error("Linear project slug missing in .aiur/config")
 
   def log_tracker_preflight_error(:missing_tracker_kind),
-    do: Logger.error("Tracker kind missing in .aiurconfig")
+    do: Logger.error("Tracker kind missing in .aiur/config")
 
   def log_tracker_preflight_error({:unsupported_tracker_kind, kind}),
-    do: Logger.error("Unsupported tracker kind in .aiurconfig: #{inspect(kind)}")
+    do: Logger.error("Unsupported tracker kind in .aiur/config: #{inspect(kind)}")
 
   def log_tracker_preflight_error({:invalid_workflow_config, message}),
-    do: Logger.error("Invalid .aiurconfig config: #{message}")
+    do: Logger.error("Invalid .aiur/config config: #{message}")
 
   def log_tracker_preflight_error({:missing_workflow_file, path, reason}),
-    do: Logger.error("Missing .aiurconfig at #{path}: #{inspect(reason)}")
+    do: Logger.error("Missing .aiur/config at #{path}: #{inspect(reason)}")
 
   def log_tracker_preflight_error({:missing_prompt_file, path, reason}),
     do: Logger.error("Missing prompt_file at #{path}: #{inspect(reason)}")
 
   def log_tracker_preflight_error(:workflow_front_matter_not_a_map),
-    do: Logger.error("Failed to parse .aiurconfig: top-level YAML must be a map")
+    do: Logger.error("Failed to parse .aiur/config: top-level YAML must be a map")
 
   def log_tracker_preflight_error({:workflow_parse_error, reason}),
-    do: Logger.error("Failed to parse .aiurconfig: #{inspect(reason)}")
+    do: Logger.error("Failed to parse .aiur/config: #{inspect(reason)}")
 
   def log_tracker_preflight_error({:missing_hooks_file, path, reason}),
     do: Logger.error("Missing hooks_file at #{path}: #{inspect(reason)}")

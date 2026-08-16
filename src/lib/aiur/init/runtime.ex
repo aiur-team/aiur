@@ -9,7 +9,6 @@ defmodule Aiur.Init.Runtime do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Init.Alerts
   alias Aiur.Init.Format
-  alias Aiur.Init.Migration
   alias Aiur.Init.Prompt
   alias Aiur.Init.Scaffold
   alias Aiur.Init.Templates
@@ -29,7 +28,6 @@ defmodule Aiur.Init.Runtime do
           legacy_config_target: (atom() -> Path.t()),
           existing_config_path: (Path.t() -> String.t() | nil),
           load_config: (Path.t() -> {:ok, map()} | {:error, term()}),
-          migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
           detect_default_branch: (String.t() | nil -> String.t() | nil),
@@ -86,7 +84,6 @@ defmodule Aiur.Init.Runtime do
       legacy_config_target: &Scaffold.legacy_config_target/1,
       existing_config_path: &Scaffold.existing_config_path/1,
       load_config: &load_config/1,
-      migrate_layout: &Migration.migrate_layout/1,
       read_example: fn -> Templates.config_example() end,
       detect_repo: &Aiur.Init.GitHub.detect_repo/0,
       detect_default_branch: &Aiur.Init.GitHub.detect_default_branch/1,

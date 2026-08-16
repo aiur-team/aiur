@@ -70,7 +70,7 @@ defmodule Aiur.TestSupport do
           )
 
         # The valid baseline the suite booted with (test_helper.exs points this
-        # at the checked-in `fixtures/test.aiurconfig`). Restore it on exit
+        # at the checked-in `fixtures/test.yaml`). Restore it on exit
         # rather than deleting the key — deleting it leaves the global config
         # resolving to a possibly-missing run-folder path, so any later read of
         # `Config.settings!/0` while `WorkflowStore` is mid-reload/restart raises
@@ -93,7 +93,8 @@ defmodule Aiur.TestSupport do
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
-        workflow_file = Path.join(workflow_root, ".aiurconfig")
+        workflow_file = Path.join([workflow_root, ".aiur", "config"])
+        File.mkdir_p!(Path.dirname(workflow_file))
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
 

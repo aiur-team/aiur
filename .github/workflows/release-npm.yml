@@ -182,8 +182,8 @@ jobs:
 
       - name: Interactive TUI renders
         run: |
-          mkdir -p fixture
-          cat > fixture/.aiurconfig <<'EOF'
+          mkdir -p fixture/.aiur
+          cat > fixture/.aiur/config <<'EOF'
           ---
           tracker:
             kind: memory

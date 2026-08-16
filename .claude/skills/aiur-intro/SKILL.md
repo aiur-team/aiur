@@ -95,10 +95,10 @@ global in `~/.aiur/`). It asks for:
 4. Agent limits, turn/time limits, polling, optional prewarming.
 5. A `GITHUB_TOKEN` when using GitHub, so Aiur can read issues and manage lifecycle labels.
 
-Config discovery order:
+Config discovery and legacy-refusal order:
 
 ```text
-./.aiur/config → ./.aiurconfig → ~/.aiur/config → ~/.aiurconfig
+./.aiur/config → reject ./.aiurconfig → ~/.aiur/config → reject ~/.aiurconfig
 ```
 
 Then label the issues you want worked with `agent:todo` and start:

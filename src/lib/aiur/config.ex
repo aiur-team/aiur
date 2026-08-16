@@ -1,7 +1,6 @@
 defmodule Aiur.Config do
   @moduledoc """
-  Runtime configuration loaded from the aiur config file (`.aiur/config`, or a
-  legacy `.aiurconfig`).
+  Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
   alias Aiur.BuildGate
@@ -694,7 +693,7 @@ defmodule Aiur.Config do
   Number of opencode-serve instances to pre-warm at boot. Each pre-
   warmed slot binds to a different active ticket as its leadoff so
   the user's first click on that ticket opens its chat pane in
-  <100 ms. Defaults to 3 when absent from `.aiurconfig`. `0` is valid
+  <100 ms. Defaults to 3 when absent from `.aiur/config`. `0` is valid
   and disables pre-warm entirely (all opens go through the cold
   placeholder path).
   """

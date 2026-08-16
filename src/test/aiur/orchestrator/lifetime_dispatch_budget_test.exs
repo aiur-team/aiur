@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     previous_log_file = Application.get_env(:aiur, :log_file)
     dir = Path.join(System.tmp_dir!(), "aiur-lifetime-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    path = Path.join(dir, ".aiurconfig")
+    path = Path.join(dir, "config.yaml")
     File.write!(path, config)
     Workflow.set_workflow_file_path(path)
     Application.delete_env(:aiur, :dispatch_budget_store_path)

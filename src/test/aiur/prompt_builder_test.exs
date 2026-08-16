@@ -12,7 +12,7 @@ defmodule Aiur.PromptBuilderTest do
 
     dir = Path.join(System.tmp_dir!(), "aiur-prompt-test-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
-    path = Path.join(dir, ".aiurconfig")
+    path = Path.join(dir, "config.yaml")
     File.write!(path, config)
     Workflow.set_workflow_file_path(path)
 

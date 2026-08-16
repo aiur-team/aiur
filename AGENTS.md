@@ -32,7 +32,7 @@ forming a verdict; the feature list does not imply them.
 User-facing documentation lives in `website/docs-app/`. A change carries its docs
 **in the same pull request** when it:
 
-- adds or changes a **config key** (`.aiur/config`, a legacy `.aiurconfig`, or
+- adds or changes a **config key** (`.aiur/config` or
   `Aiur.Config.Schema.*`) — including the annotated templates in
   `.aiur/examples/` and `src/examples/workflows/`
 - adds or changes a **CLI command or flag** (`aiur`, `aiurdev`, or the shared
@@ -76,18 +76,17 @@ there is.
 
 - `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`, and
   `.aiur/prompt.md`. The `prompt_file:`/`hooks_file:` keys point at sibling files
-  resolved relative to the config. Run `aiur init` to scaffold these three; a re-run
-  over a legacy root `.aiurconfig` offers to migrate it in. This repo also tracks
+  resolved relative to the config. Run `aiur init` to scaffold these three. This repo also tracks
   `.aiur/examples/*.example` — the annotated templates `aiur init` embeds at compile
   time (source-only; not copied into user repos).
-  Discovery: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` → `~/.aiurconfig`.
+  Discovery: `./.aiur/config` → `~/.aiur/config`. A legacy `.aiurconfig` without
+  its canonical replacement is rejected with an actionable error.
 - `src/examples/workflows/` — portable example configs (Linear+Codex,
-  GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`
+  GitHub+Codex, GitHub+Claude), each a `.yaml` config plus a `.prompt.md`
   template. Copy a pair when starting fresh.
-- `.aiurconfig` + `AIUR.md` (repo root) — the machine-local operational config
-  this repo currently dogfoods (legacy root layout, still supported), plus its
-  prompt template. Checked in but **not** portable defaults. Used when you run
-  `aiur` or `aiurdev` inside this repo.
+- `.aiur/config` + `.aiur/prompt.md` — the operational config this repo dogfoods.
+  Checked in but **not** portable defaults. Used when you run `aiur` or `aiurdev`
+  inside this repo.
 - `scripts/aiurdev` — the dev shim. It rebuilds the local Elixir release when
   sources are newer than the binary before run/start paths. Pure control
   commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `stop`) use
@@ -132,7 +131,7 @@ aiurdev agents                # one line per agent: state + current activity (he
 aiurdev set max-agents <n>    # change the concurrent-agent cap at runtime (no config edit)
 aiurdev pause | resume        # pause / resume the workflow
 aiurdev --todo <ids...> [--only] # queue tickets; optionally dequeue all other pending tickets
-aiurdev init                  # scaffold .aiur/ (or migrate a legacy .aiurconfig)
+aiurdev init                  # scaffold .aiur/
 aiurdev build                 # force-rebuild the local release (shim-only)
 aiurdev --host …              # explicitly override configured/default dashboard host
 ```

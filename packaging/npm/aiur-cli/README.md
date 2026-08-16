@@ -34,9 +34,9 @@ aiur init     # interactive setup wizard
 aiur          # start agents (foreground); use `aiur --bg` to detach
 ```
 
-`aiur init` scaffolds `.aiurconfig` and provisions the repo. It walks you through:
+`aiur init` scaffolds `.aiur/config` and provisions the repo. It walks you through:
 
-1. **Where to store config** — repo-local `./.aiurconfig` or global `~/.aiurconfig`.
+1. **Where to store config** — repo-local `./.aiur/config` or global `~/.aiur/config`.
 2. **Tracker** — GitHub or Linear, plus the repo.
 3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
    routing, and the permission mode.
@@ -54,7 +54,7 @@ to the issues you want worked and run `aiur`.
 
 | Command | What it does |
 |---|---|
-| `aiur init` | Interactive setup wizard (scaffold `.aiurconfig`) |
+| `aiur init` | Interactive setup wizard (scaffold `.aiur/config`) |
 | `aiur` | Start the workflow in the foreground (local-only bind) |
 | `aiur --bg` | Start a detached headless BEAM with the web dashboard enabled |
 | `aiur --bg --no-dashboard` | Start a lean detached headless BEAM without the dashboard |

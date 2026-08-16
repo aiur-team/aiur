@@ -110,7 +110,7 @@ and it will walk you through setup and ask which mode you want.
 - **Optional alert sounds:** users can edit the checked-in `.aiur/alerts` file, where each alert
   defines its `name`, `message`, and optional `sound` clips in one place.
 
-See [src/README.md](src/README.md#config) for the supported `.aiurconfig` options and
+See [src/README.md](src/README.md#config) for the supported `.aiur/config` options and
 adapter examples. Build Order's optional `build_order` settings configure supervised,
 in-memory configured-repository ticket-detail, typed ticket-history, and planning-graph
 providers. The graph projection owns catalog and demanded-root refreshes independently of

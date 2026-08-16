@@ -1,6 +1,6 @@
 # Configuration reference
 
-Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accepted. `prompt_file:` and `hooks_file:` point at sibling files. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
+Configuration lives in `.aiur/config` (YAML). `prompt_file:` and `hooks_file:` point at sibling files. Older root-level config files are rejected; when moving one, also move referenced files or rewrite their paths so they still resolve from the new config directory. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 ## Top-level
 

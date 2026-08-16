@@ -1368,7 +1368,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do
-    # There is no .aiurconfig in the test environment, so tracker_kind/0 and
+    # There is no config.yaml in the test environment, so tracker_kind/0 and
     # agent_kind/0 both raise. The rescue clause in kind/2 swallows that and
     # returns the fallback string; without it, mount/3 would raise and live/2
     # would hand back an error tuple instead of {:ok, view, html}.
