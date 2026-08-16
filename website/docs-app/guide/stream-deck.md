@@ -91,6 +91,8 @@ elevenlabs:
 
 Prefer the `$ELEVENLABS_API_KEY` reference over pasting the key into the file. See [Configuration](/reference/configuration) for the field reference.
 
+A configured key also puts an ElevenLabs meter on the Dashboard Units page. It reads the account **credit quota** and shows credits remaining; ElevenLabs publishes no dollar balance, so no cost figure is shown. Note that it is not a meter of what dictation costs: speech-to-text bills per minute of audio, while the character quota is primarily the text-to-speech credit pool. See [API meters](/guide/executor-control-center#api-meters).
+
 ### Without a key
 
 The key is optional and its absence is not an error. Microphone selection and the level meters keep working, because with no key configured there is nowhere for audio to be sent. Only transcription is unavailable, and the deck reports why rather than failing silently.
