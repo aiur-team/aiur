@@ -228,17 +228,35 @@ means direct-only, always. Routing through OpenRouter is something you write.
 | **Transient error (5xx, timeout, malformed response)** | Retries, then advances **for that claim only**, and raises an operator attention. Deliberately *not* written to `model-usage.json`: that file means "rate-limited until `reset_at`", and recording an outage there would make the outage indistinguishable from a quota event. |
 | **Auth rejected (401)** | Does **not** advance. Hard failure plus an attention. A key that is present and wrong is a config error, and falling through would move spend silently onto another route while the broken credential stayed hidden. |
 
-#### `backend_configs.openrouter`
+#### `agent.backend_configs.<backend>`
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.<backend>.enabled` | boolean | backend registry default | Explicitly enables or disables dispatch for the backend. `agent.priority` takes precedence by enabling every backend it names. |
+| `agent.backend_configs.<backend>.command` | string | backend registry command | Overrides the backend command used for model discovery and setup where supported. |
+| `agent.backend_configs.<backend>.model` | string or nil | nil | Selects the backend's default model where the backend accepts a configured model. |
+| `agent.backend_configs.<backend>.default_model` | string or nil | backend registry value | Overrides the registry fallback model for an OpenAI-compatible backend; `model` takes precedence. |
+| `agent.backend_configs.<backend>.base_url` | URL string | backend registry value | Overrides the registry endpoint for an OpenAI-compatible backend. |
+| `agent.backend_configs.<backend>.api_key_env` | string | backend registry value | Names the environment variable containing the backend API key. |
+| `agent.backend_configs.<backend>.management_api_key_env` | string or nil | backend registry value | Names the environment variable containing a provider's usage-management API key. |
+| `agent.backend_configs.<backend>.transport` | string | backend registry value | Overrides the OpenAI-compatible transport with `chat_completions` or `responses`. |
+| `agent.backend_configs.<backend>.balance_baseline` | number or nil | nil | Seeds prepaid-balance usage tracking for backends that expose a balance API. |
+| `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
+| `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
+| `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
+| `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |
+
+#### `agent.backend_configs.openrouter`
 
 Settings for the OpenRouter *transport*. Nothing here selects anything —
 selection lives entirely in `agent.priority`.
 
-| Key | Type | Controls |
-| --- | --- | --- |
-| `backend_configs.openrouter.provider.order` | array of strings | Preferred upstream providers, most preferred first. |
-| `backend_configs.openrouter.provider.ignore` | array of strings | Upstream providers to exclude. |
-| `backend_configs.openrouter.provider.allow_fallbacks` | boolean | Whether OpenRouter may cross to another upstream within one request. |
-| `backend_configs.openrouter.provider.sort` | string | `price`, `throughput`, or `latency`. |
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.openrouter.provider.order` | array of strings or nil | omitted | Preferred upstream providers, most preferred first. |
+| `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
+| `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
+| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
 
 #### Cost attribution
 
