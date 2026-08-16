@@ -155,7 +155,7 @@ Known absence stays explicit. A source that is unavailable, stale, partial, inva
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
 
-Executor subscriptions are the Executor's half of the event system; see [Coordination and events](/concepts/coordination). Agents do not need these commands: every agent is auto-subscribed to its own comment, review, and CI topics, and to both directions of every blocker edge.
+Executor subscriptions are the Executor's half of the event system; see [Message Bus](/concepts/message-bus). Agents do not need these commands: every agent is auto-subscribed to its own comment, review, and CI topics, and to both directions of every blocker edge.
 
 Normal control commands use a bounded RPC. After ten seconds the launcher terminates its helper and descendants, exits 124, and reports the timeout. A crash marker distinguishes a known crashed daemon from a stopped one; run `aiur stop` to reap possible orphaned agents before restarting.
 

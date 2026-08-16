@@ -60,16 +60,19 @@ export default defineConfig({
       {
         text: 'Concepts',
         items: [
+          { text: 'Executor', link: '/concepts/executor' },
+          { text: 'Units', link: '/concepts/units' },
+          { text: 'Commands', link: '/concepts/commands' },
+          { text: 'Build Orders', link: '/concepts/build-orders' },
           { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
           { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
-          { text: 'Coordination and events', link: '/concepts/coordination' }
+          { text: 'Message Bus', link: '/concepts/message-bus' }
         ]
       },
       {
         text: 'Reference',
         items: [
-          { text: 'Configuration', link: '/reference/configuration' },
-          { text: 'State nodes and Build Orders', link: '/concepts/state-and-build-orders' }
+          { text: 'Configuration', link: '/reference/configuration' }
         ]
       }
     ],

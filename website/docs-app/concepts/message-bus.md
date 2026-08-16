@@ -1,6 +1,6 @@
-# Coordination and events
+# Message Bus
 
-Aiur coordinates work at two levels: tracker state determines which tickets are eligible to run, while durable events carry facts and dependencies between active tickets and agents.
+Aiur coordinates work over a shared message bus. Tracker state determines which tickets are eligible to run, while durable events carry facts and dependencies between active tickets and agents.
 
 ## The event path
 
@@ -12,11 +12,15 @@ ticket.142.agent.decision.requested
 ticket.142.branch.push
 ```
 
-Events are signals, not shared mutable state. A consumer that needs code or a durable decision follows the event’s validated reference or correlation fields and reads the owning source of truth.
+Events are signals, not shared mutable state. A consumer that needs code or a durable decision follows the event's validated reference or correlation fields and reads the owning source of truth.
+
+## Automatic subscriptions
+
+Agents automatically subscribe to the events relevant to them: their ticket, their pull request, and any blockers they declared. A ticket that declares another issue a blocker receives that blocker's lifecycle and branch-push events, so it knows the moment a dependency lands. A ticket also receives its own PR and review events for CI and rework routing. No manual subscription is required for these.
 
 ## Dependencies
 
-Declaring another issue as a blocker creates a native issue dependency and subscribes the blocked ticket to relevant lifecycle and branch events. The blocked agent should keep independent preparation moving, but must not duplicate blocker-owned code.
+Declaring another issue as a blocker creates a native issue dependency and subscribes the blocked ticket to relevant lifecycle and branch events. The blocked agent keeps independent preparation moving, but must not duplicate blocker-owned code.
 
 When the blocker pushes, the dependent agent inspects the exact validated ref in the event payload. If the needed API landed, it stacks its branch on that ref and removes provisional integration code. A guessed branch name is never a substitute for the event payload.
 
@@ -33,7 +37,7 @@ Revisions append a new action rather than rewriting the original. If a target ca
 
 ## Progress and attentions
 
-Progress events are estimates for the Executor’s fleet view; they do not advance tracker state. Attention events identify a concrete condition that needs review or action and should be resolved when that condition clears.
+Progress events are estimates for the Executor's fleet view; they do not advance tracker state. Attention events identify a concrete condition that needs review or action and should be resolved when that condition clears.
 
 Use events for cross-ticket coordination that another agent may consume. Use alerts for immediate Executor-facing notification. See [Dashboard](/guide/executor-control-center) for the browser projections of these facts.
 
