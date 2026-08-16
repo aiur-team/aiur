@@ -78,6 +78,43 @@ defmodule Aiur.GitHub.QuotaTest do
     refute opts[:needs_attention]
   end
 
+  test "a window rollover with the resource still exhausted does not report the alert cleared" do
+    parent = self()
+
+    quota =
+      start_quota(
+        emit_fun: fn name, opts ->
+          send(parent, {:alert, name, opts})
+          :ok
+        end
+      )
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 0))
+    _snapshot = Quota.snapshot(quota)
+    assert_receive {:alert, "system.github.quota.core.exhausted", _opts}
+
+    # Ten poll cycles across three successive windows, exhausted throughout.
+    # The reset moving is the window rolling over, not the condition clearing.
+    Enum.each(1..10, fn cycle ->
+      reset = DateTime.add(@reset, cycle * 600, :second)
+      Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 0, reset))
+      _snapshot = Quota.snapshot(quota)
+    end)
+
+    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}
+    refute_receive {:alert, "system.github.quota.core.exhausted", _opts}
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4905))
+    _snapshot = Quota.snapshot(quota)
+
+    assert_receive {:alert, "system.github.quota.core.exhausted.resolved", opts}
+    assert opts[:reason] =~ "4905 of 5000"
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4906))
+    _snapshot = Quota.snapshot(quota)
+    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}
+  end
+
   test "exhaustion blocks only the depleted resource until its reset" do
     {:ok, clock} = Agent.start_link(fn -> @now end)
     quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
@@ -502,7 +539,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
   defp drop_cost_fields(attribution), do: Enum.map(attribution, &Map.drop(&1, [:cost, :costs, :estimated?]))
 
-  defp response(resource, limit, remaining) do
+  defp response(resource, limit, remaining, reset \\ @reset) do
     {:ok,
      %{
        status: 200,
@@ -510,7 +547,7 @@ defmodule Aiur.GitHub.QuotaTest do
          {"x-ratelimit-resource", resource},
          {"x-ratelimit-limit", Integer.to_string(limit)},
          {"x-ratelimit-remaining", Integer.to_string(remaining)},
-         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(reset))}
        ],
        body: %{}
      }}

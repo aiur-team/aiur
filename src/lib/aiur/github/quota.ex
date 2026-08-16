@@ -260,8 +260,12 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
+  # The latch is keyed on the condition, not on the window instance. Keying it
+  # on `reset_at` made an hourly window rollover look like the condition
+  # clearing, so every rollover emitted a `.resolved` for an exhaustion that had
+  # never actually cleared and then immediately re-latched under the new reset.
   defp emit_threshold_alert(state, resource, window, threshold) do
-    key = {resource, window.reset_at, threshold}
+    key = {resource, threshold}
 
     if MapSet.member?(state.alerts, key) do
       state
@@ -786,8 +790,8 @@ defmodule Aiur.GitHub.Quota do
 
   defp reconcile_resource_alerts(state, resource, window) do
     Enum.reduce(state.alerts, state, fn
-      {^resource, reset_at, threshold} = key, acc ->
-        if DateTime.compare(reset_at, window.reset_at) == :eq and threshold_active?(window, threshold) do
+      {^resource, threshold} = key, acc ->
+        if threshold_active?(window, threshold) do
           acc
         else
           message = "GitHub #{resource} #{threshold} quota alert cleared; #{window.remaining} of #{window.limit} requests remain"

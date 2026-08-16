@@ -13,9 +13,9 @@ defmodule Aiur.DecisionExpiryTest do
 
     decisions = [
       decision("live", "LIVE-1", DateTime.add(@now, -600, :second)),
-      decision("orphan", "DONE-1", DateTime.add(@now, -600, :second)),
-      decision("young", "DONE-2", DateTime.add(@now, -299, :second)),
-      decision("answered", "DONE-3", DateTime.add(@now, -600, :second), :decided)
+      decision("orphan", "DONE-1", DateTime.add(@now, -600, :second), blocking: false),
+      decision("young", "DONE-2", DateTime.add(@now, -299, :second), blocking: false),
+      decision("answered", "DONE-3", DateTime.add(@now, -600, :second), status: :decided, blocking: false)
     ]
 
     assert {:ok, 1} =
@@ -33,6 +33,50 @@ defmodule Aiur.DecisionExpiryTest do
     assert_received {:expired, orphan_id, "agent_not_running", @now}
     assert orphan_id == Enum.at(decisions, 1).decision_id
     refute_received {:expired, _decision_id, _reason, _occurred_at}
+  end
+
+  test "does not expire a blocking human-required Decision whose agent is idle waiting on it" do
+    test_pid = self()
+
+    decisions = [
+      decision("blocked", "DONE-1", DateTime.add(@now, -600, :second))
+    ]
+
+    assert {:ok, 0} =
+             DecisionExpiry.sweep(
+               now: @now,
+               grace_seconds: 300,
+               active_identifiers_fun: fn -> {:ok, []} end,
+               decisions_fun: fn -> {:ok, decisions} end,
+               expire_fun: fn decision_id, reason_class, occurred_at ->
+                 send(test_pid, {:expired, decision_id, reason_class, occurred_at})
+                 {:ok, %{status: :accepted}}
+               end
+             )
+
+    refute_received {:expired, _decision_id, _reason, _occurred_at}
+  end
+
+  test "still expires a blocking supervisor-answerable Decision whose ticket is no longer active" do
+    test_pid = self()
+
+    decisions = [
+      decision("supervised", "DONE-1", DateTime.add(@now, -600, :second), authority: "supervisor_allowed")
+    ]
+
+    assert {:ok, 1} =
+             DecisionExpiry.sweep(
+               now: @now,
+               grace_seconds: 300,
+               active_identifiers_fun: fn -> {:ok, []} end,
+               decisions_fun: fn -> {:ok, decisions} end,
+               expire_fun: fn decision_id, reason_class, occurred_at ->
+                 send(test_pid, {:expired, decision_id, reason_class, occurred_at})
+                 {:ok, %{status: :accepted}}
+               end
+             )
+
+    assert_received {:expired, _decision_id, "agent_not_running", @now}
   end
 
   test "fails closed when the orchestrator live set is unavailable" do
@@ -66,7 +110,9 @@ defmodule Aiur.DecisionExpiryTest do
             :continue_sweep -> {:ok, []}
           end
         end,
-        decisions_fun: fn -> {:ok, [decision("orphan", "DONE-1", DateTime.add(@now, -600, :second))]} end,
+        decisions_fun: fn ->
+          {:ok, [decision("orphan", "DONE-1", DateTime.add(@now, -600, :second), blocking: false)]}
+        end,
         expire_fun: fn decision_id, reason_class, occurred_at ->
           send(test_pid, {:expired, decision_id, reason_class, occurred_at})
           {:ok, %{status: :accepted}}
@@ -83,10 +129,19 @@ defmodule Aiur.DecisionExpiryTest do
     assert_received {:expired, _decision_id, "agent_not_running", @now}
   end
 
-  defp decision(source_id, ticket_identifier, created_at, status \\ :open) do
+  defp decision(source_id, ticket_identifier, created_at, overrides \\ []) do
+    status = Keyword.get(overrides, :status, :open)
+    blocking = Keyword.get(overrides, :blocking, true)
+    authority = Keyword.get(overrides, :authority, "human_required")
+
     assert {:ok, decision} =
              DecisionValidation.normalize(
-               %{"question" => "Still actionable?", "blocking" => true, "source_id" => source_id},
+               %{
+                 "question" => "Still actionable?",
+                 "blocking" => blocking,
+                 "authority" => authority,
+                 "source_id" => source_id
+               },
                ticket: %{@ticket | identifier: ticket_identifier},
                source: @source,
                now: created_at
