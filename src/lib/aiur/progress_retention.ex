@@ -186,13 +186,17 @@ defmodule Aiur.ProgressRetention do
     if is_nil(key) or not is_map(progress) do
       state
     else
-      case Map.get(state.retained, key) do
-        %{progress: %{order: existing_order}} when is_tuple(existing_order) ->
-          if newer_order?(progress, existing_order), do: put_retained(state, key, identity, progress), else: state
+      retain_latest_reading(state, key, identity, progress)
+    end
+  end
 
-        _ ->
-          put_retained(state, key, identity, progress)
-      end
+  defp retain_latest_reading(state, key, identity, progress) do
+    case Map.get(state.retained, key) do
+      %{progress: %{order: existing_order}} when is_tuple(existing_order) ->
+        if newer_order?(progress, existing_order), do: put_retained(state, key, identity, progress), else: state
+
+      _ ->
+        put_retained(state, key, identity, progress)
     end
   end
 
@@ -231,14 +235,21 @@ defmodule Aiur.ProgressRetention do
   defp write_checkpoint(path, retained, sync?) do
     with {:ok, contents} <- encode_checkpoint(retained),
          :ok <- ensure_regular_file(path) do
-      case Fs.atomic_write(path, contents, fsync: true, mode: 0o600) do
-        :ok -> if sync?, do: Fs.sync_filesystem(), else: :ok
-        {:error, reason} -> {:error, reason}
-      end
+      persist_checkpoint(path, contents, sync?)
     else
       {:error, _reason} = error -> error
     end
   end
+
+  defp persist_checkpoint(path, contents, sync?) do
+    case Fs.atomic_write(path, contents, fsync: true, mode: 0o600) do
+      :ok -> sync_filesystem_when_first_write(sync?)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp sync_filesystem_when_first_write(true), do: Fs.sync_filesystem()
+  defp sync_filesystem_when_first_write(false), do: :ok
 
   defp encode_checkpoint(retained) do
     case Jason.encode(checkpoint_record(retained)) do
@@ -319,20 +330,22 @@ defmodule Aiur.ProgressRetention do
 
   defp load_regular_checkpoint(path) do
     case File.read(path) do
-      {:ok, contents} ->
-        case Jason.decode(contents) do
-          {:ok, record} ->
-            case from_record(record) do
-              {:ok, retained} -> {retained, :healthy}
-              {:error, reason} -> quarantine_corrupt(path, reason)
-            end
+      {:ok, contents} -> decoded_checkpoint(path, contents)
+      {:error, reason} -> {%{}, {:degraded, {:checkpoint_unreadable, reason}}}
+    end
+  end
 
-          {:error, reason} ->
-            quarantine_corrupt(path, reason)
-        end
+  defp decoded_checkpoint(path, contents) do
+    case Jason.decode(contents) do
+      {:ok, record} -> retained_from_record(path, record)
+      {:error, reason} -> quarantine_corrupt(path, reason)
+    end
+  end
 
-      {:error, reason} ->
-        {%{}, {:degraded, {:checkpoint_unreadable, reason}}}
+  defp retained_from_record(path, record) do
+    case from_record(record) do
+      {:ok, retained} -> {retained, :healthy}
+      {:error, reason} -> quarantine_corrupt(path, reason)
     end
   end
 

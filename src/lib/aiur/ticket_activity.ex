@@ -168,12 +168,13 @@ defmodule Aiur.TicketActivity do
   # latest-`order`-wins and idempotent, so redundant casts are no-ops and the
   # store never blocks this projection process.
   defp retain_progress(%{projection: projection, retention_retain_fun: retain_fun}, identity) do
-    with key when not is_nil(key) <- TrackerIdentity.github_key(identity),
-         %{progress: %{order: _} = progress} <- Map.get(projection.entries, key) do
-      _ = retain_fun.(identity, progress)
-      :ok
-    else
-      _ -> :ok
+    case Projection.ordered_progress(projection, identity) do
+      nil ->
+        :ok
+
+      progress ->
+        _ = retain_fun.(identity, progress)
+        :ok
     end
   end
 
