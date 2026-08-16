@@ -568,6 +568,7 @@ defmodule AiurWeb.StreamdeckLogs do
   # surface); agent prose is another; system/reasoning/alert are the "logs"
   # class. The third distinct colour (tan) belongs to logs.
   @doc false
+  @spec row_kind(String.t() | atom()) :: :agent | :command | :user | :logs
   def row_kind(role) when role in ["assistant", :assistant], do: :agent
   def row_kind(role) when role in ["command", :command, "tool", :tool], do: :command
   def row_kind(role) when role in ["user", :user], do: :user
@@ -577,6 +578,7 @@ defmodule AiurWeb.StreamdeckLogs do
   # edit/write, `⚙` generic tools. The verb is detected from the RAW body
   # (before the prefix is stripped).
   @doc false
+  @spec glyph(String.t() | atom(), term()) :: String.t() | nil
   def glyph(role, body) when role in ["tool", :tool] and is_binary(body) do
     case tool_verb(body) do
       :read -> "→"
@@ -590,6 +592,7 @@ defmodule AiurWeb.StreamdeckLogs do
   def glyph(_role, _body), do: nil
 
   @doc false
+  @spec tool_display(term()) :: term()
   def tool_display(body) when is_binary(body) do
     case tool_verb(body) do
       verb when verb in [:read, :write, :edit] ->
@@ -613,8 +616,6 @@ defmodule AiurWeb.StreamdeckLogs do
       true -> nil
     end
   end
-
-  defp tool_verb(_body), do: nil
 
   defp value(map, key, default \\ nil) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))

@@ -187,16 +187,20 @@ defmodule Aiur.AgentEvents do
 
   defp tool_scalar(_arguments, _keys), do: nil
 
+  # Ordered verb table: the first verb with a matching substring wins, so a name
+  # carrying two needles resolves the same way the equivalent `cond` chain did.
+  # `view` is opencode's alias for its `read` tool; naming it here keeps a view
+  # tool rendering as `read <path>` with the `→` glyph, the same as `read_file`.
+  @tool_verbs [
+    {"read", ["read", "view"]},
+    {"write", ["write", "create", "insert"]},
+    {"edit", ["edit", "replace", "patch"]}
+  ]
+
   defp tool_verb(name) do
-    cond do
-      # `view` is opencode's alias for its `read` tool; naming it here keeps a
-      # view tool rendering as `read <path>` with the `→` glyph, the same as
-      # `read_file`.
-      String.contains?(name, "read") or String.contains?(name, "view") -> "read"
-      String.contains?(name, "write") or String.contains?(name, "create") or String.contains?(name, "insert") -> "write"
-      String.contains?(name, "edit") or String.contains?(name, "replace") or String.contains?(name, "patch") -> "edit"
-      true -> nil
-    end
+    Enum.find_value(@tool_verbs, fn {verb, needles} ->
+      if Enum.any?(needles, &String.contains?(name, &1)), do: verb
+    end)
   end
 
   @spec alert_event(String.t(), String.t(), keyword()) :: alert_event()
