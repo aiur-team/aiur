@@ -873,6 +873,40 @@ defmodule Aiur.AgentControlCLITest do
                "(local host sample; over local threshold, dispatch may be held)"
   end
 
+  test "status gives the GitHub quota measurement and its observation time", %{orchestrator: pid} do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 16,
+          effective_concurrent_agents: 16,
+          capacity_hold: %{
+            signal: :github_quota,
+            measured: %{resource: "graphql", remaining: 143, limit: 5000, observed_at: observed_at},
+            threshold: :ten_percent_remaining,
+            held_since_ms: System.monotonic_time(:millisecond),
+            alerted?: false
+          },
+          last_polled_issues: %{"queued" => queued_issue()}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~
+             "AGENTS 0/16 (binding: github_quota, resource=graphql remaining=143/5000 measured_at=#{DateTime.to_iso8601(observed_at)})"
+
+    :sys.replace_state(pid, fn state ->
+      put_in(state.capacity_hold.measured.observed_at, DateTime.add(observed_at, -121, :second))
+    end)
+
+    stale_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert stale_output =~
+             "AGENTS 0/16 (binding: github_quota stale, last_resource=graphql last_remaining=143/5000 last_measured_at="
+  end
+
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
     # Deliberately run this at a HIGH local load with the daemon NOT holding
     # (capacity_hold: nil). Ticket supply is the real binding constraint here;
