@@ -22,12 +22,12 @@ Logs reads like a chat window: **oldest at the far left, newest at the far right
 
 ### What the event keys are
 
-One key per event on the ticket’s shared event bus — progress and phase changes, inbound comments, CI and PR transitions, decisions and attentions. The key shows the event’s direction badge, its name (`PR merged`, `Progress check-in`, `Decision requested`), and how long ago it happened.
+One key per event on the ticket's shared event bus: progress and phase changes, inbound comments, CI and PR transitions, decisions and attentions. The key shows the event's direction badge, its name (`PR merged`, `Progress check-in`, `Decision requested`), and how long ago it happened.
 
 Two keys always exist:
 
 - **The origin key**, leftmost, labelled `Ticket opened`. It anchors the beginning of the log and owns every transcript line that predates the first published event, so nothing is unreachable.
-- **The LIVE key**, rightmost. It wears the same face as the agent’s key on the Grid — lane icon, provider mark, ticket number and progress bar — with `LIVE` in place of the title.
+- **The LIVE key**, rightmost. It wears the same face as the agent's key on the Grid: lane icon, provider mark, ticket number and progress bar, with `LIVE` in place of the title.
 
 Transcript lines are not event keys. What the agent *said* is detail underneath the event it happened during; what *happened to the ticket* is a key.
 
@@ -35,7 +35,7 @@ Transcript lines are not event keys. What the agent *said* is detail underneath 
 
 Exactly one key is active at a time, and it is unmistakable: a full-bleed plate in the badge’s colour, a rail down the left edge, and an inverted badge chip. LIVE turns bright green when it is the active view.
 
-Pressing an event key makes it active and scrolls the strip to that event; LIVE goes inactive. Pressing LIVE reverses it and jumps to the newest line. Scrolling with dial A does the same thing without touching a key — scroll into an event and that key lights up, scroll back to the end and LIVE lights up again. Entering Logs always opens at the live end.
+Pressing an event key makes it active and scrolls the strip to that event; LIVE goes inactive. Pressing LIVE reverses it and jumps to the newest line. Scrolling with dial A does the same thing without touching a key: scroll into an event and that key lights up, scroll back to the end and LIVE lights up again. Entering Logs always opens at the live end.
 
 ### Live typing
 
@@ -55,7 +55,7 @@ A progress bar has three states, and they are deliberately different pictures:
 | Stale | A real reading that has aged past its freshness window | The same bar, dimmed, with the full track outlined |
 | Unknown | No reading at all | Dashed track and a hollow status dot; no bar |
 
-A genuine 0% shows a short solid stub, so “just started” never looks like “no reading”. If a bar drops to an empty track and back, that is a bug — report it.
+A genuine 0% shows a short solid stub, so “just started” never looks like “no reading”. If a bar drops to an empty track and back, that is a bug. Report it.
 
 ## How Grid chooses agent keys
 
