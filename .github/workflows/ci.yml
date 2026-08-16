@@ -156,8 +156,12 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: src/_build
+          # No prefix `restore-keys`: a stale _build from a different mix.lock
+          # restores compiled deps whose versions no longer match mix.exs, which
+          # fails with "Unchecked dependencies for environment test". Exact-key
+          # only, so a lock/dep bump recompiles fresh instead of reusing stale
+          # artifacts.
           key: ${{ runner.os }}-quarantine-build-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
-          restore-keys: ${{ runner.os }}-quarantine-build-
       - name: Run quarantined tests
         # `--exclude test` narrows to the tag without failing while the queue
         # is empty; unlike `--only`, that lets this non-blocking job stay green

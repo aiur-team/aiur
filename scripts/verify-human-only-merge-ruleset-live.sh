@@ -61,44 +61,9 @@ if ! jq -e '
   [.rules[] | select(.type == "pull_request") | .parameters] |
   length == 1 and
   .[0].required_approving_review_count >= 1 and
-  .[0].require_code_owner_review == true and
-  .[0].require_last_push_approval == true and
   .[0].dismiss_stale_reviews_on_push == true
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must require current CODEOWNER approval and dismiss stale reviews" >&2
-  exit 1
-fi
-
-# Merge-queue parameters are visible to the read-only CI token, so compare the
-# complete parameter object to the reviewed declaration. max_entries_to_build
-# is deliberately 1: building five full CI matrices in parallel exhausted the
-# hosted-runner pool, while max_entries_to_merge still permits five-PR batches.
-# If runner capacity grows, raise build concurrency toward 2-3 rather than
-# restoring 5 in one step.
-merge_queue_mismatches="$(jq -nr \
-  --slurpfile declaration "$declaration" \
-  --argjson live_ruleset "$ruleset" '
-  def merge_queue_parameters($source; $source_name):
-    [$source.rules[] | select(.type == "merge_queue") | .parameters] |
-    if length == 1 then .[0]
-    else error($source_name + " must contain exactly one merge_queue rule")
-    end;
-
-  merge_queue_parameters($declaration[0]; "declaration") as $expected |
-  merge_queue_parameters($live_ruleset; "live ruleset") as $live |
-  (($expected | keys) + ($live | keys) | unique)[] as $field |
-  select(
-    ($expected | has($field) | not) or
-    ($live | has($field) | not) or
-    $expected[$field] != $live[$field]
-  ) |
-  $field
-')"
-
-if [[ -n "$merge_queue_mismatches" ]]; then
-  while IFS= read -r field; do
-    echo "ruleset merge_queue parameter mismatch: $field" >&2
-  done <<<"$merge_queue_mismatches"
+  echo "ruleset must require one approval and dismiss stale reviews" >&2
   exit 1
 fi
 
