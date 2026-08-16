@@ -704,12 +704,14 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       :error ->
         [log_roots: [Paths.log_root_dir()], needs_attention: true]
         |> AlertFeed.list()
-        |> Enum.reduce(MapSet.new(), fn alert, acc ->
-          case parked_ready_alert_target(alert) do
-            nil -> acc
-            target -> MapSet.put(acc, target)
-          end
-        end)
+        |> Enum.reduce(MapSet.new(), &collect_parked_ready_alert_target/2)
+    end
+  end
+
+  defp collect_parked_ready_alert_target(alert, acc) do
+    case parked_ready_alert_target(alert) do
+      nil -> acc
+      target -> MapSet.put(acc, target)
     end
   end
 

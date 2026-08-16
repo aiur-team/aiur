@@ -57,39 +57,49 @@ defmodule Aiur.GitHub.MergeQueue do
   @spec recovery_state(map() | term()) :: recovery_state()
   def recovery_state(%{} = observation) do
     cond do
-      is_map(Map.get(observation, :auto_merge_request)) ->
-        :armed
-
-      is_map(Map.get(observation, :merge_queue_entry)) ->
-        :queued
-
-      not complete_observation?(observation) ->
-        :unknown
-
-      malformed_optional_state?(observation) ->
-        :unknown
-
-      Map.get(observation, :draft?) == true ->
-        :ineligible
-
-      Map.get(observation, :draft?) != false ->
-        :unknown
-
-      Map.get(observation, :review_decision) != "APPROVED" ->
-        :ineligible
-
-      Map.get(observation, :mergeable) == "MERGEABLE" ->
-        :unarmed
-
-      Map.get(observation, :mergeable) == "CONFLICTING" ->
-        :ineligible
-
-      true ->
-        :unknown
+      is_map(Map.get(observation, :auto_merge_request)) -> :armed
+      is_map(Map.get(observation, :merge_queue_entry)) -> :queued
+      not trustworthy_observation?(observation) -> :unknown
+      true -> eligibility_state(observation)
     end
   end
 
   def recovery_state(_observation), do: :unknown
+
+  # Only an observation that carries every required field, and whose optional
+  # arm/queue fields are absent rather than malformed, can be classified. Any
+  # other shape falls through to `:unknown` (fail closed).
+  defp trustworthy_observation?(observation) do
+    complete_observation?(observation) and not malformed_optional_state?(observation)
+  end
+
+  # Reached only for a trustworthy, unarmed, unqueued observation: ready plus
+  # approved plus conflict-free is the recoverable `:unarmed` state.
+  defp eligibility_state(observation) do
+    case Map.get(observation, :draft?) do
+      true -> :ineligible
+      false -> approval_state(observation)
+      _malformed -> :unknown
+    end
+  end
+
+  defp approval_state(observation) do
+    if Map.get(observation, :review_decision) == "APPROVED" do
+      mergeable_state(observation)
+    else
+      :ineligible
+    end
+  end
+
+  # `mergeStateStatus` is deliberately not consulted here (see the moduledoc):
+  # `BLOCKED` on a freshly readied pull request is not a merge conflict.
+  defp mergeable_state(observation) do
+    case Map.get(observation, :mergeable) do
+      "MERGEABLE" -> :unarmed
+      "CONFLICTING" -> :ineligible
+      _unknown -> :unknown
+    end
+  end
 
   defp complete_observation?(observation) do
     Enum.all?(@required_keys, &Map.has_key?(observation, &1))

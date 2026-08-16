@@ -155,14 +155,12 @@ defmodule Aiur.Events.GithubCIPoller do
   # parked-ready PR. Absent on the REST fallback path and on error/no-PR
   # results; CiLifecycle treats a missing observation as `:unknown` (fail
   # closed) instead of arming or clearing a recovery signal on partial data.
-  defp merge_queue_observation(pr) when is_map(pr) do
+  defp merge_queue_observation(%{} = pr) do
     case Map.get(pr, "merge_queue") do
       %{} = observation when map_size(observation) > 0 -> observation
       _other -> %{}
     end
   end
-
-  defp merge_queue_observation(_pr), do: %{}
 
   defp poll_open_pull_request(target, pr, opts) do
     with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
