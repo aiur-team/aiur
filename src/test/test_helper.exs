@@ -27,24 +27,6 @@ test_home =
 File.mkdir_p!(test_home)
 System.put_env("HOME", test_home)
 
-workflow_file =
-  Path.expand("../../.aiurconfig", __DIR__)
-
-test_workflow_fallback = Path.expand("fixtures/test.aiurconfig", __DIR__)
-
-cond do
-  File.exists?(workflow_file) ->
-    Application.put_env(:aiur, :workflow_file_path, workflow_file)
-
-  File.exists?(test_workflow_fallback) ->
-    # CI (and any clone without a per-machine `.aiurconfig`) needs a
-    # checked-in fallback so `Aiur.Config.settings!/0` can resolve.
-    Application.put_env(:aiur, :workflow_file_path, test_workflow_fallback)
-
-  true ->
-    :ok
-end
-
 # The suite-global :log_file isolation root is set in config/config.exs
 # (test block) so it is in force before the app boots. Fail loudly if it
 # is ever missing — without it, boot-time and non-TestSupport writes leak
