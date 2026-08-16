@@ -27,6 +27,51 @@ agent working a ticket *inside* a run — a different job from operating one.
 If you are evaluating Aiur rather than working in it, read the operating modes before
 forming a verdict; the feature list does not imply them.
 
+## Docs ship with the change
+
+User-facing documentation lives in `website/docs-app/`. A change carries its docs
+**in the same pull request** when it:
+
+- adds or changes a **config key** (`.aiur/config`, a legacy `.aiurconfig`, or
+  `Aiur.Config.Schema.*`) — including the annotated templates in
+  `.aiur/examples/` and `src/examples/workflows/`
+- adds or changes a **CLI command or flag** (`aiur`, `aiurdev`, or the shared
+  launcher engine)
+- adds or changes an **environment variable an operator would set** — the `Auth`
+  section of this file, plus the page owning the surface it configures
+- adds a **new user-facing surface** — a dashboard page, a TUI view, a Stream
+  Deck mode, a new panel
+- **changes documented behavior**, so a page that exists today is now wrong
+
+Docs are **not** required for internal refactors, bug fixes that restore
+already-documented behavior, test-only changes, or performance work with no
+interface change. Do not pad a small change with prose.
+
+**Prefer editing an existing page over adding a new one.** Concise and correct
+beats comprehensive: a wrong doc is worse than a missing one, so fix every page
+the change falsifies before writing anything new.
+
+### Where each thing is documented
+
+| Change | Page |
+|--------|------|
+| Config key | `website/docs-app/reference/configuration.md` (one entry per key, defaults included) |
+| CLI command or flag | `website/docs-app/reference/cli.md` |
+| Dashboard, TUI, Stream Deck, quick start | `website/docs-app/guide/` |
+| Model or behavior explanation | `website/docs-app/concepts/` |
+| Skills | `website/docs-app/skills.md` |
+
+A genuinely new page must also be added to the sidebar in
+`website/docs-app/.vitepress/config.ts`, or nobody can reach it.
+
+Only one row above is machine-checked. `scripts/check-config-docs.py` resolves
+every config key to its full dotted path and fails the required `lint` job when
+one is missing from the configuration reference; `scripts/test-check-config-docs.sh`
+guards that checker. **Every other row is enforced by review alone** — nothing
+will stop a CLI flag or a dashboard page from merging undocumented, so a
+reviewer treating a missing doc as a blocking finding is the only mechanism
+there is.
+
 ## Layout
 
 - `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`, and
