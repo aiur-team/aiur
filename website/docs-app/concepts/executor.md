@@ -1,22 +1,32 @@
 # Executor
 
-The Executor is a role, not a user account. A human fills it, or the human designates an agent to drive on their behalf.
-
-The role runs Aiur, assigns tickets to agents, and tracks how tickets are progressing. Concretely that means launching and operating a run, keeping a supply of `agent:todo` work available, and reading the live state so nothing stalls.
+The Executor is the role that runs Aiur, assigns tickets, and tracks progress.
 
 ## Who drives
 
-- **A human.** You launch `aiur`, watch the [TUI](/guide/tui) or the [Dashboard](/guide/executor-control-center), and answer questions agents raise.
-- **An agent.** The human designates an agent as the Executor. It drives the run over the CLI and dashboard exactly as a person would, because `aiur --bg` keeps every control surface available without a terminal board.
+| Driver | How the role works |
+| --- | --- |
+| Human | Launches Aiur, reads the TUI or Dashboard, and answers agent Commands. |
+| Designated agent | Drives the same run through the CLI and Dashboard on the human's behalf. |
 
-Even when a human runs Aiur themselves, using a second agent to help analyse progress is recommended. The second agent parses logs far faster than a person can, so it catches snags, blockers, and background issues earlier than a manual read would.
+Even when a human drives, a second agent is recommended for log analysis, snag detection, blockers, and background issues.
 
-## The Executor's surfaces
+## Executor surfaces
 
-- The [Dashboard](/guide/executor-control-center) combines the fleet, the decision inbox, Build Orders, and analytics in one browser view.
-- The [CLI](/reference/cli) gives the same facts and controls from a terminal, which is how an agent Executor drives.
-- The [Message Bus](/concepts/message-bus) is how agents raise issues to the Executor and how the Executor responds.
+| Surface | Purpose |
+| --- | --- |
+| [TUI](/guide/tui) | Foreground fleet and live chats. |
+| [CLI](/reference/cli) | Agent-oriented run control; parity with interactive surfaces is the design target. |
+| [Dashboard](/guide/executor-control-center) | Browser fleet, Commands, Build Orders, analytics, and meters. |
+| [Stream Deck](/guide/stream-deck) | Physical or browser controls and event logs. |
+| [Message Bus](/concepts/message-bus) | Agent coordination, Commands, blockers, and attentions. |
 
 ## Keeping tickets moving
 
-The Executor routes work by maintaining ticket labels. `agent:todo` queues a ticket, and the label lifecycle ([How a ticket flows](/concepts/ticket-lifecycle)) carries it through review. When an agent flags an issue, it becomes a [Command](/concepts/commands) the Executor resolves.
+| Responsibility | Operator action |
+| --- | --- |
+| Supply work | Apply `agent:todo` to dispatchable tickets. |
+| Watch flow | Read [How a ticket flows](/concepts/ticket-lifecycle). |
+| Resolve snags | Answer or defer [Commands](/concepts/commands). |
+| Protect capacity | Pause work or change the live agent cap. |
+| Finish safely | Keep CI, review, and merge gates moving without self-merging agent work. |

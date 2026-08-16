@@ -4,55 +4,52 @@ title: Skills
 
 # Skills
 
-Aiur ships Agent Skills in this repository under `.claude/skills/`, mirrored to `.codex/skills/` by relative symlink. They split into two families by **where they run**, not by where they are stored:
-
-- **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
-- **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
-
-The split is defined in code, not by convention. `@issue_worker_skills` in [`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex) is the single authoritative list of agent-workspace skills, and [`aiur_agent_skill_test.exs`](../../src/test/aiur/aiur_agent_skill_test.exs) cross-checks it against the canonical taxonomy so the two cannot drift.
+Aiur skills are grouped by where they run.
 
 ## Agent-workspace skills
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` writes these four skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set.
+These four skills are installed into every ticket workspace for both Claude and Codex agents.
 
-| Skill | Loaded when | What it covers |
+| Skill | Loaded when | Covers |
 | --- | --- | --- |
-| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer. | The `agent:*` label lifecycle, the brainstorm, plan, work, and review flow, the Agent Workpad, milestone alerts, complexity routing, and the development loop. |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before emitting, subscribing to, or reacting to any event. | The [Message Bus](/concepts/message-bus): `emit_event`, `aiur_subscribe`, blocker declaration, and attention open and close. |
-| [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | When a run, daemon, agent, or workspace misbehaves. | An Aiur-specific context overlay for correlating evidence and ordering safe recovery. |
-| [design-import](../../.claude/skills/design-import/SKILL.md) | Before frontend work that involves a design artifact. | Importing large design payloads without overflowing inline tool-result limits. |
-
-Executor skills are deliberately excluded from this set: an issue worker has no reason to run Aiur itself.
+| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn | Agent labels, phases, Workpad, alerts, complexity, development, and PR handoff. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before event or blocker work | [Message Bus](/concepts/message-bus), subscriptions, dependencies, and attentions. |
+| [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | Run, daemon, agent, or workspace failure | Correlated evidence and safe recovery order. |
+| [design-import](../../.claude/skills/design-import/SKILL.md) | Large frontend design import | Disk-first import without overflowing agent context. |
 
 ## Executor skills
 
-These load in the Executor's session and are never bundled into a workspace.
+These stay with the Executor and are not copied into ticket workspaces.
 
-| Skill | Triggers on | What it does |
+| Skill | Trigger | Covers |
 | --- | --- | --- |
-| [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | "what is aiur", "how do I install aiur". | First-contact evaluation, the two operating modes, install, and first run. |
-| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | "break this feature into Aiur tickets", "plan the Build Order". | Research and decomposition into requirements, ticket contracts, a validated graph, and an Executor handoff. It stops before implementation. |
-| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | "run aiur", "run IAR", "iarc run", "run the aiur loop". | The Executor playbook for launching and operating a bounded run through its accepted outcome. |
-| [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | "aiur status", "iarc status". | A one-glance status board compiled from `aiur watch` and the alert feed. |
-| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | The recurring hourly timer that `aiur-run` arms, or "meta check". | One audit across every operator-facing surface, naming the current bottleneck and filing it durably. |
-| [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | An Executor handoff, or before context exhaustion. | Writes the handoff document the next Executor reads on boot. |
-| [release](../../.claude/skills/release/SKILL.md) | `/release`, "release a new version". | Bumps `src/mix.exs`, tags, and creates the GitHub release. |
+| [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | First contact or installation | Operating modes, setup, and first run. |
+| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | Plan a large feature | Requirements, ticket contracts, dependency graph, and Build Order handoff. |
+| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | Operate a run | Accepted boundary through review and merge. |
+| [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | Inspect a live run | Status board and alert feed. |
+| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | Hourly audit | Operator surfaces, bottleneck, and durable findings. |
+| [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | Executor handoff | Boot document for the next Executor. |
+| [release](../../.claude/skills/release/SKILL.md) | Release | Version, tag, and GitHub release. |
 
-`aiur-handoff`, `aiur-meta`, and `release` are Claude-only and are not symlinked into `.codex/skills/`.
+`aiur-handoff`, `aiur-meta`, and `release` are Claude-only.
 
-## Codex-native git-workflow skills
+## Codex-native git workflow
 
-These live only under `.codex/skills/` and are not installed by Aiur. They are the Codex-native equivalents of the git workflow.
+| Skill | Covers |
+| --- | --- |
+| [commit](../../.codex/skills/commit/SKILL.md) | Scope-aware commit creation. |
+| [push](../../.codex/skills/push/SKILL.md) | Push and PR creation or update. |
+| [pull](../../.codex/skills/pull/SKILL.md) | Merge-based integration from `origin/main`. |
+| [land](../../.codex/skills/land/SKILL.md) | Conflict, CI, review, and squash-merge handling. |
+| [debug](../../.codex/skills/debug/SKILL.md) | Log-tracing recovery. |
+| [linear](../../.codex/skills/linear/SKILL.md) | Raw Linear GraphQL operations. |
 
-| Skill | Triggers on | What it does |
-| --- | --- | --- |
-| [commit](../../.codex/skills/commit/SKILL.md) | A commit is requested. | Reads session intent, confirms scope before staging, uses a `type(scope)` subject, and avoids model-attribution trailers. |
-| [push](../../.codex/skills/push/SKILL.md) | Publishing changes is requested. | Pushes and creates or updates a PR against the template. It distinguishes sync failures, which go to `pull`, from authentication failures. |
-| [pull](../../.codex/skills/pull/SKILL.md) | A branch needs synchronizing with `origin/main`. | Updates with a merge rather than a rebase, using rerere and a clear conflict-resolution doctrine. |
-| [land](../../.codex/skills/land/SKILL.md) | Landing or merging a PR is requested. | Stays conflict-free, keeps CI green, answers review personas, and squash-merges. |
-| [debug](../../.codex/skills/debug/SKILL.md) | A run stalls, retries, or fails unexpectedly. | A log-tracing runbook using issue and session correlation keys. |
-| [linear](../../.codex/skills/linear/SKILL.md) | Raw Linear GraphQL operations are needed. | How to use the `linear_graphql` app-server tool. |
+## Compound Engineering
 
-## Compound-engineering skills
-
-The complexity router invokes CE skills that ship with the Executor's environment. Aiur does not bundle them, so this page does not link to per-skill files. The routing rules live in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md) and reference **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**.
+| Skill | Purpose |
+| --- | --- |
+| `ce-brainstorm` | Clarify requirements and alternatives. |
+| `ce-plan` | Produce an implementation-ready plan. |
+| `ce-work` | Execute a concrete plan or request. |
+| `ce-code-review` | Review bugs, regressions, tests, and standards. |
+| `ce-doc-review` | Review documentation structure and accuracy. |

@@ -6,6 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { assertSyntheticContent, assertSyntheticMeters } from "./dashboard-capture-safety.mjs";
 
 const websiteRoot = process.cwd();
 const repositoryRoot = path.resolve(websiteRoot, "..");
@@ -23,16 +24,17 @@ const surfaces = [
   // `clipHeight` keeps each image to the part of the surface worth documenting;
   // Units is the tall one because the page's point is the fleet table and the
   // Tickets backlog panel below it.
-  { name: "units", path: "/", selector: ".dashboard-shell", clipHeight: 1700, marker: "example/ex-142" },
-  { name: "commands", path: "/decisions", selector: ".dashboard-shell", clipHeight: 1250, marker: "dec-example-blocking" },
+  { name: "units", path: "/", selector: ".dashboard-shell", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
+  { name: "commands", path: "/decisions", selector: ".dashboard-shell", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
   {
     name: "build-orders",
     path: "/build-orders/4200",
     selector: ".dashboard-shell",
     clipHeight: 1400,
     marker: "Example App launch",
+    modelMeters: false,
   },
-  { name: "streamdeck", path: "/streamdeck", selector: ".dashboard-shell", clipHeight: 900, marker: "EX-142" },
+  { name: "streamdeck", path: "/streamdeck", selector: ".dashboard-shell", clipHeight: 900, marker: "EX-142", modelMeters: false },
 ];
 
 // The fixture guards the financial-data capability behind HTTP Basic auth, and
@@ -48,17 +50,6 @@ const authorizationHeader =
 // Provider meters are the known hazard: the production meter source probes the
 // operator's own Claude and Codex accounts, so the fixture substitutes a
 // synthetic source and these patterns fail the run if a real reading leaks.
-const forbiddenPatterns = [
-  /its-everdred/i,
-  /its-applekid/i,
-  /\/home\/[a-z0-9_-]+\//i,
-  /ghp_[A-Za-z0-9]/,
-  /github_pat_/i,
-  /sk-[A-Za-z0-9]{8}/,
-  /\bAIUR-\d+\b/,
-  /Human operator/,
-];
-
 // 1280 wide keeps every image at the documented desktop width. The tall
 // viewport only exists so a clip can reach a panel below the fold; each surface
 // still crops to its own `clipHeight`.
@@ -93,8 +84,8 @@ try {
       for (const surface of selectedSurfaces) {
         await page.goto(`${baseURL}${surface.path}`, { waitUntil: "networkidle" });
         await page.locator(surface.selector).waitFor({ state: "visible" });
-        await assertSyntheticPage(page, surface);
-        await assertMetersAreSynthetic(page);
+        const html = await assertSyntheticPage(page, surface);
+        await assertMetersAreSynthetic(page, surface);
 
         const output = path.join(outputRoot, `${surface.name}-dark.png`);
 
@@ -137,12 +128,20 @@ function startFixture(writable) {
     tmpdir(),
     `aiur-executor-control-center-docs-${process.pid}-${port}-${writable ? "writable" : "readonly"}`,
   );
-  const {
-    AIUR_DASHBOARD_PASSWORD: _dashboardPassword,
-    AIUR_DASHBOARD_USERNAME: _dashboardUsername,
-    AIUR_SUPERVISOR_TOKEN: _supervisorToken,
-    ...sanitizedEnvironment
-  } = process.env;
+      const {
+        ANTHROPIC_API_KEY: _anthropicApiKey,
+        AIUR_DASHBOARD_PASSWORD: _dashboardPassword,
+        AIUR_DASHBOARD_USERNAME: _dashboardUsername,
+        AIUR_SUPERVISOR_TOKEN: _supervisorToken,
+        DEEPSEEK_API_KEY: _deepseekApiKey,
+        ELEVENLABS_API_KEY: _elevenLabsApiKey,
+        GITHUB_TOKEN: _githubToken,
+        MOONSHOT_API_KEY: _moonshotApiKey,
+        OPENAI_API_KEY: _openAiApiKey,
+        OPENROUTER_API_KEY: _openRouterApiKey,
+        OPENROUTER_MANAGEMENT_KEY: _openRouterManagementKey,
+        ...sanitizedEnvironment
+      } = process.env;
 
   const child = spawn(
     "mise",
@@ -199,47 +198,14 @@ async function waitUntilReady(fixture) {
 async function assertSyntheticPage(page, surface) {
   const html = await page.content();
   const visibleText = await page.locator("body").innerText();
+  assertSyntheticContent({ url: page.url(), html, visibleText, marker: surface.marker });
 
-  if (!syntheticMarkerPresent(html) || !html.includes(surface.marker)) {
-    throw new Error(`Refusing to capture ${page.url()}: synthetic fixture markers are missing`);
-  }
-
-  for (const pattern of forbiddenPatterns) {
-    if (pattern.test(visibleText) || pattern.test(html)) {
-      throw new Error(`Refusing to capture ${page.url()}: ${pattern} matched real operator state`);
-    }
-  }
-
-  // Every ticket identifier rendered anywhere on a docs surface belongs to the
-  // synthetic EX- series. A stray identifier means a real projection answered.
-  const identifiers = visibleText.match(/\b[A-Z]{2,5}-\d{2,6}\b/g) ?? [];
-  const foreign = identifiers.filter((identifier) => !identifier.startsWith("EX-"));
-
-  if (foreign.length > 0) {
-    throw new Error(
-      `Refusing to capture ${page.url()}: non-fixture ticket identifiers present (${[...new Set(foreign)].join(", ")})`,
-    );
-  }
+  return html;
 }
 
-async function assertMetersAreSynthetic(page) {
-  const meters = page.locator(".provider-meter-card, [data-provider-meter]");
-
-  if ((await meters.count()) === 0) return;
-
-  const text = await meters.first().innerText();
-
-  if (!/example-account/.test(await page.content())) {
-    throw new Error(
-      `Refusing to capture ${page.url()}: provider meter cards are not backed by the synthetic meter source (${text.slice(0, 120)})`,
-    );
-  }
-}
-
-function syntheticMarkerPresent(body) {
-  // Broad by design: each surface additionally asserts its own `marker`, and
-  // `forbiddenPatterns` plus the EX- identifier sweep do the real screening.
-  return /example/i.test(body);
+async function assertMetersAreSynthetic(page, surface) {
+  const modelRows = await page.locator(".rs-model").evaluateAll((rows) => rows.map((row) => row.outerHTML));
+  assertSyntheticMeters({ url: page.url(), modelRows, required: surface.modelMeters });
 }
 
 async function allocatePort() {

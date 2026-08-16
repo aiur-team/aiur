@@ -1,18 +1,35 @@
 # Commands
 
-A Command is a durable issue an agent flags for the Executor. Agents raise them when they need a decision, hit a blocker that only the Executor can resolve, or want attention on something.
+A Command is a durable issue an agent flags for the Executor.
 
 ## What the Commands page shows
 
-The Commands page (dashboard `/decisions`, or `aiur commands` on the CLI) gives the Executor one place to track every issue agents flag. Each Command carries the ticket, the source agent, urgency, authority, recommended option, and its lifecycle state.
+The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 
 <img src="/images/dashboard/commands-dark.png" alt="Desktop Commands decision inbox populated with synthetic decisions">
 
-From the Commands page the Executor has two responses:
+| Field | Meaning |
+| --- | --- |
+| Ticket and source | Work and agent that raised the Command. |
+| Urgency and authority | How quickly it matters and who may answer. |
+| Options and recommendation | Bounded outcomes with the agent's preferred choice. |
+| Lifecycle | Open, answered, delivered, acknowledged, resolved, or superseded. |
 
-- **Answer directly.** Write a response and send it back to the agent, either as an option pick or a bounded custom response.
-- **Defer to an Executor agent.** Leave the Command for a designated Executor agent to investigate and decide.
+## Executor responses
 
-## Why Commands are durable
+| Response | Result |
+| --- | --- |
+| Answer directly | Pick an option or write a bounded response and send it to the agent. |
+| Defer | Leave the Command for a designated Executor agent to investigate and decide. |
+| Revise | Append a corrected action without rewriting the original record. |
 
-A Command is recorded before it appears anywhere in the dashboard, and its ID and version scope every later action. An answer, a revision, and a delivery all reference the same durable record, so the Executor and the agent share one source of truth instead of a chat log. See [Message Bus](/concepts/message-bus) for the event path that carries these records.
+## Durability
+
+| Contract | Why it matters |
+| --- | --- |
+| ID and version | Scope every answer and revision. |
+| Action ID | Correlates delivery, acknowledgement, and resolution. |
+| Append-only revision | Preserves what the Executor previously decided. |
+| Shared projection | Dashboard and CLI read the same durable record. |
+
+See [Message Bus decisions](/concepts/message-bus#commands-and-decisions) for the event path.

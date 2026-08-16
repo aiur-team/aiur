@@ -8,7 +8,15 @@ Every screenshot on this page was captured from the shipped LiveView dashboard a
 
 ## Open the dashboard
 
-Foreground and headless runs request the dashboard unless `--no-dashboard` is present. Its default writable mode requires both `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, including on loopback. Without credentials, set `observability.dashboard_writable: false` for a read-only loopback dashboard, or the listener refuses to start. The launcher binds to loopback by default unless it can safely use authenticated Tailscale exposure. A configured `server.host` wins over that default. The launch output prints its URL and effective bind address only when the listener is running:
+| Launch condition | Dashboard result |
+| --- | --- |
+| Normal foreground or headless run | Listener requested. |
+| `--no-dashboard` | Listener disabled. |
+| Writable mode | Username and password required, including on loopback. |
+| Read-only loopback | May run without credentials. |
+| Host selection | `server.host` wins over authenticated Tailscale or loopback default. |
+
+Startup prints the URL and effective bind only when the listener runs:
 
 ```text
 Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
@@ -16,7 +24,7 @@ Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 
 ## Find a surface
 
-The navigation labels and routes are the same projections the page-parity CLI reads. Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
+The navigation labels and routes are the same projections the page-parity CLI reads; use the browser for interactive detail and the paired command for terminal output.
 
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
@@ -28,18 +36,29 @@ The navigation labels and routes are the same projections the page-parity CLI re
 
 ## The pages
 
-Each page is a projection of a durable concept. The Concepts pages carry the detail; the Dashboard just renders it.
+Each page renders a durable concept whose detail lives in Concepts.
 
-- **Units** is the live fleet table of agent runs. Read how to filter and read the rows, and how the provider and API meters work, in [Units](/concepts/units).
-- **Commands** is the Executor's decision inbox, where issues agents flag are answered or deferred. See [Commands](/concepts/commands).
-- **Build Order** renders planning packs as a catalog, phases, and lanes. See [Build Orders](/concepts/build-orders).
-- **Analytics** renders the durable telemetry stream for the current live session: lifecycle timing, per-unit CPU and memory, concurrency against the cap, and cost per ticket. A missing telemetry stream renders an explicit empty state.
+| Page | Concept detail |
+| --- | --- |
+| Units | [Fleet, tickets, and meters](/concepts/units). |
+| Commands | [Issues agents flag for the Executor](/concepts/commands). |
+| Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
+| Analytics | Lifecycle time, CPU, memory, concurrency, and cost; missing telemetry stays explicit. |
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 
 ## Writable controls
 
-Dashboard mutations are enabled by default. They cover pausing and resuming a unit, answering and revising decisions, adjusting capacity, and applying routing labels from the Tickets panel. Disable them when the dashboard is an observation-only surface:
+| Writable control | Action |
+| --- | --- |
+| Unit | Pause or resume. |
+| Command | Answer or revise. |
+| Fleet | Adjust capacity. |
+| Ticket | Apply routing labels. |
+
+The CLI covers Unit and Fleet controls plus initial Command answers. Command revision and ticket-routing preview remain Dashboard-only today.
+
+Disable mutations for an observation-only surface:
 
 ```yaml
 observability:

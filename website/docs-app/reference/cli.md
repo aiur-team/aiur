@@ -4,7 +4,12 @@ pageClass: cli-reference
 
 # CLI
 
-`aiur` exists so an **agent can run Aiur on your behalf**. Aiur is normally driven by an Executor, and that Executor is usually an agent rather than a person typing commands, so the CLI deliberately targets feature parity with the [Dashboard](/guide/executor-control-center) and the [TUI](/guide/tui). Every capability those surfaces expose has a command here, so an agent operating over a terminal alone is never a second-class Executor.
+`aiur` exists so an **agent can run Aiur on your behalf**.
+
+| Design goal | Result |
+| --- | --- |
+| Executor access | An agent can operate a run from a terminal without asking a human to type commands. |
+| Surface parity | The CLI targets feature parity with the [Dashboard](/guide/executor-control-center) and [TUI](/guide/tui). |
 
 A human can of course type any of it. Most humans will not: they watch the TUI or the dashboard and let their Executor agent drive.
 
@@ -47,7 +52,12 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints the release version without contacting or claiming a running daemon. | `aiur --version` |
 
-Foreground mode has the terminal board and chat panes. `--bg` is headless but still starts the dashboard unless `--no-dashboard` is passed. A configured `server.host` wins over the launcher's default; `--host` wins over both. The default is loopback, or an authenticated Tailscale address when one is safely available. Startup output reports both the usable dashboard URL and its effective bind host and port.
+| Launch choice | Behavior |
+| --- | --- |
+| Foreground | Shows the terminal board and chat panes. |
+| `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
+| Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
+| Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
 ## Inspect and operate a running daemon
 
@@ -85,15 +95,24 @@ Foreground mode has the terminal board and chat panes. `--bg` is headless but st
 
 ### Restart semantics
 
-The refresh runs between the stop and the start, so the new daemon boots on current code. The installed `aiur` runs a pinned release and has nothing to build, so its restart is a plain bounce. A daemon that was already stopped is simply started. A daemon still answering after the stop aborts the restart rather than being rebuilt underneath. `restart` bounces the instance its stop resolved.
+| Restart case | Result |
+| --- | --- |
+| Installed `aiur` | Bounces the pinned release without building. |
+| Development release | Refreshes between stop and start, then boots current code. |
+| Daemon already stopped | Starts it. |
+| Daemon still answers after stop | Aborts rather than rebuilding underneath it. |
 
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
 
-Under `scripts/aiurdev` the refresh must prove itself. The rebuild reports the release directory and source commit it produced, and `restart` checks both against the release it is about to boot. A rebuild it cannot confirm aborts the start with exit code 70 and names the builder it could not confirm, rather than reporting a successful restart. A build command that does not declare it reports a receipt is not held to that contract: the restart proceeds and says plainly that it is unverified.
+| Development refresh evidence | Result |
+| --- | --- |
+| Receipt matches release directory and source commit | Starts the rebuilt release. |
+| Declared receipt cannot be confirmed | Aborts with exit code 70 and names the builder. |
+| Builder does not declare receipt support | Starts and reports that verification was unavailable. |
 
 ## Dashboard page commands
 
-`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages. They read the page's projection or provider rather than independently polling GitHub or treating `/api/v1/state` as the source of truth.
+`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of Dashboard pages that use the page projection or provider rather than an independent GitHub poll or `/api/v1/state`.
 
 | Command | Page view and important inputs | Example |
 | --- | --- | --- |
@@ -110,9 +129,13 @@ Under `scripts/aiurdev` the refresh must prove itself. The rebuild reports the r
 
 Every `--json` result is one versioned envelope with `schema_version`, `page`, `snapshot.captured_at`, `request`, `sources`, `data`, and `auxiliary`. `snapshot.captured_at` is when the command ran; it is not a claim that every source was observed then.
 
-Each independently-read source reports its `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`. Human output starts with that capture time and prints the same labelled source state and age before its values. This is intentional: a number without an observation age is not actionable.
+Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
-Known absence stays explicit. A source that is unavailable, stale, partial, invalid, or has an unknown observation time remains a `null` or a field-level status in JSON and a labelled warning in human output; it never becomes `0`, `[]`, or `{}` merely because the command could not measure it. An empty collection means an observed empty source or a documented, valid zero-result filter, never an outage. `auxiliary` holds separately-derived values such as provider spend and preserves their own source metadata instead of merging an estimate into the page's primary data.
+| Source condition | Output contract |
+| --- | --- |
+| Unavailable, stale, partial, invalid, or unknown observation time | Remains `null` or field-level status in JSON and a labelled warning in human output; it never becomes `0`, `[]`, or `{}` merely because the command could not measure it. |
+| Observed empty source or valid zero-result filter | May return an empty collection. |
+| Separately derived value, such as provider spend | Lives under `auxiliary` with its own source metadata. |
 
 ## Decisions, Executor events, and findings
 
@@ -164,10 +187,12 @@ An open **blocking** ask is also printed by plain `aiur status`; no extra flag i
 
 ## Operational facts that change an incident response
 
-- **Dispatch needs `agent:todo`.** An issue can be open, labelled, eligible, and unblocked yet still not dispatch until it carries `agent:todo`. If `aiur status` says `AGENTS 0/32 (binding: ticket supply)`, it means no queued ticket is available, not that no work exists. Queue it with `aiur --todo <id>` or add the label.
-- **Global pause is durable.** Bare `aiur pause` is a fleet-wide provisioning switch and survives restart. A restarted fleet can therefore be correctly silent; use `aiur status` and `aiur resume` rather than assuming the daemon lost work.
-- **CI readiness uses an operator-only token.** Set `AIUR_CI_READINESS_TOKEN` in the daemon's environment with GitHub `workflow` scope, then restart the daemon. The daemon reads it for workflow inspection and removes it from every agent shell; do not put it in an agent workspace or prompt.
-- **A base refresh affects approval ownership.** With `require_last_push_approval`, an Executor who refreshes a stale PR branch becomes its last pusher and cannot satisfy the required approval. Route the fetch, merge, and push through that ticket's agent identity instead; then obtain or retain review under the repository's normal rules.
+| Fact | Response |
+| --- | --- |
+| **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means no ticket is queued. Use `aiur --todo <id>` or add the label. |
+| **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
+| **CI readiness uses an operator-only token.** | Put `AIUR_CI_READINESS_TOKEN` with GitHub `workflow` scope in the daemon environment, restart, and never expose it to agent workspaces. |
+| **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |
 
 ## `aiurdev`, for developing Aiur itself
 
@@ -190,11 +215,16 @@ Apart from the commands below, `aiurdev` executes the same launcher engine as `a
 
 `aiurdev` resolves its target repository from its own path, following symlinks first, so a globally symlinked `aiurdev` works from any directory. Set `AIUR_REPO_ROOT` to name a target explicitly and that choice always wins.
 
-When the target is derived from the script path and the current directory sits inside a *different* Aiur checkout, the outcome depends on what the command is for:
+When the script path and current directory point at different checkouts, command intent decides the outcome.
 
-- Commands whose purpose is to produce or boot a release, meaning `build`, `restart`, and a bare run, **refuse** with exit code 64 and print both roots plus the two commands that resolve it. Otherwise a build reports success against a checkout you are not working in, and a subsequent `restart` boots that release.
-- Every other command, including `status`, `stop`, `watch`, `units`, and `executor-answer`, still runs, because it only needs to reach the daemon and refusing would leave a blocked agent unanswerable. It prints which checkout it is speaking through and reuses that checkout's existing release rather than rebuilding it, so answering an RPC never rewrites a release some other daemon is booted from.
+| Command type | Outcome |
+| --- | --- |
+| `build`, `restart`, or bare run | Refuses with exit code 64 and prints both roots plus the two ways to resolve the mismatch. |
+| Control or RPC command, including `status`, `stop`, `watch`, `units`, and `executor-answer` | Runs against the script's checkout, names that checkout, and reuses its release without rebuilding. |
 
-Every completed development build writes `AIUR_BUILD_STAMP` into the release directory, recording the repository root, the source commit, whether the tree was dirty, and the build time. A release stamped with a commit other than the one checked out is treated as stale and rebuilt, even when no source file is newer than it. That is exactly the case a `git switch` leaves behind.
+| `AIUR_BUILD_STAMP` field | Why it matters |
+| --- | --- |
+| Repository root and source commit | A commit mismatch marks the release stale after operations such as `git switch`. |
+| Dirty-tree flag and build time | Records the exact development build provenance. |
 
 `aiur` accepts a path to a workflow configuration as the final run argument.

@@ -47,36 +47,6 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 
-### Choosing a poll interval
-
-Polling spends GitHub GraphQL points at a rate inversely proportional to the
-interval, and that spend is a fixed cost. It does not depend on how many agents
-are running. Against GitHub's 5,000 point/hour budget:
-
-| `interval_seconds` | Approximate poll spend | Worst-case wake latency |
-| --- | --- | --- |
-| 30 | ~5,800 points/hour | 30s |
-| 60 | ~2,900 points/hour | 60s |
-| 120 | ~1,450 points/hour | 2m |
-| 300 | ~580 points/hour | 5m |
-
-At 30 seconds the poll loop alone can exhaust the hourly budget before a single
-agent makes a request, which is why the default is 120. Tightening it below 60
-is only safe on a small fleet.
-
-The figures above are what each interval costs if it is actually applied. GitHub
-also sends an `X-Poll-Interval` header on the repo-events endpoint, 60 seconds
-by default, and Aiur treats it as a floor. The interval actually used is the
-wider of the two, so setting `interval_seconds` below 60 generally does not
-speed polling up, while setting it above 60 does slow polling down.
-
-Widening past 120 seconds is the flat part of the curve: each further step
-saves less quota than the last while the wake latency grows proportionally.
-Aiur's poll is state-based: it reads current issue labels and pull request
-state rather than replaying an event log. A longer interval therefore delays a
-wake but does not lose one. The exception is comment-driven wakes, where a comment
-posted and answered between two polls is not distinguishable from no comment.
-
 ## webhooks
 
 | Key | Type | Default | Controls |
@@ -86,33 +56,7 @@ posted and answered between two polls is not distinguishable from no comment.
 | `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
 | `webhooks.poll_widen_factor` | float | 2.0 | Multiplier applied to `polling.interval_seconds` for repos proven webhook-backed. Values below 1.0 are rejected. |
 
-### How widening interacts with polling
-
-Webhooks are the fast path; polling is not removed, it is demoted to a
-reconciliation sweep. The widen factor is what demotes it, and it applies to one
-repo at a time based on that repo's observed state:
-
-| Repo state | Interval used |
-| --- | --- |
-| Never configured for webhooks | `interval_seconds` |
-| Configured but has never delivered | `interval_seconds` |
-| Proven, has delivered at least once | `interval_seconds × poll_widen_factor` |
-| Proven, then silent past the threshold | `interval_seconds` |
-
-Only an observed, signature-verified delivery promotes a repo to the widened
-interval. Configuration alone never does, because configuration says a webhook is
-*expected* and only a delivery proves the App install, the secret, and the ingress
-all work.
-
-The last row is the safety property worth stating on its own: when deliveries
-stop, the silence sweep degrades that repo, the alert names it, and the next poll
-tick is computed at the tighter interval automatically. There is no operator
-action and no separate restore path. A fleet that goes blind polls at full rate
-while it is blind. A delivery arriving later restores webhook mode on its own.
-
-`X-Poll-Interval` and connectivity backoffs remain floors on top of all of this:
-the tick actually used is the widest of the widened interval, GitHub's floor, and
-any active backoff.
+See [GitHub polling and webhooks](/apis/github) for the setup story and runtime states.
 
 ## workspace
 
@@ -166,44 +110,33 @@ any active backoff.
 | `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
 | `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
 
-Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
-also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
-live in a sibling `.locks` directory that is excluded from turn-writable roots, preventing
-a sandbox from replacing a held slot. Gate coordination failures return status `125`
-without running Mix. Repair the reported metadata/lock directory, `flock`, or `python3`
-subreaper dependency and
-restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
-old fleet and confirm no old Mix verification is live, then clear only the reported legacy
-records. To disable build admission completely, set `agent.max_concurrent_builds: 0`, set
-`agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This explicit
-opt-out removes every build safeguard; it is never an automatic error fallback.
+| Build-gate behavior | Detail |
+| --- | --- |
+| Writable roots | Local Codex `workspaceWrite` turns preserve configured, workspace, and Git roots and add the shared build-gate metadata directory. |
+| Lock safety | Host-prepared lock inodes live in a sibling `.locks` directory outside turn-writable roots. |
+| Coordination failure | Returns status `125` without running Mix. Repair the named directory, `flock`, or `python3` subreaper dependency, then redispatch. |
+| `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the reported legacy records. |
+| Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
 ## Host-pressure fleet admission
 
-New fleet admissions are admitted against the total observed host pressure, not a
-hard-coded process count. Every signal is optional and fails open when disabled or
-unreadable (e.g. non-Linux hosts):
+Fleet admission uses total host pressure instead of a hard-coded process count, and disabled or unreadable signals fail open.
 
-- **CPU load** (`agent.max_load_average`) and the **adaptive AIMD envelope**
-  (`agent.target_load_average`, `agent.load_ramp_step`, `agent.load_cooldown_seconds`)
-  reduce and re-ramp effective capacity as the 1-minute load crosses its per-scheduler
-  targets.
-- **Run queue** (`agent.run_queue_threshold`) reacts instantly to `procs_running` spikes
-  that the lagging load average smooths out.
-- **Available memory** (`agent.min_free_memory_mb`), **file descriptors** (a 10% open-file
-  reserve), **concurrent build pressure** (`agent.max_concurrent_builds`), and
-  **configured provider limits** (when every dispatchable backend reports usage-limited)
-  each defer new dispatch while saturated.
-- **Recovery is automatic and bounded**: gates fail open the moment pressure clears, and
-  the AIMD envelope re-ramps within its cooldown window. There is no permanent cap reduction or
-  starvation.
+| Signal | Admission behavior |
+| --- | --- |
+| CPU load and adaptive AIMD envelope | `agent.max_load_average`, `agent.target_load_average`, `agent.load_ramp_step`, and `agent.load_cooldown_seconds` reduce and re-ramp capacity around per-scheduler targets. |
+| Run queue | `agent.run_queue_threshold` reacts to `procs_running` spikes before the one-minute load average catches up. |
+| Memory, file descriptors, build pressure, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. |
+| Recovery | Gates reopen when pressure clears, and AIMD re-ramps within its cooldown window. |
 
-While a hold is active the fleet surfaces the binding signal and threshold: idle
-dispatchable rows read `backing off`, the dashboard/status carry a `capacity_hold` block
-naming the measured signal and threshold, telemetry records `capacity_hold` /
-`capacity_resumed`, and a debounced `system.fleet.capacity.backoff` alert fires so an
-Executor can tell capacity backoff apart from an idle or broken fleet. This limits only
-**new** admissions. Running agents and agent-spawned sub-agents are never terminated.
+| Hold signal | Where it appears |
+| --- | --- |
+| Idle rows | `backing off` |
+| Dashboard and status | `capacity_hold` with the measured signal and threshold |
+| Telemetry | `capacity_hold` and `capacity_resumed` |
+| Alert feed | Debounced `system.fleet.capacity.backoff` |
+
+Holds limit only new admissions. Running agents and agent-spawned sub-agents continue.
 
 ## agent.claude
 
@@ -271,7 +204,7 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input: the device records dictation, ElevenLabs speech-to-text transcribes it, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. The section may be omitted entirely; the defaults below apply.
+This optional section sends Stream Deck dictation through ElevenLabs speech-to-text and delivers the transcript through the Dashboard operator-message path; omitting it uses the defaults below.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -298,12 +231,6 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Bytes between retention-prune checks. |
 
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Writable dashboards, including the default loopback dashboard, require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`; a read-only loopback dashboard does not. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
-
-## GitHub webhook receiver
-
-`POST /api/v1/github/webhook` accepts GitHub webhook deliveries. It has no configuration keys and no bearer credential: every delivery is authenticated by the `X-Hub-Signature-256` HMAC-SHA256 digest GitHub computes over the raw request body, using the shared secret in `AIUR_GITHUB_WEBHOOK_SECRET`. Set that variable to the same secret configured on the GitHub webhook.
-
-The receiver fails closed. A delivery is rejected with `401` when the signature header is absent, malformed, or does not match, and when `AIUR_GITHUB_WEBHOOK_SECRET` is unset or blank. The unset case also raises a needs-attention `system.github_webhook.secret_missing` alert, because a misconfigured deployment must never accept unsigned deliveries. The legacy SHA-1 `X-Hub-Signature` header is ignored and is never accepted as a fallback. Deliveries larger than 25 MB, GitHub's own delivery ceiling, are refused.
 
 ## decisions
 

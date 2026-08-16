@@ -49,11 +49,15 @@ export default defineConfig({
         text: 'Introduction',
         items: [
           { text: 'Overview', link: '/' },
-          { text: 'Quick start', link: '/guide/quick-start' },
+          { text: 'Quick start', link: '/guide/quick-start' }
+        ]
+      },
+      {
+        text: 'Usage',
+        items: [
           { text: 'TUI', link: '/guide/tui' },
           { text: 'CLI', link: '/reference/cli' },
           { text: 'Dashboard', link: '/guide/executor-control-center' },
-          { text: 'Skills', link: '/skills' },
           { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
@@ -66,7 +70,15 @@ export default defineConfig({
           { text: 'Build Orders', link: '/concepts/build-orders' },
           { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
           { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
-          { text: 'Message Bus', link: '/concepts/message-bus' }
+          { text: 'Message Bus', link: '/concepts/message-bus' },
+          { text: 'Skills', link: '/skills' }
+        ]
+      },
+      {
+        text: 'APIs',
+        items: [
+          { text: 'GitHub', link: '/apis/github' },
+          { text: 'ElevenLabs', link: '/apis/elevenlabs' }
         ]
       },
       {
