@@ -816,7 +816,7 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/routing: 1:/))
       assert Enum.any?(log, &(&1 =~ ~r/permission_mode: bypassPermissions/))
       assert Enum.any?(log, &(&1 =~ ~r/workspace_root:/))
-      assert Enum.any?(log, &(&1 =~ ~r/polling_interval_seconds: 30/))
+      assert Enum.any?(log, &(&1 =~ ~r/polling_interval_seconds: 120/))
     end
 
     test "resume never runs a CLI auth check for the claude-repl transport", %{
@@ -1301,7 +1301,7 @@ defmodule Aiur.InitTest do
       assert config["tracker"]["github"]["repo"] == "octo/repo"
       # label_prefix is fixed (`agent`) and omitted from the written config.
       refute Map.has_key?(config["tracker"]["github"], "label_prefix")
-      assert config["agent"]["kind"] == "claude"
+      assert config["agent"]["priority"] == ["claude"]
       assert config["agent"]["max_agent_duration_minutes"] == 60
 
       routing = config["agent"]["routing"]
@@ -1536,6 +1536,15 @@ defmodule Aiur.InitTest do
     test "the polling question explains what polling does", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
       assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker for new work/i))
+    end
+
+    # The scaffold writes the interval into .aiurconfig explicitly, so a new
+    # install polls at this value rather than at Schema.Polling's default.
+    # Leaving it at 30 would have made the widened schema default a no-op for
+    # everyone who ran `aiur init`.
+    test "the scaffolded poll interval matches the widened schema default", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert written_config(target)["polling"]["interval_seconds"] == 120
     end
 
     test "limit prompts carry their helper text as hints; pre-warm has none", %{dir: dir, target: target} do

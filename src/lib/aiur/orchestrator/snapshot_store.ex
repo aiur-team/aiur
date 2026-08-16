@@ -25,10 +25,26 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @stale_window_margin 2
   @stale_window_ceiling_ms 60_000
 
+  # Age decides staleness; a backlogged mailbox only corroborates it. An
+  # Orchestrator that wedges *after* draining its mailbox publishes nothing and
+  # carries no backlog, so a depth-gated rule would serve an arbitrarily old
+  # fleet view as current — the exact "stale renders as current" failure this
+  # read model exists to prevent. Past this ceiling the view is stale whatever
+  # the mailbox says. The ceiling is four times the 30s default poll cadence
+  # (`polling.interval_seconds`), which is the slowest publish rhythm a healthy
+  # idle Orchestrator keeps, so a truthful "N old" banner replaces silence only
+  # once the producer is demonstrably behind its own cadence.
+  @stale_age_ceiling_ms 120_000
+
+  # Two distinct degraded states must never collapse into one operator-facing
+  # message. A retained snapshot that has aged out is `{:stale, snapshot,
+  # metadata}` — it still carries a usable fleet view plus its age. Only a
+  # producer that has never published under the active generation is
+  # `:snapshot_unpublished`, which genuinely has nothing to show.
   @type result ::
           {:current, map(), map()}
           | {:stale, map(), map()}
-          | :snapshot_timeout
+          | :snapshot_unpublished
           | :orchestrator_unavailable
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -50,6 +66,17 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     # the previous instance's fenced input under the new token.
     SnapshotPublisher.clear(orchestrator)
     generation
+  end
+
+  @doc false
+  @spec discard(GenServer.server()) :: :ok
+  def discard(orchestrator) do
+    :persistent_term.erase(generation_key(orchestrator))
+    :persistent_term.erase(global_pause_key(orchestrator))
+    :persistent_term.erase({@cache_key, orchestrator})
+    :persistent_term.erase({@cache_key, :last_timeout_log, orchestrator})
+    SnapshotPublisher.clear(orchestrator)
+    :ok
   end
 
   @doc """
@@ -77,13 +104,39 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @doc """
   Stores an already-projected snapshot. This is chiefly useful to lightweight
   Orchestrator implementations that do not own an `Aiur.Orchestrator.State`.
+
+  `publish/3` additionally retains the projected state the payload was built
+  from, which is what lets `read/3` build the `status`/`watch` rows on the
+  reader's own process. A snapshot published without it can still serve the
+  dashboard; a control query reading it reports no rows rather than an empty
+  fleet.
   """
   @spec publish(GenServer.server(), map()) :: :ok
-  def publish(orchestrator, snapshot) when is_map(snapshot) do
+  def publish(orchestrator, snapshot) when is_map(snapshot), do: publish(orchestrator, snapshot, nil)
+
+  @spec publish(GenServer.server(), map(), Aiur.Orchestrator.State.t() | nil) :: :ok
+  def publish(orchestrator, snapshot, source_state) when is_map(snapshot) do
     generation = active_generation(orchestrator)
-    put_snapshot(orchestrator, generation, snapshot)
+    put_snapshot(orchestrator, generation, snapshot, source_state)
     cache_global_pause(orchestrator, generation, snapshot)
     :ok = ObservabilityPubSub.broadcast_update()
+    :ok
+  end
+
+  @doc """
+  Drops the retained snapshot for an orchestrator.
+
+  The inverse of `publish/2`. The retained view deliberately survives an
+  Orchestrator restart, so anything that publishes under a shared registered
+  name (chiefly tests) has to be able to put the read model back the way it
+  found it — otherwise a stale fleet view outlives its publisher and is read as
+  the current one.
+  """
+  @spec forget(GenServer.server()) :: :ok
+  def forget(orchestrator) do
+    :persistent_term.erase({@cache_key, orchestrator})
+    :persistent_term.erase(global_pause_key(orchestrator))
+    SnapshotPublisher.clear(orchestrator)
     :ok
   end
 
@@ -104,16 +157,38 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   Staleness is load-aware: a snapshot remains `:current` while it falls within
   a window derived from the Orchestrator's own recent publish cadence, so a
   busy-but-publishing Orchestrator under sustained dispatch does not demote a
-  near-current fleet view to last-known-good.
+  near-current fleet view to last-known-good. That window is bounded: beyond
+  `#{@stale_age_ceiling_ms}ms` the snapshot is `:stale` with reason
+  `:snapshot_stalled` regardless of mailbox depth, so an Orchestrator that
+  wedged after draining its mailbox cannot serve an old fleet view as current.
+
+  A retained-but-aged snapshot is always returned as `{:stale, snapshot,
+  metadata}` so callers can render last-known-good data with its age.
+  `:snapshot_unpublished` is reserved for a live Orchestrator that has not
+  published under the active generation, which is the expected state for a
+  short window after every restart.
   """
   @spec read(GenServer.server(), timeout()) :: result()
-  def read(orchestrator, timeout) do
+  def read(orchestrator, timeout), do: read(orchestrator, timeout, [])
+
+  @doc """
+  As `read/2`, but `fleet_rows?: true` also materialises the `status`/`watch`
+  row shape under `:statuses`.
+
+  Those rows cost a `dispatch-budgets.json` read and a `RepoBase` call, so they
+  are built here — on the reader's process, when an operator actually asks — and
+  not in the projection, which runs on every state change. They are built from
+  the same cache entry that produced the freshness metadata beside them, so the
+  rows and their stated age always describe one moment.
+  """
+  @spec read(GenServer.server(), timeout(), keyword()) :: result()
+  def read(orchestrator, timeout, opts) do
     case cached_snapshot(orchestrator) do
       nil ->
         no_snapshot_result(orchestrator)
 
       %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} = cached ->
-        snapshot = overlay_global_pause(orchestrator, snapshot)
+        snapshot = orchestrator |> overlay_global_pause(snapshot) |> maybe_put_fleet_rows(cached, opts)
         metadata = metadata(orchestrator, cached, observed_at, observed_at_ms, timeout)
 
         case metadata.status do
@@ -146,9 +221,9 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   @impl true
-  def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot}}, %{task_ref: ref} = store) do
+  def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot, source_state}}, %{task_ref: ref} = store) do
     if generation == active_generation(orchestrator) do
-      put_snapshot(orchestrator, generation, snapshot)
+      put_snapshot(orchestrator, generation, snapshot, source_state)
       :ok = ObservabilityPubSub.broadcast_update()
     end
 
@@ -177,7 +252,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       spawn(fn ->
         result =
           try do
-            {:ok, StatusReport.snapshot_payload(snapshot_input)}
+            # The projected state travels with its payload so a later control
+            # query can build the `status`/`watch` rows from it without paying
+            # for them on every projection.
+            {:ok, StatusReport.snapshot_payload(snapshot_input), snapshot_input}
           rescue
             error -> {:error, error}
           end
@@ -198,7 +276,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   defp schedule_projection(store), do: store
 
-  defp put_snapshot(orchestrator, generation, snapshot) do
+  defp put_snapshot(orchestrator, generation, snapshot, source_state) do
     previous = cached_snapshot(orchestrator)
     observed_at_ms = System.monotonic_time(:millisecond)
 
@@ -223,11 +301,23 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       %{
         generation: generation,
         snapshot: snapshot,
+        source_state: source_state,
         observed_at: DateTime.utc_now(),
         observed_at_ms: observed_at_ms,
         recent_gaps_ms: recent_gaps_ms
       }
     )
+  end
+
+  defp maybe_put_fleet_rows(snapshot, cached, opts) do
+    if Keyword.get(opts, :fleet_rows?, false) do
+      case Map.get(cached, :source_state) do
+        %Aiur.Orchestrator.State{} = state -> Map.put(snapshot, :statuses, StatusReport.agent_statuses(state))
+        _no_state -> snapshot
+      end
+    else
+      snapshot
+    end
   end
 
   defp cached_snapshot(orchestrator), do: :persistent_term.get({@cache_key, orchestrator}, nil)
@@ -267,7 +357,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
       pid ->
         maybe_log_initial_timeout(orchestrator, mailbox_depth(pid))
-        :snapshot_timeout
+        :snapshot_unpublished
     end
   end
 
@@ -282,6 +372,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         is_nil(pid) -> :orchestrator_unavailable
         Map.get(cached, :generation) != active_generation(orchestrator) -> :orchestrator_unavailable
         stale_behind_backlog?(age_ms, timeout, freshness_window_ms, mailbox_depth) -> :snapshot_timeout
+        stale_beyond_ceiling?(age_ms) -> :snapshot_stalled
         true -> nil
       end
 
@@ -296,15 +387,29 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     }
   end
 
-  # A snapshot is stale only when it is older than the configured timeout AND
-  # falls outside the load-aware window while the Orchestrator is backlogged.
-  # Under sustained dispatch the Orchestrator publishes on a slower cadence, so
+  # The backlog-corroborated path: older than the configured timeout, outside
+  # the load-aware window, and the Orchestrator is visibly behind. Under
+  # sustained dispatch the Orchestrator publishes on a slower cadence, so
   # `freshness_window_ms` grows to cover that cadence; an Orchestrator that has
-  # gone quiet relative to its own recent cadence is still flagged stale.
+  # gone quiet relative to its own recent cadence is still flagged stale. This
+  # is one of two paths — `stale_beyond_ceiling?/1` covers the drained-mailbox
+  # wedge that this one cannot see — so mailbox depth never gates staleness on
+  # its own.
   defp stale_behind_backlog?(age_ms, timeout, freshness_window_ms, mailbox_depth) do
     is_integer(timeout) and timeout >= 0 and is_integer(age_ms) and age_ms >= timeout and
       is_integer(freshness_window_ms) and age_ms >= freshness_window_ms and
       is_integer(mailbox_depth) and mailbox_depth > 0
+  end
+
+  # The depth-independent floor: no snapshot older than the ceiling is ever
+  # reported as current, however quiet the producer's mailbox is.
+  defp stale_beyond_ceiling?(age_ms), do: is_integer(age_ms) and age_ms >= stale_age_ceiling_ms()
+
+  defp stale_age_ceiling_ms do
+    case Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms, @stale_age_ceiling_ms) do
+      ceiling_ms when is_integer(ceiling_ms) and ceiling_ms > 0 -> ceiling_ms
+      _invalid -> @stale_age_ceiling_ms
+    end
   end
 
   defp effective_window(timeout, gaps) when is_list(gaps) do
@@ -337,7 +442,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     end
   end
 
-  defp maybe_log_timeout(orchestrator, %{reason: :snapshot_timeout} = metadata) do
+  defp maybe_log_timeout(orchestrator, %{reason: reason} = metadata) when reason in [:snapshot_timeout, :snapshot_stalled] do
     warning_key = {@cache_key, :last_timeout_log, orchestrator}
 
     if :persistent_term.get(warning_key, nil) != metadata.observed_at do
@@ -366,7 +471,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   defp live_pid(orchestrator) do
-    GenServer.whereis(orchestrator)
+    case GenServer.whereis(orchestrator) do
+      pid when is_pid(pid) -> if(Process.alive?(pid), do: pid, else: nil)
+      _ -> nil
+    end
   catch
     :exit, _reason -> nil
   end

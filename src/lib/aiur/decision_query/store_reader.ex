@@ -53,7 +53,7 @@ defmodule Aiur.DecisionQuery.StoreReader do
     case safe_store_call(fn -> DecisionStore.retained_counts(store) end) do
       {:ok, %{counts: %{open: open, blocking: blocking} = counts, health: store_health}}
       when is_integer(open) and is_integer(blocking) ->
-        {:ok, Map.take(counts, [:open, :blocking, :total]), health(store_health)}
+        {:ok, Map.take(counts, [:open, :blocking, :total, :awaiting, :awaiting_blocking, :deferred]), health(store_health)}
 
       _unavailable ->
         {:error, :store_unavailable}

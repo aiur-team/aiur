@@ -13,6 +13,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         row("I-paused", state: "in-progress", work_state: :paused),
         row("I-waiting", state: "in-progress", waiting_reason: :waiting_for_ci),
         row("I-awaiting-dispatch", state: "in-progress", waiting_reason: :awaiting_dispatch),
+        row("I-tracker-unavailable", state: "in-progress", waiting_reason: :tracker_unavailable),
         row("I-unresponsive", state: "in-progress", waiting_reason: :unresponsive),
         row("I-replaced", state: "replaced")
       ],
@@ -32,12 +33,13 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         MapSet.new(["done", "cancelled"])
       )
 
-    assert length(observations) == 10
+    assert length(observations) == 11
 
     assert_received {"I-running", :running}
     assert_received {"I-paused", :paused}
     assert_received {"I-waiting", :waiting}
     assert_received {"I-awaiting-dispatch", :waiting}
+    assert_received {"I-tracker-unavailable", :waiting}
     assert_received {"I-unresponsive", :waiting}
     assert_received {"I-replaced", :replaced}
     assert_received {"I-retrying", :retrying}

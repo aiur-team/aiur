@@ -334,7 +334,7 @@ These become standalone issues and do not belong to the Build Order root.
   confidently complete empty list, and a new run generation cannot inherit
   prior outcomes.
 - **DREQ-033 — Existing-dashboard parity capstone.** Prove the composed
-  Executor Control Center end to end — shell, Units, conversations, controls,
+  Dashboard end to end — shell, Units, conversations, controls,
   Commands, run/provider/accounting summaries, Recent outcomes,
   authentication, accessibility and responsive layouts — on one exact
   configured integration SHA with real CLI/browser operator-visible evidence.

@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.{Options, Policy}
   alias Aiur.TrackerIdentity
 
@@ -150,6 +150,78 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
     past = ProviderResult.failed(:rate_limited, rate_limit: %{reset_at: DateTime.add(@now, -1, :second)})
     assert Policy.retry_delay_ms(2, 60_000, past, @now) == 4_000
+  end
+
+  # `Result.failure/3` records the precise fault it observed. Folding every one
+  # of them into `:provider_unavailable` told the operator GitHub was down when
+  # the read had actually returned an inconsistent page, a repeated identity or
+  # a misconfigured authority (#1777).
+  test "a named provider fault keeps its own class instead of a generic outage" do
+    for reason <- [
+          :pagination_mismatch,
+          :duplicate_identity,
+          :provider_identity_mismatch,
+          :invalid_planning_bounds,
+          :invalid_planning_authority,
+          :connection_overflow,
+          :graphql_partial
+        ] do
+      assert Policy.failure_class(reason) == reason
+
+      assert {:error, ^reason, %ProviderResult{}} =
+               Policy.complete_candidate(
+                 {:error, ProviderResult.failed(reason)},
+                 {:selected, identity(1, "I1")},
+                 @repository
+               )
+    end
+
+    assert Policy.failure_class(:missing_github_token) == :permission
+    assert Policy.failure_class(:provider_schema) == :schema
+
+    # A genuinely malformed graph must still report as malformed.
+    assert Policy.failure_class(:structurally_invalid) == :structurally_invalid
+  end
+
+  test "a provider-sourced candidate defect is reported as a read fault, not a malformed graph" do
+    first = identity(1, "I1")
+
+    provider_degraded = %{
+      selected(first)
+      | diagnostics: [Diagnostic.new(:pagination_mismatch)]
+    }
+
+    assert {:error, :pagination_mismatch, nil} =
+             Policy.complete_candidate(
+               {:ok, ProviderResult.complete(provider_degraded)},
+               {:selected, first},
+               @repository
+             )
+
+    # The reverse direction still holds: a defect observed in data we did read
+    # is a real claim about the operator's Build Order.
+    structurally_broken = %{selected(first) | diagnostics: [Diagnostic.new(:duplicate_identity)]}
+
+    assert {:error, :structurally_invalid, nil} =
+             Policy.complete_candidate(
+               {:ok, ProviderResult.complete(structurally_broken)},
+               {:selected, first},
+               @repository
+             )
+
+    malformed_root =
+      SelectedRoot.new(
+        RootSummary.new(%{identity: first, title: nil, url: nil}),
+        [],
+        ProviderHealth.new(1, :healthy, true)
+      )
+
+    assert {:error, :structurally_invalid, nil} =
+             Policy.complete_candidate(
+               {:ok, ProviderResult.complete(malformed_root)},
+               {:selected, first},
+               @repository
+             )
   end
 
   defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))

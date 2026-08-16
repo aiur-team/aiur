@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   require Logger
 
-  alias Aiur.{Config, Issue, TicketBranch, Workspace}
+  alias Aiur.{Alerts, Config, Issue, TicketBranch, Workspace}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State}
@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.PrAnchored do
          not CommentWake.benign_review_pass_comment?(event) do
       case resolve_pr_anchored_unit(issue_number, event) do
         {:ok, %Issue{} = pr_issue} ->
-          dispatch_pr_anchored_unit(state, pr_issue, source, event)
+          dispatch_pr_anchored_unit(state, pr_issue, source, event, attempt)
 
         :legacy ->
           CommentWake.maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt)
@@ -131,13 +131,15 @@ defmodule Aiur.Orchestrator.PrAnchored do
   # Dispatch a PR-anchored unit through the slot-respecting worker path. We gate
   # on the global agent cap (available_slots) explicitly — should_dispatch_issue?
   # cannot be reused because its candidate_issue? requires a configured active
-  # state, which a synthetic PR unit deliberately is not. Then route straight to
-  # do_dispatch_issue/4 (thrash budget + worker-slot dispatch), SKIPPING
-  # revalidate_issue_for_dispatch/3: there is no tracker issue to revalidate, and
-  # routing already proved the PR is open. When the cap is full or the unit is
-  # already running/claimed, log and skip — the next comment re-triggers (no
-  # agent: label is touched and no persistent state is written).
-  defp dispatch_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event) do
+  # state, which a synthetic PR unit deliberately is not. The host-pressure
+  # admission wrapper still applies: a PR comment starts new work and must not
+  # bypass the same load gate that protects ordinary ticket dispatch. The terminal
+  # dispatch skips revalidate_issue_for_dispatch/3 because there is no tracker
+  # issue to revalidate and routing already proved the PR is open. When the cap
+  # is full or the unit is already running/claimed, log and skip — the next
+  # comment re-triggers (no agent: label is touched and no persistent state is
+  # written). An admission hold is NOT a skip: see admit_pr_anchored_unit/5.
+  defp dispatch_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event, attempt) do
     cond do
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
         Logger.info("#{source} PR-anchored dispatch skipped; already running/claimed: pr=#{issue.identifier}")
@@ -150,11 +152,84 @@ defmodule Aiur.Orchestrator.PrAnchored do
         state
 
       true ->
-        Logger.info("#{source} routed PR-anchored (no agent:* label, no aiur/<pr#> PR): pr=#{issue.identifier} head_ref=#{issue.pr_head_ref}")
-
-        pr_anchored_dispatch_fun(event).(state, issue)
+        admit_pr_anchored_unit(state, issue, source, event, attempt)
     end
   end
+
+  # `maybe_choose_under_load/4` runs the choose-fun only when the admission gate
+  # lets the unit through, and otherwise returns state with no signal of its own.
+  # A ref-keyed process-dictionary marker records whether the terminal dispatch
+  # actually ran: everything here executes synchronously inside the one
+  # orchestrator GenServer callback, so the put and the delete cannot interleave
+  # with anything else. The alternative — inferring the outcome from
+  # `state.capacity_hold` — is wrong, because a hold may already be persisted
+  # from an earlier poll.
+  defp admit_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event, attempt) do
+    marker = make_ref()
+
+    next_state =
+      Dispatcher.maybe_choose_under_load(
+        state,
+        [issue],
+        fn admitted, [pr_issue] ->
+          Process.put(marker, :dispatched)
+
+          # Logged only once the gate has ADMITTED the unit. Claiming "routed"
+          # before the gate runs is a confident wrong reason when the gate then
+          # holds (#1610).
+          Logger.info("#{source} routed PR-anchored (no agent:* label, no aiur/<pr#> PR): pr=#{issue.identifier} head_ref=#{issue.pr_head_ref}")
+
+          pr_anchored_dispatch_fun(event).(admitted, pr_issue)
+        end,
+        pr_anchored_admission_opts(event)
+      )
+
+    case Process.delete(marker) do
+      :dispatched -> next_state
+      _not_dispatched -> hold_pr_anchored_unit(next_state, issue, source, event, attempt)
+    end
+  end
+
+  # A held PR-anchored unit has no `agent:*` label and no tracker row, so the
+  # poll loop can never rediscover it. Re-arm the comment-wake retry chain so the
+  # unit is re-offered to the gate on its own, and escalate loudly when that
+  # chain is exhausted and the work really is dropped.
+  defp hold_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event, attempt) do
+    signal = admission_hold_signal(state.capacity_hold)
+
+    Logger.warning(
+      "#{source} PR-anchored dispatch held by the admission gate: pr=#{issue.identifier} " <>
+        "head_ref=#{issue.pr_head_ref} signal=#{signal} attempt=#{attempt}"
+    )
+
+    case CommentWake.schedule_comment_wake_retry(state, issue.identifier, source, event, attempt, "admission_hold:#{signal}") do
+      {retry_state, :scheduled} ->
+        retry_state
+
+      {exhausted_state, :exhausted} ->
+        emit_pr_anchored_hold_alert(issue, signal, attempt)
+        exhausted_state
+    end
+  end
+
+  defp emit_pr_anchored_hold_alert(%Issue{} = issue, signal, attempt) do
+    reason =
+      "PR ##{issue.identifier} was routed as a PR-anchored unit but the host-pressure admission gate " <>
+        "held it on #{signal} for all #{attempt} attempts. The unit carries no agent:* label and no " <>
+        "tracker row, so nothing will retry it — comment on the PR again once the host recovers."
+
+    Alerts.emit_system("system.dispatch.pr_anchored_held",
+      reason: reason,
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  defp admission_hold_signal(%{signal: signal}), do: to_string(signal)
+  defp admission_hold_signal(_hold), do: "unknown"
+
+  defp pr_anchored_admission_opts(%{admission_probes_fun: fun}) when is_function(fun, 0), do: [admission_probes_fun: fun]
+  defp pr_anchored_admission_opts(_event), do: []
 
   # The terminal spawn for a PR-anchored unit. Defaults to the real
   # do_dispatch_issue/4 (slot-respecting worker dispatch). Tests inject a

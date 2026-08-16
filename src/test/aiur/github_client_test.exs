@@ -90,7 +90,7 @@ defmodule Aiur.GitHub.ClientTest do
       refute_received :candidate_request
     end
 
-    test "deduplicates an issue carrying multiple active-state labels" do
+    test "rejects an issue carrying contradictory active-state labels" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -111,12 +111,11 @@ defmodule Aiur.GitHub.ClientTest do
         }
       end
 
-      # The same issue is returned under both queried labels; the client must
-      # collapse it to a single candidate via id-based dedup.
+      # The all-open snapshot returns each issue once. Multiple active-state
+      # labels are contradictory tracker truth and must not authorize dispatch.
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: [issue.()]}} end
 
-      assert {:ok, [deduped]} = Client.fetch_candidate_issues(request_fun: request_fun)
-      assert deduped.id == "35"
+      assert {:ok, []} = Client.fetch_candidate_issues(request_fun: request_fun)
     end
 
     test "returns normalized issues from GitHub API" do
@@ -1523,6 +1522,11 @@ defmodule Aiur.GitHub.ClientTest do
         send(test_pid, {:github_request, req})
 
         cond do
+          # No standing approval on this PR, so the #1756 approval override
+          # does not apply and the unresolved thread still blocks.
+          req.method == :get and req.url =~ "/pulls/77/reviews" ->
+            {:ok, %{status: 200, body: []}}
+
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok, %{status: 200, body: [%{"number" => 77}]}}
 
@@ -1617,6 +1621,10 @@ defmodule Aiur.GitHub.ClientTest do
                  "labels" => [%{"name" => "sym:in-progress"}]
                }
              }}
+
+          # No standing approval, so the #1756 approval override does not apply.
+          req.method == :get and req.url =~ "/pulls/77/reviews" ->
+            {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok, %{status: 200, body: [%{"number" => 77}]}}

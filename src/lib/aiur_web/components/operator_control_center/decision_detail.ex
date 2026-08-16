@@ -71,12 +71,29 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
             </div>
           </.detail_block>
 
+          <%!-- The per-Command timeline is where the audit facts live: who acted,
+                what the dispatch and acknowledgement did, and whether a revision
+                left a follow-up open. They used to be a flat feed under the
+                inbox, which said nothing about which Command they belonged to. --%>
           <.detail_block title="Event timeline">
             <ol class="decision-timeline">
               <li :for={entry <- @history_rows}>
                 <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
                 <strong>{humanize(entry.change)}</strong>
                 <p :if={present?(entry.rationale)}>{entry.rationale}</p>
+                <div class="timeline-facts">
+                  <span class="actor-tag">
+                    <span class={["actor-glyph", actor_class(Map.get(entry, :actor))]}>{actor_code(Map.get(entry, :actor))}</span>{actor_label(Map.get(entry, :actor))}
+                  </span>
+                  <.result_chip label="dispatch" result={Map.get(entry, :dispatch_result)} />
+                  <.result_chip label="ack" result={Map.get(entry, :acknowledgement_result)} />
+                  <.result_chip label="revision" result={Map.get(entry, :revision_result)} />
+                  <span :if={Map.get(entry, :revised?)} class="chip super">Revised</span>
+                  <span :if={Map.get(entry, :follow_up_required) and not Map.get(entry, :follow_up_handled, false)} class="chip blocking">
+                    Follow-up required
+                  </span>
+                  <span :if={Map.get(entry, :follow_up_handled)} class="chip good">Follow-up handled</span>
+                </div>
               </li>
             </ol>
             <p :if={@history_rows == []} class="empty-state compact">No Command events were recorded.</p>
@@ -92,6 +109,30 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
     </div>
     """
   end
+
+  attr(:label, :string, required: true)
+  attr(:result, :any, required: true)
+
+  defp result_chip(assigns) do
+    ~H"""
+    <span :if={@result} class={["chip", result_tone(@result)]}>{@label}: {humanize(@result)}</span>
+    """
+  end
+
+  defp result_tone(result) when result in [:ok, :acknowledged, :delivered, :dispatched], do: "good"
+  defp result_tone(result) when result in [:failed, :delivery_failed, :no_longer_applicable], do: "blocking"
+  defp result_tone(_result), do: "attention"
+
+  defp actor_label(%{label: label}) when is_binary(label), do: label
+  defp actor_label(%{type: type}), do: humanize(type)
+  defp actor_label(_actor), do: "Unknown source"
+  defp actor_code(%{type: :human_operator}), do: "OP"
+  defp actor_code(%{type: :supervising_agent}), do: "SA"
+  defp actor_code(%{type: :ticket_agent}), do: "TA"
+  defp actor_code(_actor), do: "··"
+  defp actor_class(%{type: :supervising_agent}), do: "supervising"
+  defp actor_class(%{type: :ticket_agent}), do: "ticket"
+  defp actor_class(_actor), do: "human"
 
   attr(:title, :string, required: true)
   slot(:inner_block, required: true)

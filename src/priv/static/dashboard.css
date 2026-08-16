@@ -357,6 +357,20 @@ textarea:focus-visible,
   height: 0.82em;
 }
 
+.route-title-back {
+  text-decoration: none;
+}
+
+.route-title-back:hover {
+  background: var(--surface-3);
+  border-color: var(--line-strong);
+}
+
+.route-title-back:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .route-context > p:last-child {
   max-width: 52rem;
   margin: 0.35rem 0 0;
@@ -379,15 +393,6 @@ textarea:focus-visible,
   box-shadow: var(--shadow-sm);
 }
 
-.bo-page-header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.9rem;
-}
-
-.bo-page-header h2,
-.bo-page-header p,
 .bo-state-card h3,
 .bo-state-card p,
 .bo-catalog-entry h3,
@@ -396,12 +401,6 @@ textarea:focus-visible,
   margin: 0;
 }
 
-.bo-page-header h2 {
-  font-size: clamp(1.35rem, 3vw, 2rem);
-  letter-spacing: -0.035em;
-}
-
-.bo-page-header > div > p:last-child,
 .bo-selected-summary > p,
 .bo-state-card p {
   max-width: 58rem;
@@ -622,26 +621,6 @@ textarea:focus-visible,
   color: var(--muted);
 }
 
-.bo-back-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--fg);
-  font-size: 1.05rem;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.bo-back-link:hover {
-  background: var(--surface-3);
-}
-
 .bo-state-card {
   padding: 1rem;
   border: 1px dashed var(--line-strong);
@@ -649,9 +628,161 @@ textarea:focus-visible,
   background: var(--pill-bg);
 }
 
+/* Loading shimmer: a skeleton of the selected-root surface (lede, summary
+   metrics, graph cards) that stands in while the planning graph is fetched,
+   instead of flashing a provider failure first. */
+.bo-loading {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--pill-bg);
+}
+
+.bo-shimmer {
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: bo-shimmer 1.4s ease-in-out infinite;
+}
+
+.bo-shimmer-lede {
+  height: 1.25rem;
+  max-width: 26rem;
+}
+
+.bo-shimmer-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.75rem;
+}
+
+.bo-shimmer-metric {
+  height: 2.75rem;
+}
+
+.bo-shimmer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 6px;
+}
+
+.bo-shimmer-card {
+  height: 6rem;
+  border-radius: 10px;
+}
+
+@keyframes bo-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bo-shimmer {
+    animation: none;
+    background: var(--surface-2);
+  }
+}
+
+.bo-error-state {
+  display: grid;
+  gap: 1rem;
+}
+
+.bo-error-fault {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.bo-error-fault code {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: 0.76rem/1.4 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.bo-debug-prompt {
+  display: grid;
+  gap: 0.55rem;
+  max-width: 58rem;
+}
+
+.bo-debug-prompt label {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bo-debug-prompt textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 6.5rem;
+  resize: vertical;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: 0.78rem/1.55 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.bo-debug-prompt textarea:focus-visible,
+.bo-debug-copy-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bo-debug-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+}
+
+.bo-debug-copy-button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.bo-debug-copy-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.bo-debug-prompt [data-copy-status] {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
 .bo-selected-summary {
   display: grid;
   gap: 0.85rem;
+}
+
+.bo-selected-summary > p.bo-selected-lede {
+  margin: 0;
+  color: var(--fg);
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .bo-summary-grid {
@@ -752,6 +883,14 @@ textarea:focus-visible,
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
   align-items: start;
+}
+
+/* A single-dimension breakdown pane (Waves or Epics) rendered as its own
+   top-level pane; stacks one column so rows span the full pane width. */
+.bo-breakdown-pane {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
 }
 
 /* Grid/flex items default to min-width:auto and single-column grids get an
@@ -1571,12 +1710,20 @@ textarea:focus-visible,
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 0.15rem 0.15rem 0.6rem;
+  padding: 0.5rem 1.15rem;
+  /* Translucent so the blurred page reads through, not a solid slab. */
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .brand-mini {
@@ -1639,6 +1786,22 @@ textarea:focus-visible,
 
 .brand-row #nav-toggle {
   margin-left: -0.15rem;
+}
+
+/* The compact fleet-staleness label rides beside the brand logo. The full
+   explanation (age + reason) lives in the hover popover. */
+.fleet-stale-label {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 999px;
+  background: var(--attention-soft);
+  color: var(--attention-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: help;
 }
 
 /* The global pause switch reads OFF (muted, like its sibling toggles) and flips
@@ -1842,6 +2005,24 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .readonly-banner b {
+  color: var(--fg);
+}
+
+.error-card .error-code {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
+/* An expected moment must not wear incident colour. A run that has not
+   published its first snapshot yet is normal after a restart, so it keeps the
+   card layout and drops the blocking red. */
+.error-card.notice {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.error-card.notice h2 {
   color: var(--fg);
 }
 
@@ -2186,8 +2367,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 [data-severity="good"] > .severity-rail,
-.outcome-card > .severity-rail,
-.history-item > .severity-rail {
+.outcome-card > .severity-rail {
   background: var(--good);
 }
 
@@ -2242,7 +2422,6 @@ html[data-theme="light"] .toggle-icon .moon {
 .actor-tag,
 .link-list,
 .fleet-actions,
-.history-item footer,
 .outcome-card footer,
 .outcome-card header {
   display: flex;
@@ -2261,14 +2440,12 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .expand-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   color: var(--muted);
   font-family: "JetBrains Mono", monospace;
   font-size: 0.69rem;
-}
-
-.decision-card.open .expand-hint span {
-  display: inline-block;
-  transform: rotate(180deg);
 }
 
 /* Command redesign: top-right lifecycle badge + coloured agent/blocking chips. */
@@ -2525,6 +2702,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .decision-action-buttons {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
@@ -3480,6 +3658,26 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: none;
 }
 
+/* The models pane spans two of the strip's three columns and holds every model
+   provider's progress bars in one place. GitHub keeps its own one-column card,
+   so the pair fills the row without a fourth pane wrapping below it. */
+.rs-models {
+  grid-column: span 2;
+}
+
+.rs-models-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* One model per row, reusing the head + limits vocabulary the provider cards
+   used. Rows are separated by the container's gap, not hairlines, so the pane
+   reads as one continuous block. */
+.rs-model {
+  min-width: 0;
+}
+
 /* The stats cluster must be able to drop below the name and shrink: at the
    narrow end of the 3-column grid a long value ("Unavailable") is wider than
    its track, and without wrapping it spilled past the card's rounded edge. */
@@ -3499,6 +3697,16 @@ html[data-theme="light"] .toggle-icon .moon {
   height: 1.2rem;
   flex: none;
   object-fit: contain;
+}
+
+/* The GitHub mark ships as a black glyph; the dashboard's default theme is
+   dark, so invert it to a light glyph. The light theme shows the native mark. */
+.rs-github-mark {
+  filter: invert(1);
+}
+
+html[data-theme="light"] .rs-github-mark {
+  filter: none;
 }
 
 .rs-name {
@@ -3619,6 +3827,224 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--blocking);
 }
 
+.rs-meter > i.is-warning {
+  background: var(--warning, #d08a2a);
+}
+
+.github-quota-attribution,
+.github-quota-coverage,
+.github-quota-backoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+}
+
+/* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
+   the same warning colour the meters use as they approach their ceiling. */
+.github-quota-backoff {
+  color: var(--warning, #d08a2a);
+}
+
+/* ---- compressed meter row (more than four panes) ----
+   Past four panes the strip stops reading as one thing, so it collapses into a
+   single pane holding two named groups. It deliberately reuses the pane
+   vocabulary above — same logo size, same monospace label scale, same meter
+   bar — so the compressed form reads as the same strip rather than a second
+   visual language. */
+.run-summary.is-compressed {
+  display: block;
+}
+
+.rs-compressed {
+  gap: 1rem;
+}
+
+.rs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* The group name is the whole point of the compressed form: an operator must
+   see that a row is an agent API rather than infer it from where it sorted.
+   The hairline carries the eye across to the count without a heavy divider. */
+.rs-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.rs-group-title {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.rs-group-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.rs-group-count {
+  order: 3;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rs-group-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* One provider per row, three columns: identity, meters, state. The identity
+   column is a fixed track so the logos and the meter lines align down the
+   group — that alignment is what makes it read as a table without needing
+   rules or zebra striping. `minmax(0, 1fr)` on the meter track keeps a long
+   meta string inside the pane instead of widening the row. */
+.rs-row {
+  display: grid;
+  grid-template-columns: 10.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  padding: 0.5rem 0;
+  min-width: 0;
+}
+
+.rs-row + .rs-row {
+  border-top: 1px solid var(--line);
+}
+
+.rs-row-id {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.rs-row-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-row-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* The meter line runs label, bar, meta on one line so a row stays one line
+   tall. The bar is the flexible middle: the label and the meta are read, the
+   bar is glanced at. */
+/* The meta track is a fixed width rather than `auto` so every bar in the pane
+   ends at the same x. That shared edge is what makes the group scan as a
+   column of comparable quotas instead of a ragged list. */
+.rs-row-meter {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(3rem, 1fr) 17rem;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.rs-row-meter .rs-limit-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-row-meter .rs-limit-meta {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* A line with no measured value — an unavailable provider, or a secondary-limit
+   backoff — draws a hollow dashed track instead of a bar. A solid empty track
+   would be indistinguishable from a real 0%-consumed reading, which is exactly
+   the confusion the compressed row must not introduce. */
+.rs-meter-none {
+  display: block;
+  height: 0.34rem;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: none;
+}
+
+/* The freshness chip. Every row carries one, so a stale or unavailable reading
+   can never be mistaken for a healthy zero — the distinction the compressed
+   row exists to preserve. */
+.rs-state {
+  justify-self: end;
+  padding: 0.14rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.rs-state.is-healthy {
+  border-color: color-mix(in srgb, var(--good-ink) 30%, transparent);
+  background: color-mix(in srgb, var(--good-ink) 10%, transparent);
+  color: var(--good-ink);
+}
+
+.rs-state.is-partial,
+.rs-state.is-stale {
+  border-color: color-mix(in srgb, var(--warning, #d08a2a) 35%, transparent);
+  background: color-mix(in srgb, var(--warning, #d08a2a) 12%, transparent);
+  color: var(--warning, #d08a2a);
+}
+
+.rs-state.is-unavailable {
+  border-color: color-mix(in srgb, var(--blocking) 30%, transparent);
+  background: color-mix(in srgb, var(--blocking) 10%, transparent);
+  color: var(--blocking);
+}
+
+.rs-state.is-nodata {
+  border-color: var(--line);
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+/* Narrow widths: the identity column stops being a fixed track and the state
+   chip moves under the meters, so the row wraps rather than scrolling. */
+@media (max-width: 720px) {
+  .rs-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem 0.6rem;
+  }
+
+  .rs-row-meters {
+    grid-column: 1 / -1;
+  }
+
+  .rs-row-meter {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rs-row-meter .rs-meter {
+    grid-column: 1 / -1;
+  }
+}
+
 .rs-progress {
   margin-top: auto;
 }
@@ -3668,6 +4094,11 @@ html[data-theme="light"] .toggle-icon .moon {
 @media (max-width: 480px) {
   .run-summary {
     grid-template-columns: 1fr;
+  }
+
+  /* The two-column models pane degrades to the single stacked column. */
+  .rs-models {
+    grid-column: auto;
   }
 }
 
@@ -3864,6 +4295,22 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .units-row.has-alert td {
   background: color-mix(in srgb, var(--attention) 10%, var(--surface));
+}
+
+/* Paused rows: a subtle gray left edge + soft gray tint — visually distinct
+   from the aggressive red blocking treatment and the neutral active rows. */
+.units-row.is-paused td:first-child {
+  box-shadow: inset 5px 0 #9aa0ac;
+}
+
+.units-row.is-paused td {
+  background: color-mix(in srgb, #9aa0ac 9%, var(--surface));
+}
+
+/* Queued rows: muted — dimmed text over the standard surface, no tint or
+   attention edge. */
+.units-row.is-queued td {
+  color: var(--muted);
 }
 
 /* The alert/blocked row tints warm and lighten the cell background, which drops
@@ -4305,8 +4752,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.7rem;
 }
 
-.outcome-card,
-.history-item {
+.outcome-card {
   position: relative;
   overflow: hidden;
   padding: 0.88rem 0.95rem 0.88rem 1.05rem;
@@ -4326,8 +4772,7 @@ html[data-theme="light"] .toggle-icon .moon {
   font-size: 0.79rem;
 }
 
-.outcome-card footer,
-.history-item footer {
+.outcome-card footer {
   margin-top: 0.65rem;
 }
 
@@ -4337,30 +4782,123 @@ html[data-theme="light"] .toggle-icon .moon {
   font-weight: 700;
 }
 
-.history-list {
-  display: grid;
-  gap: 0.65rem;
+/* Command history: one compact table, ten rows per load. The card list it
+   replaced grew without bound — a single run pushed the page past ten thousand
+   pixels, which is not a list an operator can read. */
+.history-count {
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
-.history-item header {
+.history-table-wrap {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.history-table thead th {
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.history-table tbody tr {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.history-table tbody tr[data-severity="good"] {
+  box-shadow: inset 3px 0 0 var(--good);
+}
+
+.history-table tbody tr[data-severity="attn"] {
+  box-shadow: inset 3px 0 0 var(--attention);
+}
+
+.history-table tbody tr[data-severity="attention"] {
+  box-shadow: inset 3px 0 0 var(--attention-line);
+}
+
+.history-table td {
+  padding: 0.55rem 0.7rem;
+  vertical-align: top;
+}
+
+.history-table td:first-child {
+  padding-left: 0.9rem;
+}
+
+.history-question {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--fg);
+}
+
+.history-outcome {
+  max-width: 34ch;
+  color: var(--muted);
+}
+
+.history-result {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.history-item header strong {
-  font-size: 0.87rem;
-}
-
-.history-choice,
-.history-rationale {
-  margin: 0.4rem 0 0;
-  font-size: 0.79rem;
-}
-
-.history-rationale {
+.history-when {
   color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.history-open {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.history-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
+/* Icon carrots. A text ">" cannot rotate, ignores icon sizing, and reads as
+   punctuation to a screen reader. */
+.cta-chevron,
+.expand-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.cta-chevron svg,
+.expand-chevron svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.expand-chevron {
+  transition: transform 120ms ease;
+}
+
+.decision-card.open .expand-chevron {
+  transform: rotate(180deg);
+}
+
+.decision-age {
+  color: var(--muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 .empty-state {
@@ -4446,14 +4984,96 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ticket-context-panel {
-  grid-template-rows: none;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
   width: min(920px, 100%);
   max-height: calc(100dvh - 2rem);
-  overflow: auto;
+  overflow: hidden;
+  padding: 0;
 }
 
 .ticket-context-header {
   align-items: center;
+}
+
+/* Fixed header row: the panel is a two-row grid (header + scrollable body), so
+   the header never scrolls out of view and the close button stays pinned to the
+   top-right corner of the drawer. */
+.ticket-context-panel .ticket-context-header {
+  position: relative;
+  flex: none;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.ticket-context-heading {
+  min-width: 0;
+}
+
+.ticket-context-nav {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-top: 0.15rem;
+}
+
+.ticket-context-id {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ticket-context-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-context-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* 44px is the WCAG minimum target size the responsive ticket-context spec
+     asserts across every button/link in the drawer. */
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.ticket-context-close:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.ticket-context-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ticket-context-body {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.ticket-context-panel .ticket-context-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
 }
 
 .ticket-context-panel .section-eyebrow,
@@ -4483,9 +5103,91 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ticket-context-description {
+  min-width: 0;
+}
+
+.ticket-context-description h3 {
   margin: 0;
+  font-size: 0.92rem;
+}
+
+.ticket-context-markdown {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ticket-context-markdown > :first-child {
+  margin-top: 0;
+}
+
+.ticket-context-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.ticket-context-markdown p {
+  margin: 0 0 0.65rem;
+}
+
+.ticket-context-markdown h1,
+.ticket-context-markdown h2,
+.ticket-context-markdown h3,
+.ticket-context-markdown h4,
+.ticket-context-markdown h5,
+.ticket-context-markdown h6 {
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.ticket-context-markdown pre {
+  margin: 0.65rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.ticket-context-markdown code {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.ticket-context-markdown :not(pre) > code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.ticket-context-markdown ul,
+.ticket-context-markdown ol {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+}
+
+.ticket-context-markdown blockquote {
+  margin: 0.65rem 0;
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  border-left: 3px solid var(--accent-line);
   color: var(--muted);
-  white-space: pre-wrap;
+}
+
+.ticket-context-markdown a {
+  color: var(--accent-ink);
+}
+
+.ticket-context-markdown hr {
+  margin: 0.75rem 0;
+  border: none;
+  border-top: 1px solid var(--line);
 }
 
 .ticket-context-status {
@@ -4572,8 +5274,19 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ticket-context-logs-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 20rem;
   margin: 0.75rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.ticket-context-progress-row {
+  background: var(--good-soft);
+}
+
+.ticket-context-progress-row td {
+  border-bottom-color: var(--good-line);
 }
 
 .ticket-context-logs {
@@ -6020,7 +6733,8 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .provider-meter-card.state-stale,
-.provider-meter-card.state-unknown {
+.provider-meter-card.state-unknown,
+.provider-meter-card.state-signed_out {
   border-color: var(--attention);
 }
 
@@ -6058,7 +6772,8 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .provider-meter-badge.state-partial,
 .provider-meter-badge.state-stale,
-.provider-meter-badge.state-unknown {
+.provider-meter-badge.state-unknown,
+.provider-meter-badge.state-signed_out {
   border-color: var(--attention);
 }
 
@@ -6346,6 +7061,20 @@ html[data-theme="light"] .toggle-icon .moon {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: 1rem;
+}
+
+/* Two-pane token chart: cumulative per-model line on the left, tokens-by-
+   destination bars on the right. */
+.usage-token-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.usage-token-line,
+.usage-token-bars {
+  min-width: 0;
 }
 
 .usage-summary-panel {
@@ -6718,14 +7447,15 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .bo-legend-swatch.is-working {
-  border-color: var(--good-line);
-  background: var(--good-soft);
-  box-shadow: 0 0 0 1px var(--good-line);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 
 .bo-legend-swatch.is-merged {
-  border-color: var(--line);
-  background: var(--surface-3);
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
 }
 
 .bo-legend-line {
@@ -6890,7 +7620,9 @@ html[data-theme="light"] .toggle-icon .moon {
 .bo-grid-edges {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  /* Dependency lines belong behind the ticket cards they connect; the wave
+     rows (and their cards) sit at z-index 2/3 above this background layer. */
+  z-index: 0;
   pointer-events: none;
   overflow: visible;
 }
@@ -6971,18 +7703,25 @@ html[data-theme="light"] .toggle-icon .moon {
   border-style: dashed;
 }
 
+/* Green is reserved for work that is finished AND merged. An agent being live
+   on a ticket is activity, not an outcome — colouring it green made a graph of
+   in-flight work read as a graph of completed work, which is the same
+   confident-wrong-signal problem the rest of this dashboard is written against.
+   In flight is the accent (blue): live, not done. */
 .bo-node.is-working {
-  border-color: var(--good-line);
-  background: var(--good-soft);
-  box-shadow: 0 0 0 1px var(--good-line);
+  border-color: var(--accent-line);
+  background:
+    linear-gradient(var(--accent-soft), var(--accent-soft)),
+    var(--surface-2);
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 
 .bo-node.is-merged {
-  border-color: var(--line);
-  background: var(--surface-3);
-  /* --muted (not --faint) keeps the "done/dim" read while clearing WCAG AA
-     4.5:1 against --surface-3 (--faint is only 4.27:1 on this brighter fill). */
-  color: var(--muted);
+  border-color: var(--good-line);
+  background:
+    linear-gradient(var(--good-soft), var(--good-soft)),
+    var(--surface-2);
+  box-shadow: 0 0 0 1px var(--good-line);
 }
 
 .bo-node.is-blocked {
@@ -7173,15 +7912,18 @@ html[data-theme="light"] .toggle-icon .moon {
   overflow: hidden;
 }
 
+/* Progress is blue while work is in flight and green only once the ticket is
+   merged. A part-filled green bar reads as "done" at a glance, which is exactly
+   the wrong signal on a graph an operator scans for what is finished. */
 .bo-node-bar > i {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--good);
+  background: var(--accent);
 }
 
-.bo-node.is-ready .bo-node-bar > i {
-  background: var(--accent);
+.bo-node.is-merged .bo-node-bar > i {
+  background: var(--good);
 }
 
 .bo-node-context {
@@ -7387,9 +8129,10 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-key {
-  --sd-accent: #9fd0ff;
-  --sd-glow: #0c0d0f;
+  --sd-accent: var(--accent);
+  --sd-glow: var(--accent-soft);
   --sd-face: #0f151c;
+  --sd-progress-fill: var(--sd-accent);
   position: relative;
   aspect-ratio: 1 / 1;
   min-width: 0;
@@ -7397,177 +8140,195 @@ html[data-theme="light"] .toggle-icon .moon {
   border: 0;
   padding: 3px;
   border-radius: 15px;
-  background: #0c0d0f;
+  background: var(--sd-glow);
+  color: var(--fg);
   cursor: pointer;
   transition: transform 0.08s ease, filter 0.14s ease;
 }
 
 .sd-key-face {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
-  padding: 0.48rem;
   border-radius: 12px;
-  background: #0f151c;
+  overflow: hidden;
+  background: var(--sd-face);
   color: var(--fg);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .sd-key:hover { filter: brightness(1.07); }
+
 .sd-key:active { transform: translateY(1px) scale(0.98); }
 
-.sd-key-topline,
-.sd-key-footer {
+.sd-agent {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.55rem 0.55rem;
+  gap: 0.34rem;
+  text-align: left;
+}
+
+.sd-agent-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sd-ag-ic {
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sd-accent);
+}
+
+.sd-ag-ic svg { width: 20px; height: 20px; }
+
+.sd-ag-vendor,
+.sd-ag-vendor-fallback {
+  display: block;
+  width: 18px;
+  height: 18px;
+  justify-self: center;
+}
+
+.sd-ag-vendor-fallback {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(240, 242, 246, 0.72);
+  font-size: 0.7rem;
+}
+
+.sd-ag-idwrap,
+.sd-ag-foot {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 0.28rem;
+  gap: 0.35rem;
 }
 
-.sd-key-topline {
-  justify-content: space-between;
-  color: var(--muted);
+.sd-ag-idwrap { justify-self: end; gap: 0.25rem; }
+
+.sd-ag-id {
+  color: var(--fg);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.52rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
 }
 
-.sd-key-priority {
+.sd-ag-prio {
+  display: inline-flex;
+  flex: none;
+  margin-left: 0;
   color: var(--attention-ink);
-  font-size: 0.62rem;
 }
 
-.sd-key-main {
-  display: grid;
-  align-content: center;
-  min-width: 0;
-  gap: 0.18rem;
-}
+.sd-ag-prio svg { width: 13px; height: 13px; }
 
-.sd-key-ticket {
-  color: var(--sd-accent);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
-  font-weight: 800;
-}
-
-.sd-key-title {
+.sd-ag-title {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--fg);
-  font-size: clamp(0.58rem, 1.4vw, 0.72rem);
-  font-weight: 700;
-  line-height: 1.12;
+  color: rgba(240, 242, 246, 0.9);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.16;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
-.sd-key-footer {
-  color: var(--muted);
-  font-size: 0.5rem;
+.sd-ag-foot {
+  margin-top: auto;
+  gap: 8px;
+  color: var(--sd-accent);
+  font-size: 0.7rem;
   font-weight: 700;
   line-height: 1;
 }
 
-.sd-key-footer b {
-  margin-left: auto;
-  padding: 0.13rem 0.2rem;
-  border-radius: 999px;
-  background: var(--blocking-soft);
-  color: var(--blocking-ink);
-  font-size: 0.43rem;
+.sd-ag-foot.col {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
-.sd-status-dot {
+.sd-ag-stat {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-ag-stat::before {
   width: 0.42rem;
   height: 0.42rem;
+  margin-right: 0.28rem;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  flex: none;
+}
+
+.sd-ag-tag {
+  margin-left: auto;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sd-ag-tag.blocked { background: rgba(224, 86, 78, 0.2); color: #ff9a90; }
+
+.sd-ag-tag.ready { background: rgba(74, 200, 130, 0.2); color: #88e0a6; }
+
+.sd-ag-foot.col .sd-ag-tag { margin-left: 0; }
+
+.sd-ag-dot {
+  width: 11px;
+  height: 11px;
   flex: none;
   border-radius: 50%;
   background: var(--sd-accent);
-  box-shadow: 0 0 0.45rem var(--sd-accent);
 }
 
-.sd-progress {
+/* Pulse timings come from key-face-contract.json via @key_face_css. */
+
+.sd-ag-bar {
   display: block;
-  height: 0.22rem;
-  flex: 1;
-  min-width: 0.6rem;
+  height: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.sd-progress i {
+.sd-ag-bar i {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--sd-accent);
+  background: var(--sd-progress-fill);
 }
 
-.sd-key.st-running {
-  --sd-accent: #9fd0ff;
-  --sd-glow: linear-gradient(180deg, #3f8bff, #7b4bf5);
-  --sd-face: linear-gradient(180deg, #18212d, #0f151d);
-}
-
-.sd-key.st-running .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-paused {
-  --sd-accent: #c2c6cf;
-  --sd-glow: linear-gradient(180deg, #4a4d55, #33363d);
-  --sd-face: linear-gradient(180deg, #1e2025, #131419);
-}
-
-.sd-key.st-paused .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-stuck {
-  --sd-accent: #ff9a90;
-  --sd-glow: linear-gradient(180deg, #ff6a5e, #c0392b);
-  --sd-face: linear-gradient(180deg, #271317, #160c0e);
-}
-
-.sd-key.st-stuck .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-alert {
-  --sd-accent: #ffcf87;
-  --sd-glow: linear-gradient(180deg, #ffc061, #e08a1e);
-  --sd-face: linear-gradient(180deg, #241d0e, #15110a);
-}
-
-.sd-key.st-alert .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-stuck .sd-status-dot {
-  animation: sd-pulse 1.4s ease-in-out infinite;
-}
-
-.sd-key.st-alert .sd-status-dot {
-  animation: sd-pulse 1.6s ease-in-out infinite;
-}
-
-.sd-key.st-queued {
-  --sd-accent: #9096a4;
-  --sd-glow: linear-gradient(180deg, #3a3f47, #23262c);
-  --sd-face: linear-gradient(180deg, #191b21, #111318);
-}
-
-.sd-key.st-queued .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key:is(.st-running, .st-paused, .st-stuck, .st-alert, .st-queued) {
-  background: var(--sd-glow);
-}
+/* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
+   from key-face-contract.json by StreamdeckLive; see @key_face_css. Restating
+   them here is what lets the two renderers drift. */
 
 .sd-key:is(.is-empty, .sd-empty) {
   background: #0a0b0d;
@@ -7637,6 +8398,161 @@ html[data-theme="light"] .toggle-icon .moon {
   content: "";
   animation: sd-live-pulse 1.2s ease-in-out infinite;
 }
+
+/* Cmd and logs keep the strip's dial columns so the pager segment stays under
+   dial D where the operator reads which agent they are controlling. The page
+   itself takes every column left of it — full width in every practical sense,
+   without evicting the dial-D label. */
+.sd-screen.sd-screen-cmd,
+.sd-screen.sd-screen-logs {
+  display: grid;
+}
+
+.sd-strip-cmd,
+.sd-strip-logs {
+  height: 100%;
+  min-width: 0;
+  grid-column: 1 / -2;
+}
+
+.sd-strip-cmd {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.28rem;
+  padding: 0.42rem 0.55rem;
+}
+
+.sd-strip-cmd-heading,
+.sd-strip-cmd-body,
+.sd-log-evhdr,
+.sd-log-diff,
+.sd-log-message {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.sd-strip-cmd-heading,
+.sd-log-evhdr,
+.sd-log-diff {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.53rem;
+  font-weight: 800;
+}
+
+.sd-cmd-provider-logo {
+  width: 0.9rem;
+  height: 0.9rem;
+  object-fit: contain;
+}
+
+/* The icon and the status wording take the focused agent's own state accent,
+   set inline from key-face-contract.json, so the strip and the key for the
+   same agent cannot disagree. */
+.sd-strip-cmd-agent-icon {
+  color: var(--sd-accent);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.sd-strip-cmd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--sd-accent);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+}
+
+/* The design's leading state dot (streamdeck.design.css:112). currentColor
+   means it tracks --sd-accent without naming a colour twice. */
+.sd-strip-cmd-status::before {
+  content: "";
+  flex: none;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sd-strip-cmd-provider {
+  color: var(--accent-ink);
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-cmd-pager {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.sd-strip-cmd-ticket,
+.sd-strip-cmd-percent {
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.sd-strip-cmd-title {
+  overflow: hidden;
+  flex: 1;
+  color: var(--fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-strip-cmd-progress {
+  display: block;
+  height: 0.34rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sd-strip-cmd-progress > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.sd-strip-logs {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.22rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.sd-log-strip-entry {
+  display: grid;
+  min-width: 0;
+  padding: 0.18rem 0.3rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Ink is set inline per badge from key-face-contract.json. */
+.sd-log-evhdr-text,
+.sd-log-message-text { overflow: hidden; flex: 1; color: var(--fg); text-overflow: ellipsis; white-space: nowrap; }
+.sd-log-evhdr-time { color: var(--muted); }
+.sd-log-diff-file { color: var(--fg); }
+.sd-log-diff-counts { margin-left: auto; color: var(--muted); }
+.sd-log-diff-counts b:first-child,
+.sd-log-diff-line.is-addition { color: #88e0a6; }
+.sd-log-diff-counts b:last-child,
+.sd-log-diff-line.is-deletion { color: #ff8b8b; }
+.sd-log-diff-line { overflow: hidden; color: var(--muted); font-size: 0.54rem; text-overflow: ellipsis; white-space: nowrap; }
+.sd-log-message { font-size: 0.62rem; }
+.sd-log-speaker { font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.52rem; font-weight: 800; text-transform: uppercase; }
+.sd-log-speaker.is-agent { color: #9fd0ff; }
+.sd-log-speaker.is-tool { color: #ffcf87; }
+.sd-log-speaker.is-ci { color: #88e0a6; }
+.sd-log-speaker.is-you { color: #c69bff; }
+.sd-log-strip-empty { align-self: center; margin: 0; color: var(--muted); font-size: 0.62rem; }
+.sd-dial-hint { display: inline-flex; justify-content: center; gap: 0.08rem; min-width: 5.2em; color: var(--muted); }
 
 /* The touch strip carries compact status information rather than glyphs. */
 .sd-screen-segment.sd-seg {
@@ -7845,6 +8761,7 @@ html[data-theme="light"] .toggle-icon .moon {
     radial-gradient(circle at 50% 42%, #45464a, #202124 70%);
   background-blend-mode: soft-light, normal;
   box-shadow: 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.14), inset 0 -4px 8px rgba(0, 0, 0, 0.55);
+  transform: rotate(var(--a));
   touch-action: none;
   cursor: grab;
 }
@@ -7869,29 +8786,6 @@ html[data-theme="light"] .toggle-icon .moon {
   background: radial-gradient(circle at 50% 40%, #34353a, #17181b);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   content: "";
-}
-
-.sd-knob-marker {
-  position: absolute;
-  top: 8px;
-  left: calc(50% - 1px);
-  width: 2px;
-  height: 18px;
-  border-radius: 999px;
-  transform: rotate(var(--a));
-  transform-origin: 1px 26px;
-  background: var(--accent-ink);
-  box-shadow: 0 0 0.3rem var(--accent-ink);
-  z-index: 1;
-}
-
-.sd-knob-inner {
-  position: relative;
-  color: var(--fg);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 800;
-  z-index: 2;
 }
 
 @keyframes sd-pulse {
@@ -7934,7 +8828,9 @@ html[data-theme="light"] .sd-device {
   --blocking-ink: #ffa39c;
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --good: #3fb950;
+  --good-ink: #74d47f;
   --super: #c69bff;
+  --ack: #4fd6c4;
 }
 
 @media (max-width: 560px) {
@@ -7953,9 +8849,18 @@ html[data-theme="light"] .sd-device {
     padding: 0.9rem 0.8rem;
   }
 
-  .sd-key-face {
+  .sd-key-face:not(.sd-agent) {
     padding: 0.32rem;
   }
+
+  .sd-ag-ic {
+    width: 26px;
+    height: 26px;
+  }
+
+  .sd-ag-ic svg { width: 17px; height: 17px; }
+
+  .sd-ag-id { font-size: 1rem; }
 
   .sd-screen {
     height: 82px;
@@ -7964,12 +8869,6 @@ html[data-theme="light"] .sd-device {
   .sd-knob {
     width: 52px;
     height: 52px;
-  }
-
-  .sd-knob-marker {
-    top: 6px;
-    height: 13px;
-    transform-origin: 1px 20px;
   }
 
   .sd-install-modal {
@@ -7981,18 +8880,17 @@ html[data-theme="light"] .sd-device {
 /* Mode-view visibility. The hook sets data-mode on .sd-device; each panel
    carries data-mode-view matching one mode name. Hidden panels get
    display:none so they take no space and are skipped by assistive tech. */
-.sd-cmd-view,
 .sd-logs-view {
   display: none;
 }
 
-.sd-device[data-mode="cmd"] .sd-keys,
-.sd-device[data-mode="logs"] .sd-keys {
+/* Only logs mode hides the key grid: since #1607 the cmd controls render as
+   `.sd-keys` themselves, so a cmd-mode clause here would blank them.
+   `:not(.sd-log-keys)` rather than relying on source order: the logs key grid
+   is also a `.sd-keys`, and an equal-specificity un-hiding rule below would
+   lose to a future reorder and blank the eight keys. */
+.sd-device[data-mode="logs"] .sd-keys:not(.sd-log-keys) {
   display: none;
-}
-
-.sd-device[data-mode="cmd"] .sd-cmd-view {
-  display: block;
 }
 
 .sd-device[data-mode="logs"] .sd-logs-view {
@@ -8008,37 +8906,304 @@ html[data-theme="light"] .sd-device {
   text-transform: uppercase;
 }
 
-.sd-cmd-list {
+.sd-cmd-keys {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
 }
 
-.sd-cmd-item {
-  padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: var(--fg);
-  font-size: 0.72rem;
+.sd-cmd-key {
+  --sd-accent: #9fd0ff;
+  --sd-glow: rgba(159, 208, 255, 0.24);
+}
+
+.sd-cmd-key:has([data-streamdeck-command="pause"]) {
+  --sd-accent: #ffcf87;
+  --sd-glow: rgba(255, 207, 135, 0.25);
+}
+
+.sd-cmd-key:has([data-streamdeck-command="mic"]) {
+  --sd-accent: #7fe0a0;
+  --sd-glow: rgba(127, 224, 160, 0.25);
+}
+
+.sd-cmd-key .sd-key-face {
+  appearance: none;
+  border: 0;
   cursor: pointer;
+  grid-template-rows: 1fr auto auto;
+  place-items: center;
+  text-align: center;
 }
 
-.sd-cmd-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+.sd-cmd-key .sd-key-face:focus-visible {
+  outline: 2px solid var(--sd-accent);
+  outline-offset: -4px;
+}
+
+.sd-mic-key.mic-live .sd-key-face {
+  background: linear-gradient(145deg, rgba(127, 224, 160, 0.3), #0f151c 68%);
+  box-shadow: inset 0 0 22px rgba(127, 224, 160, 0.48);
+  animation: sd-mic-pulse 1s ease-in-out infinite;
+}
+
+.sd-cmd-key .sd-key-face.is-flashing {
+  animation: sd-flash 0.45s ease-out;
+}
+
+.sd-cmd {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  grid-template-rows: 1fr auto auto;
+}
+
+.sd-cmd-ic {
+  color: var(--sd-accent);
+}
+
+/* Stroke and fill stay on the icon markup: the design's icon set mixes filled
+   glyphs (pause, play) with stroked line art at two different widths, so a
+   blanket stroke rule here would override the per-icon presentation. */
+.sd-cmd-ic svg {
+  width: 38px;
+  height: 38px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sd-cmd-label {
+  color: var(--fg);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.sd-cmd-sub {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .sd-log-body {
-  max-height: 6rem;
-  overflow-y: auto;
+  display: none;
 }
 
-.sd-log-line {
-  margin: 0;
-  color: var(--muted);
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
+}
+
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.62rem;
-  line-height: 1.5;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
+  color: var(--muted);
+}
+
+/* The LIVE key is the design's one green key (streamdeck.design.css:128-139).
+   Its inks are scoped to the key rather than themed :root tokens: the Stream
+   Deck chassis is painted dark in both themes, so these greens are correct
+   against the near-black key face and must not flip with the light palette. */
+.sd-live-key {
+  --sd-live: #4ade80;
+  --sd-live-ink: #8fe0a8;
+  --sd-live-sel-ink: #eafff3;
+  background: linear-gradient(180deg, #227a4d, #17583a);
+}
+
+.sd-live-key .sd-key-face {
+  background: linear-gradient(180deg, #132420, #0d1713);
+}
+
+.sd-live-key.is-selected {
+  border-color: #37d97e;
+  background: linear-gradient(180deg, #37d97e, #1f9c56);
+  box-shadow: 0 0 16px rgba(55, 217, 126, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--sd-live);
+  box-shadow: 0 0 0.65rem var(--sd-live);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-key.is-selected .sd-live-dot {
+  background: var(--sd-live-sel-ink);
+  box-shadow: 0 0 0.65rem rgba(255, 255, 255, 0.85);
+}
+
+.sd-live-label {
+  color: var(--sd-live-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.sd-live-key.is-selected .sd-live-label {
+  color: var(--sd-live-sel-ink);
+}
+
+/* Read-only mode. The button also carries the `disabled` attribute, so this is
+   presentation only — it must never be the sole thing stopping a press. */
+.sd-cmd-key.is-disabled .sd-key-face {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Control feedback is screen-reader-only until there is something to report; a
+   failed control call is meant to be seen on the deck face, not just heard. */
+.sd-control-status {
+  margin: 0 0 0.4rem;
+  color: var(--attention-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.sd-cmd-label {
+  display: block;
+}
+
+.sd-cmd-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+/* Mic is press-and-hold: the key is held down rather than clicked, so it needs
+   a held-state affordance the click keys do not. */
+.sd-cmd-item.sd-mic-key {
+  touch-action: none;
+  user-select: none;
+}
+
+.sd-cmd-item.sd-mic-key.is-live {
+  border-color: var(--super);
+  box-shadow: 0 0 0.5rem var(--super);
+}
+
+.sd-cmd-item.sd-mic-key.is-live .sd-cmd-label {
+  color: var(--super);
+}
+
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
+}
+
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+/* The five directions from #1576 take their colour from the shared key-face
+   contract (#1726) via the `--sd-log-badge` custom property `.sd-log-badge`
+   reads, so the packaged deck and the emulator cannot drift. `data-dir` stays
+   as a selector hook only — it carries no colour. */
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
+  color: var(--muted);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ack);
+  box-shadow: 0 0 0.65rem var(--ack);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-label {
+  color: var(--ack);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.sd-log-badge {
+  color: var(--sd-log-badge);
+  font-weight: 800;
 }

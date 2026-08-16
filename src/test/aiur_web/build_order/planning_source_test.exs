@@ -841,7 +841,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
     assert_receive {:catalog, %Snapshot{data: %Catalog{entries: entries}}}
-    assert log == ""
+    # Assert the absence of the *relevant* message rather than of all output:
+    # `capture_log/1` captures the global Logger, so `log == ""` is falsifiable by
+    # any unrelated process that happens to log during this block (#1747).
+    refute log =~ "build order catalog discarded"
     assert Enum.map(entries, & &1.title) |> Enum.sort() == ["First legacy pack", "Second legacy pack"]
   end
 

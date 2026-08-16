@@ -317,6 +317,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
+       aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
+       aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
@@ -470,10 +473,11 @@ scrub_run_only_env() {
 
 run_argv=()
 # Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
-# dashboard is reachable across the tailnet by default (no per-project config);
+# dashboard is reachable across the tailnet by default (when config omits it);
 # fall back to loopback when Tailscale is absent, or when dashboard credentials
 # are unset (a non-loopback bind requires them, so we stay on loopback rather
-# than refuse to start). An explicit `--host` always overrides this.
+# than refuse to start). The BEAM applies this below an explicit `server.host`,
+# while an explicit `--host` remains the highest-precedence value.
 default_dashboard_host() {
   local ip=""
   if command -v tailscale >/dev/null 2>&1; then
@@ -490,10 +494,9 @@ build_run_argv() {
   local mode="$1"
   shift
 
-  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
+  local has_interactive=0 has_headless=0 has_ack=0 arg
   for arg in "$@"; do
     case "$arg" in
-      --host | --host=*) has_host=1 ;;
       --interactive) has_interactive=1 ;;
       --headless) has_headless=1 ;;
       --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
@@ -501,7 +504,6 @@ build_run_argv() {
   done
 
   local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host "$(default_dashboard_host)")
   if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
     [ "$has_headless" -eq 1 ] || injected+=(--headless)
   else
@@ -539,11 +541,13 @@ run_session() {
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
   scrub_run_only_env
+  export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
   init_argv_file
 
-  # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
-  # no-guardrails ack. Skip any the user already passed. Foreground runs are
+  # Supply the flags a bare `aiur` needs: UI mode and the no-guardrails ack.
+  # The exported dashboard host fills only a missing config value; an explicit
+  # server.host or --host remains authoritative. Foreground runs are
   # interactive; `--bg` runs headless (no panes/chat backfill) and is driven
   # over the control RPC (status/agents/message/pause/set). Dashboard binding is
   # independent: it remains enabled in either mode unless `--no-dashboard` is
@@ -642,7 +646,7 @@ run_session() {
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
-      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG \
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
       AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
@@ -741,6 +745,7 @@ run_session() {
   fi
 
   write_aiur_instance_record "$session" "$socket"
+  print_dashboard_status "$no_dashboard" "$startup_capture"
 
   if [ "$mode" = "foreground" ]; then
     echo "aiur foreground tmux socket ${socket}, session ${session}" >&2
@@ -757,7 +762,6 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
-    print_background_dashboard_status "$no_dashboard" "$startup_capture"
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
@@ -1357,7 +1361,10 @@ start_beam_death_watchdog() {
 
 probe_control_liveness() {
   local expression output status
-  expression='case Process.whereis(Aiur.Orchestrator) do pid when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
+  # The Orchestrator starts before the dashboard child, so an answering status
+  # call alone does not prove startup (or the bind attempt) finished. Wait until
+  # OTP marks :aiur started before printing the effective dashboard status.
+  expression='aiur_started = Enum.any?(Application.started_applications(), fn {app, _description, _version} -> app == :aiur end); case {Process.whereis(Aiur.Orchestrator), aiur_started} do {pid, true} when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
 
   set +e
   output="$("$release_bin" rpc "$expression" 2>&1)"
@@ -1371,17 +1378,19 @@ probe_control_liveness() {
   fi
 }
 
-# Return the externally useful dashboard URL only when the running node confirms
-# that Bandit actually bound a listener. An empty result means the listener was
-# suppressed or refused; configured server.port alone is never proof of service.
-probe_dashboard_url() {
-  local expression output status marker="__AIUR_DASHBOARD_URL__:"
-  expression='case Aiur.HttpServer.base_url() do url when is_binary(url) -> IO.puts("__AIUR_DASHBOARD_URL__:" <> url); _ -> :ok end'
+# Return the useful URL and effective bind host/port only when the running node
+# confirms that Bandit actually bound a listener. An empty result means the
+# listener was suppressed or refused; configured server.port alone is never
+# proof of service.
+probe_dashboard_status() {
+  local expression output status marker="__AIUR_DASHBOARD_STATUS__:"
+  expression='case {Aiur.HttpServer.base_url(), Aiur.Config.server_host(), Aiur.HttpServer.bound_port()} do {url, host, port} when is_binary(url) and is_binary(host) and is_integer(port) -> IO.puts("__AIUR_DASHBOARD_STATUS__:Dashboard: " <> url <> " (bind host=" <> host <> ", port=" <> Integer.to_string(port) <> ")"); _ -> :ok end'
 
   set +e
-  output="$("$release_bin" rpc "$expression" 2>&1)"
+  run_release_rpc_with_timeout "$expression"
   status=$?
   set -e
+  output="$AIUR_CONTROL_RPC_OUTPUT"
 
   if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
     output="${output#*"$marker"}"
@@ -1389,14 +1398,17 @@ probe_dashboard_url() {
   fi
 }
 
-print_background_dashboard_status() {
-  local no_dashboard="$1" startup_capture="$2" url
-  url="$(probe_dashboard_url)"
+print_dashboard_status() {
+  local no_dashboard="$1" startup_capture="$2" dashboard_status
 
-  if [ -n "$url" ]; then
-    echo "Dashboard: ${url}" >&2
-  elif [ "$no_dashboard" -eq 1 ]; then
+  if [ "$no_dashboard" -eq 1 ]; then
     echo "Dashboard disabled by --no-dashboard." >&2
+    return
+  fi
+
+  dashboard_status="$(probe_dashboard_status)"
+  if [ -n "$dashboard_status" ]; then
+    echo "${dashboard_status}" >&2
   else
     echo "⚠️ dashboard listener unavailable; inspect ${startup_capture} for bind or authentication refusal." >&2
   fi
@@ -1752,9 +1764,49 @@ run_release_rpc_with_timeout() {
   return "$status"
 }
 
+control_command_label() {
+  printf '%s' "${AIUR_CONTROL_COMMAND:-control rpc}"
+}
+
+# Every line a control RPC surfaces to the operator routes through one of these
+# two helpers, so `run_control_rpc` can prove it never returns non-zero while
+# saying nothing (#1684): a silent failure is indistinguishable from a healthy
+# idle fleet, and nobody reads exit codes interactively.
+control_rpc_say() {
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
+control_rpc_echo_output() {
+  [ -n "$1" ] || return 0
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
+#
+# Wrapper contract: a non-zero return ALWAYS carries at least one stderr line
+# naming the command that failed. EX_TEMPFAIL (75) is exempt — it is the dev
+# shim's internal rebuild-and-retry signal, never an operator-visible outcome.
 run_control_rpc() {
+  local status=0
+
+  AIUR_CONTROL_RPC_DIAGNOSED=0
+  run_control_rpc_dispatch "$@" || status=$?
+
+  if [ "$status" -ne 0 ] && [ "$status" -ne 75 ] && [ "${AIUR_CONTROL_RPC_DIAGNOSED:-0}" -ne 1 ]; then
+    if [ "$status" -eq 124 ]; then
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown. The daemon did not reply within the budget - commonly one blocked process inside it, not host load. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
+    else
+      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no diagnostic output; outcome is unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
+    fi
+  fi
+
+  return "$status"
+}
+
+run_control_rpc_dispatch() {
   local expression="$1"
   resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
@@ -1763,8 +1815,8 @@ run_control_rpc() {
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
 
-  local marker="__AIUR_CONTROL_EXIT__:"
-  local output status exit_code=0 saw_marker=0 line
+  local marker="__AIUR_CONTROL_EXIT__:" error_marker="__AIUR_CONTROL_ERROR__:"
+  local output status exit_code=0 saw_marker=0 saw_error=0 saw_output=0 line partial_suffix=""
 
   set +e
   run_release_rpc_with_timeout "$expression"
@@ -1779,9 +1831,8 @@ run_control_rpc() {
   fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
-    [ -n "$output" ] && printf '%s\n' "$output" >&2
-    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
-    echo "aiur: the daemon may be scheduler-saturated; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
+    [ -n "$output" ] && partial_suffix="; partial output was discarded"
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}. Commonly one blocked process inside the daemon, not host load."
     return 124
   fi
 
@@ -1794,17 +1845,31 @@ run_control_rpc() {
     # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
     # node failed for a real reason, and an `unknown` probe must not be assumed
     # down — in both of those cases surface the actual rpc output, never mask it.
+    #
+    # An empty buffer is its own case: `--rpc-eval` kills itself without a word
+    # when the evaluated expression exits (a GenServer call timing out against a
+    # saturated daemon does exactly that), so "see the error above" would point
+    # at nothing (#1684). Name the failure instead.
     case "$(probe_node_liveness)" in
       down)
         print_control_down_message
+        AIUR_CONTROL_RPC_DIAGNOSED=1
         ;;
       up)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (node is running); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no diagnostic output (node is running); outcome is unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
+        fi
         ;;
       *)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (could not query epmd to confirm node state); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (could not query epmd to confirm node state)"
+        fi
         ;;
     esac
     return 1
@@ -1816,14 +1881,27 @@ run_control_rpc() {
         saw_marker=1
         exit_code="${line#"$marker"}"
         ;;
+      "$error_marker"*)
+        saw_error=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
+        printf '%s\n' "${line#"$error_marker"}" >&2
+        ;;
       :ok | "") ;;
-      *) printf '%s\n' "$line" ;;
+      *)
+        saw_output=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
+        printf '%s\n' "$line"
+        ;;
     esac
   done <<<"$output"
 
   if [ "$saw_marker" -ne 1 ]; then
-    echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} returned no exit marker; command output may be incomplete"
     return 1
+  fi
+
+  if [ "$exit_code" -ne 0 ] && [ "$saw_error" -ne 1 ] && [ "$saw_output" -ne 1 ]; then
+    control_rpc_say "aiur: $(control_command_label) failed with exit ${exit_code} and returned no diagnostic output"
   fi
 
   return "$exit_code"
@@ -1843,7 +1921,13 @@ run_control_stream() {
     print_control_down_message
     return 1
   fi
-  exec "$release_bin" rpc "$expression"
+  if "$release_bin" rpc "$expression"; then
+    return 0
+  else
+    local status=$?
+    echo "aiur: streaming control RPC failed with exit ${status}" >&2
+    return "$status"
+  fi
 }
 
 elixir_list_literal() {
@@ -2024,6 +2108,140 @@ cmd_commands() {
   done
 
   run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
+}
+
+encode_control_value() {
+  printf '%s' "$1" | base64 | tr -d '\n'
+}
+
+# These are explicit trusted-Executor mutations, deliberately separate from
+# the read-only `commands` catalog. Revisions remain dashboard-owned.
+cmd_executor_answer() {
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --option) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --rationale) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --rationale requires a value" >&2; exit 64; }; shift; rationale="$1" ;;
+      --rationale=*) rationale="${arg#--rationale=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-answer --expected-version expects a positive integer" >&2; exit 64; }
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: executor-answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  [ -n "$rationale" ] || { echo "aiur: executor-answer --rationale is required" >&2; exit 64; }
+  [ -n "$idempotency_key" ] || { echo "aiur: executor-answer --idempotency-key is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-answer --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
+  opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
+}
+
+cmd_executor_escalate() {
+  local decision_id="${1:-}" expected_version="" reason="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-escalate expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --reason) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --reason requires a value" >&2; exit 64; }; shift; reason="$1" ;;
+      --reason=*) reason="${arg#--reason=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-escalate received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-escalate expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-escalate --expected-version expects a positive integer" >&2; exit 64; }
+  [ -n "$reason" ] || { echo "aiur: executor-escalate --reason is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-escalate --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
+}
+
+# `aiur units` — read the dashboard Units catalog through its own projection,
+# including non-running tickets in current-run membership.
+cmd_units() {
+  local scope="live" format="" json=0 arg condition condition_value condition_encoded conditions_literal=""
+  local -a conditions=() condition_values=()
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --scope) [ "$#" -gt 1 ] || { echo "aiur: units --scope requires a value" >&2; exit 64; }; shift; scope="$1" ;;
+      --scope=*) scope="${arg#--scope=}" ;;
+      --condition) [ "$#" -gt 1 ] || { echo "aiur: units --condition requires a value" >&2; exit 64; }; shift; conditions+=("$1") ;;
+      --condition=*) conditions+=("${arg#--condition=}") ;;
+      --format) [ "$#" -gt 1 ] || { echo "aiur: units --format requires a value" >&2; exit 64; }; shift; format="$1" ;;
+      --format=*) format="${arg#--format=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: units received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: units does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  for condition in "${conditions[@]+"${conditions[@]}"}"; do
+    IFS=',' read -r -a condition_values <<< "$condition"
+    for condition_value in "${condition_values[@]+"${condition_values[@]}"}"; do
+      if [ -n "$conditions_literal" ]; then conditions_literal="$conditions_literal, "; fi
+      condition_encoded="$(printf '%s' "$condition_value" | base64 | tr -d '\n')"
+      conditions_literal="${conditions_literal}Base.decode64!(\"${condition_encoded}\")"
+    done
+  done
+
+  local scope_encoded
+  scope_encoded="$(printf '%s' "$scope" | base64 | tr -d '\n')"
+  local opts="scope: Base.decode64!(\"$scope_encoded\")"
+  [ -z "$conditions_literal" ] || opts="$opts, conditions: [$conditions_literal]"
+
+  if [ -n "$format" ]; then
+    local format_encoded
+    format_encoded="$(printf '%s' "$format" | base64 | tr -d '\n')"
+    opts="$opts, format: Base.decode64!(\"$format_encoded\")"
+  fi
+
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.units([$opts])"
 }
 
 # `aiur build-orders` — read the dashboard Build Order projection without a
@@ -2521,6 +2739,9 @@ dispatch_run() {
 
 aiur_engine_main() {
   local cmd="${1:-}"
+  # Names the running subcommand in control-RPC diagnostics so a failure says
+  # which command failed instead of a generic "control rpc" (#1684).
+  AIUR_CONTROL_COMMAND="${cmd:-run}"
   case "$cmd" in
     __identity)
       aiur_print_identity
@@ -2573,6 +2794,18 @@ aiur_engine_main() {
     commands)
       shift
       cmd_commands "$@"
+      ;;
+    executor-answer)
+      shift
+      cmd_executor_answer "$@"
+      ;;
+    executor-escalate)
+      shift
+      cmd_executor_escalate "$@"
+      ;;
+    units)
+      shift
+      cmd_units "$@"
       ;;
     build-orders)
       shift

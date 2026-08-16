@@ -709,7 +709,8 @@ defmodule Aiur.CodingAgent do
 
   defp configured_backends(opts) do
     Keyword.get_lazy(opts, :configured_backends, fn ->
-      [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)]
+      (Config.agent_priority() ++
+         [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)])
       |> Enum.filter(&(&1 in known_backends()))
       |> Enum.uniq()
     end)
@@ -1127,7 +1128,11 @@ defmodule Aiur.CodingAgent do
     do: adapter_for_session(session).send_operator_message(session, payload)
 
   defp adapter_for_session(%{backend: backend}) when is_binary(backend), do: adapter(backend)
-  defp adapter_for_session(_session), do: adapter(Config.agent_kind())
+
+  defp adapter_for_session(session) do
+    raise ArgumentError,
+          "cannot resolve coding-agent backend for session #{inspect(session)}; expected a binary :backend"
+  end
 
   defp fetch_backend!(backend) do
     case Map.fetch(backends(), backend) do

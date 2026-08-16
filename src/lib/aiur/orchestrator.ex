@@ -5,9 +5,9 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
-  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PushRouting, RetryEngine}
+  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name, __MODULE__)
+    name = Keyword.get(opts, :name)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
@@ -69,7 +69,10 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    RetryEngine.handle_agent_down(state, ref, reason)
+    case CommentPolling.apply_async_down(state, ref) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+    end
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
@@ -151,6 +154,12 @@ defmodule Aiur.Orchestrator do
     PauseResume.handle_worker_control_state(state, issue_id, status, control_payload)
   end
 
+  def handle_info({:worker_control_rejected, issue_id, request_id, generation, class}, state)
+      when is_binary(issue_id) and is_integer(request_id) and request_id > 0 and is_integer(generation) and
+             generation >= 0 and is_atom(class) do
+    PauseResume.handle_worker_control_rejected(state, issue_id, request_id, generation, class)
+  end
+
   def handle_info({:retry_issue, issue_id, retry_token}, state),
     do: RetryEngine.handle_retry_message(state, issue_id, retry_token)
 
@@ -163,12 +172,27 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_comment_rework, issue_number, source, event, attempt}, state)
       when is_integer(attempt) do
+    # The tracked timer has now fired; drop its ref before the attempt runs so a
+    # rescheduled retry replaces it rather than being cancelled as "superseded".
+    state = CommentWake.forget_comment_rework_retry(state, issue_number, source)
+
     {:noreply, CommentWake.maybe_reactivate_on_comment(state, issue_number, source, event, attempt)}
   end
 
   def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
     {:noreply, EventTopics.route(state, event)}
   end
+
+  def handle_info({:github_comments_polled, ref, payload}, state) when is_reference(ref),
+    do: {:noreply, CommentPolling.apply_async(state, ref, payload)}
+
+  def handle_info({:github_comment_poll_started, ref, owner, pid}, state)
+      when is_reference(ref) and is_pid(owner) and is_pid(pid),
+      do: {:noreply, CommentPolling.apply_async_started(state, ref, owner, pid)}
+
+  def handle_info({:github_comment_poll_guarding, ref, owner, pid}, state)
+      when is_reference(ref) and is_pid(owner) and is_pid(pid),
+      do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
 
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
@@ -408,6 +432,24 @@ defmodule Aiur.Orchestrator do
           {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(server, identifier), do: PauseResume.resume_agent(server, identifier)
 
+  @spec resume_agent_with_receipt(String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(identifier), do: PauseResume.resume_agent_with_receipt(identifier)
+
+  @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(server, identifier), do: PauseResume.resume_agent_with_receipt(server, identifier)
+
+  @spec prioritize_agent(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
+  def prioritize_agent(identifier), do: PriorityControl.prioritize_agent(identifier)
+  @spec prioritize_agent(GenServer.server(), String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
+  def prioritize_agent(server, identifier), do: PriorityControl.prioritize_agent(server, identifier)
+
+  @spec deprioritize_agent(String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
+  def deprioritize_agent(identifier), do: PriorityControl.deprioritize_agent(identifier)
+  @spec deprioritize_agent(GenServer.server(), String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
+  def deprioritize_agent(server, identifier), do: PriorityControl.deprioritize_agent(server, identifier)
+
   @spec control_lifecycle(String.t()) :: {:ok, map()} | {:error, term()}
   def control_lifecycle(identifier), do: PauseResume.control_lifecycle(identifier)
   @spec control_lifecycle(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -418,10 +460,10 @@ defmodule Aiur.Orchestrator do
   latched ticket returns to dispatchable. The supported operator exit from
   the #1453 latch — `aiurdev reset-budget <id>` routes here.
   """
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
   def reset_dispatch_budget(identifier), do: PauseResume.reset_dispatch_budget(identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
   def reset_dispatch_budget(server, identifier),
     do: PauseResume.reset_dispatch_budget(server, identifier)
 
@@ -448,8 +490,12 @@ defmodule Aiur.Orchestrator do
   @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?, do: GlobalPause.globally_paused?()
 
-  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status, do: GlobalPause.global_pause_status()
+
+  @spec global_pause_status(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
+  def global_pause_status(server, timeout_ms), do: GlobalPause.global_pause_status(server, timeout_ms)
 
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
@@ -546,6 +592,8 @@ defmodule Aiur.Orchestrator do
   def status, do: StatusReport.status_api()
   @spec status(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
   def status(server, timeout), do: StatusReport.status_api(server, timeout)
+  @spec status_with_capacity(GenServer.server(), timeout()) :: {[map()], map()} | :timeout | :unavailable
+  def status_with_capacity(server, timeout), do: StatusReport.status_with_capacity_api(server, timeout)
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout), do: StatusReport.snapshot_api(server, timeout)
 
@@ -557,6 +605,14 @@ defmodule Aiur.Orchestrator do
   """
   @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
   def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout)
+
+  @doc """
+  Reads the fleet view for a control query (`status`, `agents`, `watch`) from
+  the read model, never from this process's mailbox. See
+  `Aiur.Orchestrator.StatusReport.fleet_view/2`.
+  """
+  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
+  def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
@@ -576,7 +632,11 @@ defmodule Aiur.Orchestrator do
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 
+  def handle_call(:status_with_capacity, _from, state), do: StatusReport.status_with_capacity(state)
+
   def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
+
+  def handle_call(:fleet_view, _from, state), do: StatusReport.fleet_view_call(state)
 
   def handle_call(:request_refresh, _from, state) do
     Lifecycle.request_refresh(state)
@@ -638,6 +698,26 @@ defmodule Aiur.Orchestrator do
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
+
+  def handle_call({:resume_agent_with_receipt, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: PauseResume.resume_issue_with_receipt_call(state, issue_identifier)
+
+  def handle_call({:resume_agent_with_receipt, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:prioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
+    do: PriorityControl.prioritize_agent_call(state, issue_identifier)
+
+  def handle_call({:prioritize_agent, _issue_identifier}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
+  def handle_call({:deprioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
+    do: PriorityControl.deprioritize_agent_call(state, issue_identifier)
+
+  def handle_call({:deprioritize_agent, _issue_identifier}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
 
   def handle_call({:reset_dispatch_budget, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
@@ -786,6 +866,10 @@ defmodule Aiur.Orchestrator do
     do: State.note_agent_activity(state, identifier)
 
   @impl true
+  def handle_cast({:reset_dispatch_budget, issue_identifier}, state)
+      when is_binary(issue_identifier),
+      do: {:noreply, PauseResume.reset_dispatch_budget_cast(state, issue_identifier)}
+
   def handle_cast({:note_agent_activity, identifier}, state) do
     {:noreply, note_agent_activity_state(state, identifier)}
   end

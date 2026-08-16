@@ -445,6 +445,7 @@ defmodule Aiur.GitHub.Issues do
     number = gh_issue["number"]
     labels = gh_issue["labels"] || []
     label_names = Enum.map(labels, &(&1["name"] || ""))
+    state_labels = extract_state_labels(label_names, prefix)
 
     %Issue{
       id: to_string(number),
@@ -453,7 +454,8 @@ defmodule Aiur.GitHub.Issues do
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
-      state: extract_state(gh_issue, label_names, prefix),
+      state: extract_state(gh_issue, state_labels),
+      state_labels: state_labels,
       branch_name: nil,
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
@@ -469,11 +471,23 @@ defmodule Aiur.GitHub.Issues do
   end
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
-  def extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
+  def extract_state(gh_issue, label_names, prefix) do
+    extract_state(gh_issue, extract_state_labels(label_names, prefix))
+  end
 
-  def extract_state(_gh_issue, label_names, prefix) do
+  defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
+  defp extract_state(_gh_issue, [state]), do: state
+  defp extract_state(_gh_issue, _state_labels), do: nil
+
+  @spec extract_state_labels([String.t()], String.t()) :: [String.t()]
+  def extract_state_labels(label_names, prefix) do
     prefix_colon = normalize_label_name("#{prefix}:")
-    Enum.find_value(label_names, &state_label_suffix(&1, prefix_colon))
+
+    label_names
+    |> Enum.map(&state_label_suffix(&1, prefix_colon))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   @spec extract_priority([String.t()]) :: integer() | nil

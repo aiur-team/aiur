@@ -143,23 +143,27 @@ describe("footer variants", () => {
     const keys = layoutKeys([agent("q", { bucket: "queued", dependency_ready: true })], 0);
     const footer = agentKey(keys[0]!).footer as QueuedFooter;
     expect(footer.kind).toBe("queued");
-    expect(footer.label).toBe("Queued");
+    expect(footer.label).toBe("Unstarted");
   });
 
   it("queued footer reports unblocked=true when dependency_ready is true", () => {
     const keys = layoutKeys([agent("q", { bucket: "queued", dependency_ready: true })], 0);
     expect((agentKey(keys[0]!).footer as QueuedFooter).unblocked).toBe(true);
+    expect((agentKey(keys[0]!).footer as QueuedFooter).statusLabel).toBe("Unblocked");
   });
 
   it("queued footer reports unblocked=false when dependency_ready is false", () => {
     const keys = layoutKeys([agent("q", { bucket: "queued", dependency_ready: false })], 0);
     expect((agentKey(keys[0]!).footer as QueuedFooter).unblocked).toBe(false);
+    expect((agentKey(keys[0]!).footer as QueuedFooter).statusLabel).toBe("Blocked");
   });
 
   it("queued footer defaults to unblocked=false when dependency_ready is absent (fail-closed)", () => {
     const a: AgentInput = { identifier: "q", vendor: "codex", bucket: "queued", progress_percent: 0, priority: false };
     const keys = layoutKeys([a], 0);
-    expect((agentKey(keys[0]!).footer as QueuedFooter).unblocked).toBe(false);
+    const footer = agentKey(keys[0]!).footer as QueuedFooter;
+    expect(footer.unblocked).toBe(false);
+    expect(footer.statusLabel).toBe("Blocked");
   });
 
   it("non-queued agents use the progress footer with a status dot and bar", () => {
@@ -183,7 +187,7 @@ describe("progress bar colour", () => {
   });
 
   it("maps 50% to ~yellow-green (hue 62.5)", () => {
-    expect(progressBarColor(50)).toBe("hsl(62.5 72% 50%)");
+    expect(progressBarColor(50)).toBe("hsl(63 72% 50%)");
   });
 
   it("maps 100% to green (hue 125)", () => {
@@ -217,9 +221,9 @@ describe("progress bar colour", () => {
 describe("bucket styles", () => {
   it("running carries exact design tokens", () => {
     expect(BUCKET_STYLES.running).toEqual({
-      accent: "#4fd6c4",
-      glow: "rgba(79,214,196,0.35)",
-      face: "#112524",
+      accent: "#9fd0ff",
+      glow: "linear-gradient(180deg,#3f8bff,#7b4bf5)",
+      face: "linear-gradient(180deg,#18212d,#0f151d)",
       label: "Running",
     });
     expect(BUCKET_STYLES.running.pulseSeconds).toBeUndefined();
@@ -227,9 +231,9 @@ describe("bucket styles", () => {
 
   it("paused carries exact design tokens", () => {
     expect(BUCKET_STYLES.paused).toEqual({
-      accent: "#8fbcff",
-      glow: "rgba(143,188,255,0.32)",
-      face: "#142035",
+      accent: "#c2c6cf",
+      glow: "linear-gradient(180deg,#4a4d55,#33363d)",
+      face: "linear-gradient(180deg,#1e2025,#131419)",
       label: "Paused",
     });
     expect(BUCKET_STYLES.paused.pulseSeconds).toBeUndefined();
@@ -237,9 +241,9 @@ describe("bucket styles", () => {
 
   it("stuck carries exact design tokens with 1.4s pulse", () => {
     expect(BUCKET_STYLES.stuck).toEqual({
-      accent: "#e3b341",
-      glow: "rgba(227,179,65,0.38)",
-      face: "#2a2112",
+      accent: "#ff9a90",
+      glow: "linear-gradient(180deg,#ff6a5e,#c0392b)",
+      face: "linear-gradient(180deg,#271317,#160c0e)",
       label: "Stuck",
       pulseSeconds: 1.4,
     });
@@ -247,20 +251,20 @@ describe("bucket styles", () => {
 
   it("alert carries exact design tokens with 1.6s pulse", () => {
     expect(BUCKET_STYLES.alert).toEqual({
-      accent: "#ff7b72",
-      glow: "rgba(255,123,114,0.4)",
-      face: "#2d1718",
-      label: "Alert",
+      accent: "#ffcf87",
+      glow: "linear-gradient(180deg,#ffc061,#e08a1e)",
+      face: "linear-gradient(180deg,#241d0e,#15110a)",
+      label: "Needs input",
       pulseSeconds: 1.6,
     });
   });
 
   it("queued carries exact design tokens", () => {
     expect(BUCKET_STYLES.queued).toEqual({
-      accent: "#c69bff",
-      glow: "rgba(198,155,255,0.32)",
-      face: "#20172f",
-      label: "Queued",
+      accent: "#9096a4",
+      glow: "linear-gradient(180deg,#3a3f47,#23262c)",
+      face: "linear-gradient(180deg,#191b21,#111318)",
+      label: "Unstarted",
     });
     expect(BUCKET_STYLES.queued.pulseSeconds).toBeUndefined();
   });

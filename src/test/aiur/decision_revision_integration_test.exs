@@ -155,6 +155,7 @@ defmodule Aiur.DecisionRevisionIntegrationTest do
 
     defaults = [
       name: nil,
+      state_dir: dir,
       filesystem_sync_fun: fn -> :ok end,
       dispatch_delay_ms: 60_000,
       reconcile_delay_ms: 60_000,

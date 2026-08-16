@@ -26,7 +26,7 @@
 
 ## Outcome
 
-The shipped Executor Control Center is proven end to end to preserve current
+The shipped Dashboard is proven end to end to preserve current
 operational behavior while meeting the accepted prototype delta for shell,
 Units, conversations, controls, Commands, run/provider/accounting summaries,
 Recent outcomes, authentication, accessibility, live

@@ -5,11 +5,13 @@ defmodule AiurWeb.StreamdeckChannelTest do
   import Plug.Conn, only: [put_req_header: 3]
   import Plug.Test
 
-  alias Aiur.AgentEvents
+  alias Aiur.{AgentEvents, IssueLog}
   alias Aiur.AgentPubSub
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias Aiur.ProviderMeterSnapshot
-  alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
+  alias Phoenix.Socket.Message
+  alias Phoenix.Socket.V2.JSONSerializer
 
   @endpoint Endpoint
 
@@ -68,6 +70,28 @@ defmodule AiurWeb.StreamdeckChannelTest do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
 
     assert :error = StreamdeckAuth.verify_token(token)
+  end
+
+  test "socket tokens survive a financial-data read of the configuration generation" do
+    assert {:ok, token} = StreamdeckAuth.issue_token()
+
+    # Dashboard reads inherit `dashboard_auth_required` while token issuance
+    # always demands `required?: true`. Only credentials may rotate the shared
+    # configuration generation — a differing policy flag must not.
+    assert {:ok, _generation} = FinancialDataAccess.current_configuration_generation()
+
+    assert {:ok, _generation, _expires_at_ms} = StreamdeckAuth.verify_token(token)
+  end
+
+  test "a joined channel survives a financial-data read while focused" do
+    socket = joined_socket()
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+
+    assert {:ok, _generation} = FinancialDataAccess.current_configuration_generation()
+
+    AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "still connected"))
+    assert_push("transcript", %{"identifier" => "AIUR-1", "body" => "still connected"})
   end
 
   test "a joined channel closes when dashboard credentials change" do
@@ -154,7 +178,15 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     AgentPubSub.broadcast_running_change([AgentEvents.agent_summary("AIUR-2", :running, 1, %{title: "Pushed"})])
 
-    assert_push("fleet", %{"agents" => [%{"identifier" => "AIUR-2", "status" => "running", "title" => "Pushed"}]})
+    assert_receive %Message{
+                     topic: "streamdeck:fleet",
+                     event: "fleet",
+                     payload: %{"agents" => [%{"identifier" => "AIUR-2", "status" => "running", "title" => "Pushed"}]} = payload
+                   },
+                   500
+
+    refute Map.has_key?(payload, :agents)
+    refute Map.has_key?(payload, :grid)
     assert socket.assigns.streamdeck_authenticated
   end
 
@@ -181,6 +213,51 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     AgentPubSub.broadcast_transcript("AIUR-2", AgentEvents.transcript_event(:assistant, "second"))
     assert_push("transcript", %{"identifier" => "AIUR-2", "body" => "second"})
+  end
+
+  test "pushes a nonempty JSON-safe logs frame through the Phoenix channel" do
+    identifier = "streamdeck-wire-#{System.unique_integer([:positive])}"
+    path = IssueLog.transcript_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+
+    on_exit(fn -> File.rm(path) end)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "role" => "assistant",
+        "body" => "serialized transcript",
+        "timestamp" => "2026-07-30T00:00:00Z",
+        "msg_id" => "message-1",
+        "sequence" => 1,
+        "turn_id" => "turn-1",
+        "payload" => nil
+      }) <> "\n"
+    )
+
+    socket = joined_socket()
+    focus = push(socket, "focus", %{"identifier" => identifier})
+    assert_reply(focus, :ok, %{"focused" => ^identifier})
+
+    # `assert_push/2` receives the decoded Phoenix socket payload, proving the
+    # nonempty DTO crossed the channel serializer rather than only Jason.encode/1
+    # on the projection helper.
+    assert_push("logs", payload)
+    assert [%{"id" => "live"}, %{"id" => "turn:turn-1"} | _] = payload["event_keys"]
+    assert payload["event_starts"] == %{"1" => 0}
+    assert Enum.any?(payload["transcript"], &(&1["body"] == "serialized transcript"))
+
+    assert {:socket_push, :text, frame} =
+             JSONSerializer.encode!(%Message{
+               topic: "streamdeck:fleet",
+               event: "logs",
+               payload: payload,
+               ref: nil,
+               join_ref: "1"
+             })
+
+    assert ["1", nil, "streamdeck:fleet", "logs", ^payload] =
+             frame |> IO.iodata_to_binary() |> Jason.decode!()
   end
 
   test "focus validates identifiers and unfocus stops the focused subscription" do

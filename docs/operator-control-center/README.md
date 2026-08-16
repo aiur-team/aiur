@@ -1,7 +1,7 @@
-# Executor Control Center
+# Dashboard
 
-This is the planning and implementation-contract home for the **Executor
-Control Center (OCC)** — extending Aiur's existing LiveView dashboard into a
+This is the planning and implementation-contract home for the **Dashboard
+(OCC)** — extending Aiur's existing LiveView dashboard into a
 decision inbox, fleet-state view, and history control surface for a human
 Executor overseeing the fleet.
 

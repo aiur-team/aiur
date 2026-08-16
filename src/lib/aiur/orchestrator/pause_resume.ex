@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Config, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, Config, Issue, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -37,20 +37,38 @@ defmodule Aiur.Orchestrator.PauseResume do
   def pause_agent(server, issue_identifier),
     do: control_api_call(server, {:pause_agent, issue_identifier})
 
-  @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  @spec resume_agent(String.t()) :: {:ok, :resumed | :started | :reactivated} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(Aiur.Orchestrator, issue_identifier)
 
   @spec resume_agent(GenServer.server(), String.t()) ::
-          {:ok, :resumed | :started} | {:error, term()}
+          {:ok, :resumed | :started | :reactivated} | {:error, term()}
   def resume_agent(server, issue_identifier),
     do: control_api_call(server, {:resume_agent, issue_identifier})
 
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
+  @spec resume_agent_with_receipt(String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(issue_identifier),
+    do: resume_agent_with_receipt(Aiur.Orchestrator, issue_identifier)
+
+  @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(server, issue_identifier),
+    do: control_api_call(server, {:resume_agent_with_receipt, issue_identifier})
+
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
   def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
-  def reset_dispatch_budget(server, issue_identifier),
-    do: control_api_call(server, {:reset_dispatch_budget, issue_identifier})
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
+  def reset_dispatch_budget(server, issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
+    if GenServer.whereis(server) do
+      GenServer.cast(server, {:reset_dispatch_budget, issue_identifier})
+      {:ok, :queued}
+    else
+      {:error, :unavailable}
+    end
+  end
+
+  def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
 
   @doc false
   @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
@@ -69,6 +87,48 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  @doc false
+  @spec reset_dispatch_budget_cast(State.t(), String.t()) :: State.t()
+  def reset_dispatch_budget_cast(%State{} = state, issue_identifier) do
+    alert_issue_id = reset_alert_issue_id(state, issue_identifier)
+
+    case reset_dispatch_budget_call(state, issue_identifier) do
+      {:reply, {:ok, :reset}, next_state} ->
+        Alerts.emit_custom(
+          "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
+          "Lifetime dispatch budget reset completed for #{issue_identifier}.",
+          issue: alert_issue_id,
+          reason: "The queued lifetime dispatch budget reset completed.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
+
+        StatusReport.notify_dashboard(next_state)
+        next_state
+
+      {:reply, {:error, reason}, next_state} ->
+        Alerts.emit_custom(
+          "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
+          "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
+          issue: alert_issue_id,
+          reason: "The queued lifetime dispatch budget reset failed: #{inspect(reason)}",
+          needs_attention: true,
+          severity: "warning",
+          event_source: :system
+        )
+
+        next_state
+    end
+  end
+
+  defp reset_alert_issue_id(%State{} = state, issue_identifier) do
+    case find_issue_id_by_identifier(state, issue_identifier) do
+      {:ok, issue_id} -> issue_id
+      {:error, _reason} -> issue_identifier
+    end
   end
 
   defp reply_for_reset(state, issue, was_latched?, :ok, issue_identifier) do
@@ -115,8 +175,11 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
     case Enum.find(state.last_polled_issues, fn
-           {_id, %Issue{identifier: ^issue_identifier}} -> true
-           _ -> false
+           {issue_id, %Issue{identifier: identifier}} ->
+             Issue.identifier_matches?(issue_id, identifier, issue_identifier)
+
+           _ ->
+             false
          end) do
       {issue_id, _issue} -> {:ok, issue_id}
       nil -> {:error, :unknown_issue}
@@ -152,6 +215,23 @@ defmodule Aiur.Orchestrator.PauseResume do
     StatusReport.notify_dashboard(state)
     {:reply, reply, state}
   end
+
+  @spec resume_issue_with_receipt_call(State.t(), String.t()) :: {:reply, term(), State.t()}
+  def resume_issue_with_receipt_call(%State{} = state, issue_identifier) do
+    {:reply, reply, state} = resume_issue_call(state, issue_identifier)
+    {:reply, attach_resume_receipt(reply, state, issue_identifier), state}
+  end
+
+  defp attach_resume_receipt({:ok, :resumed} = reply, state, issue_identifier) do
+    with %{issue: %{id: issue_id}} <- State.find_running_by_identifier(state.running, issue_identifier),
+         %{action: :resume, request_id: request_id} <- ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+      {:ok, {:resumed, request_id}}
+    else
+      _ -> reply
+    end
+  end
+
+  defp attach_resume_receipt(reply, _state, _issue_identifier), do: reply
 
   @spec pause_agent_call(State.t(), String.t() | TrackerIdentity.t()) :: {:reply, term(), State.t()}
   def pause_agent_call(%State{globally_paused: true} = state, _issue_identifier),
@@ -317,7 +397,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec resume_issue(State.t(), String.t()) ::
-          {{:ok, :resumed | :started} | {:error, term()}, State.t()}
+          {{:ok, :resumed | :started | :reactivated} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
@@ -681,6 +761,30 @@ defmodule Aiur.Orchestrator.PauseResume do
           {:applied, request, state} ->
             apply_worker_control_state(state, issue_id, running_entry, status, pause_payload, request)
         end
+    end
+  end
+
+  @doc false
+  @spec handle_worker_control_rejected(State.t(), String.t(), pos_integer(), non_neg_integer(), atom()) ::
+          {:noreply, State.t()}
+  def handle_worker_control_rejected(%State{} = state, issue_id, request_id, generation, class) do
+    with %{issue: %{id: ^issue_id}} = running_entry <- Map.get(state.running, issue_id),
+         %{issue_id: ^issue_id, generation: ^generation, status: status} when status in [:requested, :accepted] <-
+           ControlLifecycle.get(state.control_lifecycle, request_id),
+         {:ok, rejected, lifecycle} <-
+           ControlLifecycle.reject(state.control_lifecycle, request_id, class,
+             now: DateTime.utc_now(),
+             condition: %{
+               control_status: get_in(running_entry, [:control, :status]) || :paused,
+               pause_reason: Map.get(running_entry, :paused_reason)
+             }
+           ) do
+      state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+      publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
+      StatusReport.notify_dashboard(state)
+      {:noreply, state}
+    else
+      _ -> {:noreply, state}
     end
   end
 
@@ -1821,8 +1925,15 @@ defmodule Aiur.Orchestrator.PauseResume do
       {:error, :unavailable}
     end
   catch
+    # `:unavailable` is rendered to the operator as "orchestrator unavailable",
+    # i.e. the daemon is not there to answer. Only the exits that actually mean
+    # that may claim it (#1634); a crash raised *inside* the orchestrator while
+    # it is running and answering must surface its own reason rather than be
+    # laundered into a false "the daemon is down" diagnosis.
     :exit, {:timeout, _} -> {:error, :timeout}
-    :exit, _ -> {:error, :unavailable}
+    :exit, {:noproc, _} -> {:error, :unavailable}
+    :exit, {{:nodedown, _node}, _} -> {:error, :unavailable}
+    :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
   end
 
   @doc false

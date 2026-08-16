@@ -16,6 +16,48 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
+  describe "load_admission_reason/3" do
+    test "returns the exact binding details used by admission_gate" do
+      assert {:hold, %{signal: :load, measured: 25.0, threshold: 24.0}} =
+               DispatchPolicy.load_admission_reason(25.0, 1.5, 16)
+
+      assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16) == :dispatch
+    end
+
+    # admission_gate/1 must never report a load decision that load_admission_reason/3
+    # would not make, and the reported threshold must always be the already
+    # multiplied `threshold * schedulers` — the operator reads that number
+    # straight off the status line, so the two surfaces cannot be allowed to
+    # print different values for the same gate (#1610).
+    test "admission_gate never disagrees with load_admission_reason" do
+      probes = fn load ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: load,
+          load_threshold: 1.5,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil,
+          queued_demand?: true
+        }
+      end
+
+      for load <- [0.0, 1.0, 23.9, 24.0, 24.1, 25.0, 400.0, :unavailable] do
+        assert DispatchPolicy.admission_gate(probes.(load)) ==
+                 DispatchPolicy.load_admission_reason(load, 1.5, 16)
+      end
+
+      assert {:hold, %{signal: :load, threshold: 24.0}} = DispatchPolicy.admission_gate(probes.(25.0))
+    end
+  end
+
   describe "prewarm_gate/2" do
     test "matches the prewarm gate truth table" do
       assert DispatchPolicy.prewarm_gate(false, :building) == :dispatch
@@ -135,6 +177,7 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
           load_threshold: 1.5,
           build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
           provider_backends: [],
+          github_quota: :available,
           queued_demand?: true
         },
         overrides
@@ -157,6 +200,24 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert {:hold, %{signal: :load, measured: 25.0, threshold: 18.0}} =
                DispatchPolicy.admission_gate(gate_input(%{load: 25.0}))
+
+      reset_at = ~U[2026-08-09 22:00:00Z]
+
+      assert {:hold, %{signal: :github_quota, measured: %{resource: "core"}, threshold: :ten_percent_remaining}} =
+               DispatchPolicy.admission_gate(gate_input(%{github_quota: {:hold, %{resource: "core", remaining: 500, limit: 5000, reset_at: reset_at}}}))
+
+      build = %{enabled?: true, capacity: 1, active: 1, queued: 1}
+
+      assert {:hold, %{signal: :github_quota}} =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   github_quota: {:hold, %{resource: "graphql"}},
+                   run_queue_threshold: 1.0,
+                   runnable: 99,
+                   load: 99.0,
+                   build_status: build
+                 })
+               )
     end
 
     test "reports build pressure and provider limits in priority order" do
@@ -234,6 +295,61 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                active_states,
                terminal_states
              )
+    end
+  end
+
+  describe "no-agent-work states (#1759)" do
+    # `merging` (PR sitting in GitHub's merge queue) and `ci-wait` (CI in flight)
+    # are states where by definition no agent work exists. Dispatching into them
+    # cannot produce progress, only cost, and each committed dispatch bills a
+    # lifetime unit toward the terminal latch.
+    test "a merging or ci-wait ticket is not dispatchable even when listed as an active state" do
+      # The operator config that produced #1759 listed `merging` in
+      # `active_states`, so the refusal must hold *despite* that listing —
+      # otherwise this test would pass against the pre-fix code.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait"]
+      )
+
+      state = %State{max_concurrent_agents: 5}
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      # Control: the same ticket shape in a real work state IS dispatchable, so
+      # a blanket-false predicate cannot satisfy this test.
+      for workable <- ["todo", "in-progress", "rework"] do
+        ticket = issue("work-#{workable}", state: workable)
+
+        assert DispatchPolicy.candidate_issue?(ticket, active, terminal), "#{workable} must stay dispatchable"
+        assert DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal)
+        assert DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
+      end
+
+      for parked <- ["merging", "ci-wait"] do
+        ticket = issue("parked-#{parked}", state: parked)
+
+        assert DispatchPolicy.no_agent_work_state?(parked)
+        refute DispatchPolicy.candidate_issue?(ticket, active, terminal), "#{parked} must not be a candidate"
+        refute DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal)
+        refute DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
+
+        # The retry engine and the pre-spawn revalidation in
+        # `Dispatcher.revalidate_issue_for_dispatch/3` both gate on this one, so
+        # a ticket that flips into `merging` mid-flight is refused there too.
+        refute DispatchPolicy.retry_candidate_issue?(ticket, terminal)
+
+        # The poll cycle's queued-work signal must not count it as demand.
+        refute DispatchPolicy.queued_dispatch_demand?([ticket], state)
+      end
+    end
+
+    test "state matching is normalized and nil-safe" do
+      assert DispatchPolicy.no_agent_work_state?("Merging")
+      assert DispatchPolicy.no_agent_work_state?("  CI-Wait ")
+      refute DispatchPolicy.no_agent_work_state?("human-review")
+      refute DispatchPolicy.no_agent_work_state?(nil)
+      refute DispatchPolicy.no_agent_work_state?(:merging)
     end
   end
 
@@ -473,6 +589,66 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       refute DispatchPolicy.state_slots_available?(issue("next", state: "todo"), state)
       assert DispatchPolicy.state_slots_available?(issue("other", state: "rework"), state)
+    end
+
+    test "dispatch decisions name a binding per-state cap while fleet slots remain free" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 4,
+        max_concurrent_agents_by_state: %{"todo" => 1}
+      )
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        running: %{
+          "active" => %{issue: issue("active", state: "todo"), control: %{status: :working}}
+        }
+      }
+
+      assert Slots.available_slots(state) == 3
+      assert DispatchPolicy.dispatch_decision(issue("next", state: "todo"), state) == {:skip, :state_capacity}
+    end
+
+    test "dispatch decisions distinguish an orphaned claim from a live runner" do
+      claimed = issue("claimed", [])
+
+      assert DispatchPolicy.dispatch_decision(claimed, %State{claimed: MapSet.new([claimed.id])}) ==
+               {:skip, :claimed_without_runtime}
+
+      running = %{claimed.id => %{issue: claimed, control: %{status: :working}}}
+
+      assert DispatchPolicy.dispatch_decision(claimed, %State{claimed: MapSet.new([claimed.id]), running: running}) ==
+               {:skip, :already_running}
+    end
+
+    test "dispatch decisions defer a released claim until its scheduled auto-resume" do
+      released = issue("rate-limited", [])
+
+      state = %State{
+        auto_resume: %{
+          released.id => %{attempt: 1, cause: :rate_limit, due_at_ms: System.monotonic_time(:millisecond) + 60_000}
+        }
+      }
+
+      assert DispatchPolicy.dispatch_decision(released, state) == {:skip, :auto_resume_pending}
+    end
+
+    test "dispatch decisions distinguish a workspace ownership wait from an orphaned claim" do
+      claimed = issue("workspace-wait", [])
+
+      state = %State{
+        claimed: MapSet.new([claimed.id]),
+        dispatch_recovery: %{
+          workspace_ownership: %{
+            waits: %{claimed.identifier => %{issue_id: claimed.id}},
+            ready: %{}
+          },
+          codex_thrash_budget: %{}
+        }
+      }
+
+      assert DispatchPolicy.dispatch_decision(claimed, state) ==
+               {:skip, :workspace_ownership_waiting}
     end
   end
 
