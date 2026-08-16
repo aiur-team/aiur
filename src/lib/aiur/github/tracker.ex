@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.Tracker do
 
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.Issue
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
@@ -67,6 +68,16 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)
+
+  @doc """
+  Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
+  Dependencies API. Called only on the dispatch path (the issue actually being
+  considered for dispatch), so the cost is bounded by dispatch attempts rather
+  than by tracker size. A failed dependency read returns `{:error, reason}` and
+  the dispatcher holds dispatch (fail-closed).
+  """
+  @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(%Issue{} = issue), do: client_module().hydrate_blocked_by(issue)
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do

@@ -22,6 +22,10 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
+| `tracker.github.max_inflight` | integer | 4 | Cap on concurrent tracker HTTP requests across all endpoints (1-100). |
+| `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
+| `tracker.github.requests_per_minute` | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
+| `tracker.github.stagger_ms` | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
 | `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
@@ -129,7 +133,8 @@ any active backoff.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.priority` | array | `[]` | Ordered dispatch preference. Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when a backend hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`) — see [Routes in `agent.priority`](#routes-in-agent-priority). Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when an entry hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Whether dispatch routes away from a provider's peak-pricing window, falling through to the next `agent.priority` entry. `false` means ignore pricing windows entirely and use `agent.priority` exactly as written — it never changes how spend is *reported*. Shape only today; the behaviour lands with time-of-day routing. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -161,6 +166,106 @@ any active backoff.
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
 | `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
+
+### Routes in `agent.priority`
+
+Each entry is a **route**, not just a backend name. A route uses the same
+grammar `agent.routing` has always used:
+
+```
+<backend>[:<model>[:<effort>]][+remote]
+```
+
+- `claude` — the backend's own direct connection, exactly as before.
+- `openrouter:anthropic/claude-sonnet-5` — that model reached through OpenRouter.
+
+A colon-free entry means what it has always meant, so **existing configs need
+no change**.
+
+```yaml
+agent:
+  priority:
+    - claude                                # Anthropic direct
+    - openrouter:anthropic/claude-sonnet-5  # same model, billed by OpenRouter
+    - codex                                 # OpenAI direct
+    - openrouter:moonshotai/kimi-k2.7-code  # no direct Moonshot key: OpenRouter only
+
+  backend_configs:
+    openrouter:
+      provider:
+        order: [Anthropic, "Together AI"]
+        allow_fallbacks: true
+        ignore: [Azure]
+        sort: price
+
+  pricing_policy:
+    avoid_peak_pricing: true
+```
+
+**A model reachable two ways may appear twice, and the order is the fallback
+order.** Duplicate *routes* are rejected; duplicate backends are not.
+
+**Model names.** The canonical form is the provider's full slug, which is also
+the key cost reporting uses. A short family alias works too — `openrouter:claude`
+resolves to the newest `anthropic/claude-*` — and is widened to the concrete
+slug before the request is sent, so aliased calls are priced normally. An alias
+claimed by more than one vendor is rejected at config load rather than resolved
+by coin flip. Aggregator ids beginning with `~` are rejected: they are floating
+pointers whose target can change under a running fleet.
+
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a
+product, so a bare `openrouter` entry is a config error.
+
+**An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
+means direct-only, always. Routing through OpenRouter is something you write.
+
+#### What happens when a route fails
+
+| Cause | Behaviour |
+| --- | --- |
+| **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
+| **Usage or rate limit (429)** | Advances to the next entry and records the backend in `model-usage.json` with its reset time. Self-healing. |
+| **Transient error (5xx, timeout, malformed response)** | Retries, then advances **for that claim only**, and raises an operator attention. Deliberately *not* written to `model-usage.json`: that file means "rate-limited until `reset_at`", and recording an outage there would make the outage indistinguishable from a quota event. |
+| **Auth rejected (401)** | Does **not** advance. Hard failure plus an attention. A key that is present and wrong is a config error, and falling through would move spend silently onto another route while the broken credential stayed hidden. |
+
+#### `agent.backend_configs.<backend>`
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.<backend>.enabled` | boolean | backend registry default | Explicitly enables or disables dispatch for the backend. `agent.priority` takes precedence by enabling every backend it names. |
+| `agent.backend_configs.<backend>.command` | string | backend registry command | Overrides the backend command used for model discovery and setup where supported. |
+| `agent.backend_configs.<backend>.model` | string or nil | nil | Selects the backend's default model where the backend accepts a configured model. |
+| `agent.backend_configs.<backend>.default_model` | string or nil | backend registry value | Overrides the registry fallback model for an OpenAI-compatible backend; `model` takes precedence. |
+| `agent.backend_configs.<backend>.base_url` | URL string | backend registry value | Overrides the registry endpoint for an OpenAI-compatible backend. |
+| `agent.backend_configs.<backend>.api_key_env` | string | backend registry value | Names the environment variable containing the backend API key. |
+| `agent.backend_configs.<backend>.management_api_key_env` | string or nil | backend registry value | Names the environment variable containing a provider's usage-management API key. |
+| `agent.backend_configs.<backend>.transport` | string | backend registry value | Overrides the OpenAI-compatible transport with `chat_completions` or `responses`. |
+| `agent.backend_configs.<backend>.balance_baseline` | number or nil | nil | Seeds prepaid-balance usage tracking for backends that expose a balance API. |
+| `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
+| `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
+| `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
+| `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |
+
+#### `agent.backend_configs.openrouter`
+
+Settings for the OpenRouter *transport*. Nothing here selects anything —
+selection lives entirely in `agent.priority`.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.openrouter.provider.order` | array of strings or nil | omitted | Preferred upstream providers, most preferred first. |
+| `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
+| `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
+| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
+
+#### Cost attribution
+
+Spend is priced by the **route**, never by whichever upstream ended up serving
+the request. A call through `openrouter:anthropic/claude-sonnet-5` prices
+against OpenRouter's rows for that slug even when the selected upstream was
+Anthropic, because OpenRouter is who bills it. Direct and via-OpenRouter routes
+to the same model are separate identities and may legitimately carry different
+rates.
 
 Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
 also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
@@ -221,6 +326,85 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
 
+## Model discovery
+
+Aiur ships a curated model list per backend (`Aiur.CodingAgent.backends/0`). Providers
+release models faster than that list is edited, so for OpenAI-compatible backends aiur
+also asks the provider's own catalogue endpoint which models it currently serves, and
+caches the answer.
+
+Discovery **extends** the curated list; it never replaces it. Reasoning-effort
+vocabularies, capability flags, derived family aliases, presentation, and the models
+`aiur init` offers stay registry-owned, and where a discovered id collides with a
+curated one the curated metadata wins.
+
+| Backend | Endpoint | Credential | Returns |
+| --- | --- | --- | --- |
+| `openrouter` | `GET https://openrouter.ai/api/v1/models` | none required (sent when `OPENROUTER_API_KEY` is set, so the request is attributed to your account) | identifiers, context window, **and pricing** |
+| `deepseek` | `GET https://api.deepseek.com/models` | `DEEPSEEK_API_KEY` | identifiers only |
+| `kimi` | `GET https://api.moonshot.ai/v1/models` | `MOONSHOT_API_KEY` | identifiers only |
+
+`codex` and `claude` are not listed: they answer `model/list` over their own CLI
+transport, which `aiur init` already asks. Anthropic's `GET /v1/models` (`x-api-key`
+plus `anthropic-version`) has an adapter for operators who point an OpenAI-compatible
+backend straight at it; it returns identifiers and display names, no pricing.
+
+### Cache, TTL, and cold start
+
+| Property | Value |
+| --- | --- |
+| Location | `model-catalog.json`, beside the active workflow config and `model-usage.json` |
+| TTL | 24 hours |
+| Refresh trigger | lazy and backgrounded — reading the usable model set (e.g. when an agent session starts) schedules a refresh only if the cache is older than the TTL |
+| Cold offline start | the discovered set is empty and aiur uses exactly the curated list, i.e. it behaves as it did before discovery existed |
+| Corrupt cache | treated as absent; falls back to the curated list |
+
+Writes are atomic (temp file plus rename) and a concurrent refresh is a no-op rather
+than a duplicate request.
+
+**Config validation never makes a network call.** Validation reads the cache and
+nothing else. An absent or stale cache means "cannot verify", and a model aiur cannot
+verify is **accepted**, never rejected.
+
+### Identifiers aiur refuses
+
+Two classes of catalogue id are rejected at ingest, with the reason recorded in the
+cache under `rejected`:
+
+- **`reserved_routing_separator`** — an id containing `:`, such as
+  `moonshotai/kimi-k2.7-code:batch`. Aiur routing values are `backend:model:effort`, so
+  `openrouter:moonshotai/kimi-k2.7-code:batch` would parse `batch` as a reasoning
+  effort. Pin such a variant only if and when aiur gains a way to escape the separator.
+- **`unstable_identifier_prefix`** — an id starting with `~`, such as
+  `~moonshotai/kimi-latest`, which OpenRouter uses for a non-canonical pointer rather
+  than an addressable model.
+
+### Pricing is advisory
+
+OpenRouter is the only catalogue that quotes prices. Aiur records those numbers in the
+cache and compares them to the curated price table, and stops there. Fetched prices are
+**never** written into the price table, and a curated row always wins. A disagreement
+larger than 5% logs a price-drift warning naming both numbers, which turns a stale
+curated row (the failure mode where output spend is under-reported) into something you
+can see — without letting a vendor feed silently rewrite what aiur reports having spent.
+
+A discovered model with **no** curated price row is usable but visibly unpriced: its
+usage reports unknown cost with an `unknown_price_model` coverage reason. It is never
+costed at zero. A refresh logs how many discovered models are unpriced.
+
+### Per-backend opt-out
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend's catalogue endpoint. The curated list keeps working. |
+
+```yaml
+agent:
+  backend_configs:
+    openrouter:
+      model_discovery: false
+```
+
 ## hooks
 
 | Key | Type | Default | Controls |
@@ -264,6 +448,21 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.alerts_file` | string path or nil | bundled alerts file | Topic-to-sound YAML map. |
+
+## elevenlabs
+
+Optional. Backs Stream Deck voice input: the device records dictation and streams the audio to Aiur, **Aiur** calls ElevenLabs speech-to-text with the credential below, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. This is the only place the credential is configured — the Stream Deck sidecar never holds it. The section may be omitted entirely; the defaults below apply.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+
+`ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
+
+The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable — `ELEVENLABS_API_KEY` included — from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
+
+Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/guide/executor-control-center#api-meters) for what each figure does and does not measure.
 
 ## observability
 

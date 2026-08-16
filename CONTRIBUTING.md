@@ -6,7 +6,9 @@ onto aiur's Elixir stack. They are the house style the production-readiness
 refactor codifies. Every norm below maps onto tooling that is already wired
 (`make ci` and the `mix` gate); this document names the norm and the check
 that enforces it. When a norm and a check disagree, the check wins — fix the
-code, then fix this doc in the same change.
+code, then fix this doc in the same change. The one deliberate exception is
+[Documentation](#documentation), which is a review expectation with only a
+narrow config-key check behind it; it says so in place.
 
 ## Code structure
 
@@ -81,6 +83,29 @@ not fail a build on line count alone.
   error, log it with issue/session context (`docs/logging.md`), or propagate
   it. "Completed" is wrong if anything was skipped silently.
 
+## Documentation
+
+- **Functionality ships with its documentation, in the same PR.** Docs are
+  required when a change adds or changes a config key, a CLI command or flag,
+  an environment variable an operator would set, a new user-facing surface (a
+  dashboard page, a TUI view, a Stream Deck mode, a panel), or when it changes
+  documented behavior so an existing page is now wrong. Docs are **not**
+  required for internal refactors, bug fixes that restore already-documented
+  behavior, test-only changes, or performance work with no interface change.
+- **Prefer editing an existing page over adding a new one.** Concise and correct
+  beats comprehensive — a wrong doc is worse than a missing one.
+- Docs live in `website/docs-app/`: config keys in
+  `reference/configuration.md`, commands and flags in `reference/cli.md`,
+  user-facing surfaces in `guide/`, explanations in `concepts/`. A new page also
+  needs a sidebar entry in `website/docs-app/.vitepress/config.ts`. The full map
+  is [`AGENTS.md`](AGENTS.md#docs-ship-with-the-change).
+- **This norm is mostly not tool-enforced, unlike the rest of this document.**
+  `scripts/check-config-docs.py` covers config keys only — it resolves each key
+  to its full dotted path and fails the required `lint` job when one has no
+  entry in the reference. CLI flags, new surfaces, and falsified pages have no
+  check behind them, so a reviewer treating a missing doc as a blocking finding
+  is the whole enforcement.
+
 ## Repository renames
 
 Before a global identifier rename, run the report-only [rename preflight](docs/rename-preflight.md):
@@ -106,10 +131,11 @@ mix credo --strict
 mix dialyzer
 ```
 
-- **`mix lint` is `specs.check` then `credo --strict`** — both are
-  mandatory. `specs.check` fails the build when any public `def` in `lib/`
-  lacks an adjacent `@spec` (`@impl` callbacks are exempt); `credo --strict`
-  runs after it. Running `mix credo --strict` alone misses half the gate.
+- **`mix lint` runs both `specs.check` and `credo --strict`** — both are
+  mandatory, and both run even when the other fails so one pass reports every
+  lint failure. `specs.check` fails the build when any public `def` in `lib/`
+  lacks an adjacent `@spec` (`@impl` callbacks are exempt). Running
+  `mix credo --strict` alone misses half the gate.
 - **Zero-new-warnings ratchet.** `mix compile --warnings-as-errors` is part
   of the gate: a change may not introduce a new compiler warning. The warning
   count only goes down.

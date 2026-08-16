@@ -451,6 +451,64 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
   end
 
+  describe "live base branch reconcile" do
+    # Regression for #1973: a running agent must stop listening on the retired
+    # base's push topic as soon as the `system.config.base_branch.changed`
+    # announcement is delivered — without waiting for the next `attach`.
+    test "base change prunes the retired push topic and adds the current one", %{identifier: id} do
+      test_pid = self()
+
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        send(test_pid, {:enqueued, ev})
+        :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "system.trunk.branch.push", "base_branch:auto")
+
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      # The test config's authoritative base is `main` (fixtures/test.aiurconfig),
+      # so the reconcile must swap the trunk topic for the main one.
+      send(pid, {:event, %{id: 1, topic: "system.config.base_branch.changed"}})
+
+      # The announcement still reaches the agent digest...
+      assert_receive {:enqueued, %{id: 1}}, 500
+
+      # ...and the base_branch:auto subscription now follows the current base.
+      assert eventually(
+               fn ->
+                 topics = Enum.map(SubscriptionStore.snapshot(id).subscribed_to, & &1["topic"])
+                 "system.main.branch.push" in topics and "system.trunk.branch.push" not in topics
+               end,
+               1_000
+             )
+
+      SubscriptionStore.set_enqueue_fn(nil)
+    end
+
+    test "unrelated events do not touch base_branch:auto subscriptions", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "system.trunk.branch.push", "base_branch:auto")
+
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {:event, %{id: 1, topic: "ticket.9.branch.push"}})
+
+      eventually(
+        fn ->
+          Enum.map(SubscriptionStore.snapshot(id).subscribed_to, & &1["topic"]) == [
+            "system.trunk.branch.push"
+          ]
+        end,
+        1_000
+      )
+
+      topics = Enum.map(SubscriptionStore.snapshot(id).subscribed_to, & &1["topic"])
+      assert topics == ["system.trunk.branch.push"]
+    end
+  end
+
   defp safe_id(id) do
     String.replace(id, ~r/[^A-Za-z0-9._-]/, "_")
   end

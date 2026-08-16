@@ -11,6 +11,9 @@ defmodule Aiur.GitHub.ErrorsTest do
              {:github, :tls, %{reason: {:tls_alert, :handshake_failure}}}
 
     assert Errors.classify_error({:error, :other}) == {:github, :transport, %{reason: :other}}
+
+    assert Errors.classify_error({:error, :github_budget_broker_unavailable}) ==
+             {:github, :transport, %{reason: :github_budget_broker_unavailable}}
   end
 
   test "classifies HTTP auth, rate-limit, and generic statuses" do

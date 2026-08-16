@@ -424,6 +424,115 @@ defmodule Aiur.DecisionStoreTest do
     assert answered.decision_status == :decided
   end
 
+  describe "blocked_ticket_ids/1 (#1965)" do
+    test "returns ticket identifiers with open blocking Commands only", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: blocking}} =
+               request(
+                 pid,
+                 %{"question" => "Open a blocker?", "blocking" => true},
+                 ticket: %{@ticket | identifier: "11"}
+               )
+
+      assert {:ok, %{decision: non_blocking}} =
+               request(
+                 pid,
+                 %{"question" => "Notice only?", "blocking" => false},
+                 ticket: %{@ticket | identifier: "22"}
+               )
+
+      non_blocking_id = non_blocking.decision_id
+
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert ids == MapSet.new(["11"])
+
+      # Answering the blocker releases the ticket on the next read.
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, blocking.decision_id, %{
+                 "idempotency_key" => "answer-blocker",
+                 "expected_version" => blocking.version,
+                 "custom_response" => "Proceed"
+               })
+
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert ids == MapSet.new()
+
+      # The non-blocking Command is untouched (it was never in the set).
+      assert {:ok, %Decision{decision_id: ^non_blocking_id}} =
+               DecisionStore.get(non_blocking_id, pid)
+    end
+
+    test "a deferred blocking Command still gates dispatch until answered", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: decision}} =
+               request(
+                 pid,
+                 %{"question" => "Defer this blocker?", "blocking" => true},
+                 ticket: %{@ticket | identifier: "33"}
+               )
+
+      assert {:ok, %{decision: deferred}} =
+               DecisionStore.defer(decision.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert deferred.decision_status == :deferred
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert MapSet.member?(ids, "33")
+
+      assert {:ok, %{decision: answered}} =
+               answer(pid, decision.decision_id, %{
+                 "idempotency_key" => "answer-deferred-blocker",
+                 "expected_version" => 1,
+                 "custom_response" => "Proceed"
+               })
+
+      assert answered.decision_status == :decided
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      refute MapSet.member?(ids, "33")
+    end
+
+    test "internal delivery alerts never gate dispatch", %{dir: dir} do
+      pid = start_store!(dir)
+      slug = "decision-delivery-act-1"
+
+      assert {:ok, %{status: :accepted, decision: delivery_alert}} =
+               DecisionStore.project_attention(
+                 %{
+                   "question" => "Decision action remains actionable after turn_failed.",
+                   "blocking" => true,
+                   "kind" => "legacy_attention",
+                   "source_id" => "legacy_attention:#{slug}"
+                 },
+                 [
+                   ticket: @ticket,
+                   source: @source,
+                   legacy_attention: %{slug: slug, topic: "ticket.979.agent.attention.#{slug}"}
+                 ],
+                 pid
+               )
+
+      assert delivery_alert.blocking
+
+      assert {:ok, %{status: :accepted, decision: _command}} =
+               project_attention(pid, minimal_attention("Which owner should take this?"))
+
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert MapSet.member?(ids, "979")
+    end
+
+    test "fails closed when the store cannot be read", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{decision: _decision}} = request(pid, %{"question" => "Block?", "blocking" => true})
+
+      :sys.replace_state(pid, &%{&1 | writable?: false, health: {:unavailable, :test}})
+      assert {:error, :store_unavailable} = DecisionStore.blocked_ticket_ids(pid)
+
+      GenServer.stop(pid)
+      assert {:error, :store_unavailable} = DecisionStore.blocked_ticket_ids(pid)
+    end
+  end
+
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
     pid = start_store!(dir)
     created_at = ~U[2026-07-24 12:00:00Z]
@@ -1857,7 +1966,11 @@ defmodule Aiur.DecisionStoreTest do
       send(parent, {:escalation_result, result})
     end)
 
-    assert_receive {:attention_opening, opener_pid}
+    # The escalation runs on a spawned process, so the attention-opener signal
+    # is a genuine async event; the ExUnit default 100ms is far tighter than
+    # this file's own convention for spawned-process waits (2s elsewhere) and
+    # times out under CI load (#1920). Wait for the real signal, not a guess.
+    assert_receive {:attention_opening, opener_pid}, 2_000
 
     spawn(fn ->
       result =
@@ -2852,6 +2965,31 @@ defmodule Aiur.DecisionStoreTest do
 
       send(pid, retry_message)
       assert_receive {:reconciled, ^decision_id, 1}
+    end
+
+    test "an accepted expiration fans out on the owning ticket's decision.expired topic", %{dir: dir} do
+      pid = start_store!(dir)
+      :ok = Exchange.subscribe("ticket.979.agent.decision.expired")
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Still waiting?", "blocking" => true})
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
+
+      assert_receive {:event,
+                      %{
+                        "event_type" => "decision_expired",
+                        "decision_id" => decision_id,
+                        "decision_version" => 1,
+                        "data" => %{"reason_class" => "agent_not_running"},
+                        topic: "ticket.979.agent.decision.expired",
+                        digest_source: :orchestrator
+                      } = expired_event},
+                     500
+
+      assert decision_id == decision.decision_id
+      assert EventsDigest.render([expired_event], "979") =~ "ticket.979.agent.decision.expired"
     end
   end
 

@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, ReviewFreshness, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, PushRouting, ReviewFreshness, State}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -72,6 +72,9 @@ defmodule Aiur.Orchestrator.CommentWake do
     emit_alert_fun =
       Keyword.get(opts, :emit_alert_fun, &emit_merge_alert/2)
 
+    resume_blockees_fun =
+      Keyword.get(opts, :resume_blockees_fun, &PushRouting.maybe_resume_blockees_on_merged_ticket/2)
+
     merged_by_login = Keyword.get(opts, :merged_by_login)
 
     Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
@@ -79,8 +82,8 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminal_state =
       case update_issue_state_fun.(to_string(identifier), "done") do
         :ok ->
-          complete_merged_issue(
-            state,
+          state
+          |> complete_merged_issue(
             identifier,
             clear_session_handle_fun,
             observe_membership_fun,
@@ -88,6 +91,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             mark_reconciled_fun,
             set_terminal_verification_pending_fun
           )
+          |> resume_blockees_fun.(to_string(identifier))
 
         {:error, reason} ->
           Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
@@ -352,23 +356,105 @@ defmodule Aiur.Orchestrator.CommentWake do
           pos_integer()
         ) :: State.t()
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
-    case transition_comment_issue_to_rework(issue_number, issue_number, source, event, nil) do
-      :ok ->
-        # The transition landed, so any retry still pending from an earlier
-        # comment on this issue is now moot — cancel it rather than let it fire.
-        state
-        |> cancel_comment_rework_retry(issue_number, source)
-        |> seed_idle_comment_wake_event(issue_number, event)
-
+    case idle_rework_decision(state, issue_number, event) do
       {:skip, reason} ->
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
         cancel_comment_rework_retry(state, issue_number, source)
 
       {:error, reason} ->
-        Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        Logger.warning(
+          "#{source} rework gate skipped; issue state could not be resolved: " <>
+            "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+        )
 
         schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
+
+      :active ->
+        case transition_comment_issue_to_rework(issue_number, issue_number, source, event, nil) do
+          :ok ->
+            # The transition landed, so any retry still pending from an earlier
+            # comment on this issue is now moot — cancel it rather than let it fire.
+            state
+            |> cancel_comment_rework_retry(issue_number, source)
+            |> seed_idle_comment_wake_event(issue_number, event)
+
+          {:skip, reason} ->
+            Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+
+            cancel_comment_rework_retry(state, issue_number, source)
+
+          {:error, reason} ->
+            Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+
+            schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
+        end
+    end
+  end
+
+  # A trusted comment on an IDLE issue is only rework feedback if the ticket is
+  # actually a tracked, worked ticket — one carrying an `agent:*` state label.
+  # A ticket with NO `agent:*` label is how an operator parks work ("decide
+  # before this is built"): there is no prior implementation for "rework" to
+  # mean anything about, and auto-flipping it to `agent:rework` silently
+  # overrides that intent (#1971). The explicit `agent:parked` marker is the
+  # positive form of the same hold and is refused the same way. The poll path
+  # never dispatches such tickets, so this gate is what keeps the comment path
+  # from being the invisible auto-writer that reaches them.
+  defp idle_rework_decision(state, issue_number, event) do
+    case idle_rework_issue(state, issue_number, event) do
+      {:ok, %Issue{} = issue} ->
+        cond do
+          Issue.parked?(issue) -> {:skip, :parked}
+          DispatchPolicy.normalize_issue_state(issue.state) == "" -> {:skip, :unlabeled_issue}
+          true -> :active
+        end
+
+      # The tracker has no record to read the labels off — a non-GitHub backend
+      # that does not index by id, or an issue this repo does not own. Absence of
+      # a record is NOT evidence of a parked ticket, so the gate must fail open
+      # and leave the pre-#1971 behaviour (attempt the transition, let the
+      # tracker write decide) exactly as it was.
+      {:ok, :unresolved} ->
+        :active
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Prefer the polled view already held in orchestrator state; fall back to an
+  # authoritative tracker read (injectable via the event for tests) when this
+  # issue was never polled — which is exactly the unlabelled/parked case.
+  defp idle_rework_issue(%State{} = state, issue_number, event) do
+    target = to_string(issue_number)
+
+    case Enum.find(state.last_polled_issues, fn
+           {_id, %Issue{id: id, identifier: identifier}} ->
+             Issue.identifier_matches?(id, identifier, target)
+
+           _ ->
+             false
+         end) do
+      {_id, %Issue{} = issue} ->
+        {:ok, issue}
+
+      nil ->
+        fetch_idle_rework_issue(issue_number, event)
+    end
+  end
+
+  defp fetch_idle_rework_issue(issue_number, event) do
+    fetcher =
+      case Map.get(event, :issue_state_fetcher) do
+        fun when is_function(fun, 1) -> fun
+        _ -> &Tracker.fetch_issue_states_by_ids/1
+      end
+
+    case fetcher.([to_string(issue_number)]) do
+      {:ok, [%Issue{} = issue | _]} -> {:ok, issue}
+      {:ok, []} -> {:ok, :unresolved}
+      {:error, reason} -> {:error, reason}
     end
   end
 

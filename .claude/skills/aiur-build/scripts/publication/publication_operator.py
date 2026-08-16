@@ -45,6 +45,7 @@ from publication_rendering import (
     repository_root,
     run_authority_git,
 )
+from validation_common import RUNNABLE_KINDS
 from validation_github_approved import render_approved_build_order
 from validation_github_rendering import inspect_issue_body, render_template_body
 from validation_git_approved_source import approved_text
@@ -1468,6 +1469,9 @@ class Publisher:
             self.context.root_document.resolve().relative_to(
                 self.context.root.resolve()
             ).as_posix(),
+            # The lifecycle label prefix must reach the validator from the
+            # manifest, never from the Build Order it is checking.
+            "--publication-manifest", str(self.context.publication_path),
         ]
         self._run_checked(canonical_command, "canonical validator")
         if self.context.extra_validator is not None:
@@ -1703,15 +1707,19 @@ def build_context(
         if not isinstance(ticket, dict) or not isinstance(ticket.get("id"), str):
             raise PublicationError("ticket manifest entry is invalid")
         logical_id = ticket["id"]
-        try:
-            labels = (
-                *projection["required_ticket_labels"],
-                projection["workstreams"][ticket["workstream"]],
-                projection["phases"][str(ticket["phase_hint"])],
-                projection["complexities"][str(ticket["complexity_points"])],
-            )
-        except (KeyError, TypeError):
-            raise PublicationError(f"ticket label projection is invalid for {logical_id}") from None
+        labels: tuple[str, ...] = ()
+        if ticket.get("kind") in RUNNABLE_KINDS:
+            try:
+                labels = (
+                    *projection["required_ticket_labels"],
+                    projection["workstreams"][ticket["workstream"]],
+                    projection["phases"][str(ticket["phase_hint"])],
+                    projection["complexities"][str(ticket["complexity_points"])],
+                )
+            except (KeyError, TypeError):
+                raise PublicationError(
+                    f"ticket label projection is invalid for {logical_id}"
+                ) from None
         specs[logical_id] = IssueSpec(
             logical_id, titles[logical_id], bodies[logical_id], tuple(sorted(labels)), "ticket",
         )

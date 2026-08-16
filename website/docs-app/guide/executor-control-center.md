@@ -31,7 +31,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Units** | `/` — the Agents fleet table and its filters, plus the Tickets panel of every open ticket; the tables below describe this surface. | `aiur units` |
-| **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
+| **Commands** | `/commands` — durable decision inbox and each decision’s detail. | `aiur commands` |
 | **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
 | **Streamdeck+** | `/streamdeck` — browser emulator for the same live projection used by the authenticated physical Stream Deck + sidecar; [#1358](https://github.com/aiur-team/aiur/issues/1358) defines the remaining terminal hardware proof. | — |
@@ -44,7 +44,9 @@ The overview gives the Executor a fast triage path: a blocking-decision banner, 
 
 ## Decision inbox
 
-The inbox at `/decisions` sorts durable decisions by blocking status, urgency, and age. Filters separate open, blocking, undelivered, supervising-Executor, resolved, and superseded records. Selecting a card opens its stable `/decisions/:decision_id` detail URL.
+The inbox at `/commands` sorts durable decisions by blocking status, urgency, and age. Filters separate open, blocking, undelivered, supervising-Executor, resolved, and superseded records. Selecting a card opens its stable `/commands/:decision_id` detail URL. Existing `/decisions` inbox and detail links redirect permanently to their `/commands` equivalents.
+
+The operator-facing UI and CLI call these records **Commands**. Internal storage, event topics, API routes such as `/api/v1/decisions`, and identifiers such as `decision_id` retain the **decision** vocabulary for compatibility.
 
 <img src="/images/dashboard/decision-inbox-dark.png" alt="Desktop decision inbox populated with synthetic decisions in several lifecycle states">
 
@@ -76,6 +78,22 @@ The stepper is a compact view over two canonical axes: decision state and delive
 | **Resolved** | The target emitted the correlated terminal resolution event. |
 | **Delivery failed** | Delivery failed and may be retryable; the answer remains durable. |
 | **Superseded** | A newer append-only revision replaced an earlier action. |
+
+## API meters
+
+A strip at the top of the Units page meters the non-model APIs a run spends, beside the model providers' own meters.
+
+**GitHub** shows its two primary budgets, Core (REST requests) and GraphQL (points), as percentage *used* with remaining/limit counts and the reset time. An active secondary (abuse) rate-limit backoff is named on its own row, because the primary windows still read healthy while one is in force.
+
+**ElevenLabs** appears only when `elevenlabs.api_key` is configured; with no key there is no account to meter and the row is absent entirely, rather than reading "Unavailable" or showing an empty bar. A configured key whose read fails is a different thing and does say so, naming the reason — a rejected key, a rate limit, an unreachable endpoint — without ever printing the credential.
+
+Read the ElevenLabs figure for exactly what it is:
+
+- It is the **account credit quota** (`character_count` against `character_limit` from `GET /v1/user/subscription`), reported as credits left and percentage **used**. The bar fills as credits are consumed; 100% means the quota is fully used.
+- The dollar figure is **Next invoice due**, read directly from `next_invoice.amount_due_cents`. It is an amount owed, not a remaining balance, and Aiur does not derive it from character counts.
+- It is **not a voice-input spend meter**. Speech-to-text, which is what Stream Deck voice input uses, is billed per minute of audio; the character quota is primarily the text-to-speech credit pool. Dictating heavily can therefore leave this meter unmoved.
+
+An account with a zero character limit renders an empty track: there is no denominator, so there is no percentage to state.
 
 ## Units (fleet table)
 

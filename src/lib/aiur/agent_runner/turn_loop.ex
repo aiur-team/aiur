@@ -175,6 +175,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       confirm_restore_for_replacement(orchestrator, issue, opts, error)
     else
       TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
+      TurnAlerts.maybe_emit_route_failure_alert(issue, workspace, worker_host, reason)
 
       best_effort_queue_bookkeeping(
         Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason),
@@ -386,11 +387,21 @@ defmodule Aiur.AgentRunner.TurnLoop do
   def max_turns_display(nil), do: "∞"
   def max_turns_display(max_turns), do: Integer.to_string(max_turns)
 
-  defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher)
-       when is_binary(issue_id) do
+  @doc false
+  @spec continue_with_issue?(Issue.t(), fun()) ::
+          {:continue, Issue.t()} | {:done, Issue.t()} | {:error, term()}
+  def continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher)
+      when is_binary(issue_id) do
     case issue_state_fetcher.([issue_id]) do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
-        if active_issue_state?(refreshed_issue.state) do
+        # A ticket carrying the `agent:paused` override must stop receiving
+        # automatic continuation turns even though its underlying state label
+        # (e.g. `agent:todo`) remains in `tracker.active_states`. The paused
+        # marker is what parks the ticket; recursing on the state label alone
+        # fired turn after turn on a paused ticket until `agent.max_turns` was
+        # reached (#1686). Mirror the pause check the resume path already
+        # applies in `Aiur.Orchestrator.AutoResume.resumable?/2`.
+        if active_issue_state?(refreshed_issue.state) and not Issue.paused?(refreshed_issue) do
           {:continue, refreshed_issue}
         else
           {:done, refreshed_issue}
@@ -404,7 +415,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  defp continue_with_issue?(issue, _issue_state_fetcher), do: {:done, issue}
+  def continue_with_issue?(issue, _issue_state_fetcher), do: {:done, issue}
 
   defp active_issue_state?(state_name) when is_binary(state_name) do
     normalized_state = normalize_issue_state(state_name)

@@ -3,7 +3,7 @@ import { assertControlsRemainReachable, assertNoDocumentOverflow, openFixture } 
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 // Every route that renders through the shared dashboard shell, each paired with
-// the route heading it must show. `/` and `/decisions` are served by the
+// the route heading it must show. `/` and `/commands` are served by the
 // harness' own route-shell LiveView; `/build-orders`, `/analytics` and
 // `/streamdeck` fall through to the real production LiveViews. Testing the real
 // routes is the point: the `/fixture` page wraps itself in its own container,
@@ -19,8 +19,8 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // one page it cannot render.
 const routes = [
   { path: '/', title: 'Units' },
-  { path: '/decisions', title: 'Commands' },
-  { path: '/decisions/decision-123', title: 'Commands' },
+  { path: '/commands', title: 'Commands' },
+  { path: '/commands/decision-123', title: 'Commands' },
   { path: '/build-orders', title: 'Build Order' },
   // The graph canvas is the most width-forcing element in the dashboard, so the
   // detail route is worth its own measurement rather than the catalog alone.

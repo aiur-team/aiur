@@ -27,7 +27,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   # legitimate sites, captured 2026-08-09 at these locations:
   # aiur/agent_build_guard.ex:14,15; aiur/agent_github_guard.ex:14-23;
   # aiur/github/budget.ex:17-18;
-  # aiur/agent_skills.ex:13,16,45,58;
+  # aiur/agent_skills.ex:13,16,49,56-58,79;
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
   # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
   @allowlist %{
@@ -53,6 +53,9 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
       "`priv/`, not the repo's `.claude` tree. (A runtime `__DIR__`-relative read",
       "@skills_root Path.expand(\"../../../\#{@bundled_skills_dir}\", __DIR__)",
+      "@external_resource @compound_engineering_version_file",
+      "@external_resource @compound_engineering_manifest_file",
+      "@external_resource @compound_engineering_license_file",
       "for path <- bundled_paths, do: @external_resource(path)"
     ],
     "aiur/init/templates.ex" => [

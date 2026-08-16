@@ -3,6 +3,8 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
   import Ecto.Changeset, only: [get_field: 2, validate_change: 3]
 
+  alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.Models
   alias Aiur.Config.RoutingValue
 
   @spec normalize_issue_state(String.t()) :: String.t()
@@ -49,11 +51,92 @@ defmodule Aiur.Config.Schema.AgentValidation do
     end)
   end
 
+  @doc """
+  Validates `agent.priority` as an ordered list of **routes** rather than bare
+  backend names. Each entry is a `Aiur.Config.RoutingValue` —
+  `backend[:model[:effort]][+remote]` — the same grammar `agent.routing` has
+  always accepted, so `[claude, "openrouter:anthropic/claude-sonnet-5", codex]`
+  is expressible and a colon-free entry still parses to `{backend, nil}`, which
+  is exactly today's meaning. Existing configs are therefore unaffected.
+
+  Two rules differ from the pre-route validation:
+
+    * duplicates are rejected per **routing value**, not per backend, or
+      `[claude, "openrouter:claude"]` (two routes to one model, which is the
+      whole point of the feature) would be refused while `[openrouter:a,
+      openrouter:b]` would be too;
+    * a backend that cannot name a default model — OpenRouter, which serves a
+      catalog rather than one model — must carry an explicit model segment.
+      This turns what used to be a runtime `:missing_model` into a config error.
+
+  An unrecognized *model* is deliberately **not** an error: aiur's model list
+  lags the provider by design (see `Aiur.CodingAgent.known_model?/2`).
+  """
+  @spec validate_agent_priority(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
+  def validate_agent_priority(changeset, field) do
+    validate_change(changeset, field, fn ^field, routes ->
+      known = Aiur.CodingAgent.known_backends()
+
+      if routes == Enum.uniq(routes) do
+        routes |> Enum.find_value(&priority_route_error(field, known, &1)) |> List.wrap()
+      else
+        [{field, "must not contain duplicate routes"}]
+      end
+    end)
+  end
+
+  defp priority_route_error(field, known, route) do
+    backend = RoutingValue.routing_backend(route)
+
+    cond do
+      not is_binary(route) or backend not in known ->
+        {field, "contains an unknown backend #{inspect(route)}; known backends: #{inspect(known)} (optionally backend:model)"}
+
+      RoutingValue.routing_remote_flag?(route) and not CodingAgent.remote_control?(backend) ->
+        {field, "+remote routing requires a remote-capable backend, got #{inspect(route)}"}
+
+      not valid_routing_effort?(route) ->
+        field |> invalid_routing_effort_error(route) |> List.first()
+
+      true ->
+        priority_model_error(field, backend, route)
+    end
+  end
+
+  defp priority_model_error(field, backend, route) do
+    model = RoutingValue.routing_model(route)
+
+    cond do
+      is_nil(model) and CodingAgent.model_required?(backend) ->
+        {field, "backend #{inspect(backend)} serves a model catalog and needs an explicit model: #{backend}:<model>"}
+
+      is_binary(model) and String.starts_with?(model, "~") ->
+        {field,
+         "model #{inspect(model)} in #{inspect(route)} starts with `~`; these aggregator ids are floating " <>
+           "pointers whose target can change under a running fleet. Pin the concrete slug."}
+
+      ambiguous_alias?(backend, model) ->
+        {field, "model alias #{inspect(model)} in #{inspect(route)} matches more than one vendor; name the full slug instead"}
+
+      true ->
+        nil
+    end
+  end
+
+  # An alias only resolves if exactly one vendor claims the family. Two vendors
+  # shipping a `claude-*` would make `openrouter:claude` a coin flip between
+  # two differently-priced upstreams, so reject it at config load rather than
+  # picking one silently at dispatch.
+  defp ambiguous_alias?(backend, model) do
+    is_binary(model) and CodingAgent.model_aliases(backend) != [] and
+      Models.ambiguous_alias?(CodingAgent.models(backend), model)
+  end
+
   @doc false
   @spec validate_agent_routing(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_agent_routing(changeset, field) do
     known =
-      ((get_field(changeset, :priority) || []) ++
+      (Enum.map(get_field(changeset, :priority) || [], &RoutingValue.routing_backend/1) ++
          Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{}))
       |> Enum.uniq()
 

@@ -172,45 +172,45 @@ describe("footer variants", () => {
       const footer = agentKey(keys[0]!).footer as ProgressFooter;
       expect(footer.kind).toBe("progress");
       expect(footer.percent).toBe(50);
-      expect(footer.barColor).toMatch(/^hsl\(/);
+      expect(footer.barColor).toBe(progressBarColor(50));
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// Progress bar hue mapping
+// Progress bar colour: one fill, brighter at completion
 // ---------------------------------------------------------------------------
 
 describe("progress bar colour", () => {
-  it("maps 0% to red (hue 0)", () => {
-    expect(progressBarColor(0)).toBe("hsl(0 72% 50%)");
+  it("uses the one fill colour at every measured value", () => {
+    expect(progressBarColor(0)).toBe("#3fb950");
+    expect(progressBarColor(25)).toBe("#3fb950");
+    expect(progressBarColor(50)).toBe("#3fb950");
+    expect(progressBarColor(75)).toBe("#3fb950");
+    expect(progressBarColor(99.5)).toBe("#3fb950");
   });
 
-  it("maps 50% to ~yellow-green (hue 62.5)", () => {
-    expect(progressBarColor(50)).toBe("hsl(63 72% 50%)");
-  });
-
-  it("maps 100% to green (hue 125)", () => {
-    expect(progressBarColor(100)).toBe("hsl(125 72% 50%)");
+  it("uses the brighter completion shade only at 100%", () => {
+    expect(progressBarColor(100)).toBe("#74d47f");
   });
 
   it("clamps when called directly with out-of-range values", () => {
-    expect(progressBarColor(-10)).toBe("hsl(0 72% 50%)");
-    expect(progressBarColor(150)).toBe("hsl(125 72% 50%)");
+    expect(progressBarColor(-10)).toBe("#3fb950");
+    expect(progressBarColor(150)).toBe("#74d47f");
   });
 
   it("clamps progress_percent below 0 to 0", () => {
     const keys = layoutKeys([agent("x", { progress_percent: -10 })], 0);
     const footer = agentKey(keys[0]!).footer as ProgressFooter;
     expect(footer.percent).toBe(0);
-    expect(footer.barColor).toBe("hsl(0 72% 50%)");
+    expect(footer.barColor).toBe("#3fb950");
   });
 
-  it("clamps progress_percent above 100 to 100", () => {
+  it("clamps progress_percent above 100 to 100 (completion shade)", () => {
     const keys = layoutKeys([agent("x", { progress_percent: 150 })], 0);
     const footer = agentKey(keys[0]!).footer as ProgressFooter;
     expect(footer.percent).toBe(100);
-    expect(footer.barColor).toBe("hsl(125 72% 50%)");
+    expect(footer.barColor).toBe("#74d47f");
   });
 });
 

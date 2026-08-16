@@ -11,7 +11,7 @@ defmodule Aiur.OpenAICompat.Transport do
 
     with {:ok, response} <- result,
          :ok <- status(response),
-         {:ok, completion} <- decode(config.transport, response),
+         {:ok, completion} <- decode(config, response),
          :ok <- completion_status(config.transport, completion) do
       {:ok,
        completion
@@ -31,7 +31,11 @@ defmodule Aiur.OpenAICompat.Transport do
       method: :post,
       url: endpoint(config.base_url, "/chat/completions"),
       headers: request_headers(config),
-      json: %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"}
+      json:
+        maybe_put_provider(
+          %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"},
+          config
+        )
     }
   end
 
@@ -43,6 +47,21 @@ defmodule Aiur.OpenAICompat.Transport do
       json: %{"model" => config.model, "input" => messages, "tools" => tools}
     }
   end
+
+  # `backend_configs.openrouter.provider` is a settings block for the OpenRouter
+  # *transport*: which upstreams it may use, which to avoid, how to sort them.
+  # It selects nothing — `agent.priority` does all selection — so it is simply
+  # forwarded on the request. Absent for every other backend, whose APIs would
+  # reject the unknown key.
+  defp maybe_put_provider(json, %{provider: %{} = provider}) when map_size(provider) > 0 do
+    Map.put(json, "provider", stringify_keys(provider))
+  end
+
+  defp maybe_put_provider(json, _config), do: json
+
+  defp stringify_keys(value) when is_map(value), do: Map.new(value, fn {key, val} -> {to_string(key), stringify_keys(val)} end)
+  defp stringify_keys(value) when is_list(value), do: Enum.map(value, &stringify_keys/1)
+  defp stringify_keys(value), do: value
 
   defp request_headers(config) do
     %{"authorization" => "Bearer #{config.api_key}", "content-type" => "application/json"}
@@ -62,13 +81,14 @@ defmodule Aiur.OpenAICompat.Transport do
   defp status(%{status: status, body: body}), do: {:error, {:http_error, status, safe_error(body)}}
   defp status(_), do: {:error, :invalid_response}
 
-  defp decode(:chat_completions, %{body: body}) when is_map(body) do
+  defp decode(%{transport: :chat_completions} = config, %{body: body}) when is_map(body) do
     with [choice | _] <- body["choices"],
          message when is_map(message) <- choice["message"] do
       {:ok,
        %{
          id: body["id"],
-         model: selected_model(body) || body["model"],
+         model: billing_model(config, body),
+         upstream_model: selected_model(body),
          provider: selected_provider(body) || body["provider"],
          message: message,
          text: message["content"],
@@ -82,7 +102,7 @@ defmodule Aiur.OpenAICompat.Transport do
     end
   end
 
-  defp decode(:responses, %{body: body}) when is_map(body) do
+  defp decode(%{transport: :responses} = config, %{body: body}) when is_map(body) do
     output = List.wrap(body["output"])
 
     message = Enum.find(output, &(&1["type"] == "message")) || %{}
@@ -98,7 +118,8 @@ defmodule Aiur.OpenAICompat.Transport do
     {:ok,
      %{
        id: body["id"],
-       model: selected_model(body) || body["model"],
+       model: billing_model(config, body),
+       upstream_model: selected_model(body),
        provider: selected_provider(body) || body["provider"],
        output: output,
        message: %{"role" => "assistant", "content" => text},
@@ -110,7 +131,7 @@ defmodule Aiur.OpenAICompat.Transport do
      }}
   end
 
-  defp decode(_, _), do: {:error, :invalid_response_body}
+  defp decode(_config, _response), do: {:error, :invalid_response_body}
 
   defp completion_status(:responses, %{finish_reason: "completed"}), do: :ok
 
@@ -146,6 +167,33 @@ defmodule Aiur.OpenAICompat.Transport do
     |> List.wrap()
     |> Enum.map_join("\n", fn part -> part["text"] || "" end)
   end
+
+  # The identity a call is BILLED under, which is what `Aiur.Usage.PriceTable`
+  # is keyed on.
+  #
+  # The selected-endpoint metadata is preferred, because it is the only thing
+  # that resolves a delegating request (`router/auto`) to the model actually
+  # served and therefore actually charged. But it reports whatever id the
+  # *upstream* uses, and an upstream-native id (`deepseek-chat`) is not an
+  # aggregator identity and matches no price row — so taking it blindly made
+  # the lookup miss and the call report as unpriced, silently. Aggregator
+  # identities are `vendor/model`, so require the slash; anything else falls
+  # back to the response's own `model` echo and then to the model we asked for,
+  # both of which are aggregator identities by construction.
+  #
+  # The upstream id is never discarded: it rides along as `:upstream_model`.
+  defp billing_model(config, body) do
+    Enum.find_value(
+      [aggregator_slug(selected_model(body)), presence(body["model"]), presence(Map.get(config, :model))],
+      & &1
+    )
+  end
+
+  defp aggregator_slug(model) when is_binary(model), do: if(String.contains?(model, "/"), do: model)
+  defp aggregator_slug(_model), do: nil
+
+  defp presence(value) when is_binary(value) and value != "", do: value
+  defp presence(_value), do: nil
 
   defp selected_model(body) do
     case selected_endpoint(body) do

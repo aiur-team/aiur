@@ -19,11 +19,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # budgets billed in different units on windows that reset at different times,
   # so every figure on the card belongs to exactly one of them.
   @github_resources ~w(core graphql)
+  @seconds_per_day 86_400
+  @seconds_per_hour 3_600
 
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
   attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
+  attr(:elevenlabs_quota, :map, default: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -34,52 +37,109 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
 
     ~H"""
-    <section class="run-summary" aria-label="Provider and GitHub usage">
-      <.github_quota_card quota={@github_quota} now={@now} />
+    <section class="run-summary" aria-label="Provider and API usage">
+      <.apis_card github_quota={@github_quota} elevenlabs_quota={@elevenlabs_quota} now={@now} />
       <.models_card :if={@cards != []} cards={@cards} usage_ready?={@usage_ready?} now={@now} />
     </section>
+    """
+  end
+
+  attr(:github_quota, :map, required: true)
+  attr(:elevenlabs_quota, :map, required: true)
+  attr(:now, :any, required: true)
+
+  # The APIS pane holds one row per non-model API. GitHub always has a row; the
+  # ElevenLabs row exists only when an ElevenLabs account is configured, so an
+  # operator who never enabled voice input sees no trace of it (an "Unavailable"
+  # row for an account that does not exist is a defect, not a status).
+  defp apis_card(assigns) do
+    assigns =
+      assigns
+      |> assign(:windows, github_windows(assigns.github_quota))
+      |> assign(:backoffs, github_backoffs(assigns.github_quota))
+      |> assign(:elevenlabs?, elevenlabs_configured?(assigns.elevenlabs_quota))
+
+    ~H"""
+    <div class="rs-block github-quota-card">
+      <div class="rs-group-head">
+        <span class="rs-group-title">APIS</span>
+        <span class="rs-group-count">{api_count_label(@elevenlabs?)}</span>
+      </div>
+      <div class="rs-apis-rows">
+        <div class="rs-api">
+          <div class="rs-head">
+            <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
+            <span class="rs-name">Github</span>
+          </div>
+          <div class="rs-limits">
+            <div :if={@windows == []} class="rs-limit">
+              <div class="rs-limit-top">
+                <span class="rs-limit-label">Quota</span>
+                <span class="rs-limit-meta">Awaiting GitHub response</span>
+              </div>
+              <div class="rs-meter"><i style="width:0%"></i></div>
+            </div>
+            <div :for={window <- @windows} class="rs-limit">
+              <div class="rs-limit-top">
+                <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
+                <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
+              </div>
+              <div class="rs-meter">
+                <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+              </div>
+            </div>
+            <div :for={backoff <- @backoffs} class="github-quota-backoff">
+              <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
+              <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
+            </div>
+          </div>
+        </div>
+        <.elevenlabs_api_row :if={@elevenlabs?} quota={@elevenlabs_quota} now={@now} />
+      </div>
+    </div>
     """
   end
 
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
 
-  defp github_quota_card(assigns) do
+  # The quota is a character/credit allowance, while the dollar amount is what
+  # ElevenLabs says will be due on the next invoice. The tooltip keeps both facts
+  # distinct and also names the speech-to-text billing unit this quota omits.
+  defp elevenlabs_api_row(assigns) do
+    window = Map.get(assigns.quota, :window)
+
     assigns =
       assigns
-      |> assign(:windows, github_windows(assigns.quota))
-      |> assign(:backoffs, github_backoffs(assigns.quota))
+      |> assign(:window, window)
+      |> assign(:invoice_due, elevenlabs_invoice_due(window))
+      |> assign(:meter_percent, elevenlabs_meter_percent(window))
 
     ~H"""
-    <div class="rs-block github-quota-card">
-      <div class="rs-group-head">
-        <span class="rs-group-title">APIS</span>
-        <span class="rs-group-count">1 API</span>
-      </div>
+    <div class="rs-api rs-elevenlabs">
       <div class="rs-head">
-        <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
-        <span class="rs-name">Github</span>
+        <img class="rs-logo rs-elevenlabs-mark" src="/elevenlabs-symbol.svg" alt="" aria-hidden="true" />
+        <span class="rs-name">ElevenLabs</span>
+        <div :if={@invoice_due} class="rs-head-stats">
+          <div class="rs-stat">
+            <span class="rs-stat-label">Next invoice due</span>
+            <span class="rs-stat-val">{@invoice_due}</span>
+          </div>
+        </div>
       </div>
       <div class="rs-limits">
-        <div :if={@windows == []} class="rs-limit">
+        <div class="rs-limit">
           <div class="rs-limit-top">
-            <span class="rs-limit-label">Quota</span>
-            <span class="rs-limit-meta">Awaiting GitHub response</span>
-          </div>
-          <div class="rs-meter"><i style="width:0%"></i></div>
-        </div>
-        <div :for={window <- @windows} class="rs-limit">
-          <div class="rs-limit-top">
-            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
-            <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
+            <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
+            <span class={["rs-limit-meta", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
           </div>
           <div class="rs-meter">
-            <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+            <i
+              class={meter_class(@meter_percent, 90)}
+              style={"width:#{@meter_percent}%"}
+            >
+            </i>
           </div>
-        </div>
-        <div :for={backoff <- @backoffs} class="github-quota-backoff">
-          <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
-          <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
         </div>
       </div>
     </div>
@@ -126,6 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-progress">
         <div class="rs-limit-top">
           <span class="rs-limit-label">Progress</span>
+          <span class="rs-limit-meta">{progress_label(@run)}</span>
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>
@@ -278,6 +339,73 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     |> keyed_cards()
     |> order_cards()
   end
+
+  defp api_count_label(true), do: "2 APIs"
+  defp api_count_label(_elevenlabs?), do: "1 API"
+
+  # An unconfigured account is not an API this deployment has: the row is absent
+  # entirely. Every other standing — awaiting a first answer, observed, or a
+  # failed read against a key that *is* configured — keeps the row, because each
+  # of those is a fact about a real account.
+  defp elevenlabs_configured?(%{state: :unconfigured}), do: false
+  defp elevenlabs_configured?(%{state: state}) when state in [:unknown, :observed, :failed], do: true
+  defp elevenlabs_configured?(_quota), do: false
+
+  defp elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: percent
+  defp elevenlabs_meter_percent(_window), do: 0
+
+  defp elevenlabs_explanation do
+    "ElevenLabs account credit quota (characters). Speech-to-text is billed per minute of audio and is not counted here. The dollar figure is the amount due on the next invoice, not a balance."
+  end
+
+  # The label already says Credits, so the compact line carries only the
+  # remaining count, consumed share, and day-scale reset.
+  defp elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
+    [
+      "#{compact_number(window.remaining)} left",
+      elevenlabs_percent_text(window),
+      elevenlabs_reset_text(window.reset_at, now)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
+  defp elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
+
+  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
+  defp elevenlabs_percent_text(_window), do: nil
+
+  defp elevenlabs_invoice_due(%{next_invoice: %{amount_due_cents: cents, currency: currency}})
+       when is_integer(cents) and cents >= 0 and is_binary(currency) do
+    currency_amount(currency, cents_amount(cents))
+  end
+
+  defp elevenlabs_invoice_due(_window), do: nil
+
+  defp cents_amount(cents), do: "#{div(cents, 100)}.#{pad2(rem(cents, 100))}"
+
+  defp elevenlabs_reset_text(%DateTime{} = reset, %DateTime{} = now) do
+    seconds = DateTime.diff(reset, now, :second)
+
+    cond do
+      seconds <= 0 -> "reset time passed"
+      seconds >= @seconds_per_day -> "resets #{div(seconds, @seconds_per_day)}d"
+      seconds >= @seconds_per_hour -> "resets #{div(seconds, @seconds_per_hour)}h"
+      true -> "resets #{max(div(seconds, 60), 1)}m"
+    end
+  end
+
+  defp elevenlabs_reset_text(_reset, _now), do: "reset unavailable"
+
+  # Named reasons only, and never the credential: a failure line is one of the
+  # places a secret leaks into a screenshot.
+  defp elevenlabs_failure_label(:authentication), do: "the API key was rejected"
+  defp elevenlabs_failure_label(:rate_limited), do: "rate limited by ElevenLabs"
+  defp elevenlabs_failure_label(:provider_error), do: "ElevenLabs returned an error"
+  defp elevenlabs_failure_label(:transport), do: "ElevenLabs could not be reached"
+  defp elevenlabs_failure_label(:malformed), do: "the response could not be read"
+  defp elevenlabs_failure_label(_failure), do: "the quota could not be read"
 
   defp github_windows(%{windows: windows}) when is_map(windows) do
     @github_resources
@@ -510,11 +638,41 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp progress_meta(:empty, _run), do: "0% · no active run"
   defp progress_meta(_state, _run), do: "N/A"
 
+  defp progress_label(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent),
+    do: "#{percent}% complete"
+
+  defp progress_label(%{
+         progress: %{
+           kind: :partial,
+           display_percent_label: percent,
+           current_members_label: members,
+           fact_status_label: status
+         }
+       }),
+       do: "#{percent} · #{members} · #{status}"
+
+  defp progress_label(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent),
+    do: "At least #{percent}% complete"
+
+  defp progress_label(%{
+         progress: %{
+           kind: :pending,
+           progress_status_label: progress,
+           current_members_label: members,
+           fact_status_label: status
+         }
+       }),
+       do: "#{progress} · #{members} · #{status}"
+
+  defp progress_label(_run), do: "Progress not computed yet"
+
   defp run_percent(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
+  defp run_percent(%{progress: %{kind: :partial, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(_run), do: 0
 
   defp eta_label(true, %{eta: %{reason: :zero_eligible_weight}}), do: nil
+  defp eta_label(true, %{eta: %{reason: :unhealthy_weight_facts}}), do: nil
   defp eta_label(true, %{eta: %{label: label}}) when is_binary(label) and label != "", do: label
   defp eta_label(_ready?, _run), do: nil
 
@@ -671,9 +829,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp reset_text(_reset, _now), do: "reset unavailable"
   # Days once there are any: a weekly window reading "167h 59m" makes the reader
   # divide to learn it is a week away.
-  @seconds_per_day 86_400
-  @seconds_per_hour 3_600
-
   defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
 
   defp duration(seconds) when seconds < @seconds_per_day do

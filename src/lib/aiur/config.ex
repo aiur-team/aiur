@@ -5,6 +5,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.BuildGate
+  alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.EnvResolver
@@ -16,7 +17,7 @@ defmodule Aiur.Config do
   # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
   # fallbacks. Anything added to those paths must be added here, or the settings
   # memo will not expire when the variable changes.
-  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -249,18 +250,66 @@ defmodule Aiur.Config do
             "resolved working directory: #{cwd}; reason: #{inspect(reason)}"
   end
 
-  @doc "Ordered dispatch preference. Empty means the deprecated `agent.kind`/`agent.switch_model_on_ratelimit` fields apply."
+  @doc """
+  Ordered dispatch preference, as **routes** — each entry is a
+  `Aiur.Config.RoutingValue` (`backend[:model[:effort]][+remote]`), so
+  `"openrouter:anthropic/claude-sonnet-5"` and a bare `"claude"` are both
+  valid members and one model reachable two ways may appear twice. Empty means
+  the deprecated `agent.kind`/`agent.switch_model_on_ratelimit` fields apply.
+
+  Callers that need only the backend must map through
+  `agent_priority_backends/0` (or `RoutingValue.routing_backend/1`); anything
+  comparing a member against `known_backends()` directly will silently drop
+  every route that names a model.
+  """
   @spec agent_priority() :: [String.t()]
   def agent_priority, do: settings!().agent.priority || []
 
-  @doc "Default backend: the first entry of `agent.priority` when present, else the deprecated `agent.kind` field."
+  @doc """
+  Whether dispatch should route away from a route that is currently inside a
+  provider's peak-pricing window, falling through to the next `agent.priority`
+  entry. Defaults to `true`.
+
+  Shape only for now — #1456 implements the behaviour. `false` means "ignore
+  pricing windows entirely and use `agent.priority` exactly as written"; it
+  never changes how spend is *reported*. See
+  `Aiur.Config.Schema.PricingPolicy`.
+  """
+  @spec avoid_peak_pricing?() :: boolean()
+  def avoid_peak_pricing? do
+    case settings!().agent.pricing_policy do
+      %{avoid_peak_pricing: value} when is_boolean(value) -> value
+      _ -> true
+    end
+  end
+
+  @doc "The backends named by `agent_priority/0`, in order, with the model segment stripped and duplicates collapsed."
+  @spec agent_priority_backends() :: [String.t()]
+  def agent_priority_backends do
+    agent_priority() |> Enum.map(&RoutingValue.routing_backend/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+  end
+
+  @doc "Default backend: the backend of the first `agent.priority` route when present, else the deprecated `agent.kind` field."
   @spec agent_kind() :: String.t()
   def agent_kind do
-    case agent_priority() do
+    case agent_priority_backends() do
       [primary | _] -> primary
       [] -> settings!().agent.kind || Aiur.CodingAgent.default_backend()
     end
   end
+
+  @doc """
+  ElevenLabs speech-to-text credential for Stream Deck voice input, or `nil` when
+  unconfigured. Resolved from `elevenlabs.api_key` (which may be a
+  `$ELEVENLABS_API_KEY` reference) with the `ELEVENLABS_API_KEY` env var as the
+  fallback. It is a secret: never log the returned value.
+  """
+  @spec elevenlabs_api_key() :: String.t() | nil
+  def elevenlabs_api_key, do: settings!().elevenlabs.api_key
+
+  @doc "ISO-639-3 transcription language for Stream Deck voice input."
+  @spec elevenlabs_language_code() :: String.t()
+  def elevenlabs_language_code, do: settings!().elevenlabs.language_code || "eng"
 
   @doc "Raw settings for a registry-named backend, or an empty map when absent."
   @spec backend_config(String.t()) :: map()
@@ -269,10 +318,15 @@ defmodule Aiur.Config do
     |> Map.get(backend, %{})
   end
 
-  @doc "Raw settings for all registry-named backends, with each `agent.priority` member marked enabled so presence in the array makes it dispatchable."
+  @doc """
+  Raw settings for all registry-named backends, with the backend of each
+  `agent.priority` route marked enabled so naming a route makes its backend
+  dispatchable. Keyed by backend, never by route: several routes may share one
+  backend (`openrouter:a` and `openrouter:b`) and they configure one transport.
+  """
   @spec agent_backend_configs() :: map()
   def agent_backend_configs do
-    Enum.reduce(agent_priority(), settings!().agent.backend_configs || %{}, fn backend, acc ->
+    Enum.reduce(agent_priority_backends(), settings!().agent.backend_configs || %{}, fn backend, acc ->
       Map.update(acc, backend, %{"enabled" => true}, &Map.put(&1, "enabled", true))
     end)
   end
@@ -282,7 +336,13 @@ defmodule Aiur.Config do
     settings!().agent.routing || %{}
   end
 
-  @doc "Claim-time fallback order: `agent.priority` when present, else the deprecated `agent.switch_model_on_ratelimit` field."
+  @doc """
+  Claim-time fallback order: `agent.priority` when present, else the deprecated
+  `agent.switch_model_on_ratelimit` field. Returns **routes**, not backends —
+  selection consumes the model segment, so stripping it here would collapse
+  `[claude, "openrouter:anthropic/claude-sonnet-5"]` into one candidate and
+  erase the fallback the operator wrote.
+  """
   @spec switch_model_on_ratelimit() :: [String.t()]
   def switch_model_on_ratelimit do
     case agent_priority() do
@@ -301,7 +361,7 @@ defmodule Aiur.Config do
   """
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
-    case agent_priority() do
+    case agent_priority_backends() do
       [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
       [] -> legacy_rate_limit_fallback()
     end
@@ -323,7 +383,7 @@ defmodule Aiur.Config do
   """
   @spec rate_limit_primary_backend() :: String.t()
   def rate_limit_primary_backend do
-    case agent_priority() do
+    case agent_priority_backends() do
       [primary | _] -> primary
       [] -> settings!().agent.rate_limit_primary
     end

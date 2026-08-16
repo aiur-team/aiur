@@ -426,6 +426,33 @@ defmodule Aiur.Orchestrator.Reconciler do
         |> clear_reported_divergence(issue.id)
         |> Orchestrator.terminate_running_issue(issue.id, false)
 
+      # A ticket whose operator Command is open must not keep burning agent
+      # turns re-verifying state while the next action is unchosen (#1637: 8
+      # continuation turns on byte-identical state, then a fresh agent
+      # cold-started). Stop the running agent deterministically instead of
+      # relying on the agent's own cooperative `pause.request`, which silently
+      # failed in that run. The dispatch gate then refuses to re-spawn it until
+      # the Command is answered or dismissed.
+      #
+      # Deliberately fail-open: only a concrete `MapSet` membership stops the
+      # agent. `nil` (set never computed) and `:unavailable` (decision store
+      # read failed) leave healthy running agents alone — killing a running
+      # fleet on a store outage would be worse than letting a blocked agent run
+      # one more cycle. Fail-closed is the dispatch side's job.
+      match?(%MapSet{}, state.blocked_ticket_ids) and
+          MapSet.member?(state.blocked_ticket_ids, issue.id) ->
+        Logger.info([
+          "Issue has an open blocking Command: ",
+          State.issue_context(issue),
+          "; stopping active agent"
+        ])
+
+        record_membership(issue, :replaced, observe_membership_fun)
+
+        state
+        |> clear_reported_divergence(issue.id)
+        |> Orchestrator.terminate_running_issue(issue.id, false)
+
       Issue.paused?(issue) ->
         PauseResume.pause_issue_for_label_override(state, issue)
 

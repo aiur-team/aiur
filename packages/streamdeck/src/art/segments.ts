@@ -18,7 +18,7 @@
  */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
-import type { DiffLine, TranscriptRow } from "../channel.js";
+import { rowKindOfRole, type ChatKind, type DiffLine, type TranscriptRow } from "../channel.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import { encoderCenterX } from "../touchStrip/geometry.js";
 import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelRow } from "../touchStrip/providerPanel.js";
@@ -32,6 +32,7 @@ import {
   type BucketId,
   type DirectionBadge,
 } from "../key-face-contract.js";
+import { VOICE_HOLD_PROMPT, VOICE_LISTENING } from "../voicePanel.js";
 import { createPaint } from "./gradient.js";
 import { activityFragment, drawIcon, iconFragment } from "./icons.js";
 import { drawBrandMark, drawVendorMark } from "./vendorMark.js";
@@ -84,10 +85,11 @@ const caption = (context: SKRSContext2D, text: string, x: number, y: number, col
 /**
  * Fill for the strip's mini-bars, matching the mock's `.sd-mini-bar > i`.
  *
- * Deliberately NOT the key's hue map. These bars show *consumption* — quota
- * used, build completed — and hue-mapping them would paint a provider at 100%
- * of its rate limit bright green, which reads as healthy when it means the
- * opposite. The hue map belongs to agent progress, where more really is better.
+ * Deliberately NOT the agent progress fill. These bars show *consumption* —
+ * quota used, build completed — and painting them in the same green as a
+ * progress bar would make a provider at 100% of its rate limit read healthy
+ * when it means the opposite. Agent progress is a single green because more
+ * really is better; consumption stays blue.
  */
 const MINI_BAR_FILL = "linear-gradient(90deg,#3f8bff,#8fbcff)";
 
@@ -104,6 +106,8 @@ const meter = (
   fraction: number,
   color: string | CanvasGradient,
   height = METER_HEIGHT,
+  showZeroStub = false,
+  fillAlpha = 1,
 ): void => {
   const clamped = clamp(fraction, 0, 1);
   context.beginPath();
@@ -111,11 +115,13 @@ const meter = (
   context.fillStyle = TRACK;
   context.fill();
   const filled = Math.round(width * clamped);
-  if (filled > 0) {
+  if (filled > 0 || showZeroStub) {
     context.beginPath();
     context.roundRect(x, y, Math.max(filled, height), height, height / 2);
     context.fillStyle = color;
+    context.globalAlpha = fillAlpha;
     context.fill();
+    context.globalAlpha = 1;
   }
 };
 
@@ -539,6 +545,21 @@ const ROLE_GLYPHS: Readonly<Record<string, string>> = {
   ci: "✓",
 };
 
+/**
+ * Per-kind row colours, #1960: commands and tool rows are one class, agent
+ * prose another, and system/reasoning/alert rows the third. The palette is the
+ * emulator's existing logs palette (#1934, borrowed from opencode's default
+ * theme and documented there) so the physical deck and the emulator agree —
+ * and so the low-contrast hues of the plain opencode `text`/`textMuted`
+ * inks do not wash out on a small backlit LCD.
+ */
+const CHAT_COLOURS: Readonly<Record<ChatKind, string>> = {
+  command: "#88e0a6",
+  agent: "#9fd0ff",
+  logs: "#ffcf87",
+  user: "#c69bff",
+};
+
 /** Left gutter (glyph column), then the body column: opencode's `paddingLeft: 3`. */
 const CHAT_GLYPH_X = PAD;
 const CHAT_BODY_X = PAD + 22;
@@ -576,27 +597,8 @@ const runText = (context: SKRSContext2D, text: string, x: number, baseline: numb
   return context.measureText(clipped).width;
 };
 
-/** Tool name as opencode prints it: Title Case, never uppercased. */
-const toolTitle = (tool: string | null): string => {
-  const parts = (tool ?? "").split(/[_\-\s]+/).filter((part) => part.length > 0);
-  if (parts.length === 0) return "Tool";
-  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join(" ");
-};
-
 /** Gutter glyph for a named tool; `⚙` for one the map does not know. */
 const toolGlyph = (tool: string | null): string => TOOL_GLYPHS[(tool ?? "").toLowerCase().replace(/[_\-\s]/g, "")] ?? "⚙";
-
-const ARG_PAIR = /^[\w.:/-]+=.*$/;
-
-/**
- * A tool body rendered as opencode's `[k=v, k=v]` argument list, or null when
- * the body is prose rather than arguments — a tool that reports a sentence must
- * keep printing the sentence.
- */
-const bracketArgs = (body: string): string | null => {
-  const parts = body.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
-  return parts.length > 0 && parts.every((part) => ARG_PAIR.test(part)) ? `[${parts.join(", ")}]` : null;
-};
 
 /** The sign a bare hunk string carries, for a feed that sent no `lines`. */
 const signOf = (line: string): DiffLine["sign"] => (line.startsWith("+") ? "+" : line.startsWith("-") ? "-" : " ");
@@ -633,56 +635,65 @@ const drawEventHeaderRow = (
 };
 
 /**
- * A message row, in opencode's speaker grammar.
+ * A message row, in opencode's speaker grammar, colour-coded by row class.
  *
  * Assistant prose is the case with no gutter token at all; every other role
  * takes a glyph, a fill or a bar so that "nothing in the gutter" stays a
- * reliable reading of "the agent is talking".
+ * reliable reading of "the agent is talking". #1960 adds the per-kind colour:
+ * commands/tools green, agent prose blue, logs/system tan, the user purple —
+ * the same `row_kind` the server projects, so the physical deck and the
+ * emulator paint the same class with the same ink. The `row_kind`/`glyph`
+ * fields come from the server; a row that carries neither derives both from
+ * its role.
  */
 const drawMessageRow = (context: SKRSContext2D, row: TranscriptRow & { kind: "message" }, width: number, baseline: number): void => {
   const right = width - PAD;
   const budget = right - CHAT_BODY_X;
+  const kind = row.rowKind ?? rowKindOfRole(row.role);
+  const colour = CHAT_COLOURS[kind];
 
-  if (row.role === "assistant" || row.role === "agent" || row.role === "reasoning") {
+  if (kind === "agent") {
     context.font = CHAT_BODY_FONT;
-    runText(context, row.body, CHAT_BODY_X, baseline, row.role === "reasoning" ? OPENCODE.reasoning : OPENCODE.text, budget);
+    runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
     return;
   }
 
-  if (row.role === "command") {
+  if (kind === "command") {
+    if (row.role === "tool") {
+      // The row shows the command or path, not the tool name: the server
+      // already carried the argument in `body` (verb stripped) and the glyph
+      // in `glyph`, so a tool row reads `→ lib/aiur.ex` rather than
+      // `Read [path=lib/aiur.ex]`.
+      context.font = CHAT_GLYPH_FONT;
+      runText(context, row.glyph ?? toolGlyph(row.tool), CHAT_GLYPH_X, baseline, colour, CHAT_BODY_X - CHAT_GLYPH_X);
+      context.font = CHAT_MONO_FONT;
+      runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
+      return;
+    }
     // opencode gives bash no colour of its own: the `$` is the differentiator.
     chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
     context.font = CHAT_GLYPH_FONT;
-    runText(context, "$", CHAT_GLYPH_X, baseline, OPENCODE.text, CHAT_BODY_X - CHAT_GLYPH_X);
+    runText(context, "$", CHAT_GLYPH_X, baseline, colour, CHAT_BODY_X - CHAT_GLYPH_X);
     context.font = CHAT_MONO_FONT;
-    runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.text, budget);
+    runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
     return;
   }
 
-  if (row.role === "tool") {
-    context.font = CHAT_GLYPH_FONT;
-    runText(context, toolGlyph(row.tool), CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
-    context.font = CHAT_BODY_FONT;
-    const nameWidth = runText(context, toolTitle(row.tool), CHAT_BODY_X, baseline, OPENCODE.textMuted, budget);
-    const argsX = CHAT_BODY_X + nameWidth + 6;
-    context.font = CHAT_MONO_FONT;
-    runText(context, bracketArgs(row.body) ?? row.body, argsX, baseline, OPENCODE.textMuted, right - argsX);
-    return;
-  }
-
-  if (row.role === "user") {
+  if (kind === "user") {
     chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
     context.fillStyle = OPENCODE.secondary;
     context.fillRect(CHAT_BAR_X, baseline - CHAT_ROW_RISE, CHAT_BAR_WIDTH, CHAT_LINE_HEIGHT);
     context.font = CHAT_BODY_FONT;
-    runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.text, budget);
+    runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
     return;
   }
 
+  // logs: system/reasoning/alert/ci rows keep a role glyph so they are not
+  // read as prose, but take the tan log colour like the emulator.
   context.font = CHAT_GLYPH_FONT;
-  runText(context, ROLE_GLYPHS[row.role] ?? "·", CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
+  runText(context, ROLE_GLYPHS[row.role] ?? "·", CHAT_GLYPH_X, baseline, colour, CHAT_BODY_X - CHAT_GLYPH_X);
   context.font = CHAT_BODY_FONT;
-  runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.textMuted, budget);
+  runText(context, row.body, CHAT_BODY_X, baseline, colour, budget);
 };
 
 /**
@@ -869,7 +880,130 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
     context.lineWidth = 1;
     return;
   }
-  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10);
+  // A measured 0% is a solid stub. The unknown branch above remains a dashed
+  // track, so the strip makes the same no-reading/zero distinction as the key.
+  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true, model.freshness === "stale" ? 0.5 : 1);
+};
+
+/* Voice panel geometry. The trace is the panel; everything else sits around it. */
+/** Width of the vertical decibel bar on the right edge. */
+const DB_BAR_WIDTH = 16;
+/** Top and bottom of the decibel bar and of the waveform band. */
+const TRACE_TOP = 10;
+const TRACE_BOTTOM = 62;
+/** Baseline for the status caption and the transcribed text. */
+const VOICE_STATUS_BASELINE = 78;
+const VOICE_TEXT_BASELINE = 94;
+/** Gap between the waveform's right edge and the decibel bar. */
+const TRACE_GAP = 14;
+/** Minimum drawn height of one waveform column, so silence is still a line. */
+const MIN_COLUMN_HEIGHT = 1;
+/** Trace colour while capturing, and while idle. */
+const TRACE_LIVE = ACCENT_LIVE;
+const TRACE_IDLE = "rgba(255,255,255,0.32)";
+/** Status colour when transcription is unavailable — a state, not an error. */
+const STATUS_WARN = "#ffb27a";
+
+/**
+ * The voice readout: waveform, decibel bar, transcribed text.
+ *
+ * **Both meters are local.** The columns and the dBFS reading were computed
+ * from the captured PCM on this machine — see `voicePanel.ts` — so this panel
+ * animates at capture latency whether or not Aiur is reachable, and whether or
+ * not Aiur has an API key. Only `content.data.text` came back over the wire,
+ * and it is drawn on its own line: a network stall leaves the text stale while
+ * the trace keeps moving, which is exactly the distinction the operator needs.
+ *
+ * The trace scrolls left to right. `createWaveformScroll` emits oldest-first
+ * and pre-fills silence, so column `i` maps straight to the `i`-th x position
+ * and the newest audio is always the right-hand edge — no reversal, and a
+ * full-width baseline from the first frame rather than a trace growing in.
+ */
+const drawVoicePanel = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "voice" }): void => {
+  const { data } = content;
+  const barX = width - PAD - DB_BAR_WIDTH;
+  const traceX = PAD;
+  const traceWidth = barX - TRACE_GAP - traceX;
+  const traceHeight = TRACE_BOTTOM - TRACE_TOP;
+  const centerY = TRACE_TOP + traceHeight / 2;
+  const halfHeight = traceHeight / 2;
+
+  // Centre line, so a silent trace reads as silence rather than as nothing.
+  context.fillStyle = "rgba(255,255,255,0.10)";
+  context.fillRect(traceX, centerY - 0.5, traceWidth, 1);
+
+  const columnWidth = traceWidth / data.columns.length;
+  context.fillStyle = data.holding ? TRACE_LIVE : TRACE_IDLE;
+  data.columns.forEach((column, index) => {
+    // Drawn from the min/max pair rather than from one magnitude: a rectified
+    // trace is a solid blob, while peaks above and valleys below the centre
+    // read as speech.
+    const top = centerY - clamp(column.max, -1, 1) * halfHeight;
+    const bottom = centerY - clamp(column.min, -1, 1) * halfHeight;
+    context.fillRect(traceX + index * columnWidth, top, Math.max(columnWidth - 0.5, 0.5), Math.max(bottom - top, MIN_COLUMN_HEIGHT));
+  });
+
+  // Vertical decibel bar. `fill` is already linear in decibels (`dbfsToFill`),
+  // so it is used as a height directly — re-mapping it to amplitude here would
+  // undo the whole reason that mapping exists.
+  const barHeight = TRACE_BOTTOM - TRACE_TOP;
+  context.beginPath();
+  context.roundRect(barX, TRACE_TOP, DB_BAR_WIDTH, barHeight, DB_BAR_WIDTH / 2);
+  context.fillStyle = TRACK;
+  context.fill();
+  const filled = Math.round(barHeight * clamp(data.fill, 0, 1));
+  if (filled > 0) {
+    context.beginPath();
+    context.roundRect(barX, TRACE_BOTTOM - filled, DB_BAR_WIDTH, filled, DB_BAR_WIDTH / 2);
+    context.fillStyle = createPaint(context, "linear-gradient(0deg,#37d97e,#e0564e)", barX, TRACE_TOP, DB_BAR_WIDTH, barHeight);
+    context.fill();
+  }
+  context.font = "700 9px monospace";
+  context.fillStyle = LABEL;
+  const dbText = `${Math.round(data.dbfs)}`;
+  context.fillText(dbText, barX + (DB_BAR_WIDTH - context.measureText(dbText).width) / 2, HEIGHT - 8);
+
+  // The status line is the one place the unavailable reason can appear, and it
+  // is deliberately beside a moving trace: "transcription is off" must not look
+  // like "the microphone is dead".
+  const unavailable = !data.holding && data.status !== VOICE_HOLD_PROMPT && data.status !== VOICE_LISTENING;
+  caption(context, data.status, PAD, VOICE_STATUS_BASELINE, unavailable ? STATUS_WARN : data.holding ? ACCENT_LIVE : LABEL);
+
+  context.font = CHAT_BODY_FONT;
+  context.fillStyle = data.text === "" ? OPENCODE.textMuted : TEXT;
+  const placeholder = data.holding ? "Listening…" : "Nothing heard yet.";
+  context.fillText(fit(context, data.text === "" ? placeholder : data.text, width - PAD * 2), PAD, VOICE_TEXT_BASELINE);
+};
+
+/**
+ * The settings readout: which microphone is in use, how many were found, and
+ * what the two non-microphone keys do.
+ *
+ * A machine with no microphone is a normal state, not a fault — `pw-dump` and
+ * `pactl` are both absent on a headless box, and `listMicrophones` returns an
+ * empty list rather than throwing. It gets its own line so the surface says
+ * what is true instead of showing an empty selection that reads as broken.
+ */
+const drawSettingsPanel = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "settings" }): void => {
+  caption(context, "microphone", PAD, 22);
+
+  const none = content.deviceCount === 0;
+  context.font = "700 22px sans-serif";
+  context.fillStyle = none ? MUTED : TEXT;
+  context.fillText(fit(context, none ? "No microphones" : content.selectedLabel, width - PAD * 2), PAD, 50);
+
+  context.font = "700 12px monospace";
+  context.fillStyle = LABEL;
+  const found = none
+    ? "Attach a microphone, then reopen settings"
+    : `${content.deviceCount} found · page ${content.pageLabel}`;
+  context.fillText(fit(context, found, width - PAD * 2), PAD, 70);
+
+  drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
+  context.font = "700 9px monospace";
+  context.fillStyle = none ? LABEL : ACCENT_LIVE;
+  const hint = "HOLD TESTMIC TO CHECK LEVELS";
+  context.fillText(hint, width - PAD - context.measureText(hint).width, HEIGHT - 6);
 };
 
 /** Renders one panel's content onto a `width` x 100 context. */
@@ -901,6 +1035,10 @@ export const drawSegmentContent = (
       return drawAgentDetail(context, width, content, now);
     case "chatLog":
       return drawChatLog(context, width, content, now);
+    case "voice":
+      return drawVoicePanel(context, width, content);
+    case "settings":
+      return drawSettingsPanel(context, width, content);
     case "blank":
       // A panel with no provider configured for it. Bare background only: an
       // "Awaiting data" label here would claim a provider exists.

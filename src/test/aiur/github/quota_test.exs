@@ -78,6 +78,43 @@ defmodule Aiur.GitHub.QuotaTest do
     refute opts[:needs_attention]
   end
 
+  test "a window rollover with the resource still exhausted does not report the alert cleared" do
+    parent = self()
+
+    quota =
+      start_quota(
+        emit_fun: fn name, opts ->
+          send(parent, {:alert, name, opts})
+          :ok
+        end
+      )
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 0))
+    _snapshot = Quota.snapshot(quota)
+    assert_receive {:alert, "system.github.quota.core.exhausted", _opts}
+
+    # Ten poll cycles across three successive windows, exhausted throughout.
+    # The reset moving is the window rolling over, not the condition clearing.
+    Enum.each(1..10, fn cycle ->
+      reset = DateTime.add(@reset, cycle * 600, :second)
+      Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 0, reset))
+      _snapshot = Quota.snapshot(quota)
+    end)
+
+    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}
+    refute_receive {:alert, "system.github.quota.core.exhausted", _opts}
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4905))
+    _snapshot = Quota.snapshot(quota)
+
+    assert_receive {:alert, "system.github.quota.core.exhausted.resolved", opts}
+    assert opts[:reason] =~ "4905 of 5000"
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4906))
+    _snapshot = Quota.snapshot(quota)
+    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}
+  end
+
   test "exhaustion blocks only the depleted resource until its reset" do
     {:ok, clock} = Agent.start_link(fn -> @now end)
     quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
@@ -342,8 +379,14 @@ defmodule Aiur.GitHub.QuotaTest do
   # remaining. The primary window is healthy, so nothing held the caller back
   # and every rejected call was retried straight away.
   test "a secondary limit holds the resource even though the primary window reads healthy" do
+    parent = self()
     {:ok, clock} = Agent.start_link(fn -> @now end)
-    quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
+
+    quota =
+      start_quota(
+        clock: fn -> Agent.get(clock, & &1) end,
+        recovery_fun: fn -> send(parent, :github_quota_recovered) end
+      )
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4077))
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
@@ -356,7 +399,11 @@ defmodule Aiur.GitHub.QuotaTest do
     # The backoff is resource-scoped; GraphQL was never refused.
     assert :ok = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
 
+    token = :sys.get_state(quota).recovery_timer_token
     Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
+    send(quota, {:dispatch_recovery, token})
+
+    assert_receive :github_quota_recovered
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
   end
 
@@ -450,8 +497,87 @@ defmodule Aiur.GitHub.QuotaTest do
     assert_receive :refreshed, 500
   end
 
+  test "a scheduled refresh that restores headroom wakes fleet admission without restarting" do
+    parent = self()
+    name = :"github-quota-recovery-#{System.unique_integer([:positive])}"
+    {:ok, quota_state} = Agent.start_link(fn -> {@now, 500} end)
+
+    refresh_fun = fn ->
+      {now, remaining} = Agent.get(quota_state, & &1)
+      reset = now |> DateTime.add(900, :second) |> DateTime.to_unix()
+
+      Quota.observe(
+        name,
+        request(:get, "/rate_limit"),
+        {:ok,
+         %{
+           status: 200,
+           headers: [],
+           body: %{
+             "resources" => %{
+               "core" => %{"limit" => 5000, "remaining" => remaining, "reset" => reset},
+               "graphql" => %{"limit" => 5000, "remaining" => 5000, "reset" => reset}
+             }
+           }
+         }}
+      )
+    end
+
+    quota =
+      start_quota(
+        name: name,
+        refresh?: true,
+        refresh_interval_ms: 10,
+        refresh_fun: refresh_fun,
+        clock: fn -> quota_state |> Agent.get(&elem(&1, 0)) end,
+        recovery_fun: fn -> send(parent, :github_quota_recovered) end
+      )
+
+    assert eventually(fn -> match?({:hold, %{resource: "core", remaining: 500}}, Quota.dispatch_status(quota)) end)
+    refute_receive :github_quota_recovered
+
+    Agent.update(quota_state, fn {_now, _remaining} -> {DateTime.add(@reset, 1, :second), 4500} end)
+
+    assert_receive :github_quota_recovered, 500
+    assert eventually(fn -> Quota.dispatch_status(quota) == :available end)
+    refute_receive :github_quota_recovered, 30
+  end
+
+  test "a primary window reset wakes fleet admission without another observation" do
+    parent = self()
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+
+    quota =
+      start_quota(
+        clock: fn -> Agent.get(clock, & &1) end,
+        recovery_fun: fn -> send(parent, :github_quota_recovered) end
+      )
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 500))
+    assert {:hold, %{resource: "core"}} = Quota.dispatch_status(quota)
+
+    token = :sys.get_state(quota).recovery_timer_token
+    Agent.update(clock, fn _ -> DateTime.add(@reset, 1, :second) end)
+    send(quota, {:dispatch_recovery, token})
+
+    assert_receive :github_quota_recovered
+    assert Quota.dispatch_status(quota) == :available
+  end
+
   defp start_quota(opts \\ []) do
     start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
+  end
+
+  defp eventually(fun, attempts \\ 50)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
   end
 
   defp request(method, path) do
@@ -502,7 +628,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
   defp drop_cost_fields(attribution), do: Enum.map(attribution, &Map.drop(&1, [:cost, :costs, :estimated?]))
 
-  defp response(resource, limit, remaining) do
+  defp response(resource, limit, remaining, reset \\ @reset) do
     {:ok,
      %{
        status: 200,
@@ -510,7 +636,7 @@ defmodule Aiur.GitHub.QuotaTest do
          {"x-ratelimit-resource", resource},
          {"x-ratelimit-limit", Integer.to_string(limit)},
          {"x-ratelimit-remaining", Integer.to_string(remaining)},
-         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(reset))}
        ],
        body: %{}
      }}

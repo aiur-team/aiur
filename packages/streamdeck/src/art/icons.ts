@@ -62,18 +62,37 @@ export const BUILD_ORDER_ICONS: Readonly<Record<string, string>> = Object.freeze
 });
 
 /**
- * Per-agent command icons, verbatim from the mock's `SD_CMD_IC`. These are the
- * glyphs the four command keys show once an agent is focused; `pause`/`play`
- * and `up`/`down` are the two toggling pairs.
+ * Per-agent command icons. `back`, `pause`/`play`, `up`/`down`, `mic` and
+ * `logs` are verbatim from the mock's `SD_CMD_IC`; `pause`/`play` and
+ * `up`/`down` are the two toggling pairs.
+ *
+ * The voice keys — `settings`, `send`, `cancel`, `test` and `next` — have no
+ * mock entry to copy, because the mock predates the microphone. They are
+ * authored in the same 24x24 viewBox at the same stroke weight, using only the
+ * four primitives the renderer below supports, so they sit beside the extracted
+ * glyphs without reading as a different set.
  */
 export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
   back: '<path d="M15 6l-6 6 6 6"/>',
+  /** Mirror of `back`: "there is another page of microphones this way". */
+  next: '<path d="M9 6l6 6-6 6"/>',
   pause: '<rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/>',
   play: '<path d="M8 5.5v13l11-6.5z"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/>',
   logs: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  /** A hub with eight spokes; the conventional settings gear at line weight. */
+  settings:
+    '<circle cx="12" cy="12" r="3.4"/><path d="M12 2.4v3.1M12 18.5v3.1M2.4 12h3.1M18.5 12h3.1M5.2 5.2l2.2 2.2M16.6 16.6l2.2 2.2M18.8 5.2l-2.2 2.2M7.4 16.6l-2.2 2.2"/>',
+  /** Paper plane, filled — see FILLED_ICONS. */
+  send: '<path d="M21 3 10 14"/><path d="M21 3l-6.6 18-3.9-7.5L3 9.6z"/>',
+  cancel: '<path d="M6 6l12 12M18 6 6 18"/>',
+  /**
+   * Five bars of rising and falling level: TestMic answers "does this
+   * microphone hear me", so its glyph is the meter rather than a second mic.
+   */
+  test: '<path d="M3.5 10v4M8 6.5v11M12 3.5v17M16 6.5v11M20.5 10v4"/>',
 });
 
 /** Icon the mock falls back to for an unknown lane. */
@@ -164,7 +183,7 @@ const traceElement = (context: SKRSContext2D, kind: string, attrs: string, fille
  * line art. Stroking these paints a hollow outline — a play triangle with a
  * hole in it — instead of the solid glyph.
  */
-const FILLED_ICONS: ReadonlySet<string> = new Set(["pause", "play"]);
+const FILLED_ICONS: ReadonlySet<string> = new Set(["pause", "play", "send"]);
 
 /**
  * Draws `fragment` as a `size`-pixel square whose top-left corner is (`x`,

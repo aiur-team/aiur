@@ -45,10 +45,14 @@ defmodule AiurWeb.StreamdeckLive do
   @durable_feed_retry_attempts 2
   @durable_feed_retry_ms 50
 
-  # The two fleet-control commands. Each is a single key whose direction the
-  # server resolves from orchestrator state, so the client never names the
-  # action — it only names the key it pressed.
-  @control_commands ~w(pause priority)
+  # The fleet-control commands. Pause is a single key whose direction the server
+  # resolves from orchestrator state, so the client never names the action — it
+  # only names the key it pressed.
+  #
+  # Prioritize was the second one and is gone: the agent view's four slots are
+  # pause, logs, mic and settings. Orchestrator priority is untouched and stays
+  # reachable from the dashboard's own controls.
+  @control_commands ~w(pause)
 
   @streamdeck_package %{
     version: "0.0.0-dev.0098e3ac86a2",
@@ -177,6 +181,8 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("command-press", %{"command" => "logs"}, socket), do: {:noreply, enter_logs(socket)}
+
+  def handle_event("command-press", %{"command" => "settings"}, socket), do: {:noreply, enter_settings(socket)}
 
   def handle_event("command-press", %{"command" => command}, socket) when command in @control_commands do
     if dashboard_writable?() do
@@ -371,7 +377,14 @@ defmodule AiurWeb.StreamdeckLive do
                   <span class="sd-ag-stat">{key.label}</span>
                   <span class={["sd-ag-tag", key.dependency_ready? && "ready", !key.dependency_ready? && "blocked"]}>{key.dependency}</span>
                 </div>
-                <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
+                <div
+                  :if={!key.empty? and key.bucket != "queued"}
+                  class={[
+                    "sd-ag-foot",
+                    is_nil(key.progress) && "is-progress-unknown",
+                    key.progress_freshness in [:stale, "stale"] && "is-progress-stale"
+                  ]}
+                >
                   <span class="sd-ag-dot" aria-hidden="true"></span>
                   <span class="sr-only">{key.label}</span>
                   <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
@@ -394,6 +407,7 @@ defmodule AiurWeb.StreamdeckLive do
                     <svg :if={key.icon == "down"} data-streamdeck-icon="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
                     <svg :if={key.icon == "logs"} data-streamdeck-icon="logs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
                     <svg :if={key.icon == "mic"} data-streamdeck-icon="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>
+                    <svg :if={key.icon == "settings"} data-streamdeck-icon="settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
                   </span>
                   <span class="sd-cmd-label">{key.label}</span>
                   <span class="sd-cmd-sub">{key.sub}</span>
@@ -402,6 +416,18 @@ defmodule AiurWeb.StreamdeckLive do
               <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
             </li>
           </ul>
+          <% end %>
+
+          <%!-- The settings pane is deliberately empty of choices. Microphone
+                enumeration happens on the machine running the sidecar, through
+                PipeWire or PulseAudio, and the browser has no view of that
+                machine's devices. Inventing a picker here would render a list
+                that could not be true. --%>
+          <%= if @sd_mode == :settings do %>
+          <div id="sd-settings-view" class="sd-settings-view" data-mode-view="settings" role="group" aria-label="Settings">
+            <p class="sd-settings-line" data-settings-line="microphone">Microphone selection lives on the machine running the sidecar. The browser emulator has no access to those devices, so there is nothing to choose here.</p>
+            <p class="sd-settings-line" data-settings-line="voice">Speech is transcribed by Aiur, not by the deck: audio is streamed to Aiur over the authenticated channel and Aiur calls ElevenLabs. The sidecar never holds the API key.</p>
+          </div>
           <% end %>
 
           <%= if @sd_mode == :logs do %>
@@ -458,7 +484,16 @@ defmodule AiurWeb.StreamdeckLive do
           >
             <%= if @sd_mode == :cmd do %>
             <% command = StreamdeckStrip.command(@sd_active) %>
-            <div class={["sd-strip-cmd", "st-#{@sd_active.bucket}"]} style={"--sd-accent: #{command.accent}"} data-mode-view="cmd-strip">
+            <div
+              class={[
+                "sd-strip-cmd",
+                "st-#{@sd_active.bucket}",
+                command.progress_freshness == :unknown && "is-progress-unknown",
+                command.progress_freshness == :stale && "is-progress-stale"
+              ]}
+              style={"--sd-accent: #{command.accent}"}
+              data-mode-view="cmd-strip"
+            >
               <div class="sd-strip-cmd-heading">
                 <span class="sd-strip-cmd-agent-icon" aria-hidden="true">{command.icon}</span>
                 <img :if={command.provider_logo} class="sd-cmd-provider-logo" src={command.provider_logo} alt={command.provider} />
@@ -491,8 +526,8 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={entry.shape == :diff_line} class="sd-log-diff">
                   <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
                 </div>
-                <div :if={entry.shape == :message} class="sd-log-message">
-                  <span class={["sd-log-speaker", "is-#{entry.speaker}"]}>{entry.speaker}</span>
+                <div :if={entry.shape == :message} class={["sd-log-message", "is-#{entry.kind}"]}>
+                  <span :if={entry.glyph} class="sd-log-glyph" aria-hidden="true">{entry.glyph}</span>
                   <span class="sd-log-message-text">{entry.text}</span>
                 </div>
               </div>
@@ -730,6 +765,7 @@ defmodule AiurWeb.StreamdeckLive do
       vendor_logo: Map.get(agent, :vendor_logo),
       dependency_ready?: footer.ready?,
       dependency: footer.dependency,
+      progress_freshness: Map.get(agent, :progress_freshness),
       style: key_style(Map.get(agent, :progress_percent))
     )
   end
@@ -742,6 +778,7 @@ defmodule AiurWeb.StreamdeckLive do
       title: title,
       label: label,
       progress: progress,
+      progress_freshness: Keyword.get(opts, :progress_freshness),
       priority?: Keyword.get(opts, :priority?, false),
       dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
       icon: Keyword.get(opts, :icon),
@@ -814,7 +851,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp pager_focus(%{assigns: %{sd_mode: mode, sd_active: active}}), do: mode_pager_focus(mode, active)
 
-  defp mode_pager_focus(mode, active) when mode in [:cmd, :logs] and not is_nil(active), do: active
+  defp mode_pager_focus(mode, active) when mode in [:cmd, :logs, :settings] and not is_nil(active), do: active
   defp mode_pager_focus(_mode, _active), do: nil
 
   defp refresh_pager(socket) do
@@ -958,13 +995,15 @@ defmodule AiurWeb.StreamdeckLive do
 
     [
       pause_command_key(Map.get(agent, :bucket) == :paused, writable?),
-      priority_command_key(Map.get(agent, :priority) == true, writable?),
       # Logs is navigation rather than fleet control, so read-only leaves it
       # enabled: it changes what the operator sees, never what the fleet does.
       command_key("logs", "Logs", "SCROLL", icon: "logs", state: "ready"),
-      # Mic is the design's fourth command and the only press-and-hold one: it
-      # carries no click handler, so the hook drives it from pointer events.
+      # Mic is the only press-and-hold command: it carries no click handler, so
+      # the hook drives it from pointer events.
       mic_command_key(mic_held?, writable?),
+      # Settings is navigation too, and sits beside Mic because it is where the
+      # deck reports what voice input is doing.
+      command_key("settings", "Settings", "OPEN", icon: "settings", state: "ready"),
       empty_command_key(),
       empty_command_key(),
       empty_command_key(),
@@ -977,12 +1016,6 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp pause_command_key(false, writable?),
     do: command_key("pause", "Pause", "HOLD", icon: "pause", state: "running", disabled?: not writable?)
-
-  defp priority_command_key(true, writable?),
-    do: command_key("priority", "Deprioritize", "LOWER", icon: "down", state: "prioritized", disabled?: not writable?)
-
-  defp priority_command_key(false, writable?),
-    do: command_key("priority", "Prioritize", "RAISE", icon: "up", state: "standard", disabled?: not writable?)
 
   defp mic_command_key(true, writable?),
     do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "live", disabled?: not writable?)
@@ -1027,8 +1060,6 @@ defmodule AiurWeb.StreamdeckLive do
   # re-pause an agent the orchestrator has already paused.
   defp control_action_for("pause", %{bucket: :paused}), do: :resume
   defp control_action_for("pause", _agent), do: :pause
-  defp control_action_for("priority", %{priority: true}), do: :deprioritize
-  defp control_action_for("priority", _agent), do: :prioritize
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do
@@ -1044,20 +1075,6 @@ defmodule AiurWeb.StreamdeckLive do
     case safe_control_call(fn -> resume_agent(identifier) end) do
       {:ok, _result} -> assign(socket, :control_feedback, "Resume requested for ##{identifier}")
       {:error, reason} -> assign(socket, :control_feedback, "Resume failed: #{inspect(reason)}")
-    end
-  end
-
-  defp invoke_agent_control(socket, identifier, :prioritize) do
-    case safe_control_call(fn -> prioritize_agent(identifier) end) do
-      {:ok, _result} -> assign(socket, :control_feedback, "Prioritize requested for ##{identifier}")
-      {:error, reason} -> assign(socket, :control_feedback, "Prioritize failed: #{inspect(reason)}")
-    end
-  end
-
-  defp invoke_agent_control(socket, identifier, :deprioritize) do
-    case safe_control_call(fn -> deprioritize_agent(identifier) end) do
-      {:ok, _result} -> assign(socket, :control_feedback, "Deprioritize requested for ##{identifier}")
-      {:error, reason} -> assign(socket, :control_feedback, "Deprioritize failed: #{inspect(reason)}")
     end
   end
 
@@ -1108,7 +1125,13 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp enter_logs(socket), do: socket
 
-  defp back(%{assigns: %{sd_mode: :logs}} = socket), do: socket |> assign(:sd_mode, :cmd) |> refresh_knobs()
+  defp enter_settings(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active),
+    do: socket |> assign(:sd_mode, :settings) |> refresh_knobs()
+
+  defp enter_settings(socket), do: socket
+
+  defp back(%{assigns: %{sd_mode: mode}} = socket) when mode in [:logs, :settings],
+    do: socket |> assign(:sd_mode, :cmd) |> refresh_knobs()
 
   defp back(%{assigns: %{sd_mode: :cmd}} = socket) do
     previous_identifier = socket.assigns.selected_identifier
@@ -1210,7 +1233,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp mode_focus(%{assigns: %{sd_mode: mode, sd_active: active}}, grid, _visible_agents)
-       when mode in [:cmd, :logs] and not is_nil(active) do
+       when mode in [:cmd, :logs, :settings] and not is_nil(active) do
     identifier = to_string(active.identifier)
     refreshed_active = Enum.find(grid.agents, active, &(to_string(&1.identifier) == identifier))
     {identifier, refreshed_active}
@@ -1292,20 +1315,6 @@ defmodule AiurWeb.StreamdeckLive do
     case endpoint_config(:agent_chat_resume_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.resume(identifier)
-    end
-  end
-
-  defp prioritize_agent(identifier) do
-    case endpoint_config(:agent_chat_prioritize_fun) do
-      fun when is_function(fun, 1) -> fun.(identifier)
-      _fun -> AgentChat.prioritize(identifier)
-    end
-  end
-
-  defp deprioritize_agent(identifier) do
-    case endpoint_config(:agent_chat_deprioritize_fun) do
-      fun when is_function(fun, 1) -> fun.(identifier)
-      _fun -> AgentChat.deprioritize(identifier)
     end
   end
 
@@ -1431,6 +1440,7 @@ defmodule AiurWeb.StreamdeckLive do
     back_hint =
       case mode do
         :cmd -> StreamdeckStrip.hint(0, 0, "BACK")
+        :settings -> StreamdeckStrip.hint(0, 0, "BACK")
         :logs -> StreamdeckStrip.hint(Map.get(logs, :transcript_offset, 0), Map.get(logs, :transcript_max_offset, 0), "BACK")
         _ -> nil
       end

@@ -92,6 +92,7 @@ defmodule Aiur.OrchestratorStatusTest do
     end
 
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
 
     defp notify(message) do
       case Application.get_env(:aiur, :startup_cleanup_test_pid) do
@@ -3784,8 +3785,8 @@ defmodule Aiur.OrchestratorStatusTest do
       %{torn_state | retry_attempts: %{issue.id => %{attempt: 1}}}
     end
 
-    next =
-      PauseResume.replace_admitted_completed_entry(
+    {result, next} =
+      PauseResume.replace_admitted_completed_entry_result(
         state,
         entry,
         issue,
@@ -3793,6 +3794,7 @@ defmodule Aiur.OrchestratorStatusTest do
         spawn_failure
       )
 
+    assert {:error, {:redispatch_deferred, {:worker_start_failed, %{attempt: 1}}}} = result
     refute Process.alive?(old_worker)
     restored = Map.fetch!(next.running, issue.id)
     assert restored.pid == nil
@@ -3907,15 +3909,17 @@ defmodule Aiur.OrchestratorStatusTest do
     assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
   end
 
-  test "tracker rework after completed CI wait honors all-limited model admission" do
+  @tag :tmp_dir
+  test "tracker rework after completed CI wait honors all-limited model admission", %{tmp_dir: tmp_dir} do
     issue = %{completed_rework_issue("all-limited") | selected_backend: nil}
+    workflow_path = Path.join(tmp_dir, ".aiurconfig")
+    Workflow.set_workflow_file_path(workflow_path)
 
     configure_completed_revalidation!([issue],
       max_concurrent_agents: 3,
       agent_routing: %{"4" => "claude"}
     )
 
-    workflow_path = Workflow.workflow_file_path()
     workflow = File.read!(workflow_path)
 
     workflow =

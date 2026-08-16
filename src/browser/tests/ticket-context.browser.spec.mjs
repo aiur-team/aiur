@@ -58,7 +58,7 @@ test('ticket context keeps semantic content, touch targets, and origin focus acc
       await expect(dialog.getByText('Pull request has not been opened.')).toBeVisible()
       await expect(dialog.getByRole('link', { name: 'Open in GitHub' })).toHaveAttribute('href', 'https://github.com/owner/repo/issues/42')
       await expect(dialog.getByRole('link', { name: 'Read chat' })).toHaveAttribute('href', '/chat/42')
-      await expect(commands).toHaveAttribute('href', '/decisions/42')
+      await expect(commands).toHaveAttribute('href', '/commands/42')
       await expect.poll(() => page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
       await expect.poll(() => page.evaluate(() => getComputedStyle(document.querySelector('.ticket-context-panel')).transitionProperty)).toBe('none')
       await expect.poll(() => page.evaluate(() => window.matchMedia('(forced-colors: active)').matches)).toBe(forcedColors === 'active')

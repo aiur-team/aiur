@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: scripts/update-compound-engineering-skills <version> <upstream-checkout>" >&2
+  exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+
+version=$1
+upstream_root=$2
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+skills_root="$repo_root/.claude/skills"
+codex_root="$repo_root/.codex/skills"
+manifest="$skills_root/compound-engineering.skills"
+version_file="$skills_root/compound-engineering.version"
+license_file="$skills_root/compound-engineering.LICENSE"
+upstream_manifest="$upstream_root/.claude-plugin/plugin.json"
+upstream_skills="$upstream_root/skills"
+
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "version must use X.Y.Z form: $version" >&2
+  exit 1
+}
+
+[[ -f $upstream_manifest && -d $upstream_skills && -f $upstream_root/LICENSE ]] || {
+  echo "upstream checkout must contain .claude-plugin/plugin.json, skills/, and LICENSE" >&2
+  exit 1
+}
+
+upstream_version=$(sed -nE 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*$/\1/p' "$upstream_manifest" | head -n 1)
+[[ $upstream_version == "$version" ]] || {
+  echo "upstream version mismatch: expected $version, found ${upstream_version:-unknown}" >&2
+  exit 1
+}
+
+upstream_symlink=$(find "$upstream_skills" -type l -print -quit)
+[[ -z $upstream_symlink ]] || {
+  echo "upstream skills must not contain symlinks: $upstream_symlink" >&2
+  exit 1
+}
+
+new_skills=()
+while IFS= read -r skill; do
+  new_skills+=("$skill")
+done < <(find "$upstream_skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | LC_ALL=C sort)
+[[ ${#new_skills[@]} -gt 0 ]] || {
+  echo "upstream skills directory is empty" >&2
+  exit 1
+}
+
+for skill in "${new_skills[@]}"; do
+  [[ $skill == lfg || $skill =~ ^ce-[a-z0-9-]+$ ]] || {
+    echo "unexpected upstream skill name: $skill" >&2
+    exit 1
+  }
+  [[ -f $upstream_skills/$skill/SKILL.md ]] || {
+    echo "upstream skill has no SKILL.md: $skill" >&2
+    exit 1
+  }
+done
+
+current_skills=()
+if [[ -f $manifest ]]; then
+  while IFS= read -r skill; do
+    [[ -z $skill ]] && continue
+    [[ $skill == lfg || $skill =~ ^ce-[a-z0-9-]+$ ]] || {
+      echo "refusing unsafe managed skill name: $skill" >&2
+      exit 1
+    }
+    current_skills+=("$skill")
+  done < "$manifest"
+fi
+
+mkdir -p "$skills_root" "$codex_root"
+
+is_current_skill() {
+  local candidate=$1
+  local skill
+  for skill in "${current_skills[@]}"; do
+    [[ $skill == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
+for skill in "${new_skills[@]}"; do
+  if ! is_current_skill "$skill" && { [[ -e $skills_root/$skill ]] || [[ -L $skills_root/$skill ]]; }; then
+    echo "refusing to replace unmanaged skill path: $skill" >&2
+    exit 1
+  fi
+done
+
+stage_root=$(mktemp -d "$skills_root/.compound-engineering-stage.XXXXXX")
+backup_root=$(mktemp -d "$skills_root/.compound-engineering-backup.XXXXXX")
+mutation_started=false
+committed=false
+
+cleanup() {
+  local status=$?
+
+  if [[ $mutation_started == true && $committed != true ]]; then
+    for skill in "${new_skills[@]}"; do
+      rm -rf "$skills_root/$skill"
+      rm -f "$codex_root/$skill"
+    done
+
+    for skill in "${current_skills[@]}"; do
+      [[ -e $backup_root/skills/$skill || -L $backup_root/skills/$skill ]] && mv "$backup_root/skills/$skill" "$skills_root/$skill"
+      [[ -e $backup_root/codex/$skill || -L $backup_root/codex/$skill ]] && mv "$backup_root/codex/$skill" "$codex_root/$skill"
+    done
+
+    for name in compound-engineering.LICENSE compound-engineering.version compound-engineering.skills; do
+      [[ -e $backup_root/support/$name ]] && mv "$backup_root/support/$name" "$skills_root/$name"
+    done
+  fi
+
+  rm -rf "$stage_root" "$backup_root"
+  exit "$status"
+}
+trap cleanup EXIT
+
+for skill in "${new_skills[@]}"; do
+  cp -R "$upstream_skills/$skill" "$stage_root/$skill"
+done
+
+cp "$upstream_root/LICENSE" "$stage_root/compound-engineering.LICENSE"
+printf '%s\n' "$version" > "$stage_root/compound-engineering.version"
+printf '%s\n' "${new_skills[@]}" > "$stage_root/compound-engineering.skills"
+
+mkdir -p "$backup_root/skills" "$backup_root/codex" "$backup_root/support"
+mutation_started=true
+
+for skill in "${current_skills[@]}"; do
+  [[ -e $skills_root/$skill || -L $skills_root/$skill ]] && mv "$skills_root/$skill" "$backup_root/skills/$skill"
+  [[ -e $codex_root/$skill || -L $codex_root/$skill ]] && mv "$codex_root/$skill" "$backup_root/codex/$skill"
+done
+
+for name in compound-engineering.LICENSE compound-engineering.version compound-engineering.skills; do
+  [[ -e $skills_root/$name ]] && mv "$skills_root/$name" "$backup_root/support/$name"
+done
+
+for skill in "${new_skills[@]}"; do
+  mv "$stage_root/$skill" "$skills_root/$skill"
+  ln -s "../../.claude/skills/$skill" "$codex_root/$skill"
+done
+
+mv "$stage_root/compound-engineering.LICENSE" "$license_file"
+mv "$stage_root/compound-engineering.version" "$version_file"
+mv "$stage_root/compound-engineering.skills" "$manifest"
+
+committed=true
+trap - EXIT
+rm -rf "$stage_root" "$backup_root"
+
+echo "updated Compound Engineering skills to $version (${#new_skills[@]} skills)"

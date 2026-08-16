@@ -142,6 +142,266 @@ defmodule Aiur.Orchestrator.DispatcherTest do
                    2_000
   end
 
+  describe "dispatch_issue blocked_by dependency gate" do
+    test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "blocked-ticket",
+        identifier: "repo#blocked-ticket",
+        title: "blocked ticket",
+        state: "todo"
+      }
+
+      hydrated = %{issue | blocked_by: [%{id: "5", identifier: "5", state: "in-progress"}]}
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      log =
+        capture_log(fn ->
+          next_state =
+            Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, issue, nil, nil,
+              issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+              blocked_by_hydrator: fn _issue -> {:ok, hydrated} end,
+              runner: runner
+            )
+
+          refute Map.has_key?(next_state.running, issue.id)
+          refute MapSet.member?(next_state.claimed, issue.id)
+        end)
+
+      refute_receive {:agent_runner_run, _, _, _}, 100
+      assert log =~ "blocked by a non-terminal dependency"
+    end
+
+    test "holds dispatch (fail-closed) with an attention decline when hydration fails" do
+      candidate = issue("hydration-failed")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:error, :dependencies_unavailable} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
+
+      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+      assert_receive {:alert,
+                      %{
+                        name: ^attention_name,
+                        reason: reason,
+                        needs_attention: true
+                      }},
+                     2_000
+
+      assert reason =~ "dependency_hydration_failed"
+      refute Map.has_key?(declined.running, candidate.id)
+    end
+
+    test "holds dispatch when hydration returns an unexpected shape (fail-closed, no crash)" do
+      candidate = issue("hydration-odd-result")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> :bogus end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
+
+      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+      assert_receive {:alert, %{name: ^attention_name, needs_attention: true}}, 2_000
+      refute Map.has_key?(declined.running, candidate.id)
+    end
+
+    test "dispatches normally when hydration finds no blockers" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "unblocked-ticket",
+        identifier: "repo#unblocked-ticket",
+        title: "unblocked ticket",
+        state: "todo",
+        selected_backend: "codex"
+      }
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.dispatch_issue(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, issue, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == issue.id
+      assert Map.has_key?(next_state.running, issue.id)
+    end
+  end
+
+  describe "blocking Command dispatch gate (#1965)" do
+    test "a dispatch cycle reads an open blocking Command and releases it after answer" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("decision-cycle-#{System.unique_integer([:positive])}")
+
+      ticket = %{identifier: candidate.id, title: candidate.title, url: candidate.url}
+
+      source = %{
+        agent_id: "dispatcher-test",
+        session_id: "session-#{candidate.id}",
+        event_id: nil
+      }
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{"question" => "Which path should this ticket take?", "blocking" => true},
+                 ticket: ticket,
+                 source: source
+               )
+
+      on_exit(fn ->
+        Aiur.DecisionStore.answer(
+          decision.decision_id,
+          %{
+            "idempotency_key" => "cleanup-#{decision.decision_id}",
+            "expected_version" => decision.version,
+            "custom_response" => "Proceed"
+          },
+          actor: %{kind: :operator, id: "dispatcher-test"}
+        )
+      end)
+
+      state =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> Dispatcher.refresh_blocked_ticket_ids()
+
+      assert Dispatcher.choose_issues(state, [candidate]).dispatch_declines[candidate.id] ==
+               :blocked_on_decision
+
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "release-#{decision.decision_id}",
+                   "expected_version" => decision.version,
+                   "custom_response" => "Proceed"
+                 },
+                 actor: %{kind: :operator, id: "dispatcher-test"}
+               )
+
+      next_state = Dispatcher.refresh_blocked_ticket_ids(state)
+
+      assert DispatchPolicy.dispatch_decision(
+               candidate,
+               next_state,
+               DispatchPolicy.active_state_set(),
+               DispatchPolicy.terminal_state_set(),
+               next_state.blocked_ticket_ids
+             ) == :dispatch
+    end
+
+    test "a ticket with an open blocking Command is declined and the reason is visible in status" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("blocked-command")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: MapSet.new([candidate.id])
+      }
+
+      declined = Dispatcher.choose_issues(state, [candidate])
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+
+      assert_receive {:alert,
+                      %{
+                        name: "dispatch.candidate_declined",
+                        reason: reason,
+                        needs_attention: false
+                      }},
+                     2_000
+
+      assert reason =~ "blocked_on_decision"
+    end
+
+    test "an unreadable decision store fails closed (no new dispatch)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("store-unavailable")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: :unavailable
+      }
+
+      declined = Dispatcher.choose_issues(state, [candidate])
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+    end
+
+    test "dispatch_issue refuses to spawn a fresh agent while a blocking Command is open" do
+      candidate = issue("dispatch-issue-blocked")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{effective_concurrent_agents: 4, blocked_ticket_ids: MapSet.new([candidate.id])}
+
+      declined =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn issue -> {:ok, issue} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+    end
+
+    test "dispatch_issue proceeds when the ticket has no open blocking Command" do
+      test_pid = self()
+      candidate = %{issue("unblocked-dispatch") | selected_backend: "codex"}
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: MapSet.new(["other"])
+      }
+
+      next_state =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == candidate.id
+      assert Map.has_key?(next_state.running, candidate.id)
+    end
+  end
+
   defp dispatch_recovery(codex_thrash_budget) do
     %{
       workspace_ownership: %{waits: %{}, ready: %{}},
@@ -720,6 +980,48 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert %{signal: :build, threshold: 2} = held.capacity_hold
       assert map_size(held.running) == 0
       assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
+    end
+
+    test "dependency-paused agents do not prevent a queued keystone from reaching dispatch selection" do
+      keystone = issue("keystone")
+      test_pid = self()
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        running: %{
+          "blocked-one" => dependency_paused_entry(keystone.identifier),
+          "blocked-two" => dependency_paused_entry(keystone.identifier)
+        }
+      }
+
+      admission_probes = fn ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 1,
+          load: :unavailable,
+          load_threshold: nil,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      selected =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [keystone],
+          &consume_available_slots/2,
+          Keyword.put(capacity_opts(test_pid, 1_000), :admission_probes_fun, admission_probes)
+        )
+
+      assert Map.has_key?(selected.running, keystone.id)
     end
 
     test "the AIMD envelope backs off :envelope as the limiting reason while load exceeds target and work waits" do
@@ -1382,6 +1684,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp running_entry(id) do
     %{issue: issue(id), control: %{status: :working}, worker_host: nil}
+  end
+
+  defp dependency_paused_entry(blocker_identifier) do
+    %{
+      control: %{status: :paused},
+      paused_reason: :blocker_dependency,
+      blocker_pause: %{blocker_identifier: blocker_identifier}
+    }
   end
 
   describe "revalidate_issue_for_dispatch/3" do

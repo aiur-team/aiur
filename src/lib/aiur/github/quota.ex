@@ -60,7 +60,13 @@ defmodule Aiur.GitHub.Quota do
   @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], coverage: @empty_coverage, backoffs: []}
 
   @type request :: map()
-  @type hold :: %{resource: String.t(), remaining: non_neg_integer(), limit: pos_integer(), reset_at: DateTime.t()}
+  @type hold :: %{
+          resource: String.t(),
+          remaining: non_neg_integer(),
+          limit: pos_integer(),
+          reset_at: DateTime.t(),
+          observed_at: DateTime.t()
+        }
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -112,6 +118,10 @@ defmodule Aiur.GitHub.Quota do
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
       hold_dir: Keyword.get_lazy(opts, :hold_dir, &default_hold_dir/0),
       refresh_fun: Keyword.get(opts, :refresh_fun, &refresh_from_github/0),
+      recovery_fun: Keyword.get(opts, :recovery_fun, &notify_orchestrator_recovery/0),
+      observed_dispatch_hold?: false,
+      recovery_timer_ref: nil,
+      recovery_timer_token: nil,
       refresh_interval_ms: Keyword.get(opts, :refresh_interval_ms, @refresh_interval_ms),
       refresh_ref: nil
     }
@@ -123,6 +133,7 @@ defmodule Aiur.GitHub.Quota do
   @impl true
   def handle_cast({:observe, request, result}, state) do
     now = state.clock.()
+    held_before? = state.observed_dispatch_hold?
 
     state =
       state
@@ -132,6 +143,11 @@ defmodule Aiur.GitHub.Quota do
       |> attribute_request(request, result, now)
       |> maybe_alert()
 
+    status = dispatch_status(state, now)
+    held_now? = match?({:hold, _hold}, status)
+    if held_before? and not held_now?, do: state.recovery_fun.()
+
+    state = state |> Map.put(:observed_dispatch_hold?, held_now?) |> sync_recovery_timer(status, now)
     {:noreply, state}
   end
 
@@ -170,17 +186,9 @@ defmodule Aiur.GitHub.Quota do
   end
 
   def handle_call(:dispatch_status, _from, state) do
-    state = prune_backoffs(state, state.clock.())
-
-    status =
-      Enum.find_value(@primary_resources, :available, fn resource ->
-        case resource_status(state, resource, @low_water_percent) do
-          :available -> nil
-          hold -> hold
-        end
-      end)
-
-    {:reply, status, state}
+    now = state.clock.()
+    state = prune_backoffs(state, now)
+    {:reply, dispatch_status(state, now), state}
   end
 
   @impl true
@@ -196,6 +204,20 @@ defmodule Aiur.GitHub.Quota do
     Process.send_after(self(), :refresh, state.refresh_interval_ms)
     {:noreply, %{state | refresh_ref: nil}}
   end
+
+  def handle_info({:dispatch_recovery, token}, %{recovery_timer_token: token} = state) do
+    now = state.clock.()
+    state = prune_backoffs(state, now)
+    status = dispatch_status(state, now)
+    held_now? = match?({:hold, _hold}, status)
+
+    if state.observed_dispatch_hold? and not held_now?, do: state.recovery_fun.()
+
+    state = state |> Map.put(:observed_dispatch_hold?, held_now?) |> sync_recovery_timer(status, now)
+    {:noreply, state}
+  end
+
+  def handle_info({:dispatch_recovery, _stale_token}, state), do: {:noreply, state}
 
   defp observe_response(state, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
     Enum.reduce(@primary_resources, state, fn resource, acc ->
@@ -260,8 +282,12 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
+  # The latch is keyed on the condition, not on the window instance. Keying it
+  # on `reset_at` made an hourly window rollover look like the condition
+  # clearing, so every rollover emitted a `.resolved` for an exhaustion that had
+  # never actually cleared and then immediately re-latched under the new reset.
   defp emit_threshold_alert(state, resource, window, threshold) do
-    key = {resource, window.reset_at, threshold}
+    key = {resource, threshold}
 
     if MapSet.member?(state.alerts, key) do
       state
@@ -282,8 +308,10 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp resource_status(state, resource, floor_percent) do
-    now = state.clock.()
+    resource_status(state, resource, floor_percent, state.clock.())
+  end
 
+  defp resource_status(state, resource, floor_percent, now) do
     case Map.get(state.backoffs, resource) do
       %{until: until} ->
         if DateTime.compare(now, until) == :lt, do: {:hold, backoff_hold(state, resource, until)}, else: window_status(state, resource, floor_percent, now)
@@ -297,7 +325,7 @@ defmodule Aiur.GitHub.Quota do
     case Map.get(state.windows, resource) do
       %{reset_at: reset_at} = window ->
         if DateTime.compare(now, reset_at) == :lt and below_floor?(window, floor_percent) do
-          {:hold, Map.take(window, [:resource, :remaining, :limit, :reset_at])}
+          {:hold, Map.take(window, [:resource, :remaining, :limit, :reset_at, :observed_at])}
         else
           :available
         end
@@ -313,10 +341,38 @@ defmodule Aiur.GitHub.Quota do
   # they must not call until then.
   defp backoff_hold(state, resource, until) do
     case Map.get(state.windows, resource) do
-      %{limit: limit, remaining: remaining} -> %{resource: resource, remaining: remaining, limit: limit, reset_at: until}
-      nil -> %{resource: resource, remaining: 0, limit: 1, reset_at: until}
+      %{limit: limit, remaining: remaining, observed_at: observed_at} ->
+        %{resource: resource, remaining: remaining, limit: limit, reset_at: until, observed_at: observed_at}
+
+      nil ->
+        %{resource: resource, remaining: 0, limit: 1, reset_at: until, observed_at: state.clock.()}
     end
   end
+
+  defp dispatch_status(state, now) do
+    Enum.find_value(@primary_resources, :available, fn resource ->
+      case resource_status(state, resource, @low_water_percent, now) do
+        :available -> nil
+        hold -> hold
+      end
+    end)
+  end
+
+  defp sync_recovery_timer(state, :available, _now) do
+    cancel_recovery_timer(state)
+    %{state | recovery_timer_ref: nil, recovery_timer_token: nil}
+  end
+
+  defp sync_recovery_timer(state, {:hold, %{reset_at: reset_at}}, now) do
+    cancel_recovery_timer(state)
+    token = make_ref()
+    delay_ms = max(DateTime.diff(reset_at, now, :millisecond), 0)
+    timer_ref = Process.send_after(self(), {:dispatch_recovery, token}, delay_ms)
+    %{state | recovery_timer_ref: timer_ref, recovery_timer_token: token}
+  end
+
+  defp cancel_recovery_timer(%{recovery_timer_ref: ref}) when is_reference(ref), do: Process.cancel_timer(ref)
+  defp cancel_recovery_timer(_state), do: false
 
   # GitHub signals a secondary limit with a 403 or 429 whose primary window is
   # still healthy. A rejection that *did* drain the window is already covered
@@ -698,6 +754,15 @@ defmodule Aiur.GitHub.Quota do
     _kind, _reason -> :ok
   end
 
+  defp notify_orchestrator_recovery do
+    case Process.whereis(Aiur.Orchestrator) do
+      pid when is_pid(pid) -> send(pid, :github_quota_recovered)
+      nil -> :ok
+    end
+
+    :ok
+  end
+
   defp request_resource(%{url: url}) when is_binary(url) do
     if URI.parse(url).path == "/graphql", do: "graphql", else: "core"
   end
@@ -786,8 +851,8 @@ defmodule Aiur.GitHub.Quota do
 
   defp reconcile_resource_alerts(state, resource, window) do
     Enum.reduce(state.alerts, state, fn
-      {^resource, reset_at, threshold} = key, acc ->
-        if DateTime.compare(reset_at, window.reset_at) == :eq and threshold_active?(window, threshold) do
+      {^resource, threshold} = key, acc ->
+        if threshold_active?(window, threshold) do
           acc
         else
           message = "GitHub #{resource} #{threshold} quota alert cleared; #{window.remaining} of #{window.limit} requests remain"
