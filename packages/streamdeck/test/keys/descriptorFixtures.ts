@@ -34,7 +34,7 @@ export function agentKey(overrides: AgentKeyOverrides = {}): AgentKey {
               ? KEY_FACE_CONTRACT.footers.queued.ready_label
               : KEY_FACE_CONTRACT.footers.queued.blocked_label,
         }
-      : { kind: KEY_FACE_CONTRACT.footers.progress.kind, barColor: progressBarColor(percent), percent };
+      : { kind: KEY_FACE_CONTRACT.footers.progress.kind, barColor: progressBarColor(percent), percent, freshness: "fresh" };
   return {
     kind: "agent",
     identifier,

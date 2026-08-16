@@ -206,6 +206,7 @@ defmodule AiurWeb.StreamDeckGridTest do
              vendor_logo: "/provider-assets/claude-symbol.svg",
              bucket: :running,
              progress_percent: 60,
+             progress_freshness: "fresh",
              priority: true
            }
   end
@@ -219,7 +220,10 @@ defmodule AiurWeb.StreamDeckGridTest do
       }).agents
 
     assert agent.vendor == "claude"
-    assert agent.progress_percent == 0
+    # An out-of-range percent is not a measurement; it reads as unknown, never
+    # as a confident 0%.
+    assert agent.progress_percent == nil
+    assert agent.progress_freshness == "unknown"
     refute agent.priority
   end
 

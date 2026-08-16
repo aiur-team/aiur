@@ -38,8 +38,9 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
 
   progress = @contract["progress"]
 
-  unless Enum.all?(["minimum", "maximum", "hue_start", "hue_end", "saturation", "lightness", "round_decimals"], &is_number(progress[&1])) and
-           progress["maximum"] > progress["minimum"] and is_integer(progress["round_decimals"]) and progress["round_decimals"] >= 0 do
+  unless Enum.all?(["minimum", "maximum"], &is_number(progress[&1])) and progress["maximum"] > progress["minimum"] and
+           is_binary(progress["fill"]) and progress["fill"] != "" and
+           is_binary(progress["fill_complete"]) and progress["fill_complete"] != "" do
     raise "Stream Deck progress contract is malformed"
   end
 
@@ -99,9 +100,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     minimum = progress["minimum"]
     maximum = progress["maximum"]
     clamped = min(max(percent, minimum), maximum)
-    hue = progress["hue_start"] + (clamped - minimum) / (maximum - minimum) * (progress["hue_end"] - progress["hue_start"])
-    hue = Float.round(hue, progress["round_decimals"])
-    "hsl(#{format_number(hue)} #{progress["saturation"]}% #{progress["lightness"]}%)"
+    if clamped >= maximum, do: progress["fill_complete"], else: progress["fill"]
   end
 
   @spec direction_badges() :: %{String.t() => map()}
@@ -116,7 +115,4 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
       :error -> raise ArgumentError, "unhandled Stream Deck direction badge: #{inspect(badge)}"
     end
   end
-
-  defp format_number(number) when trunc(number) == number, do: Integer.to_string(trunc(number))
-  defp format_number(number), do: :erlang.float_to_binary(number, decimals: 3) |> String.trim_trailing("0") |> String.trim_trailing(".")
 end

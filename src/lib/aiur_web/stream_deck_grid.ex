@@ -78,6 +78,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp base_agent_payload(entry, bucket) do
     provider = provider(entry)
+    {percent, freshness} = progress(entry)
 
     %{
       identifier: Map.get(entry, :identifier),
@@ -86,7 +87,8 @@ defmodule AiurWeb.StreamDeckGrid do
       vendor: provider.name,
       vendor_logo: provider.logo,
       bucket: bucket,
-      progress_percent: progress_percent(entry),
+      progress_percent: percent,
+      progress_freshness: freshness,
       priority: priority?(entry)
     }
   end
@@ -124,12 +126,38 @@ defmodule AiurWeb.StreamDeckGrid do
     |> Map.fetch!(:lane)
   end
 
-  defp progress_percent(entry) do
-    case Map.get(entry, :progress_percent) do
-      percent when is_integer(percent) and percent in 0..100 -> percent
-      _ -> 0
+  # The deck must be able to render "we have no measurement" differently from a
+  # measured zero. `progress_percent` is therefore `nil` when unknown and is
+  # never back-filled with 0, and `progress_freshness` travels beside it so the
+  # face can dim a stale-but-real reading rather than dropping it.
+  #
+  # `:fresh | :stale | :unknown` come from the orchestrator. A snapshot from a
+  # producer that does not annotate freshness (fixtures, an older payload)
+  # carries a bare percent; somebody measured it, so it reads as fresh, while
+  # an absent or out-of-range percent reads as unknown regardless of what the
+  # freshness field claims — the pair can never contradict itself on the wire.
+  @spec progress(map()) :: {nil | 0..100, String.t()}
+  def progress(entry) do
+    case {freshness_hint(entry), normalized_percent(Map.get(entry, :progress_percent))} do
+      {:unknown, _percent} -> {nil, "unknown"}
+      {_hint, nil} -> {nil, "unknown"}
+      {hint, percent} -> {percent, Atom.to_string(hint)}
     end
   end
+
+  defp freshness_hint(entry) do
+    case Map.get(entry, :progress_freshness) do
+      freshness when freshness in [:fresh, :stale, :unknown] -> freshness
+      "fresh" -> :fresh
+      "stale" -> :stale
+      "unknown" -> :unknown
+      _ -> :fresh
+    end
+  end
+
+  defp normalized_percent(percent) when is_integer(percent) and percent in 0..100, do: percent
+  defp normalized_percent(percent) when is_float(percent), do: percent |> round() |> normalized_percent()
+  defp normalized_percent(_percent), do: nil
 
   defp priority?(entry), do: priority_rank(entry) < 5
 

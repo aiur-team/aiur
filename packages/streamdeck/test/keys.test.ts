@@ -172,45 +172,73 @@ describe("footer variants", () => {
       const footer = agentKey(keys[0]!).footer as ProgressFooter;
       expect(footer.kind).toBe("progress");
       expect(footer.percent).toBe(50);
-      expect(footer.barColor).toMatch(/^hsl\(/);
+      expect(footer.barColor).toBe("#37d97e");
     }
+  });
+
+  it("unknown progress renders a null percent and the unknown track, never 0%", () => {
+    const a: AgentInput = { identifier: "x", vendor: "codex", bucket: "running", progress_percent: null, progress_freshness: "unknown", priority: false };
+    const keys = layoutKeys([a], 0);
+    const footer = agentKey(keys[0]!).footer as ProgressFooter;
+    expect(footer.kind).toBe("progress");
+    expect(footer.percent).toBeNull();
+    expect(footer.freshness).toBe("unknown");
+    expect(footer.barColor).toBe("rgba(255,255,255,0.22)");
+  });
+
+  it("a stale reading keeps its retained percent and bar colour", () => {
+    const a: AgentInput = { identifier: "x", vendor: "codex", bucket: "running", progress_percent: 70, progress_freshness: "stale", priority: false };
+    const keys = layoutKeys([a], 0);
+    const footer = agentKey(keys[0]!).footer as ProgressFooter;
+    expect(footer.percent).toBe(70);
+    expect(footer.freshness).toBe("stale");
+    expect(footer.barColor).toBe("#37d97e");
+  });
+
+  it("an unrecognised freshness label reads as stale, not fresh", () => {
+    const a: AgentInput = { identifier: "x", vendor: "codex", bucket: "running", progress_percent: 80, progress_freshness: "brand-new-label", priority: false };
+    const keys = layoutKeys([a], 0);
+    const footer = agentKey(keys[0]!).footer as ProgressFooter;
+    expect(footer.percent).toBe(80);
+    expect(footer.freshness).toBe("stale");
+    expect(footer.barColor).toBe("#37d97e");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Progress bar hue mapping
+// Progress bar colour: one green, brighter green only at 100%
 // ---------------------------------------------------------------------------
 
 describe("progress bar colour", () => {
-  it("maps 0% to red (hue 0)", () => {
-    expect(progressBarColor(0)).toBe("hsl(0 72% 50%)");
+  it("maps every measured value to the same green", () => {
+    expect(progressBarColor(0)).toBe("#37d97e");
+    expect(progressBarColor(25)).toBe("#37d97e");
+    expect(progressBarColor(50)).toBe("#37d97e");
+    expect(progressBarColor(75)).toBe("#37d97e");
+    expect(progressBarColor(99.5)).toBe("#37d97e");
   });
 
-  it("maps 50% to ~yellow-green (hue 62.5)", () => {
-    expect(progressBarColor(50)).toBe("hsl(63 72% 50%)");
-  });
-
-  it("maps 100% to green (hue 125)", () => {
-    expect(progressBarColor(100)).toBe("hsl(125 72% 50%)");
+  it("maps 100% to a brighter green, so completion reads at a glance", () => {
+    expect(progressBarColor(100)).toBe("#7dffbd");
   });
 
   it("clamps when called directly with out-of-range values", () => {
-    expect(progressBarColor(-10)).toBe("hsl(0 72% 50%)");
-    expect(progressBarColor(150)).toBe("hsl(125 72% 50%)");
+    expect(progressBarColor(-10)).toBe("#37d97e");
+    expect(progressBarColor(150)).toBe("#7dffbd");
   });
 
   it("clamps progress_percent below 0 to 0", () => {
     const keys = layoutKeys([agent("x", { progress_percent: -10 })], 0);
     const footer = agentKey(keys[0]!).footer as ProgressFooter;
     expect(footer.percent).toBe(0);
-    expect(footer.barColor).toBe("hsl(0 72% 50%)");
+    expect(footer.barColor).toBe("#37d97e");
   });
 
   it("clamps progress_percent above 100 to 100", () => {
     const keys = layoutKeys([agent("x", { progress_percent: 150 })], 0);
     const footer = agentKey(keys[0]!).footer as ProgressFooter;
     expect(footer.percent).toBe(100);
-    expect(footer.barColor).toBe("hsl(125 72% 50%)");
+    expect(footer.barColor).toBe("#7dffbd");
   });
 });
 

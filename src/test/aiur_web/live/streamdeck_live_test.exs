@@ -170,12 +170,14 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(class="sd-ag-foot col")
     assert html =~ ~s(class="sd-ag-tag blocked")
     # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-ag-dot")
+    # The dot is hollow (is-hollow) when the agent's progress is unknown, so
+    # match the class broadly rather than assuming a measured reading.
+    assert html =~ "sd-ag-dot"
     assert html =~ ~s(class="sr-only">Running</span>)
-    assert html =~ ~s(class="sd-ag-bar")
+    assert html =~ "sd-ag-bar"
   end
 
-  test "hue maps 0% red and 100% green progress, with neutral unknown providers", %{snapshot_agent: snapshot_agent} do
+  test "maps progress to the single green fill, brighter green at 100%", %{snapshot_agent: snapshot_agent} do
     Agent.update(snapshot_agent, fn _ ->
       %{
         running: [fixture_agent("zero", "Zero progress", "codex", progress_percent: 0), fixture_agent("full", "Full progress", "nonesuch", progress_percent: 100)],
@@ -189,10 +191,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
     send(view.pid, {:running_changed, []})
     html = render(view)
 
-    # The bar fill is the contract's progress colour, carried per key as
+    # The bar fill is the contract's single progress colour, carried per key as
     # --sd-progress-fill rather than an hsl() the template restates.
-    assert html =~ ~s|--sd-progress-fill: hsl(0 72% 50%)|
-    assert html =~ ~s|--sd-progress-fill: hsl(125 72% 50%)|
+    assert html =~ ~s|--sd-progress-fill: #37d97e|
+    assert html =~ ~s|--sd-progress-fill: #7dffbd|
     assert html =~ ~s|<i style="width: 0%">|
     assert html =~ ~s|<i style="width: 100%">|
     assert html =~ ~s(class="sd-ag-vendor-fallback")
@@ -231,7 +233,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ".sd-agent-key.st-alert .sd-ag-dot,.sd-agent-key.st-alert .sd-ag-stat::before{animation:sd-pulse 1.6s ease-in-out infinite;}"
     refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
     # Per-key values that depend on live fleet state stay inline.
-    assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
+    assert html =~ "--sd-progress-fill: #37d97e"
     # The log key list replaced the badge paragraph this originally asserted, so
     # the same contract ink is now checked where it renders: the event key badge
     # and the logs strip's own event header.
@@ -302,7 +304,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # key-face contract, not from a second copy of the tokens.
     assert html =~ ~s(style="--sd-accent: #9fd0ff")
     assert html =~ ~s(<span class="sd-strip-cmd-status">Running</span>)
-    assert html =~ "background: hsl(63 72% 50%)"
+    assert html =~ "background: #37d97e"
 
     assert html =~
              ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/

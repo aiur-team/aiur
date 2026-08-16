@@ -43,7 +43,8 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
   bucket: (typeof agent.bucket === "string" ? agent.bucket : "queued") as AgentInput["bucket"],
-  progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : 0,
+  progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : null,
+  progress_freshness: typeof agent.progress_freshness === "string" ? agent.progress_freshness : null,
   priority: agent.priority === true,
   dependency_ready: agent.dependency_ready === true,
 }));
@@ -120,7 +121,13 @@ export const createPhysicalSurface = () => {
       }
       const strip: StripData = state.mode === "cmd" && focused !== undefined && focused !== null ? {
         mode: "cmd",
-        data: { identity: String(focused.identifier), status: String(focused.bucket ?? "unknown"), percent: Number(focused.progress_percent ?? 0), ticketId: String(focused.identifier) },
+        data: {
+          identity: String(focused.identifier),
+          status: String(focused.bucket ?? "unknown"),
+          percent: typeof focused.progress_percent === "number" ? focused.progress_percent : null,
+          freshness: typeof focused.progress_freshness === "string" ? focused.progress_freshness : "unknown",
+          ticketId: String(focused.identifier),
+        },
       } : state.mode === "logs" ? {
         mode: "logs",
         data: {

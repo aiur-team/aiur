@@ -24,7 +24,7 @@ describe("composeStrip", () => {
     expect(
       composeStrip({
         mode: "cmd",
-        data: { identity: "agent-7", status: "working", percent: 40, ticketId: "1356" },
+        data: { identity: "agent-7", status: "working", percent: 40, freshness: "fresh", ticketId: "1356" },
       }),
     ).toHaveLength(SEGMENT_COUNT);
     expect(
@@ -43,7 +43,7 @@ describe("composeStrip", () => {
   it("cmd mode: pager region becomes the controlling ticket and a BACK hint appears", () => {
     const [s0, s1, s2, s3] = composeStrip({
       mode: "cmd",
-      data: { identity: "agent-7", status: "working", percent: 140, ticketId: "1356" },
+      data: { identity: "agent-7", status: "working", percent: 140, freshness: "fresh", ticketId: "1356" },
     });
     expect(s0).toMatchObject({ kind: "agentIdentity", identity: "agent-7" });
     // percent is clamped into 0..100.
@@ -52,16 +52,18 @@ describe("composeStrip", () => {
     expect(s3).toMatchObject({ kind: "controlling", ticketId: "1356" });
   });
 
-  it("cmd mode: out-of-range percents clamp into 0..100", () => {
+  it("cmd mode: out-of-range percents clamp into 0..100, absent reads as unknown", () => {
     const [, nan] = composeStrip({
       mode: "cmd",
-      data: { identity: "agent-7", status: "idle", percent: Number.NaN, ticketId: "1356" },
+      data: { identity: "agent-7", status: "idle", percent: Number.NaN, freshness: "fresh", ticketId: "1356" },
     });
-    expect(nan).toMatchObject({ kind: "agentProgress", percent: 0 });
+    // NaN is treated as absent — a malformed payload is a case where the deck
+    // does not know the progress, not evidence of a measured 0%.
+    expect(nan).toMatchObject({ kind: "agentProgress", percent: null });
 
     const [, negative] = composeStrip({
       mode: "cmd",
-      data: { identity: "agent-7", status: "idle", percent: -10, ticketId: "1356" },
+      data: { identity: "agent-7", status: "idle", percent: -10, freshness: "fresh", ticketId: "1356" },
     });
     expect(negative).toMatchObject({ kind: "agentProgress", percent: 0 });
   });

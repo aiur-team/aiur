@@ -35,7 +35,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
     end
   end
 
-  test "progress hue mapping matches the shared parity table" do
+  test "progress colour mapping matches the shared parity table" do
     for %{"percent" => percent, "color" => color} <- @vectors["progress"] do
       assert StreamdeckKeyFaceContract.progress_color(percent) == color
     end

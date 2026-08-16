@@ -18,11 +18,10 @@ export interface BucketContract {
 export interface ProgressContract {
   readonly minimum: number;
   readonly maximum: number;
-  readonly hue_start: number;
-  readonly hue_end: number;
-  readonly round_decimals: number;
-  readonly saturation: number;
-  readonly lightness: number;
+  /** Solid fill for a measured reading at any 0..100 value. */
+  readonly fill: string;
+  /** Brighter shade of the same green when the reading is complete. */
+  readonly fill_complete: string;
 }
 
 export interface QueuedFooterContract {
@@ -78,11 +77,12 @@ export function assertKeyFaceContract(candidate: KeyFaceContract = KEY_FACE_CONT
   }
 
   const progress = candidate.progress;
-  for (const field of ["minimum", "maximum", "hue_start", "hue_end", "saturation", "lightness", "round_decimals"] as const) {
+  for (const field of ["minimum", "maximum"] as const) {
     assertFiniteNumber(progress[field], `progress ${field}`);
   }
+  assertNonEmptyString(progress.fill, "progress fill");
+  assertNonEmptyString(progress.fill_complete, "progress fill_complete");
   if (progress.maximum <= progress.minimum) throw new Error("progress maximum must exceed minimum");
-  if (!Number.isInteger(progress.round_decimals) || progress.round_decimals < 0) throw new Error("progress round_decimals must be a non-negative integer");
 
   for (const badge of BADGE_IDS) assertNonEmptyString(candidate.direction_badges[badge].color, `direction badge ${badge} color`);
   assertNonEmptyString(candidate.footers.progress.kind, "progress footer kind");
@@ -104,12 +104,16 @@ export function bucketRank(bucket: BucketId): number {
   return bucketContract(bucket).rank;
 }
 
+/**
+ * The single-colour progress fill: one green at every measured value, and a
+ * brighter shade of the same green only at 100% so completion reads at a glance
+ * without a second hue. This replaced the old red→green hue ramp, which painted
+ * the bar and its grey track as two competing value segments on the deck.
+ */
 export function progressBarColor(percent: number): string {
-  const { minimum, maximum, hue_start, hue_end, saturation, lightness } = KEY_FACE_CONTRACT.progress;
+  const { minimum, maximum, fill, fill_complete } = KEY_FACE_CONTRACT.progress;
   const clamped = Math.max(minimum, Math.min(maximum, percent));
-  const hue = hue_start + ((clamped - minimum) / (maximum - minimum)) * (hue_end - hue_start);
-  const roundedHue = Number(hue.toFixed(KEY_FACE_CONTRACT.progress.round_decimals));
-  return `hsl(${roundedHue} ${saturation}% ${lightness}%)`;
+  return clamped >= maximum ? fill_complete : fill;
 }
 
 export function directionBadgeColor(badge: DirectionBadge): string {

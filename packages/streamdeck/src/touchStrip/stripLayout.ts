@@ -50,8 +50,9 @@ export type SegmentContent =
   | {
       readonly kind: "agentProgress";
       readonly status: string;
-      /** Progress percent, 0..100. */
-      readonly percent: number;
+      /** Progress percent, or `null` when no reading exists. Never a substituted 0. */
+      readonly percent: number | null;
+      readonly freshness: string;
     }
   | { readonly kind: "chat"; readonly line: string }
   | HintContent;
@@ -70,8 +71,9 @@ export interface GridData {
 export interface CmdData {
   readonly identity: string;
   readonly status: string;
-  /** Progress percent, 0..100. */
-  readonly percent: number;
+  /** Progress percent, or `null` when no reading exists. Not the same as 0. */
+  readonly percent: number | null;
+  readonly freshness: string;
   readonly ticketId: string;
 }
 
@@ -94,8 +96,8 @@ export type StripData =
 const BACK_HINT: HintContent = { kind: "hint", label: "BACK", direction: "back" };
 const hint = (label: string, direction: "back" | "forward"): HintContent => ({ kind: "hint", label, direction });
 
-function clampPercent(value: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+function clampPercent(value: number | null): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
   if (value < 0) return 0;
   if (value > 100) return 100;
   return value;
@@ -130,10 +132,10 @@ export function composeStrip(input: StripData): readonly [
       ];
     }
     case "cmd": {
-      const { identity, status, percent, ticketId } = input.data;
+      const { identity, status, percent, freshness, ticketId } = input.data;
       return [
         { kind: "agentIdentity", identity },
-        { kind: "agentProgress", status, percent: clampPercent(percent) },
+        { kind: "agentProgress", status, percent: clampPercent(percent), freshness },
         BACK_HINT,
         { kind: "controlling", ticketId },
       ];

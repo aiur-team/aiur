@@ -18,7 +18,7 @@ defmodule AiurWeb.StreamdeckStrip do
   @doc "Builds the focused-agent details rendered by the command strip."
   @spec command(map()) :: map()
   def command(agent) when is_map(agent) do
-    percent = agent |> Map.get(:progress_percent, 0) |> percent()
+    percent = agent |> Map.get(:progress_percent) |> percent()
     bucket = Map.fetch!(agent, :bucket)
     state = StreamdeckKeyFaceContract.state!(bucket)
 
@@ -31,7 +31,7 @@ defmodule AiurWeb.StreamdeckStrip do
       status: state["label"],
       accent: state["accent"],
       percent: percent,
-      progress_colour: StreamdeckKeyFaceContract.progress_color(percent)
+      progress_colour: progress_colour(percent)
     }
   end
 
@@ -81,9 +81,17 @@ defmodule AiurWeb.StreamdeckStrip do
 
   defp entry(_entry), do: %{shape: :message, speaker: :ci, text: ""}
 
+  # `nil` means the orchestrator has no progress reading for this agent, and the
+  # strip must not invent one: an unknown reading rendered as 0% is what made a
+  # healthy ticket look like it had done nothing. The renderer shows unknown as
+  # its own shape (dashed) rather than a zero-width bar.
+  defp percent(nil), do: nil
   defp percent(value) when is_integer(value), do: clamp(value, 0, 100)
   defp percent(value) when is_float(value), do: value |> round() |> percent()
-  defp percent(_value), do: 0
+  defp percent(_value), do: nil
+
+  defp progress_colour(nil), do: nil
+  defp progress_colour(percent), do: StreamdeckKeyFaceContract.progress_color(percent)
 
   # Glyphs are the strip's own affordance; the wording beside them is the
   # contract's `label`, so nothing here restates a state name.

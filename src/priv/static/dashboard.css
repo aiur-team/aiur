@@ -3487,7 +3487,9 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  /* Single progress colour, matching the Stream Deck bars. The blocked/alert
+     tones below still override it because they carry state, not progress. */
+  background: #37d97e;
 }
 
 .ut-pbar > i.is-blocked {
@@ -6682,7 +6684,8 @@ html[data-theme="light"] .rs-github-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  /* Single progress colour, matching the Stream Deck bars. */
+  background: #37d97e;
   transition: width 0.3s ease;
 }
 
@@ -8307,6 +8310,12 @@ html[data-theme="light"] .rs-github-mark {
   background: var(--sd-accent);
 }
 
+/* Unknown progress: a hollow dot, the face's structural "no reading" mark. */
+.sd-ag-dot.is-hollow {
+  background: transparent;
+  border: 1.5px solid var(--sd-accent);
+}
+
 /* Pulse timings come from key-face-contract.json via @key_face_css. */
 
 .sd-ag-bar {
@@ -8317,6 +8326,16 @@ html[data-theme="light"] .rs-github-mark {
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.14);
+}
+
+/* Unknown progress: a dashed track and no fill, distinct from a real 0% which
+   keeps the solid track. The fill colour is the contract's single green. */
+.sd-ag-bar.is-unknown {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.22) 0 4px,
+    transparent 4px 9px
+  );
 }
 
 .sd-ag-bar i {
@@ -8510,6 +8529,15 @@ html[data-theme="light"] .rs-github-mark {
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
+}
+
+/* Unknown progress on the command strip: dashed track, no fill. */
+.sd-strip-cmd-progress.is-unknown {
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.22) 0 4px,
+    transparent 4px 9px
+  );
 }
 
 .sd-strip-cmd-progress > i {

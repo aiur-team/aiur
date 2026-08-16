@@ -75,7 +75,7 @@ describe("StripRenderer", () => {
     renderer.render(gridData());
     const paints = renderer.render({
       mode: "cmd",
-      data: { identity: "agent-7", status: "working", percent: 40, ticketId: "1356" },
+      data: { identity: "agent-7", status: "working", percent: 40, freshness: "fresh", ticketId: "1356" },
     });
     // All four segment kinds differ between grid and cmd, so all repaint.
     expect(paints).toHaveLength(4);

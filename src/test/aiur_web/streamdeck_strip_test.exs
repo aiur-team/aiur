@@ -3,7 +3,7 @@ defmodule AiurWeb.StreamdeckStripTest do
 
   alias AiurWeb.StreamdeckStrip
 
-  test "describes the focused command panel with the key progress hue" do
+  test "describes the focused command panel with the single-green key progress" do
     command =
       StreamdeckStrip.command(%{
         identifier: "1582",
@@ -22,8 +22,22 @@ defmodule AiurWeb.StreamdeckStripTest do
              status: "Running",
              accent: "#9fd0ff",
              percent: 50,
-             progress_colour: "hsl(63 72% 50%)"
+             progress_colour: "#37d97e"
            }
+  end
+
+  test "an unknown progress reading carries a nil percent and no fill colour" do
+    command =
+      StreamdeckStrip.command(%{
+        identifier: "1582",
+        vendor: "codex",
+        title: "Render the logs strip",
+        bucket: :running,
+        progress_percent: nil
+      })
+
+    assert command.percent == nil
+    assert command.progress_colour == nil
   end
 
   test "every bucket takes its own accent and wording from the key-face contract" do

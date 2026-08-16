@@ -369,10 +369,20 @@ defmodule AiurWeb.StreamdeckLive do
                   <span class="sd-ag-stat">{key.label}</span>
                   <span class={["sd-ag-tag", key.dependency_ready? && "ready", !key.dependency_ready? && "blocked"]}>{key.dependency}</span>
                 </div>
-                <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
-                  <span class="sd-ag-dot" aria-hidden="true"></span>
+                <div :if={!key.empty? and key.bucket != "queued"} class={["sd-ag-foot", key.progress_unknown? && "is-unknown"]}>
+                  <span class={["sd-ag-dot", key.progress_unknown? && "is-hollow"]} aria-hidden="true"></span>
                   <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
+                  <span
+                    class={["sd-ag-bar", key.progress_unknown? && "is-unknown"]}
+                    role="progressbar"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow={if(key.progress_unknown?, do: nil, else: key.progress)}
+                    aria-valuetext={if(key.progress_unknown?, do: "unknown", else: "#{key.progress}% complete")}
+                    aria-label={if(key.progress_unknown?, do: "#{key.label} — progress unknown", else: "#{key.progress}% complete")}
+                  >
+                    <i :if={!key.progress_unknown?} style={"width: #{key.progress}%"}></i>
+                  </span>
                 </div>
               </div>
             </button>
@@ -471,10 +481,18 @@ defmodule AiurWeb.StreamdeckLive do
                 <span class="sd-strip-cmd-ticket">#{command.number}</span>
                 <span class="sd-strip-cmd-title">{command.title}</span>
                 <span class="sd-strip-cmd-status">{command.status}</span>
-                <span class="sd-strip-cmd-percent">{command.percent}%</span>
+                <span class="sd-strip-cmd-percent">{if(command.percent, do: "#{command.percent}%", else: "—")}</span>
               </div>
-              <span class="sd-strip-cmd-progress" role="progressbar" aria-valuenow={command.percent} aria-valuemin="0" aria-valuemax="100">
-                <i style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
+              <span
+                class={["sd-strip-cmd-progress", is_nil(command.percent) && "is-unknown"]}
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={command.percent}
+                aria-valuetext={if(is_nil(command.percent), do: "unknown", else: "#{command.percent}% complete")}
+                aria-label={if(is_nil(command.percent), do: "Progress unknown", else: "#{command.percent}% complete")}
+              >
+                <i :if={!is_nil(command.percent)} style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
               </span>
             </div>
             <% end %>
@@ -730,6 +748,8 @@ defmodule AiurWeb.StreamdeckLive do
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
     footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
+    progress = Map.get(agent, :progress_percent)
+    freshness = Map.get(agent, :progress_freshness) || "fresh"
 
     key(
       slot,
@@ -737,7 +757,7 @@ defmodule AiurWeb.StreamdeckLive do
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
       footer.label,
-      Map.get(agent, :progress_percent, 0),
+      progress,
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
@@ -745,7 +765,8 @@ defmodule AiurWeb.StreamdeckLive do
       vendor_logo: Map.get(agent, :vendor_logo),
       dependency_ready?: footer.ready?,
       dependency: footer.dependency,
-      style: key_style(Map.get(agent, :progress_percent, 0))
+      freshness: freshness,
+      style: key_style(progress)
     )
   end
 
@@ -757,6 +778,8 @@ defmodule AiurWeb.StreamdeckLive do
       title: title,
       label: label,
       progress: progress,
+      progress_unknown?: is_nil(progress),
+      freshness: Keyword.get(opts, :freshness, "fresh"),
       priority?: Keyword.get(opts, :priority?, false),
       dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
       icon: Keyword.get(opts, :icon),
@@ -943,6 +966,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp key_face_css, do: @key_face_css
 
+  defp key_style(nil), do: ""
   defp key_style(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
 
   defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
