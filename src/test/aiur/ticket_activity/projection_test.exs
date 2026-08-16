@@ -243,6 +243,42 @@ defmodule Aiur.TicketActivity.ProjectionTest do
              Projection.snapshot(state, ticket, DateTime.add(@now, 3, :second))
   end
 
+  test "seeds retained progress so a restart does not re-enter unknown (#1963)" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> Projection.seed_progress([{ticket, retained_progress(40, @now, 1)}], @now)
+
+    assert %{identity: ^ticket, progress: %{status: :known, freshness: :fresh, percent: 40}} =
+             Projection.snapshot(state, ticket, @now)
+  end
+
+  test "seeded progress renders stale with the real percent after the staleness window" do
+    ticket = identity()
+
+    state =
+      Projection.new(stale_after_ms: 1_000)
+      |> Projection.refresh_members([ticket], @now)
+      |> Projection.seed_progress([{ticket, retained_progress(40, @now, 1)}], @now)
+
+    assert %{progress: %{status: :known, freshness: :stale, percent: 40}} =
+             Projection.snapshot(state, ticket, DateTime.add(@now, 5, :second))
+  end
+
+  test "seeded progress never overwrites a newer live reading" do
+    ticket = identity()
+
+    state =
+      Projection.new()
+      |> Projection.refresh_members([ticket], @now)
+      |> apply!(observation(ticket, :agent_event, "progress", %{percent: 70}, 2))
+      |> Projection.seed_progress([{ticket, retained_progress(40, @now, 1)}], @now)
+
+    assert %{progress: %{status: :known, percent: 70}} = Projection.snapshot(state, ticket, @now)
+  end
+
   test "reports progress and stage freshness from their own observation times" do
     ticket = identity()
 
@@ -352,6 +388,18 @@ defmodule Aiur.TicketActivity.ProjectionTest do
   end
 
   defp accepted!({:accepted, state}), do: state
+
+  defp retained_progress(percent, observed_at, event_id) do
+    %{
+      percent: percent,
+      source: :phase,
+      provenance: %{run_id: "run-1", attempt: 1},
+      occurred_at: observed_at,
+      observed_at: observed_at,
+      event_id: event_id,
+      order: {DateTime.to_unix(observed_at, :microsecond), event_id}
+    }
+  end
 
   defp observation(identity, kind, name, attributes, seconds, provenance \\ %{}) do
     %TicketObservation{

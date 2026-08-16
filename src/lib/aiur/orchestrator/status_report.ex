@@ -25,6 +25,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
+  alias Aiur.ProgressRetention
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
@@ -693,7 +694,20 @@ defmodule Aiur.Orchestrator.StatusReport do
   # up. That distinction is the whole point: the failure path must say "we
   # could not measure", never "every agent is at 0%", which is what the fleet
   # used to report in unison on any transient hiccup here.
+  #
+  # Retained readings from `ProgressRetention` backfill every identity the live
+  # projection cannot see — a `TicketActivity.snapshots/1` timeout, a projection
+  # that has not finished seeding after a restart, or a `:recent` entry pruned
+  # after its in-memory retention window. Live projection entries always win;
+  # a ticket that never reported has neither, so `:unknown` survives as
+  # "never reported" (#1963).
   defp activity_by_identity do
+    retained = retained_activity_by_identity()
+    live = live_activity_by_identity()
+    Map.merge(retained, live)
+  end
+
+  defp live_activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),
          %{entries: entries} when is_list(entries) <-
            TicketActivity.snapshots(timeout: @activity_snapshot_timeout_ms) do
@@ -704,6 +718,30 @@ defmodule Aiur.Orchestrator.StatusReport do
   catch
     :exit, _ -> %{}
   end
+
+  defp retained_activity_by_identity do
+    case ProgressRetention.all() do
+      retained when is_map(retained) and retained != %{} ->
+        Map.new(retained, fn {key, %{progress: progress}} ->
+          {key, retained_activity_entry(progress)}
+        end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  # The retained fallback reports the real last-known percent as `:stale`: by
+  # the time the live projection cannot serve a reading, it is at least as old
+  # as the projection's staleness window would have marked it, and staleness is
+  # the operator-accepted grey for "real value, a while ago". `:unknown` stays
+  # reserved for never-reported. This deliberately does not substitute `0` —
+  # the value shown is the measurement, never a placeholder.
+  defp retained_activity_entry(%{percent: percent}) do
+    %{progress: %{status: :known, freshness: :stale, percent: normalized_percent(percent)}}
+  end
+
+  defp retained_activity_entry(_progress), do: %{progress: %{status: :unknown, freshness: :unknown, percent: nil}}
 
   defp put_activity_entry(entry, acc) do
     case TrackerIdentity.github_key(Map.get(entry, :identity)) do
