@@ -68,7 +68,7 @@ expect_rejected \
 expect_rejected \
   "tag-target" \
   '.target = "tag"' \
-  "ruleset must target branches and actively protect main and develop"
+  "ruleset must target branches and actively protect main"
 
 expect_rejected \
   "missing-ref-exclusions" \
@@ -82,8 +82,8 @@ expect_rejected \
 
 expect_rejected \
   "missing-branch-protection" \
-  '.conditions.ref_name.include = ["refs/heads/main"]' \
-  "ruleset must target branches and actively protect main and develop"
+  '.conditions.ref_name.include = ["refs/heads/some-other-branch"]' \
+  "ruleset must target branches and actively protect main"
 
 expect_rejected \
   "missing-pull-request-rule" \
