@@ -33,6 +33,15 @@ defmodule Aiur.Config.RoutingValue do
     end
   end
 
+  @doc """
+  The model portion of a routing value, or nil when the value names only a
+  backend (`"claude"`, or the effort-only `"codex::high"`). Non-binary input
+  yields nil so callers can treat a malformed entry as "no model pinned".
+  """
+  @spec routing_model(String.t() | term()) :: String.t() | nil
+  def routing_model(value) when is_binary(value), do: value |> split_routing_value() |> elem(1)
+  def routing_model(_value), do: nil
+
   @doc "Whether a routing value carries the optional trailing `+remote` flag."
   @spec routing_remote_flag?(String.t()) :: boolean()
   def routing_remote_flag?(value) when is_binary(value), do: String.ends_with?(value, "+remote")
