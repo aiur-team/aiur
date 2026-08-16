@@ -152,6 +152,14 @@ defmodule Aiur.ApplicationTest do
       assert length(headless) < length(interactive)
     end
 
+    test "the Executor listener starts only for an --executor (Executor-owned) run" do
+      plain = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: false))
+      refute Aiur.ExecutorListener in plain, "a non-Executor launch must not acquire a Command inbox"
+
+      executor = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: true))
+      assert Aiur.ExecutorListener in executor, "an --executor launch must start the Command inbox"
+    end
+
     test "headless run starts the dashboard by default without reviving panes" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
 

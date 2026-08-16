@@ -1848,6 +1848,57 @@ defmodule AiurWeb.DashboardLiveTest do
            end)
   end
 
+  test "a non-selected Command stays answerable from another Command's detail page" do
+    orchestrator_name = Module.concat(__MODULE__, :NonSelectedAnswerOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :NonSelectedAnswerStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_099}}}
+      end)
+
+    selected = request_dashboard_decision(store, "non-selected-detail")
+    other = request_dashboard_decision(store, "non-selected-other-open")
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    # Opening one Command's detail page must not make the other Command
+    # unanswerable: its inline form is still rendered and must reach the store.
+    {:ok, view, html} = live(build_conn(), "/decisions/#{selected.decision_id}")
+    assert html =~ ~s(phx-submit="answer-decision")
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => other.decision_id,
+        "answer" => %{"choice" => "option:ship", "rationale" => "Answering a non-selected Command"}
+      })
+
+    # The socket pre-check must not reject the answer: the false "no longer
+    # open" claim would leave the Command open in the store.
+    refute html =~ "is not loaded on this page"
+
+    assert eventually(fn ->
+             {:ok, current} = DecisionStore.get(other.decision_id, store)
+             current.answer.selected_option_id == "ship"
+           end)
+
+    assert {:ok, answered} = DecisionStore.get(other.decision_id, store)
+    assert answered.decision_status == :decided
+    assert answered.answer.rationale == "Answering a non-selected Command"
+
+    # The selected Command was left untouched by the answer to the other one.
+    assert {:ok, selected_current} = DecisionStore.get(selected.decision_id, store)
+    assert is_nil(selected_current.answer)
+  end
+
   test "a writable revision uses selected retained detail outside the overview window" do
     orchestrator_name = Module.concat(__MODULE__, :OutsideWindowRevisionOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OutsideWindowRevisionStore)

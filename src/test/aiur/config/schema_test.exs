@@ -467,6 +467,54 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "elevenlabs voice-input section" do
+    setup do
+      previous = System.get_env("ELEVENLABS_API_KEY")
+      System.delete_env("ELEVENLABS_API_KEY")
+      on_exit(fn -> restore_env("ELEVENLABS_API_KEY", previous) end)
+      :ok
+    end
+
+    test "defaults to no key and the ISO-639-3 English language code when the section is absent" do
+      assert {:ok, settings} = Schema.parse(%{})
+
+      assert settings.elevenlabs.api_key == nil
+      assert settings.elevenlabs.language_code == "eng"
+    end
+
+    test "parses an explicit section" do
+      assert {:ok, settings} =
+               Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config", "language_code" => "spa"}})
+
+      assert settings.elevenlabs.api_key == "from-config"
+      assert settings.elevenlabs.language_code == "spa"
+    end
+
+    test "$ELEVENLABS_API_KEY resolves from the environment" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY"}})
+
+      assert settings.elevenlabs.api_key == "env-token"
+    end
+
+    test "an explicit config value wins over the ELEVENLABS_API_KEY env var" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config"}})
+
+      assert settings.elevenlabs.api_key == "from-config"
+    end
+
+    test "the env var supplies the key when the section omits it" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"language_code" => "eng"}})
+
+      assert settings.elevenlabs.api_key == "env-token"
+    end
+  end
+
   # FI-CFG-035: workspace.root $VAR and empty → tmp default
   describe "workspace.root resolution" do
     test "missing env var for $ROOT_VAR falls back to tmp default" do

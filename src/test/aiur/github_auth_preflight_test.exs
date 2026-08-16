@@ -28,6 +28,8 @@ defmodule Aiur.GitHubAuthPreflightTest do
 
       {:ok, []}
     end
+
+    def hydrate_blocked_by(issue), do: {:ok, issue}
   end
 
   setup do

@@ -300,6 +300,21 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.alerts_file` | string path or nil | bundled alerts file | Topic-to-sound YAML map. |
 
+## elevenlabs
+
+Optional. Backs Stream Deck voice input: the device records dictation, ElevenLabs speech-to-text transcribes it, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. The section may be omitted entirely; the defaults below apply.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+
+`ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
+
+The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable — `ELEVENLABS_API_KEY` included — from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
+
+Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/guide/executor-control-center#api-meters) for what the figure does and does not measure.
+
 ## observability
 
 | Key | Type | Default | Controls |

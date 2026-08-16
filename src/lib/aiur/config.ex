@@ -16,7 +16,7 @@ defmodule Aiur.Config do
   # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
   # fallbacks. Anything added to those paths must be added here, or the settings
   # memo will not expire when the variable changes.
-  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE ELEVENLABS_API_KEY AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -261,6 +261,19 @@ defmodule Aiur.Config do
       [] -> settings!().agent.kind || Aiur.CodingAgent.default_backend()
     end
   end
+
+  @doc """
+  ElevenLabs speech-to-text credential for Stream Deck voice input, or `nil` when
+  unconfigured. Resolved from `elevenlabs.api_key` (which may be a
+  `$ELEVENLABS_API_KEY` reference) with the `ELEVENLABS_API_KEY` env var as the
+  fallback. It is a secret: never log the returned value.
+  """
+  @spec elevenlabs_api_key() :: String.t() | nil
+  def elevenlabs_api_key, do: settings!().elevenlabs.api_key
+
+  @doc "ISO-639-3 transcription language for Stream Deck voice input."
+  @spec elevenlabs_language_code() :: String.t()
+  def elevenlabs_language_code, do: settings!().elevenlabs.language_code || "eng"
 
   @doc "Raw settings for a registry-named backend, or an empty map when absent."
   @spec backend_config(String.t()) :: map()
