@@ -6,7 +6,7 @@ defmodule Aiur.Alerts do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, AlertLedger, Config, Issue, Workflow}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, AlertFeed, AlertLedger, Config, Issue, Workflow}
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
@@ -118,6 +118,26 @@ defmodule Aiur.Alerts do
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
 
   defp do_emit(topic, override_message, opts) do
+    if repeat_resolution?(topic, opts) do
+      :ok
+    else
+      emit_alert(topic, override_message, opts)
+    end
+  end
+
+  # A `.resolved` alert reports the firing → cleared transition. Emitting it
+  # again while the condition has stayed clear reports a state as if it were a
+  # transition, and a poller doing so every cycle buries every record an
+  # Executor would act on. The check is against the durable ledger rather than
+  # caller-held state, so an emitter that loses its in-memory latch — a restart,
+  # a fresh CLI process — still cannot replay a transition that already landed.
+  defp repeat_resolution?(topic, opts) do
+    AlertFeed.duplicate_resolution?(topic, Keyword.take(opts, [:ledger_path, :ledger_paths, :log_roots]))
+  rescue
+    _unavailable -> false
+  end
+
+  defp emit_alert(topic, override_message, opts) do
     config = definition_for_topic(topic)
     message = override_message || config_message(config)
 

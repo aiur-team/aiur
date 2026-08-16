@@ -10,6 +10,7 @@ defmodule Aiur.AlertFeed do
   alias Aiur.Workspace.Layout
 
   @decision_attention_prefix "Executor decision required: "
+  @resolution_suffix ".resolved"
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
@@ -17,6 +18,7 @@ defmodule Aiur.AlertFeed do
     |> AlertLedger.paths()
     |> Enum.flat_map(&read_alerts/1)
     |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
+    |> collapse_repeated_resolutions()
     |> resolve_attention_alerts()
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
     |> maybe_filter_agents(Keyword.get(opts, :agents))
@@ -70,6 +72,81 @@ defmodule Aiur.AlertFeed do
     opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
 
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
+  end
+
+  @doc """
+  Returns where the condition behind `topic` currently sits in its
+  firing/cleared cycle, according to the durable ledger.
+
+  `:firing` means the most recent record for the condition is the condition
+  itself; `:resolved` means it is the condition's resolution; `:unknown` means
+  the ledger has never recorded either.
+  """
+  @spec condition_state(String.t(), keyword()) :: :firing | :resolved | :unknown
+  def condition_state(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    resolution = topic <> @resolution_suffix
+
+    opts
+    |> AlertLedger.paths()
+    |> Enum.flat_map(&read_alerts/1)
+    |> Enum.filter(&(Map.get(&1, "topic") in [topic, resolution]))
+    |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
+    |> List.last()
+    |> case do
+      nil -> :unknown
+      %{"topic" => ^resolution} -> :resolved
+      _firing -> :firing
+    end
+  end
+
+  @doc """
+  True when `topic` is a resolution whose condition the ledger already records
+  as resolved, with no firing record since.
+
+  A resolution reports a *transition*, so re-emitting one while the condition
+  has stayed clear says nothing new and only buries the records an Executor
+  needs. Emitters consult this to stay edge-triggered even across a process
+  restart that drops their in-memory latch.
+  """
+  @spec duplicate_resolution?(String.t(), keyword()) :: boolean()
+  def duplicate_resolution?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    case condition_topic(topic) do
+      nil -> false
+      condition -> condition_state(condition, opts) == :resolved
+    end
+  end
+
+  # Collapses resolutions that repeat with no intervening firing record, so a
+  # ledger already carrying a backlog of them still presents one record per
+  # transition. The earliest record of each run survives: it is the one that
+  # timestamps the actual transition.
+  defp collapse_repeated_resolutions(alerts) do
+    alerts
+    |> Enum.reduce({[], %{}}, fn alert, {kept, states} ->
+      topic = Map.get(alert, "topic") || ""
+
+      case condition_topic(topic) do
+        nil ->
+          {[alert | kept], Map.put(states, topic, :firing)}
+
+        condition ->
+          if Map.get(states, condition) == :resolved do
+            {kept, states}
+          else
+            {[alert | kept], Map.put(states, condition, :resolved)}
+          end
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  defp condition_topic(topic) do
+    case String.replace_suffix(topic, @resolution_suffix, "") do
+      ^topic -> nil
+      "" -> nil
+      condition -> condition
+    end
   end
 
   defp legacy_alert_log_paths(opts) do
