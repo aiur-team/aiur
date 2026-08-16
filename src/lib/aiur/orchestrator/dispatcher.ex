@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DecisionStore, DispatchBudgetStore, Issue, RepoBase, Tracker}
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchPolicy,
     IssueSync,
     Lifecycle,
+    MergedTicketReconciler,
     PrAnchored,
     Reconciler,
     RetryEngine,
@@ -95,12 +96,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
     state = CommentPolling.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
+    # One decision-store read per poll cycle, shared by the running-state
+    # reconciliation (stop agents whose ticket just opened a blocking Command)
+    # and the dispatch gate (`choose_issues`). Threading it from here — rather
+    # than a per-ticket read inside `DispatchPolicy` — keeps the pure policy
+    # function GenServer-free and the orchestrator mailbox out from behind the
+    # decision store (#1965).
+    state = refresh_blocked_ticket_ids(state)
     state = Reconciler.refresh_running_issue_states(state)
     state = CommandScan.scan_pr_commands(state)
     state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
     case fetch_candidate_issues(state) do
       {:ok, issues, state} ->
+        {state, issues} = reconcile_merged_tickets(state, issues)
+
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -132,6 +142,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
+  end
+
+  # Runs before anything else consumes the polled candidates: a ticket already
+  # closed by a merged pull request must not be state-synced, counted towards
+  # capacity, or dispatched as though it were still open. The returned list is
+  # the candidates that survived reconciliation.
+  @doc false
+  @spec reconcile_merged_tickets(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
+  def reconcile_merged_tickets(%State{} = state, issues, opts \\ []) when is_list(issues) and is_list(opts) do
+    MergedTicketReconciler.reconcile(state, issues, opts)
   end
 
   # Readiness is advisory at dispatch: the operator may be deliberately
@@ -352,6 +372,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # the signal in a wall of identical lines) — but still often enough that a
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
+
+  # Reads the open-blocking-Command ticket set once per poll cycle into State.
+  # The dispatch gate is fail-closed: `:unavailable` (the decision store could
+  # not be read) holds every new dispatch, because an open blocking Command is
+  # indistinguishable from an empty store when the store cannot be read. The
+  # Reconciler reads the same value but fails OPEN (it never stops healthy
+  # running agents on a store outage).
+  @spec refresh_blocked_ticket_ids(State.t()) :: State.t()
+  def refresh_blocked_ticket_ids(%State{} = state) do
+    case DecisionStore.blocked_ticket_ids() do
+      {:ok, %MapSet{} = ids} -> %{state | blocked_ticket_ids: ids}
+      {:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}
+    end
+  end
 
   defp fetch_candidate_issues(%State{} = state) do
     if Config.tracker_kind() == "github" do
@@ -757,7 +791,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
       issues
       |> DispatchPolicy.sort_issues_for_dispatch()
       |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        case DispatchPolicy.dispatch_decision(issue, state_acc, active_states, terminal_states) do
+        case DispatchPolicy.dispatch_decision(
+               issue,
+               state_acc,
+               active_states,
+               terminal_states,
+               state_acc.blocked_ticket_ids
+             ) do
           :dispatch ->
             next_state = dispatch_issue(state_acc, issue)
 
@@ -781,7 +821,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
-       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime] do
+       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime, :blocked_on_decision] do
     if Slots.available_slots(state) > 0 do
       record_dispatch_decline(
         state,
@@ -865,15 +905,22 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case hydrator.(refreshed_issue) do
       {:ok, %Issue{} = hydrated} ->
-        if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+        # Dispatch-time mirror of the per-cycle gate in `choose_issues`. The
+        # main dispatch path already refused the ticket, but resume/wake paths
+        # (`CommentWake`, `AutoResume`, pause resume) call `dispatch_issue`
+        # directly and must not spawn a fresh agent while the ticket's blocking
+        # Command is still open — that is exactly the #1637 cold-start defect.
+        # Fail-closed like the dependency gate: an unreadable decision store
+        # holds dispatch.
+        if DispatchPolicy.blocked_on_decision?(hydrated, state.blocked_ticket_ids) do
           Logger.info(
-            "Skipping dispatch; issue is blocked by a non-terminal dependency: " <>
-              "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+            "Skipping dispatch; issue has an open blocking Command: " <>
+              "#{State.issue_context(hydrated)}"
           )
 
-          state
+          emit_dispatch_attempt_decline(state, hydrated, :blocked_on_decision, false)
         else
-          do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+          dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts)
         end
 
       {:error, reason} ->
@@ -893,6 +940,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
         )
 
         emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+    end
+  end
+
+  defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
+    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+      Logger.info(
+        "Skipping dispatch; issue is blocked by a non-terminal dependency: " <>
+          "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+      )
+
+      state
+    else
+      do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
     end
   end
 

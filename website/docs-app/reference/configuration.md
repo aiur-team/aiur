@@ -133,7 +133,8 @@ any active backoff.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.priority` | array | `[]` | Ordered dispatch preference. Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when a backend hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`) — see [Routes in `agent.priority`](#routes-in-agent-priority). Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when an entry hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Whether dispatch routes away from a provider's peak-pricing window, falling through to the next `agent.priority` entry. `false` means ignore pricing windows entirely and use `agent.priority` exactly as written — it never changes how spend is *reported*. Shape only today; the behaviour lands with time-of-day routing. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -165,6 +166,88 @@ any active backoff.
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
 | `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
+
+### Routes in `agent.priority`
+
+Each entry is a **route**, not just a backend name. A route uses the same
+grammar `agent.routing` has always used:
+
+```
+<backend>[:<model>[:<effort>]][+remote]
+```
+
+- `claude` — the backend's own direct connection, exactly as before.
+- `openrouter:anthropic/claude-sonnet-5` — that model reached through OpenRouter.
+
+A colon-free entry means what it has always meant, so **existing configs need
+no change**.
+
+```yaml
+agent:
+  priority:
+    - claude                                # Anthropic direct
+    - openrouter:anthropic/claude-sonnet-5  # same model, billed by OpenRouter
+    - codex                                 # OpenAI direct
+    - openrouter:moonshotai/kimi-k2.7-code  # no direct Moonshot key: OpenRouter only
+
+  backend_configs:
+    openrouter:
+      provider:
+        order: [Anthropic, "Together AI"]
+        allow_fallbacks: true
+        ignore: [Azure]
+        sort: price
+
+  pricing_policy:
+    avoid_peak_pricing: true
+```
+
+**A model reachable two ways may appear twice, and the order is the fallback
+order.** Duplicate *routes* are rejected; duplicate backends are not.
+
+**Model names.** The canonical form is the provider's full slug, which is also
+the key cost reporting uses. A short family alias works too — `openrouter:claude`
+resolves to the newest `anthropic/claude-*` — and is widened to the concrete
+slug before the request is sent, so aliased calls are priced normally. An alias
+claimed by more than one vendor is rejected at config load rather than resolved
+by coin flip. Aggregator ids beginning with `~` are rejected: they are floating
+pointers whose target can change under a running fleet.
+
+**OpenRouter needs an explicit model.** It fronts a catalog rather than a
+product, so a bare `openrouter` entry is a config error.
+
+**An untagged model never falls back to OpenRouter implicitly.** Bare `claude`
+means direct-only, always. Routing through OpenRouter is something you write.
+
+#### What happens when a route fails
+
+| Cause | Behaviour |
+| --- | --- |
+| **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
+| **Usage or rate limit (429)** | Advances to the next entry and records the backend in `model-usage.json` with its reset time. Self-healing. |
+| **Transient error (5xx, timeout, malformed response)** | Retries, then advances **for that claim only**, and raises an operator attention. Deliberately *not* written to `model-usage.json`: that file means "rate-limited until `reset_at`", and recording an outage there would make the outage indistinguishable from a quota event. |
+| **Auth rejected (401)** | Does **not** advance. Hard failure plus an attention. A key that is present and wrong is a config error, and falling through would move spend silently onto another route while the broken credential stayed hidden. |
+
+#### `backend_configs.openrouter`
+
+Settings for the OpenRouter *transport*. Nothing here selects anything —
+selection lives entirely in `agent.priority`.
+
+| Key | Type | Controls |
+| --- | --- | --- |
+| `backend_configs.openrouter.provider.order` | array of strings | Preferred upstream providers, most preferred first. |
+| `backend_configs.openrouter.provider.ignore` | array of strings | Upstream providers to exclude. |
+| `backend_configs.openrouter.provider.allow_fallbacks` | boolean | Whether OpenRouter may cross to another upstream within one request. |
+| `backend_configs.openrouter.provider.sort` | string | `price`, `throughput`, or `latency`. |
+
+#### Cost attribution
+
+Spend is priced by the **route**, never by whichever upstream ended up serving
+the request. A call through `openrouter:anthropic/claude-sonnet-5` prices
+against OpenRouter's rows for that slug even when the selected upstream was
+Anthropic, because OpenRouter is who bills it. Direct and via-OpenRouter routes
+to the same model are separate identities and may legitimately carry different
+rates.
 
 Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
 also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
