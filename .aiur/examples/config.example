@@ -103,6 +103,16 @@ alerts:
   use_os_default_sounds: {{ALERTS_OS_SOUNDS}}  # true = built-in OS system sounds; false = topic→sound map below
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
   alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
+
+# === Executor takeover advisories (advanced defaults shown) ===
+# While a nonterminal ticket stays in the run scope, aiur watches its convergence age
+# (durable first-active-work time floored by the open PR's creation time) and raises an
+# advisory needs-attention alert once it crosses the first threshold, then repeats at the
+# continuous cadence until the ticket resolves or leaves scope. Advisory only — aiur never
+# takes over a ticket automatically. `0` disables the corresponding alert; negative values
+# are rejected.
+# executor_takeover_first_alert_hours: 8     # first advisory after this many hours of convergence
+# executor_takeover_continuous_alert_hours: 1 # repeat cadence (hours) while unresolved; 0 = first alert only
 {{ELEVENLABS_SECTION}}
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
