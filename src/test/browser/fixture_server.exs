@@ -28,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/conversation-voice-controller.js"></script>
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
@@ -934,6 +935,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:now, @now)
      |> assign(:context, nil)
      |> assign(:conversation_drawer, nil)
+     |> assign(:drafts, %{})
+     |> assign(:sent_message, nil)
      |> assign(:selected_row, nil)
      |> assign(:tickets_view, tickets_view())
      # Deliberately below the production batch size: it puts a real reveal
@@ -1032,6 +1035,16 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
   def handle_event("close-conversation", _params, socket), do: {:noreply, assign(socket, :conversation_drawer, nil)}
 
+  def handle_event("composer-change", %{"message" => message}, socket) do
+    {:noreply, assign(socket, :drafts, %{"1110" => message})}
+  end
+
+  def handle_event("send-operator-message", %{"message" => message}, socket) do
+    {:noreply, socket |> assign(:sent_message, message) |> assign(:drafts, %{"1110" => ""})}
+  end
+
+  def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
+
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
   end
@@ -1078,7 +1091,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       |> assign(:announcement, UnitsPresenter.announcement(view))
 
     ~H"""
-    <main class="app-shell" data-units-fixture="true">
+    <main class="app-shell" data-units-fixture="true" data-sent-message={@sent_message || ""}>
       <section class="section-card units-card" aria-labelledby="units-title">
         <header class="section-header units-header">
           <div>
@@ -1122,6 +1135,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         :if={@conversation_drawer}
         id="units-fixture-conversation-drawer"
         view={@conversation_drawer.view}
+        composer={%{target_key: "1110", writable_target?: true, messages: []}}
+        writable={true}
+        drafts={@drafts}
         close_event="close-conversation"
         fallback_focus_id="units-title"
         origin_id={@conversation_drawer.origin_id}
@@ -1439,6 +1455,9 @@ defmodule Aiur.BrowserHarness.FixtureAuth do
 
   def authenticate(conn, %{"mode" => mode}) when mode in @access_modes do
     conn
+    |> put_req_header("authorization", "Basic " <> Base.encode64("browser_fixture:browser_fixture_password"))
+    |> AiurWeb.FinancialDataAccess.call([])
+    |> AiurWeb.FinancialDataAccess.call(:persist_session)
     |> put_session("fixture_access", mode)
     |> redirect(to: "/fixture")
   end
@@ -1455,6 +1474,31 @@ defmodule Aiur.BrowserHarness.FixtureAuth do
       |> halt()
     end
   end
+end
+
+defmodule Aiur.BrowserHarness.VoiceSTT do
+  @moduledoc false
+
+  use GenServer
+
+  def start_link(channel), do: GenServer.start_link(__MODULE__, channel)
+
+  @impl true
+  def init(channel), do: {:ok, channel}
+
+  @impl true
+  def handle_cast({:push, _pcm}, channel) do
+    send(channel, {:stt_transcript, :partial, "hello"})
+    {:noreply, channel}
+  end
+
+  def handle_cast(:commit, channel) do
+    send(channel, {:stt_transcript, :final, "hello browser"})
+    send(channel, {:stt_stopped, :ok})
+    {:noreply, channel}
+  end
+
+  def handle_cast(:stop, channel), do: {:stop, :normal, channel}
 end
 
 defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
@@ -2152,6 +2196,11 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 
   socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
 
+  socket("/voice", AiurWeb.VoiceSocket,
+    websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],
+    longpoll: false
+  )
+
   plug(Plug.Static,
     at: "/",
     from: :aiur,
@@ -2209,7 +2258,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           ),
           Supervisor.child_spec({Phoenix.PubSub, name: Aiur.PubSub}, id: Aiur.PubSub),
           {AiurWeb.Endpoint, []},
-          AiurWeb.FinancialDataAccess.Generation
+          AiurWeb.FinancialDataAccess.Generation,
+          AiurWeb.VoiceSessionLimiter
         ],
         strategy: :one_for_one
       )
@@ -2426,7 +2476,13 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
-        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
+        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1,
+        voice_stt_start_fun: fn socket ->
+          case Aiur.BrowserHarness.VoiceSTT.start_link(socket.channel_pid) do
+            {:ok, pid} -> {:ok, %{pid: pid}}
+            {:error, reason} -> {:error, inspect(reason)}
+          end
+        end
       )
       |> Keyword.delete(:streamdeck_logs_fun)
 

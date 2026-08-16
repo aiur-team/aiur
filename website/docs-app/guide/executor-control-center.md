@@ -99,6 +99,12 @@ The Agents panel combines running, retrying, and idle tracker-active tickets. Ea
 
 <img src="/images/dashboard/fleet-dark.png" alt="Desktop fleet table with synthetic active, blocked, retrying, and review tickets">
 
+Selecting an agent opens its live conversation without leaving Units. A writable dashboard can send a typed message from the standard composer. When ElevenLabs speech-to-text is configured, the microphone button can instead transcribe speech into that same composer: the waveform confirms that the browser is receiving audio, and the operator reviews the text and presses **Send**. Dictation never sends a message automatically.
+
+Browser microphone capture requires a secure context. `localhost` qualifies, but a dashboard opened from a plain-HTTP LAN IP does not; use HTTPS through a trusted private proxy for remote access. An insecure origin or unsupported browser disables the control with an explanation. Permission denial is also explained beside the control, which remains available so the operator can change site permissions and retry. Device selection is browser-local and saved for that dashboard origin, independently of the Stream Deck microphone preference.
+
+Interactive spoken conversation is a separate control and remains unavailable until conversation mode provides the agent voice-response path.
+
 ## Tickets
 
 The Tickets panel covers every open ticket on the repository, including the ones no agent has been routed to yet — the fleet table only ever shows tickets carrying an active `agent:*` label. Each row shows its identifier, title, and labels. A row opens the ticket's detail; the robot action opens an add-agent dialog prefilled with the agent, model, effort, and complexity the current routing configuration would apply — the prediction is the dialog's editable starting point rather than a column you can only read.

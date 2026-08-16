@@ -16,10 +16,12 @@ defmodule AiurWeb.StaticAssets do
     aiur-dom-svg-layout-loader.js
     build-order-grid-hook.js
     conversation-drawer-hook.js
+    conversation-voice-controller.js
     dashboard.css
     streamdeck-emulator-hook.js
     ticket-context-dialog-hook.js
     time-brush-hook.js
+    voice-capture-worklet.js
   )
   @long_lived_static_paths ~w(aiur-logo.png bungee.woff2)
 

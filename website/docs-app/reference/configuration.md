@@ -267,7 +267,7 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input: the device records dictation, ElevenLabs speech-to-text transcribes it, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. The section may be omitted entirely; the defaults below apply.
+Optional. Backs Stream Deck voice input and Dashboard Units-modal dictation. Stream Deck delivers its transcript to the focused agent; dashboard dictation puts its transcript in the ordinary message composer for the operator to review and send. The section may be omitted entirely; the defaults below apply.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |

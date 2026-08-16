@@ -187,6 +187,25 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "not a unique writable target"
   end
 
+  test "renders dictation controls in the standard composer without enabling conversation mode" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
+
+    assert html =~ ~s(data-voice-composer)
+    assert html =~ ~s(data-voice-mic)
+    assert html =~ ~s(aria-label="Dictate message")
+    assert html =~ ~s(data-voice-waveform)
+    assert html =~ ~s(aria-label="Microphone waveform")
+    assert html =~ ~s(data-voice-device)
+    assert html =~ "Browser microphone"
+    assert html =~ ~s(data-voice-status)
+
+    assert html =~ ~s(data-voice-conversation)
+    assert html =~ ~s(aria-label="Start interactive voice chat")
+    assert html =~ "Interactive voice chat is not available yet"
+    assert html =~ ~s(disabled)
+  end
+
   test "renders the not-unique-writable-target notice when a composer is present but not writable" do
     composer = %{target_key: "1110", writable_target?: false, messages: []}
     html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
