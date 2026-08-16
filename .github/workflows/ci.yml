@@ -39,6 +39,8 @@ jobs:
         run: bash scripts/test-pr-merge-gate-diagnostic.sh
       - name: Test rename preflight
         run: make test-rename-preflight
+      - name: Test config documentation guard
+        run: bash scripts/test-check-config-docs.sh
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly retrospective CLI check
@@ -84,6 +86,12 @@ jobs:
         run: make fmt-check
       - name: Credo + specs
         run: make lint
+      # Lives in the required `lint` job rather than a job of its own: a new job
+      # would not be merge-blocking until the human-only merge ruleset is
+      # re-applied, and a docs guard nobody has to satisfy guards nothing.
+      - name: Every config key has a documentation entry
+        working-directory: .
+        run: python3 scripts/check-config-docs.py
 
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
