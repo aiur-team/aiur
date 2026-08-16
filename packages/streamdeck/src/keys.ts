@@ -24,10 +24,23 @@ export interface BucketStyle {
   readonly pulseSeconds?: number;
 }
 
+/**
+ * How much to trust the progress reading behind a bar.
+ *
+ * `unknown` is a real state, not a synonym for zero. The daemon used to
+ * substitute `0` whenever a reading went stale, so a ticket sitting at 70%
+ * dropped to an empty bar about a minute after each emission and jumped back on
+ * the next one — the flicker the operator reported. Zero and "no reading" are
+ * different facts and must not paint the same.
+ */
+export type ProgressFreshness = "fresh" | "stale" | "unknown";
+
 export interface ProgressFooter {
   readonly kind: "progress";
   readonly barColor: string;
-  readonly percent: number;
+  /** `null` when no reading exists. Never a substituted zero. */
+  readonly percent: number | null;
+  readonly freshness: ProgressFreshness;
 }
 
 export interface QueuedFooter {
@@ -62,7 +75,7 @@ export interface AgentKey {
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
-  readonly progressPercent: number;
+  readonly progressPercent: number | null;
   readonly footer: Footer;
 }
 
@@ -88,7 +101,9 @@ export interface AgentInput {
   /** Set by the log surface on the event key the strip is reading. */
   readonly selected?: boolean;
   readonly bucket: BucketId;
-  readonly progress_percent: number;
+  /** `null` or absent when the daemon has no reading. Not the same as `0`. */
+  readonly progress_percent: number | null;
+  readonly progress_freshness?: string | null;
   readonly priority: boolean;
   /**
    * Explicitly set to true when no dependency blocks this agent.
@@ -126,8 +141,30 @@ export const BUCKET_STYLES: Readonly<Record<BucketId, Readonly<BucketStyle>>> = 
   ) as Record<BucketId, Readonly<BucketStyle>>,
 );
 
-function clampPercent(percent: number): number {
+/**
+ * Clamps a reading to 0-100, or returns `null` when there is nothing to clamp.
+ *
+ * `NaN` is treated as absent rather than clamped to 0: it arrives from a
+ * malformed payload, and a malformed payload is exactly a case where the deck
+ * does not know the progress. Clamping it would assert 0% instead.
+ */
+function clampPercent(percent: number | null | undefined): number | null {
+  if (typeof percent !== "number" || !Number.isFinite(percent)) return null;
   return Math.max(0, Math.min(100, percent));
+}
+
+/**
+ * Freshness the daemon reported, falling back to what the percent itself
+ * implies. Fail-closed on an unrecognised value: an unknown freshness label is
+ * not evidence that a reading is current.
+ */
+function readFreshness(agent: AgentInput, percent: number | null): ProgressFreshness {
+  const reported = agent.progress_freshness;
+  // A daemon that says "unknown" is believed even when a number rides along.
+  // The two are supposed to arrive paired, and honouring the number would draw
+  // a confident bar under a payload that just said it has no reading.
+  if (percent === null || reported === "unknown") return "unknown";
+  return reported === "stale" ? "stale" : "fresh";
 }
 
 function buildFooter(agent: AgentInput): Footer {
@@ -142,13 +179,23 @@ function buildFooter(agent: AgentInput): Footer {
       statusLabel: unblocked ? footer.ready_label : footer.blocked_label,
     };
   }
-  const pct = clampPercent(agent.progress_percent);
+  const clamped = clampPercent(agent.progress_percent);
+  const freshness = readFreshness(agent, clamped);
+  // Unknown means unknown all the way down: the percent is dropped as well as
+  // the hue, so nothing downstream can key a confident branch off a number the
+  // payload disowned. The progress ramp maps 0 to red, and painting an unknown
+  // bar red would state a measurement.
+  const pct = freshness === "unknown" ? null : clamped;
   return {
     kind: KEY_FACE_CONTRACT.footers.progress.kind,
-    barColor: progressBarColor(pct),
+    barColor: pct === null ? UNKNOWN_BAR_COLOR : progressBarColor(pct),
     percent: pct,
+    freshness,
   };
 }
+
+/** Neutral track tint for a bar with no reading behind it. */
+const UNKNOWN_BAR_COLOR = "rgba(255,255,255,0.22)";
 
 function buildAgentKey(agent: AgentInput): AgentKey {
   const pct = clampPercent(agent.progress_percent);

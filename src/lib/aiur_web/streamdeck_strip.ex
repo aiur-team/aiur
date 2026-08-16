@@ -18,7 +18,7 @@ defmodule AiurWeb.StreamdeckStrip do
   @doc "Builds the focused-agent details rendered by the command strip."
   @spec command(map()) :: map()
   def command(agent) when is_map(agent) do
-    percent = agent |> Map.get(:progress_percent, 0) |> percent()
+    percent = agent |> Map.get(:progress_percent) |> percent()
     bucket = Map.fetch!(agent, :bucket)
     state = StreamdeckKeyFaceContract.state!(bucket)
 
@@ -31,7 +31,7 @@ defmodule AiurWeb.StreamdeckStrip do
       status: state["label"],
       accent: state["accent"],
       percent: percent,
-      progress_colour: StreamdeckKeyFaceContract.progress_color(percent)
+      progress_colour: progress_colour(percent)
     }
   end
 
@@ -75,15 +75,30 @@ defmodule AiurWeb.StreamdeckStrip do
     }
   end
 
+  # One unrolled line of the hunk above it. Without this clause it fell to the
+  # catch-all below and painted as an empty `:ci` message, so a diff on the
+  # emulator's strip was a header followed by a run of blank rows.
+  defp entry(%{kind: :diff_line, sign: sign, text: text}) do
+    line = "#{sign}#{text}"
+    %{shape: :diff_line, line: line, line_kind: line_kind(line)}
+  end
+
   defp entry(%{kind: :message, role: role, body: body}) do
     %{shape: :message, speaker: speaker(role), text: to_string(body)}
   end
 
   defp entry(_entry), do: %{shape: :message, speaker: :ci, text: ""}
 
+  # `nil` means the orchestrator has no progress reading for this agent, and the
+  # strip says so rather than inventing a zero. The key face for the same agent
+  # already renders unknown as an empty, uncoloured bar; a "0%" here would put
+  # two different claims about the same ticket side by side on one screen.
   defp percent(value) when is_integer(value), do: clamp(value, 0, 100)
   defp percent(value) when is_float(value), do: value |> round() |> percent()
-  defp percent(_value), do: 0
+  defp percent(_value), do: nil
+
+  defp progress_colour(nil), do: nil
+  defp progress_colour(percent), do: StreamdeckKeyFaceContract.progress_color(percent)
 
   # Glyphs are the strip's own affordance; the wording beside them is the
   # contract's `label`, so nothing here restates a state name.

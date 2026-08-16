@@ -3,7 +3,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
@@ -155,9 +155,6 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   defp logs_projection(identifier) do
-    case AgentEventFeed.list(identifier, %{"limit" => 50}) do
-      {:ok, %{events: events}} -> StreamdeckLogs.project(events) |> StreamdeckLogs.wire()
-      _ -> StreamdeckLogs.project([]) |> StreamdeckLogs.wire()
-    end
+    identifier |> StreamdeckLogs.load() |> StreamdeckLogs.wire()
   end
 end

@@ -130,12 +130,48 @@ describe("createRasterizer key", () => {
     expect(Buffer.from(plain).equals(Buffer.from(highlighted))).toBe(false);
   });
 
-  // LIVE is a jump to the newest entry, not an event, so it is never the key
-  // the strip is reading and must not react to the flag.
-  it("does not highlight the LIVE key", () => {
+  /**
+   * LIVE is a key like any other now: it is selected whenever the strip is
+   * sitting at the newest entry. Exactly one of {LIVE, an event} is active, so
+   * LIVE not reacting to the flag would leave the operator unable to tell
+   * whether he is watching the agent work or reading back through history —
+   * which is what he reported.
+   */
+  it("paints the LIVE key differently when it is the active view", () => {
     const rasterizer = createRasterizer();
     const live = (selected: boolean): AgentInput => agent({ role: "live", title: "LIVE", selected });
-    expect(Buffer.from(rasterizer.key(layoutKeys([live(false)], 0)[0])).equals(Buffer.from(rasterizer.key(layoutKeys([live(true)], 0)[0])))).toBe(true);
+    const idle = rasterizer.key(layoutKeys([live(false)], 0)[0]);
+    const active = rasterizer.key(layoutKeys([live(true)], 0)[0]);
+    expect(Buffer.from(idle).equals(Buffer.from(active))).toBe(false);
+  });
+
+  // Requirement: the LIVE key wears a root-level agent face. The ticket number
+  // and the progress bar are the two pieces of that face an event key never
+  // has, so a LIVE key that ignored them would be the old bare green label.
+  it("gives the LIVE key the focused agent's ticket number and progress bar", () => {
+    const rasterizer = createRasterizer();
+    const live = (progress: number | null): AgentInput =>
+      agent({ role: "live", title: "LIVE", identifier: "401", bucket: "running", progress_percent: progress });
+    const withBar = rasterizer.key(layoutKeys([live(72)], 0)[0]);
+    const withoutBar = rasterizer.key(layoutKeys([live(12)], 0)[0]);
+    expect(Buffer.from(withBar).equals(Buffer.from(withoutBar))).toBe(false);
+  });
+
+  /**
+   * The flicker fix, at the pixel level. An unknown reading and a real 0% both
+   * used to paint an empty track, so a ticket whose progress had merely gone
+   * stale was indistinguishable from one that had done nothing at all.
+   */
+  it("paints unknown progress differently from a real zero, and stale differently from fresh", () => {
+    const rasterizer = createRasterizer();
+    const bar = (percent: number | null, freshness: string): AgentInput =>
+      agent({ bucket: "running", progress_percent: percent, progress_freshness: freshness });
+    const unknown = rasterizer.key(layoutKeys([bar(null, "unknown")], 0)[0]);
+    const zero = rasterizer.key(layoutKeys([bar(0, "fresh")], 0)[0]);
+    const fresh = rasterizer.key(layoutKeys([bar(70, "fresh")], 0)[0]);
+    const stale = rasterizer.key(layoutKeys([bar(70, "stale")], 0)[0]);
+    expect(Buffer.from(unknown).equals(Buffer.from(zero))).toBe(false);
+    expect(Buffer.from(fresh).equals(Buffer.from(stale))).toBe(false);
   });
 });
 

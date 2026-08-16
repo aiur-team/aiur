@@ -10,11 +10,50 @@ The browser emulator has three modes. A key press changes more than the key grid
 | --- | --- | --- | --- | --- |
 | **Grid** | The initial view; press an agent key to select it. | Up to eight agent keys. | Fleet summary, provider-meter segments, and the page indicator. | **A (Focus):** Back; it has nowhere to go at the top level. **B (Volume):** on the physical deck, turn to scroll the merged provider panel when more providers are configured than it shows at once — the panel says so with a chevron on the side that still has providers; unassigned in the browser emulator. **C (Speed):** unassigned. **D (Page):** turn to page the agent columns; press to cycle the next agent window. |
 | **Command** | Press an agent key in Grid. | Pause/Play, Prioritize/Deprioritize, Logs, and Mic; the other four slots are blank. | The selected agent’s provider, status, and progress. | **A:** return to Grid. **B/C:** unassigned. **D:** press to open Logs; turning it has no command-mode action. |
-| **Logs** | Press **Logs**, or press dial D in Command mode. | The live marker and up to seven event keys for the selected agent. | The two-line transcript window for the selected event. | **A:** turn to scroll the transcript and press to return to Command. **B/C:** unassigned. **D:** turn to scroll the event-key window; its press does not add another mode. |
+| **Logs** | Press **Logs**, or press dial D in Command mode. | Up to seven event keys for the selected agent, and the LIVE key. | The five-row transcript readout for wherever you have scrolled. | **A:** turn to scroll the transcript and press to return to Command. **B/C:** unassigned. **D:** turn to scroll the event-key window; its press does not add another mode. |
 
 The `Pause` and `Prioritize` labels reflect the selected agent’s actual current state. In a read-only Dashboard those mutating controls are disabled. **Mic is press-and-hold, not a click:** it is active only while held and clears on release, cancellation, or leaving the key.
 
-In Logs mode, click an event key to select it. That does not merely highlight the key: it moves the touch strip to the selected event’s position in the flattened transcript. Dial A then continues from that position; dial D changes which event keys are visible.
+## Read the Logs surface
+
+Logs reads like a chat window: **oldest at the far left, newest at the far right.** Scroll fully left for the beginning of the ticket, fully right for what the agent is doing now.
+
+### What the event keys are
+
+One key per event on the ticket’s shared event bus — progress and phase changes, inbound comments, CI and PR transitions, decisions and attentions. The key shows the event’s direction badge, its name (`PR merged`, `Progress check-in`, `Decision requested`), and how long ago it happened.
+
+Two keys always exist:
+
+- **The origin key**, leftmost, labelled `Ticket opened`. It anchors the beginning of the log and owns every transcript line that predates the first published event, so nothing is unreachable.
+- **The LIVE key**, rightmost. It wears the same face as the agent’s key on the Grid — lane icon, provider mark, ticket number and progress bar — with `LIVE` in place of the title.
+
+Transcript lines are not event keys. What the agent *said* is detail underneath the event it happened during; what *happened to the ticket* is a key.
+
+### Selection
+
+Exactly one key is active at a time, and it is unmistakable: a full-bleed plate in the badge’s colour, a rail down the left edge, and an inverted badge chip. LIVE turns bright green when it is the active view.
+
+Pressing an event key makes it active and scrolls the strip to that event; LIVE goes inactive. Pressing LIVE reverses it and jumps to the newest line. Scrolling with dial A does the same thing without touching a key — scroll into an event and that key lights up, scroll back to the end and LIVE lights up again. Entering Logs always opens at the live end.
+
+### Live typing
+
+While LIVE is the active key the strip follows the feed, and a newly arrived agent message is revealed character by character so you can watch it land. Scroll away from the live end and it stops: what you are reading then is history, not something being typed now.
+
+### Transcript styling
+
+The readout follows the shape of a terminal coding-agent transcript. Agent prose is unlabelled and bright; tool calls carry a glyph gutter and go muted once complete; shell commands are prefixed `$`; operator messages get a coloured bar; and file edits render as real unified-diff lines with added and removed rows tinted, not as a one-line summary.
+
+### Progress bars
+
+A progress bar has three states, and they are deliberately different pictures:
+
+| State | What it means | How it looks |
+| --- | --- | --- |
+| Fresh | A recent reading | Solid bar, hue-mapped red-to-green |
+| Stale | A real reading that has aged past its freshness window | The same bar, dimmed, with the full track outlined |
+| Unknown | No reading at all | Dashed track and a hollow status dot; no bar |
+
+A genuine 0% shows a short solid stub, so “just started” never looks like “no reading”. If a bar drops to an empty track and back, that is a bug — report it.
 
 ## How Grid chooses agent keys
 

@@ -671,6 +671,14 @@ defmodule Aiur.IssueLog do
   end
 
   defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  # `nil`, `true` and `false` are atoms in Elixir, so the generic atom clause
+  # below used to persist them as the strings "nil"/"true"/"false". A stringified
+  # `turn_id` is not merely ugly: `"nil"` is truthy, so every turn-less entry in
+  # a transcript compared equal to every other one and the Stream Deck's
+  # group-by-turn collapsed a whole page of activity into a single event key.
+  # JSON has native literals for all three; use them.
+  defp json_safe(nil), do: nil
+  defp json_safe(value) when is_boolean(value), do: value
   defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
   defp json_safe(value), do: value
 

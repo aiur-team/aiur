@@ -11,7 +11,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { writeFileSync } from "node:fs";
 
 import { createRasterizer } from "../dist/rasterizer.js";
-import { layoutKeys } from "../dist/keys.js";
+import { layoutKeys, layoutPhysicalKeys } from "../dist/keys.js";
 import { preloadVendorMarks } from "../dist/art/vendorMark.js";
 import { composeStrip } from "../dist/touchStrip/stripLayout.js";
 import { summaryModel } from "../dist/touchStrip/summarySegment.js";
@@ -62,7 +62,18 @@ const cmdStrip = {
   mode: "cmd",
   data: { detail: agentDetailModel({ ...grid.agents[0], runtime_seconds: 11_240, activity: "waiting_ci" }) },
 };
-const logsStrip = { mode: "logs", data: { rows: demoLogs().transcript.slice(0, 5), chatHasNext: true, eventHasNext: true } };
+const logs = demoLogs();
+// The logs preview opens where the device opens: at the live end. Pass a
+// transcript offset as the seventh argument to inspect any other window —
+// the diff rows and the tool rows sit further back than the last five.
+const logsChatOffset = Math.max(
+  0,
+  Math.min(Number.parseInt(process.argv[7] ?? String(logs.transcript.length - 5), 10), logs.transcript.length - 1),
+);
+const logsStrip = {
+  mode: "logs",
+  data: { rows: logs.transcript.slice(logsChatOffset), chatHasPrevious: true, chatHasNext: false, eventHasPrevious: true, eventHasNext: false },
+};
 const panels = composeStrip(mode === "cmd" ? cmdStrip : mode === "logs" ? logsStrip : gridStrip);
 
 const KEY = 120;
@@ -74,7 +85,44 @@ const ctx = canvas.getContext("2d");
 ctx.fillStyle = "#17181c";
 ctx.fillRect(0, 0, width, height);
 
-const descriptors = layoutKeys(agents, columnOffset);
+/**
+ * Logs mode paints event keys, not agent keys — mirroring `descriptorEvents` in
+ * surface.ts, including the LIVE key wearing the focused agent's own face. The
+ * preview used to draw the agent grid in every mode, so the one surface this
+ * script is most often used to check was the one it could not show.
+ */
+const logsKeyDescriptors = () => {
+  const offset = Math.max(0, logs.event_keys.length - 8);
+  // Defaults to LIVE, which is what the surface opens on. Pass a key slot
+  // (0-7) as the sixth argument to preview an event key being the active one
+  // instead — the selection contract is mutually exclusive, so the two states
+  // are only checkable side by side.
+  const selectedSlot = Number.parseInt(process.argv[6] ?? "7", 10);
+  const selected = offset + Math.max(0, Math.min(7, selectedSlot));
+  return layoutPhysicalKeys(
+    logs.event_keys.slice(offset, offset + 8).map((event, index) => {
+      const position = offset + index;
+      if (event.kind === "live") {
+        return { ...agents[0], title: "LIVE", role: "live", subLabel: "AGENT", timeLabel: "", selected: position === selected };
+      }
+      return {
+        identifier: `event-${position}`,
+        title: event.text,
+        vendor: "logs",
+        role: "event",
+        subLabel: event.badge,
+        timeLabel: event.time,
+        selected: position === selected,
+        bucket: "queued",
+        progress_percent: null,
+        priority: false,
+        dependency_ready: true,
+      };
+    }),
+  );
+};
+
+const descriptors = mode === "logs" ? logsKeyDescriptors() : layoutKeys(agents, columnOffset);
 for (let i = 0; i < 8; i += 1) {
   const image = await loadImage(Buffer.from(rasterizer.key(descriptors[i])));
   ctx.drawImage(image, GAP + (i % 4) * (KEY + GAP), GAP + (i < 4 ? 0 : 1) * (KEY + GAP), KEY, KEY);

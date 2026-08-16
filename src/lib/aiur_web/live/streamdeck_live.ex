@@ -374,7 +374,7 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
                   <span class="sd-ag-dot" aria-hidden="true"></span>
                   <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
+                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
             </button>
@@ -420,7 +420,7 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={key.kind == :empty} class="sd-key-face"></div>
                 <div :if={key.kind == :live} class="sd-key-face sd-live-key-face">
                   <span class="sd-live-dot" aria-hidden="true"></span>
-                  <span class="sd-live-label">{key.label}</span>
+                  <span class="sd-live-label">{key.text}</span>
                 </div>
                 <div :if={key.kind == :event} class="sd-key-face sd-log-key-face">
                   <span class="sd-log-dir sd-log-badge" data-dir={key.badge} style={log_badge_style(key.badge)}>{key.badge}</span>
@@ -469,10 +469,10 @@ defmodule AiurWeb.StreamdeckLive do
                 <span class="sd-strip-cmd-ticket">#{command.number}</span>
                 <span class="sd-strip-cmd-title">{command.title}</span>
                 <span class="sd-strip-cmd-status">{command.status}</span>
-                <span class="sd-strip-cmd-percent">{command.percent}%</span>
+                <span class="sd-strip-cmd-percent">{progress_text(command.percent)}</span>
               </div>
               <span class="sd-strip-cmd-progress" role="progressbar" aria-valuenow={command.percent} aria-valuemin="0" aria-valuemax="100">
-                <i style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
+                <i :if={not is_nil(command.percent)} style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
               </span>
             </div>
             <% end %>
@@ -486,6 +486,9 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={entry.shape == :diff} class="sd-log-diff">
                   <span class="sd-log-diff-file">{entry.file}</span>
                   <span class="sd-log-diff-counts"><b>+{entry.additions}</b> <b>-{entry.deletions}</b></span>
+                  <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
+                </div>
+                <div :if={entry.shape == :diff_line} class="sd-log-diff">
                   <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
                 </div>
                 <div :if={entry.shape == :message} class="sd-log-message">
@@ -719,7 +722,7 @@ defmodule AiurWeb.StreamdeckLive do
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
       footer.label,
-      Map.get(agent, :progress_percent, 0),
+      Map.get(agent, :progress_percent),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
@@ -727,7 +730,7 @@ defmodule AiurWeb.StreamdeckLive do
       vendor_logo: Map.get(agent, :vendor_logo),
       dependency_ready?: footer.ready?,
       dependency: footer.dependency,
-      style: key_style(Map.get(agent, :progress_percent, 0))
+      style: key_style(Map.get(agent, :progress_percent))
     )
   end
 
@@ -925,7 +928,17 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp key_face_css, do: @key_face_css
 
-  defp key_style(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
+  # An unknown percentage gets no fill hue at all — the same rule the provider
+  # meters already follow with `observed?`. Colouring it would paint a measured
+  # 0% onto a ticket nobody measured.
+  defp key_style(progress) when is_number(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
+  defp key_style(_progress), do: nil
+
+  defp progress_aria_label(percent) when is_number(percent), do: "#{percent}% complete"
+  defp progress_aria_label(_percent), do: "progress unknown"
+
+  defp progress_text(percent) when is_number(percent), do: "#{percent}%"
+  defp progress_text(_percent), do: "—"
 
   defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 
@@ -1137,16 +1150,26 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp agent_event_feed(identifier) do
-    case AgentEventFeed.list(identifier, %{"limit" => 50}) do
-      {:ok, %{events: events}} -> events
-      _ -> []
-    end
+    transcript =
+      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+        {:ok, %{events: events}} -> events
+        _ -> []
+      end
+
+    %{events: AgentEventFeed.bus_events(identifier), transcript: transcript}
   end
 
-  defp log_entries(%{events: events}) when is_list(events), do: events
-  defp log_entries(%{"events" => events}) when is_list(events), do: events
-  defp log_entries(entries) when is_list(entries), do: entries
-  defp log_entries(_entries), do: []
+  # The emulator's injected feed function predates the bus/transcript split and
+  # still hands back a bare transcript list. Normalise every accepted shape into
+  # the two-source map the projection now takes, so a fixture written against
+  # the old contract keeps working and simply projects with an empty bus.
+  defp log_entries(%{events: events, transcript: transcript}) when is_list(events) and is_list(transcript),
+    do: %{events: events, transcript: transcript}
+
+  defp log_entries(%{events: events}) when is_list(events), do: %{events: [], transcript: events}
+  defp log_entries(%{"events" => events}) when is_list(events), do: %{events: [], transcript: events}
+  defp log_entries(entries) when is_list(entries), do: %{events: [], transcript: entries}
+  defp log_entries(_entries), do: %{events: [], transcript: []}
 
   defp log_key_label(%{kind: :live}), do: "LIVE"
   defp log_key_label(%{kind: :event, badge: badge, text: text, time: time}), do: "#{badge}: #{text}, #{time}"

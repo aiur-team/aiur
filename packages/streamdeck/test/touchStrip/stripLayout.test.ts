@@ -9,7 +9,7 @@ import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
 import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
 import type { TranscriptRow } from "../../src/channel.js";
 
-const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body });
+const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
 
 const provider = (label: string, usedPercent = 10): ProviderPanelRow => ({
   label,
@@ -115,7 +115,7 @@ describe("composeStrip", () => {
   });
 
   it("logs mode carries each row shape through to the painter", () => {
-    const header: TranscriptRow = { kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T03:00:00Z" };
+    const header: TranscriptRow = { kind: "event_header", badge: "EMIT", body: "Dependency cleared", label: "Dependency cleared", timestamp: "2026-08-13T03:00:00Z" };
     const diff: TranscriptRow = { kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: null };
     const [panel] = composeStrip({ mode: "logs", data: { rows: [header, diff] } });
     expect(panel.content).toMatchObject({ kind: "chatLog", rows: [header, diff] });

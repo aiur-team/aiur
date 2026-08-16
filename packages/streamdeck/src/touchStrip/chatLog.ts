@@ -1,50 +1,77 @@
 /**
  * logs-mode strip view-model: the agent's chat log, and which event it is at.
  *
- * The strip used to show two transcript rows in two 200x100 boxes, which is
- * about one sentence of a conversation the operator opened the surface to read.
- * The whole 800x100 strip is one readout instead, five rows deep, at the same
- * type size the event keys use.
+ * The strip is one 800x100 readout, five rows deep, at the same type size the
+ * event keys use.
  *
  * The other half of this module is the two-way tie between the strip and the
- * eight event keys. Pressing an event key already scrolled the transcript to
- * that event's header; the reverse — scrolling with knob 1 and seeing which
- * event you have scrolled into — did not exist, so the keys and the strip could
- * describe different parts of the log with nothing on the deck saying so.
+ * eight event keys: pressing an event key scrolls the transcript to that
+ * event's header, and scrolling the transcript moves the highlight to whichever
+ * event you have scrolled into.
+ *
+ * ## Reading direction
+ *
+ * Everything is oldest-first. Offset 0 is the ticket's origin at the far left;
+ * the last offset is the newest thing the agent said, at the far right, which
+ * is where LIVE lives. That is the direction any chat window is read in, and it
+ * is the direction the feed now flattens in.
  */
 
 /** Transcript rows the full-width panel shows at once. */
 export const CHAT_WINDOW_ROWS = 5;
 
 /**
- * Which event key a transcript offset sits inside, or null when it sits above
- * the first header.
+ * Which key the transcript offset is currently reading.
  *
- * `starts` is ascending — the daemon flattens the transcript as a header
- * followed by that event's entries, newest event first — so the event
- * containing `offset` is the last header at or before it. The returned value is
- * an *event key* position, not an index into `starts`: key 0 is the LIVE row
- * rather than an event, so event `n` is key `n + 1`.
+ * `starts[i]` is key `i`'s own header offset, taken straight from the feed
+ * rather than recomputed here — the feed knows where it put each header, and a
+ * client that re-derives them has to agree with the server about anchors,
+ * padding and ordering, which is exactly the kind of agreement that silently
+ * breaks.
  *
- * Null means the offset is above every header, which happens only when the feed
- * pushed entries before the header they belong to. Highlighting nothing is the
- * honest answer there; snapping to key 1 would claim the operator is reading an
- * event they are not.
+ * The last key is LIVE. Sitting on the newest row *is* being live, so the rule
+ * is: at the end of the transcript, LIVE; anywhere else, the last event whose
+ * header is at or before the offset. That single rule is what makes selection
+ * bidirectional and mutually exclusive — press an event and LIVE goes inactive,
+ * scroll back to the end and it comes back — without LIVE needing a special
+ * case anywhere else.
+ *
+ * `null` only when there are no keys at all.
  */
-export const eventKeyAtOffset = (starts: readonly number[], offset: number): number | null => {
+export const selectedKeyAtOffset = (
+  starts: readonly number[],
+  offset: number,
+  chatMax: number,
+): number | null => {
+  if (starts.length === 0) return null;
+  const live = starts.length - 1;
+
   let key: number | null = null;
-  for (let index = 0; index < starts.length; index += 1) {
+  for (let index = 0; index < live; index += 1) {
     if (starts[index] > offset) break;
-    key = index + 1;
+    key = index;
   }
-  return key;
+
+  // An event published after the agent's last word — `pr.merged`, `ci.passed`,
+  // a resolved decision — has no entries under it, so its header *is* the last
+  // window. Handing that offset to LIVE on position alone made those keys
+  // permanently unhighlightable: the press landed correctly and lit a different
+  // key. Landing exactly on a header therefore always means reading that event;
+  // being at the end for any other reason means live.
+  if (key !== null && starts[key] === offset) return key;
+  if (offset >= chatMax) return live;
+  // Above every event header can only happen if the feed omitted the origin
+  // anchor. The origin exists precisely so this cannot occur; fall back to it
+  // rather than leaving nothing highlighted, because "no key is active" is a
+  // state this surface no longer has.
+  return key ?? 0;
 };
 
 /**
  * Scroll the eight-key event window so `key` is inside it, moving as little as
- * possible. Mirrors the mock's `sdEnsureVisible`: without it, scrolling the
- * chat into an event that is off the current key page highlights a key the
- * operator cannot see, which looks exactly like the highlight being broken.
+ * possible. Without it, scrolling the chat into an event that is off the
+ * current key page highlights a key the operator cannot see, which looks
+ * exactly like the highlight being broken.
  */
 export const ensureEventVisible = (offset: number, key: number, maxOffset: number): number => {
   const bounded = Math.max(0, Math.min(offset, maxOffset));

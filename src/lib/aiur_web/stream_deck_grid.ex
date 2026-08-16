@@ -78,6 +78,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp base_agent_payload(entry, bucket) do
     provider = provider(entry)
+    {percent, freshness} = progress(entry)
 
     %{
       identifier: Map.get(entry, :identifier),
@@ -86,7 +87,8 @@ defmodule AiurWeb.StreamDeckGrid do
       vendor: provider.name,
       vendor_logo: provider.logo,
       bucket: bucket,
-      progress_percent: progress_percent(entry),
+      progress_percent: percent,
+      progress_freshness: freshness,
       priority: priority?(entry),
       activity: activity(entry),
       runtime_seconds: runtime_seconds(entry)
@@ -163,12 +165,39 @@ defmodule AiurWeb.StreamDeckGrid do
     |> Map.fetch!(:lane)
   end
 
-  defp progress_percent(entry) do
-    case Map.get(entry, :progress_percent) do
-      percent when is_integer(percent) and percent in 0..100 -> percent
-      _ -> 0
+  # Same rule as `runtime_seconds/1` directly above, for the same reason: the
+  # deck must be able to render "we have no measurement" differently from a
+  # measured zero. `progress_percent` is therefore `nil` when unknown and is
+  # never back-filled with 0, and `progress_freshness` travels beside it so the
+  # face can dim a stale-but-real reading rather than dropping it.
+  #
+  # `:fresh | :stale | :unknown` come from the orchestrator. A snapshot from a
+  # producer that does not annotate freshness (fixtures, an older payload)
+  # carries a bare percent; somebody measured it, so it reads as fresh, while
+  # an absent or out-of-range percent reads as unknown regardless of what the
+  # freshness field claims — the pair can never contradict itself on the wire.
+  @spec progress(map()) :: {nil | 0..100, String.t()}
+  defp progress(entry) do
+    case {freshness_hint(entry), normalized_percent(Map.get(entry, :progress_percent))} do
+      {:unknown, _percent} -> {nil, "unknown"}
+      {_hint, nil} -> {nil, "unknown"}
+      {hint, percent} -> {percent, Atom.to_string(hint)}
     end
   end
+
+  defp freshness_hint(entry) do
+    case Map.get(entry, :progress_freshness) do
+      freshness when freshness in [:fresh, :stale, :unknown] -> freshness
+      "fresh" -> :fresh
+      "stale" -> :stale
+      "unknown" -> :unknown
+      _ -> :fresh
+    end
+  end
+
+  defp normalized_percent(percent) when is_integer(percent) and percent in 0..100, do: percent
+  defp normalized_percent(percent) when is_float(percent), do: percent |> round() |> normalized_percent()
+  defp normalized_percent(_percent), do: nil
 
   defp priority?(entry), do: priority_rank(entry) < 5
 
@@ -224,8 +253,15 @@ defmodule AiurWeb.StreamDeckGrid do
   defp same_identifier?(left, right) when is_binary(left) or is_integer(left), do: to_string(left) == to_string(right)
   defp same_identifier?(_left, _right), do: false
 
+  # Unknown progress is not a confident 0% ("definitely not complete") and it is
+  # certainly not 100% — it is no evidence either way. It is treated here as
+  # NOT complete, which keeps the downstream key blocked until a real 100%, a
+  # merged control, or a merged state says otherwise. That is the same
+  # fail-closed rule `dependency_ready?/2` documents for every other field it
+  # did not get: releasing a key on the strength of a measurement nobody took
+  # is the expensive mistake, showing `Blocked` for a moment longer is not.
   defp complete?(entry) do
-    progress = Map.get(entry, :progress_percent) || Map.get(entry, :pct)
+    progress = normalized_percent(Map.get(entry, :progress_percent) || Map.get(entry, :pct))
 
     progress_complete?(progress) or merged_control?(Map.get(entry, :control)) or
       Map.get(entry, :state) in ["Merged", :merged]
