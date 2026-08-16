@@ -73,7 +73,7 @@ defmodule Aiur.Codex.Transcript do
         {tool_payload, msg_id} = tool_result
 
         {:ok,
-         AgentEvents.transcript_event(:tool, tool_payload.title,
+         AgentEvents.transcript_event(:tool, Map.get(tool_payload, :body, tool_payload.title),
            timestamp: timestamp,
            turn_id: effective_turn_id,
            msg_id: msg_id,
@@ -212,6 +212,9 @@ defmodule Aiur.Codex.Transcript do
       input: arguments || %{},
       output: format_tool_content(content),
       title: title,
+      # The display body carries the useful argument (the command or path),
+      # not the bare tool name; the Stream Deck strip renders this as the row.
+      body: Aiur.AgentEvents.tool_call_body(tool_name, arguments || %{}),
       success: Map.get(item, :success, Map.get(item, "success"))
     }
   end
@@ -223,7 +226,8 @@ defmodule Aiur.Codex.Transcript do
       tool: "edit",
       input: %{"changes" => changes},
       output: file_change_output(changes),
-      title: file_change_title(changes)
+      title: file_change_title(changes),
+      body: file_change_title(changes)
     }
   end
 

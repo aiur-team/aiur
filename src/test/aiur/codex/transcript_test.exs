@@ -114,11 +114,33 @@ defmodule Aiur.Codex.TranscriptTest do
 
       assert {:ok, event} = Transcript.extract(message, nil)
       assert event.role == :tool
+      # No scalar argument, so the body is the deliberate tool-name fallback.
+      assert event.body == "emit_alert"
       assert event.payload.tool == "emit_alert"
       assert event.payload.input == %{"name" => "attention.x", "message" => "hi"}
       assert event.payload.output == "ok"
       assert event.payload.title == "emit_alert"
       assert event.payload.success == true
+    end
+
+    test "dynamicToolCall with a file path carries the path, not the tool name" do
+      message = %{
+        payload: %{
+          method: "item/completed",
+          params: %{
+            item: %{
+              type: "dynamicToolCall",
+              tool: "read_file",
+              arguments: ~s({"file_path":"lib/a.ex"}),
+              success: true
+            }
+          }
+        }
+      }
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      assert event.role == :tool
+      assert event.body == "read lib/a.ex"
     end
 
     test "dynamicToolCall preserves a string-keyed false success result" do
@@ -158,6 +180,8 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.payload.tool == "edit"
       assert event.payload.title == "edit lib/x.ex"
       assert event.payload.output == "+ defmodule X do\n"
+      # The fileChange body is its own title, so the strip shows the path.
+      assert event.body == "edit lib/x.ex"
     end
 
     test "reasoning item with empty content → :skip (codex's compressed-thinking placeholder)" do

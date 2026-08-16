@@ -2,7 +2,7 @@ defmodule Aiur.TicketActivityTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Events.Exchange
-  alias Aiur.{TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.{ProgressRetention, TicketActivity, TicketObservation, TrackerIdentity}
 
   setup do
     {:ok, server} =
@@ -11,6 +11,12 @@ defmodule Aiur.TicketActivityTest do
         exchange_subscribe_fun: fn -> :ok end,
         membership_subscribe_fun: fn -> :ok end,
         membership_snapshot_fun: fn -> %{members: []} end,
+        # These standalone servers test the projection in isolation, not the
+        # retention wiring (covered by the restart-retention test). No-op
+        # retention keeps them deterministic even when the suite's supervised
+        # default store holds retained readings from other tests.
+        retention_retain_fun: fn _identity, _progress -> :ok end,
+        retention_all_fun: fn -> %{} end,
         prune_interval_ms: 60_000
       )
 
@@ -68,6 +74,8 @@ defmodule Aiur.TicketActivityTest do
         name: nil,
         membership_subscribe_fun: fn -> :ok end,
         membership_snapshot_fun: fn -> %{members: []} end,
+        retention_retain_fun: fn _identity, _progress -> :ok end,
+        retention_all_fun: fn -> %{} end,
         prune_interval_ms: 60_000
       )
 
@@ -81,37 +89,78 @@ defmodule Aiur.TicketActivityTest do
     assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: server)
   end
 
-  test "restart begins with unknown activity until new trusted evidence arrives" do
+  test "restart without any durable retention begins with unknown activity" do
     ticket = identity()
 
-    {:ok, first} =
-      TicketActivity.start_link(
-        name: nil,
-        exchange_subscribe_fun: fn -> :ok end,
-        membership_subscribe_fun: fn -> :ok end,
-        membership_snapshot_fun: fn -> %{members: []} end,
-        prune_interval_ms: 60_000
-      )
+    # No-op retention isolates this test from the supervised default store:
+    # with nothing durably retained, a restart has nothing to seed and the
+    # ticket reads as never-reported (`unknown`) until new evidence arrives.
+    ticket_activity_opts = [
+      name: nil,
+      exchange_subscribe_fun: fn -> :ok end,
+      membership_subscribe_fun: fn -> :ok end,
+      membership_snapshot_fun: fn -> %{members: []} end,
+      retention_retain_fun: fn _identity, _progress -> :ok end,
+      retention_all_fun: fn -> %{} end,
+      prune_interval_ms: 60_000
+    ]
+
+    {:ok, first} = TicketActivity.start_link(ticket_activity_opts)
 
     send(first, {:event, %{ticket_observation: observation(ticket)}})
     assert_receive {:ticket_activity_changed, %{identity: ^ticket, snapshot: %{progress: %{percent: 40}}}}, 500
     assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: first)
     GenServer.stop(first)
 
-    {:ok, restarted} =
-      TicketActivity.start_link(
-        name: nil,
-        exchange_subscribe_fun: fn -> :ok end,
-        membership_subscribe_fun: fn -> :ok end,
-        membership_snapshot_fun: fn -> %{members: []} end,
-        prune_interval_ms: 60_000
-      )
+    {:ok, restarted} = TicketActivity.start_link(ticket_activity_opts)
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(restarted)
     end)
 
     assert {:error, :not_found} = TicketActivity.snapshot(ticket, server: restarted)
+  end
+
+  test "restart retains the last progress reading from the durable store (#1963)" do
+    ticket = identity()
+    state_dir = Path.join(System.tmp_dir!(), "ticket-activity-retention-#{System.unique_integer([:positive])}")
+
+    {:ok, retention} = ProgressRetention.start_link(name: nil, state_dir: state_dir)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(retention)
+      File.rm_rf!(state_dir)
+    end)
+
+    retain_fun = fn identity, progress -> ProgressRetention.retain(identity, progress, server: retention) end
+    all_fun = fn -> ProgressRetention.all(server: retention) end
+
+    ticket_activity_opts = [
+      name: nil,
+      exchange_subscribe_fun: fn -> :ok end,
+      membership_subscribe_fun: fn -> :ok end,
+      membership_snapshot_fun: fn -> %{members: []} end,
+      retention_retain_fun: retain_fun,
+      retention_all_fun: all_fun,
+      prune_interval_ms: 60_000
+    ]
+
+    {:ok, first} = TicketActivity.start_link(ticket_activity_opts)
+
+    send(first, {:event, %{ticket_observation: observation(ticket)}})
+    assert_receive {:ticket_activity_changed, %{identity: ^ticket, snapshot: %{progress: %{percent: 40}}}}, 500
+    assert {:ok, %{progress: %{percent: 40}}} = TicketActivity.snapshot(ticket, server: first)
+    assert :ok = ProgressRetention.flush(server: retention)
+    GenServer.stop(first)
+
+    {:ok, restarted} = TicketActivity.start_link(ticket_activity_opts)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(restarted)
+    end)
+
+    assert {:ok, %{progress: %{status: :known, percent: 40}}} =
+             TicketActivity.snapshot(ticket, server: restarted)
   end
 
   # `Aiur.Orchestrator.StatusReport.activity_stage/2` reads exactly this shape

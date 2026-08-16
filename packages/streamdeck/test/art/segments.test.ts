@@ -28,7 +28,17 @@ const DIFF_ADDED_BG = [0x20, 0x30, 0x3b] as const;
 const DIFF_REMOVED_BG = [0x37, 0x22, 0x2c] as const;
 const ADDED_SIGN = "#b8db87";
 const REMOVED_SIGN = "#e26a75";
-const REASONING = "rgba(238,238,238,0.55)";
+
+/**
+ * The #1960 row-class colours, quoted from the emulator's opencode-borrowed
+ * logs palette (#1934) exactly as `segments.ts` quotes them. Written out again
+ * here rather than imported so a silent edit to the palette has to be made
+ * twice, deliberately.
+ */
+const COMMAND_COLOUR = "#88e0a6";
+const AGENT_COLOUR = "#9fd0ff";
+const LOGS_COLOUR = "#ffcf87";
+const USER_COLOUR = "#c69bff";
 
 interface Ink {
   readonly text: string;
@@ -244,7 +254,7 @@ describe("chat readout", () => {
   it("prints assistant prose with no role label at all, only an indent", () => {
     const ink = chat(message({ role: "assistant", body: "unblocking the refactor" }));
     const body = drew(ink, "unblocking the refactor");
-    expect(body?.fill).toBe(TEXT_BRIGHT);
+    expect(body?.fill).toBe(AGENT_COLOUR);
     // The label-free row is what makes "nothing in the gutter" mean "the agent".
     expect(ink.some((entry) => entry.text.toUpperCase() === "ASSISTANT")).toBe(false);
     // The body is the only thing on the transcript rows; the rest of the ink is
@@ -255,17 +265,21 @@ describe("chat readout", () => {
     expect(body?.x).toBeLessThan(40);
   });
 
-  it("gives an agent turn the same bare treatment and fades reasoning", () => {
-    expect(drew(chat(message({ role: "agent", body: "same as assistant" })), "same as assistant")?.fill).toBe(TEXT_BRIGHT);
-    expect(drew(chat(message({ role: "reasoning", body: "thinking it over" })), "thinking it over")?.fill).toBe(REASONING);
+  it("gives an agent turn the same bare blue and classifies reasoning as a log", () => {
+    expect(drew(chat(message({ role: "agent", body: "same as assistant" })), "same as assistant")?.fill).toBe(AGENT_COLOUR);
+    // Reasoning is a "logs" row (tan) with a gutter glyph, not faded prose:
+    // it is not something the agent said to the operator.
+    const reasoning = chat(message({ role: "reasoning", body: "thinking it over" }));
+    expect(drew(reasoning, "thinking it over")?.fill).toBe(LOGS_COLOUR);
+    expect(reasoning.find((entry) => entry.x < 30 && entry.text.length === 1)?.text).toBe("·");
   });
 
   // opencode gives bash no colour of its own; the `$` is the whole
-  // differentiator, over the panel fill.
-  it("marks a command with a $ glyph on a panel fill, not a colour", () => {
+  // differentiator, over the panel fill — #1960 adds the command green.
+  it("marks a command with a $ glyph on a panel fill, in the command green", () => {
     const { ink, pixels } = chatPixels(message({ role: "command", body: "mix test" }));
-    expect(drew(ink, "$")?.fill).toBe(TEXT_BRIGHT);
-    expect(drew(ink, "mix test")?.fill).toBe(TEXT_BRIGHT);
+    expect(drew(ink, "$")?.fill).toBe(COMMAND_COLOUR);
+    expect(drew(ink, "mix test")?.fill).toBe(COMMAND_COLOUR);
     expect(pixelAt(pixels, 800, 2, rowMiddle(0))).toEqual([...PANEL]);
   });
 
@@ -283,31 +297,36 @@ describe("chat readout", () => {
     expect(glyphOf(null)).toBe("⚙");
   });
 
-  it("titles a tool rather than shouting it, and names an unnamed one", () => {
-    const ink = chat(message({ role: "tool", body: "", tool: "web_fetch" }));
-    expect(drew(ink, "Web Fetch")?.fill).toBe(TEXT_MUTED);
-    expect(ink.some((entry) => entry.text === "WEB_FETCH")).toBe(false);
-    expect(drew(chat(message({ role: "tool", body: "", tool: null })), "Tool")).toBeDefined();
-    // A name that is all separators still has to leave a word behind.
-    expect(drew(chat(message({ role: "tool", body: "", tool: "read_" })), "Read")).toBeDefined();
+  // #1960: the tool row shows the command or path, not the tool name. The
+  // server's `body` (verb stripped) and `glyph` carry it; the fixture provides
+  // them the way the DTO would, and the title is gone.
+  it("shows the tool's argument as the row, not the tool name", () => {
+    const ink = chat(message({ role: "tool", body: "lib/aiur.ex", tool: "read", rowKind: "command", glyph: "→" }));
+    expect(drew(ink, "lib/aiur.ex")?.fill).toBe(COMMAND_COLOUR);
+    expect(drew(ink, "→")?.fill).toBe(COMMAND_COLOUR);
+    expect(ink.some((entry) => entry.text === "Read" || entry.text === "READ")).toBe(false);
+
+    // Without a server glyph, the renderer falls back to the tool-name map.
+    const fallback = chat(message({ role: "tool", body: "src/b.ts", tool: "write" }));
+    expect(drew(fallback, "src/b.ts")?.fill).toBe(COMMAND_COLOUR);
+    expect(fallback.find((entry) => entry.x < 30 && entry.text.length === 1)?.text).toBe("←");
   });
 
-  it("brackets tool arguments that read as k=v, and leaves prose alone", () => {
-    const args = chat(message({ role: "tool", body: "path=lib/a.ex, limit=20", tool: "read" }));
-    expect(drew(args, "[path=lib/a.ex, limit=20]")?.fill).toBe(TEXT_MUTED);
-
-    const prose = chat(message({ role: "tool", body: "ran 42 tests, all green", tool: "bash" }));
-    expect(drew(prose, "ran 42 tests, all green")).toBeDefined();
-    expect(prose.some((entry) => entry.text.startsWith("["))).toBe(false);
+  // A tool with no scalar argument keeps its name as the body (the deliberate
+  // fallback), still in the command green with a glyph, never a k=v bracket.
+  it("renders a tool's raw body rather than bracket-arg form", () => {
+    const args = chat(message({ role: "tool", body: "path=lib/a.ex, limit=20", tool: "read", rowKind: "command" }));
+    expect(drew(args, "path=lib/a.ex, limit=20")?.fill).toBe(COMMAND_COLOUR);
+    expect(args.some((entry) => entry.text.startsWith("["))).toBe(false);
 
     const empty = chat(message({ role: "tool", body: "", tool: "bash" }));
     expect(empty.some((entry) => entry.text.startsWith("["))).toBe(false);
   });
 
   // The user turn is the one element opencode gives a visible coloured bar.
-  it("gives a user turn a coloured bar and a panel fill", () => {
+  it("gives a user turn a coloured bar, a panel fill, and the user purple", () => {
     const { ink, pixels } = chatPixels(message({ role: "user", body: "ship it" }));
-    expect(drew(ink, "ship it")?.fill).toBe(TEXT_BRIGHT);
+    expect(drew(ink, "ship it")?.fill).toBe(USER_COLOUR);
     expect(pixelAt(pixels, 800, 5, rowMiddle(0))).toEqual([...USER_BAR]);
     expect(pixelAt(pixels, 800, 20, rowMiddle(0))).toEqual([...PANEL]);
 
@@ -316,10 +335,10 @@ describe("chat readout", () => {
     expect(pixelAt(prose.pixels, 800, 5, rowMiddle(0))).toEqual([...BACKGROUND]);
   });
 
-  it("gives system, alert and CI rows a glyph so they are not read as prose", () => {
+  it("gives system, alert and CI rows a glyph in the log tan, not prose ink", () => {
     const glyphs = ["system", "alert", "ci", "oracle"].map((role) => {
       const ink = chat(message({ role, body: "x" }));
-      expect(drew(ink, "x")?.fill).toBe(TEXT_MUTED);
+      expect(drew(ink, "x")?.fill).toBe(LOGS_COLOUR);
       return ink.find((entry) => entry.x < 30 && entry.text.length === 1)?.text;
     });
     expect(glyphs).toEqual(["·", "!", "✓", "·"]);

@@ -91,11 +91,21 @@ defmodule Aiur.SessionHandle do
     :ok
   end
 
-  @doc "Absolute path of the handle file for `identifier`. Exposed for tests."
+  @doc """
+  Absolute path of the handle file for `identifier`. Exposed for tests.
+
+  `opts` accepts `:dir` (defaults to the shared state dir), `:hostname`
+  (defaults to this host) and `:repo_name` (defaults to the ambient
+  `Paths.repo_name/0`). The `:repo_name` override exists so a test can pin the
+  filename independent of the shared workflow config — `repo_name/0` reads the
+  current tracker identity, which a concurrent async test can rewrite mid-run
+  and flip the path under a save-then-load pair (#1920).
+  """
   @spec path_for(String.t(), keyword()) :: Path.t()
   def path_for(identifier, opts \\ []) do
     dir = Keyword.get(opts, :dir) || Paths.log_root_dir()
-    Path.join(dir, "#{Paths.repo_name()}.#{Paths.sanitize(to_string(identifier))}.session.json")
+    repo_name = Keyword.get(opts, :repo_name) || Paths.repo_name()
+    Path.join(dir, "#{repo_name}.#{Paths.sanitize(to_string(identifier))}.session.json")
   end
 
   defp validate(raw, expected_backend, host, identifier) do
