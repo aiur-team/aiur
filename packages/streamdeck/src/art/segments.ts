@@ -18,7 +18,7 @@
  */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
-import type { TranscriptRow } from "../channel.js";
+import type { DiffLine, TranscriptRow } from "../channel.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import { encoderCenterX } from "../touchStrip/geometry.js";
 import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelRow } from "../touchStrip/providerPanel.js";
@@ -47,6 +47,8 @@ const DOT_ON = "#f1f3f6";
 const DOT_OFF = "rgba(255,255,255,0.28)";
 const CHIP_FILL = "rgba(255,255,255,0.08)";
 const CHIP_BORDER = "rgba(255,255,255,0.12)";
+/** Dashed track for a progress reading nobody took; matches the key face. */
+const UNKNOWN_METER = "rgba(255,255,255,0.22)";
 
 const PAD = 12;
 const METER_HEIGHT = 8;
@@ -148,6 +150,14 @@ export const ageLabel = (timestamp: string | null, now: number): string | null =
 };
 
 /**
+ * Narrowest glyph any of the panel's fonts draws, used only to bound how much
+ * of a long string can possibly fit before measuring it. Deliberately an
+ * under-estimate: too small only costs a few extra measured characters, while
+ * too large would clip text that would have fitted.
+ */
+const MIN_GLYPH_WIDTH = 3;
+
+/**
  * Shortens `text` with an ellipsis until it fits `maxWidth` at the current font.
  *
  * Measured and clipped rather than left to a canvas clip region, because the
@@ -158,10 +168,33 @@ const fit = (context: SKRSContext2D, text: string, maxWidth: number): string => 
   // A caller can hand this a negative budget when a long right-aligned run eats
   // the panel; nothing fits, so draw nothing rather than the bare ellipsis.
   if (maxWidth <= 0) return "";
-  if (context.measureText(text).width <= maxWidth) return text;
-  let clipped = text;
-  while (clipped.length > 1 && context.measureText(`${clipped}…`).width > maxWidth) clipped = clipped.slice(0, -1);
-  return `${clipped}…`;
+
+  // Pre-clip before measuring anything.
+  //
+  // The daemon caps a body at 1000 characters, not at what an 800px panel can
+  // hold, and `measureText` cost scales with the string. No glyph in these
+  // fonts is narrower than about 3px, so anything past `maxWidth / 3` cannot
+  // possibly be inside the budget and never needs measuring.
+  const ceiling = Math.ceil(maxWidth / MIN_GLYPH_WIDTH) + 1;
+  const candidate = text.length > ceiling ? text.slice(0, ceiling) : text;
+  if (candidate === text && context.measureText(text).width <= maxWidth) return text;
+
+  // Binary search the cut rather than walking it one character at a time.
+  //
+  // The walk was O(n) measures over strings of near-full length: on this
+  // panel's font a 1000-character row cost ~213ms, against ~1ms to encode the
+  // whole 800x100 JPEG. Five such rows put a frame at ~700ms, and the typing
+  // reveal asks for a frame every 40ms — so the render blocked the event loop
+  // outright, and the USB poll stopped draining input rather than merely
+  // painting late. The search is ~10 measures instead of ~900.
+  let low = 0;
+  let high = candidate.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (context.measureText(`${candidate.slice(0, mid)}…`).width <= maxWidth) low = mid;
+    else high = mid - 1;
+  }
+  return `${candidate.slice(0, Math.max(low, 1))}…`;
 };
 
 /** Draws `text` right-aligned to `right` and returns the width it used. */
@@ -418,90 +451,302 @@ const isBadge = (badge: string): badge is DirectionBadge => (BADGE_IDS as readon
  */
 const badgeColour = (badge: string): string => directionBadgeColor(isBadge(badge) ? badge : "INFO");
 
-/**
- * Speaker colours, expressed as the direction badge each role reads as.
+/*
+ * ---------------------------------------------------------------------------
+ * The logs-mode transcript, in opencode's grammar.
+ * ---------------------------------------------------------------------------
  *
- * The mock keeps a separate `whoC` table for chat roles, but every colour in it
- * is already a direction-badge colour, so the roles are mapped onto the badges
- * instead of copying the hexes into a second table that could drift from the
- * key faces.
+ * The readout mimics the opencode TUI's transcript rather than printing a
+ * right-aligned role word in a gutter. The single most important thing it
+ * borrows is the *absence* of a label: opencode never prints "ASSISTANT:", it
+ * carries speaker identity in layout — assistant prose is bare indented text on
+ * the page background, and everything that is not assistant prose earns a
+ * glyph, a fill, or a bar. A label-free row is therefore the agent talking.
+ *
+ * COLOURS ARE BORROWED, NOT INVENTED. Every hex in {@link OPENCODE} is taken
+ * from opencode's default `opencode` theme. They deliberately do NOT come from
+ * `key-face-contract.json`: that contract is Aiur's *fleet-state* palette —
+ * bucket accents and direction badges, shared with the dashboard so the two
+ * surfaces cannot disagree about what "stuck" looks like. This is a different
+ * palette on purpose, quoting another tool's transcript, and mixing the two
+ * would make a fleet-state colour mean "removed line" somewhere on the strip.
+ * The one exception is the event badge, which stays a direction-badge colour
+ * because the badge is Aiur's own concept and the log keys paint the same token.
  */
-const ROLE_BADGES: Readonly<Record<string, DirectionBadge>> = {
-  assistant: "AGENT",
-  agent: "AGENT",
-  reasoning: "AGENT",
-  tool: "SYSTEM",
-  command: "SYSTEM",
-  alert: "SYSTEM",
-  system: "SYSTEM",
-  ci: "CONSUME",
+const OPENCODE = {
+  /** `text` / `markdownText`: assistant prose, command text, diff line text. */
+  text: "#eeeeee",
+  /** `textMuted`: completed tool calls, block titles, system chatter, the age. */
+  textMuted: "#808080",
+  /** `backgroundPanel`: the fill behind a user turn, a command, a tool block. */
+  backgroundPanel: "#141414",
+  /** `secondary`: the default agent colour, i.e. the user turn's `┃` bar. */
+  secondary: "#5c9cf5",
+  /** `error`: a failed tool call. The feed carries no failure flag yet. */
+  error: "#e06c75",
+  /** `diffAddedBg` / `diffRemovedBg`: full-row fills behind a unified diff line. */
+  diffAddedBg: "#20303b",
+  diffRemovedBg: "#37222c",
+  /** `diffHighlightAdded` / `diffHighlightRemoved`: the `+`/`-` sign glyphs. */
+  diffHighlightAdded: "#b8db87",
+  diffHighlightRemoved: "#e26a75",
+  /** opencode fades reasoning against its own prose; same layout, less ink. */
+  reasoning: "rgba(238,238,238,0.55)",
+} as const;
+
+/** Row background per diff sign; context lines get the plain panel fill. */
+const DIFF_ROW_FILL: Readonly<Record<DiffLine["sign"], string>> = {
+  "+": OPENCODE.diffAddedBg,
+  "-": OPENCODE.diffRemovedBg,
+  " ": OPENCODE.backgroundPanel,
 };
 
-/** Additions reuse the CONSUME badge; deletions the `stuck` accent — the mock's own two diff colours. */
-const DIFF_ADD = directionBadgeColor("CONSUME");
-const DIFF_DEL = bucketContract("stuck").accent;
+/** Sign-glyph tint per diff sign, brighter than the row fill it sits on. */
+const DIFF_SIGN_COLOR: Readonly<Record<DiffLine["sign"], string>> = {
+  "+": OPENCODE.diffHighlightAdded,
+  "-": OPENCODE.diffHighlightRemoved,
+  " ": OPENCODE.textMuted,
+};
 
-/** Left gutter the speaker/badge token is right-aligned into, then the body column. */
-const CHAT_TOKEN_RIGHT = 84;
-const CHAT_BODY_X = 94;
+/**
+ * Tool glyphs, opencode's two-column gutter. A tool the map does not name gets
+ * the generic gear rather than a guessed glyph.
+ */
+const TOOL_GLYPHS: Readonly<Record<string, string>> = {
+  bash: "$",
+  shell: "$",
+  run: "$",
+  read: "→",
+  view: "→",
+  edit: "←",
+  write: "←",
+  patch: "←",
+  glob: "✱",
+  grep: "✱",
+  search: "✱",
+  webfetch: "%",
+  fetch: "%",
+};
+
+/**
+ * Glyphs for the roles opencode has no equivalent for. They exist only so a
+ * system line, an alert or a CI report cannot be mistaken for assistant prose,
+ * which on this surface is defined as the row with nothing in its gutter.
+ */
+const ROLE_GLYPHS: Readonly<Record<string, string>> = {
+  system: "·",
+  alert: "!",
+  ci: "✓",
+};
+
+/** Left gutter (glyph column), then the body column: opencode's `paddingLeft: 3`. */
+const CHAT_GLYPH_X = PAD;
+const CHAT_BODY_X = PAD + 22;
+/** The user turn's `┃` bar, at the very left edge. */
+const CHAT_BAR_X = 4;
+const CHAT_BAR_WIDTH = 2;
+/** Widest a badge token may draw before it is clipped. */
+const CHAT_BADGE_MAX = 72;
 /** First transcript baseline, and the step between rows. */
 const CHAT_FIRST_BASELINE = 16;
 const CHAT_LINE_HEIGHT = 16;
+/** Baseline-to-row-top, so a full-row fill lands on the row it belongs to. */
+const CHAT_ROW_RISE = 12;
+
+const CHAT_BADGE_FONT = "700 10px monospace";
+const CHAT_GLYPH_FONT = "700 12px monospace";
+const CHAT_BODY_FONT = `600 ${EVENT_TEXT_SIZE}px sans-serif`;
+const CHAT_MONO_FONT = `600 ${EVENT_TEXT_SIZE - 1}px monospace`;
+
+/** The row's full-width background: a fill, a diff tint, or a tool block. */
+const chatRowFill = (context: SKRSContext2D, width: number, baseline: number, color: string): void => {
+  context.fillStyle = color;
+  context.fillRect(0, baseline - CHAT_ROW_RISE, width, CHAT_LINE_HEIGHT);
+};
 
 /**
- * One transcript row as a single line of the chat readout.
- *
- * Every row shape gets the same three columns — a speaker/badge token, the
- * body, and a right-aligned annotation — so the log reads down the page like
- * the terminal it mirrors instead of as three unrelated box layouts.
+ * Draws one clipped run at `x` and reports the width it actually used, so the
+ * next run starts after it instead of over it. A negative budget draws nothing
+ * and advances by nothing.
  */
-const drawChatRow = (context: SKRSContext2D, row: TranscriptRow, right: number, baseline: number, now: number): void => {
-  const token = (text: string, color: string): void => {
-    context.font = "700 10px monospace";
-    const clipped = fit(context, text.toUpperCase(), CHAT_TOKEN_RIGHT - PAD);
-    rightText(context, clipped, CHAT_TOKEN_RIGHT, baseline, color);
-  };
+const runText = (context: SKRSContext2D, text: string, x: number, baseline: number, color: string, budget: number): number => {
+  const clipped = fit(context, text, budget);
+  context.fillStyle = color;
+  context.fillText(clipped, x, baseline);
+  return context.measureText(clipped).width;
+};
 
-  if (row.kind === "event_header") {
-    token(row.badge, badgeColour(row.badge));
-    const age = ageLabel(row.timestamp, now);
-    context.font = "700 10px monospace";
-    const ageWidth = age === null ? 0 : rightText(context, age, right, baseline, LABEL) + 8;
-    context.font = `700 ${EVENT_TEXT_SIZE}px sans-serif`;
-    context.fillStyle = TEXT;
-    context.fillText(fit(context, row.body, right - CHAT_BODY_X - ageWidth), CHAT_BODY_X, baseline);
+/** Tool name as opencode prints it: Title Case, never uppercased. */
+const toolTitle = (tool: string | null): string => {
+  const parts = (tool ?? "").split(/[_\-\s]+/).filter((part) => part.length > 0);
+  if (parts.length === 0) return "Tool";
+  return parts.map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()).join(" ");
+};
+
+/** Gutter glyph for a named tool; `⚙` for one the map does not know. */
+const toolGlyph = (tool: string | null): string => TOOL_GLYPHS[(tool ?? "").toLowerCase().replace(/[_\-\s]/g, "")] ?? "⚙";
+
+const ARG_PAIR = /^[\w.:/-]+=.*$/;
+
+/**
+ * A tool body rendered as opencode's `[k=v, k=v]` argument list, or null when
+ * the body is prose rather than arguments — a tool that reports a sentence must
+ * keep printing the sentence.
+ */
+const bracketArgs = (body: string): string | null => {
+  const parts = body.split(",").map((part) => part.trim()).filter((part) => part.length > 0);
+  return parts.length > 0 && parts.every((part) => ARG_PAIR.test(part)) ? `[${parts.join(", ")}]` : null;
+};
+
+/** The sign a bare hunk string carries, for a feed that sent no `lines`. */
+const signOf = (line: string): DiffLine["sign"] => (line.startsWith("+") ? "+" : line.startsWith("-") ? "-" : " ");
+
+/**
+ * An event header: the analogue of opencode's block title.
+ *
+ * The badge keeps its direction colour, then the human topic `label` in bright
+ * text, then the `body` only when it says something the label did not — the
+ * feed often sets both to the same string, and printing it twice reads as a
+ * rendering fault. The age stays right-aligned and muted.
+ */
+const drawEventHeaderRow = (
+  context: SKRSContext2D,
+  row: TranscriptRow & { kind: "event_header" },
+  width: number,
+  baseline: number,
+  now: number,
+): void => {
+  const right = width - PAD;
+  context.font = CHAT_BADGE_FONT;
+  const badgeWidth = runText(context, row.badge.toUpperCase(), PAD, baseline, badgeColour(row.badge), CHAT_BADGE_MAX);
+  const age = ageLabel(row.timestamp, now);
+  const ageWidth = age === null ? 0 : rightText(context, age, right, baseline, OPENCODE.textMuted) + 8;
+
+  const labelX = PAD + badgeWidth + 8;
+  context.font = `700 ${EVENT_TEXT_SIZE}px sans-serif`;
+  const labelWidth = runText(context, row.label, labelX, baseline, OPENCODE.text, right - ageWidth - labelX);
+  if (row.body !== row.label) {
+    const bodyX = labelX + labelWidth + 8;
+    context.font = CHAT_BODY_FONT;
+    runText(context, row.body, bodyX, baseline, OPENCODE.textMuted, right - ageWidth - bodyX);
+  }
+};
+
+/**
+ * A message row, in opencode's speaker grammar.
+ *
+ * Assistant prose is the case with no gutter token at all; every other role
+ * takes a glyph, a fill or a bar so that "nothing in the gutter" stays a
+ * reliable reading of "the agent is talking".
+ */
+const drawMessageRow = (context: SKRSContext2D, row: TranscriptRow & { kind: "message" }, width: number, baseline: number): void => {
+  const right = width - PAD;
+  const budget = right - CHAT_BODY_X;
+
+  if (row.role === "assistant" || row.role === "agent" || row.role === "reasoning") {
+    context.font = CHAT_BODY_FONT;
+    runText(context, row.body, CHAT_BODY_X, baseline, row.role === "reasoning" ? OPENCODE.reasoning : OPENCODE.text, budget);
     return;
   }
 
-  if (row.kind === "diff") {
-    token("diff", LABEL);
-    const additions = `+${row.additions}`;
-    const deletions = `-${row.deletions}`;
-    context.font = "700 10px monospace";
-    // Painted as one right-aligned run so a long path cannot collide with the
-    // counts, with each half keeping its own tint.
-    const countsWidth = context.measureText(`${additions} ${deletions}`).width;
-    context.fillStyle = DIFF_DEL;
-    context.fillText(deletions, right - context.measureText(deletions).width, baseline);
-    context.fillStyle = DIFF_ADD;
-    context.fillText(additions, right - countsWidth, baseline);
-
-    const budget = right - CHAT_BODY_X - countsWidth - 8;
-    context.font = `600 ${EVENT_TEXT_SIZE - 1}px monospace`;
-    context.fillStyle = MUTED;
-    const pathWidth = context.measureText(`${row.path} `).width;
-    context.fillText(fit(context, row.path, budget), CHAT_BODY_X, baseline);
-    if (row.line !== null && pathWidth < budget) {
-      context.fillStyle = row.line.startsWith("+") ? DIFF_ADD : row.line.startsWith("-") ? DIFF_DEL : LABEL;
-      context.fillText(fit(context, row.line, budget - pathWidth), CHAT_BODY_X + pathWidth, baseline);
-    }
+  if (row.role === "command") {
+    // opencode gives bash no colour of its own: the `$` is the differentiator.
+    chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
+    context.font = CHAT_GLYPH_FONT;
+    runText(context, "$", CHAT_GLYPH_X, baseline, OPENCODE.text, CHAT_BODY_X - CHAT_GLYPH_X);
+    context.font = CHAT_MONO_FONT;
+    runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.text, budget);
     return;
   }
 
-  token(row.role, directionBadgeColor(ROLE_BADGES[row.role] ?? "INFO"));
-  context.font = `600 ${EVENT_TEXT_SIZE}px sans-serif`;
-  context.fillStyle = MUTED;
-  context.fillText(fit(context, row.body, right - CHAT_BODY_X), CHAT_BODY_X, baseline);
+  if (row.role === "tool") {
+    context.font = CHAT_GLYPH_FONT;
+    runText(context, toolGlyph(row.tool), CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
+    context.font = CHAT_BODY_FONT;
+    const nameWidth = runText(context, toolTitle(row.tool), CHAT_BODY_X, baseline, OPENCODE.textMuted, budget);
+    const argsX = CHAT_BODY_X + nameWidth + 6;
+    context.font = CHAT_MONO_FONT;
+    runText(context, bracketArgs(row.body) ?? row.body, argsX, baseline, OPENCODE.textMuted, right - argsX);
+    return;
+  }
+
+  if (row.role === "user") {
+    chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
+    context.fillStyle = OPENCODE.secondary;
+    context.fillRect(CHAT_BAR_X, baseline - CHAT_ROW_RISE, CHAT_BAR_WIDTH, CHAT_LINE_HEIGHT);
+    context.font = CHAT_BODY_FONT;
+    runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.text, budget);
+    return;
+  }
+
+  context.font = CHAT_GLYPH_FONT;
+  runText(context, ROLE_GLYPHS[row.role] ?? "·", CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
+  context.font = CHAT_BODY_FONT;
+  runText(context, row.body, CHAT_BODY_X, baseline, OPENCODE.textMuted, budget);
+};
+
+/**
+ * A diff row, unified — opencode only splits above 120 columns and this panel
+ * is nowhere near that wide.
+ *
+ * ONE TranscriptRow IS ALWAYS ONE PAINTED ROW. The controller addresses
+ * transcript rows by index to scroll and to jump the log keys, so a row that
+ * painted three lines would move the readout three rows for one detent. The
+ * *feed* therefore unrolls a hunk into a header row plus one `diff_line` row
+ * each — the expansion happens where the indices are assigned, not here.
+ *
+ * This is the header: opencode's block title. Panel fill, a `┃` notch, the path
+ * as a muted title, and the `+N -M` counts right-aligned. The counts are not an
+ * opencode element (there they appear only on a revert banner) but the feed
+ * carries them and they earn their space on this row — never on a row that is
+ * itself a diff line.
+ *
+ * `line` is the fallback for a provider that gave a summary and no hunk: rather
+ * than a header with nothing under it, the one line it did give rides here.
+ *
+ * There are no line numbers. opencode always shows them; our feed carries none,
+ * and numbering the hunk's own offsets would print invented data on a
+ * glanceable surface.
+ */
+const drawDiffRow = (context: SKRSContext2D, row: TranscriptRow & { kind: "diff" }, width: number, baseline: number): void => {
+  const right = width - PAD;
+
+  chatRowFill(context, width, baseline, OPENCODE.backgroundPanel);
+  context.font = CHAT_GLYPH_FONT;
+  runText(context, "┃", CHAT_GLYPH_X, baseline, OPENCODE.textMuted, CHAT_BODY_X - CHAT_GLYPH_X);
+
+  context.font = CHAT_BADGE_FONT;
+  const countsWidth = rightText(context, `+${row.additions} -${row.deletions}`, right, baseline, OPENCODE.textMuted) + 10;
+
+  context.font = CHAT_MONO_FONT;
+  const pathWidth = runText(context, row.path, CHAT_BODY_X, baseline, OPENCODE.textMuted, right - countsWidth - CHAT_BODY_X);
+  const cursor = CHAT_BODY_X + pathWidth + 8;
+
+  if (row.line !== null) {
+    runText(context, row.line, cursor, baseline, DIFF_SIGN_COLOR[signOf(row.line)], right - countsWidth - cursor);
+  }
+};
+
+/**
+ * One line of the hunk: opencode's unified diff row.
+ *
+ * Full-row background fill by sign, the sign glyph in the brighter highlight
+ * colour, and the line itself in the bright text colour — the three signals
+ * opencode uses, at the one type size this strip has.
+ */
+const drawDiffLineRow = (context: SKRSContext2D, row: TranscriptRow & { kind: "diff_line" }, width: number, baseline: number): void => {
+  chatRowFill(context, width, baseline, DIFF_ROW_FILL[row.sign]);
+  context.font = CHAT_MONO_FONT;
+  runText(context, row.sign === " " ? "·" : row.sign, CHAT_GLYPH_X, baseline, DIFF_SIGN_COLOR[row.sign], CHAT_BODY_X - CHAT_GLYPH_X);
+  runText(context, row.text, CHAT_BODY_X, baseline, row.sign === " " ? OPENCODE.textMuted : OPENCODE.text, width - PAD - CHAT_BODY_X);
+};
+
+/** One transcript row as a single line of the chat readout. */
+const drawChatRow = (context: SKRSContext2D, row: TranscriptRow, width: number, baseline: number, now: number): void => {
+  if (row.kind === "event_header") return drawEventHeaderRow(context, row, width, baseline, now);
+  if (row.kind === "diff") return drawDiffRow(context, row, width, baseline);
+  if (row.kind === "diff_line") return drawDiffLineRow(context, row, width, baseline);
+  return drawMessageRow(context, row, width, baseline);
 };
 
 /** A dial hint: the caption plus arrows that appear only where there is more. */
@@ -528,14 +773,13 @@ const drawHint = (
  * there is something further in that direction.
  */
 const drawChatLog = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "chatLog" }, now: number): void => {
-  const right = width - PAD;
   if (content.rows.length === 0) {
-    context.font = `600 ${EVENT_TEXT_SIZE}px sans-serif`;
-    context.fillStyle = LABEL;
+    context.font = CHAT_BODY_FONT;
+    context.fillStyle = OPENCODE.textMuted;
     context.fillText("No chat yet.", CHAT_BODY_X, CHAT_FIRST_BASELINE + CHAT_LINE_HEIGHT);
   }
   content.rows.forEach((row, index) => {
-    drawChatRow(context, row, right, CHAT_FIRST_BASELINE + index * CHAT_LINE_HEIGHT, now);
+    drawChatRow(context, row, width, CHAT_FIRST_BASELINE + index * CHAT_LINE_HEIGHT, now);
   });
   drawHint(context, "CHAT", PAD, HEIGHT - 5, content.chatHasPrevious, content.chatHasNext);
   drawHint(context, "EVENTS", width * 0.75, HEIGHT - 5, content.eventHasPrevious, content.eventHasNext);
@@ -577,9 +821,12 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
   const left = summaryWidth + 8;
   const right = width - PAD;
 
-  const percent = `${Math.round(model.percent)}%`;
+  // An em dash rather than "0%": the key face for this same ticket is one
+  // press away painting a dashed no-reading track, and the two must not
+  // contradict each other on the operator's screen.
+  const percent = model.percent === null ? "—" : `${Math.round(model.percent)}%`;
   context.font = "700 22px sans-serif";
-  const percentWidth = rightText(context, percent, right, 30, TEXT);
+  const percentWidth = rightText(context, percent, right, 30, model.percent === null ? MUTED : TEXT);
   context.font = "700 21px sans-serif";
   context.fillStyle = TEXT;
   context.fillText(fit(context, model.title, right - left - percentWidth - 14), left, 30);
@@ -609,6 +856,19 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
     caption(context, "elapsed", right - context.measureText(model.elapsedLabel).width - 8 - captionWidth, 59);
   }
 
+  if (model.percent === null) {
+    // The same dashed track the key face uses for a reading nobody took.
+    context.strokeStyle = UNKNOWN_METER;
+    context.lineWidth = 10;
+    context.setLineDash([5, 6]);
+    context.beginPath();
+    context.moveTo(left + 3, 79);
+    context.lineTo(right - 3, 79);
+    context.stroke();
+    context.setLineDash([]);
+    context.lineWidth = 1;
+    return;
+  }
   meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10);
 };
 

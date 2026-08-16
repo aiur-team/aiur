@@ -70,11 +70,19 @@ describe("agentDetailModel", () => {
     });
   });
 
-  it("clamps the percentage into 0..100 and treats a non-number as zero", () => {
+  /**
+   * A missing reading is null here for the same reason it is null on the key
+   * face. Returning 0 put "0%" and a full-width red meter on the 800px readout
+   * one key press after that ticket's key painted a dashed no-reading track —
+   * two contradictory claims about one ticket.
+   */
+  it("clamps a real percentage into 0..100 and reads an absent one as unknown", () => {
     expect(agentDetailModel({ progress_percent: 140 }).percent).toBe(100);
     expect(agentDetailModel({ progress_percent: -10 }).percent).toBe(0);
-    expect(agentDetailModel({ progress_percent: Number.NaN }).percent).toBe(0);
-    expect(agentDetailModel({}).percent).toBe(0);
+    expect(agentDetailModel({ progress_percent: 0 }).percent).toBe(0);
+    expect(agentDetailModel({ progress_percent: Number.NaN }).percent).toBeNull();
+    expect(agentDetailModel({ progress_percent: null }).percent).toBeNull();
+    expect(agentDetailModel({}).percent).toBeNull();
   });
 
   it("falls back to printable text rather than leaving the panel blank", () => {

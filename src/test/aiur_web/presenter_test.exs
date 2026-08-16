@@ -421,7 +421,7 @@ defmodule AiurWeb.PresenterTest do
     assert %{running: [], retrying: [], idle: []} = Orchestrator.snapshot(orchestrator_name, 1_000)
   end
 
-  test "snapshot does not project stale activity progress" do
+  test "snapshot retains stale activity progress and marks it stale" do
     original_activity_state = :sys.get_state(TicketActivity)
     orchestrator_name = Module.concat(__MODULE__, :StaleActivityOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -455,7 +455,10 @@ defmodule AiurWeb.PresenterTest do
 
     :sys.replace_state(pid, fn state -> %{state | running: %{"issue-stale-activity" => entry}} end)
 
-    assert %{running: [%{progress_percent: 0}]} = Orchestrator.snapshot(orchestrator_name, 1_000)
+    # A reading that aged out of the staleness window is still the last thing
+    # anyone measured. Replacing it with 0 was what made the Stream Deck flicker
+    # 0 -> 60 -> 0 on a ticket that never stopped progressing.
+    assert %{running: [%{progress_percent: 60, progress_freshness: :stale}]} = Orchestrator.snapshot(orchestrator_name, 1_000)
   end
 
   test "surfaces the global pause switch and a run_paused row for a globally held agent" do

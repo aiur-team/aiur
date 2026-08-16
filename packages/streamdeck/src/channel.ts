@@ -43,12 +43,21 @@ export interface StreamDeckGrid {
  * headers are also the jump targets for the log keys, so they have to survive
  * the trip to the renderer.
  */
+/** One line of a unified diff, as the feed carries it. */
+export interface DiffLine {
+  /** `+` added, `-` removed, ` ` context. */
+  readonly sign: "+" | "-" | " ";
+  readonly text: string;
+}
+
 export type TranscriptRow =
   | {
       readonly kind: "event_header";
       /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
       readonly badge: string;
       readonly body: string;
+      /** Human topic name — "PR merged", "Progress check-in", "Ticket opened". */
+      readonly label: string;
       /** ISO instant the event was published; null when the feed omits one. */
       readonly timestamp: string | null;
     }
@@ -60,7 +69,27 @@ export type TranscriptRow =
       /** First changed line of the hunk; null for a summary-only diff. */
       readonly line: string | null;
     }
-  | { readonly kind: "message"; readonly role: string; readonly body: string };
+  | {
+      /**
+       * One line of the hunk above it.
+       *
+       * The feed unrolls a diff into a header row followed by one of these per
+       * line, rather than packing the hunk into a single row. The client
+       * addresses transcript rows by index — to scroll, and to jump the log
+       * keys — so a row that painted three lines would move the readout three
+       * rows for one detent.
+       */
+      readonly kind: "diff_line";
+      readonly sign: "+" | "-" | " ";
+      readonly text: string;
+    }
+  | {
+      readonly kind: "message";
+      readonly role: string;
+      readonly body: string;
+      /** Tool name for a `tool` role, when the provider named one. */
+      readonly tool: string | null;
+    };
 
 export interface StreamDeckLogs {
   readonly event_keys?: readonly Record<string, unknown>[];
@@ -205,6 +234,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
         kind: "message",
         role: typeof message.role === "string" ? message.role : "agent",
         body: typeof message.body === "string" ? message.body : "",
+        tool: null,
       });
     }
     else if (event === "logs") options.events.logs(payload as StreamDeckLogs);

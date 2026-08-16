@@ -440,10 +440,10 @@ describe("eventOffsetFromDial", () => {
 
 describe("cycleEventPage", () => {
   it("advances to the next event page and back-computes dial value", () => {
-    // 20 events: pages 0 (offset 0) and 1 (offset 8); maxEventOffset = 12
+    // 20 total keys (19 events + pinned LIVE): pages of 7 events; maxEventOffset = 12
     const result = cycleEventPage(0, 20);
-    expect(result.eventOffset).toBe(8);
-    expect(result.dial3Value).toBe(dial3ValueFromEventOffset(8, 20));
+    expect(result.eventOffset).toBe(7);
+    expect(result.dial3Value).toBe(dial3ValueFromEventOffset(7, 20));
   });
 
   it("wraps from clamped final offset back to offset 0", () => {
@@ -467,14 +467,14 @@ describe("cycleEventPage", () => {
   });
 
   it("clamps negative currentEventOffset to 0 before advancing", () => {
-    // Negative offset should behave as offset 0 — advance to page 1 (offset 8), not phantom page 7.
+    // Negative offset should behave as offset 0 — advance one page (7 events), not a phantom page.
     const result = cycleEventPage(-1, 20);
-    expect(result.eventOffset).toBe(8);
-    expect(result.dial3Value).toBe(dial3ValueFromEventOffset(8, 20));
+    expect(result.eventOffset).toBe(7);
+    expect(result.dial3Value).toBe(dial3ValueFromEventOffset(7, 20));
   });
 
   it("mid-page offset triggers Math.min clamping — advance from 5 clamps at maxEventOffset 12", () => {
-    // min(5 + 8, 12) = 12
+    // min(5 + 7, 12) = 12
     const result = cycleEventPage(5, 20);
     expect(result.eventOffset).toBe(12);
     expect(result.dial3Value).toBe(100);

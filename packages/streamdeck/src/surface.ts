@@ -11,7 +11,7 @@ import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerRows } from "./touchStrip/providerPanel.js";
 import { agentDetailModel } from "./touchStrip/agentDetail.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
-import { currentWindow } from "./dial.js";
+import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
@@ -49,33 +49,97 @@ const faceColours: Readonly<Record<string, RgbColor>> = {
 
 const colourFor = (agent: Readonly<Record<string, unknown>> | undefined): RgbColor => faceColours[typeof agent?.bucket === "string" ? agent.bucket : ""] ?? BLACK;
 
-const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map((agent) => ({
+/**
+ * One agent's grid descriptor.
+ *
+ * `progress_percent` is passed through unchanged, including `null`. Defaulting
+ * it to `0` here is what let a missing reading paint as a real "0% done" bar,
+ * and the deck has no other way to tell the two apart once the value is a
+ * number. `runtime_seconds` two functions below has always projected absence as
+ * absence; progress now agrees with it.
+ */
+const agentDescriptor = (agent: Readonly<Record<string, unknown>>): AgentInput => ({
   identifier: String(agent.identifier ?? ""),
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
   icon: typeof agent.icon === "string" ? agent.icon : "",
   bucket: (typeof agent.bucket === "string" ? agent.bucket : "queued") as AgentInput["bucket"],
-  progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : 0,
+  progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : null,
+  progress_freshness: typeof agent.progress_freshness === "string" ? agent.progress_freshness : null,
   priority: agent.priority === true,
   dependency_ready: agent.dependency_ready === true,
-}));
+});
 
-const descriptorEvents = (events: readonly EventKey[], offset: number, selected: number | null): AgentInput[] =>
-  events.slice(offset, offset + 8).map((event, index) => ({
-    identifier: `event-${offset + index}`,
-    title: event.text,
-    vendor: "logs",
-    // The feed's first row is a live indicator, not an event, and the mock
-    // paints it as its own distinct key.
-    role: event.kind === "live" ? ("live" as const) : ("event" as const),
-    subLabel: event.badge,
-    timeLabel: event.time,
-    selected: offset + index === selected,
-    bucket: "queued" as const,
-    progress_percent: 0,
-    priority: false,
-    dependency_ready: true,
-  }));
+const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map(agentDescriptor);
+
+/**
+ * The eight log keys: EVENTS_PER_PAGE event slots plus the LIVE key pinned to
+ * the bottom-right slot.
+ *
+ * LIVE never participates in the scroll window, so the event page is sliced for
+ * EVENTS_PER_PAGE (seven) events and the pinned LIVE key is appended after it —
+ * it stays on the last key at every scroll position instead of being pushed off
+ * by paging.
+ *
+ * The LIVE key is given the focused agent's own face — ticket number, lane
+ * icon, provider mark and progress bar — with `LIVE` in the title slot. It is
+ * the only key on this surface that describes the agent rather than something
+ * the agent did, so dressing it as an event key made the one key that answers
+ * "how far along is this ticket?" the one key that did not say.
+ */
+export const descriptorEvents = (
+  events: readonly EventKey[],
+  offset: number,
+  selected: number | null,
+  focused: Readonly<Record<string, unknown>> | null | undefined,
+): (AgentInput | undefined)[] => {
+  if (events.length === 0) return [];
+  const live = events[events.length - 1];
+
+  // The event page is sliced from the events only — LIVE is pinned and is not a
+  // page member, so it is excluded from the slice and appended once, keeping it
+  // out of the seven event slots no matter the offset.
+  const slots: (AgentInput | undefined)[] = events
+    .slice(0, -1)
+    .slice(offset, offset + EVENTS_PER_PAGE)
+    .map((event, index) => {
+      const position = offset + index;
+      return {
+        identifier: `event-${position}`,
+        title: event.text,
+        vendor: "logs",
+        role: "event" as const,
+        subLabel: event.badge,
+        timeLabel: event.time,
+        selected: position === selected,
+        bucket: "queued" as const,
+        progress_percent: null,
+        priority: false,
+        dependency_ready: true,
+      };
+    });
+  while (slots.length < EVENTS_PER_PAGE) slots.push(undefined);
+
+  const agent = focused === null || focused === undefined ? null : agentDescriptor(focused);
+  slots.push({
+    ...(agent ?? {
+      identifier: "",
+      title: "",
+      vendor: "unknown",
+      icon: "",
+      bucket: "queued" as const,
+      progress_percent: null,
+      priority: false,
+      dependency_ready: true,
+    }),
+    title: "LIVE",
+    role: "live" as const,
+    subLabel: live.badge,
+    timeLabel: "",
+    selected: events.length - 1 === selected,
+  });
+  return slots;
+};
 
 /**
  * The four per-agent command keys, in the order the mock defines: pause/play,
@@ -98,7 +162,7 @@ const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | un
     role: "command",
     subLabel,
     bucket: "queued",
-    progress_percent: 0,
+    progress_percent: null,
     priority: false,
     dependency_ready: true,
   });
@@ -159,7 +223,7 @@ export const createPhysicalSurface = () => {
       // which is right for the agent grid (paging moves through columns) but
       // would interleave a sequential event window across the two rows.
       const visibleGrid = state.mode === "logs"
-        ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null))
+        ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
         ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true))
         : layoutKeys(descriptorAgents(grid), state.columnOffset);

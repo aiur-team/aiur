@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPhysicalSurface, repaintGrid } from "../src/surface.js";
+import { createPhysicalSurface, descriptorEvents, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
+import type { EventKey } from "../src/controller.js";
 import type { TranscriptRow } from "../src/channel.js";
 
-const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body });
+const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
 
 describe("physical surface composition", () => {
   it("places command faces on the exact keys their controller handles", () => {
@@ -44,6 +45,46 @@ describe("physical surface composition", () => {
     expect(write.mock.calls.length).toBeGreaterThanOrEqual(firstWrites);
   });
 
+  describe("descriptorEvents", () => {
+    const liveKey = (): EventKey => ({ kind: "live", badge: "AGENT", text: "LIVE", time: "", start: 20 });
+    const eventKeys = (count: number): EventKey[] =>
+      Array.from({ length: count }, (_, index) => ({ kind: "event", badge: "INFO", text: `event-${index}`, time: "1m", start: index }));
+
+    // SP-1959: LIVE is pinned to the bottom-right key and never scrolls, so the
+    // event page holds seven events with the pinned LIVE key always in slot 7.
+    it("pins the LIVE key to the last slot at every event offset", () => {
+      const events = [...eventKeys(15), liveKey()];
+      for (const offset of [0, 5, 10]) {
+        const descriptors = descriptorEvents(events, offset, null, null);
+        expect(descriptors).toHaveLength(8);
+        expect(descriptors[7]?.title).toBe("LIVE");
+        // The filled event slots are the contiguous page at the offset, oldest
+        // first; LIVE is not among them, and any remaining slots are empty.
+        const page = events.slice(0, -1).slice(offset, offset + 7);
+        expect(descriptors.slice(0, page.length).map((descriptor) => descriptor?.title)).toEqual(
+          page.map((event) => event.text),
+        );
+        expect(descriptors.slice(page.length, 7).every((descriptor) => descriptor === undefined)).toBe(true);
+      }
+    });
+
+    it("leaves padded event slots empty when the page has fewer than seven events", () => {
+      const events = [eventKeys(1)[0], liveKey()];
+      const descriptors = descriptorEvents(events, 0, null, null);
+      expect(descriptors).toHaveLength(8);
+      expect(descriptors[0]?.title).toBe("event-0");
+      expect(descriptors.slice(1, 7).every((descriptor) => descriptor === undefined)).toBe(true);
+      expect(descriptors[7]?.title).toBe("LIVE");
+    });
+
+    it("lights the pinned LIVE face when LIVE is the selected key", () => {
+      const events = [eventKeys(1)[0], liveKey()];
+      const descriptors = descriptorEvents(events, 0, events.length - 1, null);
+      expect(descriptors[7]?.selected).toBe(true);
+      expect(descriptors[0]?.selected).toBe(false);
+    });
+  });
+
   it("renders event-window changes separately from transcript changes", async () => {
     const write = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
     const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
@@ -51,9 +92,10 @@ describe("physical surface composition", () => {
     const backend = { write, sendFeatureReport } as never;
     const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
     const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: [
-      { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
-      { kind: "event" as const, badge: "CONSUME", text: "event-b", time: "2m" },
-      { kind: "event" as const, badge: "INFO", text: "event-c", time: "3m" },
+      { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m", start: 0 },
+      { kind: "event" as const, badge: "CONSUME", text: "event-b", time: "2m", start: 1 },
+      { kind: "event" as const, badge: "INFO", text: "event-c", time: "3m", start: 2 },
+      { kind: "live" as const, badge: "AGENT", text: "LIVE", time: "", start: 2 },
     ], eventOffset: 0, transcriptRows: [message("chat-a"), message("chat-b")], eventHasNext: true, chatHasNext: true };
     await surface.repaint(backend, grid, {}, undefined, base);
     const first = write.mock.calls.length;
@@ -78,8 +120,9 @@ describe("physical surface composition", () => {
       focusedIdentifier: null,
       columnOffset: 0,
       eventLines: [
-        { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
-        { kind: "event" as const, badge: "EMIT", text: "event-b", time: "2m" },
+        { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m", start: 0 },
+        { kind: "event" as const, badge: "EMIT", text: "event-b", time: "2m", start: 1 },
+        { kind: "live" as const, badge: "AGENT", text: "LIVE", time: "", start: 1 },
       ],
       eventOffset: 0,
       transcriptRows: [],

@@ -47,8 +47,8 @@ describe("Stream Deck Phoenix channel", () => {
     expect(events.snapshot).toHaveBeenCalledOnce();
     expect(events.grid).toHaveBeenCalledOnce();
     expect(events.logs).toHaveBeenCalledWith({ event_keys: [{ label: "LIVE" }], transcript: [{ body: "chat" }] });
-    expect(events.transcript).toHaveBeenNthCalledWith(1, { kind: "message", role: "tool", body: "ran the tests" });
-    expect(events.transcript).toHaveBeenNthCalledWith(2, { kind: "message", role: "agent", body: "" });
+    expect(events.transcript).toHaveBeenNthCalledWith(1, { kind: "message", role: "tool", body: "ran the tests", tool: null });
+    expect(events.transcript).toHaveBeenNthCalledWith(2, { kind: "message", role: "agent", body: "", tool: null });
   });
 
   it("queues focus until join and reports Phoenix channel shutdown frames", async () => {

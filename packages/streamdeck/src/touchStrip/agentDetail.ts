@@ -59,8 +59,8 @@ export interface AgentDetailModel {
   /** Provider family selecting the vendor mark. */
   readonly vendor: string;
   readonly status: string;
-  /** Progress percent, 0..100. */
-  readonly percent: number;
+  /** Progress percent 0..100, or `null` when the daemon has no reading. */
+  readonly percent: number | null;
   /** Time spent so far ("42m", "3h 07m"), or null when the daemon sent none. */
   readonly elapsedLabel: string | null;
   readonly activity: AgentActivity | null;
@@ -88,8 +88,16 @@ export const agentActivity = (value: unknown): AgentActivity | null =>
 
 const asString = (value: unknown, fallback: string): string => (typeof value === "string" && value !== "" ? value : fallback);
 
-const clampPercent = (value: unknown): number => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+/**
+ * `null` when the daemon has no reading, exactly as the key face reads it.
+ *
+ * This used to return `0`, so pressing an agent's grid key moved from a key
+ * face showing a hollow dot and a dashed no-reading track to an 800px readout
+ * announcing "0%" over a full-width red meter — two contradictory claims about
+ * one ticket, one key press apart.
+ */
+const clampPercent = (value: unknown): number | null => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Math.max(0, Math.min(100, value));
 };
 

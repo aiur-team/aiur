@@ -43,7 +43,7 @@ run_verifier "$declaration"
 expect_rejected \
   "tag-target" \
   '.target = "tag"' \
-  "ruleset must target branches and actively protect main and develop"
+  "ruleset must target branches and actively protect main"
 
 expect_rejected \
   "missing-ref-exclusions" \
