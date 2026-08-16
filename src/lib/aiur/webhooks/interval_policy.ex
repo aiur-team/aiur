@@ -40,12 +40,9 @@ defmodule Aiur.Webhooks.IntervalPolicy do
   def widen_factor(opts \\ []) do
     factor =
       Keyword.get_lazy(opts, :widen_factor, fn ->
-        try do
-          Config.settings().webhooks.poll_widen_factor
-        rescue
+        case Config.settings() do
+          {:ok, settings} -> settings.webhooks.poll_widen_factor
           _error -> 1.0
-        catch
-          _kind, _reason -> 1.0
         end
       end)
 
@@ -55,7 +52,9 @@ defmodule Aiur.Webhooks.IntervalPolicy do
     end
   end
 
-  defp widen(base_ms, factor) do
+  @doc "Widens an interval by a factor while preserving the original as a floor."
+  @spec widen(pos_integer(), number()) :: pos_integer()
+  def widen(base_ms, factor) when is_integer(base_ms) and base_ms > 0 and is_number(factor) do
     base_ms |> Kernel.*(factor) |> round() |> max(base_ms)
   end
 end

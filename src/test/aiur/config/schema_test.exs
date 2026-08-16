@@ -373,6 +373,25 @@ defmodule Aiur.Config.SchemaTest do
       assert tightened.polling.interval_seconds == 15
     end
 
+    test "idle_widen_factor defaults to 5 and can only widen polling" do
+      {:ok, unset} = Schema.parse(%{})
+      assert unset.polling.idle_widen_factor == 5.0
+
+      {:ok, configured} = Schema.parse(%{"polling" => %{"idle_widen_factor" => 8}})
+      assert configured.polling.idle_widen_factor == 8.0
+
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"idle_widen_factor" => 0.5}})
+
+      assert message =~ "polling.idle_widen_factor"
+      assert message =~ "between 1.0 and 100.0"
+
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"idle_widen_factor" => 1.0e100}})
+
+      assert message =~ "polling.idle_widen_factor"
+    end
+
     # Measured: the provider usage endpoint serves roughly one request per two
     # minutes. Below that the excess is rejected and the meters quietly stop
     # updating, so the floor is enforced rather than merely documented.

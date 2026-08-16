@@ -21,6 +21,8 @@ observability:
   telemetry_retention_max_age_days: 30
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
+polling:
+  idle_widen_factor: 5.0
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

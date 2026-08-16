@@ -14,6 +14,8 @@ defmodule Aiur.Orchestrator.State do
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
+          effective_poll_interval_ms: integer() | nil,
+          idle_poll_backoff: %{active?: boolean(), factor: float()} | nil,
           snapshot_key: GenServer.server() | nil,
           snapshot_generation: reference() | nil,
           snapshot_ready?: boolean(),
@@ -153,6 +155,8 @@ defmodule Aiur.Orchestrator.State do
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
+    :effective_poll_interval_ms,
+    :idle_poll_backoff,
     :snapshot_key,
     :snapshot_generation,
     :max_concurrent_agents,
