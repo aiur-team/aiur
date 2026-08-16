@@ -1044,7 +1044,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = render_hook(view, "log-key-select", %{"index" => "1"})
       selected = streamdeck_assigns(view).logs
 
-      assert selected.selected_event_id == {:bus, 1}
+      assert selected.selected_event_id == {:bus, "emit", 1}
       assert selected.transcript_offset == selected.event_starts[1]
       assert [%{kind: :event_header, body: "older durable event"} | _] = selected.transcript_visible
       assert strip(html) =~ "older durable event"

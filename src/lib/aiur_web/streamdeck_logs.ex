@@ -245,7 +245,13 @@ defmodule AiurWeb.StreamdeckLogs do
 
   defp bus_event(row) do
     %{
-      id: {:bus, value(row, :id)},
+      # The kind is part of the identity, not decoration. A ticket subscribes to
+      # some of its own topics, so the same event id can be written twice — once
+      # as `[event:emit]` when published and once as `[event:consumed]` when
+      # delivered back. Keying on the id alone made those two rows one identity,
+      # and a refresh silently moved the selection from the row the operator
+      # picked to its twin, dragging the transcript with it.
+      id: {:bus, value(row, :kind, "emit"), value(row, :id)},
       badge: direction(value(row, :badge, "EMIT")),
       label: value(row, :label, "Event"),
       body: summary(value(row, :label, "Event"), value(row, :body, "")),

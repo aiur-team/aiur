@@ -47,6 +47,8 @@ const DOT_ON = "#f1f3f6";
 const DOT_OFF = "rgba(255,255,255,0.28)";
 const CHIP_FILL = "rgba(255,255,255,0.08)";
 const CHIP_BORDER = "rgba(255,255,255,0.12)";
+/** Dashed track for a progress reading nobody took; matches the key face. */
+const UNKNOWN_METER = "rgba(255,255,255,0.22)";
 
 const PAD = 12;
 const METER_HEIGHT = 8;
@@ -148,6 +150,14 @@ export const ageLabel = (timestamp: string | null, now: number): string | null =
 };
 
 /**
+ * Narrowest glyph any of the panel's fonts draws, used only to bound how much
+ * of a long string can possibly fit before measuring it. Deliberately an
+ * under-estimate: too small only costs a few extra measured characters, while
+ * too large would clip text that would have fitted.
+ */
+const MIN_GLYPH_WIDTH = 3;
+
+/**
  * Shortens `text` with an ellipsis until it fits `maxWidth` at the current font.
  *
  * Measured and clipped rather than left to a canvas clip region, because the
@@ -158,10 +168,33 @@ const fit = (context: SKRSContext2D, text: string, maxWidth: number): string => 
   // A caller can hand this a negative budget when a long right-aligned run eats
   // the panel; nothing fits, so draw nothing rather than the bare ellipsis.
   if (maxWidth <= 0) return "";
-  if (context.measureText(text).width <= maxWidth) return text;
-  let clipped = text;
-  while (clipped.length > 1 && context.measureText(`${clipped}…`).width > maxWidth) clipped = clipped.slice(0, -1);
-  return `${clipped}…`;
+
+  // Pre-clip before measuring anything.
+  //
+  // The daemon caps a body at 1000 characters, not at what an 800px panel can
+  // hold, and `measureText` cost scales with the string. No glyph in these
+  // fonts is narrower than about 3px, so anything past `maxWidth / 3` cannot
+  // possibly be inside the budget and never needs measuring.
+  const ceiling = Math.ceil(maxWidth / MIN_GLYPH_WIDTH) + 1;
+  const candidate = text.length > ceiling ? text.slice(0, ceiling) : text;
+  if (candidate === text && context.measureText(text).width <= maxWidth) return text;
+
+  // Binary search the cut rather than walking it one character at a time.
+  //
+  // The walk was O(n) measures over strings of near-full length: on this
+  // panel's font a 1000-character row cost ~213ms, against ~1ms to encode the
+  // whole 800x100 JPEG. Five such rows put a frame at ~700ms, and the typing
+  // reveal asks for a frame every 40ms — so the render blocked the event loop
+  // outright, and the USB poll stopped draining input rather than merely
+  // painting late. The search is ~10 measures instead of ~900.
+  let low = 0;
+  let high = candidate.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (context.measureText(`${candidate.slice(0, mid)}…`).width <= maxWidth) low = mid;
+    else high = mid - 1;
+  }
+  return `${candidate.slice(0, Math.max(low, 1))}…`;
 };
 
 /** Draws `text` right-aligned to `right` and returns the width it used. */
@@ -788,9 +821,12 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
   const left = summaryWidth + 8;
   const right = width - PAD;
 
-  const percent = `${Math.round(model.percent)}%`;
+  // An em dash rather than "0%": the key face for this same ticket is one
+  // press away painting a dashed no-reading track, and the two must not
+  // contradict each other on the operator's screen.
+  const percent = model.percent === null ? "—" : `${Math.round(model.percent)}%`;
   context.font = "700 22px sans-serif";
-  const percentWidth = rightText(context, percent, right, 30, TEXT);
+  const percentWidth = rightText(context, percent, right, 30, model.percent === null ? MUTED : TEXT);
   context.font = "700 21px sans-serif";
   context.fillStyle = TEXT;
   context.fillText(fit(context, model.title, right - left - percentWidth - 14), left, 30);
@@ -820,6 +856,19 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
     caption(context, "elapsed", right - context.measureText(model.elapsedLabel).width - 8 - captionWidth, 59);
   }
 
+  if (model.percent === null) {
+    // The same dashed track the key face uses for a reading nobody took.
+    context.strokeStyle = UNKNOWN_METER;
+    context.lineWidth = 10;
+    context.setLineDash([5, 6]);
+    context.beginPath();
+    context.moveTo(left + 3, 79);
+    context.lineTo(right - 3, 79);
+    context.stroke();
+    context.setLineDash([]);
+    context.lineWidth = 1;
+    return;
+  }
   meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10);
 };
 

@@ -555,6 +555,19 @@ export const createRasterizer = (options: RasterizerOptions = {}) => {
      * a different width is a different image.
      */
     segment: (content: SegmentContent, width: number = SEGMENT_WIDTH): Uint8Array => {
+      // The chat readout is deliberately not cached.
+      //
+      // Its content changes every frame while a message is being revealed, so
+      // every lookup is a guaranteed miss followed by an insert. Left in the
+      // shared LRU, one reveal evicts every cached key face and leaves the map
+      // full of 800x100 JPEGs that can never be hit again — the cache did not
+      // merely fail to help, it actively threw away the entries that were
+      // working.
+      if (content.kind === "chatLog") {
+        const canvas = createCanvas(width, SEGMENT_HEIGHT);
+        drawSegment(canvas, content, width);
+        return encode(canvas);
+      }
       // The minute is part of the identity. A panel's content can be unchanged
       // while the pixels are not: `resetLabel` and `ageLabel` render relative
       // times off `Date.now()`, so a cache keyed on content alone would freeze

@@ -248,10 +248,18 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
    * scroll and the event-key jumps, where a highlight on a key the operator
    * cannot see would look like the highlight is broken.
    */
-  const setLogsOffsets = (eventOffset: number, chatOffset: number, follow = true): void => {
+  const setLogsOffsets = (eventOffset: number, chatOffset: number, follow = true, pressed?: number): void => {
     const maxChat = chatMaxOffset;
     const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
-    const selectedEvent = selectedKeyAtOffset(eventStarts, boundedChat, maxChat);
+    // A press says which key it was; only a scroll has to infer it.
+    //
+    // Inference alone could not tell the two apart at one particular offset: an
+    // event published after the agent's last word — `ci.passed`, `pr.merged`, a
+    // resolved decision, all of which arrive with no transcript under them —
+    // has its header as the final row, so its jump target and LIVE's are the
+    // same number. Whichever way that tie broke, one of the two keys became
+    // permanently unselectable.
+    const selectedEvent = pressed ?? selectedKeyAtOffset(eventStarts, boundedChat, maxChat);
     const requested = Math.max(0, Math.min(eventOffset, eventMaxOffset));
     const boundedEvent = follow && selectedEvent !== null ? ensureEventVisible(requested, selectedEvent, eventMaxOffset) : requested;
     // Typing only reads as typing at the live end of the log, on the surface
@@ -307,9 +315,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       // code serves both, and the selection that follows is derived from where
       // the scroll landed — which is what makes exactly one of {LIVE, an event}
       // active at a time.
-      const entry = eventHistory[state.eventOffset + index];
+      const position = state.eventOffset + index;
+      const entry = eventHistory[position];
       if (entry === undefined) return;
-      setLogsOffsets(state.eventOffset, entry.start);
+      setLogsOffsets(state.eventOffset, entry.start, true, position);
       return;
     }
     if (state.mode === "grid") {
@@ -499,7 +508,11 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const anchor = previousSelection === null ? undefined : previousStarts[previousSelection];
       const into = anchor === undefined ? 0 : previousChat - anchor;
       const rebased = previousSelection === null ? previousChat : (eventStarts[previousSelection] ?? previousChat) + into;
-      setLogsOffsets(state.eventOffset, rebased);
+      // `follow: false` — this branch is by definition "the operator is not
+      // following the feed", so a flush must not drag the key window back onto
+      // the selection. The server takes the same care in `restore_events_offset`
+      // and it would be undone here.
+      setLogsOffsets(state.eventOffset, rebased, false, previousSelection ?? undefined);
     },
     /**
      * Advances the live-typing reveal by one frame.
@@ -511,7 +524,11 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     tickTyping: (): boolean => {
       if (state.mode !== "logs" || !typewriter.animating()) return false;
       const more = typewriter.tick();
-      setLogsOffsets(state.eventOffset, state.chatOffset);
+      // `follow: false` — a frame of the reveal changes rendered text, nothing
+      // positional. Letting it re-run the chase dragged the event-key window
+      // back onto the selection every 40ms, so dial D was inert for the whole
+      // time the agent appeared to be typing.
+      setLogsOffsets(state.eventOffset, state.chatOffset, false, state.selectedEvent ?? undefined);
       return more;
     },
     cancel: (): void => {

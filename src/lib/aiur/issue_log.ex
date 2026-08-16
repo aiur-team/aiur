@@ -889,8 +889,17 @@ defmodule Aiur.IssueLog do
   defp summarize(text) when is_binary(text) do
     single_line = text |> String.replace(~r/\r?\n/, " ") |> String.trim()
 
-    if byte_size(single_line) > 200 do
-      binary_part(single_line, 0, 200) <> "…"
+    # Sliced by graphemes, not by bytes.
+    #
+    # `binary_part/3` cut mid-codepoint whenever the 200th byte landed inside a
+    # multi-byte character — routine for a model-authored summary carrying an
+    # emoji or CJK — and wrote invalid UTF-8 into the durable event log. That was
+    # survivable while these summaries only ever became prompt text; now that
+    # the Stream Deck reads the same rows and `Jason` encodes them onto the
+    # channel, an invalid byte raises, kills the socket, and the sidecar
+    # reconnects into the same durable line for as long as the log exists.
+    if String.length(single_line) > 200 do
+      String.slice(single_line, 0, 200) <> "…"
     else
       single_line
     end

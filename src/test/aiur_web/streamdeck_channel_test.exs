@@ -251,7 +251,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     # One key per shared-event-bus row, anchored by the synthesised origin at
     # index 0 and closed by LIVE at the end. A transcript turn is a detail row
     # underneath an event now, so no key is keyed by `turn:<id>` any more.
-    assert Enum.map(payload["event_keys"], & &1["id"]) == ["origin", "bus:7", "live"]
+    assert Enum.map(payload["event_keys"], & &1["id"]) == ["origin", "bus:emit:7", "live"]
     assert Enum.map(payload["event_keys"], & &1["kind"]) == ["event", "event", "live"]
     refute Enum.any?(payload["event_keys"], &String.starts_with?(&1["id"], "turn:"))
 
@@ -300,8 +300,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     # Event keys are per-ticket bus rows, so the previous agent's key has to be
     # gone from the frame rather than merely outnumbered by the new agent's.
-    assert Enum.any?(second_payload["event_keys"], &(&1["id"] == "bus:22"))
-    refute Enum.any?(second_payload["event_keys"], &(&1["id"] == "bus:11"))
+    assert Enum.any?(second_payload["event_keys"], &(&1["id"] == "bus:emit:22"))
+    refute Enum.any?(second_payload["event_keys"], &(&1["id"] == "bus:emit:11"))
   end
 
   test "focus validates identifiers and unfocus stops the focused subscription" do

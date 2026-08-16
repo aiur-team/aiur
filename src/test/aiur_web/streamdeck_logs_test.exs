@@ -86,7 +86,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
 
     assert wire["event_keys"] |> List.last() |> Map.get("id") == "live"
     assert wire["event_keys"] |> hd() |> Map.get("id") == "origin"
-    assert wire["event_keys"] |> Enum.at(1) |> Map.get("id") == "bus:7"
+    assert wire["event_keys"] |> Enum.at(1) |> Map.get("id") == "bus:emit:7"
     assert Enum.all?(wire["transcript"], &is_map/1)
     assert {:ok, encoded} = Jason.encode(wire)
     assert is_binary(encoded)
@@ -186,7 +186,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert logs.selected_event_id == :live
 
     back = StreamdeckLogs.scroll(logs, :transcript, -1)
-    assert back.selected_event_id == {:bus, 2}
+    assert back.selected_event_id == {:bus, "emit", 2}
 
     forward = StreamdeckLogs.scroll(back, :transcript, 1)
     assert forward.selected_event_id == :live
@@ -198,7 +198,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
 
     refreshed = StreamdeckLogs.refresh(selected, %{events: events ++ [bus(3, "emit", "ticket.401.pr.merged", "new", stamp(3))], transcript: []})
 
-    assert refreshed.selected_event_id == {:bus, 1}
+    assert refreshed.selected_event_id == {:bus, "emit", 1}
     assert refreshed.selected_event_index == 1
     assert refreshed.transcript_offset == 1
   end
@@ -239,7 +239,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
       |> StreamdeckLogs.select_event(2)
       |> StreamdeckLogs.scroll(:transcript, 1)
 
-    assert scrolled.selected_event_id == {:bus, 2}
+    assert scrolled.selected_event_id == {:bus, "emit", 2}
     assert scrolled.transcript_offset == start_of(scrolled) + 1
 
     refreshed =
@@ -250,7 +250,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
 
     # The event moved one slot later, so its absolute start moved too — and the
     # operator is still exactly one line into it rather than back at its header.
-    assert refreshed.selected_event_id == {:bus, 2}
+    assert refreshed.selected_event_id == {:bus, "emit", 2}
     assert start_of(refreshed) > start_of(scrolled)
     assert refreshed.transcript_offset == start_of(refreshed) + 1
   end

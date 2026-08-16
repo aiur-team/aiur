@@ -164,7 +164,13 @@ function readFreshness(agent: AgentInput, percent: number | null): ProgressFresh
   // The two are supposed to arrive paired, and honouring the number would draw
   // a confident bar under a payload that just said it has no reading.
   if (percent === null || reported === "unknown") return "unknown";
-  return reported === "stale" ? "stale" : "fresh";
+  if (reported === "fresh" || reported === "stale") return reported;
+  // Absent and unrecognised are different. A daemon older than the sidecar
+  // annotates nothing, and a bare percent is still a reading somebody took —
+  // that reads as fresh. A daemon *newer* than the sidecar sending a label this
+  // build has never heard of is not evidence the reading is current, so it
+  // reads as stale: the bar keeps its value and stops claiming to be now.
+  return reported === undefined || reported === null ? "fresh" : "stale";
 }
 
 function buildFooter(agent: AgentInput): Footer {
