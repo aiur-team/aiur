@@ -40,6 +40,22 @@ export interface HintContent {
   readonly direction: "back" | "forward";
 }
 
+/**
+ * The three visually-distinct row classes plus the rare user turn. Commands
+ * and tool rows share the command colour; agent prose is its own class; system
+ * context rows (event headers, diffs, logs) are the third. Mirrors the server's
+ * `StreamdeckLogs.row_kind/1` so the physical deck matches the emulator.
+ */
+export type ChatKind = "command" | "agent" | "logs" | "user";
+
+/** One transcript row for the device strip, carrying its colour class. */
+export interface ChatLine {
+  readonly text: string;
+  readonly kind: ChatKind;
+  /** opencode-style gutter glyph (`$`, `→`, `←`, `⚙`); absent for prose. */
+  readonly glyph?: string;
+}
+
 /** Structured content for one segment; the encoder renders it to a JPEG. */
 export type SegmentContent =
   | { readonly kind: "summary"; readonly model: SummaryModel }
@@ -53,7 +69,7 @@ export type SegmentContent =
       /** Progress percent, 0..100. */
       readonly percent: number;
     }
-  | { readonly kind: "chat"; readonly line: string }
+  | { readonly kind: "chat"; readonly line: string; readonly chatKind: ChatKind; readonly glyph?: string }
   | HintContent;
 
 /** Data the `grid` mode needs. Every field is a real projection, not invented. */
@@ -78,7 +94,7 @@ export interface CmdData {
 /** Data the `logs` mode needs: the two-line chat window (#1351). */
 export interface LogsData {
   /** Chat lines, newest last; only the first two are shown. */
-  readonly lines: readonly string[];
+  readonly lines: readonly ChatLine[];
   readonly chatHasPrevious?: boolean;
   readonly chatHasNext?: boolean;
   readonly eventHasPrevious?: boolean;
@@ -101,9 +117,10 @@ function clampPercent(value: number): number {
   return value;
 }
 
-function chatLine(lines: readonly string[], index: number): SegmentContent {
-  const line = typeof lines[index] === "string" ? lines[index] : "";
-  return { kind: "chat", line };
+function chatLine(lines: readonly ChatLine[], index: number): SegmentContent {
+  const line = lines[index];
+  if (line === undefined) return { kind: "chat", line: "", chatKind: "logs" };
+  return { kind: "chat", line: line.text, chatKind: line.kind, glyph: line.glyph };
 }
 
 /**

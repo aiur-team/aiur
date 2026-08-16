@@ -139,6 +139,26 @@ defmodule Aiur.Codex.TranscriptTest do
       assert event.payload.success == false
     end
 
+    test "dynamicToolCall with a file path carries the path, not the bare tool name" do
+      message = %{
+        payload: %{
+          method: "item/completed",
+          params: %{
+            item: %{
+              type: "dynamicToolCall",
+              tool: "codex_file_read",
+              arguments: ~s({"path":"lib/aiur.ex"}),
+              contentItems: []
+            }
+          }
+        }
+      }
+
+      assert {:ok, event} = Transcript.extract(message, nil)
+      assert event.role == :tool
+      assert event.body == "read lib/aiur.ex"
+    end
+
     test "fileChange item/completed → :tool transcript with tool: \"edit\"" do
       message = %{
         payload: %{

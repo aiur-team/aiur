@@ -1,6 +1,7 @@
 import { createCanvas, type Canvas, type CanvasRenderingContext2D } from "@napi-rs/canvas";
 import { composeKeyFace, type KeyFace } from "./keys/keyFace.js";
 import type { KeyDescriptor } from "./keys.js";
+import type { ChatKind } from "./touchStrip/stripLayout.js";
 import type { SegmentContent } from "./touchStrip/stripLayout.js";
 
 export interface RasterizerOptions {
@@ -16,6 +17,15 @@ const drawText = (context: CanvasRenderingContext2D, text: string, x: number, y:
 };
 
 const hex = (colour: string): string => colour.startsWith("#") ? colour : `#${colour}`;
+
+// The three row classes plus the rare user turn, matching the emulator's
+// opencode-borrowed palette so the physical deck and the emulator agree.
+const CHAT_COLOURS: Readonly<Record<ChatKind, string>> = {
+  command: "#88e0a6",
+  agent: "#9fd0ff",
+  logs: "#ffcf87",
+  user: "#c69bff",
+};
 
 const drawKey = (canvas: Canvas, face: KeyFace): void => {
   const context = canvas.getContext("2d");
@@ -50,7 +60,7 @@ const segmentLabel = (content: SegmentContent): string => {
     case "controlling": return `CONTROLLING #${content.ticketId}`;
     case "agentIdentity": return content.identity;
     case "agentProgress": return `${content.status} ${content.percent}%`;
-    case "chat": return content.line;
+    case "chat": return content.glyph ? `${content.glyph} ${content.line}` : content.line;
     case "hint": return `${content.label} ${content.direction === "back" ? "←" : "→"}`;
   }
 };
@@ -61,7 +71,8 @@ const drawSegment = (canvas: Canvas, content: SegmentContent): void => {
   context.fillRect(0, 0, 200, 100);
   context.strokeStyle = "#4e678f";
   context.strokeRect(1, 1, 198, 98);
-  drawText(context, segmentLabel(content), 8, 48, 14, "#f2f5ff");
+  const colour = content.kind === "chat" ? CHAT_COLOURS[content.chatKind] : "#f2f5ff";
+  drawText(context, segmentLabel(content), 8, 48, 14, colour);
 };
 
 export const createRasterizer = (options: RasterizerOptions = {}) => {

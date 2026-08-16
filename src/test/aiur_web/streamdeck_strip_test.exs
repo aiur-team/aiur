@@ -77,9 +77,24 @@ defmodule AiurWeb.StreamdeckStripTest do
     assert %{shape: :diff, file: "lib/strip.ex", additions: 0, deletions: 0, line_kind: :context} = diff
     assert %{shape: :diff, line: "+added", line_kind: :addition} = addition
     assert %{shape: :diff, line: "-removed", line_kind: :deletion} = deletion
-    assert message == %{shape: :message, speaker: :agent, text: "working"}
-    assert tool == %{shape: :message, speaker: :tool, text: "mix test"}
-    assert ci == %{shape: :message, speaker: :ci, text: "CI passed"}
-    assert you == %{shape: :message, speaker: :you, text: "please continue"}
+    assert message == %{shape: :message, kind: :agent, glyph: nil, text: "working"}
+    # Generic tool rows keep the `⚙` glyph and the command colour; the row text
+    # is the content, with no "tool" label.
+    assert tool == %{shape: :message, kind: :command, glyph: "⚙", text: "mix test"}
+    assert ci == %{shape: :message, kind: :logs, glyph: nil, text: "CI passed"}
+    assert you == %{shape: :message, kind: :user, glyph: nil, text: "please continue"}
+  end
+
+  test "a tool row with a verb-prefixed path shows the path and a per-verb glyph" do
+    [read, edit, command] =
+      StreamdeckStrip.entries([
+        %{kind: :message, role: "tool", body: "read lib/aiur.ex"},
+        %{kind: :message, role: "tool", body: "edit lib/aiur.ex"},
+        %{kind: :message, role: "command", body: "git status"}
+      ])
+
+    assert read == %{shape: :message, kind: :command, glyph: "→", text: "lib/aiur.ex"}
+    assert edit == %{shape: :message, kind: :command, glyph: "←", text: "lib/aiur.ex"}
+    assert command == %{shape: :message, kind: :command, glyph: "$", text: "git status"}
   end
 end

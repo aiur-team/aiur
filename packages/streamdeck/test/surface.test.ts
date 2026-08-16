@@ -47,12 +47,12 @@ describe("physical surface composition", () => {
     const surface = createPhysicalSurface();
     const backend = { write, sendFeatureReport } as never;
     const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
-    const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: ["event-a", "event-b", "event-c"], eventOffset: 0, transcriptLines: ["chat-a", "chat-b"], eventHasNext: true, chatHasNext: true };
+    const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: ["event-a", "event-b", "event-c"], eventOffset: 0, transcriptLines: [{ text: "chat-a", kind: "agent" as const }, { text: "chat-b", kind: "command" as const }], eventHasNext: true, chatHasNext: true };
     await surface.repaint(backend, grid, {}, undefined, base);
     const first = write.mock.calls.length;
     await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1 });
     const afterEvent = write.mock.calls.length;
-    await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1, transcriptLines: ["chat-b", "chat-c"] });
+    await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1, transcriptLines: [{ text: "chat-b", kind: "command" as const }, { text: "chat-c", kind: "logs" as const }] });
     expect(afterEvent).toBeGreaterThan(first);
     expect(write.mock.calls.length).toBeGreaterThan(afterEvent);
   });

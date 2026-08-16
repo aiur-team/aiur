@@ -11,6 +11,7 @@ import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerSegmentModel, type ProviderMeter } from "./touchStrip/providerSegment.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
+import type { ChatLine } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid } from "./channel.js";
 
 export type PhysicalMode = "grid" | "cmd" | "logs";
@@ -19,7 +20,7 @@ export interface PhysicalSurfaceState {
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   readonly columnOffset: number;
-  readonly transcriptLines?: readonly string[];
+  readonly transcriptLines?: readonly ChatLine[];
   readonly eventLines?: readonly string[];
   readonly eventOffset?: number;
   readonly eventHasPrevious?: boolean;

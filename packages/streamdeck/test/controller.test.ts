@@ -155,6 +155,37 @@ describe("physical controller composition", () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  it("maps transcript entries onto coloured chat lines with a glyph gutter", () => {
+    const changed = vi.fn();
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: changed });
+    controller.setLogs({
+      transcript: [
+        // A tool row carries its path (verb stripped) plus the read glyph.
+        { kind: "message", role: "tool", body: "lib/aiur.ex", row_kind: "command", glyph: "→" },
+        // Agent prose has no glyph and gets the agent colour.
+        { kind: "message", role: "assistant", body: "inspected", row_kind: "agent" },
+      ],
+      transcript_offset: 0,
+    });
+    expect(controller.state().transcriptLines).toEqual([
+      { text: "lib/aiur.ex", kind: "command", glyph: "→" },
+      { text: "inspected", kind: "agent", glyph: undefined },
+    ]);
+
+    // Event headers and diffs have no row_kind; they land in the logs class.
+    controller.setLogs({
+      transcript: [
+        { kind: "event_header", badge: "AGENT", body: "Turn started" },
+        { kind: "diff", path: "lib/a.ex", line: "+ new" },
+      ],
+      transcript_offset: 0,
+    });
+    expect(controller.state().transcriptLines).toEqual([
+      { text: "Turn started", kind: "logs", glyph: undefined },
+      { text: "+ new", kind: "logs", glyph: undefined },
+    ]);
+  });
+
   it("preserves both log offsets across live refreshes and clears mic on cancellation", () => {
     const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
     controller.setLogs({

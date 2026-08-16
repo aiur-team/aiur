@@ -28,7 +28,7 @@ describe("composeStrip", () => {
       }),
     ).toHaveLength(SEGMENT_COUNT);
     expect(
-      composeStrip({ mode: "logs", data: { lines: ["a", "b"] } }),
+      composeStrip({ mode: "logs", data: { lines: [{ text: "a", kind: "command" }, { text: "b", kind: "agent" }] } }),
     ).toHaveLength(SEGMENT_COUNT);
   });
 
@@ -69,24 +69,30 @@ describe("composeStrip", () => {
   it("logs mode: BACK / chat line 1 / chat line 2 / EVENTS", () => {
     const [s0, s1, s2, s3] = composeStrip({
       mode: "logs",
-      data: { lines: ["first", "second", "ignored-third"] },
+      data: {
+        lines: [
+          { text: "first", kind: "command", glyph: "$" },
+          { text: "second", kind: "agent" },
+          { text: "ignored-third", kind: "logs" },
+        ],
+      },
     });
     expect(s0).toMatchObject({ kind: "hint", label: "BACK" });
-    expect(s1).toMatchObject({ kind: "chat", line: "first" });
-    expect(s2).toMatchObject({ kind: "chat", line: "second" });
+    expect(s1).toMatchObject({ kind: "chat", line: "first", chatKind: "command", glyph: "$" });
+    expect(s2).toMatchObject({ kind: "chat", line: "second", chatKind: "agent" });
     expect(s3).toMatchObject({ kind: "hint", label: "EVENTS" });
   });
 
   it("logs mode fills missing chat lines with empty strings", () => {
     const [, s1, s2] = composeStrip({ mode: "logs", data: { lines: [] } });
-    expect(s1).toMatchObject({ kind: "chat", line: "" });
-    expect(s2).toMatchObject({ kind: "chat", line: "" });
+    expect(s1).toMatchObject({ kind: "chat", line: "", chatKind: "logs" });
+    expect(s2).toMatchObject({ kind: "chat", line: "", chatKind: "logs" });
   });
 
   it("logs mode exposes independent chat and event bounds", () => {
     const [back, , , events] = composeStrip({
       mode: "logs",
-      data: { lines: ["chat"], chatHasNext: true, eventHasPrevious: true, eventHasNext: true },
+      data: { lines: [{ text: "chat", kind: "command" }], chatHasNext: true, eventHasPrevious: true, eventHasNext: true },
     });
     expect(back).toMatchObject({ kind: "hint", label: "CHAT", direction: "forward" });
     expect(events).toMatchObject({ kind: "hint", label: "EVENTS ↑↓", direction: "back" });

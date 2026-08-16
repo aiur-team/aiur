@@ -96,6 +96,25 @@ defmodule Aiur.AgentEventsTest do
     end
   end
 
+  describe "tool_call_body/2" do
+    test "file tools carry their path with an opencode-style verb prefix" do
+      assert AgentEvents.tool_call_body("read_file", %{"path" => "lib/aiur.ex"}) == "read lib/aiur.ex"
+      assert AgentEvents.tool_call_body("codex_file_edit", %{"file_path" => "lib/aiur.ex"}) == "edit lib/aiur.ex"
+      assert AgentEvents.tool_call_body("write_file", %{"path" => "priv/static/x.js"}) == "write priv/static/x.js"
+    end
+
+    test "search and glob tools carry their scalar argument" do
+      assert AgentEvents.tool_call_body("web_search", %{"query" => "aiur deck"}) == "aiur deck"
+      assert AgentEvents.tool_call_body("list_files", %{"glob" => "lib/**/*.ex"}) == "lib/**/*.ex"
+    end
+
+    test "a tool with no scalar argument keeps its name as a deliberate fallback" do
+      assert AgentEvents.tool_call_body("emit_alert", %{"name" => "attention.x", "message" => "hi"}) == "emit_alert"
+      assert AgentEvents.tool_call_body("web_search", nil) == "web_search"
+      assert AgentEvents.tool_call_body("web_search", %{}) == "web_search"
+    end
+  end
+
   describe "state_emoji/1" do
     test "maps every known work_state (atom + string) to its canonical glyph" do
       assert AgentEvents.state_emoji(:working) == "🟢"

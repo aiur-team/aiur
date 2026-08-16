@@ -12,6 +12,7 @@ defmodule AiurWeb.StreamdeckStrip do
   """
 
   alias AiurWeb.StreamdeckKeyFaceContract
+  alias AiurWeb.StreamdeckLogs
 
   @type hint :: %{label: String.t(), older?: boolean(), newer?: boolean()}
 
@@ -75,11 +76,23 @@ defmodule AiurWeb.StreamdeckStrip do
     }
   end
 
-  defp entry(%{kind: :message, role: role, body: body}) do
-    %{shape: :message, speaker: speaker(role), text: to_string(body)}
+  defp entry(%{kind: :message} = message) do
+    role = Map.get(message, :role, "system")
+    body = to_string(Map.get(message, :body, ""))
+
+    %{
+      shape: :message,
+      # `row_kind` and `glyph` come from the StreamdeckLogs projection (so the
+      # emulator and the device DTO agree); the fallbacks let a raw transcript
+      # entry still render standalone. `tool_display/1` strips the verb prefix
+      # and is idempotent, so a projection body already stripped is unchanged.
+      kind: Map.get(message, :row_kind, StreamdeckLogs.row_kind(role)),
+      glyph: Map.get(message, :glyph, StreamdeckLogs.glyph(role, body)),
+      text: Map.get(message, :text, StreamdeckLogs.tool_display(body)) |> to_string()
+    }
   end
 
-  defp entry(_entry), do: %{shape: :message, speaker: :ci, text: ""}
+  defp entry(_entry), do: %{shape: :message, kind: :logs, glyph: nil, text: ""}
 
   defp percent(value) when is_integer(value), do: clamp(value, 0, 100)
   defp percent(value) when is_float(value), do: value |> round() |> percent()
@@ -100,11 +113,6 @@ defmodule AiurWeb.StreamdeckStrip do
       _ -> nil
     end
   end
-
-  defp speaker(role) when role in ["assistant", :assistant], do: :agent
-  defp speaker(role) when role in ["tool", :tool], do: :tool
-  defp speaker(role) when role in ["user", :user], do: :you
-  defp speaker(_role), do: :ci
 
   defp line_kind("+" <> _line), do: :addition
   defp line_kind("-" <> _line), do: :deletion

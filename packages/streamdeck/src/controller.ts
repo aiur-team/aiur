@@ -2,8 +2,20 @@ import { applyStep, columnOffsetFromDial, cycleEventPage, cycleWindow, dial3Valu
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
+import type { ChatKind, ChatLine } from "./touchStrip/stripLayout.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
+
+const chatKind = (value: unknown): ChatKind => {
+  if (value === "command" || value === "agent" || value === "logs" || value === "user") return value;
+  return "logs";
+};
+
+const chatLineFromEntry = (entry: Readonly<Record<string, unknown>>): ChatLine => ({
+  text: typeof entry.line === "string" ? entry.line : typeof entry.body === "string" ? entry.body : "[INFO]",
+  kind: chatKind(entry.row_kind),
+  glyph: typeof entry.glyph === "string" && entry.glyph !== "" ? entry.glyph : undefined,
+});
 
 export interface ControllerState {
   readonly mode: ControllerMode;
@@ -11,7 +23,7 @@ export interface ControllerState {
   readonly columnOffset: number;
   readonly eventOffset: number;
   readonly chatOffset: number;
-  readonly transcriptLines: readonly string[];
+  readonly transcriptLines: readonly ChatLine[];
   readonly eventLines: readonly string[];
   readonly eventHasPrevious: boolean;
   readonly eventHasNext: boolean;
@@ -58,7 +70,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let pressed = new Set<string>();
   let dial3Value = 0;
   let chatDialValue = 0;
-  let transcriptHistory: readonly string[] = [];
+  let transcriptHistory: readonly ChatLine[] = [];
   let eventHistory: readonly string[] = [];
   let eventMaxOffset = 0;
   let chatMaxOffset = 0;
@@ -186,12 +198,12 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     setTranscript: (lines: readonly string[]): void => {
       chatMaxOffset = Math.max(0, lines.length - 2);
       const offset = Math.min(state.chatOffset, chatMaxOffset);
-      transcriptHistory = [...lines];
+      transcriptHistory = [...lines].map((line) => ({ text: line, kind: "logs" as const }));
       setLogsOffsets(state.eventOffset, offset);
     },
     setLogs: (logs: StreamDeckLogs): void => {
       eventHistory = (logs.event_keys ?? logs.event_keys_visible ?? []).map((event) => typeof event.label === "string" ? event.label : typeof event.text === "string" ? event.text : "EVENT");
-      transcriptHistory = (logs.transcript ?? []).map((entry) => typeof entry.line === "string" ? entry.line : typeof entry.body === "string" ? entry.body : "[INFO]");
+      transcriptHistory = (logs.transcript ?? []).map(chatLineFromEntry);
       eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
       chatMaxOffset = typeof logs.transcript_max_offset === "number" ? logs.transcript_max_offset : Math.max(0, transcriptHistory.length - 2);
       // A live logs push is a refresh, not a navigation command. Preserve the

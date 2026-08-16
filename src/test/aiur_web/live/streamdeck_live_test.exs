@@ -904,6 +904,31 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end)
   end
 
+  test "tool rows show the path with a glyph gutter and a per-kind colour, not the tool name" do
+    with_production_feed(fn ->
+      write_feed("1352", [
+        feed_event("assistant", "inspecting the file", "turn-1"),
+        feed_event("tool", "read lib/example.ex", "turn-1")
+      ])
+
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = enter_logs(view)
+
+      # The newest content (agent prose) shows first with its own colour class
+      # and no glyph, and there is no speaker label anywhere.
+      assert html =~ ~s(class="sd-log-message is-agent")
+      refute html =~ ~s(class="sd-log-speaker")
+
+      # Scrolling to the tool entry surfaces the path with the read glyph; the
+      # verb prefix and any "tool" label are gone.
+      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+      assert html =~ ~s(class="sd-log-message is-command")
+      assert html =~ ~s(class="sd-log-glyph" aria-hidden="true">→)
+      assert html =~ "lib/example.ex"
+      refute html =~ ~s(class="sd-log-speaker")
+    end)
+  end
+
   test "rebuilds LIVE and event starts from the durable feed when the relay receives a new event" do
     with_production_feed(fn ->
       write_feed("1352", [

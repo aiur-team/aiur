@@ -34,6 +34,37 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert is_binary(encoded)
   end
 
+  test "message entries carry a row kind, a glyph and a verb-stripped body for the device and emulator" do
+    logs =
+      StreamdeckLogs.project([
+        message("tool", "read lib/aiur.ex", "turn-1"),
+        message("command", "git status", "turn-2"),
+        message("assistant", "inspecting", "turn-3"),
+        message("system", "CI passed", "turn-4"),
+        message("tool", "emit_alert", "turn-5")
+      ])
+
+    kinds =
+      logs.transcript
+      |> Enum.reject(&(&1.kind == :event_header))
+      |> Enum.map(&Map.take(&1, [:role, :body, :row_kind, :glyph]))
+
+    assert kinds == [
+             %{role: "tool", body: "lib/aiur.ex", row_kind: :command, glyph: "→"},
+             %{role: "command", body: "git status", row_kind: :command, glyph: "$"},
+             %{role: "assistant", body: "inspecting", row_kind: :agent, glyph: nil},
+             %{role: "system", body: "CI passed", row_kind: :logs, glyph: nil},
+             %{role: "tool", body: "emit_alert", row_kind: :command, glyph: "⚙"}
+           ]
+
+    # The wire DTO exposes the same fields (atoms become strings) so the
+    # physical deck and the emulator cannot disagree.
+    wire = StreamdeckLogs.project([message("tool", "edit lib/aiur.ex", "turn-1")]) |> StreamdeckLogs.wire()
+    assert wire["transcript"] |> Enum.find(&(&1["kind"] == "message")) |> Map.get("row_kind") == "command"
+    assert wire["transcript"] |> Enum.find(&(&1["kind"] == "message")) |> Map.get("glyph") == "←"
+    assert wire["transcript"] |> Enum.find(&(&1["kind"] == "message")) |> Map.get("body") == "lib/aiur.ex"
+  end
+
   test "projects every Stream Deck direction as its own badge" do
     logs =
       StreamdeckLogs.project([
@@ -193,5 +224,9 @@ defmodule AiurWeb.StreamdeckLogsTest do
       timestamp: timestamp,
       turn_id: turn_id
     }
+  end
+
+  defp message(role, body, turn_id) do
+    %{type: "message", badge: "EMIT", role: role, body: body, timestamp: "2026-08-02T00:00:00Z", turn_id: turn_id}
   end
 end
