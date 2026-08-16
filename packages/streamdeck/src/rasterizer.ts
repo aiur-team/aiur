@@ -14,12 +14,8 @@
  *   CSS gradient strings. Assigning one to `fillStyle` is silently ignored by
  *   canvas and leaves the previous fill in place, which is what rendered every
  *   key solid black. They go through {@link createPaint}.
- * - **The progress bar is one colour**, a single green from the shared
- *   contract with a brighter shade at 100%, so completion reads at a glance.
- *   A hue ramp read as two segments of data on the device (and as two tones of
- *   grey at low saturation), which is the complaint this rendering is
- *   answering. Unknown stays structurally different: a dashed track and a
- *   hollow dot, never a second fill colour.
+ * - **Progress states do not introduce a second segment.** Measured progress
+ *   uses one green fill, unknown uses shape, and stale uses alpha only.
  * - **Titles re-wrap with real glyph metrics** rather than the character-count
  *   heuristic the pure layer uses, which is what lets a 120px key fit three
  *   proportional lines.
@@ -291,12 +287,8 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   // paints a visible stub. Skipping the fill there is what made "just started"
   // and "no reading" the same picture.
   const filled = Math.max(Math.round((barWidth * face.footer.percent) / 100), BAR_HEIGHT);
-  // A retained-but-stale reading is the truth, drawn as not-current rather than
-  // replaced by a fabricated zero. It used to be dimmed *and* ringed with a
-  // full-bar outline in the fill colour; the outline read as a second bar (the
-  // "border in a different colour from the fill" the operator asked to remove)
-  // and was carrying no state the dimming does not. Stale now lives in the
-  // alpha alone, so the bar stays one solid fill with no border.
+  // Unknown uses shape and stale uses alpha, so neither can be mistaken for a
+  // measured second segment.
   const stale = face.footer.freshness === "stale";
   if (stale) context.globalAlpha = 0.5;
   roundedPath(context, barX, barY, filled, BAR_HEIGHT, BAR_HEIGHT / 2);

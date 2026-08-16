@@ -158,8 +158,7 @@ function clampPercent(percent: number | null | undefined): number | null {
  * implies. Fail-closed on an unrecognised value: an unknown freshness label is
  * not evidence that a reading is current.
  */
-function readFreshness(agent: AgentInput, percent: number | null): ProgressFreshness {
-  const reported = agent.progress_freshness;
+export function progressFreshness(reported: unknown, percent: number | null): ProgressFreshness {
   // A daemon that says "unknown" is believed even when a number rides along.
   // The two are supposed to arrive paired, and honouring the number would draw
   // a confident bar under a payload that just said it has no reading.
@@ -186,7 +185,7 @@ function buildFooter(agent: AgentInput): Footer {
     };
   }
   const clamped = clampPercent(agent.progress_percent);
-  const freshness = readFreshness(agent, clamped);
+  const freshness = progressFreshness(agent.progress_freshness, clamped);
   // Unknown means unknown all the way down: the percent is dropped as well as
   // the colour, so nothing downstream can key a confident branch off a number
   // the payload disowned. Painting an unknown bar in the measured green would

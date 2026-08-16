@@ -106,6 +106,7 @@ const meter = (
   color: string | CanvasGradient,
   height = METER_HEIGHT,
   showZeroStub = false,
+  fillAlpha = 1,
 ): void => {
   const clamped = clamp(fraction, 0, 1);
   context.beginPath();
@@ -117,7 +118,9 @@ const meter = (
     context.beginPath();
     context.roundRect(x, y, Math.max(filled, height), height, height / 2);
     context.fillStyle = color;
+    context.globalAlpha = fillAlpha;
     context.fill();
+    context.globalAlpha = 1;
   }
 };
 
@@ -878,7 +881,7 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
   }
   // A measured 0% is a solid stub. The unknown branch above remains a dashed
   // track, so the strip makes the same no-reading/zero distinction as the key.
-  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true);
+  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true, model.freshness === "stale" ? 0.5 : 1);
 };
 
 /** Renders one panel's content onto a `width` x 100 context. */

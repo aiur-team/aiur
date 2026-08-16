@@ -104,6 +104,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     assert html =~ "Stale summary"
     assert html =~ "last known-good"
     assert html =~ "run-summary-grid"
+    assert html =~ ~s(class="run-summary-progress-fill is-stale")
+
+    complete = view |> put_progress(%{view.progress | percent: 100}) |> render()
+    assert complete =~ ~s(class="run-summary-progress-fill is-complete is-stale")
   end
 
   test "unavailable view is an alert naming the health reasons" do

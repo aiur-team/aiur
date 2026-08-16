@@ -202,6 +202,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(class="sd-ag-foot is-progress-stale")
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
+
+    stale = render_hook(view, "key-press", %{"identifier" => "stale"})
+    assert stale =~ ~r/class="sd-strip-cmd st-running is-progress-stale(?:\s*)"/
+    assert stale =~ ~s(aria-valuenow="40")
+
+    render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+    unknown = render_hook(view, "key-press", %{"identifier" => "unknown"})
+    assert unknown =~ ~r/class="sd-strip-cmd st-running is-progress-unknown(?:\s*)"/
+    refute strip(unknown) =~ "aria-valuenow"
   end
 
   test "renders every registry provider logo from its descriptor", %{snapshot_agent: snapshot_agent} do
@@ -236,7 +245,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ".sd-agent-key.st-alert .sd-ag-dot,.sd-agent-key.st-alert .sd-ag-stat::before{animation:sd-pulse 1.6s ease-in-out infinite;}"
     refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
     # Per-key values that depend on live fleet state stay inline.
-    assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
+    assert html =~ "--sd-progress-fill: #3fb950"
     # The log key list replaced the badge paragraph this originally asserted, so
     # the same contract ink is now checked where it renders: the event key badge
     # and the logs strip's own event header.
@@ -298,7 +307,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
     assert html =~ ~s(class="sd-screen sd-screen-cmd")
-    assert html =~ ~s(class="sd-strip-cmd st-running")
+    assert html =~ ~r/class="sd-strip-cmd st-running(?:\s*)"/
     # The info segments step aside for the full-width panel; the dial-D pager
     # segment stays, relabelled with the agent being controlled (#1607).
     refute html =~ ~s(data-segment="summary")
@@ -311,7 +320,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # key-face contract, not from a second copy of the tokens.
     assert html =~ ~s(style="--sd-accent: #9fd0ff")
     assert html =~ ~s(<span class="sd-strip-cmd-status">Running</span>)
-    assert html =~ "background: hsl(63 72% 50%)"
+    assert html =~ "background: #3fb950"
 
     assert html =~
              ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/

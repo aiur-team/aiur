@@ -3569,17 +3569,13 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--progress-complete-fill);
 }
 
+.ut-pbar > i.is-stale {
+  opacity: 0.5;
+}
+
 .ut-pbar.is-unknown {
   border: 1px dashed var(--muted);
   background: transparent;
-}
-
-.ut-pbar > i.is-blocked {
-  background: var(--blocking, #f2836b);
-}
-
-.ut-pbar > i.has-alert {
-  background: var(--attention, #e3b341);
 }
 
 .ut-latest-meta {
@@ -6835,6 +6831,10 @@ html[data-theme="light"] .rs-github-mark {
   background: var(--progress-complete-fill);
 }
 
+.run-summary-progress-fill.is-stale {
+  opacity: 0.5;
+}
+
 .run-summary-progress-value {
   margin: 0.4rem 0 0;
   font-weight: 600;
@@ -8796,7 +8796,23 @@ html[data-theme="light"] .rs-github-mark {
 .sd-strip-cmd-progress > i {
   display: block;
   height: 100%;
+  min-width: 0.34rem;
   border-radius: inherit;
+}
+
+.sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i {
+  opacity: 0.5;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress {
+  border: 1px dashed var(--muted);
+  background: transparent;
 }
 
 .sd-strip-logs {

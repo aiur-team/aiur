@@ -99,8 +99,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                   <span class="ut-latest-emoji" aria-hidden="true">{evidence_emoji(row)}</span>
                   <span class="ut-latest-text">{latest_text(row)}</span>
                 </div>
-                <span class={["ut-pbar", is_nil(known_percent(row.progress)) && "is-unknown"]} aria-hidden="true">
-                  <i :if={not is_nil(known_percent(row.progress))} class={progress_fill_classes(row)} style={"width:#{progress_width(row.progress)}%"}></i>
+                <span class={progress_track_class(row.progress)} aria-hidden="true">
+                  <i
+                    :if={not is_nil(known_percent(row.progress))}
+                    class={progress_fill_class(row.progress)}
+                    style={"width:#{progress_width(row.progress)}%"}
+                  >
+                  </i>
                 </span>
                 <div class="ut-latest-meta mono num">
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
@@ -380,12 +385,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
-  defp progress_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
-  defp progress_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
-  defp progress_tone(_row), do: nil
+  defp progress_track_class(progress), do: if(is_nil(known_percent(progress)), do: "ut-pbar is-unknown", else: "ut-pbar")
 
-  defp progress_fill_classes(row),
-    do: ["ut-progress-fill", known_percent(row.progress) == 100 && "is-complete", progress_tone(row)]
+  defp progress_fill_class(progress) do
+    ["ut-progress-fill", if(known_percent(progress) == 100, do: "is-complete"), if(Map.get(progress, :freshness) == :stale, do: "is-stale")]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
 
   defp present?(value), do: not is_nil(value) and value != ""
   defp known(value, fallback)

@@ -94,13 +94,13 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   @spec footer_for_agent(atom() | String.t(), map()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil, ready?: boolean()}
   def footer_for_agent(bucket, agent) when is_map(agent), do: footer(bucket, Map.get(agent, :dependency_ready))
 
-  @spec progress_color(number()) :: String.t()
   @doc """
   One fill colour at every measured value, with a brighter shade at 100% so
   completion reads at a glance. A hue ramp is deliberately not used: it makes
   the bar read as two segments of data (and, on the device, as two tones of
   grey at low saturation). Completion is a shade change, not a different hue.
   """
+  @spec progress_color(number()) :: String.t()
   def progress_color(percent) when is_number(percent) do
     progress = @contract["progress"]
     minimum = progress["minimum"]

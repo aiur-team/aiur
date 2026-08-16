@@ -465,7 +465,16 @@ defmodule AiurWeb.StreamdeckLive do
           >
             <%= if @sd_mode == :cmd do %>
             <% command = StreamdeckStrip.command(@sd_active) %>
-            <div class={["sd-strip-cmd", "st-#{@sd_active.bucket}"]} style={"--sd-accent: #{command.accent}"} data-mode-view="cmd-strip">
+            <div
+              class={[
+                "sd-strip-cmd",
+                "st-#{@sd_active.bucket}",
+                command.progress_freshness == :unknown && "is-progress-unknown",
+                command.progress_freshness == :stale && "is-progress-stale"
+              ]}
+              style={"--sd-accent: #{command.accent}"}
+              data-mode-view="cmd-strip"
+            >
               <div class="sd-strip-cmd-heading">
                 <span class="sd-strip-cmd-agent-icon" aria-hidden="true">{command.icon}</span>
                 <img :if={command.provider_logo} class="sd-cmd-provider-logo" src={command.provider_logo} alt={command.provider} />
