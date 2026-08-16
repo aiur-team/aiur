@@ -1,10 +1,10 @@
 # TUI
 
-The terminal UI (TUI) is the live agent-list board plus opencode chat panes opened into individual agent sessions.
+The terminal UI (TUI) is the live agent-list board plus chat panes opened into individual agent sessions.
 
 ![The aiur TUI: the agent-list board and a chat pane opened into a live agent session](/images/tui/aiur-tui.gif)
 
-The TUI is built on tmux with opencode serving the chat panes, so an Executor can chat with an agent directly in the same terminal where the fleet is visible. Send a message, watch the agent act on it, and interrupt it, all without leaving the board.
+An Executor can chat with an agent directly in the same terminal where the fleet is visible. Send a message, watch the agent act on it, and interrupt it without leaving the board.
 
 ## The agent-list board
 
@@ -45,9 +45,9 @@ Press `?` in the board for the on-screen keybind and state-circle help.
 
 ## Chat panes
 
-Pressing `enter` on a running agent opens its chat pane beside the board. From there an Executor types directly into the live session. Messages queue while the agent is mid-turn and are delivered after the current turn finishes. The opencode runtime and the agent transcript remain the source of truth; the pane is a live window onto it.
+Pressing `enter` on a running agent opens its chat pane beside the board. From there an Executor types directly into the live session. Messages queue while the agent is mid-turn and are delivered after the current turn finishes.
 
-Tickets cycle through a small number of conversation slots, so opening many agents reuses earlier slots rather than piling up panes. `max_vertical_panes` caps how many chat panes are visible at once.
+`max_vertical_panes` caps how many chat panes are visible at once.
 
 ## Foreground vs. background
 

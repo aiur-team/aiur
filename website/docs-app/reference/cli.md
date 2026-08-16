@@ -89,11 +89,11 @@ The refresh runs between the stop and the start, so the new daemon boots on curr
 
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
 
-Under `scripts/aiurdev` the refresh must prove itself. The rebuild reports the release directory and source commit it produced, and `restart` checks both against the release it is about to boot. A rebuild it cannot confirm aborts the start with exit code 70 and names the builder it could not confirm, rather than reporting a successful restart. A build command that does not declare it reports a receipt is not held to that contract: the restart proceeds and says plainly that it is unverified.
+Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit. If it cannot verify the rebuild, it leaves the daemon stopped, exits with code 70, and names the unconfirmed builder. Custom build commands that do not support verification still restart, but the command reports the result as unverified.
 
 ## Dashboard page commands
 
-`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages. They read the page's projection or provider rather than independently polling GitHub or treating `/api/v1/state` as the source of truth.
+`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages and show the same data.
 
 | Command | Page view and important inputs | Example |
 | --- | --- | --- |

@@ -4,16 +4,14 @@ title: Skills
 
 # Skills
 
-Aiur ships Agent Skills in this repository under `.claude/skills/`, mirrored to `.codex/skills/` by relative symlink. They split into two families by **where they run**, not by where they are stored:
+Aiur ships Agent Skills under `.claude/skills/` and makes them available to Codex under `.codex/skills/`. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
 - **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
 
-The split is defined in code, not by convention. `@issue_worker_skills` in [`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex) is the single authoritative list of agent-workspace skills, and [`aiur_agent_skill_test.exs`](../../src/test/aiur/aiur_agent_skill_test.exs) cross-checks it against the canonical taxonomy so the two cannot drift.
-
 ## Agent-workspace skills
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` writes these four skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set.
+These four skills are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`.
 
 | Skill | Loaded when | What it covers |
 | --- | --- | --- |

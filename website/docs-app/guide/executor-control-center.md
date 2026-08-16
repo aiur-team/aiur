@@ -1,10 +1,6 @@
 # Dashboard
 
-The Dashboard is Aiur’s browser dashboard for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics entry point without turning the browser into a second source of truth.
-
-::: info Example data
-Every screenshot on this page was captured from the shipped LiveView dashboard against an isolated fixture. Tickets (`EX-142` and similar), agents, decisions, repositories, and links are synthetic.
-:::
+The Dashboard is Aiur’s browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
 ## Open the dashboard
 
@@ -26,7 +22,7 @@ Set `server.host: 127.0.0.1` explicitly when the dashboard must remain loopback-
 
 ## Find a surface
 
-The navigation labels and routes are the same projections the page-parity CLI reads. Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
+Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
 
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
@@ -34,7 +30,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 | **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
 | **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
-| **Streamdeck+** | `/streamdeck` — browser emulator for the same live projection used by the authenticated physical Stream Deck + sidecar; [#1358](https://github.com/aiur-team/aiur/issues/1358) defines the remaining terminal hardware proof. | — |
+| **Streamdeck+** | `/streamdeck` — browser emulator for the physical Stream Deck + sidecar. | — |
 
 ## Overview
 
@@ -65,7 +61,7 @@ The target agent, not the browser, records `decision.acknowledged` and `decision
 
 ## Decision lifecycle
 
-The stepper is a compact view over two canonical axes: decision state and delivery state. It never invents a transition.
+The stepper combines decision state and delivery state:
 
 | Display state | What it means |
 | --- | --- |
@@ -87,8 +83,8 @@ A strip at the top of the Units page meters the non-model APIs a run spends, bes
 
 Read the ElevenLabs figure for exactly what it is:
 
-- It is the **account credit quota** (`character_count` against `character_limit` from `GET /v1/user/subscription`), reported as credits **left** and a bar that *depletes* as they are spent. Every other meter on the page reads percentage *used* with a bar that fills, so this one runs in the opposite direction by design; its label and its fill agree with each other.
-- It is **not a dollar balance**. The ElevenLabs API publishes no remaining-balance figure at all — the only money-shaped fields it returns are amounts owed — so Aiur shows no dollar amount here and does not derive one from character counts.
+- It is the **account credit quota**, reported as credits **left** and a bar that *depletes* as they are spent. Every other meter on the page reads percentage *used* with a bar that fills, so this one runs in the opposite direction.
+- It is **not a dollar balance**. ElevenLabs does not publish a remaining-balance figure, so Aiur shows no dollar amount and does not derive one from character counts.
 - It is **not a voice-input spend meter**. Speech-to-text, which is what Stream Deck voice input uses, is billed per minute of audio; the character quota is primarily the text-to-speech credit pool. Dictating heavily can therefore leave this meter unmoved.
 
 An account with a zero character limit renders its counts and no bar: there is no denominator, so there is no percentage to state.
@@ -105,25 +101,25 @@ The Tickets panel covers every open ticket on the repository, including the ones
 
 The panel opens on the first five tickets so a busy backlog does not push the rest of the page out of reach. A "Show more tickets" control below the table reveals the next batch and leaves the rows already on screen in place; it names how many it will add and disappears once every ticket is shown. The panel header always carries the full count.
 
-A search field under the panel title narrows the list as you type. It matches ticket identifiers, titles, and descriptions — every term has to match somewhere, in either field and in any order, so `retry storm` finds a ticket titled "Retry the dispatch" whose body mentions a webhook storm. Matching ignores case and punctuation, tolerates a prefix or a single typo, and ranks title hits above description hits so the ticket you meant sorts first. Descriptions are matched against a bounded excerpt of each body, not the whole thing. The search runs against the whole open backlog rather than the rows currently on screen, so it finds tickets the reveal has not reached yet; the reveal then batches the matches, and its control counts them. Clearing the field restores the full list, and a query that matches nothing says so rather than leaving the panel blank.
+A search field under the panel title narrows the list as you type. It matches ticket identifiers, titles, and descriptions — every term has to match somewhere, in either field and in any order, so `retry storm` finds a ticket titled "Retry the dispatch" whose body mentions a webhook storm. Matching ignores case and punctuation, tolerates a prefix or a single typo, and ranks title hits above description hits. The search covers the whole open backlog, including tickets not yet revealed in the table. Clearing the field restores the full list, and a query that matches nothing says so.
 
 Confirming the add-agent dialog is a writable control. It applies the configured first active-state label — which is what makes a ticket dispatchable at all — plus the selected `complexity:` tag and `model:` overrides, and removes the labels those replace. A tracker other than GitHub reports the panel as unsupported rather than unavailable.
 
 ## Decision history
 
-History is projected from the append-only decision audit. It attributes human Executor, supervising-Executor, ticket-agent, and system facts only when the canonical record identifies them. Dispatch, acknowledgement, revision, and follow-up results remain visible after the active card changes.
+History keeps dispatch, acknowledgement, revision, and follow-up results visible after the active decision card changes. Each entry identifies a human Executor, supervising Executor, ticket agent, or system action when that attribution is available.
 
 <img src="/images/dashboard/history-dark.png" alt="Desktop synthetic durable decision history entries">
 
 ## Recent outcomes
 
-Recent outcomes come from the durable merge store, not a fresh GitHub poll on every render. Each card preserves repository, pull request, ticket attribution, observation source, and reconciliation health.
+Each recent-outcome card shows the repository, pull request, ticket attribution, observation source, and reconciliation health.
 
 <img src="/images/dashboard/recent-outcomes-dark.png" alt="Desktop synthetic recent repository merge outcomes">
 
 ## Analytics
 
-`/analytics` renders the durable telemetry stream for the current live session. It shows ticket lifecycle timing, per-unit CPU and memory, concurrency against the cap, CPU-second cost per ticket, dispatch-time complexity breakdown, and completed-ticket counts. The writer records `pr_opened` and `pr_merged` anchors from the GitHub firehose, so completion KPIs and burn-up render for the current run. The Provider spend KPI appears only to an authorized browser and only when a scoped provider estimate exists; otherwise it is locked or unavailable, never reported as zero. A missing telemetry stream renders an explicit empty state. A selected Build Order narrows the view to its typed members in this session. [#1458](https://github.com/aiur-team/aiur/issues/1458) and [#1459](https://github.com/aiur-team/aiur/issues/1459) track remaining analytics gaps.
+`/analytics` shows ticket lifecycle timing, per-unit CPU and memory, concurrency against the cap, CPU-second cost per ticket, dispatch-time complexity breakdown, completed-ticket counts, completion KPIs, and burn-up for the current run. Provider spend appears only to an authorized browser and only when an estimate exists; otherwise it is locked or unavailable, never reported as zero. Missing telemetry produces an explicit empty state. Select a Build Order to limit the view to its members in this session.
 
 <img src="/images/dashboard/analytics-link-dark.png" alt="Desktop Analytics report link beside recent outcomes">
 
@@ -151,15 +147,3 @@ aiur
 Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A loopback dashboard may run without them only when it is not writable. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
-
-## Reproduce the screenshots
-
-The checked-in capture command starts the real endpoint with isolated in-memory providers and captures one desktop image for each documented surface. Keeping a single image prevents a screen change from creating a stale light, dark, and mobile set:
-
-```bash
-cd website
-npm ci
-npm run shot:dashboard
-```
-
-The fixture never reads a live repository, customer record, issue, agent transcript, or secret. Do not replace its `example.test` data with production data when updating these assets.

@@ -12,7 +12,7 @@ The [Dashboard](/guide/executor-control-center) combines the live fleet, durable
 
 `aiur-run` arms a recurring one-hour `aiur-meta` check at the start of a run, **before dispatching**. It is not a status poll: the check captures and looks at Units, Commands, Build Orders, and Analytics; times the interactive CLI and treats empty or timed-out responses as findings; compares host load with the configured gate; audits the PR backlog; then names one bottleneck and records it durably.
 
-The timer matters because an Executor deep in a merge queue should not have to remember an hourly audit. The first manual parity-run check found four defects that `aiur status`, `aiur alerts`, and, for three of them, the HTTP API did not reveal. A surface with a confident wrong number is more dangerous than a visible failure, so the check records what an operator can actually see rather than inferring health from one backend metric.
+The timer keeps the audit from being lost during a busy merge queue. It records what an operator can actually see and treats an empty or timed-out surface as a finding.
 
 After a check, inspect its durable follow-up with `aiur findings`. Work the named bottleneck or file its evidence-backed follow-up, then use `aiur findings --unfiled` before treating the retrospective as complete: it shows records that still lack a filed ticket. The per-boot narrative is host-local at `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`; append a new durable finding only through `aiur findings --record '<json>' --repo <owner>/<repo>`, which validates the record. [State nodes and Build Orders](/concepts/state-and-build-orders#executor-handoff-and-findings) documents the ledger and its locations.
 
@@ -34,4 +34,4 @@ Executors can pause and resume agents. Space toggles the selected ticket pause. 
 
 ## Remote control
 
-Remote control is opt-in per agent through the `model:remote` label or the `r` key. It rides the persistent `claude-repl` session and is local-only in v1. The opencode chat panes let an Executor type into the live session while the Codex/Claude runtime and transcript remain the source of truth.
+Remote control is opt-in per agent through the `model:remote` label or the `r` key and is local-only in v1. Chat panes let an Executor type directly into the live agent session.
