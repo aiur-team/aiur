@@ -35,9 +35,9 @@ async function anchor(locator) {
   })
 }
 
-async function openUnits(page) {
+async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
-  await page.goto('/units')
+  await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
@@ -902,10 +902,23 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await openStreamdeck(page)
 
   const units = await context.newPage()
-  await openUnits(units)
-  await units.getByRole('button', { name: 'Select all preceding filters' }).click()
+  // Apply the "Select all preceding filters" selection at mount instead of
+  // clicking the button. The click is a phx-click LiveView drops silently when
+  // the socket is still settling under CI load (the handler returns without
+  // pushing when the view is momentarily disconnected), which left the view on
+  // the default `:live` scope. Removing a unit against that stale scope
+  // collapses `#units-rows` to the single remaining live unit and the sync
+  // assertions below fail even though the emulator never desynced. Loading the
+  // selection from the URL keeps the scope deterministic.
+  const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
+  await openUnits(units, `/units?v=1&scope=unfinished&conditions=${allConditions}`)
 
   const rows = units.locator('#units-rows tr.units-row')
+  // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
+  // rendered scope before mutating makes the assumption this test asserts on
+  // explicit, so a stale selection fails loudly here instead of as a one-row
+  // table later.
+  await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
   const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
   await rows.first().locator('td.ut-id-cell').click()
   await units.locator('#remove-selected-unit').evaluate((button) => button.click())
@@ -984,6 +997,10 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('Ticket opened')
   inks.add(await origin.evaluate((el) => getComputedStyle(el).color))
   expect(inks.size).toBe(4)
+  // LIVE is pinned: even scrolled fully left to the origin, it still occupies
+  // the last (bottom-right) key rather than scrolling away.
+  await expect(logKeys.locator('.sd-live-key')).toHaveCount(1)
+  await expect(logKeys.locator('.sd-key').last()).toHaveClass(/sd-live-key/)
 
   // Back to where it opened, so the assertions below read the live end.
   for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [-90, 0, 90])

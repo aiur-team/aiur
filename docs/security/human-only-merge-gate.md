@@ -1,7 +1,7 @@
 # Merge gate
 
-`human-only-merge-gate` protects both `main` and `develop`. It keeps three
-properties, and nothing else:
+`human-only-merge-gate` protects `main`, the repository's single base branch.
+It keeps three properties, and nothing else:
 
 1. **Branches can't be force-pushed or deleted** (`non_fast_forward`,
    `deletion`).
@@ -19,7 +19,8 @@ merge a red build.
 
 The old gate's CODEOWNER review, last-push approval, and merge queue were
 removed. They solved the same "human must approve" problem with far more
-machinery (a squash-only merge queue that broke `develop → main` re-merges, and
+machinery (a squash-only merge queue that broke the then-periodic
+`develop → main` re-merges, and
 a two-identity CODEOWNERS dance). One approval plus an Executor bypass is the
 simpler equivalent.
 
@@ -42,8 +43,8 @@ and status-check rules.
 
 A read-only drift check (`scripts/verify-human-only-merge-ruleset-live.sh`) runs
 in CI on every pull request and merge as the `merge ruleset drift` check. It
-verifies every property a read-only token can see — active protection of `main`
-and `develop`, a pull-request rule with one approval and stale-review dismissal,
+verifies every property a read-only token can see — active protection of `main`,
+a pull-request rule with one approval and stale-review dismissal,
 and the `required_status_checks` rule matching the declaration exactly. It does
 not assert `bypass_actors`, which GitHub hides from read-only tokens; that stays
 in the admin verifier's domain.

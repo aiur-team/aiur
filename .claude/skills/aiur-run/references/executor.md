@@ -426,8 +426,11 @@ that declaration on every PR and merge, so a regressed gate fails CI visibly.
 The Executor must wait for the required checks and the review conditions before
 merging; never merge a pending, failing, or stale head.
 
-A solo operator cannot merge `develop` into `main` through the gate
-(issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
+A solo operator cannot merge a branch they authored through the gate
+(issue #1437). This used to bite hardest on the periodic `develop` -> `main`
+promotion; that promotion is retired now that `main` is the single base branch,
+but the rule still governs any Executor-authored branch.
+With a two-owner CODEOWNERS entry plus `require_code_owner_review`
 and `require_last_push_approval`, the only in-gate path is a bot approval, which
 defeats the gate; `--admin` does not bypass it. Any approved maintenance window
 must change only the review-side rules while leaving the required-status-check
