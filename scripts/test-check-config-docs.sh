@@ -189,6 +189,7 @@ reference "$root" <<'EOF'
 | `agent.backend_configs.<backend>.enabled` | boolean | backend default | Enable dispatch. |
 | `agent.backend_configs.<backend>.command` | string | registry default | Command. |
 | `agent.backend_configs.<backend>.model` | string | registry default | Model. |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Model discovery. |
 | `agent.backend_configs.<backend>.default_model` | string | registry default | Default model. |
 | `agent.backend_configs.<backend>.base_url` | string | registry default | Endpoint. |
 | `agent.backend_configs.<backend>.api_key_env` | string | registry default | API key environment name. |
@@ -215,6 +216,7 @@ map_subkeys=(
   'agent.backend_configs.<backend>.enabled'
   'agent.backend_configs.<backend>.command'
   'agent.backend_configs.<backend>.model'
+  'agent.backend_configs.<backend>.model_discovery'
   'agent.backend_configs.<backend>.default_model'
   'agent.backend_configs.<backend>.base_url'
   'agent.backend_configs.<backend>.api_key_env'

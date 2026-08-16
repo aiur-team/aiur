@@ -47,6 +47,7 @@ KNOWN_MAP_SUBKEYS: dict[str, tuple[str, ...]] = {
         "<backend>.enabled",
         "<backend>.command",
         "<backend>.model",
+        "<backend>.model_discovery",
         "<backend>.default_model",
         "<backend>.base_url",
         "<backend>.api_key_env",
@@ -67,6 +68,7 @@ KNOWN_MAP_SUBKEYS: dict[str, tuple[str, ...]] = {
 DEFMODULE_RE = re.compile(r"^\s*defmodule\s+([A-Za-z0-9_.]+)\s+do", re.MULTILINE)
 FIELD_RE = re.compile(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", re.MULTILINE)
 EMBEDS_RE = re.compile(r"^\s*embeds_(?:one|many)\(\s*:([a-zA-Z0-9_]+)\s*,\s*([A-Za-z0-9_.]+)", re.MULTILINE)
+INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
 def die(message: str, code: int = 2) -> None:
@@ -140,7 +142,8 @@ def main() -> int:
         die("found no config keys; that is a broken matcher, not an empty schema")
 
     reference = REFERENCE.read_text(encoding="utf-8")
-    missing = sorted(key for key in keys if key not in EXEMPT and key not in reference)
+    documented = set(INLINE_CODE_RE.findall(reference))
+    missing = sorted(key for key in keys if key not in EXEMPT and key not in documented)
 
     if missing:
         print("check-config-docs: config keys with no entry in the configuration reference:", file=sys.stderr)
