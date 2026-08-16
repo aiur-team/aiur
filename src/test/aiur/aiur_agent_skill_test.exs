@@ -17,13 +17,17 @@ defmodule Aiur.AiurAgentSkillTest do
   # The reference docs SKILL.md routes the agent to. The pre-prompt now points at
   # the skill instead of inlining the vocabulary, so these must actually exist.
   @reference_docs ~w(
+    turn-workflow.md
+    dev-loop.md
+    complexity-routing.md
+    conventions.md
     overview.md
     event-taxonomy.md
     emit-and-subscribe.md
     attention-and-resolve.md
     stub-then-fetch.md
   )
-  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import using-aiur)
+  @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import)
   # `aiur-meta` is an Executor meta-check driven by `aiur-run`'s timer. It audits
   # operator surfaces and files tickets; issue workers never run it, so it stays
   # Claude-only and is deliberately not symlinked into `.codex/skills/`.
@@ -34,8 +38,8 @@ defmodule Aiur.AiurAgentSkillTest do
     assert File.exists?(Path.join(@claude_skill, "SKILL.md"))
   end
 
-  test "using-aiur turn-workflow teaches respond-vs-code and PR-anchored mode" do
-    content = File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/turn-workflow.md"))
+  test "aiur-agent turn-workflow teaches respond-vs-code and PR-anchored mode" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/turn-workflow.md"))
 
     # respond-vs-code: reply by default, write code only when clearly intended
     assert content =~ "Most comments do not ask for code"
@@ -48,7 +52,7 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "Codex backend surface: prompt-referenced skills resolve through symlinks" do
-    for skill <- ~w(aiur-agent using-aiur) do
+    for skill <- ~w(aiur-agent) do
       assert_codex_skill_symlink_resolves_to_claude(skill)
     end
   end
@@ -302,7 +306,7 @@ defmodule Aiur.AiurAgentSkillTest do
   test "agent operating guidance scopes local pre-PR verification to affected tests" do
     source =
       @repo_root
-      |> Path.join(".claude/skills/using-aiur/dev-loop.md")
+      |> Path.join(".claude/skills/aiur-agent/dev-loop.md")
       |> File.read!()
       |> one_line()
 
@@ -339,7 +343,7 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "agent PR guidance uses and verifies the configured integration branch" do
-    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/dev-loop.md")))
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
 
     for source <- [dev_loop, repo_prompt] do
@@ -369,8 +373,8 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "agent workflow hands final PR CI to ci-wait without a polling turn" do
-    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/dev-loop.md")))
-    turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/turn-workflow.md")))
+    dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
+    turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/turn-workflow.md")))
     monitor = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md")))
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
     example_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/examples/prompt.md.example")))

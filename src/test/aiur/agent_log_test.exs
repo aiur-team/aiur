@@ -276,7 +276,7 @@ defmodule Aiur.AgentLogTest do
 
       ## How to operate
 
-      Load the using-aiur skill.
+      Load the aiur-agent skill.
       """
 
       content =
@@ -292,7 +292,7 @@ defmodule Aiur.AgentLogTest do
       assert body =~ "Login fails on invalid email"
       refute body =~ "Workspace setup"
       refute body =~ "How to operate"
-      refute body =~ "using-aiur"
+      refute body =~ "aiur-agent"
     end
 
     test "keeps an issue's own ## headings but stops at the workspace-setup section" do

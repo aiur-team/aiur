@@ -2,6 +2,12 @@
 
 `attention.<slug>` events surface a ❗ chip in the Executor’s agent list. They are how an agent says "I need the Executor to look at this before I can keep going."
 
+The `attention.*` family is not agent-exclusive: the orchestrator also publishes
+`attention.state_divergence`, `attention.waiting_for_human`, `attention.error-<cause>`,
+and `attention.unsupported_model` on the same topic family. Your
+`attention.resolved` only clears the slugs you opened, so keep your own
+attention slugs distinct from system ones.
+
 ## Opening an attention
 
 ```jsonc

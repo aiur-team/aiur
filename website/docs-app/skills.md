@@ -13,12 +13,11 @@ The split is defined in code, not by convention. `@issue_worker_skills` in [`age
 
 ## Agent-workspace skills
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` writes these four skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set.
+After a workspace is populated, `Aiur.AgentSkills.install/1` writes these three skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set.
 
 | Skill | Loaded when | What it covers |
 | --- | --- | --- |
-| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer. | The `agent:*` label lifecycle, the brainstorm, plan, work, and review flow, the Agent Workpad, milestone alerts, complexity routing, and the development loop. |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before emitting, subscribing to, or reacting to any event. | The [Message Bus](/concepts/coordination): `emit_event`, `aiur_subscribe`, blocker declaration, and attention open and close. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer. | The operating manual for an Aiur agent working a ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and cross-ticket events (`emit_event`, subscriptions, blockers, attentions). |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | When a run, daemon, agent, or workspace misbehaves. | An Aiur-specific context overlay for correlating evidence and ordering safe recovery. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Before frontend work that involves a design artifact. | Importing large design payloads without overflowing inline tool-result limits. |
 
@@ -55,4 +54,4 @@ These live only under `.codex/skills/` and are not installed by Aiur. They are t
 
 ## Compound-engineering skills
 
-The complexity router invokes CE skills that ship with the Executor's environment. Aiur does not bundle them, so this page does not link to per-skill files. The routing rules live in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md) and reference **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**.
+The complexity router invokes CE skills that ship with the Executor's environment. Aiur does not bundle them, so this page does not link to per-skill files. The routing rules live in [complexity-routing.md](../../.claude/skills/aiur-agent/complexity-routing.md) and reference **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**.

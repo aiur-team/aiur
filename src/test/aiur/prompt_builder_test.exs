@@ -80,17 +80,17 @@ defmodule Aiur.PromptBuilderTest do
   end
 
   @tag config: @config
-  test "shared prompt points at the /aiur-agent skill for cross-ticket events" do
+  test "shared prompt points at the aiur-agent skill for cross-ticket events" do
     prompt = PromptBuilder.build_prompt(issue([]))
 
-    assert String.contains?(prompt, "/aiur-agent")
+    assert String.contains?(prompt, "aiur-agent")
   end
 
   @tag config: @config
   test "shared prompt no longer inlines the cross-ticket event vocabulary" do
     prompt = PromptBuilder.build_prompt(issue([]))
 
-    # The allowlisted vocabulary now lives only in the /aiur-agent skill's
+    # The allowlisted vocabulary now lives only in the aiur-agent skill's
     # event-taxonomy.md. Guards #382: no parallel copy in the pre-prompt.
     refute String.contains?(prompt, "Event vocabulary (allowlisted")
     refute String.contains?(prompt, "You can re-block")
@@ -101,7 +101,7 @@ defmodule Aiur.PromptBuilderTest do
     prompt = PromptBuilder.build_prompt(issue([]))
 
     # The bare `progress` / `progress.checkin` operator-bar protocol is
-    # deliberately NOT part of /aiur-agent — guard against an over-zealous slim
+    # deliberately NOT part of aiur-agent — guard against an over-zealous slim
     # that strips it along with the cross-ticket vocabulary.
     assert String.contains?(prompt, "Progress emits")
     assert String.contains?(prompt, "Executor check-ins")
@@ -117,10 +117,10 @@ defmodule Aiur.PromptBuilderTest do
   end
 
   @tag config: @config
-  test "shared prompt points at the using-aiur operating-manual skill" do
+  test "shared prompt points at the aiur-agent operating-manual skill" do
     prompt = PromptBuilder.build_prompt(issue([]))
 
-    assert String.contains?(prompt, "using-aiur")
+    assert String.contains?(prompt, "aiur-agent")
   end
 
   @tag config: """
@@ -254,7 +254,7 @@ defmodule Aiur.PromptBuilderTest do
     prompt = PromptBuilder.build_prompt(issue([]))
 
     # The label lifecycle, complexity routing, CODEOWNERS authority, PR shape,
-    # and milestone-alert names moved into the `using-aiur` skill (#370). Guard
+    # and milestone-alert names moved into the `aiur-agent` skill (#370). Guard
     # against a regression that re-inlines them into every per-turn prompt.
     refute String.contains?(prompt, "### Complexity routing")
     refute String.contains?(prompt, "### Whose comments to act on")

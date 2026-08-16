@@ -37,11 +37,39 @@ Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 Executor helper for the reverse lookup: it queries the remote, prints the one
 matching branch, and exits non-zero when no branch or more than one branch exists.
 
+## Docs ship in the same PR
+
+Documentation is part of the change, not a follow-up ticket. Update
+`website/docs-app/` **in this PR** when your work:
+
+- adds or changes a **config key** (`.aiur/config`, `Aiur.Config.Schema.*`) →
+  `reference/configuration.md`, plus the `.aiur/examples/` and
+  `src/examples/workflows/` templates
+- adds or changes a **CLI command or flag** (`aiur`, `aiurdev`) →
+  `reference/cli.md`
+- adds or changes an **environment variable an operator would set**
+- adds a **new user-facing surface** — a dashboard page, a TUI view, a Stream
+  Deck mode, a new panel → `guide/`
+- **changes documented behavior**, so an existing page is now wrong → that page
+
+Skip docs for internal refactors, bug fixes that restore already-documented
+behavior, test-only changes, and performance work with no interface change.
+Don't pad a small change with prose.
+
+**Prefer editing an existing page over adding a new one.** Concise and correct
+beats comprehensive — a wrong doc is worse than a missing one, so fix every page
+your change falsifies first. A genuinely new page also needs a sidebar entry in
+`website/docs-app/.vitepress/config.ts`.
+
+Nothing machine-checks the threshold; `ce-code-review` treating a missing doc as
+a blocking finding is the enforcement.
+
 ## The loop
 
 1. Implement
 2. Add / update / run tests
-3. Run the scoped local pre-PR verification gate before opening or finalizing
+3. Update `website/docs-app/` if the change crossed the threshold above
+4. Run the scoped local pre-PR verification gate before opening or finalizing
    the PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests
    only (the test files for modules you touched plus directly related tests),
    each run with `mix test --max-cases 4`. Compute that scoped set
@@ -52,11 +80,11 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    Running only the affected tests also keeps full-suite log volume out of your
    context. Do not run Credo locally; CI's `make ci` is the authoritative full
    lint and full-suite gate.
-4. Fix every verification failure from the scoped local gate before continuing.
+5. Fix every verification failure from the scoped local gate before continuing.
    Do not gate PR-opening on a clean full-suite `mix test` run or loop on
    unrelated suite flakes; CI runs the full `make ci` on every PR and is the
    authoritative full-suite gate.
-5. Commit using short, 3–7 word messages, keeping your machine's git identity as
+6. Commit using short, 3–7 word messages, keeping your machine's git identity as
    the author. **When that author is `its-applekid` (email
    `its.applekid@gmail.com`)**, add GitHub's co-author trailer crediting the
    project owner: a blank line at the end of the message, then
@@ -64,7 +92,7 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    `its-everdred` already carry that credit and need no trailer. **Never** mention
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
-6. Push to the exact branch returned by `git branch --show-current`. On GitHub,
+7. Push to the exact branch returned by `git branch --show-current`. On GitHub,
    `GITHUB_TOKEN` is the push identity: verify that exact token resolves to the
    configured `tracker.github.bot_account` before the first push, without
    printing the token:
@@ -97,30 +125,31 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    configured base and refuses a PR when its tree deletes more than 50 base
    files that none of the feature commits touched. Never bypass a refusal:
    repair the wrong or stale base, or alert the Executor.
-7. **Open the PR as a draft** with that branch as `--head` and the authoritative
+8. **Open the PR as a draft** with that branch as `--head` and the authoritative
    integration branch as `--base`: `gh pr create --draft --head "$branch"
    --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
    exists, read its `baseRefName` before CI handoff. Leave a matching base
    unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
    request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
    observed branch, expected branch, and repair error if verification fails.
-8. **Own branch freshness before review:** fetch the PR's configured base and
+9. **Own branch freshness before review:** fetch the PR's configured base and
    verify its current remote head is an ancestor of your exact branch head. If
    it is not, integrate or re-cut against it, resolve both textual conflicts
    and semantic drift, rerun the scoped gate, and push. Do not hand stale code
    to the Executor or reviewers to update.
-9. **Self-review the draft PR with `ce-code-review`** against the diff you just
-   pushed.
-10. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
-11. Re-run the scoped local pre-PR verification gate after review fixes if any
+10. **Self-review the draft PR with `ce-code-review`** against the diff you just
+    pushed. A missing doc that the threshold above required is a review finding —
+    fix it here, not in a follow-up ticket.
+11. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
+12. Re-run the scoped local pre-PR verification gate after review fixes if any
     code, tests, prompt, skill, or config files changed.
-12. Recheck current-base ancestry after fixes. If the base moved, integrate it,
+13. Recheck current-base ancestry after fixes. If the base moved, integrate it,
     rerun the scoped gate, and push before continuing.
-13. If you still believe the work is complete and correct and only CI remains,
+14. If you still believe the work is complete and correct and only CI remains,
     keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
-14. On a delivered terminal CI event:
+15. On a delivered terminal CI event:
     - **Passed:** fetch the configured base once. If its current remote head is
       still an ancestor of the tested PR head, trust the delivered result without re-polling,
       mark the PR ready for review, emit the required 100% progress sample, and
@@ -128,7 +157,7 @@ matching branch, and exits non-zero when no branch or more than one branch exist
       validate, push, and return to `agent:ci-wait` for fresh exact-head CI.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework`, and begin the repair loop.
-15. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
+16. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
     follow the pass or failure path; if it is still pending, return to
     `agent:ci-wait` and end the turn without polling again.
 

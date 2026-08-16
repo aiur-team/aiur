@@ -92,7 +92,7 @@ baseline; deviations get recorded in `docs/refactor/00-overview.md`.
   adopting ethereum-optimism/actions CONTRIBUTING.md norms for aiur.
 
 **Process**
-- R11. Research-first order: (1) aiur-loop/using-aiur ticket conventions, (2)
+- R11. Research-first order: (1) aiur-loop/aiur-agent ticket conventions, (2)
   feature inventory from code + tests, (3) issue/PR history mining for regression
   hotspots and recurring themes, (4) fetch ethereum-optimism/actions
   CONTRIBUTING.md, (5) only then architecture + phasing.
@@ -145,7 +145,7 @@ baseline; deviations get recorded in `docs/refactor/00-overview.md`.
 - `claude-app-server` is out of scope except the aiur-side client code that talks
   to it (assumption stated during brainstorm, unchallenged).
 - Ticket shape must match the real conventions in `.claude/skills/aiur-loop/` and
-  `.claude/skills/using-aiur/` — confirming these is research step 1.
+  `.claude/skills/aiur-agent/` — confirming these is research step 1.
 - `ethereum-optimism/actions` CONTRIBUTING.md is fetchable from GitHub.
 
 ---

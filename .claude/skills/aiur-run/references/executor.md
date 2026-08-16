@@ -381,7 +381,7 @@ it can silently fall through to the Executor's cached `gh` credential. A
 token-bearing URL is both unsafe and ineffective as an after-the-fact repair:
 the #1401 experiment used the agent token, but pushed only tree-identical empty
 commits, which did not replace the earlier human reviewable-push attribution.
-Use the fail-closed recipe in `using-aiur/dev-loop.md` from the first real push,
+Use the fail-closed recipe in `aiur-agent/dev-loop.md` from the first real push,
 and open worker pull requests with the agent identity; GitHub counts the PR
 **opener**, not the commit author, when deciding self-approval.
 

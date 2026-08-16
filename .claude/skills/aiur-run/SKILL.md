@@ -601,7 +601,7 @@ Branch protection measures the identity of the **pusher**, not the commit
 author, and `require_last_push_approval` evaluates the last **reviewable** push.
 The authenticating token determines the pusher; the URL username and commit
 author do not. Never embed a token in the remote URL. Use the fail-closed helper
-recipe in `using-aiur/dev-loop.md`, which resets inherited GitHub credential
+recipe in `aiur-agent/dev-loop.md`, which resets inherited GitHub credential
 helpers before supplying `GITHUB_TOKEN`, and open agent PRs with the agent
 identity — GitHub counts the PR **opener** for self-approval, not the commit
 author. Tree-identical empty commits do not replace an earlier reviewable-push

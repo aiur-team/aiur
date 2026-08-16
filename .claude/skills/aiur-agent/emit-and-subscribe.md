@@ -242,8 +242,17 @@ Exact-match removal. No-op if the pattern wasn't subscribed.
 
 When you start working on a ticket, Aiur automatically subscribes you to:
 
-- `system.<default-branch>.branch.push` — pushes to the repo's default branch
+- `system.<base-branch>.branch.push` — pushes to the repo's base branch
+- `ticket.<self>.issue.commented` — comments on your own issue
+- `ticket.<self>.pr.review_comment` — review comments and review threads on your own PR
+- `ticket.<self>.ci.passed` / `ticket.<self>.ci.failed` — terminal CI outcome
+- `ticket.<self>.operator.progress_request` — the periodic check-in ping
 - (After `aiur_declare_blocker(N)`:) a useful subset of `ticket.N.*` events — the blocker's progress, decisions, branch pushes, and unblock signals
+
+That set is deliberately narrow rather than a blanket `ticket.<self>.#`: you are
+not auto-subscribed to your own `branch.push`, `pr.opened`, or `pr.merged` —
+those are consumed by the orchestrator. Anything outside the table needs an
+explicit `aiur_subscribe`.
 
 For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
 resumes a parked consumer through the mid-turn checkpoint drain. Load

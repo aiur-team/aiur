@@ -29,7 +29,7 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | `attention.<slug>` | Need the Executor to answer something (opens ❗ in the agent list) | `ticket.<id>.agent.attention.<slug>` |
 | `attention.resolved` | Closing a previously-opened attention; pass `payload: {slug: "<the-slug>"}` | `ticket.<id>.agent.attention.resolved` |
 | `pause.request` | Ask the Executor to pause your turn at the next checkpoint | `ticket.<id>.agent.pause.request` |
-| `custom.<slug>` | Anything else — capped at 5 per turn | `ticket.<id>.agent.custom.<slug>` |
+| `custom.<slug>` | Anything else — a name no other category fits | `ticket.<id>.agent.custom.<slug>` |
 
 > **Also allowed, but Executor-facing (not cross-ticket coordination):** the bare
 > `progress` and `progress.checkin` names drive the Executor’s agent-list
@@ -44,12 +44,11 @@ These you can subscribe to, but they're emitted by Aiur, not by you.
 | Topic | What it means |
 |-------|---------------|
 | `ticket.<id>.branch.push` | Someone pushed to an Aiur ticket branch (legacy or readable); the payload carries the actual ref. |
-| `system.<branch>.branch.push` | Push to the repo's default branch (universal subscription — you don't need to subscribe explicitly) |
+| `system.<branch>.branch.push` | Push to the repo's base branch (universal subscription — you don't need to subscribe explicitly) |
 | `ticket.<id>.pr.opened` | A PR was opened for this ticket |
 | `ticket.<id>.pr.merged` | A PR for this ticket was merged |
 | `ticket.<id>.issue.commented` | Someone left a comment on the GitHub issue (CODEOWNERS-filtered) |
 | `ticket.<id>.pr.review_comment` | Someone left a PR review comment (CODEOWNERS-filtered) |
-| `ticket.<id>.issue.blocked_by.changed` | The dependency graph changed (someone called `aiur_declare_blocker`) |
 
 ## What you do NOT need to emit
 
@@ -64,6 +63,10 @@ architectural broadcasts: Aiur persists them in the Decision audit before
 publishing. They are ticket-scoped, reject stale/wrong correlation, and are
 idempotent when an agent turn is replayed.
 
-## Custom event quota
+## Per-turn progress cap
 
-`custom.*` events are capped at `events.custom_events_per_turn_max` (default 5) per turn. The 6th `custom.*` call in a turn returns `custom_event_quota_exceeded`. Use named categories (`progress`, `decision`, etc.) when one fits — they have no quota.
+The bare `progress` name is capped at **two** emits per turn — the third returns
+`progress_cap_exceeded`. The Executor's 1-of-10 estimate protocol and check-in
+cadence live in the per-turn prompt, so pace your `progress` emissions against
+that rule. Named categories (`progress.<slug>`, `decision.*`, `attention.*`,
+etc.) have no per-turn cap.
