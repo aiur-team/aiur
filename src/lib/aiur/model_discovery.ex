@@ -534,9 +534,17 @@ defmodule Aiur.ModelDiscovery do
   end
 
   # `:global.trans/4` with zero retries makes a concurrent refresh a no-op
-  # rather than a queued duplicate request.
+  # rather than a queued duplicate request: a held lock returns `:aborted`
+  # immediately instead of queueing a second request for the same catalogue.
+  #
+  # The lock id must be the two-element `{resource_id, lock_requester_id}` that
+  # `:global` documents — the backend belongs inside the resource half, not as
+  # a third element, or the call can never succeed.
   defp guarded_refresh(backend, opts) do
-    :global.trans({__MODULE__, :refresh, backend}, fn -> log_refresh(backend, opts) end, [node()], 0)
+    case :global.trans({{__MODULE__, backend}, self()}, fn -> log_refresh(backend, opts) end, [node()], 0) do
+      :aborted -> :ok
+      result -> result
+    end
   end
 
   defp log_refresh(backend, opts) do
