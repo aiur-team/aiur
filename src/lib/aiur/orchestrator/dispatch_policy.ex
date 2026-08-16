@@ -558,6 +558,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :no_agent_work_state
           | :terminal_state
           | :dependency
+          | :blocked_on_decision
           | :already_running
           | :auto_resume_pending
           | :retry_backoff
@@ -570,13 +571,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @spec dispatch_decision(term(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state) do
-    dispatch_decision(issue, state, active_state_set(), terminal_state_set())
+    dispatch_decision(
+      issue,
+      state,
+      active_state_set(),
+      terminal_state_set(),
+      state.blocked_ticket_ids
+    )
   end
 
   @spec dispatch_decision(term(), State.t(), MapSet.t(), MapSet.t()) ::
           :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state, active_states, terminal_states) do
-    case dispatch_candidate_decision(issue, state, active_states, terminal_states) do
+    dispatch_decision(issue, state, active_states, terminal_states, state.blocked_ticket_ids)
+  end
+
+  @spec dispatch_decision(term(), State.t(), MapSet.t(), MapSet.t(), MapSet.t() | :unavailable | nil) ::
+          :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_decision(issue, %State{} = state, active_states, terminal_states, blocked_ticket_ids) do
+    case dispatch_candidate_decision(issue, state, active_states, terminal_states, blocked_ticket_ids) do
       :dispatch -> if(Slots.available_slots(state) > 0, do: :dispatch, else: {:skip, :fleet_capacity})
       {:skip, _reason} = declined -> declined
     end
@@ -589,7 +602,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # parallel paused agent is parked in the running map.
   @spec dispatch_candidate?(Issue.t(), State.t()) :: boolean()
   def dispatch_candidate?(%Issue{} = issue, %State{} = state) do
-    dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set()) == :dispatch
+    dispatch_candidate_decision(
+      issue,
+      state,
+      active_state_set(),
+      terminal_state_set(),
+      state.blocked_ticket_ids
+    ) == :dispatch
   end
 
   @spec dispatch_candidate?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
@@ -599,17 +618,43 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         active_states,
         terminal_states
       ) do
-    dispatch_candidate_decision(issue, state, active_states, terminal_states) == :dispatch
+    dispatch_candidate_decision(issue, state, active_states, terminal_states, state.blocked_ticket_ids) == :dispatch
   end
 
-  defp dispatch_candidate_decision(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
+  @spec dispatch_candidate?(Issue.t(), State.t(), MapSet.t(), MapSet.t(), MapSet.t() | :unavailable | nil) ::
+          boolean()
+  def dispatch_candidate?(
+        %Issue{} = issue,
+        %State{} = state,
+        active_states,
+        terminal_states,
+        blocked_ticket_ids
+      ) do
+    dispatch_candidate_decision(issue, state, active_states, terminal_states, blocked_ticket_ids) ==
+      :dispatch
+  end
+
+  defp dispatch_candidate_decision(
+         %Issue{} = issue,
+         %State{} = state,
+         active_states,
+         terminal_states,
+         blocked_ticket_ids
+       ) do
     case issue_eligibility_decision(issue, active_states, terminal_states) do
-      :dispatch -> dispatch_state_decision(issue, state, terminal_states)
+      :dispatch -> dispatch_state_decision(issue, state, terminal_states, blocked_ticket_ids)
       {:skip, _reason} = declined -> declined
     end
   end
 
-  defp dispatch_candidate_decision(_issue, _state, _active_states, _terminal_states), do: {:skip, :invalid_issue}
+  defp dispatch_candidate_decision(
+         _issue,
+         _state,
+         _active_states,
+         _terminal_states,
+         _blocked_ticket_ids
+       ),
+       do: {:skip, :invalid_issue}
 
   defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
     is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
@@ -642,8 +687,14 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp dispatch_state_decision(%Issue{} = issue, %State{} = state, terminal_states) do
+  defp dispatch_state_decision(
+         %Issue{} = issue,
+         %State{} = state,
+         terminal_states,
+         blocked_ticket_ids
+       ) do
     cond do
+      blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
       todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
@@ -677,7 +728,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     active_states = active_state_set()
     terminal_states = terminal_state_set()
 
-    Enum.any?(issues, &dispatch_candidate?(&1, state, active_states, terminal_states))
+    Enum.any?(
+      issues,
+      &dispatch_candidate?(&1, state, active_states, terminal_states, state.blocked_ticket_ids)
+    )
   end
 
   @spec state_slots_available?(term(), term()) :: boolean()
@@ -776,6 +830,29 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   def todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+
+  @doc """
+  True when dispatch of the issue must be held for an open blocking Command,
+  per the latest dispatch cycle's decision-store read.
+
+  `blocked_ticket_ids` is a `MapSet` of ticket identifiers with open blocking
+  Commands. The gate is fail-closed: `:unavailable` (the decision store could
+  not be read) returns true, because an open blocking Command is
+  indistinguishable from an empty store when the store cannot be read.
+  `nil` (no cycle computed the set) returns false, preserving compatibility
+  before the dispatcher has refreshed the store snapshot.
+
+  The Reconciler must NOT call this directly for its running-agent guard: it
+  deliberately fails OPEN there (stopping healthy running agents on a store
+  outage would be worse than letting a blocked agent run one more cycle), so
+  it checks `MapSet` membership explicitly.
+  """
+  @spec blocked_on_decision?(Issue.t(), MapSet.t() | :unavailable | nil) :: boolean()
+  def blocked_on_decision?(%Issue{id: id}, %MapSet{} = blocked),
+    do: MapSet.member?(blocked, id)
+
+  def blocked_on_decision?(_issue, :unavailable), do: true
+  def blocked_on_decision?(_issue, _blocked), do: false
 
   @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
   def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do

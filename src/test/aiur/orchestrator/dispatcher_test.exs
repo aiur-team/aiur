@@ -250,6 +250,158 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  describe "blocking Command dispatch gate (#1965)" do
+    test "a dispatch cycle reads an open blocking Command and releases it after answer" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("decision-cycle-#{System.unique_integer([:positive])}")
+
+      ticket = %{identifier: candidate.id, title: candidate.title, url: candidate.url}
+
+      source = %{
+        agent_id: "dispatcher-test",
+        session_id: "session-#{candidate.id}",
+        event_id: nil
+      }
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{"question" => "Which path should this ticket take?", "blocking" => true},
+                 ticket: ticket,
+                 source: source
+               )
+
+      on_exit(fn ->
+        Aiur.DecisionStore.answer(
+          decision.decision_id,
+          %{
+            "idempotency_key" => "cleanup-#{decision.decision_id}",
+            "expected_version" => decision.version,
+            "custom_response" => "Proceed"
+          },
+          actor: %{kind: :operator, id: "dispatcher-test"}
+        )
+      end)
+
+      state =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> Dispatcher.refresh_blocked_ticket_ids()
+
+      assert Dispatcher.choose_issues(state, [candidate]).dispatch_declines[candidate.id] ==
+               :blocked_on_decision
+
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "release-#{decision.decision_id}",
+                   "expected_version" => decision.version,
+                   "custom_response" => "Proceed"
+                 },
+                 actor: %{kind: :operator, id: "dispatcher-test"}
+               )
+
+      next_state = Dispatcher.refresh_blocked_ticket_ids(state)
+
+      assert DispatchPolicy.dispatch_decision(
+               candidate,
+               next_state,
+               DispatchPolicy.active_state_set(),
+               DispatchPolicy.terminal_state_set(),
+               next_state.blocked_ticket_ids
+             ) == :dispatch
+    end
+
+    test "a ticket with an open blocking Command is declined and the reason is visible in status" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("blocked-command")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: MapSet.new([candidate.id])
+      }
+
+      declined = Dispatcher.choose_issues(state, [candidate])
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+
+      assert_receive {:alert,
+                      %{
+                        name: "dispatch.candidate_declined",
+                        reason: reason,
+                        needs_attention: false
+                      }},
+                     2_000
+
+      assert reason =~ "blocked_on_decision"
+    end
+
+    test "an unreadable decision store fails closed (no new dispatch)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("store-unavailable")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: :unavailable
+      }
+
+      declined = Dispatcher.choose_issues(state, [candidate])
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+    end
+
+    test "dispatch_issue refuses to spawn a fresh agent while a blocking Command is open" do
+      candidate = issue("dispatch-issue-blocked")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{effective_concurrent_agents: 4, blocked_ticket_ids: MapSet.new([candidate.id])}
+
+      declined =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn issue -> {:ok, issue} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+    end
+
+    test "dispatch_issue proceeds when the ticket has no open blocking Command" do
+      test_pid = self()
+      candidate = %{issue("unblocked-dispatch") | selected_backend: "codex"}
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: MapSet.new(["other"])
+      }
+
+      next_state =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == candidate.id
+      assert Map.has_key?(next_state.running, candidate.id)
+    end
+  end
+
   defp dispatch_recovery(codex_thrash_budget) do
     %{
       workspace_ownership: %{waits: %{}, ready: %{}},

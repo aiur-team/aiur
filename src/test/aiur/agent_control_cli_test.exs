@@ -571,6 +571,23 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "blocked_by=repo#12"
   end
 
+  test "status names a blocking Command dispatch decline", %{orchestrator: pid} do
+    issue = %Issue{id: "issue-1965", identifier: "repo#1965", state: "todo", title: "Needs decision"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{issue.id => issue},
+          dispatch_declines: %{issue.id => :blocked_on_decision}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1965  idle"
+    assert output =~ "dispatch_decline=blocked_on_decision"
+  end
+
   test "status makes degraded supervision explicit" do
     Application.put_env(:aiur, :supervision_health_status_fun, fn ->
       {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
