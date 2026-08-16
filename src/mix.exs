@@ -162,6 +162,7 @@ defmodule Aiur.MixProject do
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.7"},
+      {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
       {:jose, "~> 1.11"},
       {:yaml_elixir, "~> 2.12"},
