@@ -77,8 +77,8 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`) — see [Routes in `agent.priority`](#routes-in-agent-priority). Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when an entry hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
-| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Whether dispatch routes away from a provider's peak-pricing window, falling through to the next `agent.priority` entry. `false` means ignore pricing windows entirely and use `agent.priority` exactly as written — it never changes how spend is *reported*. Shape only today; the behaviour lands with time-of-day routing. |
+| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. Shape only today; time-of-day routing lands later. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -120,8 +120,8 @@ grammar `agent.routing` has always used:
 <backend>[:<model>[:<effort>]][+remote]
 ```
 
-- `claude` — the backend's own direct connection, exactly as before.
-- `openrouter:anthropic/claude-sonnet-5` — that model reached through OpenRouter.
+- `claude`: the backend's own direct connection, exactly as before.
+- `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
 A colon-free entry means what it has always meant, so **existing configs need
 no change**.
@@ -149,13 +149,12 @@ agent:
 **A model reachable two ways may appear twice, and the order is the fallback
 order.** Duplicate *routes* are rejected; duplicate backends are not.
 
-**Model names.** The canonical form is the provider's full slug, which is also
-the key cost reporting uses. A short family alias works too — `openrouter:claude`
-resolves to the newest `anthropic/claude-*` — and is widened to the concrete
-slug before the request is sent, so aliased calls are priced normally. An alias
-claimed by more than one vendor is rejected at config load rather than resolved
-by coin flip. Aggregator ids beginning with `~` are rejected: they are floating
-pointers whose target can change under a running fleet.
+| Model name | Behavior |
+| --- | --- |
+| Full provider slug | Canonical form and cost-reporting key. |
+| Short family alias | Resolves to the newest matching concrete slug before the request, so normal pricing applies. |
+| Alias claimed by multiple vendors | Rejected during config load. |
+| Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
 **OpenRouter needs an explicit model.** It fronts a catalog rather than a
 product, so a bare `openrouter` entry is a config error.
@@ -174,8 +173,7 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### `backend_configs.openrouter`
 
-Settings for the OpenRouter *transport*. Nothing here selects anything —
-selection lives entirely in `agent.priority`.
+These settings control the OpenRouter *transport*; selection lives entirely in `agent.priority`.
 
 | Key | Type | Controls |
 | --- | --- | --- |
@@ -186,12 +184,10 @@ selection lives entirely in `agent.priority`.
 
 #### Cost attribution
 
-Spend is priced by the **route**, never by whichever upstream ended up serving
-the request. A call through `openrouter:anthropic/claude-sonnet-5` prices
-against OpenRouter's rows for that slug even when the selected upstream was
-Anthropic, because OpenRouter is who bills it. Direct and via-OpenRouter routes
-to the same model are separate identities and may legitimately carry different
-rates.
+| Cost case | Attribution |
+| --- | --- |
+| `openrouter:anthropic/claude-sonnet-5` | Uses OpenRouter's price row because OpenRouter bills the request, even when Anthropic serves it upstream. |
+| Same model through direct and OpenRouter routes | Keeps separate identities and may carry different rates. |
 
 | Build-gate behavior | Detail |
 | --- | --- |
@@ -248,10 +244,9 @@ release models faster than that list is edited, so for OpenAI-compatible backend
 also asks the provider's own catalogue endpoint which models it currently serves, and
 caches the answer.
 
-Discovery **extends** the curated list; it never replaces it. Reasoning-effort
-vocabularies, capability flags, derived family aliases, presentation, and the models
-`aiur init` offers stay registry-owned, and where a discovered id collides with a
-curated one the curated metadata wins.
+Discovery **extends** the curated list without replacing registry-owned effort vocabularies,
+capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins
+when an ID collides.
 
 | Backend | Endpoint | Credential | Returns |
 | --- | --- | --- | --- |
@@ -270,7 +265,7 @@ backend straight at it; it returns identifiers and display names, no pricing.
 | --- | --- |
 | Location | `model-catalog.json`, beside the active workflow config and `model-usage.json` |
 | TTL | 24 hours |
-| Refresh trigger | lazy and backgrounded — reading the usable model set (e.g. when an agent session starts) schedules a refresh only if the cache is older than the TTL |
+| Refresh trigger | Lazy and backgrounded; reading the usable model set schedules a refresh only when the cache is older than the TTL. |
 | Cold offline start | the discovered set is empty and aiur uses exactly the curated list, i.e. it behaves as it did before discovery existed |
 | Corrupt cache | treated as absent; falls back to the curated list |
 
@@ -286,22 +281,21 @@ verify is **accepted**, never rejected.
 Two classes of catalogue id are rejected at ingest, with the reason recorded in the
 cache under `rejected`:
 
-- **`reserved_routing_separator`** — an id containing `:`, such as
+- **`reserved_routing_separator`**: an id containing `:`, such as
   `moonshotai/kimi-k2.7-code:batch`. Aiur routing values are `backend:model:effort`, so
   `openrouter:moonshotai/kimi-k2.7-code:batch` would parse `batch` as a reasoning
   effort. Pin such a variant only if and when aiur gains a way to escape the separator.
-- **`unstable_identifier_prefix`** — an id starting with `~`, such as
+- **`unstable_identifier_prefix`**: an id starting with `~`, such as
   `~moonshotai/kimi-latest`, which OpenRouter uses for a non-canonical pointer rather
   than an addressable model.
 
 ### Pricing is advisory
 
-OpenRouter is the only catalogue that quotes prices. Aiur records those numbers in the
-cache and compares them to the curated price table, and stops there. Fetched prices are
-**never** written into the price table, and a curated row always wins. A disagreement
-larger than 5% logs a price-drift warning naming both numbers, which turns a stale
-curated row (the failure mode where output spend is under-reported) into something you
-can see — without letting a vendor feed silently rewrite what aiur reports having spent.
+| Pricing rule | Behavior |
+| --- | --- |
+| Fetched OpenRouter price | Recorded in the cache for comparison but never written into the curated price table. |
+| Curated row | Always wins attribution. |
+| Difference above 5% | Logs both numbers as price drift without letting vendor data rewrite reported spend. |
 
 A discovered model with **no** curated price row is usable but visibly unpriced: its
 usage reports unknown cost with an `unknown_price_model` coverage reason. It is never
