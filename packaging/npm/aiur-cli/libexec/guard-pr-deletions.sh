@@ -52,7 +52,12 @@ if ! git merge-base --is-ancestor "$branch_start" HEAD; then
 fi
 
 git log --format= --name-only "$branch_start"..HEAD | sed '/^$/d' | LC_ALL=C sort -u >"$scratch_dir/touched"
-comm -23 "$scratch_dir/deleted" "$scratch_dir/touched" >"$scratch_dir/untouched-deletions"
+# Both inputs are sorted with LC_ALL=C, so comm must compare with the same
+# collation. Under a UTF-8 locale comm reads C-sorted input as unsorted (any
+# mix of upper- and lower-case initial paths, e.g. README.md beside src/...)
+# and its output on unsorted input is undefined -- it can drop rows, which
+# would make this guard under-count untouched deletions and fail open.
+LC_ALL=C comm -23 "$scratch_dir/deleted" "$scratch_dir/touched" >"$scratch_dir/untouched-deletions"
 
 untouched_count="$(wc -l <"$scratch_dir/untouched-deletions" | tr -d ' ')"
 

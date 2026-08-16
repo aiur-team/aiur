@@ -7,7 +7,7 @@ on:
       - ".github/workflows/streamdeck-package.yml"
   push:
     branches:
-      - develop
+      - main
   release:
     types:
       - published
