@@ -13,6 +13,7 @@ from validation_common import Report, repository_path_from_file
 from validation_git_authority import validate_publication_commit_authority
 from validation_git_snapshot import materialize_receipt_pack
 from validation_github_live import GhApiReader, validate_live_github_receipt
+from validation_publication_authority import load_manifest_publication_authority
 
 
 def _validate_receipt(
@@ -113,6 +114,11 @@ def main(argv: list[str]) -> int:
         "--receipt-commit",
         help="exact post-publication receipt commit linked by the start gate",
     )
+    parser.add_argument(
+        "--publication-manifest", type=Path,
+        help="publication manifest supplying the tracker lifecycle label prefix "
+             "from outside the validated Build Order",
+    )
     try:
         args = parser.parse_args(argv[1:])
     except SystemExit as exc:
@@ -135,8 +141,16 @@ def main(argv: list[str]) -> int:
             args.root_document,
             args.receipt_commit,
         ))
+    report = Report()
+    authority = None
+    if args.publication_manifest is not None:
+        authority = load_manifest_publication_authority(
+            args.publication_manifest, report,
+        )
+        if authority is None:
+            return _print_report(report)
     _, report = _validate_path(
-        args.path, args.repository_root, args.root_document, Report(),
+        args.path, args.repository_root, args.root_document, report, authority,
     )
     return _print_report(report)
 
