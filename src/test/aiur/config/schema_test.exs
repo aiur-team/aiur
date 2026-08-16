@@ -71,6 +71,69 @@ defmodule Aiur.Config.SchemaTest do
 
       assert settings.agent.routing[5] == "deepseek"
     end
+
+    test "accepts a nested openrouter routing tier" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "priority" => ["openrouter", "deepseek"],
+                   "backend_configs" => %{
+                     "openrouter" => %{
+                       "enabled" => true,
+                       "model" => "router/auto",
+                       "provider" => %{
+                         "order" => ["DeepSeek", "Together AI"],
+                         "allow_fallbacks" => true,
+                         "ignore" => ["Azure"],
+                         "sort" => "price"
+                       }
+                     }
+                   }
+                 }
+               })
+
+      assert settings.agent.priority == ["openrouter", "deepseek"]
+      assert settings.agent.backend_configs["openrouter"]["provider"]["order"] == ["DeepSeek", "Together AI"]
+      assert settings.agent.backend_configs["openrouter"]["model"] == "router/auto"
+    end
+
+    test "keeps a flat openrouter config valid (migration)" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "priority" => ["openrouter"],
+                   "backend_configs" => %{"openrouter" => %{"enabled" => true}}
+                 }
+               })
+
+      assert settings.agent.backend_configs["openrouter"] == %{"enabled" => true}
+    end
+
+    test "rejects an invalid openrouter provider tier at parse time" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "priority" => ["openrouter"],
+                   "backend_configs" => %{
+                     "openrouter" => %{"provider" => %{"sort" => "cheapest"}}
+                   }
+                 }
+               })
+
+      assert message =~ "openrouter.provider.sort"
+    end
+
+    test "rejects delegated openrouter:router/auto routing without a provider policy" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "priority" => ["openrouter"],
+                   "routing" => %{"3" => "openrouter:router/auto"}
+                 }
+               })
+
+      assert message =~ "router/auto needs a provider policy"
+    end
   end
 
   describe "agent priority" do

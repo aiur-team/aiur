@@ -31,7 +31,9 @@ defmodule Aiur.OpenAICompat.Transport do
       method: :post,
       url: endpoint(config.base_url, "/chat/completions"),
       headers: request_headers(config),
-      json: %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"}
+      json:
+        %{"model" => config.model, "messages" => messages, "tools" => tools, "tool_choice" => "auto"}
+        |> maybe_put_provider(config)
     }
   end
 
@@ -53,6 +55,17 @@ defmodule Aiur.OpenAICompat.Transport do
     do: Map.put(headers, "x-openrouter-metadata", "enabled")
 
   defp maybe_put_openrouter_headers(headers, _config), do: headers
+
+  # A routing-tier backend (OpenRouter) passes its `provider` object through to
+  # the request body so the aggregator's own provider selection (order /
+  # fallbacks / ignore / sort) applies. Non-tier backends never send it, even if
+  # a stray `provider` key were present in their config.
+  defp maybe_put_provider(json, %{backend: backend, provider: provider} = _config)
+       when is_map(provider) and map_size(provider) > 0 do
+    if Aiur.CodingAgent.provider_routing?(backend), do: Map.put(json, "provider", provider), else: json
+  end
+
+  defp maybe_put_provider(json, _config), do: json
 
   defp endpoint(base, suffix), do: String.trim_trailing(base, "/") <> suffix
 

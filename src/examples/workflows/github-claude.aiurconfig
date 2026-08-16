@@ -68,6 +68,21 @@ agent:
   max_concurrent_agents: 5
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
+  # OpenRouter is an aggregator with its own sub-routing tier (#1923). List it
+  # in `priority` as the preferred tier and configure its `provider` object to
+  # pick the upstream — order (provider preference), allow_fallbacks, ignore
+  # (exclusions), sort (price | throughput | latency). First-party backends
+  # (e.g. DeepSeek) stay directly configurable as peers:
+  # priority: [openrouter, claude]
+  # backend_configs:
+  #   openrouter:
+  #     enabled: true
+  #     model: router/auto
+  #     provider:
+  #       order: [DeepSeek]
+  #       allow_fallbacks: true
+  #       ignore: [Azure]
+  #       sort: price
 claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md

@@ -66,7 +66,15 @@ defmodule Aiur.OpenAICompat.Registry do
           rate_limit_fallback_target: true,
           configurable: true,
           init_order: 4,
+          # OpenRouter is an aggregator with its own provider-routing layer
+          # (#1923): a model may be a concrete upstream path or `router/auto`
+          # (delegated selection). This flag marks the backend as a routing
+          # tier and admits `agent.backend_configs.openrouter.provider`, which
+          # maps onto OpenRouter's `provider` request object (order / fallbacks
+          # / ignore / sort / route / max_retries).
+          provider_routing: true,
           models: [
+            "router/auto",
             "deepseek/deepseek-v4-flash",
             "moonshotai/kimi-k2.7-code",
             "anthropic/claude-sonnet-5",

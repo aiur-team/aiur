@@ -102,6 +102,40 @@ defmodule Aiur.Usage.PriceTableTest do
     assert catalog.revision == Data.catalog_revision()
   end
 
+  test "a via-OpenRouter DeepSeek call prices from the openrouter billing row, never the first-party row" do
+    assert {:ok, catalog} = PriceTable.default()
+
+    # The same upstream (DeepSeek) is reachable two ways (#1923): first-party
+    # and through the OpenRouter aggregator. Spend through OpenRouter is billed
+    # by OpenRouter, so pricing must come from the :openrouter row keyed on the
+    # OpenRouter model path — never from the first-party row, even though the
+    # metadata reports the selected upstream as DeepSeek. The two rows may
+    # diverge once the #1922 price correction lands, so the provenance, not the
+    # amount, is what the guard pins.
+    assert {:ok, via_openrouter} =
+             PriceTable.lookup(
+               catalog,
+               query(:openrouter, "deepseek/deepseek-v4-flash", :output, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-01])
+             )
+
+    assert via_openrouter.provider == :openrouter
+    assert via_openrouter.relationship_revision == "openrouter-request-usage-2026-08"
+    assert via_openrouter.source_url == "https://openrouter.ai/docs/overview/models"
+    assert Decimal.equal?(via_openrouter.price, Decimal.new("0.28"))
+
+    # First-party direct is a separate row with first-party provenance.
+    assert {:ok, first_party} =
+             PriceTable.lookup(
+               catalog,
+               query(:deepseek, "deepseek-v4-flash", :output, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-01])
+             )
+
+    assert first_party.provider == :deepseek
+    assert first_party.relationship_revision == "deepseek-request-usage-2026-08"
+  end
+
   test "accepts the test-only registry provider without a validator clause" do
     fake =
       entry(%{

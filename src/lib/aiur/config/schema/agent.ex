@@ -242,6 +242,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> AgentValidation.validate_openrouter_backend_config()
     |> validate_dispatch_selections()
     |> validate_change(:priority, fn :priority, backends ->
       known = Aiur.CodingAgent.known_backends()

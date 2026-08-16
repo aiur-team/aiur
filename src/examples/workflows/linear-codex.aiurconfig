@@ -32,6 +32,18 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
+  # OpenRouter is an aggregator with its own sub-routing tier (#1923): list it
+  # in `priority` as a tier and configure its `provider` object (order /
+  # allow_fallbacks / ignore / sort) so the upstream is chosen predictably.
+  # First-party backends such as DeepSeek stay directly configurable as peers:
+  # priority: [openrouter, codex]
+  # backend_configs:
+  #   openrouter:
+  #     model: router/auto
+  #     provider:
+  #       order: [DeepSeek]
+  #       allow_fallbacks: true
+  #       sort: price
 codex:
   command: codex app-server
 prompt_file: linear-codex.prompt.md

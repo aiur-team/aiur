@@ -114,7 +114,7 @@ defmodule Aiur.OpenAICompat.Config do
   # Only these string keys become atoms. Anything else stays a binary, so an
   # attacker-supplied config key cannot exhaust the atom table.
   @known_keys Map.new(
-                ~w(base_url api_key_env model default_model transport quirks management_api_key_env
+                ~w(base_url api_key_env model default_model transport quirks management_api_key_env provider
                    reasoning_content_replay text_tool_fallback openrouter_metadata local_concurrency_limit),
                 &{&1, String.to_atom(&1)}
               )

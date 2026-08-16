@@ -57,11 +57,31 @@ defmodule Aiur.Config.Schema.AgentValidation do
          Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{}))
       |> Enum.uniq()
 
+    openrouter = openrouter_section(get_field(changeset, :backend_configs) || %{})
+
     validate_change(changeset, field, fn ^field, routing ->
       Enum.flat_map(routing, fn {level, value} ->
-        routing_errors(field, known, level, value)
+        routing_errors(field, known, level, value) ++ auto_routing_config_errors(field, value, openrouter)
       end)
     end)
+  end
+
+  # Delegated OpenRouter routing (`openrouter:router/auto`) is only predictable
+  # when the tier's provider policy pins how the upstream is chosen. Without a
+  # provider.order or provider.sort, OpenRouter has no deterministic policy and
+  # the resulting routing is unpredictable — reject at config load rather than
+  # at request time (#1923).
+  defp auto_routing_config_errors(field, value, openrouter) do
+    {backend, model} = RoutingValue.split_routing_value(value)
+    provider = if is_map(openrouter), do: provider_value(openrouter, "provider"), else: nil
+
+    if backend == "openrouter" and model == "router/auto" and not openrouter_auto_policy?(provider) do
+      [
+        {field, "openrouter:router/auto needs a provider policy; set agent.backend_configs.openrouter.provider.order or .sort"}
+      ]
+    else
+      []
+    end
   end
 
   defp routing_errors(field, known, level, value) do
@@ -186,4 +206,136 @@ defmodule Aiur.Config.Schema.AgentValidation do
   end
 
   def normalize_routing_level(level), do: level
+
+  # ---------------------------------------------------------------------------
+  # Nested OpenRouter routing tier (#1923).
+  #
+  # `agent.backend_configs.openrouter` may carry a `model` (the tier's default
+  # model, typically `router/auto` or a concrete upstream path) and a `provider`
+  # map that maps onto OpenRouter's `provider` request object (order /
+  # allow_fallbacks / ignore / sort / route / max_retries). All keys are
+  # optional and additive: an existing flat openrouter config (or no section at
+  # all) stays valid and behaves exactly as before.
+  # ---------------------------------------------------------------------------
+
+  @openrouter_sorts ~w(price throughput latency none)
+  @openrouter_routes ~w(any undefined)
+  @openrouter_provider_keys ~w(order allow_fallbacks ignore sort route max_retries)
+
+  @doc false
+  @spec validate_openrouter_backend_config(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  def validate_openrouter_backend_config(changeset) do
+    validate_change(changeset, :backend_configs, fn :backend_configs, configs ->
+      case openrouter_section(configs || %{}) do
+        nil -> []
+        section when is_map(section) -> openrouter_section_errors(section)
+        _ -> [backend_configs: "openrouter must be a map"]
+      end
+    end)
+  end
+
+  defp openrouter_section(configs) do
+    case configs do
+      map when is_map(map) -> Map.get(map, "openrouter") || Map.get(map, :openrouter)
+      _ -> nil
+    end
+  end
+
+  defp openrouter_section_errors(section) do
+    model_errors(section) ++ provider_errors(section) ++ auto_policy_errors(section)
+  end
+
+  defp model_errors(section) do
+    case section_model(section) do
+      nil -> []
+      model when is_binary(model) and model != "" -> []
+      _ -> [backend_configs: "openrouter.model must be a non-empty string"]
+    end
+  end
+
+  defp provider_errors(section) do
+    case provider_value(section) do
+      nil -> []
+      provider when is_map(provider) -> provider_field_errors(provider)
+      _ -> [backend_configs: "openrouter.provider must be a map"]
+    end
+  end
+
+  defp provider_field_errors(provider) do
+    Enum.flat_map(provider, fn {key, value} ->
+      case provider_key(key) do
+        "order" -> provider_string_list_errors("order", value)
+        "ignore" -> provider_string_list_errors("ignore", value)
+        "allow_fallbacks" -> provider_boolean_errors("allow_fallbacks", value)
+        "sort" -> provider_enum_errors("sort", value, @openrouter_sorts)
+        "route" -> provider_enum_errors("route", value, @openrouter_routes)
+        "max_retries" -> provider_integer_errors("max_retries", value)
+        nil -> [backend_configs: "openrouter.provider.#{key} is not a supported OpenRouter provider parameter"]
+      end
+    end)
+  end
+
+  # A `model: router/auto` tier default is only predictable when the provider
+  # policy pins how the upstream is chosen (order or a non-none sort).
+  defp auto_policy_errors(section) do
+    if section_model(section) == "router/auto" and not openrouter_auto_policy?(provider_value(section)) do
+      [
+        backend_configs: "openrouter.model router/auto needs a provider policy; set openrouter.provider.order or a non-none openrouter.provider.sort"
+      ]
+    else
+      []
+    end
+  end
+
+  # Whether the provider policy pins an upstream choice for `router/auto`: an
+  # explicit `order` list or a `sort` other than `none`.
+  defp openrouter_auto_policy?(provider) do
+    case provider do
+      nil ->
+        false
+
+      map when is_map(map) ->
+        order = provider_value(map, "order")
+        sort = provider_value(map, "sort")
+        (is_list(order) and order != []) or (is_binary(sort) and sort != "none")
+    end
+  end
+
+  defp provider_string_list_errors(name, value) do
+    cond do
+      is_list(value) and Enum.all?(value, &(is_binary(&1) and &1 != "")) -> []
+      true -> [backend_configs: "openrouter.provider.#{name} must be a list of non-empty strings"]
+    end
+  end
+
+  defp provider_boolean_errors(name, value) do
+    if is_boolean(value), do: [], else: [backend_configs: "openrouter.provider.#{name} must be a boolean"]
+  end
+
+  defp provider_enum_errors(name, value, allowed) do
+    if is_binary(value) and value in allowed,
+      do: [],
+      else: [backend_configs: "openrouter.provider.#{name} must be one of #{inspect(allowed)}"]
+  end
+
+  defp provider_integer_errors(name, value) do
+    if is_integer(value) and value > 0,
+      do: [],
+      else: [backend_configs: "openrouter.provider.#{name} must be a positive integer"]
+  end
+
+  defp section_model(section), do: provider_value(section, "model")
+  defp provider_value(section), do: provider_value(section, "provider")
+  defp provider_value(map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))
+
+  defp provider_key(key) when is_binary(key) do
+    if key in @openrouter_provider_keys, do: key
+  end
+
+  defp provider_key(key) when is_atom(key) do
+    key_str = Atom.to_string(key)
+    if key_str in @openrouter_provider_keys, do: key_str
+  end
+
+  defp provider_key(_key), do: nil
 end

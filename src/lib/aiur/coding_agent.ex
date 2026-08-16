@@ -1011,6 +1011,20 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc """
+  Whether the backend is an aggregator with its own sub-routing tier
+  (#1923): `agent.backend_configs.<backend>.provider` is admitted and passed
+  through to its API as the `provider` request object. Today only OpenRouter
+  is a routing tier; unknown backends are not.
+  """
+  @spec provider_routing?(backend()) :: boolean()
+  def provider_routing?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :provider_routing, false)
+      :error -> false
+    end
+  end
+
+  @doc """
   Whether a backend can resume a prior agent thread across an aiur restart
   (reattach to the same session rather than cold-start a new conversation).
   Wired today for codex (app-server `thread/resume` against its on-disk

@@ -475,6 +475,14 @@ defmodule Aiur.CodingAgentTest do
       refute CodingAgent.remote_worker?("opencode")
     end
 
+    test "provider_routing? is true only for aggregator routing tiers" do
+      assert CodingAgent.provider_routing?("openrouter")
+      refute CodingAgent.provider_routing?("kimi")
+      refute CodingAgent.provider_routing?("deepseek")
+      refute CodingAgent.provider_routing?("codex")
+      refute CodingAgent.provider_routing?("unknown")
+    end
+
     test "resumable? is true for codex and claude-repl, false for headless claude" do
       # codex app-server exposes thread/resume against an on-disk rollout, and the
       # claude REPL drives the `claude` CLI directly so it can `--resume` the

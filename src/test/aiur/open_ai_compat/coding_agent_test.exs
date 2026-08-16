@@ -377,6 +377,112 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
 
+  test "sends the openrouter provider object through to the aggregator request", %{workspace: workspace} do
+    parent = self()
+
+    routed =
+      response(%{
+        "id" => "openrouter-2",
+        "model" => "deepseek/deepseek-v4-flash",
+        "provider" => "DeepSeek",
+        "choices" => [%{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "Done."}}],
+        "usage" => %{"prompt_tokens" => 10, "completion_tokens" => 2, "total_tokens" => 12}
+      })
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "openrouter",
+               instance: %{instance([]) | quirks: %{openrouter_metadata: true}},
+               backend_config: %{
+                 "model" => "deepseek/deepseek-v4-flash",
+                 "provider" => %{"order" => ["DeepSeek"], "allow_fallbacks" => false, "sort" => "price"}
+               },
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: fn request ->
+                 send(parent, {:request, request})
+                 routed
+               end
+             )
+
+    assert {:ok, _} = CodingAgent.run_turn(session, "Route", issue(), [])
+
+    assert_receive {:request, request}
+    assert request.json["model"] == "deepseek/deepseek-v4-flash"
+    assert request.json["provider"] == %{"order" => ["DeepSeek"], "allow_fallbacks" => false, "sort" => "price"}
+
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "a backend_config model supplies the openrouter tier default", %{workspace: workspace} do
+    parent = self()
+
+    routed =
+      response(%{
+        "id" => "openrouter-3",
+        "model" => "deepseek/deepseek-v4-flash",
+        "provider" => "DeepSeek",
+        "choices" => [%{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "Done."}}],
+        "usage" => %{"prompt_tokens" => 10, "completion_tokens" => 2, "total_tokens" => 12}
+      })
+
+    # No explicit model anywhere: the registry has no openrouter default_model,
+    # so the sub-config `model` (router/auto here) is what makes the tier
+    # startable instead of failing with :missing_model.
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "openrouter",
+               backend_config: %{"model" => "router/auto", "provider" => %{"sort" => "price"}},
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: fn request ->
+                 send(parent, {:request, request})
+                 routed
+               end
+             )
+
+    assert {:ok, _} = CodingAgent.run_turn(session, "Route", issue(), [])
+
+    assert_receive {:request, request}
+    assert request.json["model"] == "router/auto"
+    assert request.json["provider"] == %{"sort" => "price"}
+
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
+  test "a non-tier backend never sends a stray provider object", %{workspace: workspace} do
+    parent = self()
+
+    routed =
+      response(%{
+        "id" => "kimi-1",
+        "model" => "kimi-k2.7-code",
+        "choices" => [%{"finish_reason" => "stop", "message" => %{"role" => "assistant", "content" => "Done."}}],
+        "usage" => %{"prompt_tokens" => 10, "completion_tokens" => 2, "total_tokens" => 12}
+      })
+
+    assert {:ok, session} =
+             CodingAgent.start_session(workspace,
+               backend: "kimi",
+               instance: instance([]),
+               backend_config: %{
+                 "model" => "kimi-k2.7-code",
+                 "provider" => %{"order" => ["SomeProvider"]}
+               },
+               api_key_fetcher: fn _ -> "secret" end,
+               request_fun: fn request ->
+                 send(parent, {:request, request})
+                 routed
+               end
+             )
+
+    assert {:ok, _} = CodingAgent.run_turn(session, "Route", issue(), [])
+
+    assert_receive {:request, request}
+    assert request.json["model"] == "kimi-k2.7-code"
+    refute Map.has_key?(request.json, "provider")
+
+    assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
+  end
+
   test "a message delivered at the completion checkpoint receives a provider response", %{workspace: workspace} do
     parent = self()
 

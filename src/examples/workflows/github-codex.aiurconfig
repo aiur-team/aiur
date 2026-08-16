@@ -90,6 +90,20 @@ agent:
   # priority: [deepseek, codex]
   # backend_configs:
   #   openrouter: {model: moonshotai/kimi-k2.7-code}
+  # OpenRouter is an aggregator with its own sub-routing tier (#1923): list it
+  # in `priority` as a tier, then let its `provider` object pick the upstream —
+  # order (provider preference), allow_fallbacks, ignore (exclusions), and sort
+  # (price | throughput | latency). `router/auto` delegates model+provider choice
+  # and needs a provider order/sort to be predictable:
+  # priority: [openrouter, codex]
+  # backend_configs:
+  #   openrouter:
+  #     model: router/auto
+  #     provider:
+  #       order: [DeepSeek, Together]
+  #       allow_fallbacks: true
+  #       ignore: [Azure]
+  #       sort: price
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
   # unlabeled issues fall back to `priority`; a `model:<backend>` issue label
