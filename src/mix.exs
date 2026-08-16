@@ -180,8 +180,7 @@ defmodule Aiur.MixProject do
   defp aliases do
     [
       setup: ["deps.get"],
-      build: ["release --overwrite"],
-      lint: ["specs.check", "credo --strict"]
+      build: ["release --overwrite"]
     ]
   end
 
