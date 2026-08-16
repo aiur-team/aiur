@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.TurnPrompt
-  alias Aiur.{Issue, PromptBuilder}
+  alias Aiur.{Config, Issue, PromptBuilder}
 
   describe "first_turn_mode/2" do
     test "prior_work on an in-progress recycle is a continuation, not a cold start" do
@@ -117,6 +117,27 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert finite =~ "continuation turn #3 of 10"
       assert uncapped =~ "continuation turn #4"
       refute uncapped =~ "continuation turn #4 of"
+    end
+
+    # Regression for #1973: the cold-start prompt states the authoritative
+    # `tracker.base_branch`, but `build_turn_prompt/4` only delegates to
+    # `PromptBuilder.build_prompt/2` on turn one. A mid-run base change must
+    # still be re-stated so a long-lived session cannot silently keep opening
+    # PRs against a retired base.
+    test "in-process continuation restates the authoritative integration branch" do
+      prompt = TurnPrompt.build_turn_prompt(%Issue{}, [], 2, nil)
+
+      assert prompt =~ "## Authoritative integration branch (restated)"
+      assert prompt =~ "tracker.base_branch"
+      assert prompt =~ ~r/--base "#{Config.base_branch()}"/i
+    end
+
+    test "resumed-session prompt restates the authoritative integration branch" do
+      prompt = TurnPrompt.build_turn_prompt(%Issue{}, [resumed: true], 1, nil)
+
+      assert prompt =~ "## Authoritative integration branch (restated)"
+      assert prompt =~ "tracker.base_branch"
+      assert prompt =~ ~r/--base "#{Config.base_branch()}"/i
     end
 
     # Regression: agents must not stall at the ce-plan → ce-work boundary waiting
