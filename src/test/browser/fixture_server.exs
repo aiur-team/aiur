@@ -1901,7 +1901,14 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
     ~H"""
     <main class="app-shell" data-meter-row-fixture="true">
       <h1 class="sr-only">Provider meter row fixture</h1>
-      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+      <RunSummaryStrip.run_summary_strip
+        run={run()}
+        usage={usage()}
+        meters={meters()}
+        github_quota={github_quota()}
+        elevenlabs_quota={elevenlabs_quota()}
+        now={@now}
+      />
     </main>
     """
   end
@@ -1971,6 +1978,24 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
         }
       },
       backoffs: []
+    }
+  end
+
+  defp elevenlabs_quota do
+    %{
+      state: :observed,
+      failure: nil,
+      observed_at: @now,
+      window: %{
+        limit: 100_000,
+        used: 25_000,
+        remaining: 75_000,
+        used_percent: 25.0,
+        next_invoice: %{amount_due_cents: 500, currency: "USD"},
+        tier: "creator",
+        reset_at: DateTime.add(@now, 3, :day),
+        observed_at: @now
+      }
     }
   end
 end

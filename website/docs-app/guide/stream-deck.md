@@ -124,7 +124,7 @@ elevenlabs:
 
 Prefer the `$ELEVENLABS_API_KEY` reference over pasting the key into the file. See [Configuration](/reference/configuration) for the field reference.
 
-A configured key also puts an ElevenLabs meter on the Dashboard Units page. It reads the account **credit quota** and shows credits remaining; ElevenLabs publishes no dollar balance, so no cost figure is shown. Note that it is not a meter of what dictation costs: speech-to-text bills per minute of audio, while the character quota is primarily the text-to-speech credit pool. See [API meters](/guide/executor-control-center#api-meters).
+A configured key also puts an ElevenLabs meter on the Dashboard Units page. It shows the account **credit quota** as percentage used and labels the amount due on the next invoice; that dollar figure is money owed, not a remaining balance. Note that it is not a meter of what dictation costs: speech-to-text bills per minute of audio, while the character quota is primarily the text-to-speech credit pool. See [API meters](/guide/executor-control-center#api-meters).
 
 ### Without a key
 

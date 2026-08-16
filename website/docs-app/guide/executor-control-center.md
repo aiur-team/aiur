@@ -89,11 +89,11 @@ A strip at the top of the Units page meters the non-model APIs a run spends, bes
 
 Read the ElevenLabs figure for exactly what it is:
 
-- It is the **account credit quota** (`character_count` against `character_limit` from `GET /v1/user/subscription`), reported as credits **left** and a bar that *depletes* as they are spent. Every other meter on the page reads percentage *used* with a bar that fills, so this one runs in the opposite direction by design; its label and its fill agree with each other.
-- It is **not a dollar balance**. The ElevenLabs API publishes no remaining-balance figure at all — the only money-shaped fields it returns are amounts owed — so Aiur shows no dollar amount here and does not derive one from character counts.
+- It is the **account credit quota** (`character_count` against `character_limit` from `GET /v1/user/subscription`), reported as credits left and percentage **used**. The bar fills as credits are consumed; 100% means the quota is fully used.
+- The dollar figure is **Next invoice due**, read directly from `next_invoice.amount_due_cents`. It is an amount owed, not a remaining balance, and Aiur does not derive it from character counts.
 - It is **not a voice-input spend meter**. Speech-to-text, which is what Stream Deck voice input uses, is billed per minute of audio; the character quota is primarily the text-to-speech credit pool. Dictating heavily can therefore leave this meter unmoved.
 
-An account with a zero character limit renders its counts and no bar: there is no denominator, so there is no percentage to state.
+An account with a zero character limit renders an empty track: there is no denominator, so there is no percentage to state.
 
 ## Units (fleet table)
 
