@@ -903,6 +903,39 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   def sync_fleet_capacity_starved_alert(%State{} = state, _issues), do: state
 
+  @doc false
+  @spec sync_dependency_circular_wait_alert(State.t(), list(), integer()) :: State.t()
+  def sync_dependency_circular_wait_alert(%State{} = state, issues, now_ms)
+      when is_list(issues) and is_integer(now_ms) do
+    if circular_wait_detection_enabled?(state) do
+      waits = dependency_circular_waits(state, issues)
+
+      resolve_dependency_circular_waits(state.dependency_circular_wait, waits)
+
+      next_waits =
+        waits
+        |> Map.values()
+        |> Enum.sort_by(& &1.identifier)
+        |> Enum.reduce(%{}, fn wait, next ->
+          previous = Map.get(state.dependency_circular_wait, wait.id)
+          entry = update_dependency_circular_wait(previous, wait, now_ms)
+          Map.put(next, wait.id, entry)
+        end)
+
+      %{state | dependency_circular_wait: next_waits}
+    else
+      state
+    end
+  end
+
+  def sync_dependency_circular_wait_alert(%State{} = state, _issues, _now_ms), do: state
+
+  @spec sync_dependency_circular_wait_alert(State.t(), list()) :: State.t()
+  def sync_dependency_circular_wait_alert(%State{} = state, issues) when is_list(issues),
+    do: sync_dependency_circular_wait_alert(state, issues, System.monotonic_time(:millisecond))
+
+  def sync_dependency_circular_wait_alert(%State{} = state, _issues), do: state
+
   defp fleet_capacity_context(state, issues) do
     sample = state.dispatch_capacity_sample
     constraint_entries = capacity_constraint_entries(state, issues)
@@ -923,6 +956,97 @@ defmodule Aiur.Orchestrator.IssueSync do
       binding_constraint: selected_binding_constraint(state, constraint_entries, ready_issues)
     }
   end
+
+  defp dependency_circular_waits(state, issues) do
+    waiters_by_blocker = dependency_waiters_by_blocker(state.running)
+
+    Enum.reduce(issues, %{}, fn
+      %Issue{id: id, identifier: identifier} = issue, waits when is_binary(id) and is_binary(identifier) ->
+        waiting_count = Map.get(waiters_by_blocker, identifier, 0)
+
+        if waiting_count > 0 and queued_undispatched?(issue, state) do
+          Map.put(waits, id, %{id: id, identifier: identifier, waiting_count: waiting_count})
+        else
+          waits
+        end
+
+      _issue, waits ->
+        waits
+    end)
+  end
+
+  # DispatchPolicy only evaluates static ticket and slot eligibility. During a
+  # global pause, prewarm hold, or host-pressure hold it can still describe a
+  # queued ticket as dispatchable even though the dispatcher deliberately did
+  # not attempt it. Those expected holds are not dependency cycles.
+  defp circular_wait_detection_enabled?(%State{globally_paused: true}), do: false
+  defp circular_wait_detection_enabled?(%State{capacity_hold: hold}) when not is_nil(hold), do: false
+  defp circular_wait_detection_enabled?(%State{prewarm_hold_ticks: ticks}) when is_integer(ticks) and ticks > 0, do: false
+  defp circular_wait_detection_enabled?(%State{}), do: true
+
+  defp dependency_waiters_by_blocker(running) do
+    Enum.reduce(running, %{}, fn
+      {_issue_id, %{paused_reason: :blocker_dependency, blocker_pause: %{blocker_identifier: identifier}}}, waiters
+      when is_binary(identifier) and identifier != "" ->
+        Map.update(waiters, identifier, 1, &(&1 + 1))
+
+      _running, waiters ->
+        waiters
+    end)
+  end
+
+  defp queued_undispatched?(%Issue{} = issue, state) do
+    DispatchPolicy.dispatch_decision(issue, state) in [:dispatch, {:skip, :fleet_capacity}]
+  end
+
+  defp update_dependency_circular_wait(previous, wait, now_ms) do
+    since_ms = if is_map(previous), do: previous.since_ms, else: now_ms
+    alerted? = is_map(previous) and previous.alerted? == true
+    entry = Map.merge(wait, %{since_ms: since_ms, alerted?: alerted?})
+
+    if alerted? or now_ms - since_ms < @capacity_starvation_alert_after_ms do
+      entry
+    else
+      emit_dependency_circular_wait(entry)
+    end
+  end
+
+  defp emit_dependency_circular_wait(entry) do
+    topic = dependency_circular_wait_topic(entry.identifier)
+    message = "Circular wait: #{entry.identifier} is queued while #{entry.waiting_count} parked agent(s) wait on it."
+
+    case Alerts.emit_system(topic,
+           message: message,
+           issue: entry.identifier,
+           reason: message,
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok -> %{entry | alerted?: true}
+      {:error, _reason} -> entry
+    end
+  end
+
+  defp resolve_dependency_circular_waits(previous_waits, current_waits) do
+    previous_waits
+    |> Map.reject(fn {id, _entry} -> Map.has_key?(current_waits, id) end)
+    |> Map.values()
+    |> Enum.filter(&(&1.alerted? == true))
+    |> Enum.each(fn entry ->
+      message = "Circular wait cleared for #{entry.identifier}."
+
+      Alerts.emit_system(dependency_circular_wait_topic(entry.identifier) <> ".resolved",
+        message: message,
+        issue: entry.identifier,
+        reason: message,
+        needs_attention: false,
+        severity: "info"
+      )
+    end)
+  end
+
+  defp dependency_circular_wait_topic(identifier),
+    do: "ticket.#{identifier}.agent.attention.dependency-circular-wait"
 
   defp fleet_capacity_starved?(context) do
     not context.state.globally_paused and context.ready_count > context.live_count and low_load?(context)
