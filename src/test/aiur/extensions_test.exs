@@ -576,6 +576,13 @@ defmodule Aiur.ExtensionsTest do
              ],
              "idle" => [],
              "agent_totals" => %{"seconds_running" => 42.5},
+             "polling" => %{
+               "checking?" => false,
+               "effective_interval_ms" => 600_000,
+               "idle_backoff" => %{"active?" => true, "factor" => 5.0},
+               "next_poll_in_ms" => 480_000,
+               "poll_interval_ms" => 120_000
+             },
              # The global pause switch rides along on every state payload so
              # API consumers can tell a quiet fleet from a held one.
              "globally_paused" => false
@@ -1584,6 +1591,13 @@ defmodule Aiur.ExtensionsTest do
       ],
       idle: [],
       agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
+      polling: %{
+        checking?: false,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0},
+        next_poll_in_ms: 480_000,
+        poll_interval_ms: 120_000
+      },
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
   end
