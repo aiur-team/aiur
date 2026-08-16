@@ -31,6 +31,7 @@ The two launch shapes matter for who is driving. `aiur` runs the [TUI](/guide/tu
 | `aiur --max-agents 6` <!-- cli-flag: --max-agents --> | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
 | `aiur --interactive` <!-- cli-flag: --interactive --> | Requests the terminal UI, including from a background launch. | `aiur --bg --interactive` |
 | `aiur --headless` <!-- cli-flag: --headless --> | Requests no terminal UI. Background launch injects it unless `--interactive` is present. | `aiur run --headless` |
+| `aiur --executor` <!-- cli-flag: --executor --> | Marks the run as Executor-owned: the daemon starts the supervised `executor.#` listener (the Command inbox) as part of launch, surfacing created/deferred Commands as needs-attention alerts. An Executor launch omitting it has no Command inbox and `status` reports `LISTENER absent`. | `aiur --bg --executor` |
 | `aiur --no-dashboard` <!-- cli-flag: --no-dashboard --> | Suppresses the dashboard listener in foreground or background mode. It is rejected for Remote Control because its lifecycle hooks need the listener. | `aiur --bg --no-dashboard` |
 | `aiur --host 127.0.0.1` <!-- cli-flag: --host --> | Overrides the dashboard bind host. A non-loopback host requires dashboard credentials. | `aiur --host 127.0.0.1` |
 | `aiur --port 4000` <!-- cli-flag: --port --> | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |
