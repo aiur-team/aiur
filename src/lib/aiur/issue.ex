@@ -25,6 +25,10 @@ defmodule Aiur.Issue do
     # GitHub ingestion resolves this before an issue can reach dispatch. Other
     # tracker backends retain the safe compatibility default.
     dispatch_authorized?: true,
+    # Explicit operator-held marker (`agent:parked`): dispatch ignores the
+    # ticket and comment-driven rework is refused, even when an `agent:*` state
+    # label is present. `false` for every tracker backend that lacks the marker.
+    parked: false,
     blocked_by: [],
     labels: [],
     assigned_to_worker: true,
@@ -53,6 +57,7 @@ defmodule Aiur.Issue do
           dispatch_revision: String.t() | nil,
           paused: boolean(),
           dispatch_authorized?: boolean(),
+          parked: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
@@ -67,6 +72,11 @@ defmodule Aiur.Issue do
   @spec paused?(t()) :: boolean()
   def paused?(%__MODULE__{paused: paused}), do: paused == true
   def paused?(_issue), do: false
+
+  @doc "Returns whether the issue carries the explicit `agent:parked` operator-held marker."
+  @spec parked?(t()) :: boolean()
+  def parked?(%__MODULE__{parked: parked}), do: parked == true
+  def parked?(_issue), do: false
 
   @doc "Returns whether a tracker target names the issue by raw id or canonical identifier."
   @spec identifier_matches?(term(), term(), term()) :: boolean()

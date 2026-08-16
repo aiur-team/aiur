@@ -25,6 +25,12 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       refute body["query"] =~ ~r/pullRequests\(first:/
       assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
 
+      # Merge-queue recovery observation is part of the same batch node, so
+      # the parked-ready decision never pays a separate read.
+      assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
+      assert body["query"] =~ "autoMergeRequest { enabledAt }"
+      assert body["query"] =~ "mergeQueueEntry { id }"
+
       {:ok,
        %{
          status: 200,
@@ -48,8 +54,19 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
-    assert batch.pull_request["draft"] == true
-    assert batch.pull_request["review_decision"] == "APPROVED"
+    # The batch carries the merge-queue recovery observation derived from the
+    # same node, without any extra read.
+    assert %{
+             "merge_queue" => %{
+               draft?: false,
+               review_decision: "APPROVED",
+               mergeable: "MERGEABLE",
+               merge_state_status: "BLOCKED",
+               auto_merge_request: nil,
+               merge_queue_entry: nil
+             }
+           } = batch.pull_request
+
     assert [%{"name" => "test", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
@@ -71,7 +88,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              "repository" => %{
                "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
-                 "nodes" => [pull_request() |> Map.put("isDraft", false) |> Map.put("reviewDecision", "CHANGES_REQUESTED")]
+                 "nodes" => [pull_request() |> Map.put("isDraft", true) |> Map.put("reviewDecision", "CHANGES_REQUESTED")]
                }
              }
            }
@@ -85,8 +102,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
              )
 
-    assert batch.pull_request["draft"] == false
-    assert batch.pull_request["review_decision"] == "CHANGES_REQUESTED"
+    assert %{draft?: true, review_decision: "CHANGES_REQUESTED"} = batch.pull_request["merge_queue"]
   end
 
   # Regression guard: GitHub issues have no branch name, so without the
@@ -235,8 +251,12 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       "headRefName" => "aiur/42-ci-batch",
       "headRefOid" => "head-77",
       "baseRefName" => "develop",
-      "isDraft" => true,
+      "isDraft" => false,
       "reviewDecision" => "APPROVED",
+      "mergeable" => "MERGEABLE",
+      "mergeStateStatus" => "BLOCKED",
+      "autoMergeRequest" => nil,
+      "mergeQueueEntry" => nil,
       "commits" => %{
         "nodes" => [
           %{

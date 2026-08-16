@@ -106,7 +106,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
       ci_lifecycle:
         CIApprovalStore.load()
         |> Map.put(:poll_cache, %{})
-        |> Map.put(:rewakes, %{}),
+        |> Map.put(:rewakes, %{})
+        # `nil` (not an empty set) marks the parked-ready ledger as unseeded, so
+        # the first CI poll after boot reloads still-active alerts from the
+        # durable alert feed instead of re-firing them.
+        |> Map.put(:parked_ready_alerts, nil),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
       control_lifecycle: control_lifecycle

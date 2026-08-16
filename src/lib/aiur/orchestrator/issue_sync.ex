@@ -1315,6 +1315,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       %Issue{} = issue ->
         DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
           not Issue.paused?(issue) and
+          not Issue.parked?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
           !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set())
 

@@ -116,6 +116,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.CurrentRunMembership.Store,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
+      Aiur.ProgressRetention,
       Aiur.TicketActivity,
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
@@ -392,6 +393,20 @@ defmodule Aiur.ApplicationTest do
 
         assert membership_store < activity
         assert activity < orchestrator
+      end
+    end
+
+    test "progress retention starts before ticket activity so the projection can seed at boot" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        retention = Enum.find_index(mods, &(&1 == Aiur.ProgressRetention))
+        activity = Enum.find_index(mods, &(&1 == Aiur.TicketActivity))
+
+        assert is_integer(retention), "ProgressRetention must be supervised for #{inspect(opts)}"
+        assert retention < activity, "ProgressRetention must precede TicketActivity for #{inspect(opts)}"
       end
     end
 

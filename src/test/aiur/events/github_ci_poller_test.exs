@@ -80,8 +80,14 @@ defmodule Aiur.Events.GithubCIPollerTest do
           "state" => "open",
           "head" => %{"ref" => "aiur/42-x", "sha" => "head-77"},
           "base" => %{"ref" => "main"},
-          "draft" => true,
-          "review_decision" => "APPROVED"
+          "merge_queue" => %{
+            draft?: true,
+            review_decision: "APPROVED",
+            mergeable: "MERGEABLE",
+            merge_state_status: "BLOCKED",
+            auto_merge_request: nil,
+            merge_queue_entry: nil
+          }
         },
         check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
         commit_status: %{"statuses" => [], "state" => ""}
@@ -104,8 +110,14 @@ defmodule Aiur.Events.GithubCIPollerTest do
           "state" => "open",
           "head" => %{"ref" => "aiur/42-x", "sha" => "head-77"},
           "base" => %{"ref" => "main"},
-          "draft" => false,
-          "review_decision" => nil
+          "merge_queue" => %{
+            draft?: false,
+            review_decision: nil,
+            mergeable: "MERGEABLE",
+            merge_state_status: "BLOCKED",
+            auto_merge_request: nil,
+            merge_queue_entry: nil
+          }
         },
         check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
         commit_status: %{"statuses" => [], "state" => ""}
@@ -114,6 +126,46 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
     assert {:ok, %{errors: [], results: [%{draft?: false, review_decision: nil}]}} =
              GithubCIPoller.poll(["42"], ci_batch: batch)
+  end
+
+  test "carries the batched merge-queue recovery observation into the result" do
+    ci_batch = %{
+      "42" => %{
+        pull_request: %{
+          "number" => 71,
+          "head" => %{"sha" => "parked-head"},
+          "base" => %{"ref" => "main"},
+          "merge_queue" => %{
+            draft?: false,
+            review_decision: "APPROVED",
+            mergeable: "MERGEABLE",
+            merge_state_status: "BLOCKED",
+            auto_merge_request: nil,
+            merge_queue_entry: nil
+          }
+        },
+        check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
+        commit_status: %{"statuses" => []}
+      }
+    }
+
+    assert {:ok,
+            %{
+              errors: [],
+              results: [
+                %{
+                  decision: :passed,
+                  head_sha: "parked-head",
+                  pr_number: 71,
+                  draft?: false,
+                  review_decision: "APPROVED",
+                  mergeable: "MERGEABLE",
+                  merge_state_status: "BLOCKED",
+                  auto_merge_request: nil,
+                  merge_queue_entry: nil
+                }
+              ]
+            }} = GithubCIPoller.poll(["42"], ci_batch: ci_batch, base_branch: "main")
   end
 
   test "returns pending for no observed checks or in-progress work" do

@@ -89,9 +89,22 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
   # commit that fixed it. A skipped transition never touches the tracker, so
   # these assert both the reason and that `Tracker.update_issue_state` is not
   # reached (an unset tracker would fail loudly otherwise).
+  #
+  # #1971: the gate resolves the idle issue's current state first and only routes
+  # a comment to rework when the ticket carries an `agent:*` state label. These
+  # fixtures inject an `issue_state_fetcher` returning a *labelled* issue so the
+  # review-freshness rules (not the unlabelled gate) are the thing under test.
   describe "maybe_transition_idle_issue_to_rework/5 review-freshness gate" do
     @head_committed_at "2026-08-10T04:29:00Z"
     @stale_submitted_at "2026-08-08T21:15:00Z"
+
+    defp labelled_issue(number, state \\ "human-review") do
+      %Issue{id: number, identifier: number, state: state, title: "t", labels: ["agent:#{state}"]}
+    end
+
+    defp state_fetcher(event, issue) do
+      Map.put(event, :issue_state_fetcher, fn _ids -> {:ok, [issue]} end)
+    end
 
     defp stale_review_event(pull_request) do
       %{
@@ -105,7 +118,9 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       state = base_state()
 
       event =
-        stale_review_event(%{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at})
+        "1583"
+        |> labelled_issue()
+        |> then(&state_fetcher(stale_review_event(%{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}), &1))
 
       log =
         capture_log(fn ->
@@ -120,11 +135,18 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       state = base_state()
 
       event =
-        %{
-          author_trusted?: true,
-          comment: %{"body" => "nice work", "submitted_at" => "2026-08-10T06:00:00Z"},
-          pull_request: %{"review_decision" => "APPROVED", "head_committed_at" => @head_committed_at}
-        }
+        "1747"
+        |> labelled_issue()
+        |> then(
+          &state_fetcher(
+            %{
+              author_trusted?: true,
+              comment: %{"body" => "nice work", "submitted_at" => "2026-08-10T06:00:00Z"},
+              pull_request: %{"review_decision" => "APPROVED", "head_committed_at" => @head_committed_at}
+            },
+            &1
+          )
+        )
 
       log =
         capture_log(fn ->
@@ -137,19 +159,110 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
     test "still routes a review submitted against the current head" do
       # Guards the gate against over-skipping: a live CHANGES_REQUESTED review
-      # must reach the tracker update rather than be silently swallowed.
+      # on a *labelled* ticket must reach the tracker update rather than be
+      # silently swallowed.
       state = base_state()
 
       event =
-        %{
-          author_trusted?: true,
-          comment: %{"state" => "CHANGES_REQUESTED", "body" => "please fix", "submitted_at" => "2026-08-10T05:00:00Z"},
-          pull_request: %{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}
-        }
+        "1583"
+        |> labelled_issue()
+        |> then(
+          &state_fetcher(
+            %{
+              author_trusted?: true,
+              comment: %{"state" => "CHANGES_REQUESTED", "body" => "please fix", "submitted_at" => "2026-08-10T05:00:00Z"},
+              pull_request: %{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}
+            },
+            &1
+          )
+        )
 
       log =
         capture_log(fn ->
           CommentWake.maybe_transition_idle_issue_to_rework(state, "1583", :pr_review, event, 1)
+        end)
+
+      refute log =~ "ignored for idle issue"
+    end
+  end
+
+  # #1971: a ticket with no `agent:*` state label is how an operator parks work
+  # ("decide before this is built"). A trusted comment on such a ticket must NOT
+  # auto-assign `agent:rework` — the invisible override this ticket exists to
+  # kill. The explicit `agent:parked` marker is refused the same way.
+  describe "maybe_transition_idle_issue_to_rework/5 parking gate" do
+    defp parked_event(issue) do
+      %{author_trusted?: true, issue_state_fetcher: fn _ids -> {:ok, [issue]} end}
+    end
+
+    test "does not route a trusted comment on a ticket with no agent:* label" do
+      state = base_state()
+
+      event =
+        parked_event(%Issue{id: "1944", identifier: "1944", title: "t", labels: [], state: nil})
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.maybe_transition_idle_issue_to_rework(state, "1944", "issue comment", event, 1) == state
+        end)
+
+      assert log =~ "ignored for idle issue"
+      assert log =~ ":unlabeled_issue"
+    end
+
+    test "does not route a trusted comment on an explicitly parked ticket even with an active label" do
+      state = base_state()
+
+      event =
+        parked_event(%Issue{
+          id: "1944",
+          identifier: "1944",
+          title: "t",
+          labels: ["agent:todo", "agent:parked"],
+          state: "todo",
+          parked: true
+        })
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.maybe_transition_idle_issue_to_rework(state, "1944", "issue comment", event, 1) == state
+        end)
+
+      assert log =~ "ignored for idle issue"
+      assert log =~ ":parked"
+    end
+
+    test "uses the polled issue view when present instead of fetching" do
+      state = %{base_state() | last_polled_issues: %{"1923" => labelled_issue("1923", "ci-wait")}}
+
+      event =
+        %{
+          author_trusted?: true,
+          issue_state_fetcher: fn _ids -> flunk("state fetcher must not be called when the polled view exists") end
+        }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "1923", "issue comment", event, 1)
+        end)
+
+      # Reached the tracker update (unset tracker -> transient failure -> retry
+      # scheduled), proving the labelled polled view passed the gate.
+      refute log =~ "ignored for idle issue"
+    end
+
+    test "still routes when the tracker holds no record to read labels from" do
+      # Trackers that do not index by id (and issues this repo does not own)
+      # answer the gate's read with an empty list. Absence of a record is not
+      # evidence of a park, so the gate must fail open to the pre-#1971 path
+      # rather than swallow every comment on such a backend.
+      state = base_state()
+
+      event = %{author_trusted?: true, issue_state_fetcher: fn _ids -> {:ok, []} end}
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "1971", "issue comment", event, 1)
         end)
 
       refute log =~ "ignored for idle issue"

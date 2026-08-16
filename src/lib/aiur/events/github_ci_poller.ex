@@ -117,26 +117,15 @@ defmodule Aiur.Events.GithubCIPoller do
         {:ok, :unchanged} ->
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{
-            target: target,
-            pr_number: pr_number,
-            head_sha: head_sha,
-            draft?: pr_draft?(pr),
-            review_decision: Map.get(pr, "review_decision")
-          })
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
+          |> Map.merge(merge_queue_observation(pr))
           |> log_classification()
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{
-            target: target,
-            pr_number: pr_number,
-            head_sha: head_sha,
-            draft?: pr_draft?(pr),
-            review_decision: Map.get(pr, "review_decision"),
-            base_repair_invalidation: recovered_invalidation
-          })
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
+          |> Map.merge(merge_queue_observation(pr))
           |> log_classification()
 
         {:ok, {:repaired, invalidation}} ->
@@ -158,6 +147,18 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, value}
     else
       _ -> :missing
+    end
+  end
+
+  # Carries the batch's merge-queue recovery observation (ready/approved/
+  # mergeable/armed/queued) into the poll result so CiLifecycle can alert on a
+  # parked-ready PR. Absent on the REST fallback path and on error/no-PR
+  # results; CiLifecycle treats a missing observation as `:unknown` (fail
+  # closed) instead of arming or clearing a recovery signal on partial data.
+  defp merge_queue_observation(%{} = pr) do
+    case Map.get(pr, "merge_queue") do
+      %{} = observation when map_size(observation) > 0 -> observation
+      _other -> %{}
     end
   end
 

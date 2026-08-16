@@ -6,6 +6,10 @@
 
 A labeled `agent:todo` ticket enters the queue. The orchestrator orders candidates and dispatches those that pass the slot and blocker gates.
 
+Tickets without an `agent:*` label are deliberately invisible to dispatch — that is how an operator parks work ("decide before this is built"). Nothing auto-assigns a state to such a ticket. The two intentional auto-labelling paths — a CI failure moves a *worked* ticket to `agent:rework`, and an authoritative review comment does the same — only ever flip tickets that already carry an `agent:*` state. An unlabelled ticket stays unlabelled until a human or an explicitly authorized command changes it.
+
+An operator can make the hold explicit with the `agent:parked` marker label: dispatch ignores the ticket and comment-driven rework is refused even when an active state label is present. `agent:parked` survives state swaps and label sweeps, so it is the positive, self-documenting form of the same intent an unlabelled ticket expresses by absence.
+
 ## 2. Workspace
 
 Dispatch provisions an isolated clone or workspace for the run. Each workspace writes a human-readable `logs/agent.md` transcript and a structured `logs/agent.ndjson` event stream.
