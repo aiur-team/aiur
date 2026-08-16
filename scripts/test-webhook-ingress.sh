@@ -116,6 +116,25 @@ expect_failure() {
 # The intended posture.
 expect_pass "scoped"
 
+# A generic 401 from an edge auth policy does not prove the request reached
+# Aiur's verifier. This is the green-while-red control for the distinctive
+# `invalid_signature` response-body check.
+expect_failure "generic-401" "did not identify Aiur's signature verifier"
+
+# Both deny statuses accepted by the guard need a positive control. Cloudflare
+# deployments commonly choose 403 when they want the catch-all to say denied
+# rather than not found.
+start_fixture "scoped-403"
+
+if ! output="$(DENY_STATUS=403 run_guard "$fixture_base")"; then
+  echo "expected the guard to PASS against a scoped edge with DENY_STATUS=403, but it failed:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+cleanup
+echo "ok: guard passes a scoped edge with DENY_STATUS=403"
+
 # The dashboard and every /api/v1/* route reachable through the tunnel. This is
 # the case the ticket's AC 4 is about; a guard that cannot fail here is useless.
 expect_failure "wide-open" "PUBLICLY REACHABLE"

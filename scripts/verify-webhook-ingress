@@ -173,17 +173,29 @@ echo
 echo "webhook route is reachable and fails closed:"
 
 # An unsigned POST. W-1's verifier rejects a delivery whose signature header is
-# absent, so a live, correctly configured receiver answers 401 here. A 2xx would
-# mean the receiver is accepting unsigned deliveries, which is worse than an
-# unreachable endpoint.
-status="$(http_status POST "$base_url$webhook_path" \
+# absent, so a live, correctly configured receiver answers 401 with the
+# distinctive `invalid_signature` code. The body matters: an edge auth policy
+# or unrelated origin can also answer 401 without the request reaching Aiur.
+webhook_response_file="$(mktemp)"
+status="$(curl --silent --output "$webhook_response_file" \
+  --write-out '%{http_code}' \
+  --max-time 15 \
+  --request POST \
   --header 'Content-Type: application/json' \
   --header 'X-GitHub-Event: ping' \
-  --data '{}')"
+  --data '{}' \
+  "$base_url$webhook_path" 2>/dev/null)" || true
+webhook_body="$(<"$webhook_response_file")"
+rm -f "$webhook_response_file"
+status="${status:-000}"
 
 case "$status" in
   401)
-    pass "POST $webhook_path -> 401 (reachable, signature required)"
+    if [[ "$webhook_body" == *'"code":"invalid_signature"'* ]]; then
+      pass "POST $webhook_path -> 401 invalid_signature (Aiur verifier reached)"
+    else
+      fail "POST $webhook_path -> 401 but the body did not identify Aiur's signature verifier"
+    fi
     ;;
   2??)
     fail "POST $webhook_path -> $status (receiver ACCEPTED an unsigned delivery)"

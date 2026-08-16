@@ -392,9 +392,10 @@ the live public hostname:
 scripts/verify-webhook-ingress https://hooks.<domain>
 ```
 
-It asserts that `POST /api/v1/github/webhook` is reachable and answers `401` to
-an unsigned body — the receiver is live *and* still fails closed — and that the
-dashboard, the Decision API and the other `/api/v1/*` routes are not routable by
+It asserts that `POST /api/v1/github/webhook` is reachable and answers `401`
+with Aiur's distinctive `invalid_signature` code for an unsigned body — the
+receiver is live *and* still fails closed — and that the dashboard, the Decision
+API and the other `/api/v1/*` routes are not routable by
 the same hostname. It exits non-zero if any of that is untrue.
 
 Its own assertions are covered by `scripts/test-webhook-ingress.sh`, which runs
@@ -581,3 +582,8 @@ at any point in this check. If it does, the URL was not stable.
 Optional defence in depth, free on Cloudflare's plan: a WAF rule limiting the
 hostname to GitHub's published hook ranges (`GET /meta` → `.hooks`). Signature
 verification remains the real boundary; this only narrows what can reach it.
+Enable that rule only after completing the public guard and restart proof above,
+or temporarily exempt the trusted probe source while re-running them. A probe
+outside GitHub's ranges should receive the WAF's 403 and therefore cannot prove
+that the request reached Aiur's verifier; the guard correctly treats that as a
+failure rather than certifying an origin it never observed.

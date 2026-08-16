@@ -6,6 +6,9 @@ Modes model the postures `scripts/verify-webhook-ingress` has to tell apart:
   scoped     the intended posture: the webhook path reaches a receiver that
              rejects an unsigned delivery with 401; everything else is answered
              by the ingress catch-all with 404.
+  scoped-403 the same posture with a 403 default-deny catch-all.
+  generic-401 a false positive candidate: an unrelated edge authentication
+             policy answers the webhook with 401 while denying everything else.
   wide-open  the failure this ticket exists to prevent: the tunnel forwards the
              origin root, so the dashboard and every /api/v1/* route answer 200.
   unsigned   the receiver is reachable but accepts a delivery with no signature.
@@ -44,6 +47,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 WEBHOOK_PATH = "/api/v1/github/webhook"
+INVALID_SIGNATURE_BODY = b'{"error":"invalid signature","code":"invalid_signature"}'
 
 
 def build_handler(mode):
@@ -53,10 +57,14 @@ def build_handler(mode):
         def log_message(self, fmt, *args):
             pass
 
-        def _reply(self, status):
+        def _reply(self, status, body=b""):
             self.send_response(status)
-            self.send_header("Content-Length", "0")
+            if body:
+                self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            if body:
+                self.wfile.write(body)
 
         def do_GET(self):
             if mode == "wide-open":
@@ -67,7 +75,7 @@ def build_handler(mode):
                 # GitHub only ever POSTs here; the guard does not GET it.
                 self._reply(405)
             else:
-                self._reply(404)
+                self._reply(403 if mode == "scoped-403" else 404)
 
         def do_POST(self):
             length = int(self.headers.get("Content-Length") or 0)
@@ -79,11 +87,13 @@ def build_handler(mode):
             elif mode == "post-leak" and self.path.split("?")[0] == "/api/v1/streamdeck/token":
                 self._reply(401)
             elif self.path.split("?")[0] != WEBHOOK_PATH:
-                self._reply(200 if mode == "wide-open" else 404)
+                self._reply(200 if mode == "wide-open" else (403 if mode == "scoped-403" else 404))
             elif mode == "unsigned":
                 self._reply(202)
-            else:
+            elif mode == "generic-401":
                 self._reply(401)
+            else:
+                self._reply(401, INVALID_SIGNATURE_BODY)
 
     return Handler
 
@@ -95,10 +105,14 @@ def build_origin_handler():
         def log_message(self, fmt, *args):
             pass
 
-        def _reply(self, status):
+        def _reply(self, status, body=b""):
             self.send_response(status)
-            self.send_header("Content-Length", "0")
+            if body:
+                self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            if body:
+                self.wfile.write(body)
 
         def do_GET(self):
             self._reply(405 if self.path.split("?")[0] == WEBHOOK_PATH else 404)
@@ -108,7 +122,10 @@ def build_origin_handler():
             if length:
                 self.rfile.read(length)
 
-            self._reply(401 if self.path.split("?")[0] == WEBHOOK_PATH else 404)
+            if self.path.split("?")[0] == WEBHOOK_PATH:
+                self._reply(401, INVALID_SIGNATURE_BODY)
+            else:
+                self._reply(404)
 
     return Handler
 
@@ -120,10 +137,14 @@ def build_edge_handler(origin_port):
         def log_message(self, fmt, *args):
             pass
 
-        def _reply(self, status):
+        def _reply(self, status, body=b"", content_type=None):
             self.send_response(status)
-            self.send_header("Content-Length", "0")
+            if content_type:
+                self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            if body:
+                self.wfile.write(body)
 
         def _forward(self, method, body):
             # A real edge holds no state about the origin beyond its address, so
@@ -133,7 +154,8 @@ def build_edge_handler(origin_port):
             try:
                 conn = http.client.HTTPConnection("127.0.0.1", origin_port, timeout=5)
                 conn.request(method, self.path, body=body)
-                self._reply(conn.getresponse().status)
+                response = conn.getresponse()
+                self._reply(response.status, response.read(), response.getheader("Content-Type"))
                 conn.close()
             except OSError:
                 self._reply(502)
@@ -157,7 +179,17 @@ def build_edge_handler(origin_port):
 
 
 def main():
-    modes = ("scoped", "wide-open", "unsigned", "misrouted", "post-leak", "origin", "edge")
+    modes = (
+        "scoped",
+        "scoped-403",
+        "generic-401",
+        "wide-open",
+        "unsigned",
+        "misrouted",
+        "post-leak",
+        "origin",
+        "edge",
+    )
 
     parser = argparse.ArgumentParser(prog="fake_ingress.py")
     parser.add_argument("mode", choices=modes)
