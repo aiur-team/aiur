@@ -1642,7 +1642,20 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert output =~ "use `gh issue create --label ...`"
     refute File.exists?(context.calls)
 
-    assert {"ok\n", 0} = run_guard(context, ["api", "graphql", "-F", "query=@#{query}"])
+    # A file-backed body is opaque to this process, and the pre-existing merge
+    # gate denies an unreadable body outright (an invariant that predates
+    # #1793). The read-only file-backed query is therefore refused by that gate
+    # (77) rather than passed through; assert the message proves the #1793
+    # dispatch guard is not the blocker.
+    assert {output, 77} = run_guard(context, ["api", "graphql", "-F", "query=@#{query}"])
+    assert output =~ "cannot approve or merge"
+    refute File.exists?(context.calls)
+
+    # An inline read-only query is not a hidden body, so both the dispatch
+    # guard and the merge gate pass it through untouched.
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "graphql", "-f", "query={ viewer { login } }"])
+
     assert File.read!(context.calls) == "api graphql\n"
 
     for field <- ["-Fquery=@#{mutation}", "-F=query=@#{mutation}"] do
@@ -1653,9 +1666,15 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
   end
 
-  test "opaque GraphQL input is rejected because its disposition cannot be validated", context do
-    assert {output, 78} = run_guard(context, ["api", "graphql", "--input", "-"])
-    assert output =~ "use `gh issue create --label ...`"
+  test "opaque GraphQL input is denied by the merge gate, not the dispatch guard", context do
+    # An opaque body cannot be confirmed as issue creation, so the #1793
+    # dispatch guard defers it to the pre-existing merge gate, which denies
+    # every unreadable GraphQL body outright (it cannot rule out a merge). The
+    # command is still blocked; only the refusing message differs. Asserting
+    # the merge-gate message here guards against the dispatch guard claiming an
+    # opaque body that might be a merge.
+    assert {output, 77} = run_guard(context, ["api", "graphql", "--input", "-"])
+    assert output =~ "cannot approve or merge"
     refute File.exists?(context.calls)
   end
 

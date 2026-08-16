@@ -368,12 +368,15 @@ if [ "${1:-}" = api ] && [ "$api_paginated" -eq 0 ]; then
     done
     if [ -n "$direct_graphql_file" ]; then
       case "$direct_graphql_file" in
-        -|@-) direct_issue_api=1 ;;
         @*) direct_graphql_file=${direct_graphql_file#@} ;;
       esac
-      if [ -f "$direct_graphql_file" ]; then
-        if grep -q 'createIssue' "$direct_graphql_file" 2>/dev/null; then direct_issue_api=1; fi
-      else
+      # Only a body this process can read AND prove creates an issue is
+      # claimed by the #1793 guard. A stdin, unreadable, or otherwise opaque
+      # body cannot be confirmed as issue creation, so it is left to the
+      # pre-existing merge gate, which denies every unreadable GraphQL body
+      # outright because it cannot rule out a merge. Claiming an opaque body
+      # here would mislabel a possible merge as issue creation.
+      if [ -f "$direct_graphql_file" ] && grep -q 'createIssue' "$direct_graphql_file" 2>/dev/null; then
         direct_issue_api=1
       fi
     fi
