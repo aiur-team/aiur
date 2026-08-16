@@ -30,8 +30,11 @@ Agents working on dependent tickets used to coordinate through the Executor (PR 
 |--------|-------------------|
 | **GitHub firehose** | `branch.push`, `pr.opened`, `pr.merged`, `issue.commented`, `pr.review_comment`, etc. for any tracked issue |
 | **`git ls-remote`** | Low-latency `branch.push` override (faster than firehose) |
-| **GitHub dependencies API** | `issue.blocked_by.changed` whenever `aiur_declare_blocker` / `aiur_unblock` runs anywhere |
 | **Agents (you)** | `progress.*`, `decision.*`, `attention.*`, `blocked`, `unblocked`, `custom.*` via `emit_event` |
+
+Blockers are tracked through GitHub's native issue-dependency API
+(`aiur_declare_blocker` / `aiur_unblock`); that API drives subscription wiring,
+it does not emit a `blocked_by.changed` event.
 
 ## See also
 
