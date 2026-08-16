@@ -47,7 +47,10 @@ forming a verdict; the feature list does not imply them.
   sources are newer than the binary before run/start paths. Pure control
   commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `stop`) use
   the existing release when it is complete, because they control the already
-  running node and a rebuild would not update it. The shim then execs the shared
+  running node and a rebuild would not update it. `restart` does the same for
+  the opposite reason: it runs its own rebuild *between* its stop and its start
+  (through `AIUR_RESTART_BUILD_CMD`), so rebuilding before dispatch would put
+  that rewrite back underneath the still-live BEAM. The shim then execs the shared
   launcher engine (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) with
   `AIUR_RELEASE_DIR` pointed at `src/_build/dev/rel/aiur`. The npm-installed
   product command `aiur` runs the *same* engine against the platform release —
@@ -56,7 +59,15 @@ forming a verdict; the feature list does not imply them.
   `aiur-$USER[-KEY]@127.0.0.1`, tmux socket `aiur-$USER[-KEY]`), so there is no
   second command surface to maintain. Run `npm run setup` (or
   `mise run setup`) to install the toolchain and symlink `aiurdev` onto your
-  `PATH`.
+  `PATH`. That symlink resolves its target from the script's own path, so
+  invoke `scripts/aiurdev` from the checkout you mean to act on. A command that
+  would build or boot a *different* checkout than your working directory
+  (`build`, `restart`, a bare run) is refused rather than run; a control or RPC
+  command still runs but says which checkout it is speaking through and does not
+  rebuild it. `AIUR_REPO_ROOT` names a target explicitly when you do want the
+  other one. Each dev build stamps its release with the repo root and commit it
+  came from (`AIUR_BUILD_STAMP`), and `restart` refuses to start on a release it
+  cannot match to the rebuild it just ran.
 
 ## Running
 
@@ -70,6 +81,7 @@ aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard lis
 aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
+aiurdev restart [--no-build]  # stop, rebuild if sources are newer, start again detached
 aiurdev status                # report the running session
 aiurdev agents                # one line per agent: state + current activity (headless dashboard equivalent)
 aiurdev set max-agents <n>    # change the concurrent-agent cap at runtime (no config edit)

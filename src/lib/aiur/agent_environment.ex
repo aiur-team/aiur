@@ -16,6 +16,14 @@ defmodule Aiur.AgentEnvironment do
   # does not export it today, but any wrapping harness might).
   @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
+  # `aiurdev` exports AIUR_RESTART_BUILD_CMD for the duration of an `aiur restart`
+  # so the engine can run this checkout's rebuild between the stop and the start.
+  # It is a command line bound to one checkout: inherited by an agent, an inner
+  # `aiur restart` would run the OUTER checkout's builder against whatever
+  # release it is pointed at. The receipt path is per-invocation for the same
+  # reason — a stale one would let a later restart read a rebuild that is not its
+  # own.
+  @restart_build_env_names ~w(AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_RECEIPT AIUR_RESTART_BUILD_VERIFIES)
   @parent_log_env_names ~w(AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT)
   @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
@@ -38,6 +46,7 @@ defmodule Aiur.AgentEnvironment do
     ("unset " <>
        Enum.join(
          @erlang_distribution_env_names ++
+           @restart_build_env_names ++
            @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
          " "
        ) <>
@@ -144,9 +153,12 @@ defmodule Aiur.AgentEnvironment do
     real_git = System.find_executable("git")
 
     unset_inherited_env =
-      Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"], fn name ->
-        {String.to_charlist(name), false}
-      end)
+      Enum.map(
+        @restart_build_env_names ++
+          @parent_log_env_names ++
+          @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
+        fn name -> {String.to_charlist(name), false} end
+      )
 
     workspace_env =
       [
@@ -156,6 +168,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_REPO_STATE_PATH", String.to_charlist(state_path)},
         {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> Path.join(".aiur-runtime/github-quota") |> String.to_charlist()},
         {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
+        # SECURITY INVARIANT — see `AgentGitHubGuard.gh_config_dir/1`. An empty
+        # agent-private `gh` config dir severs the operator keyring, which is
+        # the identity that can bypass branch protection. Removing this makes
+        # `env -u GITHUB_TOKEN -u GH_TOKEN gh pr review --approve` succeed as
+        # the human again.
+        {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
@@ -268,6 +286,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
+      "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
       "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>

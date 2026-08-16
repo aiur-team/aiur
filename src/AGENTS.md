@@ -43,6 +43,12 @@ This directory contains the Elixir agent orchestration service that polls Linear
   than this repo is edited. `Aiur.ModelCatalog` asks each installed CLI what it currently accepts
   (`aiur init` offers any tag the registry lacks), and a model the registry doesn't know is passed
   to the backend unchanged with an Executor attention rather than blocked or silently swapped.
+- Model precedence mirrors the backend precedence above but is not identical to it. In
+  `CodingAgent.model_for/1` a variant pinned on the override label (`model:codex-gpt-5.6-sol`)
+  beats the `agent.routing` model even when routing targets that same backend — it is an operator
+  naming a model outright, and the add-agent modal always writes `complexity:N` beside the
+  override. A *bare* `model:<backend>` names only a backend, so it still defers to the routing
+  model when routing names that backend, and otherwise pins nothing (the backend default).
 - Orchestrator behavior is stateful and concurrency-sensitive; preserve retry, reconciliation, and cleanup semantics.
 - Follow `docs/logging.md` for logging conventions and required issue/session context fields.
 

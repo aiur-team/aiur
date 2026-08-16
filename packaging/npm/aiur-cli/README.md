@@ -65,6 +65,7 @@ to the issues you want worked and run `aiur`.
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
 | `aiur --todo <id…> [--only]` | Queue GitHub tickets; optionally dequeue all other pending tickets |
 | `aiur stop` | Stop the running session |
+| `aiur restart [--no-build]` | Stop the running session, refresh the release, and start it again detached |
 
 `aiur analytics` reads the same durable telemetry projection as `/analytics`.
 It prints the resolved chart window plus the freshness, observation time, and

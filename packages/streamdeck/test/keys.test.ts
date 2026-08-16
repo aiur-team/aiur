@@ -307,3 +307,46 @@ describe("agent key fields", () => {
     expect(agentKey(keys[0]!).title).toBe("");
   });
 });
+
+/**
+ * Three states, and the rules for reading them off a payload that may be older
+ * or newer than this build. The daemon substituting `0` for a stale reading is
+ * what made a progressing ticket's bar drop to empty once a minute, so the
+ * distinctions here are the whole fix.
+ */
+describe("progress freshness", () => {
+  const footerOf = (over: Partial<AgentInput>) => {
+    const input = { identifier: "1", vendor: "codex", bucket: "running" as const, progress_percent: 70, priority: false, ...over };
+    const footer = agentKey(layoutKeys([input], 0)[0]!).footer;
+    if (footer.kind !== "progress") throw new Error("expected a progress footer");
+    return footer;
+  };
+
+  it("keeps a stale reading's percent and marks it not-current", () => {
+    expect(footerOf({ progress_freshness: "stale" })).toMatchObject({ percent: 70, freshness: "stale" });
+  });
+
+  it("reads a bare percent from an older daemon as a reading somebody took", () => {
+    expect(footerOf({})).toMatchObject({ percent: 70, freshness: "fresh" });
+    expect(footerOf({ progress_freshness: null })).toMatchObject({ percent: 70, freshness: "fresh" });
+  });
+
+  /**
+   * Absent and unrecognised are different. A label this build has never heard
+   * of is not evidence the reading is current, so it fails closed to stale —
+   * the value is kept, the claim that it is now is not.
+   */
+  it("fails closed on a freshness label it does not recognise", () => {
+    expect(footerOf({ progress_freshness: "expired" })).toMatchObject({ percent: 70, freshness: "stale" });
+  });
+
+  it("drops the percent entirely when the daemon says unknown", () => {
+    expect(footerOf({ progress_freshness: "unknown" })).toMatchObject({ percent: null, freshness: "unknown" });
+    expect(footerOf({ progress_percent: null })).toMatchObject({ percent: null, freshness: "unknown" });
+    expect(footerOf({ progress_percent: Number.NaN })).toMatchObject({ percent: null, freshness: "unknown" });
+  });
+
+  it("keeps a measured zero as a measurement", () => {
+    expect(footerOf({ progress_percent: 0 })).toMatchObject({ percent: 0, freshness: "fresh" });
+  });
+});

@@ -162,6 +162,196 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute String.starts_with?(AgentGitHubGuard.host_bin_dir(), Budget.state_dir())
   end
 
+  # ---------------------------------------------------------------------------
+  # Agents cannot approve or merge (the human merge gate)
+  #
+  # These test the documented bypass, not the existence of a wrapper. The real
+  # attack is `env -u GITHUB_TOKEN -u GH_TOKEN gh pr review --approve`: with the
+  # tokens gone, `gh` used to fall back to the operator's keyring account, which
+  # is the sole branch-protection bypass actor. Each case therefore asserts that
+  # the real `gh` was never reached at all.
+  # ---------------------------------------------------------------------------
+
+  test "provisions an agent-private, empty gh config dir", context do
+    directory = AgentGitHubGuard.gh_config_dir(context.workspace)
+
+    assert File.dir?(directory)
+    assert File.ls!(directory) == []
+    assert String.starts_with?(directory, context.workspace)
+  end
+
+  test "refuses a pull-request merge from an agent workspace", context do
+    assert {output, 77} = run_guard(context, ["pr", "merge", "1670", "--squash"])
+
+    assert output =~ "agents cannot approve or merge pull requests"
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses an approval even when the agent strips both token variables", context do
+    assert {output, 77} =
+             run_agent_guard(
+               context,
+               ["pr", "review", "1670", "--approve"],
+               Enum.reject(guard_env(context), fn {name, _value} -> name in ["GITHUB_TOKEN", "GH_TOKEN"] end)
+             )
+
+    assert output =~ "agents cannot approve or merge pull requests"
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses a merge even when the agent clears the workspace marker", context do
+    # Agent context is decided by where the wrapper is installed, so `$0` — not
+    # an environment variable an agent can unset — carries the decision.
+    assert {_output, 77} =
+             run_agent_guard(
+               context,
+               ["pr", "merge", "1670"],
+               Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end)
+             )
+
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses the REST and GraphQL forms of approve and merge", context do
+    assert {_output, 77} = run_guard(context, ["api", "-X", "PUT", "repos/owner/repo/pulls/7/merge"])
+    assert {_output, 77} = run_guard(context, ["api", "-X", "POST", "repos/owner/repo/pulls/7/reviews", "-f", "event=APPROVE"])
+    assert {_output, 77} = run_guard(context, ["api", "repos/owner/repo/pulls/7/reviews", "-f", "event=APPROVE"])
+
+    assert {_output, 77} =
+             run_guard(context, ["api", "graphql", "-f", "query=mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }"])
+
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses a GraphQL mutation whose document the guard cannot read", context do
+    # `--input` and `-F query=@file` hand gh a document that never appears in
+    # argv, so no mutation name is visible to match. The request would carry
+    # `addPullRequestReview` with the agent PAT, and branch protection does not
+    # stop an approval.
+    assert {output, 77} = run_guard(context, ["api", "graphql", "--input", "mutation.json"])
+    assert output =~ "agents cannot approve or merge pull requests"
+
+    assert {_output, 77} = run_guard(context, ["api", "graphql", "--input=mutation.json"])
+    assert {_output, 77} = run_guard(context, ["api", "graphql", "--input", "-"])
+    assert {_output, 77} = run_guard(context, ["api", "graphql", "-F", "query=@mutation.graphql"])
+    assert {_output, 77} = run_guard(context, ["api", "graphql", "-f", "query=@-"])
+
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses gh aliases and any command name the guard cannot recognise", context do
+    # The denylist keys on the command name, so an alias renames the command out
+    # of its reach: `alias set zz "pr merge"` then `zz 7` is a two-command merge.
+    assert {output, 77} = run_guard(context, ["alias", "set", "zz", "pr merge"])
+    assert output =~ "refusing a command this guard cannot inspect"
+
+    assert {_output, 77} = run_guard(context, ["alias", "delete", "zz"])
+    assert {_output, 77} = run_guard(context, ["alias", "import", "aliases.yml"])
+    assert {_output, 77} = run_guard(context, ["zz", "7"])
+
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses approve flags in every spelling gh accepts", context do
+    assert {output, 77} = run_guard(context, ["pr", "review", "7", "--approve=true"])
+    assert output =~ "agents cannot approve or merge pull requests"
+
+    assert {_output, 77} = run_guard(context, ["pr", "review", "7", "-a"])
+    assert {_output, 77} = run_guard(context, ["pr", "review", "7", "-ab", "body"])
+    assert {_output, 77} = run_guard(context, ["pr", "review", "7", "-a=true"])
+
+    refute File.exists?(context.calls)
+  end
+
+  test "refuses the merge-gate REST endpoints that need no pull request", context do
+    # Each of these advances the protected branch with no review recorded.
+    assert {_output, 77} = run_guard(context, ["api", "-X", "POST", "repos/owner/repo/merges", "-f", "base=main", "-f", "head=feature"])
+
+    assert {_output, 77} =
+             run_guard(context, ["api", "-X", "PATCH", "repos/owner/repo/git/refs/heads/main", "-f", "sha=deadbeef"])
+
+    assert {_output, 77} = run_guard(context, ["api", "-X", "POST", "repos/owner/repo/git/refs", "-f", "ref=refs/heads/main"])
+    assert {_output, 77} = run_guard(context, ["api", "-X", "PUT", "repos/owner/repo/pulls/7/update-branch"])
+
+    refute File.exists?(context.calls)
+  end
+
+  # Disarming the gate is as good as passing it: an agent that can delete branch
+  # protection, rewrite a ruleset, or dispatch a workflow that merges with
+  # `GITHUB_TOKEN` has removed the control every other denial here relies on.
+  test "refuses the ways an agent could disarm the merge gate instead of passing it", context do
+    assert {_output, 77} = run_guard(context, ["api", "-X", "DELETE", "repos/owner/repo/branches/main/protection"])
+
+    assert {_output, 77} =
+             run_guard(context, ["api", "-X", "PUT", "repos/owner/repo/branches/main/protection", "-f", "enforce_admins=false"])
+
+    assert {_output, 77} = run_guard(context, ["api", "-X", "POST", "repos/owner/repo/rulesets", "-f", "name=open"])
+    assert {_output, 77} = run_guard(context, ["workflow", "run", "merge.yml"])
+
+    assert {_output, 77} =
+             run_guard(context, ["api", "-X", "POST", "repos/owner/repo/actions/workflows/9/dispatches", "-f", "ref=main"])
+
+    assert {_output, 77} = run_guard(context, ["api", "-X", "POST", "repos/owner/repo/dispatches", "-f", "event_type=merge"])
+
+    refute File.exists?(context.calls)
+  end
+
+  test "still allows reading branch protection and listing workflows", context do
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/branches/main/protection"])
+    assert {"ok\n", 0} = run_guard(context, ["workflow", "list"])
+    assert {"ok\n", 0} = run_guard(context, ["workflow", "view", "ci.yml"])
+  end
+
+  test "still allows the reads and non-approving reviews an agent legitimately needs", context do
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/pulls/7/reviews"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "1670", "--comment", "--body", "looks reasonable"])
+
+    assert File.read!(context.calls) =~ "pr view"
+  end
+
+  test "allows a comment review whose body text looks like an approve flag", context do
+    # `--approve` here is the VALUE of `--body`, not a flag. Refusing it would
+    # make the guard unusable for the reviews an agent is supposed to leave.
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "--comment", "--body", "--approve"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "--comment", "-b", "-a"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "-R", "owner/aiur", "--comment", "--body", "fine"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "-Rowner/aiur", "--comment", "--body", "fine"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "--comment", "--body", "ok", "--", "--approve"])
+
+    assert File.read!(context.calls) =~ "pr review"
+  end
+
+  test "still allows the read-only commands and local config an agent needs", context do
+    assert {"ok\n", 0} = run_guard(context, ["pr", "checks", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "diff", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/git/refs/heads/main"])
+    assert {"ok\n", 0} = run_guard(context, ["alias", "list"])
+
+    calls = File.read!(context.calls)
+    assert calls =~ "pr checks"
+    assert calls =~ "alias list"
+  end
+
+  test "leaves the Executor's own wrapper able to merge", context do
+    # Only dispatched agents lose merge authority. The Executor runs the same
+    # script from outside `.aiur-runtime/bin`, and must keep the gate it holds.
+    executor_bin = Path.join(context.workspace, "executor-bin")
+    File.mkdir_p!(executor_bin)
+    executor_wrapper = Path.join(executor_bin, "gh")
+    File.cp!(context.wrapper, executor_wrapper)
+    File.chmod!(executor_wrapper, 0o755)
+
+    assert {"ok\n", 0} =
+             System.cmd(
+               executor_wrapper,
+               ["pr", "merge", "1670"],
+               env: Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end),
+               stderr_to_stdout: true
+             )
+  end
+
   test "records ticket-shaped read and write attribution without command arguments", context do
     assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
@@ -683,13 +873,23 @@ defmodule Aiur.AgentGitHubGuardTest do
     query = Path.join(context.workspace, "mutation.graphql")
     File.write!(query, "mutation { addStar(input: {starrableId: \"id\"}) { starrable { id } } }")
 
-    assert {output, 64} =
-             run_guard(context, ["api", "graphql", "--paginate", "-f", "query=@#{query}"],
-               AIUR_GITHUB_BUDGET_ROOT: budget_root,
-               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
-               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
-             )
+    arguments = ["api", "graphql", "--paginate", "-f", "query=@#{query}"]
 
+    budget_env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+      AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+    ]
+
+    # An agent never reaches the pagination budget: a query body this guard
+    # cannot read is refused first, because it could carry an approval.
+    assert {output, 77} = run_guard(context, arguments, budget_env)
+    assert output =~ "agents cannot approve or merge pull requests"
+    refute File.exists?(context.calls)
+
+    # The Executor keeps full authority, so for it the unbudgetable repeated
+    # request is the binding constraint — and it still fails closed.
+    assert {output, 64} = run_executor_guard(context, arguments, budget_env)
     assert output =~ "input body or standard input"
     refute File.exists?(context.calls)
   end
@@ -1350,6 +1550,27 @@ defmodule Aiur.AgentGitHubGuardTest do
       env: guard_env(context) ++ budget_env ++ extra_env,
       stderr_to_stdout: true
     )
+  end
+
+  defp run_agent_guard(context, args, env) do
+    System.cmd(context.wrapper, args, env: env, stderr_to_stdout: true)
+  end
+
+  # The same script run from outside `.aiur-runtime/bin` and without the agent
+  # workspace marker: this is how the Executor invokes it, with full authority.
+  defp run_executor_guard(context, args, extra_env) do
+    bin = Path.join(context.workspace, "executor-bin-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(bin)
+    wrapper = Path.join(bin, "gh")
+    File.cp!(context.wrapper, wrapper)
+    File.chmod!(wrapper, 0o755)
+
+    env =
+      Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end) ++
+        [{"AIUR_GITHUB_BUDGET_ENABLED", "1"}] ++
+        Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+
+    System.cmd(wrapper, args, env: env, stderr_to_stdout: true)
   end
 
   defp run_git_credential(context, input, extra_env) do

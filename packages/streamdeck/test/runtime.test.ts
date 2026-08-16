@@ -125,8 +125,11 @@ const makeHarness = (overrides: Partial<RuntimeEnv> = {}): Harness => {
     logs,
     signal: () => signalHandler(),
     udev: {
-      onAdded: () => feed("udev", "ACTION=add\nID_VENDOR_ID=0fd9\n\n"),
-      onRemoved: () => feed("udev", "ACTION=remove\nID_VENDOR_ID=0fd9\n\n"),
+      // A real hotplug is a whole-device event: udev emits DEVTYPE=usb_device
+      // alongside the vendor. Interface and hidraw events are driver binding,
+      // which the sidecar causes itself and must not read as hotplug.
+      onAdded: () => feed("udev", "ACTION=add\nDEVTYPE=usb_device\nID_VENDOR_ID=0fd9\n\n"),
+      onRemoved: () => feed("udev", "ACTION=remove\nDEVTYPE=usb_device\nID_VENDOR_ID=0fd9\n\n"),
     },
     sleep: {
       onSleep: () => feed("sleep", "PrepareForSleep (true)\n"),

@@ -3,11 +3,12 @@ defmodule Aiur.OrchestratorStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.TicketActivity.Projection
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
@@ -137,6 +138,64 @@ defmodule Aiur.OrchestratorStatusTest do
       last_codex_event: nil,
       started_at: DateTime.utc_now()
     }
+  end
+
+  # Starts an orchestrator whose only fleet member is one running issue, so a
+  # snapshot assertion is about that issue's progress and nothing else.
+  defp orchestrator_running_only(issue_id, identifier, identity) do
+    orchestrator_name = Module.concat(__MODULE__, :"ProgressOrchestrator#{identifier}")
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+
+    entry =
+      issue_id
+      |> running_entry(identifier, :working)
+      |> put_in([:issue, Access.key(:tracker_identity)], identity)
+
+    :sys.replace_state(pid, fn state -> %{state | running: %{issue_id => entry}} end)
+
+    pid
+  end
+
+  defp activity_projection(identity, percent, opts \\ []) do
+    observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
+
+    observation = %TicketObservation{
+      status: :joinable,
+      reason: nil,
+      tracker_identity: identity,
+      source: %{kind: :agent_event, name: "progress"},
+      event_id: 1,
+      provenance: %{run_id: "run-progress", attempt: 1},
+      occurred_at: observed_at,
+      observed_at: observed_at,
+      attributes: %{percent: percent}
+    }
+
+    {:accepted, projection} =
+      opts
+      |> Keyword.take([:stale_after_ms])
+      |> Projection.new()
+      |> Projection.apply(observation)
+
+    projection
+  end
+
+  # The projection validates incoming observations as integers, so a float
+  # reading can only be planted directly. It still has to survive the join.
+  defp put_progress_percent(projection, percent) do
+    update_in(projection.entries, fn entries ->
+      Map.new(entries, fn {key, entry} -> {key, %{entry | progress: %{entry.progress | percent: percent}}} end)
+    end)
+  end
+
+  defp install_activity_projection(projection) do
+    original_state = :sys.get_state(TicketActivity)
+
+    on_exit(fn -> :sys.replace_state(TicketActivity, fn _state -> original_state end) end)
+
+    :sys.replace_state(TicketActivity, fn state -> %{state | projection: projection} end)
   end
 
   defp tracker_identity(identifier) do
@@ -2273,7 +2332,8 @@ defmodule Aiur.OrchestratorStatusTest do
                identifier: "MT-500",
                error: "agent exited: :boom",
                priority: nil,
-               progress_percent: 0
+               progress_percent: nil,
+               progress_freshness: :unknown
              }
            ] = snapshot.retrying
 
@@ -2284,6 +2344,65 @@ defmodule Aiur.OrchestratorStatusTest do
     # `Blocked`; an `[]` here would read as "no dependencies" and render it
     # `Unblocked` off data we never resolved.
     assert [%{blocked_by: nil}] = snapshot.retrying
+  end
+
+  test "snapshot retains a stale progress reading instead of a zero nobody measured" do
+    identity = tracker_identity("2001")
+    observed_at = DateTime.add(DateTime.utc_now(), -5, :second)
+
+    install_activity_projection(activity_projection(identity, 70, observed_at: observed_at, stale_after_ms: 1))
+
+    pid = orchestrator_running_only("issue-stale-progress", "2001", identity)
+
+    assert %{running: [%{progress_percent: 70, progress_freshness: :stale}]} = GenServer.call(pid, :snapshot)
+  end
+
+  test "snapshot reports a never-observed ticket as unknown progress" do
+    identity = tracker_identity("2002")
+
+    install_activity_projection(Projection.new())
+
+    pid = orchestrator_running_only("issue-unobserved-progress", "2002", identity)
+
+    assert %{running: [%{progress_percent: nil, progress_freshness: :unknown}]} = GenServer.call(pid, :snapshot)
+  end
+
+  test "snapshot keeps a fresh progress reading fresh" do
+    identity = tracker_identity("2003")
+
+    install_activity_projection(activity_projection(identity, 40))
+
+    pid = orchestrator_running_only("issue-fresh-progress", "2003", identity)
+
+    assert %{running: [%{progress_percent: 40, progress_freshness: :fresh}]} = GenServer.call(pid, :snapshot)
+  end
+
+  test "snapshot rounds a float progress reading rather than discarding it" do
+    identity = tracker_identity("2004")
+
+    projection =
+      identity
+      |> activity_projection(70)
+      |> put_progress_percent(70.5)
+
+    install_activity_projection(projection)
+
+    pid = orchestrator_running_only("issue-float-progress", "2004", identity)
+
+    assert %{running: [%{progress_percent: 71, progress_freshness: :fresh}]} = GenServer.call(pid, :snapshot)
+  end
+
+  test "an unreachable activity projection reports unknown progress rather than zeroing the fleet" do
+    identity = tracker_identity("2005")
+
+    install_activity_projection(activity_projection(identity, 80))
+
+    pid = orchestrator_running_only("issue-unreachable-progress", "2005", identity)
+
+    on_exit(fn -> :sys.resume(TicketActivity) end)
+    :sys.suspend(TicketActivity)
+
+    assert %{running: [%{progress_percent: nil, progress_freshness: :unknown}]} = GenServer.call(pid, :snapshot)
   end
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do

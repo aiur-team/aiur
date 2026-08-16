@@ -36,10 +36,18 @@ identity join key, not a secret and not a globally unique run ID.
 
 `git rev-parse HEAD` proves the checkout SHA, not automatically the SHA from
 which an already-built release was produced. Record the release directory,
-binary/build timestamps, launcher rebuild decision, and checkout SHA. If no
-release manifest records a source SHA, report release SHA as **unknown** rather
-than equating it with the current checkout. A forced `aiurdev build` changes
-evidence and belongs after classification, not initial triage.
+binary/build timestamps, launcher rebuild decision, and checkout SHA.
+
+A development release built by `aiurdev` carries `AIUR_BUILD_STAMP` in its
+release directory: `repo_root`, `source_sha`, `dirty`, and `built_at`. Read it
+before anything else — it is the only artifact that names which checkout and
+which commit produced the running release, and a `repo_root` that is not the
+checkout under investigation is itself the finding. A `dirty=yes` stamp means
+the source SHA is a floor, not an exact identity. Where the stamp is absent, or
+its `source_sha` is `unknown` (built outside a git work tree), report release
+SHA as **unknown** rather than equating it with the current checkout. A forced
+`aiurdev build` changes evidence and belongs after classification, not initial
+triage.
 
 ## Evidence map
 
@@ -48,6 +56,7 @@ evidence and belongs after classification, not initial triage.
 | Operator checkout | repository root; Git commands above | current files, branch, HEAD, base relationship, dirty state | the running release uses this tree; the ticket workspace matches it |
 | Active config/workflow | detected config path and resolved sibling prompt/hooks | intended tracker, base, labels, workspace, limits, bind/auth settings | the daemon loaded the latest bytes; external tracker state agrees |
 | Launcher identity/state | `scripts/aiurdev __identity`, `status`, instance record under the reported state root | computed project root, instance key, node name, recorded tmux identity, control-plane observation | BEAM, tmux, and record all agree without cross-checks |
+| Release provenance | `AIUR_BUILD_STAMP` in the reported release directory | which checkout root and commit assembled that release, and whether that tree was dirty | that the running BEAM booted from this assembly rather than an earlier one at the same path |
 | Startup output | configured run root `log/boot.out.log`; foreground wrapper capture; `erl_crash.dump`; reported temporary startup/pid/workspace-root artifacts while present | launcher command path, boot output, crash marker/dump, registered child IDs | application supervision stayed healthy after boot |
 | Runtime application log | configured session logs root `log/aiur.log`, only when debug is enabled | timestamped Aiur/OTP lifecycle and errors for that run | UI rendering, tracker truth, or provider intent by itself |
 | Historical/rotated runtime logs | sibling `aiur.log*` files in older run roots or externally rotated archives | older evidence when its run identity/time matches | that Aiur currently performs internal rotation; current `Aiur.LogFile` does not |

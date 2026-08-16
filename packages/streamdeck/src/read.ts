@@ -12,7 +12,7 @@
  * {@link file://./lifecycle.ts} reacts.
  */
 
-import { READ_LENGTH } from "./report.js";
+import { MIN_INPUT_REPORT_LENGTH } from "./report.js";
 
 /** A raw read result handed up from a backend poll. */
 export type RawRead =
@@ -41,7 +41,7 @@ export const classifyRead = (raw: RawRead): ReadOutcome => {
     return { type: "error", error: raw.error };
   }
 
-  if (raw.data.length < READ_LENGTH) {
+  if (raw.data.length < MIN_INPUT_REPORT_LENGTH) {
     return { type: "idle" };
   }
 

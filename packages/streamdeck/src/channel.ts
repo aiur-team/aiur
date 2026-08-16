@@ -32,6 +32,65 @@ export interface StreamDeckGrid {
   readonly max_column_offset: number;
 }
 
+/**
+ * One row of the flattened transcript, in the daemon's shape.
+ *
+ * `StreamdeckLogs.flatten/1` emits three of these — an `event_header` followed
+ * by that event's `diff` and `message` entries, newest event first. Only
+ * `message` carries a body, so collapsing every row to one display string
+ * printed the literal "[INFO]" for each diff (whose text is its path and its
+ * +/- counts) and discarded the badge that marks where an event begins. The
+ * headers are also the jump targets for the log keys, so they have to survive
+ * the trip to the renderer.
+ */
+/** One line of a unified diff, as the feed carries it. */
+export interface DiffLine {
+  /** `+` added, `-` removed, ` ` context. */
+  readonly sign: "+" | "-" | " ";
+  readonly text: string;
+}
+
+export type TranscriptRow =
+  | {
+      readonly kind: "event_header";
+      /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
+      readonly badge: string;
+      readonly body: string;
+      /** Human topic name — "PR merged", "Progress check-in", "Ticket opened". */
+      readonly label: string;
+      /** ISO instant the event was published; null when the feed omits one. */
+      readonly timestamp: string | null;
+    }
+  | {
+      readonly kind: "diff";
+      readonly path: string;
+      readonly additions: number;
+      readonly deletions: number;
+      /** First changed line of the hunk; null for a summary-only diff. */
+      readonly line: string | null;
+    }
+  | {
+      /**
+       * One line of the hunk above it.
+       *
+       * The feed unrolls a diff into a header row followed by one of these per
+       * line, rather than packing the hunk into a single row. The client
+       * addresses transcript rows by index — to scroll, and to jump the log
+       * keys — so a row that painted three lines would move the readout three
+       * rows for one detent.
+       */
+      readonly kind: "diff_line";
+      readonly sign: "+" | "-" | " ";
+      readonly text: string;
+    }
+  | {
+      readonly kind: "message";
+      readonly role: string;
+      readonly body: string;
+      /** Tool name for a `tool` role, when the provider named one. */
+      readonly tool: string | null;
+    };
+
 export interface StreamDeckLogs {
   readonly event_keys?: readonly Record<string, unknown>[];
   readonly event_keys_visible?: readonly Record<string, unknown>[];
@@ -47,7 +106,7 @@ export interface StreamDeckChannelEvents {
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
-  transcript(line: string): void;
+  transcript(row: TranscriptRow): void;
   logs(logs: StreamDeckLogs): void;
   control(payload: Readonly<Record<string, unknown>>): void;
   closed(error: unknown): void;
@@ -165,7 +224,19 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       if (fleet.grid !== undefined) options.events.grid(fleet.grid);
     }
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);
-    else if (event === "transcript") options.events.transcript(String((payload as { body?: unknown }).body ?? ""));
+    else if (event === "transcript") {
+      // The live per-message push is the same shape as a flattened `message`
+      // row, so it enters the transcript as one rather than as a bare string:
+      // the strip renders the speaker, and the row cannot be mistaken for the
+      // event header the log keys jump to.
+      const message = payload as { role?: unknown; body?: unknown };
+      options.events.transcript({
+        kind: "message",
+        role: typeof message.role === "string" ? message.role : "agent",
+        body: typeof message.body === "string" ? message.body : "",
+        tool: null,
+      });
+    }
     else if (event === "logs") options.events.logs(payload as StreamDeckLogs);
     else if (event === "control") options.events.control(payload as Readonly<Record<string, unknown>>);
   };

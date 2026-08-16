@@ -21,14 +21,15 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
-  alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Events.Exchange
 
+  alias Aiur.OpenTicketSource.Snapshot, as: OpenTicketSnapshot
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview, PayloadLoader, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
 
@@ -615,11 +616,14 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
              "the mobile nav must carry its own global pause toggle"
 
-      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != [],
-             "the sidebar keeps the desktop pause toggle"
+      assert Floki.find(doc, ".topbar .toolbar .topbar-controls #global-pause-toggle") != [],
+             "the desktop pause toggle sits top right, beside the theme control"
+
+      assert Floki.find(doc, ".topbar .brand-row #global-pause-toggle") == [],
+             "the pause toggle moved out of the brand row, which now carries only the brand"
 
       assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle") != [],
-             "the theme toggle lives in the topbar, inline with the route title"
+             "the theme toggle lives in the topbar, top right"
 
       assert Floki.find(doc, "aside.shell-sidebar #theme-toggle") == [],
              "the theme toggle moved out of the sidebar brand row"
@@ -754,7 +758,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
     {:ok, view, initial_html} = live(build_conn(), "/")
-    assert initial_html =~ "No fleet snapshot published yet"
+    # Before the first snapshot the fleet area degrades to its ordinary empty
+    # state, which names the missing fleet view rather than claiming the run is
+    # empty. No notice, no error card.
+    assert initial_html =~ "No last-known-good Units catalog is retained while the fleet snapshot is unavailable."
+    refute initial_html =~ "snapshot_unpublished"
     refute initial_html =~ "Fleet snapshot unavailable"
 
     :ok = ObservabilityPubSub.subscribe()
@@ -763,27 +771,23 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute_receive {:observability_updated, _event_id}, 20
     assert_receive {:observability_updated, _event_id}, 1_000
-    assert eventually(fn -> not String.contains?(render(view), "No fleet snapshot published yet") end, 100)
+    assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
   end
 
-  test "an unpublished snapshot and an unreachable orchestrator read differently" do
+  test "an unpublished snapshot raises no notice while an unreachable orchestrator does" do
+    # The post-restart moment before the first snapshot is expected, and the
+    # Units catalog underneath already reports the missing fleet view, so the
+    # notice is pure noise. A genuine fault still gets its card.
     unpublished =
       render_component(&Overview.error/1, error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"})
 
     unavailable =
       render_component(&Overview.error/1, error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"})
 
-    assert unpublished =~ "No fleet snapshot published yet"
-    assert unpublished =~ "expected for a short time after a restart"
-    refute unpublished =~ "Fleet snapshot unavailable"
+    assert String.trim(unpublished) == ""
 
     assert unavailable =~ "Fleet snapshot unavailable"
     assert unavailable =~ "no last-known-good fleet view is retained"
-
-    # The expected post-restart moment must not wear incident colour either;
-    # `role="status"` alone only fixes the screen-reader reading.
-    assert unpublished =~ ~s(class="error-card notice")
-    refute unavailable =~ "notice"
   end
 
   test "a read-model fault never claims the orchestrator is unreachable" do
@@ -3499,6 +3503,202 @@ defmodule AiurWeb.DashboardLiveTest do
     assert row |> Floki.text() =~ "Answered"
   end
 
+  test "expands a history row in place and quotes the answer the operator recorded" do
+    orchestrator_name = Module.concat(__MODULE__, :HistoryAccordionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :HistoryAccordionDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 510}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    answered = request_dashboard_decision(store, "history-accordion")
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               answered.decision_id,
+               %{
+                 "idempotency_key" => "history-accordion-answer",
+                 "expected_version" => answered.version,
+                 "custom_response" => "it is the executor's job to review"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{answered.decision_id}")
+    assert row |> Floki.text() =~ "“it is the executor's job to review”"
+    assert row |> Floki.find("button.history-row-toggle") |> Floki.attribute("aria-expanded") == ["false"]
+    refute has_element?(view, "#history-detail-history-#{answered.decision_id}")
+
+    # Clicking the row is what opens it; the Command's own context arrives
+    # inline, and no card is hoisted to the top of the page.
+    view |> element("#history-#{answered.decision_id}") |> render_click()
+
+    assert has_element?(view, "#history-detail-history-#{answered.decision_id}")
+    assert has_element?(view, "#history-#{answered.decision_id} button[aria-expanded='true']")
+    assert has_element?(view, "#history-detail-history-#{answered.decision_id} #decision-detail-#{answered.decision_id}")
+    refute has_element?(view, ".decision-list #decision-#{answered.decision_id}")
+
+    view |> element("#history-#{answered.decision_id}") |> render_click()
+    refute has_element?(view, "#history-detail-history-#{answered.decision_id}")
+  end
+
+  test "refreshes a history row in place when the store revises the Command behind it" do
+    orchestrator_name = Module.concat(__MODULE__, :HistoryRefreshOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :HistoryRefreshDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 512}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    decision = request_dashboard_decision(store, "history-refresh")
+
+    assert {:ok, %{status: :accepted, action: original}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "history-refresh-original",
+                 "expected_version" => decision.version,
+                 "custom_response" => "ship the original answer"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    assert render(view) =~ "“ship the original answer”"
+
+    # Somebody else revises the Command while the row is already on screen. The
+    # loaded row must not keep asserting the answer it was loaded with.
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.revise(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "history-refresh-revision",
+                 "expected_version" => decision.version,
+                 "expected_action_id" => original.action_id,
+                 "expected_revision_sequence" => 0,
+                 "custom_response" => "no, the executor reviews it",
+                 "rationale" => "The first answer was wrong"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    assert eventually(fn -> render(view) =~ "“no, the executor reviews it”" end, 100)
+    refute render(view) =~ "“ship the original answer”"
+    assert history_row_count(view) == 1
+  end
+
+  test "keeps a deep-linked Command readable when history has not loaded its page" do
+    orchestrator_name = Module.concat(__MODULE__, :DeepLinkHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeepLinkHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 513}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    # One page of history plus one older Command: the deep-linked row sits
+    # beyond the ten rows the first page loads.
+    answered =
+      for index <- 1..11 do
+        decision = request_dashboard_decision(store, "deep-link-#{index}")
+
+        assert {:ok, %{status: :accepted}} =
+                 DecisionStore.answer(
+                   decision.decision_id,
+                   %{
+                     "idempotency_key" => "deep-link-answer-#{index}",
+                     "expected_version" => decision.version,
+                     "option_id" => "ship"
+                   },
+                   [actor: %{kind: :operator, id: "operator"}],
+                   store
+                 )
+
+        decision
+      end
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+    assert history_row_count(view) == 10
+
+    unloaded =
+      Enum.find(answered, fn decision ->
+        not has_element?(view, "#history-#{decision.decision_id}")
+      end)
+
+    refute is_nil(unloaded), "expected one answered Command outside the first history page"
+
+    {:ok, deep_linked, _html} = live(build_conn(), "/decisions/#{unloaded.decision_id}")
+
+    # No row to expand, so the card is still the only way to read it.
+    refute has_element?(deep_linked, "#history-detail-history-#{unloaded.decision_id}")
+    assert has_element?(deep_linked, "#decision-#{unloaded.decision_id}")
+    refute render(deep_linked) =~ "Command not found"
+  end
+
+  test "reports an expired Command as having no decision at all" do
+    orchestrator_name = Module.concat(__MODULE__, :ExpiredHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ExpiredHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 511}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    expired = request_dashboard_decision(store, "history-expired", "reversible", blocking: false)
+
+    assert {:ok, _expired} =
+             DecisionStore.expire(expired.decision_id, "agent_not_running", [], store)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{expired.decision_id}")
+
+    assert row |> Floki.find("td.history-decision") |> Floki.text() == "N/A"
+    assert row |> Floki.text() =~ "Expired"
+  end
+
   test "notifying the Executor moves the Command to history without flattening it into an answer" do
     orchestrator_name = Module.concat(__MODULE__, :DeferToHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DeferToHistoryDecisionStore)
@@ -3534,7 +3734,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp history_row_count(view) do
-    view |> render() |> Floki.parse_document!() |> Floki.find("#command-history-rows tr") |> length()
+    view |> render() |> Floki.parse_document!() |> Floki.find("#command-history-rows tr.history-row") |> length()
   end
 
   test "round-trips validated Units URL state and exposes a named zero-result reset" do
@@ -3971,7 +4171,6 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, _html} = live(build_conn(), "/")
-    token = UnitsPresenter.row_token(%{identity: identity})
 
     html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
 
@@ -4308,6 +4507,356 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "0 in selected scope"
   end
 
+  test "the Agents panel titles and counts itself above the filter row" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :AgentsHeaderOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot([]) end
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    # The same title/count pair the APIs and Models panels use.
+    assert html =~ ~s(<span class="rs-group-title" id="units-agents-title">Agents</span>)
+    assert html =~ ~s(<span class="rs-group-count">1 agent</span>)
+
+    [_before, after_header] = String.split(html, "units-agents-title", parts: 2)
+    assert after_header =~ "units-filter-list"
+  end
+
+  test "the Tickets panel lists open tickets and opens detail and add-agent modals" do
+    # Pin the routing table to an entry that names a backend but no model. That is
+    # the case the modal used to get wrong: the requested model is nil, so the
+    # select fell back to "Backend default" while the table's routing column named
+    # the model that would really run. A bare test daemon routes to a backend with
+    # no default at all, which would make the prefill assertions vacuous.
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), agent_routing: %{5 => "kimi"})
+
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsPanelOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", ["complexity:5"])]) end,
+      add_agent_fun: fn identifier, label, action ->
+        send(test_pid, {action, identifier, label})
+        :ok
+      end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert html =~ "Tickets"
+    assert html =~ "Unrouted backlog ticket"
+    refute html =~ "ticket-detail-modal"
+
+    view |> element(~s(td.tk-title-cell[phx-click="inspect-ticket"])) |> render_click()
+    assert render(view) =~ "ticket-detail-modal"
+
+    view |> element(~s(#ticket-detail-modal button[phx-click="close-ticket-detail"])) |> render_click()
+    refute render(view) =~ "ticket-detail-modal"
+
+    view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
+    add_agent = render(view)
+
+    # Prefilled from the routing table plus the ticket's own complexity tag. The
+    # model select opens on the model the dispatcher would resolve — the value the
+    # Tickets table used to print in a "Would route to" column. The expectation is
+    # read from the preview rather than hard-coded because the routing table is
+    # operator configuration and differs between environments.
+    routing = AgentRoutingPreview.preview(["complexity:5"])
+
+    assert routing.resolved_model in AgentRoutingPreview.options(routing.backend).models,
+           "the routed model has to be one the modal can offer, or there is nothing to preselect"
+
+    assert add_agent =~ "add-agent-modal"
+    assert add_agent =~ "complexity:5"
+    assert selected_option(add_agent, "backend") == routing.backend
+    assert selected_option(add_agent, "model") == routing.resolved_model
+    assert selected_option(add_agent, "complexity") == "5"
+
+    # The routing explainer was deleted; the prefilling behaviour it described stays.
+    # The column is refuted by its cell class, not by its header text: the ticket
+    # detail modal still renders "Would route to" as a fact, and that is correct.
+    refute add_agent =~ "Prefilled from the current routing configuration"
+    refute add_agent =~ "tk-agent-cell"
+
+    # Change the prefilled complexity before confirming, as an operator would.
+    view |> element(~s(#add-agent-modal form)) |> render_change(%{"complexity" => "3"})
+    view |> element(~s(#add-agent-modal form)) |> render_submit(%{})
+
+    # The active-state label is what makes the ticket dispatchable at all, and the
+    # complexity tag it replaces is removed rather than left to outrank it. The
+    # model label carries the prefilled model, so the value the operator was shown
+    # is the value written to the tracker rather than one re-derived later.
+    model_label = "model:#{routing.backend}-#{routing.resolved_model}"
+
+    assert_received {:add_label, "2101", "agent:todo"}
+    assert_received {:add_label, "2101", "complexity:3"}
+    assert_received {:add_label, "2101", ^model_label}
+    assert_received {:remove_label, "2101", "complexity:5"}
+    assert render(view) =~ "Applied"
+  end
+
+  test "the Tickets panel reveals the next batch on request and retires the control when exhausted" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsRevealOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    # Enough tickets that exhausting the panel takes more than one reveal, so
+    # the assign is shown to accumulate rather than jump straight to the end.
+    tickets = Enum.map(1..20, &open_ticket("21#{String.pad_leading(to_string(&1), 2, "0")}", []))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot(tickets) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    # The header keeps the total; the control names only the step it reveals.
+    assert html =~ "20 tickets"
+    assert ticket_row_count(html) == 5
+    assert html =~ "Show 10 more tickets"
+
+    revealed = reveal_more_tickets(view)
+
+    # Progressive reveal: the first five stay put and the next batch joins them.
+    assert ticket_row_count(revealed) == 15
+    assert revealed =~ "Show 5 more tickets"
+
+    exhausted = reveal_more_tickets(view)
+
+    assert ticket_row_count(exhausted) == 20
+    refute exhausted =~ "show-more-tickets"
+  end
+
+  # A pinned tag expires with its version. When the routing table names a family
+  # alias the modal has to open on the alias, not on the concrete version it happens
+  # to resolve to today, or confirming strands the ticket on that version while every
+  # untouched ticket follows the alias forward.
+  test "the add-agent modal opens on a routed family alias rather than the version it resolves to" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), agent_routing: %{3 => "codex:sol"})
+
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsAliasOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2103", ["complexity:3"])]) end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    routing = AgentRoutingPreview.preview(["complexity:3"])
+    assert routing.model == "sol"
+    assert routing.resolved_model != "sol", "only meaningful while `sol` resolves to a concrete version"
+
+    view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
+
+    assert selected_option(render(view), "model") == "sol"
+  end
+
+  test "the Tickets panel search filters the whole backlog and clears back to it" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsSearchOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    tickets = [
+      open_ticket("2101", []),
+      open_ticket("2102", [],
+        title: "Retry the dispatch",
+        body_excerpt: "A storm of webhooks overwhelms the poller."
+      ),
+      open_ticket("2103", [], title: "Documentation refresh")
+    ]
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot(tickets) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert html =~ "3 tickets"
+
+    # One term from the title and one from the body, in the other order: the
+    # filter is tokenised, not a substring test against a single field.
+    filtered = view |> element("form.tk-search") |> render_change(%{"query" => "storm retry"})
+
+    assert filtered =~ "Retry the dispatch"
+    refute filtered =~ "Documentation refresh"
+    assert filtered =~ "1 of 3 tickets"
+
+    empty = view |> element("form.tk-search") |> render_change(%{"query" => "zzzzqqqq"})
+
+    assert empty =~ "No tickets match"
+    refute empty =~ "tickets-rows"
+
+    restored = view |> element("button.tk-search-clear") |> render_click()
+
+    assert restored =~ "Documentation refresh"
+    assert restored =~ ~s(<span class="rs-group-count">3 tickets</span>)
+  end
+
+  # The two features have to compose: a filter that only saw the revealed batch
+  # would report a ticket as absent when it is merely still hidden, and a reveal
+  # control counting the whole backlog would offer to reveal rows the query
+  # excluded.
+  test "the Tickets panel search reaches unrevealed tickets and the reveal control counts the matches" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsSearchRevealOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    # Newest first, so #2101 sorts last — well past the opening batch of five.
+    tickets =
+      Enum.map(2..20, &open_ticket("21#{String.pad_leading(to_string(&1), 2, "0")}", [])) ++
+        [open_ticket("2101", [], title: "Retry the dispatch")]
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot(tickets) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert ticket_row_count(html) == 5
+    refute html =~ "Retry the dispatch"
+
+    filtered = view |> element("form.tk-search") |> render_change(%{"query" => "retry"})
+
+    # Found although it was never rendered, and the reveal control is gone
+    # because one match does not fill the opening batch.
+    assert filtered =~ "Retry the dispatch"
+    assert ticket_row_count(filtered) == 1
+    assert filtered =~ "1 of 20 tickets"
+    refute filtered =~ "show-more-tickets"
+
+    # A broad query keeps the control, and it counts what the query matched —
+    # the 19 default titles, not the 20 tickets behind them.
+    broad = view |> element("form.tk-search") |> render_change(%{"query" => "backlog"})
+
+    assert ticket_row_count(broad) == 5
+    assert broad =~ "Show 10 more tickets"
+    assert broad =~ "19 of 20 tickets"
+  end
+
+  test "an unavailable ticket listing is named rather than shown as zero tickets" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsUnavailableOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> raise "tracker unavailable" end
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    assert html =~ "Open tickets are unavailable."
+    assert html =~ "tickets unavailable"
+    refute html =~ "0 tickets"
+  end
+
+  defp reveal_more_tickets(view) do
+    view |> element(~s(button[phx-click="show-more-tickets"])) |> render_click()
+  end
+
+  defp ticket_row_count(html) do
+    html |> Floki.parse_document!() |> Floki.find("#tickets-rows tr.tickets-row") |> length()
+  end
+
+  # The value of the `selected` option of one named select. Blank comes back as
+  # `nil` so it compares against an absent routing value rather than `""`.
+  defp selected_option(html, name) do
+    html
+    |> Floki.parse_fragment!()
+    |> Floki.find(~s(select[name="#{name}"] option[selected]))
+    |> Floki.attribute("value")
+    |> List.first()
+    |> case do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp open_ticket_snapshot(tickets) do
+    %OpenTicketSnapshot{
+      status: :available,
+      generation: 1,
+      observed_at: ~U[2026-07-17 12:00:00Z],
+      tickets: tickets
+    }
+  end
+
+  defp open_ticket(identifier, labels, overrides \\ %{}) do
+    Map.merge(
+      %{
+        identity: units_identity(provider_id: "NODE-#{identifier}", database_id: nil, identifier: identifier),
+        identifier: identifier,
+        title: "Unrouted backlog ticket",
+        body_excerpt: nil,
+        url: "https://github.com/its-everdred/aiur/issues/#{identifier}",
+        state: "Todo",
+        labels: labels,
+        assignee: nil,
+        created_at: ~U[2026-07-16 12:00:00Z],
+        updated_at: ~U[2026-07-17 11:00:00Z]
+      },
+      Map.new(overrides)
+    )
+  end
+
   defp units_identity(overrides \\ []) do
     struct!(
       TrackerIdentity,
@@ -4573,112 +5122,6 @@ defmodule AiurWeb.DashboardLiveTest do
     }
   end
 
-  defp start_run_summary_dashboard do
-    test_process = self()
-
-    start_run_summary_dashboard(fn destination, message, delay_ms ->
-      send(test_process, {:run_summary_flush_scheduled, destination, message, delay_ms})
-      make_ref()
-    end)
-  end
-
-  defp start_run_summary_dashboard(flush_timer) when is_function(flush_timer, 3) do
-    orchestrator_name = Module.concat(__MODULE__, :RunSummaryOrchestrator)
-
-    start_supervised!(
-      {CountingOrchestrator,
-       name: orchestrator_name,
-       snapshot: %{
-         running: [],
-         retrying: [],
-         idle: [],
-         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-         rate_limits: nil
-       }},
-      id: orchestrator_name
-    )
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      snapshot_timeout_ms: 100,
-      run_summary_flush_timer: flush_timer
-    )
-
-    {:ok, view, _html} = live(build_conn(), "/")
-    view
-  end
-
-  # Deterministically apply one pushed snapshot: process the update (which
-  # schedules but defers the coalesced flush), then run the flush and render.
-  defp push_summary(view, snapshot) do
-    send(view.pid, {:current_run_summary_changed, snapshot})
-    :sys.get_state(view.pid)
-    send(view.pid, :flush_run_summary)
-    render(view)
-  end
-
-  defp healthy_summary_snapshot(opts \\ []) do
-    live = Keyword.get(opts, :live, 3)
-    {num, den} = Keyword.get(opts, :exact, {3, 5})
-
-    %{
-      version: 1,
-      generation: Keyword.get(opts, :generation, 1),
-      run: %{
-        id: Keyword.get(opts, :run_id, "run-1"),
-        started_at: ~U[2026-07-17 10:00:00Z],
-        observed_at: ~U[2026-07-17 10:20:00Z],
-        elapsed_wall_ms: 1_200_000,
-        elapsed_wall_seconds: 1200,
-        valid?: true
-      },
-      counts: %{live: live, remaining: 2, successful_terminal: 1, non_work_terminal: 0, unknown_state: 0, total: live + 3},
-      weights: %{
-        eligible: 10,
-        successful_terminal: 4,
-        remaining: 6,
-        excluded: 0,
-        excluded_count: 0,
-        defaulted: 0,
-        defaulted_count: 0,
-        known_progress: 10,
-        unknown_progress: 0
-      },
-      progress: %{
-        scale: 100,
-        weighted_numerator: %{value: 600, scale: 100},
-        denominator_weight: 10,
-        known_weight: 10,
-        unknown_weight: 0,
-        lower_bound: %{numerator: num, denominator: den},
-        coverage: %{numerator: 1, denominator: 1},
-        exact: %{numerator: num, denominator: den}
-      },
-      eta: %{
-        status: :available,
-        reason: nil,
-        confidence: :evidence_based,
-        formula_version: "completed_weight_rate_v1",
-        sample_count: 2,
-        duration_seconds: %{numerator: 480, denominator: 1},
-        throughput_weight_per_second: %{numerator: 1, denominator: 300},
-        completed_weight: 4,
-        remaining_weight: 6,
-        denominator_generation: 1,
-        observed_at: ~U[2026-07-17 10:20:00Z]
-      },
-      health: %{status: :healthy, reasons: []},
-      freshness: %{status: :fresh, sources: %{}}
-    }
-  end
-
-  defp unavailable_same_run_snapshot do
-    healthy_summary_snapshot()
-    |> Map.put(:generation, 2)
-    |> Map.put(:health, %{status: :unavailable, reasons: [:unhealthy_membership]})
-    |> Map.put(:freshness, %{status: :unavailable, sources: %{}})
-  end
-
   defp start_outcomes_dashboard do
     test_process = self()
 
@@ -4743,14 +5186,6 @@ defmodule AiurWeb.DashboardLiveTest do
       freshness: %{status: :fresh},
       sources: %{}
     }
-  end
-
-  defp unavailable_same_run_outcomes_snapshot(run_id) do
-    healthy_outcomes_snapshot(numbers: [], run_id: run_id)
-    |> Map.put(:state, :unavailable)
-    |> Map.put(:generation, 5)
-    |> Map.put(:health, %{status: :unavailable, reasons: [:merge_source_unavailable]})
-    |> Map.put(:freshness, %{status: :unavailable})
   end
 
   defp outcome_fixture(number) do
@@ -4821,40 +5256,6 @@ defmodule AiurWeb.DashboardLiveTest do
     :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
     {:registered_name, name} = Process.info(orchestrator, :registered_name)
     :ok = SnapshotStore.publish(name, snapshot)
-  end
-
-  defp configure_provider_meter_stub(config) do
-    Application.put_env(:aiur, :provider_meter_source_stub, config)
-    on_exit(fn -> Application.delete_env(:aiur, :provider_meter_source_stub) end)
-  end
-
-  defp healthy_codex_snapshot do
-    observed = ~U[2026-07-18 11:30:00Z]
-
-    %Aiur.ProviderMeterSnapshot{
-      provider: :codex,
-      backend: :app_server,
-      provider_account_generation: "gen-codex",
-      auth_mode: :subscription,
-      plan: %{tier: :pro, source: :provider, observed_at: observed, freshness: :fresh},
-      observed_at: observed,
-      ingested_at: observed,
-      freshness: :fresh,
-      health: %{state: :healthy, failure: nil, last_observed_at: observed, last_source_version: 1},
-      windows: %{
-        "primary" => %{
-          kind: :rate_limit,
-          name: "Primary",
-          standing: :allowed,
-          used_percent: 40,
-          remaining_percent: 60,
-          coverage: :supported,
-          freshness: :fresh,
-          resets_at: ~U[2026-07-18 12:00:00Z],
-          source: :codex_app_server
-        }
-      }
-    }
   end
 
   defp start_queue_orchestrator(name, identifier, tracker_identity \\ nil) do

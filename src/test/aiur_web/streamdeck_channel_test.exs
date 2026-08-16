@@ -235,6 +235,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
       }) <> "\n"
     )
 
+    write_event_log(identifier, [
+      event_line(7, "emit", "ticket.401.pr.merged", "PR #1904 merged", "2026-07-30T00:05:00Z")
+    ])
+
     socket = joined_socket()
     focus = push(socket, "focus", %{"identifier" => identifier})
     assert_reply(focus, :ok, %{"focused" => ^identifier})
@@ -243,8 +247,18 @@ defmodule AiurWeb.StreamdeckChannelTest do
     # nonempty DTO crossed the channel serializer rather than only Jason.encode/1
     # on the projection helper.
     assert_push("logs", payload)
-    assert [%{"id" => "live"}, %{"id" => "turn:turn-1"} | _] = payload["event_keys"]
-    assert payload["event_starts"] == %{"1" => 0}
+
+    # One key per shared-event-bus row, anchored by the synthesised origin at
+    # index 0 and closed by LIVE at the end. A transcript turn is a detail row
+    # underneath an event now, so no key is keyed by `turn:<id>` any more.
+    assert Enum.map(payload["event_keys"], & &1["id"]) == ["origin", "bus:emit:7", "live"]
+    assert Enum.map(payload["event_keys"], & &1["kind"]) == ["event", "event", "live"]
+    refute Enum.any?(payload["event_keys"], &String.starts_with?(&1["id"], "turn:"))
+
+    # Each key carries the offset of its own header, which is what a press jumps
+    # to; LIVE's is the newest row rather than a header of its own.
+    assert payload["event_starts"] == %{"0" => 0, "1" => 2}
+    assert payload["event_keys"] |> List.last() |> Map.get("start") == length(payload["transcript"]) - 1
     assert Enum.any?(payload["transcript"], &(&1["body"] == "serialized transcript"))
 
     assert {:socket_push, :text, frame} =
@@ -258,6 +272,36 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     assert ["1", nil, "streamdeck:fleet", "logs", ^payload] =
              frame |> IO.iodata_to_binary() |> Jason.decode!()
+  end
+
+  # The transcript on the logs surface is what the event keys jump into, so it
+  # has to follow focus. Only the `transcript` frame was covered before, which
+  # would still pass if the logs frame kept projecting the first agent's feed.
+  test "the logs frame re-scopes to the newly focused agent" do
+    first = write_transcript("streamdeck-focus-a", "first agent body", "turn-a")
+    second = write_transcript("streamdeck-focus-b", "second agent body", "turn-b")
+    write_event_log(first, [event_line(11, "emit", "ticket.401.pr.opened", "first agent event", "2026-07-30T00:00:00Z")])
+    write_event_log(second, [event_line(22, "emit", "ticket.402.pr.merged", "second agent event", "2026-07-30T00:00:00Z")])
+
+    socket = joined_socket()
+
+    assert_reply(push(socket, "focus", %{"identifier" => first}), :ok, %{"focused" => ^first})
+    assert_push("logs", first_payload)
+    assert Enum.any?(first_payload["transcript"], &(&1["body"] == "first agent body"))
+
+    assert_reply(push(socket, "focus", %{"identifier" => second}), :ok, %{"focused" => ^second})
+    assert_push("logs", second_payload)
+    assert Enum.any?(second_payload["transcript"], &(&1["body"] == "second agent body"))
+    refute Enum.any?(second_payload["transcript"], &(&1["body"] == "first agent body"))
+
+    # The headers are what the device derives its jump targets from, so a
+    # transcript that carried only message rows would still fail the operator.
+    assert Enum.any?(second_payload["transcript"], &(&1["kind"] == "event_header"))
+
+    # Event keys are per-ticket bus rows, so the previous agent's key has to be
+    # gone from the frame rather than merely outnumbered by the new agent's.
+    assert Enum.any?(second_payload["event_keys"], &(&1["id"] == "bus:emit:22"))
+    refute Enum.any?(second_payload["event_keys"], &(&1["id"] == "bus:emit:11"))
   end
 
   test "focus validates identifiers and unfocus stops the focused subscription" do
@@ -430,6 +474,41 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   defp snapshot do
     %{agents: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Channel tests"})]}
+  end
+
+  defp write_transcript(prefix, body, turn_id) do
+    identifier = "#{prefix}-#{System.unique_integer([:positive])}"
+    path = IssueLog.transcript_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+    on_exit(fn -> File.rm(path) end)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "role" => "assistant",
+        "body" => body,
+        "timestamp" => "2026-07-30T00:00:00Z",
+        "msg_id" => "#{turn_id}-message",
+        "sequence" => 1,
+        "turn_id" => turn_id,
+        "payload" => nil
+      }) <> "\n"
+    )
+
+    identifier
+  end
+
+  # The shared event bus is a second, separate source from the transcript, so a
+  # fixture that wants real event keys has to write real `[event:<kind>]` rows.
+  defp write_event_log(identifier, lines) do
+    path = IssueLog.event_log_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+    on_exit(fn -> File.rm(path) end)
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
+  end
+
+  defp event_line(id, kind, topic, summary, timestamp) do
+    "#{timestamp} [event:#{kind}] id=#{id} #{topic}: #{summary}"
   end
 
   defp restore_env(key, nil), do: System.delete_env(key)

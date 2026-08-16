@@ -1,84 +1,103 @@
 /**
- * Touch-strip mode layouts — which content each of the four segments carries in
- * each mode.
+ * Touch-strip mode layouts — what the strip shows in each mode, and over which
+ * rectangle.
  *
- * The strip has three modes. This module maps a mode + real data into a fixed
- * four-entry array of `SegmentContent`, one per project-owned region (see
- * `geometry.ts`). It is the single place the "what goes where" decision lives,
- * kept apart from `StripRenderer`, which only encodes and diffs.
+ * The strip is one 800x100 LCD. It is *usually* modelled as four 200x100
+ * regions (see `geometry.ts`) because that makes a provider tick or a pager dot
+ * cheap to repaint, but that split is a project decision, not a hardware
+ * boundary, and some content genuinely refuses it: a ticket title, a chat line,
+ * a bar that has to read as one bar. So a mode composes into **panels** — a
+ * region plus the content that fills it — and a mode is free to use one 800-wide
+ * panel, four 200-wide ones, or a mix.
  *
- * Segment role assignments below are a PROJECT DECISION, not a hardware spec —
- * the device defines no per-segment meaning. They are chosen to keep each
- * region independently repaintable (a provider tick or a chat line touches one
- * region), which is the whole reason the strip is modelled as four regions.
+ * Every layout tiles the full strip with no gaps and no overlap. That is what
+ * lets the renderer's cache treat a layout change as "repaint everything" and
+ * otherwise diff panel by panel (see `panelCache.ts`).
  *
- * Modes (from the ticket spec):
+ * Modes:
  *
- *   - `grid`: [Summary, Claude usage, Codex usage, Pager]
- *   - `cmd`:  [agent identity, status+percent+bar, BACK hint, "CONTROLLING" +
- *             active ticket] — the pager region becomes the controlling label.
- *   - `logs`: [BACK hint, chat line 1, chat line 2, EVENTS hint] — the two-line
- *             chat window (#1351) flanked by the two hint arrows.
+ *   - `grid`: [Summary | provider(s) | Pager]. With exactly two providers the
+ *     centre stays two 200-wide segments, which is the look this surface has
+ *     always had. With three or more it becomes one 400x100 panel — the daemon
+ *     emits a meter per configured provider family, and two fixed slots could
+ *     only ever show two of them — scrolled by knob 2 when more providers are
+ *     configured than the panel shows at once.
+ *   - `cmd`:  one 800x100 panel reading like the agent's grid key: a summary
+ *     column on the left, then the full title, a full-width bar, the
+ *     percentage, elapsed time and the agent's activity.
+ *   - `logs`: one 800x100 panel carrying five transcript rows — the agent's
+ *     actual chat log, not a two-row peephole.
  *
- * Content is a structured descriptor, not pixels: the encoder (device/render
- * path in #1354/#1355, or OpenDeck's layout system per #1342) turns each
- * descriptor into a segment JPEG. Keeping it structured makes both the layout
- * choices and the per-segment diffing testable without a canvas.
+ * Content stays a structured descriptor rather than pixels, so both the layout
+ * choices and the per-panel diffing are testable without a canvas.
  */
+import type { TranscriptRow } from "../channel.js";
+import type { Region } from "../imageWriter/headerGenerator.js";
+import type { AgentDetailModel } from "./agentDetail.js";
+import { SegmentIndex, segmentRegion, spanRegion, STRIP_REGION } from "./geometry.js";
 import type { PagerModel } from "./pagerSegment.js";
-import type { ProviderSegmentModel } from "./providerSegment.js";
+import { providerPanelModel, WIDE_PANEL_THRESHOLD, type ProviderPanelModel, type ProviderPanelRow } from "./providerPanel.js";
 import type { SummaryModel } from "./summarySegment.js";
 
 /** The three touch-strip modes. */
 export type StripMode = "grid" | "cmd" | "logs";
 
-/** A directional hint arrow drawn in a segment. */
-export interface HintContent {
-  readonly kind: "hint";
-  /** Short caption such as "BACK" or "EVENTS". */
-  readonly label: string;
-  readonly direction: "back" | "forward";
-}
-
-/** Structured content for one segment; the encoder renders it to a JPEG. */
+/** Structured content for one panel; the encoder renders it to a JPEG. */
 export type SegmentContent =
   | { readonly kind: "summary"; readonly model: SummaryModel }
-  | { readonly kind: "provider"; readonly label: string; readonly model: ProviderSegmentModel }
+  | { readonly kind: "provider"; readonly row: ProviderPanelRow }
+  /**
+   * `originX` is the panel's own left edge on the strip. A painter is handed
+   * its width only, and this panel has to place a label over one specific
+   * knob — which is a strip coordinate, not a panel one. Carrying it here keeps
+   * the painter position-agnostic: move the panel and the label follows,
+   * instead of the painter assuming where the layout put it.
+   */
+  | { readonly kind: "providers"; readonly model: ProviderPanelModel; readonly originX: number }
   | { readonly kind: "pager"; readonly title: string; readonly label: string; readonly model: PagerModel }
-  | { readonly kind: "controlling"; readonly ticketId: string }
-  | { readonly kind: "agentIdentity"; readonly identity: string }
+  | { readonly kind: "agentDetail"; readonly model: AgentDetailModel }
   | {
-      readonly kind: "agentProgress";
-      readonly status: string;
-      /** Progress percent, 0..100. */
-      readonly percent: number;
+      readonly kind: "chatLog";
+      readonly rows: readonly TranscriptRow[];
+      readonly chatHasPrevious: boolean;
+      readonly chatHasNext: boolean;
+      readonly eventHasPrevious: boolean;
+      readonly eventHasNext: boolean;
     }
-  | { readonly kind: "chat"; readonly line: string }
-  | HintContent;
+  /** A panel with nothing to show; painted as bare background, not a label. */
+  | { readonly kind: "blank" };
+
+/** One panel: the strip rectangle it owns and what fills it. */
+export interface StripPanel {
+  readonly region: Region;
+  readonly content: SegmentContent;
+}
 
 /** Data the `grid` mode needs. Every field is a real projection, not invented. */
 export interface GridData {
   readonly summary: SummaryModel;
-  readonly claude: ProviderSegmentModel;
-  readonly codex: ProviderSegmentModel;
+  /** One row per configured provider family, in display order. */
+  readonly providers: readonly ProviderPanelRow[];
   readonly pager: PagerModel;
   /** Caption under the pager dots, e.g. a window range. */
   readonly pagerLabel: string;
+  /** First provider row the merged panel shows; knob 2 moves it. */
+  readonly providerOffset: number;
 }
 
-/** Data the `cmd` mode needs: the controlled agent and its ticket. */
+/** Data the `cmd` mode needs: the focused agent's whole readout. */
 export interface CmdData {
-  readonly identity: string;
-  readonly status: string;
-  /** Progress percent, 0..100. */
-  readonly percent: number;
-  readonly ticketId: string;
+  readonly detail: AgentDetailModel;
 }
 
-/** Data the `logs` mode needs: the two-line chat window (#1351). */
+/** Data the `logs` mode needs: the visible transcript rows and the scroll hints. */
 export interface LogsData {
-  /** Chat lines, newest last; only the first two are shown. */
-  readonly lines: readonly string[];
+  /**
+   * The transcript window, structured rather than pre-rendered: the painter
+   * needs the badge, the role and the diff counts to tell the three row shapes
+   * apart.
+   */
+  readonly rows: readonly TranscriptRow[];
   readonly chatHasPrevious?: boolean;
   readonly chatHasNext?: boolean;
   readonly eventHasPrevious?: boolean;
@@ -91,58 +110,66 @@ export type StripData =
   | { readonly mode: "cmd"; readonly data: CmdData }
   | { readonly mode: "logs"; readonly data: LogsData };
 
-const BACK_HINT: HintContent = { kind: "hint", label: "BACK", direction: "back" };
-const hint = (label: string, direction: "back" | "forward"): HintContent => ({ kind: "hint", label, direction });
+const BLANK: SegmentContent = { kind: "blank" };
 
-function clampPercent(value: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 100) return 100;
-  return value;
-}
-
-function chatLine(lines: readonly string[], index: number): SegmentContent {
-  const line = typeof lines[index] === "string" ? lines[index] : "";
-  return { kind: "chat", line };
-}
+/** The centre two segments as one 400x100 area. */
+const WIDE_PROVIDER_REGION = spanRegion(SegmentIndex.Second, 2);
 
 /**
- * Compose the four segment contents for a mode. Always returns exactly
- * {@link SEGMENT_COUNT} entries, left to right, so every mode drives all four
- * regions and the renderer can diff them uniformly. Each `case` yields a
- * literal four-element array, so the count is guaranteed by construction and
- * the exhaustive `switch` is checked by the compiler.
+ * The centre of the grid strip: two fixed segments, or one wide panel.
+ *
+ * Two is the case the strip was built for and keeps its exact geometry. Fewer
+ * than two leaves the unused segment blank rather than printing an "Awaiting
+ * data" panel for a provider that is not configured at all — the operator would
+ * have no way to tell that apart from a provider whose meter is late.
  */
-export function composeStrip(input: StripData): readonly [
-  SegmentContent,
-  SegmentContent,
-  SegmentContent,
-  SegmentContent,
-] {
+const providerPanels = (providers: readonly ProviderPanelRow[], offset: number): StripPanel[] => {
+  if (providers.length >= WIDE_PANEL_THRESHOLD) {
+    return [
+      {
+        region: WIDE_PROVIDER_REGION,
+        content: { kind: "providers", model: providerPanelModel(providers, offset), originX: WIDE_PROVIDER_REGION.x },
+      },
+    ];
+  }
+  return [SegmentIndex.Second, SegmentIndex.Third].map((index, slot) => {
+    const row = providers[slot];
+    return {
+      region: segmentRegion(index),
+      content: row === undefined ? BLANK : { kind: "provider", row },
+    };
+  });
+};
+
+/**
+ * Compose a mode into the panels that tile the strip, left to right. The
+ * renderer encodes and diffs each one independently.
+ */
+export function composeStrip(input: StripData): readonly StripPanel[] {
   switch (input.mode) {
     case "grid": {
-      const { summary, claude, codex, pager, pagerLabel } = input.data;
+      const { summary, providers, pager, pagerLabel, providerOffset } = input.data;
       return [
-        { kind: "summary", model: summary },
-        { kind: "provider", label: "Claude", model: claude },
-        { kind: "provider", label: "Codex", model: codex },
-        { kind: "pager", title: "MORE AGENTS", label: pagerLabel, model: pager },
+        { region: segmentRegion(SegmentIndex.First), content: { kind: "summary", model: summary } },
+        ...providerPanels(providers, providerOffset),
+        { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, model: pager } },
       ];
     }
-    case "cmd": {
-      const { identity, status, percent, ticketId } = input.data;
+    case "cmd":
+      return [{ region: STRIP_REGION, content: { kind: "agentDetail", model: input.data.detail } }];
+    case "logs":
       return [
-        { kind: "agentIdentity", identity },
-        { kind: "agentProgress", status, percent: clampPercent(percent) },
-        BACK_HINT,
-        { kind: "controlling", ticketId },
+        {
+          region: STRIP_REGION,
+          content: {
+            kind: "chatLog",
+            rows: input.data.rows,
+            chatHasPrevious: input.data.chatHasPrevious === true,
+            chatHasNext: input.data.chatHasNext === true,
+            eventHasPrevious: input.data.eventHasPrevious === true,
+            eventHasNext: input.data.eventHasNext === true,
+          },
+        },
       ];
-    }
-    case "logs": {
-      const { lines } = input.data;
-      const chatLabel = input.data.chatHasPrevious || input.data.chatHasNext ? "CHAT" : "BACK";
-      const eventLabel = input.data.eventHasPrevious && input.data.eventHasNext ? "EVENTS ↑↓" : input.data.eventHasPrevious ? "EVENTS ↑" : input.data.eventHasNext ? "EVENTS ↓" : "EVENTS";
-      return [hint(chatLabel, input.data.chatHasPrevious ? "back" : "forward"), chatLine(lines, 0), chatLine(lines, 1), hint(eventLabel, input.data.eventHasPrevious ? "back" : "forward")];
-    }
   }
 }

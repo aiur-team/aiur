@@ -204,6 +204,11 @@ The planning graph projection owns provider polling independently of connected
 browsers. Its public settings and inclusive bounds are:
 
 - `graph_catalog_refresh_ms`: default `60000`, range `1..3600000`.
+- `graph_catalog_labels_refresh_ms`: default `600000`, range `1..3600000`.
+  Epic and wave counts are label-derived, and the per-member label read costs
+  roughly 26 GraphQL points against the 5000-points/hour budget versus 1
+  without it, so it runs on this slower cadence. Resolved counts carry forward
+  across the cheaper polls only while a root is provably unchanged.
 - `graph_selected_refresh_ms`: default `15000`, range `1..300000`, while a
   selected root has active demand.
 - `graph_demand_refresh_ms`: default `5000`, range `1..300000`; it must not
@@ -249,6 +254,7 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
+| `aiurdev restart [--no-build]` | Stop the session, rebuild the release when sources are newer, then start again detached; `--no-build` bounces on the release already on disk |
 | `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
 | `aiurdev executor-answer <decision-id> --expected-version <n> (--option <id>\|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]` | Record a direct Command answer with an explicit Executor actor; version and idempotency fields make listener replay safe |
 | `aiurdev executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]` | Leave a Command open and raise one keyed operator notification when Executor judgment is insufficient |
@@ -265,7 +271,9 @@ Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, 
 and `stop`) reuse the existing dev release when it is complete, even if sources
 are newer. They control the already-running node, so a stale-source rebuild would
 not update that session. Run/start paths and explicit `aiurdev build` still
-rebuild when needed.
+rebuild when needed. `restart` reuses the existing release for that pre-dispatch
+step too, but for the opposite reason: it rebuilds between its own stop and
+start, so rebuilding first would rewrite the release under the still-live BEAM.
 
 `--todo` is a standalone GitHub operation and does not require a running Aiur
 session. It derives labels from the current config. `--only` removes the queue

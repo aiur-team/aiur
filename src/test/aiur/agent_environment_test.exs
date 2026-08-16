@@ -62,6 +62,26 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "OTHER_COOKIE=keep\n"
   end
 
+  test "scrub_shell_command clears the restart rebuild command bound to the outer checkout" do
+    # AIUR_RESTART_BUILD_CMD names one checkout's builder. Inherited by an agent,
+    # an inner `aiur restart` runs the OUTER checkout's rebuild against whatever
+    # release it is pointed at — the cross-checkout build this guard exists to end.
+    command =
+      AgentEnvironment.scrub_shell_command("env | grep -E '^(AIUR_RESTART_BUILD_CMD|AIUR_RESTART_BUILD_RECEIPT|AIUR_RESTART_BUILD_VERIFIES|OTHER_KEEP)=' | sort")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", "AIUR_REPO_ROOT=/outer/repo /outer/repo/scripts/aiurdev __ensure-build"},
+          {"AIUR_RESTART_BUILD_RECEIPT", "/tmp/outer-receipt"},
+          {"AIUR_RESTART_BUILD_VERIFIES", "1"},
+          {"OTHER_KEEP", "keep"}
+        ]
+      )
+
+    assert output == "OTHER_KEEP=keep\n"
+  end
+
   test "scrubbed toolchain probe resolves OTP from mise, not the release" do
     release_root = Path.join(System.tmp_dir!(), "aiur-release-#{System.unique_integer([:positive])}")
     release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
@@ -380,6 +400,13 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_AGENT_BIN", ~c"/work/aiur/440/.aiur-runtime/bin"} =
                List.keyfind(env, ~c"AIUR_AGENT_BIN", 0)
 
+      # Dispatched agents must not inherit the operator's `gh` config dir: that
+      # is where the keyring account lives, and that account is the sole branch
+      # protection bypass actor. Point them at an agent-private dir instead so
+      # `env -u GITHUB_TOKEN -u GH_TOKEN gh` has nothing to fall back to.
+      assert {~c"GH_CONFIG_DIR", ~c"/work/aiur/440/.aiur-runtime/gh"} =
+               List.keyfind(env, ~c"GH_CONFIG_DIR", 0)
+
       assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
       assert is_list(real_gh) or real_gh == false
 
@@ -489,6 +516,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
       assert prefix =~ "export AIUR_REAL_GH AIUR_REAL_GIT"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
+      assert prefix =~ "GH_CONFIG_DIR='/work/aiur/440/.aiur-runtime/gh'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
       assert prefix =~ "unset AIUR_GITHUB_BUDGET_KEY"

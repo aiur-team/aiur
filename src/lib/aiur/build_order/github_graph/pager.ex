@@ -7,7 +7,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
 
   @spec catalog(map(), map()) :: {:ok, [map()], map()} | {:error, atom(), map()}
   def catalog(paging, state) do
-    case Request.page(state, paging.token, Queries.catalog(), Settings.catalog_variables(paging)) do
+    query = Queries.catalog(member_labels?: paging.member_labels?)
+
+    case Request.page(state, paging.token, query, Settings.catalog_variables(paging)) do
       {:ok, body, state} -> catalog_response(body, paging, state)
       {:error, reason, state} -> {:error, reason, state}
     end

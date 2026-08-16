@@ -2,6 +2,7 @@ defmodule Aiur.CodeownersTest do
   use Aiur.TestSupport
 
   alias Aiur.Codeowners
+  alias Aiur.GitHub.CodeOwners
 
   # Use ExUnit's per-test `:tmp_dir` (project-local `tmp/`) instead of the shared
   # `System.tmp_dir!()` tmpfs: under `--cover` the shared `/tmp` can hit 100% and
@@ -63,11 +64,64 @@ defmodule Aiur.CodeownersTest do
     end)
   end
 
-  test "missing CODEOWNERS keeps compatibility fallback except for agent comments", %{repo_root: repo_root} do
+  # Regression: this used to return `true` for every commenter, so on a public
+  # repo without CODEOWNERS any drive-by comment was accepted as an
+  # authoritative instruction.
+  test "missing CODEOWNERS does not make a drive-by commenter authoritative", %{repo_root: repo_root} do
     assert Codeowners.owners_for_path("anything.ex", repo_root: repo_root) == []
 
-    assert Codeowners.authoritative?("driveby", repo_root: repo_root, path: "anything.ex")
+    refute Codeowners.authoritative?("driveby", repo_root: repo_root, path: "anything.ex")
     refute Codeowners.authoritative?("aiur-agent", repo_root: repo_root, path: "anything.ex", agent_logins: ["aiur-agent"])
+
+    classified =
+      Codeowners.classify_comment(
+        %{author: %{login: "driveby"}},
+        Codeowners.ownership_for_path("anything.ex", repo_root: repo_root)
+      )
+
+    refute classified.authoritative
+    assert classified.authority_reason =~ "only explicitly configured trusted accounts"
+  end
+
+  # Degraded mode has one owner, `Aiur.GitHub.CodeOwners`. Answering a flat
+  # `false` here instead of delegating would silently drop the operator's own
+  # comments from the agent digest and leave review threads permanently
+  # unresolvable — a fail-closed gate that presents as a hang.
+  test "missing CODEOWNERS still trusts the configured accounts the GenServer resolves", %{repo_root: repo_root} do
+    server = start_trust_server(repo_root, "operator")
+
+    assert Codeowners.authoritative?("operator", repo_root: repo_root, path: "anything.ex", trust_server: server)
+    refute Codeowners.authoritative?("driveby", repo_root: repo_root, path: "anything.ex", trust_server: server)
+  end
+
+  # `aiur init` writes a comments-only CODEOWNERS when the operator declines to
+  # name an owner. It grants ownership to nobody, so it is the degraded case and
+  # must report itself as such rather than as "you are not a CODEOWNER".
+  test "a comments-only CODEOWNERS is the degraded case, not a populated one", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "# Aiur trust boundary\n#\n# Add owners below.\n")
+
+    ownership = Codeowners.ownership_for_path("anything.ex", repo_root: repo_root)
+
+    refute ownership.codeowners_present
+
+    classified = Codeowners.classify_comment(%{author: %{login: "driveby"}}, ownership)
+
+    refute classified.authoritative
+    assert classified.authority_reason =~ "No CODEOWNERS rules found"
+  end
+
+  # The GenServer resolves trust from its own configured source. Pointing it at
+  # a populated file while the repo under test has none is exactly the shape
+  # that matters: `Aiur.Codeowners` must report the GenServer's answer, not
+  # invent its own.
+  defp start_trust_server(repo_root, trusted_login) do
+    path = Path.join(repo_root, "trust-codeowners")
+    File.write!(path, "* @#{trusted_login}\n")
+    name = String.to_atom("codeowners_trust_#{System.unique_integer([:positive])}")
+
+    {:ok, _pid} = CodeOwners.start_link(name: name, path: path, refresh_seconds: 86_400)
+
+    name
   end
 
   test "resolves team owners through request function and caches per run", %{repo_root: repo_root} do

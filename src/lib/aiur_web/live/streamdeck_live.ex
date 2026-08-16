@@ -100,6 +100,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:mic_held?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
+      |> assign(:os, detect_os(user_agent(socket)))
       |> refresh_grid()
 
     socket = assign(socket, :logs, load_logs(socket.assigns.selected_identifier))
@@ -319,7 +320,8 @@ defmodule AiurWeb.StreamdeckLive do
       {key_face_css()}
 
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
-        <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
+        <div :if={@control_feedback} id="sd-control-status" class="streamdeck-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</div>
+        <div class="sd-device" data-mode={@sd_mode}>
           <header class="sd-brand">
             <svg class="sd-brand-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2" />
@@ -372,7 +374,7 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
                   <span class="sd-ag-dot" aria-hidden="true"></span>
                   <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
+                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
             </button>
@@ -381,10 +383,6 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <%!-- The live region stays screen-reader-only until there is something to
-               say, so a control failure becomes visible on the deck face rather than
-               being announced only to assistive tech. --%>
-          <p id="sd-control-status" class={[!@control_feedback && "sr-only", @control_feedback && "sd-control-status"]} role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
           <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
             <li :for={key <- command_keys(@sd_active, @mic_held?)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty", !key.empty? && key.disabled? && "is-disabled"]} aria-hidden={to_string(key.empty?)}>
               <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-command-state={key.state} data-command-hold={key.mic? && "true"} data-streamdeck-identifier={@selected_identifier} disabled={key.disabled?} aria-disabled={to_string(key.disabled?)} aria-label={key.label}>
@@ -422,7 +420,7 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={key.kind == :empty} class="sd-key-face"></div>
                 <div :if={key.kind == :live} class="sd-key-face sd-live-key-face">
                   <span class="sd-live-dot" aria-hidden="true"></span>
-                  <span class="sd-live-label">{key.label}</span>
+                  <span class="sd-live-label">{key.text}</span>
                 </div>
                 <div :if={key.kind == :event} class="sd-key-face sd-log-key-face">
                   <span class="sd-log-dir sd-log-badge" data-dir={key.badge} style={log_badge_style(key.badge)}>{key.badge}</span>
@@ -471,10 +469,10 @@ defmodule AiurWeb.StreamdeckLive do
                 <span class="sd-strip-cmd-ticket">#{command.number}</span>
                 <span class="sd-strip-cmd-title">{command.title}</span>
                 <span class="sd-strip-cmd-status">{command.status}</span>
-                <span class="sd-strip-cmd-percent">{command.percent}%</span>
+                <span class="sd-strip-cmd-percent">{progress_text(command.percent)}</span>
               </div>
               <span class="sd-strip-cmd-progress" role="progressbar" aria-valuenow={command.percent} aria-valuemin="0" aria-valuemax="100">
-                <i style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
+                <i :if={not is_nil(command.percent)} style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
               </span>
             </div>
             <% end %>
@@ -488,6 +486,9 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={entry.shape == :diff} class="sd-log-diff">
                   <span class="sd-log-diff-file">{entry.file}</span>
                   <span class="sd-log-diff-counts"><b>+{entry.additions}</b> <b>-{entry.deletions}</b></span>
+                  <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
+                </div>
+                <div :if={entry.shape == :diff_line} class="sd-log-diff">
                   <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
                 </div>
                 <div :if={entry.shape == :message} class="sd-log-message">
@@ -596,54 +597,38 @@ defmodule AiurWeb.StreamdeckLive do
           data-origin-id="streamdeck-download-control"
         >
           <header class="modal-header">
-            <div>
-              <p class="section-eyebrow">Stream Deck + sidecar</p>
-              <h2 id="streamdeck-install-title" tabindex="-1" data-dialog-heading>Install on your Stream Deck +</h2>
-            </div>
+            <h2 id="streamdeck-install-title" class="sd-install-title" tabindex="-1" data-dialog-heading>Install on your Stream Deck +</h2>
             <button type="button" class="tool-btn" phx-click="close-streamdeck-install">Close</button>
           </header>
 
-          <p class="sd-install-intro">
-            You need a Stream Deck +, Linux with udev, and a running Aiur daemon that the deck can reach.
-          </p>
+    <!-- `list-style: none` plus `display: grid` drops list semantics in some
+               screen readers; the explicit roles put them back. -->
+          <ol class="sd-install-steps" role="list">
+            <li class="sd-install-step" role="listitem">
+              <h3 class="sd-install-step-title">Step 1: Download the package</h3>
+              <a :if={package?(@streamdeck_package)} class="sd-install-download" href={@streamdeck_package.url} download>
+                Download the package
+              </a>
+              <p :if={!package?(@streamdeck_package)} class="sd-install-note">
+                No Stream Deck + package is published for this release. Step 2 builds and installs the sidecar from source instead.
+              </p>
+            </li>
 
-          <section class="sd-install-pairing" aria-labelledby="streamdeck-pairing-title">
-            <h3 id="streamdeck-pairing-title">Pair it with your daemon</h3>
-            <p>
-              Put the daemon address and the dashboard’s HTTP Basic Auth username and password in
-              <code>~/.config/aiur/streamdeck.env</code>. Get the address from the dashboard URL and the credential from
-              the dashboard configuration or the operator who runs it. Use <code>https://</code> for a daemon outside
-              the local machine; never paste a live credential into this page.
-            </p>
-          </section>
-
-          <ol class="sd-install-steps">
-            <li :if={package?(@streamdeck_package)}><a href={@streamdeck_package.url} download><strong>Download the Stream Deck + package.</strong></a></li>
-            <li :if={!package?(@streamdeck_package)}><strong>No package published for this release.</strong> Build the sidecar from source and continue with the steps below.</li>
-            <li><strong>Create the sidecar directory:</strong> <code>install -dm755 ~/.local/share/aiur/streamdeck</code></li>
-            <li><strong>Extract the archive:</strong> <code>tar -xzf /path/to/downloaded-archive.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></li>
-            <li><strong>Create the pairing directory:</strong> <code>install -dm700 ~/.config/aiur</code></li>
-            <li><strong>Create the pairing file:</strong> <code>touch ~/.config/aiur/streamdeck.env</code></li>
-            <li><strong>Restrict the pairing file:</strong> <code>chmod 600 ~/.config/aiur/streamdeck.env</code></li>
-            <li><strong>Add the daemon values</strong> for <code>AIUR_PHOENIX_URL</code>, <code>AIUR_DASHBOARD_USERNAME</code>, and <code>AIUR_DASHBOARD_PASSWORD</code>.</li>
-            <li><strong>Install the udev rule:</strong> <code>sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules /etc/udev/rules.d/70-streamdeck.rules</code></li>
-            <li><strong>Install the user unit:</strong> <code>install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service ~/.config/systemd/user/aiur-streamdeck.service</code></li>
-            <li><strong>Reload user systemd:</strong> <code>systemctl --user daemon-reload</code></li>
-            <li><strong>Enable the sidecar:</strong> <code>systemctl --user enable --now aiur-streamdeck.service</code></li>
-            <li><strong>Plug in the deck.</strong> The sidecar detects it and paints the fleet.</li>
+            <li class="sd-install-step" role="listitem">
+              <h3 class="sd-install-step-title">Step 2: Paste this into your agent chat</h3>
+              <div id="streamdeck-install-prompt-copy" class="sd-install-prompt" phx-hook="CopyToClipboard">
+                <%!-- No `tabindex`: the block wraps rather than scrolls, so a tab stop here
+                      would be an unnamed stop inside the dialog's focus trap. --%>
+                <pre id="streamdeck-install-prompt" class="sd-install-prompt-text" data-copy-source>{install_prompt(@os)}</pre>
+                <div class="sd-install-prompt-actions">
+                  <button type="button" class="sd-install-copy-button" data-copy-trigger>Copy prompt</button>
+                  <span id="streamdeck-install-prompt-status" role="status" aria-live="polite" data-copy-status></span>
+                </div>
+              </div>
+            </li>
           </ol>
 
-          <section class="sd-install-result" aria-labelledby="streamdeck-success-title">
-            <h3 id="streamdeck-success-title">What success looks like</h3>
-            <p>The deck shows your Aiur fleet. If it does not, first check <code>systemctl --user status aiur-streamdeck.service</code>.</p>
-          </section>
-
-          <p :if={package?(@streamdeck_package)} class="modal-meta">
-            <a href={@streamdeck_package.url} download>Download package {@streamdeck_package.version}</a>
-            <span aria-hidden="true"> · </span>
-            Aiur commit <code>{@streamdeck_package.commit}</code>
-          </p>
-          <p :if={!package?(@streamdeck_package)} class="modal-meta">No Stream Deck + package published for this release.</p>
+          <p :if={@os == :windows} class="sd-install-note">Windows isn't fully supported yet; the README documents the Linux and macOS paths.</p>
         </section>
       </div>
     </DashboardShell.dashboard_shell>
@@ -737,7 +722,7 @@ defmodule AiurWeb.StreamdeckLive do
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
       footer.label,
-      Map.get(agent, :progress_percent, 0),
+      Map.get(agent, :progress_percent),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
@@ -745,7 +730,7 @@ defmodule AiurWeb.StreamdeckLive do
       vendor_logo: Map.get(agent, :vendor_logo),
       dependency_ready?: footer.ready?,
       dependency: footer.dependency,
-      style: key_style(Map.get(agent, :progress_percent, 0))
+      style: key_style(Map.get(agent, :progress_percent))
     )
   end
 
@@ -943,7 +928,17 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp key_face_css, do: @key_face_css
 
-  defp key_style(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
+  # An unknown percentage gets no fill hue at all — the same rule the provider
+  # meters already follow with `observed?`. Colouring it would paint a measured
+  # 0% onto a ticket nobody measured.
+  defp key_style(progress) when is_number(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
+  defp key_style(_progress), do: nil
+
+  defp progress_aria_label(percent) when is_number(percent), do: "#{percent}% complete"
+  defp progress_aria_label(_percent), do: "progress unknown"
+
+  defp progress_text(percent) when is_number(percent), do: "#{percent}%"
+  defp progress_text(_percent), do: "—"
 
   defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 
@@ -1013,9 +1008,13 @@ defmodule AiurWeb.StreamdeckLive do
   defp invoke_command(socket, command) do
     case socket.assigns.sd_active do
       %{identifier: identifier} = agent when not is_nil(identifier) ->
-        socket
-        |> invoke_agent_control(to_string(identifier), control_action_for(command, agent))
-        |> refresh_grid()
+        # A control command changes one agent's state, and the orchestrator
+        # broadcasts the settled state on the fleet/status topics this view is
+        # already subscribed to. Re-reading the whole fleet snapshot here would
+        # make the button press block on a `dashboard_snapshot` read (the same
+        # cost `refresh_meters/1` avoids for meter observations), so the press
+        # only issues the control call and leaves the refresh to the topic.
+        invoke_agent_control(socket, to_string(identifier), control_action_for(command, agent))
 
       _agent ->
         assign(socket, :control_feedback, "No agent selected")
@@ -1151,16 +1150,26 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp agent_event_feed(identifier) do
-    case AgentEventFeed.list(identifier, %{"limit" => 50}) do
-      {:ok, %{events: events}} -> events
-      _ -> []
-    end
+    transcript =
+      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+        {:ok, %{events: events}} -> events
+        _ -> []
+      end
+
+    %{events: AgentEventFeed.bus_events(identifier), transcript: transcript}
   end
 
-  defp log_entries(%{events: events}) when is_list(events), do: events
-  defp log_entries(%{"events" => events}) when is_list(events), do: events
-  defp log_entries(entries) when is_list(entries), do: entries
-  defp log_entries(_entries), do: []
+  # The emulator's injected feed function predates the bus/transcript split and
+  # still hands back a bare transcript list. Normalise every accepted shape into
+  # the two-source map the projection now takes, so a fixture written against
+  # the old contract keeps working and simply projects with an empty bus.
+  defp log_entries(%{events: events, transcript: transcript}) when is_list(events) and is_list(transcript),
+    do: %{events: events, transcript: transcript}
+
+  defp log_entries(%{events: events}) when is_list(events), do: %{events: [], transcript: events}
+  defp log_entries(%{"events" => events}) when is_list(events), do: %{events: [], transcript: events}
+  defp log_entries(entries) when is_list(entries), do: %{events: [], transcript: entries}
+  defp log_entries(_entries), do: %{events: [], transcript: []}
 
   defp log_key_label(%{kind: :live}), do: "LIVE"
   defp log_key_label(%{kind: :event, badge: badge, text: text, time: time}), do: "#{badge}: #{text}, #{time}"
@@ -1310,6 +1319,37 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp control_feedback(nil), do: ""
   defp control_feedback(feedback), do: feedback
+
+  # The install modal tailors its steps to the operator's OS. The User-Agent is
+  # read from connect info on mount (never during a dead render, where it can be
+  # absent); anything we cannot parse falls back to Linux, the supported target.
+  defp user_agent(socket) do
+    get_connect_info(socket, :user_agent)
+  rescue
+    _ -> nil
+  end
+
+  defp detect_os(user_agent) when is_binary(user_agent) do
+    cond do
+      String.contains?(user_agent, "Windows") -> :windows
+      String.contains?(user_agent, "Macintosh") or String.contains?(user_agent, "Mac OS") or String.contains?(user_agent, "Darwin") -> :mac
+      true -> :linux
+    end
+  end
+
+  defp detect_os(_user_agent), do: :linux
+
+  defp os_label(:windows), do: "Windows"
+  defp os_label(:mac), do: "macOS"
+  defp os_label(_linux), do: "Linux"
+
+  # Step 2's payload. It renders in a soft-wrapping block rather than a fixed-row
+  # textarea so the whole prompt is visible over as many wrapped rows as it
+  # needs, at every width, instead of running off the right edge of the dialog.
+  defp install_prompt(os) do
+    "Walk me through installing the Aiur Stream Deck + sidecar on #{os_label(os)}. " <>
+      "Follow packages/streamdeck/README.md exactly and give me copy-pasteable commands for each step."
+  end
 
   defp load_grid do
     snapshot =

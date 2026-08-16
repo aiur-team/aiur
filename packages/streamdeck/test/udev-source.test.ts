@@ -5,38 +5,46 @@ import { createUdevSource, parseUdevBlock } from "../src/udev-source.js";
 
 describe("parseUdevBlock", () => {
   it("returns device-added for a matching add block", () => {
-    expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=0fd9", "DEVNAME=/dev/hidraw10"])).toBe("device-added");
+    expect(parseUdevBlock(["ACTION=add", "DEVTYPE=usb_device", "ID_VENDOR_ID=0fd9"])).toBe("device-added");
   });
 
   it("returns device-removed for a matching remove block", () => {
-    expect(parseUdevBlock(["ACTION=remove", "ID_VENDOR_ID=0fd9"])).toBe("device-removed");
+    expect(parseUdevBlock(["ACTION=remove", "DEVTYPE=usb_device", "ID_VENDOR_ID=0fd9"])).toBe("device-removed");
   });
 
   it("matches the vendor case-insensitively", () => {
-    expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=0FD9"])).toBe("device-added");
+    expect(parseUdevBlock(["ACTION=add", "DEVTYPE=usb_device", "ID_VENDOR_ID=0FD9"])).toBe("device-added");
   });
 
-  it("matches a hidraw block that carries HID_ID instead of ID_VENDOR_ID", () => {
-    // hidraw-subsystem events expose HID_ID (bus:vendor:product), not
-    // ID_VENDOR_ID; without this the replug hidraw add is silently dropped.
-    expect(parseUdevBlock(["ACTION=add", "HID_ID=0003:00000FD9:00000084"])).toBe("device-added");
-    expect(parseUdevBlock(["ACTION=remove", "HID_ID=0003:00000fd9:00000084"])).toBe("device-removed");
+  // Driver binding is not hotplug. Opening the deck through libusb detaches
+  // hidraw and closing it lets the kernel rebind, and each of those emits a
+  // hidraw add/remove carrying our vendor. Treating them as hotplug made a
+  // single close feed itself an "add", which reopened, which emitted a
+  // "remove" — roughly eight open/close cycles a second, with every buffered
+  // input report discarded on the way through.
+  it("ignores hidraw bind and unbind churn for our own device", () => {
+    expect(parseUdevBlock(["ACTION=add", "SUBSYSTEM=hidraw", "HID_ID=0003:00000FD9:00000084"])).toBeNull();
+    expect(parseUdevBlock(["ACTION=remove", "SUBSYSTEM=hidraw", "HID_ID=0003:00000fd9:00000084"])).toBeNull();
   });
 
-  it("ignores a hidraw block whose HID_ID is a different device", () => {
-    expect(parseUdevBlock(["ACTION=add", "HID_ID=0003:00001234:00005678"])).toBeNull();
+  it("ignores an interface-level usb event", () => {
+    expect(parseUdevBlock(["ACTION=add", "DEVTYPE=usb_interface", "ID_VENDOR_ID=0fd9"])).toBeNull();
+  });
+
+  it("ignores a usb block with no DEVTYPE at all", () => {
+    expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=0fd9"])).toBeNull();
   });
 
   it("tolerates a trailing CR on property values", () => {
-    expect(parseUdevBlock(["ACTION=add\r", "ID_VENDOR_ID=0fd9\r"])).toBe("device-added");
+    expect(parseUdevBlock(["ACTION=add\r", "DEVTYPE=usb_device\r", "ID_VENDOR_ID=0fd9\r"])).toBe("device-added");
   });
 
   it("ignores a different vendor", () => {
-    expect(parseUdevBlock(["ACTION=add", "ID_VENDOR_ID=1234"])).toBeNull();
+    expect(parseUdevBlock(["ACTION=add", "DEVTYPE=usb_device", "ID_VENDOR_ID=1234"])).toBeNull();
   });
 
   it("ignores a non add/remove action for our vendor", () => {
-    expect(parseUdevBlock(["ACTION=change", "ID_VENDOR_ID=0fd9"])).toBeNull();
+    expect(parseUdevBlock(["ACTION=change", "DEVTYPE=usb_device", "ID_VENDOR_ID=0fd9"])).toBeNull();
   });
 
   it("ignores lines that are not KEY=VALUE and blocks with no vendor", () => {
@@ -64,8 +72,8 @@ describe("createUdevSource", () => {
     const onRemoved = vi.fn();
     createUdevSource(spawn, { onAdded, onRemoved });
 
-    emitData("ACTION=add\nID_VENDOR_ID=0fd9\n\n");
-    emitData("ACTION=remove\nID_VENDOR_ID=0fd9\n\n");
+    emitData("ACTION=add\nDEVTYPE=usb_device\nID_VENDOR_ID=0fd9\n\n");
+    emitData("ACTION=remove\nDEVTYPE=usb_device\nID_VENDOR_ID=0fd9\n\n");
     // A blank line with no accumulated block is a no-op.
     emitData("\n");
 
@@ -79,7 +87,7 @@ describe("createUdevSource", () => {
     const onRemoved = vi.fn();
     createUdevSource(vi.fn(() => child), { onAdded, onRemoved });
 
-    emitData("ACTION=add\nID_VENDOR_ID=abcd\n\n");
+    emitData("ACTION=add\nDEVTYPE=usb_device\nID_VENDOR_ID=abcd\n\n");
 
     expect(onAdded).not.toHaveBeenCalled();
     expect(onRemoved).not.toHaveBeenCalled();

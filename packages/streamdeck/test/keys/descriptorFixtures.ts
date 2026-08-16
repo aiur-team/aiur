@@ -34,12 +34,17 @@ export function agentKey(overrides: AgentKeyOverrides = {}): AgentKey {
               ? KEY_FACE_CONTRACT.footers.queued.ready_label
               : KEY_FACE_CONTRACT.footers.queued.blocked_label,
         }
-      : { kind: KEY_FACE_CONTRACT.footers.progress.kind, barColor: progressBarColor(percent), percent };
+      : { kind: KEY_FACE_CONTRACT.footers.progress.kind, barColor: progressBarColor(percent), percent, freshness: "fresh" as const };
   return {
     kind: "agent",
     identifier,
     title: overrides.title ?? "",
     vendor: overrides.vendor ?? "claude",
+    icon: "",
+    role: "agent",
+    subLabel: "",
+    timeLabel: "",
+    selected: false,
     priority: overrides.priority ?? false,
     bucket,
     style: BUCKET_STYLES[bucket],

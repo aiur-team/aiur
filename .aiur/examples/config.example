@@ -118,6 +118,7 @@ alerts:
 # build_order:
 #   ticket_detail_freshness_ms: 30000       # 1..300000; reuse a healthy detail during this window
 #   graph_catalog_refresh_ms: 60000         # daemon-owned root-catalog reconciliation interval
+#   graph_catalog_labels_refresh_ms: 600000 # slower cadence for the costlier read that resolves epic/wave counts
 #   graph_selected_refresh_ms: 15000        # refresh interval while a selected root has demand
 #   graph_demand_refresh_ms: 5000           # selection/reconnect threshold; must not exceed selected refresh
 #   graph_refresh_timeout_ms: 30000         # bounded provider task timeout

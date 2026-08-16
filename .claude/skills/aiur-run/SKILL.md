@@ -32,8 +32,20 @@ Keep `executor/handoff.md` current for the whole run. Write back whenever the
 operator supplies run-specific directions, request themes, non-derivable
 context, or a role/authority boundary. An operator directive that is not
 reflected in the handoff has not been recorded; chat transcripts are not a
-durable substitute. At an Executor handoff, rewrite the document wholesale for
-the incoming Executor. It is deliberately replaceable, not append-only.
+durable substitute.
+
+At an Executor handoff, write a **new, timestamped** document with
+`/aiur-handoff`: archive it at
+`~/.aiur/repo/<owner>/<repo>/executor/handoffs/<UTC>-handoff.md` and copy it to
+`executor/handoff.md`, which is the path this skill reads on boot. **Never
+overwrite an archived handoff.** The archive is the record of how a run evolved
+— reading several in sequence shows whether a fault is recurring, whether a
+measurement is trending, and which earlier claims were later corrected. The
+`handoff.md` copy is replaceable; the archive is not.
+
+The format is `executor/handoffs/TEMPLATE.md`. On boot, read the newest archived
+handoff first; read the one or two before it when a symptom looks like it may be
+recurring rather than new.
 
 Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
@@ -608,9 +620,12 @@ ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
 that declaration on every PR and merge, so a regressed gate fails CI visibly.
 The Executor must wait for the required checks and the review conditions before
 merging; never merge a pending, failing, or stale head. A solo operator also
-cannot merge `develop` -> `main` through the review gate (issue #1437): with a
-two-owner CODEOWNERS plus `require_code_owner_review` and
-`require_last_push_approval`, `--admin` does not bypass it. Any maintenance
+cannot merge a branch they authored through the review gate (issue #1437): with
+a two-owner CODEOWNERS plus `require_code_owner_review` and
+`require_last_push_approval`, `--admin` does not bypass it. This used to bite
+hardest on the periodic `develop` -> `main` promotion; that promotion is retired
+now that `main` is the single base branch, but the rule still governs any
+Executor-authored branch. Any maintenance
 procedure for that issue must preserve the required-status-check rule; never
 disable the whole ruleset as a merge workaround. Re-read the live ruleset after
 any approved review-side maintenance change instead of trusting the write.

@@ -14,7 +14,14 @@ defmodule Aiur.BuildOrder.GitHubGraph do
     with {:ok, repository, limits} <- Settings.authority(opts),
          {:ok, token} <- Transport.require_token(opts) do
       state = Settings.initial_state(opts, limits)
-      paging = Settings.new_paging(repository, token, limits, limits.root_limit)
+
+      # Per-member labels are what resolve each root's epic/wave counts, and
+      # they are the expensive part of this query (#1766). The caller decides
+      # when to buy them; a plain read stays on the 1-point variant.
+      paging =
+        repository
+        |> Settings.new_paging(token, limits, limits.root_limit)
+        |> Map.put(:member_labels?, Keyword.get(opts, :member_labels, false) == true)
 
       case Pager.catalog(paging, state) do
         {:ok, nodes, state} -> Result.catalog(nodes, repository, state)

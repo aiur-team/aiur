@@ -111,13 +111,14 @@ end
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, History, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:analytics, analytics(%{}))
+     |> assign(:selected_decision_id, nil)
      |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
@@ -127,6 +128,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
     {:noreply,
      socket
      |> assign(:analytics, analytics(params))
+     |> assign(:selected_decision_id, params["decision_id"])
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
@@ -149,9 +151,78 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
           <p>This authenticated LiveView fixture verifies the shared route shell without inventing operational data.</p>
           <button id="route-shell-action" type="button">Reachable action</button>
         </section>
+        <%!-- Command history is an accordion whose rows patch to the Command's
+              own URL, so it can only be exercised on the real `/decisions` and
+              `/decisions/:decision_id` routes the shell fixture already owns. --%>
+        <History.history
+          :if={@live_action in [:decisions, :decision]}
+          rows={history_decisions()}
+          loaded={3}
+          total={3}
+          expanded_id={@selected_decision_id}
+          expanded_decision={Enum.find(history_decisions(), &(&1.decision_id == @selected_decision_id))}
+          writable={false}
+        />
       </DashboardShell.dashboard_shell>
     </main>
     """
+  end
+
+  defp history_decisions do
+    [
+      history_decision("answered-command",
+        question: "Who reviews the merge queue backlog?",
+        decision_status: :decided,
+        answer: %{
+          action_id: "act-answered",
+          decision_version: 1,
+          selected_option_id: nil,
+          custom_response: "it is the executor's job to review",
+          rationale: nil,
+          actor: %{kind: :operator, id: "operator"},
+          accepted_at: ~U[2026-07-18 11:05:00Z]
+        }
+      ),
+      history_decision("expired-command",
+        question: "Should the release wait for the flaky suite?",
+        decision_status: :expired
+      ),
+      history_decision("deferred-command",
+        question: "Which migration order is safe?",
+        decision_status: :deferred
+      )
+    ]
+  end
+
+  defp history_decision(decision_id, attrs) do
+    Map.merge(
+      %{
+        decision_id: decision_id,
+        version: 1,
+        ticket: %{identifier: "AIUR-#{:erlang.phash2(decision_id, 900) + 100}", title: "Fixture ticket"},
+        source: %{agent_id: "agent-1"},
+        kind: "architecture",
+        authority: :human_required,
+        urgency: :normal,
+        blocking: false,
+        reversibility: :reversible,
+        context: %{short: "Fixture context summary", long_markdown: "The retained Command context lives here."},
+        options: [%{id: "ship", label: "Ship it", description: "Proceed", risk: "low"}],
+        recommendation: nil,
+        consequence_of_delay: nil,
+        artifacts: [],
+        created_at: ~U[2026-07-18 11:00:00Z],
+        delivery_status: :delivered,
+        answer: nil,
+        retryable: false,
+        failure_reason: nil,
+        superseded?: false,
+        revisions: [],
+        revision_sequence: 0,
+        lifecycle: :resolved
+      },
+      Map.new(attrs)
+    )
   end
 
   defp analytics(%{"analytics" => "unavailable"}) do
@@ -831,10 +902,17 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
+  alias Aiur.OpenTicketSource.Snapshot, as: OpenTicketSnapshot
+
   alias AiurWeb.OperatorControlCenter.{
+    AddAgentModal,
+    AgentRoutingPreview,
     ConversationDrawer,
     DecisionPath,
     TicketContext,
+    TicketDetailModal,
+    TicketsPanel,
+    TicketsPresenter,
     UnitsFilters,
     UnitsPresenter,
     UnitsTable,
@@ -846,15 +924,27 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   @now ~U[2026-07-17 12:00:00Z]
 
   @impl true
-  def mount(_params, _session, socket) do
+  # `?catalog=empty` mounts the same page with no units at all, so the browser
+  # suite can look at the zero-unit catalog without first deleting every row.
+  def mount(params, _session, socket) do
     {:ok,
      socket
-     |> assign(:catalog, catalog(rows()))
+     |> assign(:catalog, mount_catalog(params))
      |> assign(:selection, UnitsURL.default_selection())
      |> assign(:now, @now)
      |> assign(:context, nil)
      |> assign(:conversation_drawer, nil)
      |> assign(:selected_row, nil)
+     |> assign(:tickets_view, tickets_view())
+     # Deliberately below the production batch size: it puts a real reveal
+     # control on a two-ticket fixture, so the browser exercises the button
+     # without growing the shared Units fixture (extra rows destabilise the
+     # unrelated filter and drawer specs on this page).
+     |> assign(:tickets_visible, 1)
+     |> assign(:tickets_query, "")
+     |> assign(:tickets_panel_view, TicketsPresenter.search(tickets_view(), ""))
+     |> assign(:ticket_detail, nil)
+     |> assign(:add_agent_modal, nil)
      |> assign(:generation, 1)}
   end
 
@@ -892,6 +982,36 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       {:error, :not_found} -> {:noreply, socket}
     end
   end
+
+  def handle_event("inspect-ticket", %{"ticket" => token}, socket) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :ticket_detail, row)}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-ticket-detail", _params, socket), do: {:noreply, assign(socket, :ticket_detail, nil)}
+
+  def handle_event("show-more-tickets", _params, socket) do
+    {:noreply, assign(socket, :tickets_visible, TicketsPresenter.reveal_more(socket.assigns.tickets_visible))}
+  end
+
+  def handle_event("search-tickets", %{"query" => query}, socket), do: {:noreply, search_tickets(socket, query)}
+
+  def handle_event("clear-ticket-search", _params, socket), do: {:noreply, search_tickets(socket, "")}
+
+  def handle_event("open-add-agent", %{"ticket" => token}, socket) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-add-agent", _params, socket), do: {:noreply, assign(socket, :add_agent_modal, nil)}
+
+  def handle_event("change-add-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("confirm-add-agent", _params, socket), do: {:noreply, socket}
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
@@ -980,6 +1100,11 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         <UnitsTable.units_table view={@view} now={@now} />
       </section>
 
+      <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
+
+      <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
+      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={true} />
+
       <div class="controls" aria-label="Units fixture updates">
         <button id="same-identity-update" type="button" phx-click="same-identity-update">Update same Unit</button>
         <button id="remove-selected-unit" type="button" phx-click="remove-selected-unit">Remove selected Unit</button>
@@ -1004,6 +1129,81 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     </main>
     """
   end
+
+  defp search_tickets(socket, query) do
+    socket
+    |> assign(:tickets_query, query)
+    |> assign(:tickets_panel_view, TicketsPresenter.search(socket.assigns.tickets_view, query))
+  end
+
+  defp tickets_view do
+    TicketsPresenter.project(%OpenTicketSnapshot{
+      status: :available,
+      generation: 1,
+      observed_at: @now,
+      tickets: [
+        ticket("2101", "Unrouted backlog ticket", ["complexity:3"]),
+        ticket("2102", "Documentation refresh", [], "The reference pages drifted after the retry storm work.")
+      ]
+    })
+  end
+
+  defp ticket(identifier, title, labels, body_excerpt \\ nil) do
+    %{
+      identity: %TrackerIdentity{
+        status: :joinable,
+        kind: :github,
+        owner: "acme",
+        repository: "aiur",
+        provider_id: "NODE-#{identifier}",
+        identifier: identifier,
+        reason: nil
+      },
+      identifier: identifier,
+      title: title,
+      body_excerpt: body_excerpt,
+      url: "https://github.com/acme/aiur/issues/#{identifier}",
+      state: "Todo",
+      labels: labels,
+      assignee: nil,
+      created_at: ~U[2026-07-16 12:00:00Z],
+      updated_at: ~U[2026-07-17 11:00:00Z]
+    }
+  end
+
+  defp add_agent_modal(row) do
+    selection =
+      AgentRoutingPreview.normalize_selection(%{
+        backend: row.routing.backend,
+        # Mirrors `DashboardLive.add_agent_modal/1`: the model select opens on the
+        # model that will actually run, not on the possibly-nil requested one.
+        model: row.routing.model || row.routing.resolved_model,
+        effort: row.routing.effort,
+        complexity: row.routing.complexity
+      })
+
+    %{
+      token: row.token,
+      identifier: row.identifier,
+      title: row.title,
+      identity: row.identity,
+      routing: row.routing,
+      selection: selection,
+      options: AgentRoutingPreview.options(selection.backend),
+      labels: row.labels,
+      plan: AgentRoutingPreview.plan(selection, row.labels),
+      result: nil
+    }
+  end
+
+  defp mount_catalog(%{"catalog" => "empty"}) do
+    # Match what UnitsPresenter actually derives for a catalog with no rows, so
+    # the harness exercises the real zero-unit status rather than `:ready` with
+    # an empty list — a shape production never produces.
+    %{catalog([]) | status: :empty, message: "No units have been observed in this run."}
+  end
+
+  defp mount_catalog(_params), do: catalog(rows())
 
   defp catalog(rows) do
     %{
@@ -1342,7 +1542,8 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       RootSummary.new(%{}),
       root(43, "Stale planning lane"),
       root(1567, "Unavailable planning graph"),
-      root(1568, "Malformed planning graph")
+      root(1568, "Malformed planning graph"),
+      root(44, "Wide planning graph")
     ]
 
     %Snapshot{
@@ -1460,7 +1661,43 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
     {:ok, snapshot}
   end
 
+  # A deliberately wide graph. The spatial view sizes one grid column per epic,
+  # so a Build Order with many epics renders a stage far wider than the content
+  # pane. That width must stay inside the graph's own scroll container: the
+  # document itself must never scroll horizontally (#1849).
+  defp selected_snapshot(%TrackerIdentity{identifier: "44"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 11,
+      data: SelectedRoot.new(root(44, "Wide planning graph"), wide_graph_members(), health(11, :healthy)),
+      health: health(11, :healthy)
+    }
+
+    {:ok, snapshot}
+  end
+
   defp selected_snapshot(_identity), do: {:error, :unavailable}
+
+  @wide_lane_count 14
+  @wide_wave_count 4
+
+  defp wide_graph_members do
+    for wave <- 1..@wide_wave_count, lane <- 1..@wide_lane_count do
+      number = 200 + (wave - 1) * @wide_lane_count + lane
+
+      Member.new(%{
+        identity: identity(number),
+        title: "Wide member #{number}",
+        url: issue_url(number),
+        state: "OPEN",
+        state_reason: nil,
+        dependencies: [],
+        labels: ["complexity:2", "phase:#{wave}", "build-lane:wide-epic-#{lane}"]
+      })
+    end
+  end
 
   defp activity(identity) do
     %{
@@ -2114,8 +2351,35 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       :ok
     else
       write_feed(IssueLog.transcript_path(identifier))
+      write_bus_feed(IssueLog.event_log_path(identifier), identifier)
       :persistent_term.put(key, true)
     end
+  end
+
+  # The shared event bus, which is what the logs surface's keys come from. The
+  # transcript written above is the detail underneath them, not a source of
+  # keys: grouping transcript turns into events is exactly the defect the logs
+  # rebuild removed, so a fixture that only wrote a transcript would exercise a
+  # surface with no events on it at all.
+  #
+  # Kinds are chosen to cover every direction the badge mapping produces:
+  # `self` -> AGENT, `consumed` -> CONSUME, `emit_alert` -> SYSTEM, `emit` ->
+  # EMIT. INFO is the origin anchor's, which every projection synthesises.
+  defp write_bus_feed(path, identifier) do
+    File.mkdir_p!(Path.dirname(path))
+    # On the *last* four events, because the eight-key window opens at the
+    # newest end: kinds placed on events 1..4 would sit off-screen behind the
+    # origin anchor and no spec could read their badges without scrolling first.
+    kinds = %{7 => "self", 8 => "consumed", 9 => "emit_alert", 10 => "emit"}
+
+    lines =
+      Enum.map(1..10, fn index ->
+        kind = Map.get(kinds, index, "emit")
+        minute = String.pad_leading(to_string(index), 2, "0")
+        "2026-08-02T00:#{minute}:00Z [event:#{kind}] id=#{index} ticket.#{identifier}.pr.opened: event-#{index}"
+      end)
+
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
   end
 
   defp write_feed(path) do
@@ -2132,7 +2396,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         %{
           "role" => Map.get(roles, index, "assistant"),
           "body" => "event-#{index}",
-          "timestamp" => "2026-08-02T00:00:00Z",
+          # After every bus event, so the transcript sits under the newest one
+          # rather than under the origin. `read_tail/2` treats the last line as
+          # newest, and this file is written 10-first, so index 1 is newest.
+          "timestamp" => "2026-08-02T00:#{String.pad_leading(to_string(31 - index), 2, "0")}:00Z",
           "msg_id" => nil,
           "sequence" => index,
           "turn_id" => "fixture-#{index}",

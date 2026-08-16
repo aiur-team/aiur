@@ -1431,12 +1431,23 @@ defmodule Aiur.CoreTest do
       description: "Replace transport layer",
       state: "Todo",
       url: "https://example.org/issues/S-1",
-      labels: ["backend"]
+      labels: ["backend"],
+      creator_login: "outsider"
     }
 
     prompt = PromptBuilder.build_prompt(issue, attempt: 3)
 
-    assert prompt =~ "Ticket S-1 Refactor backend request path"
+    # SECURITY INVARIANT — the title still reaches the prompt, but never as bare
+    # prompt text. Anyone can open an issue on a public repo, so `{{ issue.title }}`
+    # renders sanitized and inside `<external-content>`, which is what tells the
+    # agent the words are data and not instructions Aiur wrote. Assert the whole
+    # wrapper: a substring match on the title alone would still pass if the
+    # wrapping were removed.
+    assert prompt =~
+             ~s(Ticket S-1 <external-content source="github" author="outsider">Refactor backend request path</external-content>)
+
+    # Aiur-derived / GitHub-structural fields stay unwrapped so the agent can
+    # still tell task metadata from outsider prose.
     assert prompt =~ "labels=backend"
     assert prompt =~ "attempt=3"
   end
@@ -1595,9 +1606,19 @@ defmodule Aiur.CoreTest do
 
     assert prompt =~ "You are working on a Linear issue."
     assert prompt =~ "Identifier: MT-777"
-    assert prompt =~ "Title: Make fallback prompt useful"
     assert prompt =~ "Body:"
-    assert prompt =~ "Include enough issue context to start working."
+
+    # SECURITY INVARIANT — the built-in fallback template is not a way around the
+    # wrapper. Title and body are attacker-controlled on a public repo, so they
+    # are sanitized and wrapped in `<external-content>` by the builder (not by
+    # the template) on every path, including this one. `creator_login` is nil
+    # here, which is the no-`author`-attribute form of the tag. Assert the whole
+    # wrapper rather than the prose alone, so dropping the wrapping fails.
+    assert prompt =~ ~s(Title: <external-content source="github">Make fallback prompt useful</external-content>)
+
+    assert prompt =~
+             ~s(<external-content source="github">Include enough issue context to start working.</external-content>)
+
     assert Config.workflow_prompt() =~ "{{ issue.identifier }}"
     assert Config.workflow_prompt() =~ "{{ issue.title }}"
     assert Config.workflow_prompt() =~ "{{ issue.description }}"
@@ -1618,8 +1639,16 @@ defmodule Aiur.CoreTest do
     prompt = PromptBuilder.build_prompt(issue)
 
     assert prompt =~ "Identifier: MT-778"
-    assert prompt =~ "Title: Handle empty body"
+
+    # SECURITY INVARIANT — see the fallback-template test above: the title is
+    # attacker-controlled, so it renders sanitized inside `<external-content>`.
+    assert prompt =~ ~s(Title: <external-content source="github">Handle empty body</external-content>)
+
+    # A nil description must stay nil through the wrapper, so the template's
+    # `{% if issue.description %}` branch still picks the placeholder. An empty
+    # wrapper here would make the branch truthy and hand the agent a blank tag.
     assert prompt =~ "No description provided."
+    refute prompt =~ ~s(<external-content source="github"></external-content>)
   end
 
   test "prompt builder reports workflow load failures separately from template parse errors" do

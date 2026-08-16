@@ -206,8 +206,57 @@ defmodule AiurWeb.StreamDeckGridTest do
              vendor_logo: "/provider-assets/claude-symbol.svg",
              bucket: :running,
              progress_percent: 60,
-             priority: true
+             progress_freshness: "fresh",
+             priority: true,
+             activity: nil,
+             runtime_seconds: nil
            }
+  end
+
+  test "projects the workflow stage as the agent's activity" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", activity_stage: :review, runtime_seconds: 4_320)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.activity == "review"
+    assert agent.runtime_seconds == 4_320
+  end
+
+  test "prefers an actionable wait over the stage it parked in" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", activity_stage: :work, waiting_reason: :waiting_for_ci)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.activity == "waiting_ci"
+  end
+
+  test "omits activity for a wait the bucket already carries and for an unknown stage" do
+    [paused] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", waiting_reason: :paused_operator, work_state: :paused)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    [unknown] =
+      StreamDeckGrid.project(%{running: [agent("124", activity_stage: :sprinting)], retrying: [], idle: []}).agents
+
+    assert paused.activity == nil
+    assert unknown.activity == nil
+  end
+
+  test "reports an absent or zero runtime as unknown rather than as no time elapsed" do
+    [absent] = StreamDeckGrid.project(%{running: [agent("123")], retrying: [], idle: []}).agents
+    [zero] = StreamDeckGrid.project(%{running: [agent("124", runtime_seconds: 0)], retrying: [], idle: []}).agents
+
+    assert absent.runtime_seconds == nil
+    assert zero.runtime_seconds == nil
   end
 
   test "normalizes vendor and invalid activity values" do
@@ -219,8 +268,92 @@ defmodule AiurWeb.StreamDeckGridTest do
       }).agents
 
     assert agent.vendor == "claude"
-    assert agent.progress_percent == 0
+    assert agent.progress_percent == nil
+    assert agent.progress_freshness == "unknown"
     refute agent.priority
+  end
+
+  test "keeps a stale reading instead of replacing it with a zero nobody measured" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", progress_percent: 70, progress_freshness: :stale)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.progress_percent == 70
+    assert agent.progress_freshness == "stale"
+  end
+
+  test "reports an unmeasured ticket as unknown rather than as no progress" do
+    [absent] = StreamDeckGrid.project(%{running: [agent("123")], retrying: [], idle: []}).agents
+
+    [declared] =
+      StreamDeckGrid.project(%{
+        running: [agent("124", progress_percent: nil, progress_freshness: :unknown)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert absent.progress_percent == nil
+    assert absent.progress_freshness == "unknown"
+    assert declared.progress_percent == nil
+    assert declared.progress_freshness == "unknown"
+  end
+
+  test "a measured zero stays a measured zero" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", progress_percent: 0, progress_freshness: :fresh)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.progress_percent == 0
+    assert agent.progress_freshness == "fresh"
+  end
+
+  test "rounds a float reading rather than discarding it" do
+    [agent] =
+      StreamDeckGrid.project(%{running: [agent("123", progress_percent: 70.5)], retrying: [], idle: []}).agents
+
+    assert agent.progress_percent == 71
+    assert agent.progress_freshness == "fresh"
+  end
+
+  test "never pairs a nil percent with a confident freshness" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", progress_percent: nil, progress_freshness: :fresh)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.progress_percent == nil
+    assert agent.progress_freshness == "unknown"
+  end
+
+  test "unknown upstream progress blocks a dependent rather than reading as complete" do
+    snapshot = %{
+      running: [
+        agent("unknown-upstream", progress_percent: nil, progress_freshness: :unknown),
+        agent("stale-complete-upstream", progress_percent: 100, progress_freshness: :stale)
+      ],
+      retrying: [],
+      idle: [
+        agent("child-of-unknown", blocked_by: [%{id: "unknown-upstream"}]),
+        agent("child-of-stale-complete", blocked_by: [%{id: "stale-complete-upstream"}])
+      ]
+    }
+
+    readiness =
+      snapshot
+      |> StreamDeckGrid.project()
+      |> Map.fetch!(:agents)
+      |> Enum.filter(&(&1.bucket == :queued))
+      |> Map.new(&{&1.identifier, &1.dependency_ready})
+
+    assert readiness == %{"child-of-unknown" => false, "child-of-stale-complete" => true}
   end
 
   test "projects a registry provider family without coercing it to codex" do

@@ -2,7 +2,7 @@
 
 import { chmod, cp, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -64,7 +64,18 @@ try {
   await writeFile(bundledNode, await readFile(nodeBinary), { mode: 0o755 });
   await chmod(bundledNode, 0o755);
   await cp(join(packageRoot, "dist"), join(root, "app", "dist"), { recursive: true });
-  await cp(join(packageRoot, "node_modules"), join(root, "app", "node_modules"), { recursive: true, filter: (path) => !path.includes("/.cache/") });
+  // Provider marks live beside `dist`, not inside it: the renderer resolves them
+  // as `../../assets/vendor` from `app/dist/art`, which is the same relative
+  // path that reaches `packages/streamdeck/assets` from both `src/art` under
+  // test and `dist/art` after a local build.
+  await cp(join(packageRoot, "assets"), join(root, "app", "assets"), { recursive: true });
+  const nodeModulesSource = join(packageRoot, "node_modules");
+  await cp(nodeModulesSource, join(root, "app", "node_modules"), {
+    recursive: true,
+    // Skip only `.cache` directories inside node_modules, never a `.cache`
+    // segment in the repository path above it (e.g. a worktree under ~/.cache).
+    filter: (path) => !relative(nodeModulesSource, path).split(sep).includes(".cache"),
+  });
   await cp(join(packageRoot, "udev", "70-streamdeck.rules"), join(root, "share", "udev", "70-streamdeck.rules"));
   await cp(join(packageRoot, "systemd", "aiur-streamdeck.service"), join(root, "share", "systemd", "aiur-streamdeck.service"));
   await cp(join(packageRoot, "README.md"), join(root, "README.md"));

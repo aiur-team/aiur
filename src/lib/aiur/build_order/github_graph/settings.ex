@@ -27,6 +27,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
       :root_number,
       :requested_root,
       :root,
+      member_labels?: false,
       root_fingerprint: nil,
       expected_total: nil,
       cursor: nil,
@@ -86,11 +87,28 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
     }
   end
 
+  # GitHub rejects a whole GraphQL request whose node estimate exceeds 500,000,
+  # and the estimate multiplies `first:` down the tree. The labelled catalog
+  # variant asks for roots x 100 sub-issues x 100 labels, so it costs about
+  # 10,201 nodes per root against about 202 for the cheap variant. At the
+  # configured page size of 100 (legal when `planning_page_budget` is 1) that is
+  # ~1.02M nodes and the read fails outright, taking the catalog with it — so
+  # the labelled variant caps its own page size instead of inheriting the
+  # budget-derived one. 25 roots is ~255,000 nodes, comfortably inside the
+  # ceiling, and matches the page size the cost figures in `Queries` are
+  # measured at.
+  @labelled_page_size 25
+
   @spec catalog_variables(map()) :: map()
-  def catalog_variables(%Paging{repository: {owner, repository}, cursor: cursor, limits: limits}) do
-    %{"owner" => owner, "repo" => repository, "pageSize" => page_size(limits, limits.root_limit)}
+  def catalog_variables(%Paging{repository: {owner, repository}, cursor: cursor, limits: limits} = paging) do
+    %{"owner" => owner, "repo" => repository, "pageSize" => catalog_page_size(paging, limits)}
     |> Transport.maybe_put_query("cursor", cursor)
   end
+
+  defp catalog_page_size(%Paging{member_labels?: true}, limits),
+    do: min(page_size(limits, limits.root_limit), @labelled_page_size)
+
+  defp catalog_page_size(_paging, limits), do: page_size(limits, limits.root_limit)
 
   @spec selected_variables(map()) :: map()
   def selected_variables(%Paging{

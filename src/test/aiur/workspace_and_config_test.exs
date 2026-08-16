@@ -2413,6 +2413,70 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert CodingAgent.effort_for(effort_with_backend) == "high"
   end
 
+  test "an explicit model override beats the routing model for the same backend" do
+    # The add-agent modal writes `complexity:N` beside `model:<backend>-<variant>`,
+    # so an operator picking a model for the *routed* backend used to be silently
+    # discarded in favour of the routing model. An explicitly pinned variant wins.
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "codex",
+      agent_routing: %{4 => "claude:sonnet", 5 => "codex:gpt-5.5"}
+    )
+
+    pinned = %Issue{labels: ["complexity:4", "model:claude-opus-4-8"]}
+    assert CodingAgent.backend_for(pinned) == "claude"
+    assert CodingAgent.model_for(pinned) == "opus-4-8"
+
+    # A family alias stays a floating alias here; only resolve_model/2 widens it,
+    # so the override must not be frozen into a version pin at this layer.
+    # claude resolves its own aliases (:native), so "opus" also survives
+    # resolve_model/2 untouched.
+    family = %Issue{labels: ["complexity:4", "model:claude-opus"]}
+    assert CodingAgent.model_for(family) == "opus"
+    assert CodingAgent.resolve_model("claude", CodingAgent.model_for(family)) == "opus"
+
+    # codex derives its aliases, so the same override survives model_for/1 as an
+    # alias and is widened to a concrete version only at resolve_model/2 — the
+    # half of the pipeline that knows which backends need it.
+    codex_family = %Issue{labels: ["complexity:5", "model:codex-sol"]}
+    assert CodingAgent.model_for(codex_family) == "sol"
+    assert CodingAgent.resolve_model("codex", "sol") =~ ~r/^gpt-[\d.]+-sol$/
+
+    pinned_codex = %Issue{labels: ["complexity:5", "model:codex-gpt-5.6-sol"]}
+    assert CodingAgent.model_for(pinned_codex) == "gpt-5.6-sol"
+
+    # Preserved: a bare override names only a backend, so the routing value for
+    # that same backend remains the more specific answer.
+    bare = %Issue{labels: ["complexity:4", "model:claude"]}
+    assert CodingAgent.backend_for(bare) == "claude"
+    assert CodingAgent.model_for(bare) == "sonnet"
+
+    # Preserved: a bare override for a backend routing never names pins nothing,
+    # so resolve_model/2 supplies that backend's own default.
+    elsewhere = %Issue{labels: ["complexity:4", "model:codex"]}
+    assert CodingAgent.model_for(elsewhere) == nil
+  end
+
+  test "the label set the add-agent modal writes keeps the picked model and effort" do
+    # AgentRoutingPreview.plan/2 emits complexity + model:<backend>-<variant> +
+    # model:<effort> together, so that whole triple is what dispatch actually
+    # sees. The variant must survive routing, and the effort label must still
+    # apply even though the backend override suppresses the routed effort.
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      agent_routing: %{3 => "codex:gpt-5.5:low", 4 => "codex::high"}
+    )
+
+    modal = %Issue{labels: ["complexity:3", "model:codex-gpt-5.6-sol", "model:high"]}
+    assert CodingAgent.backend_for(modal) == "codex"
+    assert CodingAgent.model_for(modal) == "gpt-5.6-sol"
+    assert CodingAgent.effort_for(modal) == "high"
+
+    # A routing value with no model segment is the remaining path into the
+    # bare-override branch: it defers to routing, and routing pins nothing.
+    effort_only = %Issue{labels: ["complexity:4", "model:codex"]}
+    assert CodingAgent.model_for(effort_only) == nil
+  end
+
   test "remote_control opt-in defaults OFF and parses an explicit true" do
     # Setting #2 is orthogonal to :kind; the default is the single flip
     # point for always-remote, so a fresh parse must land on false.

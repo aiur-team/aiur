@@ -6,6 +6,10 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   @defaults [
     catalog_refresh_ms: 60_000,
+    # The catalog's per-member `labels` connection costs ~26 GraphQL points
+    # against the 5,000-points/hour budget versus ~1 without it (#1766), so the
+    # labelled read is bought on this slow cadence, not on every catalog poll.
+    catalog_labels_refresh_ms: 600_000,
     selected_refresh_ms: 15_000,
     demand_refresh_ms: 5_000,
     refresh_timeout_ms: 30_000,
@@ -15,6 +19,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   @maxima %{
     catalog_refresh_ms: 3_600_000,
+    catalog_labels_refresh_ms: 3_600_000,
     selected_refresh_ms: 300_000,
     demand_refresh_ms: 300_000,
     refresh_timeout_ms: 120_000,
@@ -30,6 +35,16 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
     %{
       catalog: Policy.unavailable_entry(:catalog, now_ms),
+      # nil means "no labelled catalog read has landed under this authority", so
+      # the first read after start or a configuration change buys the labels and
+      # the page resolves its epic/wave counts promptly.
+      catalog_labels_read_ms: nil,
+      # Last labelled read that actually succeeded. Distinct from the gate above
+      # because a failing labelled read must still back off, but must not make
+      # the carried counts look freshly re-read.
+      catalog_labels_ok_ms: nil,
+      catalog_labels_failures: 0,
+      catalog_labels_penalty_ms: 0,
       selected: %{},
       inflight_by_ref: %{},
       pending: MapSet.new(),
@@ -67,11 +82,20 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
     selected = positive(opts, :selected_refresh_ms, @defaults[:selected_refresh_ms], @maxima.selected_refresh_ms)
     demand = positive(opts, :demand_refresh_ms, @defaults[:demand_refresh_ms], @maxima.demand_refresh_ms)
     catalog = positive(opts, :catalog_refresh_ms, @defaults[:catalog_refresh_ms], @maxima.catalog_refresh_ms)
+
+    catalog_labels =
+      positive(opts, :catalog_labels_refresh_ms, @defaults[:catalog_labels_refresh_ms], @maxima.catalog_labels_refresh_ms)
+
     timeout = positive(opts, :refresh_timeout_ms, @defaults[:refresh_timeout_ms], @maxima.refresh_timeout_ms)
     roots = positive(opts, :max_selected_roots, @defaults[:max_selected_roots], @maxima.max_selected_roots)
 
     %{
       catalog_refresh_ms: catalog,
+      # The labelled read must never be more frequent than the catalog poll it
+      # rides on: a shorter interval would make every poll buy the expensive
+      # query, which is the regression #1766 exists to prevent. Clamping here
+      # means no configuration can reinstate it.
+      catalog_labels_refresh_ms: max(catalog_labels, catalog),
       selected_refresh_ms: selected,
       demand_refresh_ms: if(demand <= selected, do: demand, else: @defaults[:demand_refresh_ms]),
       refresh_timeout_ms: timeout,

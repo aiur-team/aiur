@@ -28,7 +28,7 @@ defmodule Aiur.ProviderMeterProbe do
   alias Aiur.Claude.UsageApi
   alias Aiur.{CodingAgent, Config}
   alias Aiur.ProviderMeterProjection
-  alias Aiur.ProviderMeters.Events
+  alias Aiur.ProviderMeters.{Events, ProbeCrash}
   alias Aiur.ProviderMeterSnapshot
   alias Aiur.Workspace
 
@@ -67,7 +67,7 @@ defmodule Aiur.ProviderMeterProbe do
       |> Enum.zip(results)
       |> Enum.map(fn
         {_provider, {:ok, result}} -> result
-        {provider, {:exit, _reason}} -> outcome(provider, false, :probe_failed)
+        {provider, {:exit, reason}} -> outcome(provider, false, task_exit_reason(provider, reason))
       end)
 
     Enum.map(outcomes, &record_probe_result(&1, opts))
@@ -137,7 +137,7 @@ defmodule Aiur.ProviderMeterProbe do
   def probe_session(provider, backend, opts) do
     before = observed_at(provider, opts)
 
-    case open_probe_session(backend, opts) do
+    case open_probe_session(provider, backend, opts) do
       {:ok, session, close} ->
         # The poll result is authoritative: once the window has seen the
         # observation land, a later projection read that times out or finds the
@@ -154,7 +154,7 @@ defmodule Aiur.ProviderMeterProbe do
 
   # Codex is probed through the same app-server client the agents use, so the
   # notification path and its account-generation binding are the proven ones.
-  defp open_probe_session(backend, opts) do
+  defp open_probe_session(provider, backend, opts) do
     with {:ok, workspace} <- probe_workspace(opts),
          agent = probe_agent(backend, opts),
          true <- is_atom(agent),
@@ -165,9 +165,22 @@ defmodule Aiur.ProviderMeterProbe do
       other -> {:error, probe_reason(other)}
     end
   rescue
-    error -> {:error, probe_reason(error)}
+    # A refused or failed session start arrives above as `{:error, reason}` and
+    # keeps its own reason; a raise here is our bug rather than the provider's
+    # silence.
+    error -> {:error, ProbeCrash.log(provider, :error, error, __STACKTRACE__)}
   catch
-    _kind, reason -> {:error, probe_reason(reason)}
+    :throw, value ->
+      {:error, ProbeCrash.log(provider, :throw, value, __STACKTRACE__)}
+
+    # An *exit* is the opposite case and must not be relabelled a crash: the
+    # dominant one here is the app-server being slow or absent, which arrives
+    # as a `GenServer.call` exit. That is precisely "the provider did not
+    # answer", so it keeps `probe_reason/1` — otherwise a down app-server would
+    # log a crash with a stacktrace on every probe cycle, which is the exact
+    # miscategorisation this split exists to prevent, running the other way.
+    :exit, reason ->
+      {:error, probe_reason(reason)}
   end
 
   # Claude is observed over HTTP, not by opening a session. Its rate-limit
@@ -186,9 +199,9 @@ defmodule Aiur.ProviderMeterProbe do
         outcome(provider, false, reason)
     end
   rescue
-    _error -> outcome(provider, false, :probe_failed)
+    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
   catch
-    _kind, _reason -> outcome(provider, false, :probe_failed)
+    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
   end
 
   # Published on the same fan-out the store broadcasts on, so the projection
@@ -313,6 +326,32 @@ defmodule Aiur.ProviderMeterProbe do
     _kind, _reason -> result
   end
 
+  # An exit out of the probe task is not automatically our crash. The batch's
+  # `on_timeout: :kill_task` reports a provider that ran past the budget as
+  # `:timeout`, a daemon stop arrives as `:shutdown`/`:killed`, and a probe
+  # reaching a process that is gone exits its `GenServer.call` — none of which
+  # is "we raised on an answer we received". Only an exit `probe_reason/1`
+  # cannot name is a crash. Its stacktrace lives inside `reason` (an escaped
+  # raise exits as `{exception, stacktrace}`), which `Exception.format/3`
+  # renders, so the empty outer stacktrace loses nothing.
+  defp task_exit_reason(provider, reason) do
+    case probe_reason(reason) do
+      :probe_failed -> ProbeCrash.log(provider, :exit, reason, [])
+      named -> named
+    end
+  end
+
+  # `is_atom/1` is true of `false`, and the `is_atom(agent)` check in
+  # `open_probe_session/3` fails with exactly that — without this clause the
+  # failure reason became the atom `false` and the card rendered "false".
+  defp probe_reason(false), do: :unsupported
   defp probe_reason(reason) when is_atom(reason), do: reason
+
+  # The two exit shapes a `GenServer.call` into an absent or overloaded
+  # app-server produces. Both mean the provider never answered, and naming them
+  # is what lets an operator tell "the app-server is down" from "it answered
+  # and we mishandled it".
+  defp probe_reason({:timeout, {GenServer, :call, _args}}), do: :timeout
+  defp probe_reason({:noproc, {GenServer, :call, _args}}), do: :transport
   defp probe_reason(_reason), do: :probe_failed
 end

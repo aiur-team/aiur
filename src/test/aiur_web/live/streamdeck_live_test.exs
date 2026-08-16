@@ -104,23 +104,23 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="streamdeck-install-modal")
     assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
     assert html =~ "Install on your Stream Deck +"
-    assert html =~ "Linux with udev"
-    assert html =~ "Pair it with your daemon"
-    assert html =~ "Download the Stream Deck + package"
-    assert html =~ "Create the sidecar directory"
-    assert html =~ "--strip-components=1"
-    assert html =~ "Create the pairing directory"
-    assert html =~ "Create the pairing file"
-    assert html =~ "Restrict the pairing file"
-    assert html =~ "AIUR_PHOENIX_URL"
-    assert html =~ "Install the udev rule"
-    assert html =~ "Install the user unit"
-    assert html =~ "Reload user systemd"
-    assert html =~ "Enable the sidecar"
-    assert html =~ "Plug in the deck"
-    assert html =~ "What success looks like"
-    assert html =~ "0.0.0-dev.0098e3ac86a2"
-    assert html =~ "0098e3ac86a2e49e685e8e6ff67248373de43f1d"
+    # Two steps: one download, then one copyable prompt. The old eyebrow, the
+    # "download the package, then…" lede and the trailing release-metadata line
+    # are gone — the steps say all of it, without the clutter.
+    assert html =~ "Step 1: Download the package"
+    assert html =~ "Step 2: Paste this into your agent chat"
+    assert html =~ ~s(data-copy-source)
+    assert html =~ ~s(data-copy-trigger)
+    refute html =~ ~s(class="section-eyebrow")
+    refute html =~ "Download the package, then copy the prompt below into your coding agent"
+    # Exactly one download affordance in the dialog, and no release-metadata
+    # line trailing it.
+    assert html |> String.split(~s( download)) |> length() == 2
+    refute html =~ ~s(class="modal-meta")
+    assert html =~ "Walk me through installing the Aiur Stream Deck + sidecar on Linux"
+    assert html =~ "packages/streamdeck/README.md"
+    refute html =~ "Aiur commit"
+    refute html =~ "AIUR_PHOENIX_URL"
     refute html =~ "AIUR_DASHBOARD_PASSWORD="
     refute html =~ "streamdeck-password"
     refute html =~ "browser_fixture_password"
@@ -138,15 +138,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
       html = view |> element("#streamdeck-download-control") |> render_click()
 
-      # The setup steps render regardless of package availability; only the
+      # The prompt block renders regardless of package availability; only the
       # download link and release metadata step aside.
       assert html =~ ~s(id="streamdeck-install-modal")
       assert html =~ "Install on your Stream Deck +"
-      assert html =~ "No package published for this release"
-      assert html =~ "Pair it with your daemon"
-      assert html =~ "Create the sidecar directory"
-      assert html =~ "Plug in the deck"
-      assert html =~ "What success looks like"
+      assert html =~ "No Stream Deck + package is published for this release"
+      assert html =~ "Walk me through installing the Aiur Stream Deck + sidecar on Linux"
+      assert html =~ "packages/streamdeck/README.md"
       refute html =~ "Download the Stream Deck + package"
       refute html =~ "aiur-streamdeck-"
       refute html =~ "Aiur commit"
@@ -237,7 +235,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # and the logs strip's own event header.
     logs = enter_logs(view)
     assert logs =~ ~s(<span class="sd-log-dir sd-log-badge" data-dir="AGENT" style="--sd-log-badge: #9fd0ff">AGENT</span>)
-    assert logs =~ ~s(<span class="sd-log-evhdr-direction" style="color: #9fd0ff">AGENT</span>)
+
+    # A key press jumps the strip to that event's own header, which is where the
+    # same contract ink paints the transcript surface.
+    header = render_hook(view, "log-key-select", %{"index" => "5"})
+    assert header =~ ~s(<span class="sd-log-evhdr-direction" style="color: #9fd0ff">AGENT</span>)
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -328,24 +330,35 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert html =~ ~s(class="sd-screen sd-screen-logs")
     assert html =~ ~s(class="sd-strip-logs")
+
+    # Both surfaces open at the live end, so at entry only the older-ward arrow
+    # is available on either dial, and the window shows the newest event's
+    # header with the newest transcript line under it.
+    assert strip(html) =~ "event-10"
+    assert strip(html) =~ "line-10"
     assert html =~ ~s(data-log-kind="evhdr")
     assert html =~ ~s(data-log-kind="message")
 
     assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: visible">›<\/span>/
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>EVENTS<span style="visibility: hidden">›<\/span>/
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "-99"})
 
     assert html =~
              ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>EVENTS<span style="visibility: visible">›<\/span>/
 
-    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "-99"})
+
+    # Offset 0 is the origin header — the surface's defined left edge — so BACK
+    # can only travel newer-ward from here.
+    assert strip(html) =~ "Ticket opened"
+    refute strip(html) =~ "line-10"
 
     assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
-
-    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "99"})
-
-    assert html =~
-             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>EVENTS<span style="visibility: hidden">›<\/span>/
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: visible">›<\/span>/
   end
 
   test "cycle-window enters logs only from command mode" do
@@ -480,10 +493,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "pause") =~ ~s(data-command-state="running")
 
-    html = render_hook(view, "command-press", %{"command" => "pause"})
+    # The fleet topic is what re-reads the settled state; a command press does
+    # not block on a snapshot read.
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
 
-    assert_receive {:streamdeck_pause, "1352"}
-    assert html =~ "Pause requested for #1352"
     # The key adopts the state the orchestrator settled on, not the one the
     # press assumed: it now offers Play, with the paused state and icon.
     assert command_key(html, "pause") =~ "Play"
@@ -496,6 +510,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert_receive {:streamdeck_resume, "1352"}
     assert html =~ "Resume requested for #1352"
+
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
+
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "pause") =~ ~s(data-command-state="running")
     assert command_icon(html, "pause") == "pause"
@@ -514,6 +532,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert_receive {:streamdeck_deprioritize, "1352"}
     assert html =~ "Deprioritize requested for #1352"
+
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
+
     assert command_key(html, "priority") =~ "Prioritize"
     assert command_key(html, "priority") =~ ~s(data-command-state="standard")
     assert command_icon(html, "priority") == "up"
@@ -532,6 +554,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert_receive {:streamdeck_prioritize, "1352"}
     assert html =~ "Prioritize requested for #1352"
+
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
+
     assert command_key(html, "priority") =~ "Deprioritize"
     assert command_key(html, "priority") =~ ~s(data-command-state="prioritized")
     assert command_icon(html, "priority") == "down"
@@ -599,12 +625,17 @@ defmodule AiurWeb.StreamdeckLiveTest do
       assert command_key(html, "pause") =~ "Pause"
       assert command_key(html, "pause") =~ ~s(data-command-state="running")
 
-      # The status region carries the failure visibly rather than staying
-      # screen-reader-only, so the operator sees a swallowed control call.
-      assert html =~ ~s(id="sd-control-status" class="sd-control-status")
+      # The status banner (outside the device) carries the failure visibly, so
+      # the operator sees a swallowed control call rather than nothing.
+      assert html =~ ~s(id="sd-control-status" class="streamdeck-status")
 
       html = render_hook(view, "command-press", %{"command" => "priority"})
       assert html =~ "Deprioritize requested for #1352"
+
+      # The fleet topic re-reads the settled state; a command press does not
+      # block on a snapshot read.
+      send(view.pid, {:status_changed, %{identifier: "1352"}})
+      render(view)
 
       # Now standard, so the same key resolves to prioritize — which raises.
       html = render_hook(view, "command-press", %{"command" => "priority"})
@@ -777,47 +808,68 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  test "renders LIVE plus log event keys and positions the flattened transcript when one is selected" do
+  test "renders an origin anchor, one key per bus event and LIVE last, jumping the transcript to a pressed key" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = enter_logs(view)
+    logs = streamdeck_assigns(view).logs
 
     assert html =~ ~s(id="sd-log-keys")
-    assert html =~ ~s(data-log-event-index="0")
     assert length(Regex.scan(~r/class="sd-key sd-log-key/, html)) == 8
-    assert strip(html) =~ "event-1"
-    assert log_pane(html, "sd-log-transcript") =~ "event-1"
-    assert html =~ ~s(data-log-kind="event_header")
+
+    # Index 0 is the synthesised origin and LIVE is the last key, not the first.
+    # The eight-key window opens on the live end, so the origin is off screen
+    # until the operator scrolls back to it.
+    assert hd(logs.event_keys).id == :origin
+    assert List.last(logs.event_keys).id == :live
+    assert logs.selected_event_id == :live
+    assert logs.selected_event_index == length(logs.event_keys) - 1
+    refute html =~ ~s(data-log-event-index="0")
+    assert html =~ ~r/data-log-event-index="#{logs.selected_event_index}"[^>]*aria-current="true"/
+
+    # Sitting on LIVE means sitting on the newest row, which is a transcript
+    # line rather than an event header.
+    assert strip(html) =~ "line-10"
+    assert log_pane(html, "sd-log-transcript") =~ "line-10"
     assert html =~ ~s(data-log-kind="message")
 
-    html = render_hook(view, "log-key-select", %{"index" => "2"})
-    assert strip_offset(html) == 2
+    # A press jumps to that key's own `start` — the offset of its header — which
+    # is the field the client reads rather than re-deriving the anchoring rules.
+    key = Enum.at(logs.event_keys, 5)
+    html = render_hook(view, "log-key-select", %{"index" => "5"})
+
+    assert strip_offset(html) == key.start
     # The mirror pane is what makes the offset bounds behind the dial hints
     # observable, so it has to track the strip rather than drift from it.
-    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
-    assert log_pane(html, "sd-log-transcript") =~ "event-2"
-    assert strip(html) =~ "event-2"
-    # The strip moved off the pre-click head rather than merely gaining a line.
-    # `event-1` starts at offset 0 and `event-10` at 18, so neither is in the
-    # two-line window at offset 2.
-    refute strip(html) =~ "event-1"
-    assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="#{key.start}"}
+    assert log_pane(html, "sd-log-transcript") =~ "event-5"
+    assert strip(html) =~ "event-5"
+    assert html =~ ~s(data-log-kind="event_header")
+    assert html =~ ~s(data-log-kind="evhdr")
+    # The strip left the live end rather than merely gaining a line.
+    refute strip(html) =~ "line-10"
+    assert html =~ ~r/data-log-event-index="5"[^>]*aria-current="true"/
+    refute html =~ ~r/data-log-event-index="#{logs.selected_event_index}"[^>]*aria-current="true"/
   end
 
   test "a relay flush keeps the operator's transcript position instead of snapping to the event header" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     _html = enter_logs(view)
 
+    # The jump target is the key's own `start`, so the expected offsets are read
+    # off the projection rather than guessed at.
+    start = streamdeck_assigns(view).logs.event_keys |> Enum.at(2) |> Map.fetch!(:start)
+
     html = render_hook(view, "log-key-select", %{"index" => "2"})
-    assert strip_offset(html) == 2
+    assert strip_offset(html) == start
 
     # Scroll one line into the selected event, then let the relay flush. The
     # position, not just the selected event, has to survive.
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "1"})
-    assert strip_offset(html) == 3
+    assert strip_offset(html) == start + 1
 
     send(view.pid, {:streamdeck_transcript, "1352", %{}})
     html = render(view)
-    assert strip_offset(html) == 3
+    assert strip_offset(html) == start + 1
     assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
   end
 
@@ -825,23 +877,44 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     _html = enter_logs(view)
 
-    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "2"})
-    assert html =~ ~r{id="sd-log-keys"[^>]*data-offset="2"}
+    # The key window opens pinned to its newest end, so scrolling back is what
+    # moves it, and the flush must not drag it forward again.
+    max_offset = streamdeck_assigns(view).logs.events_max_offset
+    assert max_offset >= 2
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "-2"})
+    assert html =~ ~r{id="sd-log-keys"[^>]*data-offset="#{max_offset - 2}"}
 
     send(view.pid, {:streamdeck_transcript, "1352", %{}})
     html = render(view)
-    assert html =~ ~r{id="sd-log-keys"[^>]*data-offset="2"}
+    assert html =~ ~r{id="sd-log-keys"[^>]*data-offset="#{max_offset - 2}"}
   end
 
-  test "scrolling the transcript to the end pins the strip at its max offset" do
+  test "the transcript opens pinned to the newest row and pins again at the origin" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    _html = enter_logs(view)
+    html = enter_logs(view)
+    max_offset = streamdeck_assigns(view).logs.transcript_max_offset
+    assert max_offset > 0
 
-    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-    assert strip_offset(html) == 18
-    assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="18"/s
-    assert strip(html) =~ "event-1"
+    # Logs opens where the agent is working, already at the live end, so the
+    # newer-ward hint is spent before the operator touches the dial.
+    assert strip_offset(html) == max_offset
+    assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="#{max_offset}"/s
     assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+
+    # Scrolling further forward cannot escape that end, and staying on the
+    # newest row is what keeps LIVE the selection.
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+    assert strip_offset(html) == max_offset
+    assert streamdeck_assigns(view).logs.selected_event_id == :live
+
+    # The other end is the origin header, and it pins too.
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "-99"})
+    assert strip_offset(html) == 0
+    assert strip(html) =~ "Ticket opened"
+    assert html =~ ~s(id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden="true")
+    assert streamdeck_assigns(view).logs.selected_event_id == :origin
+    assert html =~ ~r/data-log-event-index="0"[^>]*aria-current="true"/
   end
 
   # The LIVE key is the design's one visually distinct key, and it is selected
@@ -886,18 +959,34 @@ defmodule AiurWeb.StreamdeckLiveTest do
         feed_event("assistant", "newest message", "turn-2")
       ])
 
+      write_event_log("1352", [event_line(1, "emit", "ticket.1352.pr.opened", "PR #1904", "2026-08-02T00:00:00Z")])
+
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       html = enter_logs(view)
+      max_offset = streamdeck_assigns(view).logs.transcript_max_offset
 
-      assert html =~ "[AGENT] newest message"
+      # Origin header, the one bus header, then the three transcript rows that
+      # sit underneath it, with the diff unrolled into its own two hunk lines —
+      # seven rows, so six is the newest offset.
+      assert max_offset == 6
+
+      # A transcript row is labelled by its own role; the direction badge is the
+      # bus event's, and it reaches the deck as an event key rather than as a
+      # key per turn.
+      assert html =~ "[assistant] newest message"
       assert html =~ ~s(<span class="sd-log-dir sd-log-badge" data-dir="EMIT" style="--sd-log-badge: #9fd0ff">EMIT</span>)
-      assert html =~ "lib/example.ex"
-      assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="3"/s
-      assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="3"}
+      assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="#{max_offset}"/s
+      assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="#{max_offset}"}
 
-      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+      # Scrolling back travels toward the origin now, not toward the newest row.
+      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "-99"})
+      assert strip_offset(html) == 0
+      assert html =~ ~s(id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden="true")
+
+      # Two rows forward is the classified diff, which keeps its real hunk lines.
+      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "2"})
       assert html =~ "older message"
-      assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+      assert html =~ "lib/example.ex"
       assert html =~ "sd-log-entry-diff"
       assert html =~ ~s(class="sd-log-diff-line is-addition")
       assert html =~ "+new"
@@ -906,35 +995,57 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "rebuilds LIVE and event starts from the durable feed when the relay receives a new event" do
     with_production_feed(fn ->
-      write_feed("1352", [
-        feed_event("assistant", "older durable event", "turn-1"),
-        feed_event("assistant", "newest durable event", "turn-2")
-      ])
+      durable_events = [
+        event_line(1, "emit", "ticket.1352.pr.opened", "older durable event", "2026-08-02T00:01:00Z"),
+        event_line(2, "emit", "ticket.1352.ci.passed", "newest durable event", "2026-08-02T00:02:00Z")
+      ]
+
+      durable_transcript = [
+        feed_event("assistant", "older durable line", "turn-1", timestamp: "2026-08-02T00:01:30Z"),
+        feed_event("assistant", "newest durable line", "turn-2", timestamp: "2026-08-02T00:02:30Z")
+      ]
+
+      write_event_log("1352", durable_events)
+      write_feed("1352", durable_transcript)
 
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       enter_logs(view)
 
-      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "live durable event"))
+      # The durable feed is the projection's only source, so it lands before the
+      # relay is told about it. Writing it from a background task instead would
+      # leave the file behind for whichever test ran next.
+      write_event_log(
+        "1352",
+        durable_events ++ [event_line(3, "emit", "ticket.1352.pr.merged", "live durable event", "2026-08-02T00:03:00Z")]
+      )
 
-      Task.start(fn ->
-        Process.sleep(10)
+      write_feed("1352", durable_transcript ++ [feed_event("assistant", "live durable line", "turn-3", timestamp: "2026-08-02T00:03:30Z")])
 
-        write_feed("1352", [
-          feed_event("assistant", "older durable event", "turn-1"),
-          feed_event("assistant", "newest durable event", "turn-2"),
-          feed_event("assistant", "live durable event", "turn-3")
-        ])
-      end)
+      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "live durable line"))
 
-      assert eventually(fn -> render(view) =~ "live durable event" end)
+      # "PR merged" is the new bus row's key face, so waiting on it proves the
+      # flush rebuilt the key list rather than only the transcript.
+      assert eventually(fn -> render(view) =~ "PR merged" end)
 
       logs = streamdeck_assigns(view).logs
-      assert [%{kind: :live} | [%{text: "live durable event"} | _]] = logs.event_keys
 
-      html = render_hook(view, "log-key-select", %{"index" => "3"})
+      # LIVE is the last key, after the origin and one key per bus row, and it
+      # re-pins to the new newest entry because it was the selection.
+      assert Enum.map(logs.event_keys, & &1.body) ==
+               ["Ticket opened", "older durable event", "newest durable event", "live durable event", "LIVE"]
+
+      assert List.last(logs.event_keys).id == :live
+      assert List.last(logs.event_keys).start == logs.transcript_max_offset
+      assert logs.selected_event_id == :live
+      assert logs.transcript_offset == logs.transcript_max_offset
+
+      # Every key's `start` was rebuilt against the longer transcript, so a
+      # press still lands on that event's own header.
+      html = render_hook(view, "log-key-select", %{"index" => "1"})
       selected = streamdeck_assigns(view).logs
 
-      assert selected.transcript_offset == selected.event_starts[3]
+      assert selected.selected_event_id == {:bus, "emit", 1}
+      assert selected.transcript_offset == selected.event_starts[1]
       assert [%{kind: :event_header, body: "older durable event"} | _] = selected.transcript_visible
       assert strip(html) =~ "older durable event"
     end)
@@ -1232,15 +1343,28 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "is-live"
   end
 
-  test "the nav icon is a 4x2 key grid, matching the physical device" do
+  # The bezel is what tells this glyph apart from the Units four-square at nav
+  # size, so it is locked in alongside the keys — and the keys have to stay
+  # smaller than the frame they sit in.
+  test "the nav icon is a 2x2 key grid inside a bezel" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     [svg] =
-      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="4\.5".*?</svg>}s, html) ||
+      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="2" width="20" height="20".*?</svg>}s, html) ||
         flunk("the Stream Deck nav icon svg was not rendered")
 
-    assert length(Regex.scan(~r/<circle /, svg)) == 8,
-           "the Stream Deck nav icon must show 8 keys in a 4x2 grid, like the device"
+    widths = svg |> then(&Regex.scan(~r/<rect [^>]*width="(\d+)"/, &1)) |> Enum.map(&(&1 |> List.last() |> String.to_integer()))
+
+    assert length(widths) == 5,
+           "the Stream Deck nav icon must show a bezel plus 4 keys in a 2x2 grid"
+
+    # Measured rather than hardcoded: an 8-unit key inside a 20-unit bezel would
+    # satisfy a literal width assertion while losing the visual distinction the
+    # bezel exists to draw.
+    [bezel | keys] = widths
+
+    assert Enum.max(keys) * 2 < bezel,
+           "each key must stay well inside the bezel around them"
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do
@@ -1338,17 +1462,44 @@ defmodule AiurWeb.StreamdeckLiveTest do
     Enum.filter(CodingAgent.provider_descriptors(), &MapSet.member?(families, &1.provider))
   end
 
-  defp fixture_logs(_identifier), do: Enum.map(1..10, &feed_entry("event-#{&1}", "fixture-#{&1}"))
+  # The emulator's injected feed stands in for both real sources: ten
+  # shared-event-bus rows, which are the deck's keys, and one transcript line
+  # under each, which is the detail a key jumps into. A bare list would now be
+  # read as transcript only and project no event keys at all.
+  defp fixture_logs(_identifier) do
+    %{
+      events: Enum.map(1..10, &fixture_bus_event/1),
+      # `AgentEventFeed.list/2` hands the transcript back newest first; the
+      # projection is what reverses it into reading order.
+      transcript: Enum.map(10..1//-1, &feed_entry("line-#{&1}", fixture_stamp(&1, 30)))
+    }
+  end
 
-  defp feed_entry(body, turn_id) do
+  defp fixture_bus_event(index) do
+    %{
+      type: "event",
+      id: index,
+      kind: "self",
+      topic: "ticket.1352.agent.progress",
+      badge: Aiur.AgentEventFeed.badge_for_kind("self"),
+      label: "event-#{index}",
+      body: "",
+      timestamp: fixture_stamp(index, 0)
+    }
+  end
+
+  defp feed_entry(body, timestamp) do
     %{
       type: "message",
       badge: "AGENT",
       role: "assistant",
       body: body,
-      timestamp: "2026-08-02T00:00:00Z",
-      turn_id: turn_id
+      timestamp: timestamp
     }
+  end
+
+  defp fixture_stamp(minute, second) do
+    "2026-08-02T00:#{String.pad_leading(to_string(minute), 2, "0")}:#{String.pad_leading(to_string(second), 2, "0")}Z"
   end
 
   defp feed_event(role, body, turn_id, opts \\ [])
@@ -1374,6 +1525,21 @@ defmodule AiurWeb.StreamdeckLiveTest do
     File.write!(path, Enum.map_join(events, "\n", &Jason.encode!/1) <> "\n")
   end
 
+  # The shared event bus is a second, separate source from the transcript, so a
+  # production-feed test that wants real event keys has to write real
+  # `[event:<kind>]` rows. `with_production_feed/1` removes them again, because
+  # one of these tests rewrites the log from a Task, which cannot register an
+  # `on_exit`, and the whole suite shares the "1352" identifier.
+  defp write_event_log(identifier, lines) do
+    path = IssueLog.event_log_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Enum.join(lines, "\n") <> "\n")
+  end
+
+  defp event_line(id, kind, topic, summary, timestamp) do
+    "#{timestamp} [event:#{kind}] id=#{id} #{topic}: #{summary}"
+  end
+
   defp with_production_feed(fun) do
     previous_endpoint_value = Endpoint.config(:streamdeck_logs_fun)
     previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
@@ -1384,6 +1550,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     try do
       fun.()
     after
+      Enum.each(~w(1352 1345), &File.rm(IssueLog.event_log_path(&1)))
       Application.put_env(:aiur, Endpoint, previous_endpoint_config)
       Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, previous_endpoint_value)
     end

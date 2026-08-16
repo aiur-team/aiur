@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.DecisionPubSub
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.LiveConversation
+  alias Aiur.OpenTicketSource
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.ProviderMeterRefresh
@@ -33,7 +34,9 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
+    AddAgentModal,
     AgentLogModal,
+    AgentRoutingPreview,
     CapacityPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
@@ -51,6 +54,9 @@ defmodule AiurWeb.DashboardLive do
     RunSummaryPresenter,
     RunSummaryStrip,
     TicketContext,
+    TicketDetailModal,
+    TicketsPanel,
+    TicketsPresenter,
     UnitsControlPolicy,
     UnitsFilters,
     UnitsPresenter,
@@ -68,6 +74,10 @@ defmodule AiurWeb.DashboardLive do
   @usage_summary_max_age_ms 30_000
   @usage_drill_limit 25
   @usage_drill_dimensions ~w(by_provider by_ticket by_agent_family by_model by_account_generation)a
+
+  # Matches the Tickets panel's own `maxlength`, so the control and the filter
+  # agree on where a query stops.
+  @max_ticket_query_length 128
   @provider_meters_flush_ms 250
   @current_run_outcomes_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
@@ -89,6 +99,7 @@ defmodule AiurWeb.DashboardLive do
       :ok = CurrentRunSummary.subscribe()
       :ok = CurrentRunOutcomeSnapshot.subscribe()
       :ok = TicketActivity.subscribe()
+      :ok = OpenTicketSource.subscribe()
       :ok = subscribe_ticket_context_resets()
     end
 
@@ -110,10 +121,11 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
-      |> init_history_stream()
+      |> init_history_rows()
       |> assign(:units_selection, UnitsURL.default_selection())
       |> assign(:unit_controls, %{})
       |> assign(:unit_control_subscriptions, MapSet.new())
+      |> assign(:tickets_visible, TicketsPresenter.initial_reveal())
       |> assign_units_view()
       |> sync_unit_control_subscriptions(connected)
       |> assign(:capacity_input, "")
@@ -122,6 +134,9 @@ defmodule AiurWeb.DashboardLive do
       |> assign_initial_provider_meters(connected)
       |> assign_initial_current_run_outcomes(connected)
       |> assign_initial_usage_summary(connected)
+      |> assign(:ticket_detail, nil)
+      |> assign(:tickets_query, "")
+      |> assign(:add_agent_modal, nil)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -237,6 +252,10 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info({:ticket_activity_changed, payload}, socket) do
     {:noreply, PayloadLoader.schedule(socket, {:event, {:activity, Map.get(payload, :generation)}})}
+  end
+
+  def handle_info({:open_tickets_updated, change}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:open_tickets, Map.get(change, :generation)}})}
   end
 
   def handle_info({:ticket_detail_updated, %TicketDetailState{} = detail}, socket) do
@@ -369,6 +388,69 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("request-unit-control", _params, socket), do: {:noreply, socket}
+
+  def handle_event("inspect-ticket", %{"ticket" => token}, socket) when is_binary(token) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :ticket_detail, row)}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("inspect-ticket", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-ticket-detail", _params, socket), do: {:noreply, assign(socket, :ticket_detail, nil)}
+
+  # Revealing is monotonic, and the count survives a re-projection: a tracker
+  # poll must not collapse the table back under an operator part-way through
+  # reading it. It anchors a row count, not a set of rows, so a ticket opened
+  # upstream still enters at the top and pushes the last revealed row over the
+  # edge — the same shift the untruncated table always had, one batch lower.
+  def handle_event("show-more-tickets", _params, socket) do
+    {:noreply, assign(socket, :tickets_visible, TicketsPresenter.reveal_more(socket.assigns.tickets_visible))}
+  end
+
+  # Filtering is a server round trip per debounced change rather than a client
+  # hook over the loaded rows: the panel reveals its table in batches, so a
+  # client-side filter would only ever see the revealed ones, and the operator
+  # would be told a ticket does not exist when it merely has not been revealed.
+  def handle_event("search-tickets", %{"query" => query}, socket) when is_binary(query) do
+    # Clamped server-side as well as in the input: a filter over the whole
+    # backlog is real work, and a pasted plan or stack trace would otherwise buy
+    # seconds of it inside the socket process that serves the rest of the page.
+    {:noreply, socket |> assign(:tickets_query, String.slice(query, 0, @max_ticket_query_length)) |> assign_tickets_panel_view()}
+  end
+
+  def handle_event("search-tickets", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear-ticket-search", _params, socket) do
+    {:noreply, socket |> assign(:tickets_query, "") |> assign_tickets_panel_view()}
+  end
+
+  def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("open-add-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-add-agent", _params, socket), do: {:noreply, assign(socket, :add_agent_modal, nil)}
+
+  def handle_event("change-add-agent", params, %{assigns: %{add_agent_modal: %{} = modal}} = socket) do
+    {:noreply, assign(socket, :add_agent_modal, change_add_agent(modal, params))}
+  end
+
+  def handle_event("change-add-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("confirm-add-agent", _params, %{assigns: %{add_agent_modal: %{} = modal}} = socket) do
+    handle_writable_event(socket, fn ->
+      modal = confirm_add_agent(modal)
+      {:noreply, socket |> refresh_open_tickets(modal.result) |> assign(:add_agent_modal, modal)}
+    end)
+  end
+
+  def handle_event("confirm-add-agent", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply,
@@ -662,7 +744,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
-      |> Map.put_new(:streams, %{command_history: []})
+      |> Map.put_new(:history_rows, [])
       |> Map.put_new(:history_ids, MapSet.new())
       |> Map.put_new(:history_total, nil)
       |> Map.put_new(:history_has_more, false)
@@ -677,6 +759,13 @@ defmodule AiurWeb.DashboardLive do
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
+      |> then(&Map.put_new(&1, :units_count_label, units_count_label(&1.units_view)))
+      |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
+      |> Map.put_new(:tickets_visible, TicketsPresenter.initial_reveal())
+      |> Map.put_new(:tickets_query, "")
+      |> then(&Map.put_new(&1, :tickets_panel_view, TicketsPresenter.search(&1.tickets_view, &1.tickets_query)))
+      |> Map.put_new(:ticket_detail, nil)
+      |> Map.put_new(:add_agent_modal, nil)
       |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
       |> Map.put_new(:capacity_input, "")
       |> Map.put_new(:capacity_feedback, nil)
@@ -730,7 +819,7 @@ defmodule AiurWeb.DashboardLive do
         </div>
         <DecisionInbox.decision_inbox
           decisions={Enum.reject(@decision_page.decisions, &(&1.decision_id == @selected_decision_id))}
-          selected_decision={@selected_decision}
+          selected_decision={inbox_selected_decision(@selected_decision, @history_rows)}
           selected_decision_id={@selected_decision_id}
           filter={@decision_filter}
           now={@now}
@@ -744,11 +833,18 @@ defmodule AiurWeb.DashboardLive do
           history_total={@history_total}
         />
         <History.history
-          rows={@streams.command_history}
+          rows={@history_rows}
           loaded={MapSet.size(@history_ids)}
           total={@history_total}
           has_more={@history_has_more}
           provider_health={@history_health}
+          expanded_id={history_expanded_id(@selected_decision, @history_rows)}
+          expanded_decision={@selected_decision}
+          history={@payload.history}
+          action_state={history_action_state(@decision_actions, @selected_decision_id)}
+          writable={@writable}
+          filter={@decision_filter}
+          query={@decision_query}
         />
       </div>
 
@@ -776,6 +872,10 @@ defmodule AiurWeb.DashboardLive do
             meters={@provider_meters_view}
             now={@now}
           />
+          <div class="rs-group-head units-group-head">
+            <span class="rs-group-title" id="units-agents-title">Agents</span>
+            <span class="rs-group-count">{@units_count_label}</span>
+          </div>
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
@@ -784,6 +884,9 @@ defmodule AiurWeb.DashboardLive do
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
 
+        <%!-- The searched view, so the reveal batches and counts the matches
+        rather than the whole backlog behind them. --%>
+        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
       </div>
 
       <AgentLogModal.agent_log_modal
@@ -793,6 +896,8 @@ defmodule AiurWeb.DashboardLive do
         drafts={@drafts}
         errors={@chat_errors}
       />
+      <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
+      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />
       <TicketContext.ticket_context
         :if={@ticket_context}
         id="units-ticket-context"
@@ -957,10 +1062,182 @@ defmodule AiurWeb.DashboardLive do
   defp assign_units_view(socket) do
     catalog = socket.assigns.payload |> Map.get(:units, %{})
     view = UnitsPresenter.project(catalog, socket.assigns.units_selection)
+    tickets_view = socket.assigns.payload |> Map.get(:tickets) |> TicketsPresenter.normalize()
 
     socket
     |> assign(:units_view, view)
     |> assign(:units_announcement, UnitsPresenter.announcement(view))
+    |> assign(:units_count_label, units_count_label(view))
+    |> assign(:tickets_view, tickets_view)
+    |> assign_tickets_panel_view()
+  end
+
+  # The unfiltered projection stays in `tickets_view` and the panel renders the
+  # searched one. Lookups — the add-agent modal, the ticket-context refresh —
+  # then keep resolving a row the current query happens to hide, so a ticket
+  # already open on screen does not go dead the moment the operator types.
+  defp assign_tickets_panel_view(socket) do
+    # Reached during mount before the query default is assigned, so the query is
+    # read defensively: no search yet means the unfiltered projection.
+    query = Map.get(socket.assigns, :tickets_query, "")
+    assign(socket, :tickets_panel_view, TicketsPresenter.search(socket.assigns.tickets_view, query))
+  end
+
+  # The modal opens on the routing the dispatcher would have applied, so the
+  # operator confirms a prediction rather than filling in a blank form.
+  #
+  # The model falls back to `resolved_model` only when routing named no model at all.
+  # `model` is the *requested* model and is `nil` whenever routing names just a
+  # backend, which would preselect "Backend default" and hide the model that is
+  # actually going to run — the prediction the Tickets table used to print in a
+  # "Would route to" column, and which now lives only here.
+  #
+  # The requested model is preferred over the resolved one so a family alias stays
+  # an alias. `CodingAgent.override_labels/0` seeds aliases ahead of pinned versions
+  # because "a pinned tag expires with its version"; preselecting `gpt-5.6-sol` for a
+  # `codex:sol` routing entry would write that expiry onto the ticket and strand it
+  # on 5.6 while every untouched ticket follows the alias forward.
+  #
+  # `normalize_selection/1` clamps whichever value wins to the backend's seedable
+  # vocabulary, so a model aiur does not list falls back to the backend default.
+  defp add_agent_modal(row) do
+    routing = row.routing
+
+    selection = %{
+      backend: routing.backend,
+      model: routing.model || routing.resolved_model,
+      effort: routing.effort,
+      complexity: routing.complexity
+    }
+
+    build_add_agent_modal(row, selection)
+  end
+
+  defp change_add_agent(modal, params) do
+    backend = blank_to_nil(params["backend"]) || modal.selection.backend
+
+    # A new backend invalidates the model and effort vocabularies, so a stale
+    # selection is dropped rather than carried onto a backend that rejects it.
+    # `normalize_selection/1` then clamps every field to what the daemon can
+    # honour, because all four arrive from the browser.
+    carry_over? = backend == modal.selection.backend
+
+    selection = %{
+      backend: backend,
+      model: carry_over? && blank_to_nil(params["model"]),
+      effort: carry_over? && blank_to_nil(params["effort"]),
+      complexity: parse_complexity(params["complexity"])
+    }
+
+    build_add_agent_modal(modal, selection)
+  end
+
+  defp build_add_agent_modal(row, selection) do
+    selection = AgentRoutingPreview.normalize_selection(selection)
+    labels = Map.get(row, :labels, [])
+
+    %{
+      token: row.token,
+      identifier: row.identifier,
+      title: row.title,
+      identity: Map.get(row, :identity),
+      routing: Map.get(row, :routing, %{available?: false}),
+      selection: selection,
+      options: AgentRoutingPreview.options(selection.backend),
+      labels: labels,
+      plan: AgentRoutingPreview.plan(selection, labels),
+      result: nil
+    }
+  end
+
+  defp confirm_add_agent(modal) do
+    Map.put(modal, :result, apply_label_plan(modal.identifier, modal.plan))
+  end
+
+  defp apply_label_plan(_identifier, %{add: [], remove: []}), do: {:error, :no_labels}
+
+  # Removals run first so a replaced `complexity:`/`model:` label cannot outrank
+  # the new one, and every applied change is reported even when a later call
+  # fails — the operator has to know the ticket is half-labelled.
+  defp apply_label_plan(identifier, %{add: add, remove: remove}) do
+    with {:ok, removed} <- apply_labels(identifier, remove, :remove_label),
+         {:ok, added} <- apply_labels(identifier, add, :add_label) do
+      {:ok, added ++ removed}
+    else
+      {:error, applied, reason} -> {:partial, applied, reason}
+    end
+  end
+
+  defp apply_labels(identifier, labels, action) do
+    fun = Endpoint.config(:add_agent_fun) || (&apply(Aiur.Tracker, &3, [&1, &2]))
+
+    Enum.reduce_while(labels, {:ok, []}, fn label, {:ok, applied} ->
+      case safe_label_call(fun, identifier, label, action) do
+        :ok -> {:cont, {:ok, [label | applied]}}
+        {:ok, _result} -> {:cont, {:ok, [label | applied]}}
+        {:error, reason} -> {:halt, {:error, applied, reason}}
+        other -> {:halt, {:error, applied, other}}
+      end
+    end)
+  end
+
+  defp safe_label_call(fun, identifier, label, action) do
+    cond do
+      is_function(fun, 3) -> fun.(identifier, label, action)
+      is_function(fun, 2) -> fun.(identifier, label)
+      true -> {:error, :unavailable}
+    end
+  rescue
+    _error -> {:error, :unavailable}
+  catch
+    _kind, _reason -> {:error, :unavailable}
+  end
+
+  # Confirming changed the tracker, so the panel's labels and its routing
+  # prediction are both stale until the poller catches up. Ask it to re-read now.
+  defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
+    OpenTicketSource.refresh()
+    reload_after_action(socket)
+  rescue
+    _error -> socket
+  catch
+    _kind, _reason -> socket
+  end
+
+  defp refresh_open_tickets(socket, _result), do: socket
+
+  defp parse_complexity(value) do
+    case blank_to_nil(value) do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {complexity, ""} when complexity in 1..5 -> complexity
+          _other -> nil
+        end
+    end
+  end
+
+  defp blank_to_nil(value) when is_binary(value), do: if(String.trim(value) == "", do: nil, else: String.trim(value))
+  defp blank_to_nil(_value), do: nil
+
+  # The Agents panel counts what the panel actually shows, so a filtered view
+  # never claims a fleet size the table below it does not contain. A partial
+  # catalog is qualified rather than rounded down to a confident number.
+  defp units_count_label(view) do
+    case Map.get(view, :count_status, :unavailable) do
+      :unavailable -> "agents unavailable"
+      :partial -> "at least #{agent_phrase(view)}"
+      _exact -> agent_phrase(view)
+    end
+  end
+
+  defp agent_phrase(view) do
+    case view |> Map.get(:rows, []) |> length() do
+      1 -> "1 agent"
+      count -> "#{count} agents"
+    end
   end
 
   # Read the current DASH-014 snapshot on mount/reconnect. On the dead first
@@ -1890,15 +2167,19 @@ defmodule AiurWeb.DashboardLive do
 
   # --- Command history -------------------------------------------------------
   #
-  # History is a stream so "Load more" appends one page and re-renders nothing
-  # that is already on screen. Rows are always read back from the retained
-  # store: a Command reaches history because the store says it left the queue,
-  # never because a click hid a card.
+  # History is an ordered list of rows the operator has loaded, so "Load more"
+  # appends one page to what is already on screen. Rows are always read back
+  # from the retained store: a Command reaches history because the store says it
+  # left the queue, never because a click hid a card.
+  #
+  # A stream would be the cheaper structure for an append-only table, but a row
+  # is now an accordion: expanding one has to re-render that row, and a stream
+  # item only re-renders when it is re-inserted — which would also move it to a
+  # new position in the list.
 
-  defp init_history_stream(socket) do
+  defp init_history_rows(socket) do
     socket
-    |> stream_configure(:command_history, dom_id: &"history-#{&1.decision_id}")
-    |> stream(:command_history, [])
+    |> assign(:history_rows, [])
     |> assign(:history_ids, MapSet.new())
     |> assign(:history_cursor, nil)
     |> assign(:history_total, nil)
@@ -1953,7 +2234,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp reset_history_with(page, socket) do
     socket
-    |> stream(:command_history, page.decisions, reset: true)
+    |> assign(:history_rows, page.decisions)
     |> assign(:history_ids, MapSet.new(page.decisions, & &1.decision_id))
     |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
     |> assign(:history_total, get_in(page, [:pagination, :total]))
@@ -1965,7 +2246,7 @@ defmodule AiurWeb.DashboardLive do
     new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
 
     socket
-    |> stream_rows(new_rows, [])
+    |> append_history_rows(new_rows)
     |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
     |> assign(:history_total, get_in(page, [:pagination, :total]))
     |> assign(:history_has_more, not is_nil(get_in(page, [:pagination, :next_cursor])))
@@ -1976,10 +2257,12 @@ defmodule AiurWeb.DashboardLive do
     if MapSet.size(socket.assigns.history_ids) == 0 do
       reset_history_with(page, socket)
     else
-      new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
+      {known_rows, new_rows} =
+        Enum.split_with(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
 
       socket
-      |> stream_rows(Enum.reverse(new_rows), at: 0)
+      |> refresh_history_rows(known_rows)
+      |> prepend_history_rows(new_rows)
       |> assign(:history_total, get_in(page, [:pagination, :total]))
       |> assign(:history_health, history_health(page))
     end
@@ -1994,18 +2277,76 @@ defmodule AiurWeb.DashboardLive do
          true <- decision.decision_status in @history_statuses do
       # The total stays whatever the store reported for the whole history set;
       # it is never incremented locally, so it cannot drift from the rows.
-      stream_rows(socket, [decision], at: 0)
+      #
+      # A Command already in the table is refreshed where it sits. Only a
+      # Command arriving in history for the first time joins at the head —
+      # answering from inside an open row must not make that row jump out from
+      # under the operator who is reading it.
+      if MapSet.member?(socket.assigns.history_ids, decision_id) do
+        refresh_history_rows(socket, [decision])
+      else
+        prepend_history_rows(socket, [decision])
+      end
     else
       _other -> socket
     end
   end
 
-  defp stream_rows(socket, rows, opts) do
-    Enum.reduce(rows, socket, fn row, socket ->
-      socket
-      |> stream_insert(:command_history, row, opts)
-      |> assign(:history_ids, MapSet.put(socket.assigns.history_ids, row.decision_id))
-    end)
+  # A finished Command is read where it lives: expanded inside its own history
+  # row. The inbox only ever hoists a Command the operator can still act on from
+  # the queue, so a history selection is not promoted to the top of the page.
+  #
+  # The one exception is a Command that history has not loaded — a deep link
+  # past the pages on screen. There is no row to expand, so the card is still
+  # the only way to see it.
+  defp inbox_selected_decision(selected, history_rows) do
+    if history_expanded_id(selected, history_rows), do: nil, else: selected
+  end
+
+  defp history_expanded_id(%{decision_id: decision_id, decision_status: status}, history_rows)
+       when status in @history_statuses do
+    if Enum.any?(history_rows, &(&1.decision_id == decision_id)), do: decision_id
+  end
+
+  defp history_expanded_id(_selected, _history_rows), do: nil
+
+  defp history_action_state(decision_actions, decision_id) when is_binary(decision_id),
+    do: Map.get(decision_actions, decision_id, %{})
+
+  defp history_action_state(_decision_actions, _decision_id), do: %{}
+
+  # A row already on screen is replaced in place with the freshly read copy,
+  # never skipped. A Command can be revised after it reached history, and a row
+  # holding its original answer would contradict the panel that expands out of
+  # it — showing fresh facts while open and stale ones the moment it closes.
+  # Position is preserved: this is a refresh, not a re-ordering.
+  defp refresh_history_rows(socket, []), do: socket
+
+  defp refresh_history_rows(socket, rows) do
+    fresh = Map.new(rows, &{&1.decision_id, &1})
+
+    assign(socket, :history_rows, Enum.map(socket.assigns.history_rows, &Map.get(fresh, &1.decision_id, &1)))
+  end
+
+  defp append_history_rows(socket, rows) do
+    socket
+    |> assign(:history_rows, socket.assigns.history_rows ++ rows)
+    |> track_history_ids(rows)
+  end
+
+  # Prepending re-reads a Command the operator just acted on, so any older copy
+  # of the same row is dropped rather than left behind as a stale duplicate.
+  defp prepend_history_rows(socket, rows) do
+    ids = MapSet.new(rows, & &1.decision_id)
+    kept = Enum.reject(socket.assigns.history_rows, &MapSet.member?(ids, &1.decision_id))
+
+    socket
+    |> assign(:history_rows, rows ++ kept)
+    |> track_history_ids(rows)
+  end
+
+  defp track_history_ids(socket, rows) do
+    assign(socket, :history_ids, Enum.reduce(rows, socket.assigns.history_ids, &MapSet.put(&2, &1.decision_id)))
   end
 
   defp history_page(cursor) do

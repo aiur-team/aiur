@@ -30,45 +30,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         <span><b>Units catalog unavailable.</b> {@message || "No last-known-good Units catalog is retained."}</span>
       </div>
 
-      <div :if={@status == :unavailable} class="units-table-wrap">
-        <table class="units-table">
-          <caption class="sr-only">Units catalog</caption>
-          <thead>
-            <tr>
-              <th class="ut-col-id">ID</th>
-              <th class="ut-col-unit">Unit</th>
-              <th class="ut-col-ticket">Ticket</th>
-              <th class="ut-col-latest">Latest</th>
-              <th class="ut-col-cmd">Command</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr class="units-row units-empty-row">
-              <td class="units-empty-cell" colspan="5">No active agents</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div :if={@status == :empty} class="units-state empty-state">
-        {@message || "No units have been observed in this run."}
-      </div>
-
-      <div :if={catalog_empty?(@status, @rows, @view)} class="units-state empty-state">
-        No units have been observed in this run.
-      </div>
-
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
         <span><b>Units catalog is partial.</b> Counts are lower bounds for the bounded membership prefix.</span>
       </div>
 
-      <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
-        <p>No units match this valid scope and condition selection.</p>
-        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
-      </div>
-
-      <div :if={@rows != []} class="units-table-wrap">
+      <div class="units-table-wrap">
         <table class="units-table">
           <caption class="sr-only">Units catalog with execution facts, current evidence, and named actions</caption>
           <thead>
@@ -80,6 +47,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <th class="ut-col-cmd">Command</th>
             </tr>
           </thead>
+          <%!-- The unavailable placeholder gets its own tbody so `#units-rows`
+                keeps matching real units only, as it did when this row lived in
+                a table of its own. --%>
+          <tbody :if={@status == :unavailable}>
+            <tr class="units-row units-empty-row">
+              <td class="units-empty-cell" colspan="5">No active agents</td>
+            </tr>
+          </tbody>
           <tbody id="units-rows">
             <tr
               :for={{row, token, github_url} <- @rows}
@@ -95,7 +70,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 phx-value-unit={token}
                 data-ticket-context-origin
               >
-                <span :if={attention_emoji?(row)} class="ut-alert" aria-hidden="true">{icon(:warning)}</span>
                 <span class="ut-id-num mono num">{id_number(row.identity)}</span>
               </td>
 
@@ -161,6 +135,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
           </tbody>
         </table>
       </div>
+
+      <div :if={@view[:zero_result?]} class="units-state empty-state filtered-empty">
+        <p>No units match this valid scope and condition selection.</p>
+        <button type="button" class="btn ghost units-reset" phx-click="reset-units-filters">Reset Units filters</button>
+      </div>
+
+      <div :if={no_units?(@status, @rows, @view)} class="units-state empty-state">{empty_sentence(@status, @message)}</div>
     </div>
     """
   end
@@ -236,9 +217,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp icon(:lock),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>))
 
-  defp icon(:warning),
-    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>))
-
   # Remote control deep-link, present only when the agent exposes one.
   defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) when is_binary(url) and url != "", do: url
   defp remote_control_url(%{remote_control_url: url}) when is_binary(url) and url != "", do: url
@@ -289,33 +267,44 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp runtime(row, now), do: UnitsPresentation.runtime_label(row, now)
 
-  defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
-  defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
-  defp row_tone(row), do: row_state_tone(row)
-
-  # Active, queued, and paused are distinct non-red states. The aggressive red
-  # alert treatment (warning glyph + red left border + red background) is
-  # reserved for a row blocked awaiting a command/decision; every other state
-  # renders without it.
-  defp row_state_tone(row) do
+  # Paused and queued take precedence over blocking/alert so a paused or queued
+  # row is never red regardless of its reasons.
+  defp row_tone(row) do
     cond do
       UnitsPolicy.condition?(:paused, row) -> "is-paused"
       UnitsPolicy.condition?(:queued, row) -> "is-queued"
+      attention_emoji?(row) -> attention_tone(row)
       true -> nil
     end
   end
 
-  # Only the two attention tones — blocked awaiting a command/decision and the
-  # open-command alert — carry the warning glyph; paused/queued/active never do.
-  defp attention_emoji?(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: true
-  defp attention_emoji?(%{reasons: %{alert: alert}}) when not is_nil(alert), do: true
-  defp attention_emoji?(_row), do: false
+  defp attention_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
+  defp attention_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
+  defp attention_tone(_row), do: nil
 
-  # A stale catalog with nothing retained must still say so, rather than
-  # silently rendering a blank area. `zero_result?` owns the "rows exist but the
-  # filter hides them" case, so it is excluded here.
-  defp catalog_empty?(:stale, [], view), do: view[:zero_result?] != true
-  defp catalog_empty?(_status, _rows, _view), do: false
+  # The two attention tones — blocked awaiting a command/decision and the
+  # open-command alert — drive the red row class; paused/queued/active never do.
+  defp attention_emoji?(row) do
+    not UnitsPolicy.condition?(:paused, row) and
+      not UnitsPolicy.condition?(:queued, row) and
+      not is_nil(attention_tone(row))
+  end
+
+  # A catalog with nothing to show must still say so, rather than leaving a bare
+  # header over a blank area. The two statuses that already account for
+  # themselves are excluded: `:loading` has not finished answering the question,
+  # and `:unavailable` names its own fault in a banner and an in-table row.
+  # `zero_result?` owns the "rows exist but the filter hides them" case, which is
+  # a different sentence with its own reset affordance.
+  defp no_units?(status, [], view) when status not in [:loading, :unavailable], do: view[:zero_result?] != true
+  defp no_units?(_status, _rows, _view), do: false
+
+  # A stale catalog never observed an empty fleet — it lost the catalog — so when
+  # the presenter composed a reason, that reason is the honest sentence and
+  # replaces the flat claim. Every other zero-unit status did observe emptiness,
+  # and says so plainly.
+  defp empty_sentence(:stale, message) when is_binary(message) and message != "", do: message
+  defp empty_sentence(_status, _message), do: "No live units."
 
   defp display_rows(view) do
     view

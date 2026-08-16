@@ -12,6 +12,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
           issue: map()
         }
 
+  # Kept in step with `UnitsPresenter`, which reports the same window on the
+  # catalog's own status. See `fleet_stale_after_seconds/0`.
+  @fleet_stale_after_seconds 300
+
   @spec normalize(map()) :: source_set()
   def normalize(inputs) do
     %{
@@ -95,10 +99,34 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
   @spec truncated?(source_set()) :: boolean()
   def truncated?(sources), do: Value.get(sources.membership, :truncated?) == true
 
+  @doc """
+  Returns how old a retained fleet view may be and still act as the row floor.
+
+  The Stream Deck projects a `:stale` orchestrator snapshot exactly as it
+  projects a current one, so admitting rows only from a `:fresh` fleet view
+  makes the two surfaces disagree about how many agents exist: the deck keeps
+  showing the retained fleet while the Units catalog silently drops every
+  status-sourced row. Both surfaces therefore share one tolerance, and only a
+  genuinely old fleet view stops being a valid floor.
+  """
+  @spec fleet_stale_after_seconds() :: pos_integer()
+  def fleet_stale_after_seconds, do: @fleet_stale_after_seconds
+
   @spec current_status?(source_set()) :: boolean()
   def current_status?(sources) do
     source_health(sources.status) in [:healthy, :available] and
-      freshness_status(sources.status) in [:fresh, :current]
+      usable_freshness?(sources.status)
+  end
+
+  # A `:stale` fleet view still carries every agent the orchestrator last
+  # published, so it stays a usable floor until it ages out. `:unknown` and
+  # `:unavailable` have no age to judge and never qualify.
+  defp usable_freshness?(source) do
+    case {freshness_status(source), freshness_age_seconds(source)} do
+      {status, _age_seconds} when status in [:fresh, :current] -> true
+      {:stale, age_seconds} when is_integer(age_seconds) and age_seconds < @fleet_stale_after_seconds -> true
+      _freshness -> false
+    end
   end
 
   @spec descriptor(map() | term(), map() | term()) :: map()
@@ -161,6 +189,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
       %{status: status} -> status
       status when is_atom(status) -> status
       _freshness -> :unknown
+    end
+  end
+
+  defp freshness_age_seconds(source) do
+    case Value.get(source, :freshness) do
+      %{age_seconds: age_seconds} when is_integer(age_seconds) and age_seconds >= 0 -> age_seconds
+      _freshness -> nil
     end
   end
 end

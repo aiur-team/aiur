@@ -120,7 +120,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(<img class="rs-logo rs-github-mark" src="/images/github-mark.svg")
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
-    assert html =~ "9R / 2W"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
     # The two GitHub budgets explain their units on hover.
     assert html =~ ~s(title="REST request budget")
@@ -752,7 +751,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "100% used · as of 08:53 UTC"
+      # A ledger-only standing is stale by construction, and the meta line is the
+      # only place that says so now that the row's head chip is gone.
+      assert html =~ "100% used · as of 08:53 UTC (stale)"
       assert html =~ ~s(class="is-critical" style="width:100%")
     after
       restore_app_env(:aiur, :workflow_file_path, previous_path)
@@ -811,9 +812,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "$6.25"
   end
 
-  # The spend figure leads an API-key model row, left of the provider logo, so
-  # the dollar amount is the first fact the eye meets.
-  test "the spend figure precedes the provider logo in an API-key model row" do
+  # The provider logo leads the row on the far left and is the row's only mark;
+  # the spend figure closes the row on the right.
+  test "the provider logo leads the model row and the spend figure closes it" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -837,10 +838,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      [before_name, _after] = String.split(html, "DeepSeek", parts: 2)
-      {spend_pos, _} = :binary.match(before_name, "rs-stat-spend")
-      {logo_pos, _} = :binary.match(before_name, ~s(class="rs-logo"))
-      assert spend_pos < logo_pos
+      [before_name, after_name] = String.split(html, "DeepSeek", parts: 2)
+
+      assert before_name =~ ~s(<img class="rs-logo" src=)
+      assert after_name =~ "rs-stat-spend"
+
+      # DeepSeek is not Claude or Codex, so it carries no second, right-hand
+      # token glyph — one mark per row, on the far left.
+      refute after_name =~ ~s(<img class="rs-logo" src=)
+      refute after_name =~ "rs-token"
     end)
   end
 
@@ -1197,19 +1203,77 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           })
 
         # DeepSeek is a real, fresh zero-consumed reading.
-        assert html =~ ~s(<span class="rs-state is-healthy">Healthy</span>)
         assert html =~ "0% · resets in 30m"
 
         # Claude's window is stale: the reading is labelled rather than
         # presented as current.
         assert html =~ "62% · resets in 30m (stale)"
-        assert html =~ ~s(<span class="rs-state is-stale">Stale</span>)
 
         # Kimi reported nothing at all, which is neither healthy nor a zero.
-        assert html =~ ~s(<span class="rs-state is-unavailable">Unavailable</span>)
         assert html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
+
+        # The head-row freshness chip is gone (the row leads with the provider
+        # logo instead); the meter's own meta line is what keeps the three
+        # readings apart, so it is the assertion that guards #1564.
+        refute html =~ "rs-state"
       end)
     end)
+  end
+
+  # The case the chip used to carry alone: an adapter failure (or repeated probe
+  # failures over retained values) leaves the card standing at :stale/:partial
+  # while the windows it kept are still stamped fresh. Without a row-level
+  # qualifier those percentages read as live ones.
+  test "a card standing stale or partial qualifies windows its own freshness calls fresh" do
+    for {state, qualifier} <- [{:stale, "(stale)"}, {:partial, "(partial)"}] do
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: %{state: :loading},
+          usage: %{state: :locked, providers: %{}},
+          meters: %{
+            state: :authorized,
+            cards: [
+              %{
+                provider: :codex,
+                provider_label: "Codex",
+                state: state,
+                status_label: "Retained",
+                auth_mode: %{value: :session},
+                windows: [Map.put(scoped_window("codex:primary", 40), :freshness, :fresh)]
+              }
+            ]
+          },
+          now: @now
+        })
+
+      assert html =~ "40% · resets in 30m #{qualifier}"
+    end
+  end
+
+  # ...and it is added once, not twice, when the window already says it.
+  test "a stale window is not qualified twice by a stale card" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :locked, providers: %{}},
+        meters: %{
+          state: :authorized,
+          cards: [
+            %{
+              provider: :codex,
+              provider_label: "Codex",
+              state: :stale,
+              status_label: "Retained",
+              auth_mode: %{value: :session},
+              windows: [Map.put(scoped_window("codex:primary", 40), :freshness, :stale)]
+            }
+          ]
+        },
+        now: @now
+      })
+
+    assert html =~ "40% · resets in 30m (stale)"
+    refute html =~ "(stale) (stale)"
   end
 
   test "a GitHub card still awaiting a response shows the awaiting placeholder" do

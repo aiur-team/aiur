@@ -6,7 +6,7 @@ export default defineConfig({
   base: '/docs/',
   outDir: '../dist/docs',
   cleanUrls: true,
-  ignoreDeadLinks: [/\.claude\//, /\.codex\//, /src\/lib\//],
+  ignoreDeadLinks: [/\.claude\//, /\.codex\//, /src\/lib\//, /src\/test\//],
   appearance: {
     initialValue: 'dark',
     storageKey: 'aiur-theme'
@@ -39,7 +39,7 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: '/assets/aiur-logo.png',
-    siteTitle: 'aiur',
+    siteTitle: 'AIUR',
     nav: [
       { text: 'Home', link: 'https://aiur.team/', target: '_self' },
       { text: 'Docs', link: '/guide/quick-start', activeMatch: '^/' }
@@ -60,7 +60,6 @@ export default defineConfig({
       {
         text: 'Concepts',
         items: [
-          { text: 'What Aiur is', link: '/concepts/what-is-aiur' },
           { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
           { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
           { text: 'Coordination and events', link: '/concepts/coordination' }

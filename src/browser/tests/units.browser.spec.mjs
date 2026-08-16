@@ -1,13 +1,18 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
+import { assertNoDocumentOverflow, expectAuditClean, settleAnimations } from './support/browser-helpers.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
-async function openUnits(page) {
+async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
-  await page.goto('/units')
+  await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  // `isConnected()` reports the socket, not the view: the root still carries
+  // `phx-loading` until the first connected render is applied, and a click
+  // dispatched in that window lands on dead-render DOM that LiveView is about
+  // to replace, so its binding never reaches the server. Wait for the swap.
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 // Rows in the compact Units table open the ticket-context dialog via a click on
@@ -163,6 +168,73 @@ test('Units URL history restores independent conditions and copied links', async
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
 })
 
+test('Units keeps its column headings at zero units and names the empty state in both themes', async ({ page }) => {
+  await openUnits(page, '/units?catalog=empty')
+
+  // The table keeps its shape: a real thead with all five headings, over an
+  // empty tbody rather than a table that vanished with its rows. Scoped to the
+  // Units card because the Tickets panel below reuses the same table class.
+  const table = page.locator('.units-card table.units-table')
+  await expect(table).toBeVisible()
+  await expect(table.locator('thead th')).toHaveText(['ID', 'Unit', 'Ticket', 'Latest', 'Command'])
+  await expect(page.locator('#units-rows tr.units-row')).toHaveCount(0)
+
+  // The empty state sits below the table, and it is the only one: the
+  // filtered-empty sentence belongs to a hidden-by-filter catalog, not this one.
+  const empty = page.locator('.units-card .empty-state')
+  await expect(empty).toHaveCount(1)
+  await expect(empty).toHaveText('No live units.')
+
+  const emptyBelowTable = await page.evaluate(() => {
+    const box = document.querySelector('.units-card .empty-state').getBoundingClientRect()
+    return box.top >= document.querySelector('.units-card table.units-table').getBoundingClientRect().bottom
+  })
+  expect(emptyBelowTable).toBe(true)
+
+  // The box reads as a muted dashed placeholder in both themes. Colours come
+  // from the theme tokens, so they must actually differ between the two.
+  const readStyle = () =>
+    empty.evaluate((box) => {
+      const style = getComputedStyle(box)
+      return {
+        borderStyle: style.borderTopStyle,
+        borderWidth: style.borderTopWidth,
+        borderColor: style.borderTopColor,
+        color: style.color,
+        textAlign: style.textAlign
+      }
+    })
+
+  const dark = await readStyle()
+  expect(dark.borderStyle).toBe('dashed')
+  expect(dark.borderWidth).toBe('1px')
+  expect(dark.textAlign).toBe('center')
+
+  // The whole card is clean in the dark theme, so scan all of it -- that catches
+  // a structural a11y regression anywhere in the Units panel, not just this box.
+  const darkAccessibility = await new AxeBuilder({ page }).include('.units-card').analyze()
+  expectAuditClean(darkAccessibility)
+
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  await settleAnimations(page)
+  const light = await readStyle()
+  expect(light.borderStyle).toBe('dashed')
+  expect(light.textAlign).toBe('center')
+  expect(light.color).not.toBe(dark.color)
+  expect(light.borderColor).not.toBe(dark.borderColor)
+
+  // The light theme now scans the whole card too, rather than narrowing to the
+  // empty box. The filter pills that used to fail here are the production
+  // component on `--muted`; the card's `.section-eyebrow` and `<h1>` are this
+  // fixture's own chrome (production renders its heading in the shell, above
+  // the card), so widening the scope re-guards the pills for real and the
+  // heading only here. `--muted`/`--faint` were remeasured, and the heading
+  // failure that was blamed on them was really this theme fade being sampled
+  // mid-flight.
+  const lightAccessibility = await new AxeBuilder({ page }).include('.units-card').analyze()
+  expectAuditClean(lightAccessibility)
+})
+
 test('Units conversation drawer hook manages focus, Escape, and focus return', async ({ page }) => {
   await openUnits(page)
 
@@ -208,7 +280,11 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.getByText('Responsive Units interface · updated')).toBeVisible()
   await expect(page.locator('#units-status')).not.toHaveText(announcementBefore)
   await expect(page.locator('#units-status')).toContainText(/Catalog update [a-f0-9]{10}/)
-  await expect(page.locator('[role="status"][aria-live="polite"]')).toHaveCount(1)
+  // The catalog owns exactly one announcement channel. The Tickets panel has
+  // its own, which stays silent unless the operator searches, so this is scoped
+  // to the catalog's rather than counting every polite region on the page.
+  await expect(page.locator('[role="status"][aria-live="polite"]#units-status')).toHaveCount(1)
+  await expect(page.locator('#tickets-search-status')).toHaveText('')
 
   // Reopen after the update: the dialog reflects the new title.
   await page.locator('#units-rows tr.units-row').first().locator('td.ut-id-cell').click()
@@ -220,4 +296,130 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Units' })).toBeFocused()
+})
+
+test('Tickets panel lists open tickets and both dialogs focus and dismiss on Escape', async ({ page }) => {
+  await openUnits(page)
+
+  const panel = page.locator('.tickets-card')
+  await expect(panel).toBeVisible()
+  await expect(panel.getByText('Tickets', { exact: true })).toBeVisible()
+  // The header count, not the visually hidden search announcement that echoes it.
+  await expect(panel.locator('.rs-group-count')).toHaveText('2 tickets')
+
+  const accessibility = await new AxeBuilder({ page }).include('.tickets-card').analyze()
+  expect(accessibility.violations).toEqual([])
+
+  // The routing prediction is not a column: it is the add-agent modal's editable
+  // default, so the table never offers it as read-only text.
+  await expect(panel.locator('th.tk-col-agent')).toHaveCount(0)
+  await expect(panel.getByText('Would route to')).toHaveCount(0)
+
+  // The panel opens on one batch and reveals the rest on request. This fixture
+  // starts one row below its own batch size so the control is present on a
+  // small ticket list; the production batch of 5 is covered by the unit tests.
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  const showMore = panel.getByRole('button', { name: 'Show 1 more ticket' })
+  await showMore.focus()
+  await expect(showMore).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  // Progressive reveal, and no dead control once everything is on screen.
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(2)
+  await expect(panel.getByRole('button', { name: /Show \d+ more ticket/ })).toHaveCount(0)
+
+  // A row cell opens the ticket detail; the action column deliberately does not.
+  await panel.locator('#tickets-rows tr').first().locator('td.tk-title-cell').click()
+
+  const detail = page.locator('#ticket-detail-modal')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByRole('heading', { name: /Unrouted backlog ticket/ })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+
+  const addAgent = page.getByRole('button', { name: 'Add an agent to ticket 2101' })
+  await addAgent.click()
+
+  const modal = page.locator('#add-agent-modal')
+  await expect(modal).toBeVisible()
+  await expect(modal.getByRole('heading', { name: /Unrouted backlog ticket/ })).toBeFocused()
+  // The prediction is prefilled from the ticket's own complexity tag, and the
+  // sentence that used to explain the prefill is gone — the behaviour stays.
+  await expect(modal.getByLabel('Complexity')).toHaveValue('3')
+  await expect(modal.getByText(/Prefilled from the current routing configuration/)).toHaveCount(0)
+
+  // The selects share the primary button's control height so the form reads as
+  // one column of controls rather than four fields and a differently sized row.
+  // A 1px tolerance, not equality: the two boxes derive their height from
+  // different line-height sources, so exact agreement would break on an
+  // unrelated base-font change rather than on this rhythm actually drifting.
+  const controlHeights = await modal.evaluate((panel) => {
+    const height = (selector) => panel.querySelector(selector).getBoundingClientRect().height
+    return { select: height('.field-select select'), button: height('.add-agent-actions .btn') }
+  })
+  expect(Math.abs(controlHeights.select - controlHeights.button)).toBeLessThanOrEqual(1)
+
+  // `.btn` is back in scope: the primary button used to paint white straight
+  // onto the bright `--accent` (3.51:1 in the dark theme), and now takes its
+  // fill and ink from `--accent-strong`/`--on-accent` instead.
+  const modalAccessibility = await new AxeBuilder({ page }).include('#add-agent-modal').analyze()
+  expectAuditClean(modalAccessibility)
+
+  await page.keyboard.press('Escape')
+  await expect(modal).toHaveCount(0)
+})
+
+test('Tickets search filters on title and description from the keyboard alone', async ({ page }) => {
+  await openUnits(page)
+
+  const panel = page.locator('.tickets-card')
+  const search = panel.getByRole('searchbox', { name: /Search tickets/ })
+
+  // The panel opens on one revealed row, so the second ticket is on the server
+  // but not on screen.
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(panel.getByText('Documentation refresh')).toHaveCount(0)
+
+  // Reachable and operable without a pointer.
+  await search.focus()
+  await expect(search).toBeFocused()
+
+  // "retry" appears only in the unrevealed ticket's description, never in any
+  // title: the server filters the whole backlog, so a ticket the reveal has not
+  // reached is still findable, and by what it says rather than what it is named.
+  await search.pressSequentially('retry', { delay: 30 })
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(panel.getByText('Documentation refresh')).toBeVisible()
+  await expect(panel.getByText('Unrouted backlog ticket')).toHaveCount(0)
+  await expect(panel.locator('.rs-group-count')).toHaveText('1 of 2 tickets')
+  // The result is announced, not only shown.
+  await expect(panel.locator('#tickets-search-status')).toHaveText('1 of 2 tickets match.')
+  // One match does not fill the batch, so there is nothing left to reveal.
+  await expect(panel.getByRole('button', { name: /Show \d+ more ticket/ })).toHaveCount(0)
+
+  const filteredAccessibility = await new AxeBuilder({ page }).include('.tickets-card').analyze()
+  expect(filteredAccessibility.violations).toEqual([])
+
+  // A query matching both keeps the reveal control, counting the matches.
+  await search.fill('21')
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(panel.getByRole('button', { name: 'Show 1 more ticket' })).toBeVisible()
+
+  // A query that matches nothing says so rather than rendering an empty panel.
+  await search.fill('zzzzqqqq')
+  await expect(panel.locator('.tk-no-matches')).toBeVisible()
+  await expect(panel.locator('#tickets-rows')).toHaveCount(0)
+
+  // Clearing from the keyboard restores the unfiltered list, empties the field,
+  // and keeps focus on the control that was activated rather than dropping it
+  // to the document body.
+  const clear = panel.locator('.tk-search-clear')
+  await search.press('Tab')
+  await expect(clear).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  await expect(panel.locator('.rs-group-count')).toHaveText('2 tickets')
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(search).toHaveValue('')
+  await expect(clear).toBeFocused()
 })

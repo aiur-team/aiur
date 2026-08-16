@@ -317,6 +317,31 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Floki.raw_html(unresolved_counts) =~ "—"
   end
 
+  # The companion to the test above: once a catalog read resolves the label-
+  # derived dimensions, the list page shows the same real numbers the detail
+  # page does, with no "Unresolved" chip and no unresolved marker anywhere in
+  # the row (#1766).
+  test "catalog renders resolved epic and wave counts as the numbers they are", %{source: source} do
+    entries = [
+      progress_root(identity(57, "NODE-57"), "Pack with resolved dimensions",
+        member_count: 35,
+        epic_count: 4,
+        phase_count: 7
+      )
+    ]
+
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+    counts = catalog_count_cells(document, "Pack with resolved dimensions")
+
+    assert Enum.map(counts, &catalog_count_text/1) == ["35", "4", "7"]
+    refute Floki.raw_html(counts) =~ "Unresolved"
+    assert Enum.all?(counts, &(Floki.find(&1, "[data-count-state]") == []))
+    refute Floki.raw_html(counts) =~ "—"
+  end
+
   defp progress_cell(document, title) do
     document |> catalog_row(title) |> Floki.find("td.bo-catalog-progress-cell")
   end

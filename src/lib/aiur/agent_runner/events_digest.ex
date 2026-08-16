@@ -11,6 +11,7 @@ defmodule Aiur.AgentRunner.EventsDigest do
 
   alias Aiur.Config
   alias Aiur.Events.DebugLog
+  alias Aiur.ExternalContent
   alias Aiur.Protocol.MapAccess
 
   @doc """
@@ -230,25 +231,11 @@ defmodule Aiur.AgentRunner.EventsDigest do
 
   defp maybe_wrap_external_content(text, _event), do: text
 
-  defp wrap_external(text, author) do
-    attr =
-      if is_binary(author) and author != "",
-        do: " author=\"#{html_attr_escape(author)}\"",
-        else: ""
-
-    "<external-content source=\"github\"#{attr}>#{text}</external-content>"
-  end
-
-  # The author login comes from GitHub. The standard charset is
-  # `[A-Za-z0-9-]` with no `"` allowed, but an attacker who controls a
-  # GitHub login claim (or any future code path that synthesizes the
-  # field) could embed quote / angle / ampersand characters. Escape
-  # defensively so the attribute boundary always holds.
-  defp html_attr_escape(value) do
-    value
-    |> String.replace("&", "&amp;")
-    |> String.replace("\"", "&quot;")
-    |> String.replace("<", "&lt;")
-    |> String.replace(">", "&gt;")
-  end
+  # Event summaries already went through the payload scrubbers, which run the
+  # same `clean/2` pipeline as `Sanitizer.clean_untrusted/2` — so this wraps
+  # sanitized text. The wrapper spelling itself lives in one place
+  # (`Aiur.ExternalContent`) because the shared agent instructions teach exactly
+  # one tag; a second spelling here would be a tag the agent was never told to
+  # distrust.
+  defp wrap_external(text, author), do: ExternalContent.wrap_sanitized(text, author)
 end

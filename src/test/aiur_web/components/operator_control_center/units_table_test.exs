@@ -107,9 +107,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # (column headings + a single "No active agents" row) rather than an error.
     assert unavailable =~ "No active agents"
     assert unavailable =~ "units-table"
+    # The placeholder is not a unit: `#units-rows` stays empty so every row
+    # selector keyed on it still counts only real units.
+    refute unavailable =~ ~r{<tbody id="units-rows">\s*<tr}
     assert unavailable =~ "Units catalog unavailable"
     assert unavailable =~ "membership failed"
-    assert empty =~ "No units observed"
+    # Every zero-unit catalog reads the same sentence. The per-status detail is
+    # not lost: `UnitsPresenter.announcement/1` derives its own copy from the
+    # status, so the box no longer needs to paint `@message` as well.
+    assert empty =~ "No live units."
+    refute empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
     assert filtered =~ ~s(class="btn ghost units-reset")
@@ -121,21 +128,60 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert stale =~ "Responsive Units interface"
 
     # A stale catalog with nothing retained must still account for the empty
-    # table rather than rendering a blank area.
+    # table rather than rendering a blank area. It keeps the column headings so
+    # the catalog reads as empty rather than absent, and it still says why it is
+    # empty instead of claiming a fleet-wide emptiness it never observed.
     stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
     refute stale_empty =~ "Stale Units catalog"
-    assert stale_empty =~ "No units have been observed in this run."
-    refute stale_empty =~ "units-table"
+    assert stale_empty =~ "No last-known-good Units catalog is retained."
+    refute stale_empty =~ "No live units."
+    assert stale_empty =~ "units-table"
+
+    # With no reason composed, the ordinary empty-state sentence still stands in.
+    stale_empty_unexplained = render(%{status: :stale, message: nil, rows: [], zero_result?: false})
+    assert stale_empty_unexplained =~ "No live units."
 
     # The filter-hides-everything case still belongs to zero_result?, not to the
     # catalog-empty message.
     stale_filtered = render(%{status: :stale, message: "last known membership", rows: [], zero_result?: true})
     assert stale_filtered =~ "No units match this valid scope"
-    refute stale_filtered =~ "No units have been observed in this run."
+    refute stale_filtered =~ "No live units."
 
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
     assert partial =~ "Units catalog is partial"
     assert partial =~ "Counts are lower bounds"
+  end
+
+  test "keeps the column headings and names the empty state when the catalog holds no units" do
+    html = render(%{status: :empty, message: "No units observed", rows: [], zero_result?: false})
+
+    # The headings are the table's shape: they stay put at zero units so the
+    # operator reads an empty catalog rather than a vanished one.
+    assert html =~ ~s(<thead>)
+    assert html =~ ~s(<th class="ut-col-id">ID</th>)
+    assert html =~ ~s(<th class="ut-col-unit">Unit</th>)
+    assert html =~ ~s(<th class="ut-col-ticket">Ticket</th>)
+    assert html =~ ~s(<th class="ut-col-latest">Latest</th>)
+    assert html =~ ~s(<th class="ut-col-cmd">Command</th>)
+
+    # The empty state sits below the table in the dashboard's shared
+    # dashed-border `empty-state` surface.
+    assert html =~ ~s(class="units-state empty-state")
+    assert html =~ "No live units."
+  end
+
+  test "withholds the zero-unit sentence from the statuses that already account for themselves" do
+    # `:loading` has not finished answering the question yet, and `:unavailable`
+    # names its own fault twice over — a banner and an in-table row. Either one
+    # would read as a contradiction beside "No live units.", so the guard in
+    # `no_units?/3` excludes them and this pins both sides of that exclusion.
+    loading = render(%{status: :loading, message: nil, rows: [], zero_result?: false})
+    assert loading =~ "Loading Units"
+    refute loading =~ "No live units."
+
+    unavailable = render(%{status: :unavailable, message: "membership failed", rows: [], zero_result?: false})
+    assert unavailable =~ "No active agents"
+    refute unavailable =~ "No live units."
   end
 
   test "renders a named, reachable pause control for a running unit when writable" do
@@ -230,7 +276,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     html = render(view([row_with_tone(:blocked)]))
 
     assert html =~ ~s(class="units-row is-blocked")
-    assert html =~ ~s(class="ut-alert")
+    refute html =~ ~s(class="ut-alert")
+  end
+
+  test "paused and queued rows never render red even with blocking/alert reasons" do
+    paused = render(view([row_with_tone(:paused_with_attention)]))
+    queued = render(view([row_with_tone(:queued_with_attention)]))
+
+    assert paused =~ ~s(class="units-row is-paused")
+    refute paused =~ ~s(class="units-row is-blocked")
+    refute paused =~ ~s(class="units-row has-alert")
+
+    assert queued =~ ~s(class="units-row is-queued")
+    refute queued =~ ~s(class="units-row is-blocked")
+    refute queued =~ ~s(class="units-row has-alert")
   end
 
   test "renders active, queued, and paused rows with distinct non-red tones" do
@@ -365,5 +424,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     |> Map.put(:open_command_count, 0)
     |> put_in([:runtime, :work_state], :paused)
     |> put_in([:runtime, :waiting_reason], :paused)
+  end
+
+  defp row_with_tone(:paused_with_attention) do
+    row() |> put_in([:runtime, :work_state], :paused)
+  end
+
+  defp row_with_tone(:queued_with_attention) do
+    row()
+    |> Map.put(:reasons, %{waiting: :awaiting_dispatch, blocking: :waiting_for_dependency, alert: :open_command, pause: nil, stuck: nil})
+    |> put_in([:runtime, :bucket], :retrying)
+    |> put_in([:runtime, :waiting_reason], :awaiting_dispatch)
+    |> put_in([:runtime, :work_state], :idle)
   end
 end

@@ -19,12 +19,195 @@ while [ -L "$src" ]; do
   [[ "$src" != /* ]] && src="$dir/$src"
 done
 script_dir="$(cd -P "$(dirname "$src")" && pwd)"
-repo_root="${AIUR_REPO_ROOT:-$(cd "$script_dir/.." && pwd)}"
+
+# Where repo_root came from decides whether a cwd mismatch is a mistake or a
+# deliberate choice: an explicit AIUR_REPO_ROOT states the target outright, the
+# path-derived default only infers one from where the script (or its symlink
+# target) happens to live.
+if [ -n "${AIUR_REPO_ROOT:-}" ]; then
+  # Canonicalize: a trailing slash or a symlinked path would otherwise fail the
+  # physical-path comparisons below, silently disabling provenance and the
+  # targeting check on a root that is perfectly valid.
+  repo_root="$(cd -P "$AIUR_REPO_ROOT" 2>/dev/null && pwd || printf '%s' "$AIUR_REPO_ROOT")"
+  repo_root_source="AIUR_REPO_ROOT"
+else
+  repo_root="$(cd -P "$script_dir/.." && pwd)"
+  repo_root_source="script-path"
+fi
+
 elixir_dir="$repo_root/src"
 release_dir="$elixir_dir/_build/dev/rel/aiur"
+release_stamp="$release_dir/AIUR_BUILD_STAMP"
 build_lock_dir="$elixir_dir/_build/.aiurdev-build.lock"
 engine="$repo_root/packaging/npm/aiur-cli/libexec/aiur-engine.sh"
 mise_bin="${AIUR_MISE_BIN:-$(command -v mise 2>/dev/null || true)}"
+
+# --- checkout targeting -------------------------------------------------------
+# repo_root is derived from this script's path, which is deliberate: a globally
+# symlinked `aiurdev` (~/.local/bin/aiurdev -> <checkout>/scripts/aiurdev) has to
+# work from any directory. The cost is that the target is invisible — standing in
+# checkout B and running the symlink compiles into, and boots, checkout A, and
+# every step reports success. That is how a rebuild-and-bounce ships a release
+# from a tree the operator never touched.
+#
+# So the path-derived default stands, but it may not silently disagree with where
+# the operator is standing: when the cwd is inside a DIFFERENT aiur checkout, the
+# commands that write a release or boot one refuse and name both roots.
+
+# Walk up from the physical cwd for the checkout it belongs to. All three markers
+# are required — they are exactly what this shim needs from a repo root, so a
+# partial tree (a docs-only clone, an unrelated repo with a scripts/ dir) never
+# matches and never triggers a spurious refusal.
+enclosing_aiur_checkout() {
+  local dir
+  dir="$(pwd -P 2>/dev/null || true)"
+
+  while [ -n "$dir" ] && [ "$dir" != "/" ]; do
+    if [ -f "$dir/scripts/aiurdev" ] &&
+      [ -f "$dir/packaging/npm/aiur-cli/libexec/aiur-engine.sh" ] &&
+      [ -f "$dir/src/mix.exs" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+
+  return 1
+}
+
+# The command the ENGINE will see, which is not always "$1": the shim consumes
+# its own dev-only flags before dispatch, so `aiurdev --debug status` is still a
+# control command and must be classified as one.
+effective_command() {
+  local arg
+
+  for arg in "$@"; do
+    case "$arg" in
+      --debug | --clear | --allow-remote) ;;
+      *)
+        printf '%s\n' "$arg"
+        return 0
+        ;;
+    esac
+  done
+
+  # Nothing left: a bare run.
+  return 0
+}
+
+# Commands whose PURPOSE is to produce a release or boot one. For these a
+# mismatch is the defect itself and refusing costs nothing — re-run from the
+# right directory. Everything else is a control, informational, or RPC command
+# that only wants to reach the running daemon; refusing those would trade a
+# build nobody asked for against a fleet that cannot be answered, so they are
+# handled by not building instead (see guard_checkout_target).
+#
+# Every named engine subcommand is listed, so the fallthrough means "an
+# unrecognized token", which for this shim is a bare run, a run flag, or a
+# config path — all of which boot a release. Drift therefore lands on the
+# refusing side, which is loud and immediately fixable, never on the silent one.
+targets_release_deliberately() {
+  case "${1:-}" in
+    build | restart) return 0 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
+    watch | init | findings | guard-pr-deletions | __identity) return 1 ;;
+    help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | analytics) return 1 ;;
+    executor-*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+refuse_diverging_checkout() {
+  local cwd_root="$1" cmd="$2" shim_name args=""
+  shift 2
+  shim_name="$(basename "$src")"
+
+  # %q so a config path with spaces comes back as a line the operator can paste.
+  if [ "$#" -gt 0 ]; then
+    printf -v args ' %q' "$@"
+  fi
+
+  echo "❌ aiurdev would target a different checkout than the one you are in" >&2
+  echo "   you are in    : $cwd_root" >&2
+  echo "   would target  : $repo_root (resolved from the aiurdev script path)" >&2
+  echo "   command       : ${cmd:-<run>}" >&2
+  echo >&2
+  echo "   Building or booting there would report success while leaving the release" >&2
+  echo "   you are working on untouched. Pick one:" >&2
+  echo >&2
+  echo "   # target the checkout you are in" >&2
+  echo "   $cwd_root/scripts/$shim_name$args" >&2
+  echo "   # target the other checkout on purpose" >&2
+  echo "   AIUR_REPO_ROOT=$repo_root $shim_name$args" >&2
+  exit 64
+}
+
+# Set when the cwd belongs to a different checkout than the one being targeted.
+# The dispatch block reads it to keep a control command off the build path: the
+# release in the OTHER checkout is one a live daemon may be booted from, and
+# rewriting it in place to answer an RPC is the same silent damage as building
+# it on purpose.
+checkout_diverges=0
+
+guard_checkout_target() {
+  local cwd_root cmd shim_name
+
+  # An explicit AIUR_REPO_ROOT already states the intent this guard exists to
+  # confirm, so it is the documented escape hatch as well as the override.
+  if [ "$repo_root_source" = "AIUR_REPO_ROOT" ]; then
+    return 0
+  fi
+
+  cmd="$(effective_command "$@")"
+
+  if ! cwd_root="$(enclosing_aiur_checkout)"; then
+    # No checkout to compare against. Name the target anyway for the commands
+    # that will write or boot a release: standing outside every checkout is the
+    # other way to lose track of which tree a build lands in.
+    if targets_release_deliberately "$cmd"; then
+      echo "ℹ️  aiurdev targeting $repo_root (resolved from the aiurdev script path)" >&2
+    fi
+    return 0
+  fi
+
+  if [ "$cwd_root" = "$repo_root" ]; then
+    return 0
+  fi
+
+  if targets_release_deliberately "$cmd"; then
+    refuse_diverging_checkout "$cwd_root" "$cmd" "$@"
+  fi
+
+  shim_name="$(basename "$src")"
+
+  # Reusing the other checkout's release is only harmless while there IS one.
+  # `ensure_control_surface` repairs a missing release by building it, which
+  # from here is the same silent foreign build under a different name — so this
+  # is the one control-command case that still has to refuse.
+  if ! release_ready; then
+    echo "❌ aiurdev cannot run this against $repo_root without building it" >&2
+    echo "   you are in    : $cwd_root" >&2
+    echo "   would target  : $repo_root (resolved from the aiurdev script path)" >&2
+    echo "   That checkout has no complete release, so reaching its daemon would" >&2
+    echo "   compile one there — a checkout you are not working in." >&2
+    echo >&2
+    echo "   # use the checkout you are in" >&2
+    echo "   $cwd_root/scripts/$shim_name ${cmd:-}" >&2
+    echo "   # or build the other one on purpose first" >&2
+    echo "   AIUR_REPO_ROOT=$repo_root $shim_name build" >&2
+    exit 64
+  fi
+
+  # Otherwise a control or RPC command still has to reach the daemon — refusing
+  # `executor-answer` would leave a blocked agent unanswerable over a build it
+  # never needed. So it runs, but it says which checkout it is speaking through
+  # and is kept off the build path.
+  checkout_diverges=1
+  echo "ℹ️  aiurdev is speaking through $repo_root, not the checkout you are in" >&2
+  echo "   ($cwd_root). Its existing release is reused and nothing is built there." >&2
+  echo "   Use $cwd_root/scripts/$shim_name to act on this checkout instead." >&2
+}
 
 require_mise() {
   if [ -z "$mise_bin" ] || [ ! -x "$mise_bin" ]; then
@@ -57,7 +240,7 @@ requires_pinned_opencode() {
   # an Aiur session need OpenCode. Control and utility commands must remain
   # usable against an existing daemon when the local tool install is missing.
   case "$cmd" in
-    "" | run | --bg) return 0 ;;
+    "" | run | restart | --bg) return 0 ;;
     help | -h | -help | --h | --help | --version | --todo | --only | init | findings | guard-pr-deletions) return 1 ;;
     agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget) return 1 ;;
     -*) return 0 ;;
@@ -81,6 +264,65 @@ ensure_elixir_deps() {
     echo "🔨 fetching and compiling Hex dependencies" >&2
     (cd "$elixir_dir" && "$mise_bin" exec -- mix deps.get && "$mise_bin" exec -- mix compile) >&2
   fi
+}
+
+# True only when repo_root is itself the root of a git work tree. `git -C` walks
+# UP to the nearest enclosing repository, so a repo_root that merely sits inside
+# some other checkout would otherwise be stamped with that outer repository's
+# commit — provenance for a tree nobody built. A linked worktree reports its own
+# path here, so worktrees are handled like any other root.
+repo_is_git_root() {
+  local toplevel
+
+  command -v git >/dev/null 2>&1 || return 1
+  toplevel="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$toplevel" ] || return 1
+
+  [ "$(cd -P "$toplevel" 2>/dev/null && pwd)" = "$repo_root" ]
+}
+
+# The SHA of the tree a build would produce a release FROM. "unknown" whenever
+# git cannot answer (no git on PATH, a tarball export); callers treat unknown as
+# "no provenance available" rather than as a mismatch, so a gitless checkout
+# keeps working exactly as before.
+repo_head_sha() {
+  local sha=""
+
+  if repo_is_git_root; then
+    sha="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+  fi
+
+  printf '%s\n' "${sha:-unknown}"
+}
+
+read_stamp_field() {
+  local field="$1" file="$2"
+  [ -r "$file" ] || return 1
+  sed -n "s/^$field=//p" "$file" | head -n 1
+}
+
+# A release is otherwise opaque: file mtimes say when it was assembled but not
+# which checkout or which commit produced it, which is why the debug playbook
+# tells operators to report a release SHA of "unknown". Stamping it makes the
+# provenance readable — and makes `restart` able to prove what it is booting.
+# Takes the SHA the build STARTED from. A release assembly runs for minutes, and
+# a commit or branch switch landing inside that window would otherwise stamp a
+# commit the release demonstrably was not built from — provenance that reads as
+# current forever after.
+write_release_stamp() {
+  local source_sha="$1" dirty="unknown"
+
+  if repo_is_git_root; then
+    if [ -n "$(git -C "$repo_root" status --porcelain 2>/dev/null)" ]; then
+      dirty="yes"
+    else
+      dirty="no"
+    fi
+  fi
+
+  printf 'repo_root=%s\nsource_sha=%s\ndirty=%s\nbuilt_at=%s\n' \
+    "$repo_root" "$source_sha" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    >"$release_stamp"
 }
 
 release_ready() {
@@ -132,9 +374,11 @@ release_build_lock() {
 }
 
 build_aiur() {
-  local log_file status=0
+  local log_file status=0 source_sha
 
   require_mise
+  # Read before the compile, not after — see write_release_stamp.
+  source_sha="$(repo_head_sha)"
   echo "🔨 rebuilding bin/aiur (compile + release)" >&2
   log_file="$(mktemp "${TMPDIR:-/tmp}/aiurdev-release.XXXXXX")"
 
@@ -158,13 +402,47 @@ build_aiur() {
     rm -rf "$release_dir"
     return 1
   fi
+
+  write_release_stamp "$source_sha"
 }
 
-# Rebuild the release when the shim/release is missing or any source is newer.
+# A release built from a commit other than the one checked out now is stale even
+# when no source file is newer than it: `git switch` and `git reset --hard` both
+# leave a tree whose mtimes lose to a release assembled afterwards. The mtime
+# sweep is kept for the dirty-tree case it does answer (edits since the build).
+release_matches_head() {
+  local stamped current
+
+  stamped="$(read_stamp_field source_sha "$release_stamp" || true)"
+  # No stamp means the release predates provenance stamping or was assembled by
+  # something else. Either way nothing vouches for it, so rebuild rather than
+  # extend it the benefit of the doubt.
+  [ -n "$stamped" ] || return 1
+
+  # Unknown on BOTH sides means this checkout has no provenance to compare at
+  # all (no git, a tarball export); fall back to the mtime sweep rather than
+  # rebuilding on every single launch. Unknown on one side only is a mismatch
+  # like any other, so one rebuild converges the stamp onto whatever this host
+  # can actually attest — which keeps `restart` able to check it.
+  current="$(repo_head_sha)"
+  if [ "$stamped" = "unknown" ] && [ "$current" = "unknown" ]; then
+    return 0
+  fi
+
+  [ "$stamped" = "$current" ]
+}
+
+# Rebuild the release when the shim/release is missing, built from another
+# commit, or any source is newer.
 ensure_built_locked() {
   ensure_elixir_deps
 
   if ! release_ready; then
+    build_aiur
+    return
+  fi
+
+  if ! release_matches_head; then
     build_aiur
     return
   fi
@@ -186,6 +464,21 @@ ensure_built() {
   return "$status"
 }
 
+# `aiur restart` runs this shim's rebuild in a separate process, so the engine
+# cannot see what that rebuild targeted — a build that succeeded against another
+# tree exits 0 exactly like a correct one. The receipt is how the builder tells
+# the engine which release it is vouching for and from which commit, so the
+# engine can check that claim against the release it is about to boot instead of
+# assuming it. Absent AIUR_RESTART_BUILD_RECEIPT this is a plain no-op, which is
+# what every non-restart invocation is.
+write_restart_receipt() {
+  [ -n "${AIUR_RESTART_BUILD_RECEIPT:-}" ] || return 0
+
+  printf 'release_dir=%s\nrepo_root=%s\nsource_sha=%s\n' \
+    "$release_dir" "$repo_root" "$(repo_head_sha)" \
+    >"$AIUR_RESTART_BUILD_RECEIPT"
+}
+
 pure_control_command() {
   local cmd="${1:-}"
 
@@ -193,6 +486,15 @@ pure_control_command() {
     agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# `restart` owns its own rebuild, which the engine runs AFTER the stop (see
+# AIUR_RESTART_BUILD_CMD). Rebuilding here as well would put the rebuild back on
+# the wrong side of the stop — in-place over the release the live BEAM is booted
+# from — so the pre-dispatch step must only guarantee a release complete enough
+# to issue that stop, never a fresh one.
+builds_after_stop() {
+  [ "${1:-}" = "restart" ]
 }
 
 ensure_control_surface() {
@@ -281,6 +583,36 @@ apply_agent_ir_xdg_env() {
     export XDG_STATE_HOME="${AIUR_AGENT_IR_XDG_STATE_HOME:?}"
   fi
 }
+
+# Internal entry point for the rebuild `aiur restart` runs between its stop and
+# its start (the engine invokes it through AIUR_RESTART_BUILD_CMD). It is a
+# separate process so it takes the build lock in its own right, and it applies
+# the same build-if-stale rule as any other dev launch: a release the sources
+# have not outrun is already the latest build, and a forced rebuild of an
+# unchanged tree would only lengthen the window where no daemon is running. Use
+# `aiurdev build` when you want the unconditional force-rebuild.
+#
+# It sits ABOVE the tmux guard on purpose. It starts no session, so the guard
+# does not apply — and an inherited $TMUX would otherwise make a rebuild that
+# never ran look like a failed one, with the daemon already stopped.
+if [ "${1:-}" = "__ensure-build" ]; then
+  # The fleet is down for the whole of this step, including any wait for a
+  # rebuild another shell is holding the lock for. Say so, so a long wait reads
+  # as an outage the operator can act on rather than an idle prompt.
+  echo "🔁 refreshing the release; the daemon is stopped until this finishes" >&2
+  ensure_build_status=0
+  ensure_built || ensure_build_status=$?
+  if [ "$ensure_build_status" -eq 0 ]; then
+    write_restart_receipt
+  fi
+  exit "$ensure_build_status"
+fi
+
+# Refuse a cwd/target mismatch before anything is built, started, or stopped.
+# `__ensure-build` above is exempt: it runs with AIUR_REPO_ROOT pinned by the
+# parent that already passed this guard, mid-restart with the daemon down, where
+# a refusal would only strand the fleet on a decision already made.
+guard_checkout_target "$@"
 
 # aiur spawns its own tmux on a dedicated socket and does not nest cleanly.
 if [ -n "${TMUX:-}" ]; then
@@ -375,7 +707,17 @@ if [ -n "$agent_workspace_marker" ]; then
   enable_agent_ir_sandbox "$agent_workspace_marker" 0
 fi
 
-if pure_control_command "${passthrough[0]:-}"; then
+if builds_after_stop "${passthrough[0]:-}"; then
+  # Normally a no-op: a complete release is already there and the real rebuild
+  # waits until the daemon is down. When there is no complete release, the stop
+  # itself cannot run without one, so the repair build necessarily lands before
+  # the stop — announce that inversion instead of performing it silently.
+  release_ready || echo "⚠️  no complete release; building one BEFORE the stop (this rewrites the release the running daemon booted from)" >&2
+  ensure_control_surface
+elif pure_control_command "${passthrough[0]:-}" || [ "$checkout_diverges" -eq 1 ]; then
+  # The divergent case reaches here only for commands the guard let through, and
+  # those must not rebuild a checkout the operator is not standing in. Reusing
+  # the complete release is exactly what a control command needs anyway.
   ensure_control_surface
 else
   ensure_built
@@ -448,6 +790,30 @@ if [ "$test3_mode" -eq 1 ]; then
 fi
 
 export AIUR_RELEASE_DIR="$release_dir"
+
+# The dev half of `aiur restart`: the engine owns the stop/build/start ordering,
+# this shim owns what "build" means here. %q keeps a repo path with spaces intact
+# through the engine's `bash -c`. Exported only for the command that consumes it,
+# so no daemon or agent process inherits a rebuild bound to this checkout.
+#
+# AIUR_REPO_ROOT is pinned into the command rather than left to the child's own
+# path resolution: the target was settled here, and re-deriving it in a process
+# the engine launches from the operator's cwd is the very ambiguity this restart
+# is supposed to have eliminated by the time it stops the daemon.
+#
+# AIUR_SKIP_BUILD excludes it entirely rather than wiring in a rebuild that will
+# decline to build: the engine would stop the daemon, get a success it cannot
+# match to the release on disk, and refuse to start. Skipping the build means
+# `restart` is a plain bounce, which is what asking to skip the build asks for.
+if builds_after_stop "${passthrough[0]:-}" && [ "${AIUR_SKIP_BUILD:-0}" != "1" ]; then
+  printf -v AIUR_RESTART_BUILD_CMD 'AIUR_REPO_ROOT=%q %q %q' \
+    "$repo_root" "$script_dir/$(basename "$src")" "__ensure-build"
+  # Declares that this builder reports a verifiable receipt, so the engine can
+  # tell "unverified" apart from "verified and wrong" for a builder it does not
+  # own.
+  export AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_VERIFIES=1
+fi
+
 if requires_pinned_opencode "${passthrough[0]:-}"; then
   ensure_pinned_opencode
 fi

@@ -35,6 +35,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @default_root_number_range 800_000_000
   @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
   @pack_source_precedence_description "workspace > state > environment > configured > explicit"
+  @active_membership_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]
 
   # --- catalog ---------------------------------------------------------------
 
@@ -409,6 +410,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       {:open, _membership, _pack_completed?} -> {"OPEN", nil}
       {nil, :completed, _pack_completed?} -> {"CLOSED", "COMPLETED"}
       {nil, :cancelled, _pack_completed?} -> {"CLOSED", "NOT_PLANNED"}
+      {nil, lifecycle, false} when lifecycle in @active_membership_lifecycles -> {"OPEN", nil}
       {nil, _membership, true} -> {"CLOSED", "COMPLETED"}
       _other -> {:unknown, :unknown}
     end

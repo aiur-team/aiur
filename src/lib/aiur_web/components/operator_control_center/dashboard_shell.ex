@@ -32,7 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   def dashboard_shell(assigns) do
     ~H"""
     <section class="dashboard-shell" data-nav-collapsed={to_string(@nav_collapsed)}>
-      <aside class="shell-sidebar" aria-label="Aiur navigation">
+      <header class="topbar">
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
           <span class="brand-wordmark"><b>aiur</b></span>
@@ -40,14 +40,43 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>
-          <.global_pause_button
-            id="global-pause-toggle"
-            globally_paused={@globally_paused}
-            writable={@writable}
+        </div>
+        <div class="toolbar">
+          <%!-- The run-wide controls, at every resolution: top right, together.
+                The pause switch sits beside the theme toggle rather than in the
+                brand cluster, so the nav bar carries the brand and nothing
+                else. --%>
+          <div class="topbar-controls">
+            <.global_pause_button
+              id="global-pause-toggle"
+              globally_paused={@globally_paused}
+              writable={@writable}
+            />
+            <.theme_button id="theme-toggle" />
+          </div>
+        </div>
+      </header>
+
+      <div class="shell-body">
+        <aside class="shell-sidebar" aria-label="Aiur navigation">
+          <.navigation
+            routes={@routes}
+            current_route={@route}
+            nav_counts={@nav_counts}
+            class="shell-nav shell-nav-sidebar"
+            label="Aiur sidebar routes"
           />
+          <%!-- Hovers over the right edge of the first route, carrying its own
+                drop shadow so it reads as a control laid on top of the sidebar
+                rather than another route. It lives in the sidebar (not the
+                topbar) so it stays next to what it collapses, and the sidebar
+                keeps a bare-rail presence when collapsed so the button is still
+                there to reopen it. Below 960px the whole sidebar is hidden and
+                this goes with it: there is no sidebar to collapse there, and
+                the mobile nav pill carries the routes instead. --%>
           <button
             id="nav-toggle"
-            class="tool-btn icon-only"
+            class="tool-btn icon-only shell-nav-toggle"
             type="button"
             phx-hook="NavToggle"
             phx-click="toggle-nav"
@@ -63,48 +92,35 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
               </svg>
             </span>
           </button>
-        </div>
-        <.navigation
-          routes={@routes}
-          current_route={@route}
-          nav_counts={@nav_counts}
-          class="shell-nav shell-nav-sidebar"
-          label="Aiur sidebar routes"
-        />
-      </aside>
+        </aside>
 
-      <div class="shell-main">
-        <%!-- Above the route heading, not below it: an alert that needs acting
-              on should be the first thing read, not something found after the
-              title it interrupts. --%>
-        {render_slot(@banner)}
-
-        <header class="topbar">
-          <div class="route-context">
-            <%!-- The same glyph the nav uses for this route, so the heading and
-                  the nav item read as the same thing. Decorative: the heading
-                  text already names the route. --%>
-            <h1 id="route-title" aria-label={@title || @route.label}>
-              <.link :if={@back_path} patch={@back_path} class="route-title-icon route-title-back" aria-label={@back_label}>
-                <span aria-hidden="true">{nav_icon(@route.id)}</span>
-              </.link>
-              <span :if={is_nil(@back_path)} class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
-              <span>{@title || @route.label}</span>
-            </h1>
-            <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
-          </div>
-          <div class="toolbar">
-            <%!-- The single theme toggle, at every resolution: top right,
-                  inline with the route title. The nav pill is reserved for
-                  routes plus the global pause switch. --%>
-            <div class="topbar-controls">
-              <.theme_button id="theme-toggle" />
+        <div class="shell-main">
+          <%!-- A real region, not a plain div: the route heading it is named by
+                now lives inside it, and `aria-labelledby` is ignored on a
+                generic element. --%>
+          <section class="shell-content" aria-labelledby="route-title">
+            <%!-- The route heading leads its own content column rather than the
+                  nav bar: the title belongs to the page, and the nav keeps only
+                  the brand. --%>
+            <div class="route-context">
+              <%!-- The same glyph the nav uses for this route, so the heading and
+                    the nav item read as the same thing. Decorative: the heading
+                    text already names the route. --%>
+              <h1 id="route-title" aria-label={@title || @route.label}>
+                <.link :if={@back_path} patch={@back_path} class="route-title-icon route-title-back" aria-label={@back_label}>
+                  <span aria-hidden="true">{nav_icon(@route.id)}</span>
+                </.link>
+                <span :if={is_nil(@back_path)} class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
+                <span>{@title || @route.label}</span>
+              </h1>
+              <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
             </div>
-          </div>
-        </header>
-
-        <div class="shell-content" aria-labelledby="route-title">
-          {render_slot(@inner_block)}
+            <%!-- Below the route heading: an alert that needs acting on should
+                  still be read before the page it interrupts, but it now sits in
+                  the standard content column at the standard pane width. --%>
+            {render_slot(@banner)}
+            {render_slot(@inner_block)}
+          </section>
         </div>
       </div>
 
@@ -298,9 +314,14 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     )
   end
 
+  # The device's bezel around its four keys: the border is what tells this glyph
+  # apart from the Units four-square at nav size, so the keys shrink to leave
+  # room for it rather than crowding the frame. 4-unit keys, not 5: the icon
+  # renders at 18px with a 2-unit stroke, so a tighter gap between the keys puts
+  # their strokes within a pixel of each other and the four blur into one block.
   defp nav_icon(:streamdeck) do
     Phoenix.HTML.raw(
-      ~s(<svg #{@nav_svg_attrs}><rect x="2" y="4.5" width="20" height="15" rx="3"/><circle cx="6.5" cy="9.5" r="1.1"/><circle cx="10.5" cy="9.5" r="1.1"/><circle cx="14.5" cy="9.5" r="1.1"/><circle cx="18.5" cy="9.5" r="1.1"/><circle cx="6.5" cy="14.5" r="1.1"/><circle cx="10.5" cy="14.5" r="1.1"/><circle cx="14.5" cy="14.5" r="1.1"/><circle cx="18.5" cy="14.5" r="1.1"/></svg>)
+      ~s(<svg #{@nav_svg_attrs}><rect x="2" y="2" width="20" height="20" rx="3"/><rect x="6" y="6" width="4" height="4" rx="1"/><rect x="14" y="6" width="4" height="4" rx="1"/><rect x="6" y="14" width="4" height="4" rx="1"/><rect x="14" y="14" width="4" height="4" rx="1"/></svg>)
     )
   end
 

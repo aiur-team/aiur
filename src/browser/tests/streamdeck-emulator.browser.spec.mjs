@@ -14,16 +14,38 @@ async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await anchor(page.locator('.sd-device'))
 }
 
-async function openUnits(page) {
+// `page.mouse` takes viewport coordinates and does no scrolling of its own,
+// unlike `hover()`/`click()`. The deck sits below the route heading, so a
+// gesture read from an unanchored bounding box lands off-screen. Playwright's
+// own scroll is used rather than a raw `scrollIntoView`, because it waits for
+// the element to settle first — a box read mid-scroll aims the drag at stale
+// coordinates. It scrolls minimally, so clear the sticky topbar afterwards or
+// the gesture lands on the topbar instead of the dial.
+async function anchor(locator) {
+  await locator.scrollIntoViewIfNeeded()
+  await locator.evaluate((element) => {
+    const topbar = document.querySelector('.topbar')
+    if (!topbar) return
+
+    const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+    if (overlap > 0) window.scrollBy(0, -overlap - 8)
+  })
+}
+
+async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
-  await page.goto('/units')
+  await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
 async function dragDialThroughAngles(page, dial, angles) {
+  // Re-anchor before every drag: a mode change re-lays the deck out.
+  await anchor(dial)
+
   const box = await dial.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -51,6 +73,7 @@ test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) =>
 
   // Drag a wide clockwise arc that accumulates well over 8° (press threshold)
   // and sweeps enough angle to guarantee an increase, even from a high initial.
+  await anchor(knob)
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -84,25 +107,45 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
     await page.getByRole('button', { name: 'Download' }).click()
     let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Linux with udev')).toBeVisible()
-    await expect(dialog.getByText('Pair it with your daemon')).toBeVisible()
-    await expect(dialog.getByText('Download the Stream Deck + package')).toBeVisible()
-    await expect(dialog.getByText('Create the sidecar directory')).toBeVisible()
-    await expect(dialog.getByText('--strip-components=1')).toBeVisible()
-    await expect(dialog.getByText('Create the pairing directory')).toBeVisible()
-    await expect(dialog.getByText('Create the pairing file')).toBeVisible()
-    await expect(dialog.getByText('Restrict the pairing file')).toBeVisible()
-    await expect(dialog.getByText('AIUR_PHOENIX_URL')).toBeVisible()
-    await expect(dialog.getByText('Install the udev rule')).toBeVisible()
-    await expect(dialog.getByText('Install the user unit')).toBeVisible()
-    await expect(dialog.getByText('Reload user systemd')).toBeVisible()
-    await expect(dialog.getByText('Enable the sidecar')).toBeVisible()
-    await expect(dialog.getByText('Plug in the deck')).toBeVisible()
-    await expect(dialog.getByText('What success looks like')).toBeVisible()
-    await expect(dialog.getByText('0.0.0-dev.0098e3ac86a2')).toBeVisible()
-    await expect(dialog.getByText('0098e3ac86a2e49e685e8e6ff67248373de43f1d')).toBeVisible()
-    await expect(dialog.getByRole('link', { name: /Download the Stream Deck \+ package/ })).toHaveAttribute('href', packageUrl)
-    await expect(dialog.getByRole('link', { name: 'Download package 0.0.0-dev.0098e3ac86a2' })).toHaveAttribute('href', packageUrl)
+
+    // Two steps, and step 1 offers exactly one download — the modal is the only
+    // place a package download starts.
+    await expect(dialog.getByRole('heading', { name: 'Step 1: Download the package' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Step 2: Paste this into your agent chat' })).toBeVisible()
+    await expect(dialog.locator('a[download]')).toHaveCount(1)
+    await expect(dialog.getByRole('link', { name: 'Download the package' })).toHaveAttribute('href', packageUrl)
+
+    await expect(dialog.getByText(/Walk me through installing the Aiur Stream Deck \+ sidecar on Linux/)).toBeVisible()
+    await expect(dialog.getByText('packages/streamdeck/README.md')).toBeVisible()
+    await expect(dialog).not.toContainText('0098e3ac86a2e49e685e8e6ff67248373de43f1d')
+
+    // The prompt wraps over as many rows as it needs: no sideways scroll, no
+    // clipped tail, at the narrowest supported width.
+    const prompt = dialog.locator('#streamdeck-install-prompt')
+    const promptBox = await prompt.evaluate((el) => {
+      const panel = el.closest('.modal-panel')
+      const box = el.getBoundingClientRect()
+      const panelBox = panel.getBoundingClientRect()
+
+      return {
+        clippedHorizontally: el.scrollWidth > el.clientWidth + 1,
+        // The panel is the scroll container, so "nothing clipped" means the
+        // whole block sits inside the panel's own scrollable extent.
+        insidePanel: box.right <= panelBox.right + 1 && box.bottom <= panelBox.top + panel.scrollHeight + 1,
+        lines: Math.round(box.height / Number.parseFloat(getComputedStyle(el).lineHeight))
+      }
+    })
+    expect(promptBox.clippedHorizontally, 'prompt never scrolls sideways').toBe(false)
+    expect(promptBox.insidePanel, 'the whole prompt is inside the dialog').toBe(true)
+    expect(promptBox.lines, 'prompt wraps onto multiple rows at 375px').toBeGreaterThan(1)
+
+    // The copy button puts the prompt on the clipboard.
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await dialog.getByRole('button', { name: 'Copy prompt' }).click()
+    await expect(dialog.locator('[data-copy-status]')).toHaveText('Copied')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+      'Walk me through installing the Aiur Stream Deck + sidecar on Linux'
+    )
     await expect(dialog.locator('input[type="password"], [value*="password" i]')).toHaveCount(0)
     await expect(dialog).not.toContainText(dashboardCredentials.username)
     await expect(dialog).not.toContainText(dashboardCredentials.password)
@@ -176,6 +219,7 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
 
   // Dial 0 is the first knob (Focus); a press should trigger the .press class.
   const knob = page.locator('.sd-knob').first()
+  await anchor(knob)
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -378,6 +422,7 @@ test('command mic deactivates on pointerleave (not stuck on drag-exit)', async (
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
+  await anchor(micKey)
   const box = await micKey.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -497,6 +542,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
 
   // Dial 3 press (cycle-window) → logs mode.
   const dial3 = page.locator('.sd-knob').nth(3)
+  await anchor(dial3)
   const d3box = await dial3.boundingBox()
   const d3cx = d3box.x + d3box.width / 2
   const d3cy = d3box.y + d3box.height / 2
@@ -510,6 +556,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
 
   // Dial 0 press (back) → cmd mode.
   const dial0 = page.locator('.sd-knob').first()
+  await anchor(dial0)
   const d0box = await dial0.boundingBox()
   const d0cx = d0box.x + d0box.width / 2
   const d0cy = d0box.y + d0box.height / 2
@@ -521,6 +568,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   // Dial 0 press (back) again → grid mode.
   // Re-fetch bounding box: the layout reflowed when keys became hidden (cmd mode),
   // so cached coordinates from the logs-mode capture may miss the knob.
+  await anchor(dial0)
   const d0box2 = await dial0.boundingBox()
   const d0cx2 = d0box2.x + d0box2.width / 2
   const d0cy2 = d0box2.y + d0box2.height / 2
@@ -607,6 +655,7 @@ test('dial drag + mode transition both work in the same session', async ({ page 
 
   // First rotate dial 0 to change its value.
   const knob = page.locator('.sd-knob').first()
+  await anchor(knob)
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -667,6 +716,7 @@ test('an active dial drag commits its final value after a LiveView patch', async
     }
   })
   const eventCountBeforeDrag = await page.evaluate(() => window.__streamdeckGridEvents.length)
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -704,6 +754,7 @@ test('a cancelled dial drag emits no release commit', async ({ page }) => {
     }
   })
 
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -737,6 +788,7 @@ test('destroying a dial without drag preservation emits no release commit', asyn
     }
   })
 
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -761,6 +813,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.hover()
+  await anchor(dialD)
   const dialBox = await dialD.boundingBox()
   const cx = dialBox.x + dialBox.width / 2
   const cy = dialBox.y + dialBox.height / 2
@@ -806,6 +859,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   const angleAfterKey = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
   expect(angleAfterKey).toBeLessThan(angleAfterWheel)
 
+  await anchor(dialD)
   const dragBox = await dialD.boundingBox()
   const dragCx = dragBox.x + dragBox.width / 2
   const dragCy = dragBox.y + dragBox.height / 2
@@ -848,15 +902,34 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await openStreamdeck(page)
 
   const units = await context.newPage()
-  await openUnits(units)
-  await units.getByRole('button', { name: 'Select all preceding filters' }).click()
+  // Apply the "Select all preceding filters" selection at mount instead of
+  // clicking the button. The click is a phx-click LiveView drops silently when
+  // the socket is still settling under CI load (the handler returns without
+  // pushing when the view is momentarily disconnected), which left the view on
+  // the default `:live` scope. Removing a unit against that stale scope
+  // collapses `#units-rows` to the single remaining live unit and the sync
+  // assertions below fail even though the emulator never desynced. Loading the
+  // selection from the URL keeps the scope deterministic.
+  const allConditions = encodeURIComponent('active,alert,paused,queued,finished')
+  await openUnits(units, `/units?v=1&scope=unfinished&conditions=${allConditions}`)
 
   const rows = units.locator('#units-rows tr.units-row')
+  // The fixture exposes 7 units, of which 6 are unfinished. Confirming the
+  // rendered scope before mutating makes the assumption this test asserts on
+  // explicit, so a stale selection fails loudly here instead of as a one-row
+  // table later.
+  await expect(units.locator('.units-header p').nth(1)).toContainText('7 observed · 6 in selected scope')
   const before = Number.parseInt(await units.locator('.units-header p').nth(1).textContent(), 10)
   await rows.first().locator('td.ut-id-cell').click()
   await units.locator('#remove-selected-unit').evaluate((button) => button.click())
 
   await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
+
+  // The header count and the row list are separate patches from the same
+  // LiveView diff, so the header settling does not mean the tbody has. Wait on
+  // the rows themselves before snapshotting them: `evaluateAll` is a one-shot
+  // read with no retry, and reading mid-patch returned 1 row of 5 in CI.
+  await expect(rows).toHaveCount(5)
 
   const unitIdentifiers = await rows.evaluateAll((elements) =>
     elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
@@ -881,57 +954,93 @@ test('clicking a logs event key positions the flattened transcript at that event
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
   const dialD = page.locator('.sd-knob').nth(3)
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
   const logKeys = page.locator('#sd-log-keys')
   await expect(logKeys.locator('.sd-key')).toHaveCount(8)
-  // Index 0 is LIVE, never an event row.
-  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
-  await expect(logKeys.locator('[data-log-event-index="0"] .sd-log-dir')).toHaveCount(0)
-  await expect(logKeys.locator('[data-log-event-index="0"] .sd-live-dot')).toHaveCount(1)
 
-  // The fixture feed gives events 1..5 the five roles that map onto the five
-  // direction badges, so each badge — and each badge's colour — is exercised.
-  const directions = ['AGENT', 'CONSUME', 'SYSTEM', 'INFO', 'EMIT']
+  // The surface reads oldest-left to newest-right, so the window opens at the
+  // right-hand end: LIVE is the last key, and the origin anchor at index 0 is
+  // off-screen behind it.
+  const liveIndex = await logKeys.locator('.sd-live-key').getAttribute('data-log-event-index')
+  await expect(logKeys.locator('.sd-live-key')).toContainText('LIVE')
+  await expect(logKeys.locator('.sd-live-key .sd-live-dot')).toHaveCount(1)
+  await expect(logKeys.locator('.sd-live-key .sd-log-dir')).toHaveCount(0)
+  await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
+
+  // The fixture's bus kinds cover four of the five directions on the four
+  // newest events — the ones inside the window as it opens — and the origin
+  // anchor carries the fifth. Direction comes from the marker kind, not the
+  // topic, so this is asserting the kind -> badge mapping end to end.
+  const directions = { 7: 'AGENT', 8: 'CONSUME', 9: 'SYSTEM', 10: 'EMIT' }
   const inks = new Set()
-  for (const [slot, direction] of directions.entries()) {
-    const badge = logKeys.locator(`[data-log-event-index="${slot + 1}"] .sd-log-dir`)
+  for (const [index, direction] of Object.entries(directions)) {
+    const badge = logKeys.locator(`[data-log-event-index="${index}"] .sd-log-dir`)
     await expect(badge).toContainText(direction)
     await expect(badge).toHaveAttribute('data-dir', direction)
     inks.add(await badge.evaluate((el) => getComputedStyle(el).color))
   }
-  // EMIT and AGENT share one blue by design; the other three are distinct.
+  // EMIT and AGENT share one blue by design; the other two are distinct.
+  expect(inks.size).toBe(3)
+
+  // The origin anchor is the far-left key and always exists. Page the window
+  // fully left to reach it — that is also the only way an operator sees the
+  // beginning of a long ticket.
+  const dialDKnob = page.locator('.sd-knob').nth(3)
+  for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [90, 0, -90])
+  await expect(logKeys).toHaveAttribute('data-offset', '0')
+  const origin = logKeys.locator('[data-log-event-index="0"] .sd-log-dir')
+  await expect(origin).toContainText('INFO')
+  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('Ticket opened')
+  inks.add(await origin.evaluate((el) => getComputedStyle(el).color))
   expect(inks.size).toBe(4)
+  // LIVE is pinned: even scrolled fully left to the origin, it still occupies
+  // the last (bottom-right) key rather than scrolling away.
+  await expect(logKeys.locator('.sd-live-key')).toHaveCount(1)
+  await expect(logKeys.locator('.sd-key').last()).toHaveClass(/sd-live-key/)
+
+  // Back to where it opened, so the assertions below read the live end.
+  for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [-90, 0, 90])
+  await expect(logKeys).toHaveAttribute('data-offset', String(Number(await logKeys.getAttribute('data-max-offset'))))
 
   const strip = page.locator('#sd-screen')
-  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
-  await expect(strip).toContainText('event-1')
+  const transcript = page.locator('#sd-log-transcript')
+  const maxOffset = await transcript.getAttribute('data-max-offset')
+  // Requirement: logs opens where the agent is working, not at the ticket's
+  // first line.
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 
-  // SP-302's three entry shapes, not a single flattened line per row.
-  await expect(page.locator('.sd-log-entry-evhdr')).toBeVisible()
-  await expect(page.locator('.sd-log-entry-message')).toBeVisible()
+  // Three entry shapes, not a single flattened line per row.
+  await expect(page.locator('.sd-log-entry-message').first()).toBeVisible()
 
-  // Dial A's hint arrows are state: at the head of the transcript there is
-  // nothing older, so the left arrow is hidden and the right one is not.
-  await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
-  await expect(page.locator('.sd-dial-hint').first().locator('span').last()).toHaveCSS('visibility', 'visible')
+  // Dial A's hint arrows are state: pinned at the newest end there is nothing
+  // newer, so the down arrow is hidden and the up one is not.
+  await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
+  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'false')
 
-  await logKeys.locator('[data-log-event-index="2"]').click()
-  await expect(strip).toHaveAttribute('data-transcript-offset', '2')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
-  await expect(strip).toContainText('event-2')
-  // The strip moved off the pre-click head rather than merely gaining a line.
-  // `event-1` starts at offset 0 and `event-10` at 18, so neither belongs in
-  // the two-line window at offset 2.
-  await expect(strip).not.toContainText('event-1')
-  await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
+  // Pressing an event key makes it the active one and LIVE inactive, and moves
+  // the strip to that event's own header. Keys 7 and 8 are inside the window
+  // as it opens; the far-left ones were reached by paging, above.
+  await logKeys.locator('[data-log-event-index="8"]').click()
+  await expect(logKeys.locator('[data-log-event-index="8"]')).toHaveAttribute('aria-current', 'true')
+  await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'false')
+  await expect(strip).not.toHaveAttribute('data-transcript-offset', maxOffset)
+  await expect(page.locator('.sd-log-entry-evhdr').first()).toBeVisible()
+  const atEventEight = await transcript.getAttribute('data-offset')
 
-  await logKeys.locator('[data-log-event-index="1"]').press('Enter')
-  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
-  await expect(strip).toContainText('event-1')
+  // A different event key moves it somewhere else again.
+  await logKeys.locator('[data-log-event-index="7"]').press('Enter')
+  await expect(logKeys.locator('[data-log-event-index="7"]')).toHaveAttribute('aria-current', 'true')
+  await expect(transcript).not.toHaveAttribute('data-offset', atEventEight)
+
+  // Returning to LIVE reverses it: back to the newest end, LIVE active again.
+  await logKeys.locator('.sd-live-key').click()
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
+  await expect(logKeys.locator('.sd-live-key')).toHaveAttribute('aria-current', 'true')
+  await expect(logKeys.locator(`[data-log-event-index="${liveIndex}"]`)).toHaveAttribute('aria-current', 'true')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
@@ -942,12 +1051,18 @@ test('dial A pointer direction controls transcript scroll direction in logs mode
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
-  const dialA = page.locator('.sd-knob').first()
-  await dragDialThroughAngles(page, dialA, [-90, 0, 90])
-  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '1')
+  // The surface opens pinned at the newest end, so the only way to move is
+  // back into history first; dragging the other way returns to the end.
+  const strip = page.locator('#sd-screen')
+  const maxOffset = await page.locator('#sd-log-transcript').getAttribute('data-max-offset')
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 
+  const dialA = page.locator('.sd-knob').first()
   await dragDialThroughAngles(page, dialA, [90, 0, -90])
-  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toHaveAttribute('data-transcript-offset', String(Number(maxOffset) - 1))
+
+  await dragDialThroughAngles(page, dialA, [-90, 0, 90])
+  await expect(strip).toHaveAttribute('data-transcript-offset', maxOffset)
 })
 
 test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {
@@ -958,11 +1073,16 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
-  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
-  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '1')
+  // Same direction contract on the key window, which also opens at its end.
+  const logKeys = page.locator('#sd-log-keys')
+  const maxOffset = await logKeys.getAttribute('data-max-offset')
+  await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 
   await dragDialThroughAngles(page, dialD, [90, 0, -90])
-  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '0')
+  await expect(logKeys).toHaveAttribute('data-offset', String(Number(maxOffset) - 1))
+
+  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
+  await expect(logKeys).toHaveAttribute('data-offset', maxOffset)
 })
 
 test('touch strip renders two provider meters and design segment geometry', async ({ page }) => {
@@ -1198,4 +1318,13 @@ test('Stream Deck emulator passes automated accessibility checks', async ({ page
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])
+
+  // The install dialog is a whole second surface — its own heading order, list
+  // semantics, contrast and control names — and none of it is reachable by the
+  // scan above while the modal is closed.
+  await page.getByRole('button', { name: 'Download' }).click()
+  await expect(page.locator('#streamdeck-install-modal')).toBeVisible()
+
+  const dialogAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(dialogAccessibility.violations).toEqual([])
 })

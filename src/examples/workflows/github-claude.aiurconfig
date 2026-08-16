@@ -37,6 +37,7 @@ build_order:
   # Restart clears retained snapshots; selected tickets reload on demand.
   ticket_detail_freshness_ms: 30000
   graph_catalog_refresh_ms: 60000
+  graph_catalog_labels_refresh_ms: 600000
   graph_selected_refresh_ms: 15000
   graph_demand_refresh_ms: 5000
   graph_refresh_timeout_ms: 30000

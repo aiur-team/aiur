@@ -30,14 +30,27 @@ test('the model pane groups providers, keeps every freshness state, and fits wit
       const models = page.locator('.rs-models .rs-model')
       await expect(models).toHaveCount(4)
 
-      // Identity survives the grouping.
+      // Identity survives the grouping: one logo per row, and it leads the row.
       const codex = page.locator('.rs-model').filter({ hasText: 'Codex' })
       await expect(codex.locator('.rs-logo')).toHaveCount(1)
 
-      // Every freshness state stays distinguishable: fresh, stale, fresh-zero, unavailable.
-      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-state.is-stale')).toHaveText('Stale')
-      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-state.is-healthy')).toHaveText('Healthy')
-      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-state.is-unavailable')).toHaveText('Unavailable')
+      for (const name of ['Codex', 'Claude', 'DeepSeek', 'Kimi']) {
+        const row = page.locator('.rs-model').filter({ hasText: name })
+        await expect(row.locator('.rs-head > :first-child')).toHaveClass(/rs-logo/)
+      }
+
+      // Only Claude and Codex carry a second, right-hand token glyph.
+      await expect(page.locator('.rs-model').filter({ hasText: 'Codex' }).locator('.rs-token-ic')).toHaveCount(1)
+      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-token-ic')).toHaveCount(1)
+      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-token-ic, .rs-token-na')).toHaveCount(0)
+      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-token-ic, .rs-token-na')).toHaveCount(0)
+
+      // Every freshness state stays distinguishable on the meter's own meta
+      // line, now that the head-row chip is gone.
+      await expect(page.locator('.rs-state')).toHaveCount(0)
+      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-limit-meta')).toContainText('(stale)')
+      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-limit-meta')).toContainText('0% · resets in')
+      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-meta')).toHaveText('Unavailable')
 
       // Neither the row nor the page body scrolls horizontally.
       await assertNoDocumentOverflow(page)

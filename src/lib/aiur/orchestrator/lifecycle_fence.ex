@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   alias Aiur.AgentQueueItem
   alias Aiur.Config
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, ReviewFreshness, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
   alias Aiur.Tracker
 
@@ -178,9 +178,24 @@ defmodule Aiur.Orchestrator.LifecycleFence do
          body: %{events: events}
        })
        when is_list(events),
-       do: DeliveryPolicy.trusted_comment_event_digest?(events)
+       do:
+         DeliveryPolicy.trusted_comment_event_digest?(events) and
+           Enum.any?(events, &comment_event_warrants_rework?/1)
 
   defp trusted_comment_item?(_item), do: false
+
+  # A trusted comment digest is a *rework* intent only when it is a live
+  # judgement against the current head. An `APPROVED` pull request, or a review
+  # that predates the head commit, is not rework (#1756): the comment wake
+  # already refuses to route on it, so the fence must not either — otherwise a
+  # pending digest arms the fence with an authoritative `rework` state that
+  # restores a `human-review` ticket back to rework while `reviewDecision` is
+  # `APPROVED`, re-feeding the no-op dispatch loop (#1754).
+  defp comment_event_warrants_rework?(event) when is_map(event) do
+    ReviewFreshness.rework_skip_reason(event) == nil
+  end
+
+  defp comment_event_warrants_rework?(_event), do: true
 
   defp pr_anchored_entry?(%{issue: %Issue{state: state}}),
     do: normalize_state(state) == @pr_anchored_state

@@ -15,7 +15,12 @@ defmodule Aiur.BuildOrder.GitHubGraph.TestAdapter do
          {:ok, token} <- Transport.require_token(opts),
          {:ok, limits} <- limits(opts) do
       state = Settings.initial_state(opts, limits)
-      paging = Settings.new_paging(repository, token, limits, limits.root_limit)
+      # Mirrors `GitHubGraph.fetch_catalog/1`: per-member labels are opt-in so a
+      # test can exercise both the cheap and the labelled catalog read (#1766).
+      paging =
+        repository
+        |> Settings.new_paging(token, limits, limits.root_limit)
+        |> Map.put(:member_labels?, Keyword.get(opts, :member_labels, false) == true)
 
       case Pager.catalog(paging, state) do
         {:ok, nodes, state} -> Result.catalog(nodes, repository, state)

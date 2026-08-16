@@ -38,7 +38,7 @@
 
 import type { HidBackend } from "./backend.js";
 import type { RawRead } from "./read.js";
-import { READ_LENGTH } from "./report.js";
+import { INPUT_REPORT_LENGTH } from "./report.js";
 
 /** Result of a single interrupt-IN poll. */
 export type UsbInResult = { timedOut: true } | { timedOut: false; data: Uint8Array };
@@ -96,7 +96,7 @@ export const openUsbBackend = async (device: UsbDeviceLike, options: UsbBackendO
 
     read: async (): Promise<RawRead> => {
       try {
-        const result = await device.transferIn(READ_LENGTH);
+        const result = await device.transferIn(INPUT_REPORT_LENGTH);
         if (result.timedOut) {
           return { kind: "timeout" };
         }

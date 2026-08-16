@@ -26,6 +26,15 @@
   --pill-bg: rgba(221, 226, 235, 0.04);
   --accent: #2f86ff;
   --accent-ink: #8fbcff;
+  /* The fill under text that sits *on* the accent, as opposed to --accent-ink,
+     which is accent-coloured text on a surface. --accent itself is tuned bright
+     so it reads against the dark surfaces, and at that brightness it cannot
+     carry white text: #fff on #2f86ff is 3.51:1. This deeper blue takes #fff to
+     4.59:1 while its own edge still clears the 3:1 non-text minimum against
+     --surface (3.55:1) and --surface-3 (3.01:1). --accent stays as it was for
+     the progress fills, rings and borders, which carry no text. */
+  --accent-strong: #0070f0;
+  --on-accent: #ffffff;
   --accent-soft: rgba(47, 134, 255, 0.15);
   --accent-line: rgba(47, 134, 255, 0.34);
   --attention: #e3b341;
@@ -34,6 +43,11 @@
   --attention-line: rgba(227, 179, 65, 0.34);
   --blocking: #ff7b72;
   --blocking-ink: #ffa39c;
+  /* Ink on a --blocking fill. The dark theme's blocking red is a pale salmon so
+     that it reads on the dark surfaces, which leaves white text on it at
+     2.52:1; near-black ink reaches 7.30:1. The light theme keeps white, its
+     blocking red being dark enough to carry it (4.76:1). */
+  --on-blocking: #2a0906;
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --blocking-line: rgba(255, 123, 114, 0.34);
   --good: #3fb950;
@@ -46,9 +60,15 @@
   --super-line: rgba(198, 155, 255, 0.34);
   --ack: #4fd6c4;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Between the hairline `sm` and the modal-scale `lg`: for a control that
+     hovers over the surface behind it and has to read as detached from it. */
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
   --radius: 16px;
   --radius-lg: 24px;
+  /* The page's reading width — what the content column is capped at once the
+     shell itself runs the full width of the window. */
+  --shell-measure: 75rem;
 }
 
 html[data-theme="light"] {
@@ -59,22 +79,47 @@ html[data-theme="light"] {
   --surface-2: #efe5cd;
   --surface-3: #e9dcbf;
   --fg: #2a2520;
-  --muted: #756a55;
-  --faint: #9a8e73;
+  /* Darkened from #756a55 and #9a8e73, which were tuned for the sepia surface
+     by eye and never measured: --faint reached only 2.75:1 on --surface (2.26:1
+     on --bg) and --muted fell to 4.20:1 behind --pill-bg, which is what put the
+     Units filter pills below AA. Both are now set to mirror their dark-theme
+     counterparts' contrast profile rather than to a bare 4.5:1 pass, so the
+     muted/faint step stays the same size it is in dark mode:
+       --muted 5.78:1 on --surface (dark: 5.79:1), 4.75:1 on --bg
+       --faint 4.97:1 on --surface (dark: 5.03:1), 4.62:1 behind --pill-bg
+     --faint clears AA on --surface and --surface-2 only. It is under it on
+     --surface-3 (4.31:1, as dark --faint is at 4.27:1) and on the page itself
+     (4.08:1 on --bg, 3.82:1 on --bg-2) — text on those steps up to --muted
+     rather than dragging the whole token darker, because --faint cannot go
+     much below this without collapsing into --muted and losing the third rung
+     of the hierarchy. Do not lighten either without rechecking axe. */
+  --muted: #635a48;
+  --faint: #6d6450;
   --line: rgba(42, 37, 26, 0.16);
   --line-strong: rgba(42, 37, 26, 0.28);
   --hairline: rgba(42, 37, 26, 0.1);
   --pill-bg: rgba(42, 37, 26, 0.04);
   --accent: #1f57c4;
   --accent-ink: #1a4aa8;
+  /* The light accent is already dark enough to carry white text (6.52:1), so
+     the fill and the accent are the same colour here. */
+  --accent-strong: #1f57c4;
+  --on-accent: #ffffff;
   --accent-soft: rgba(31, 87, 196, 0.11);
   --accent-line: rgba(31, 87, 196, 0.3);
   --attention: #b8821a;
-  --attention-ink: #8a6210;
+  /* Darkened from #8a6210, which reached only 4.11:1 against its own soft
+     background in the light theme — an "Expired" chip is a state the operator
+     has to be able to read. Darkened again from #7d590e, which cleared its own
+     soft background (4.78:1) but not when that sits on a tinted panel: the
+     revision caution inside `.decision-revision` measured 4.16:1 over the
+     --super-soft wash. Now 4.59:1 there and 5.27:1 on the plain surface. */
+  --attention-ink: #75530d;
   --attention-soft: rgba(184, 130, 26, 0.13);
   --attention-line: rgba(184, 130, 26, 0.32);
   --blocking: #d23b32;
   --blocking-ink: #a52a23;
+  --on-blocking: #ffffff;
   --blocking-soft: rgba(210, 59, 50, 0.11);
   --blocking-line: rgba(210, 59, 50, 0.3);
   --good: #1f9d4d;
@@ -87,6 +132,7 @@ html[data-theme="light"] {
   --super-line: rgba(138, 79, 208, 0.3);
   --ack: #0e9e8e;
   --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.1);
+  --shadow-md: 0 4px 12px -2px rgba(58, 44, 18, 0.22);
   --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.3);
 }
 
@@ -173,10 +219,10 @@ textarea:focus-visible,
 .app-shell {
   max-width: 1440px;
   margin-inline: auto;
-  /* Block padding is a fixed 16px (not rem) so the sticky sidebar's resting
-     offset and its sticky `top` stay in lockstep even while a root font-size
-     change is mid-reflow; a rem here lets the two diverge transiently. Page zoom
-     still scales px, so real zoom behaviour is unchanged. */
+  /* Mobile/tablet gutter: the sidebar is hidden and the fixed bottom nav
+     reserves its own space, so content needs this to stay off the edges. On
+     desktop (>=960px) it is dropped so the sidebar and topbar run edge-to-edge;
+     .shell-content re-adds the inline gutter there. */
   padding: 16px 1.15rem;
 }
 
@@ -186,7 +232,19 @@ textarea:focus-visible,
   gap: 1.25rem;
 }
 
+.shell-body {
+  display: grid;
+  min-width: 0;
+  /* Named so the wide-screen centring can derive the sidebar rail from the
+     real layout rather than restating the same number. */
+  --shell-gap: 1.25rem;
+  gap: var(--shell-gap);
+}
+
+/* Positioning context for the collapse toggle, which is laid over the first
+   route rather than taking a row of its own. */
 .shell-sidebar {
+  position: relative;
   display: grid;
   align-self: start;
   align-content: start;
@@ -239,9 +297,28 @@ textarea:focus-visible,
   background: var(--accent-soft);
 }
 
+/* --muted, not --faint: the nav has no surface of its own, so this text sits
+   straight on the page background, where light --faint is only 4.08:1. The
+   "unavailable" state still reads as recessed against the --fg siblings. */
 .shell-nav-item.is-unavailable {
   cursor: not-allowed;
-  color: var(--faint);
+  color: var(--muted);
+}
+
+/* The sidebar sits hard against the browser's left edge, so its hover and
+   selected states are square on that side and rounded only on the right: a
+   rounded left corner reads as a gap between the state and the window edge.
+   The mobile nav pill is a floating island, so it keeps rounding all round. */
+.shell-nav-sidebar .shell-nav-item {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+/* The collapse toggle is laid over the right end of the first route, so that
+   route reserves the overhang: Units is also the route that carries a live
+   count, and the badge is right-aligned straight into the button otherwise. */
+.shell-nav-sidebar .shell-nav-item:first-child {
+  padding-inline-end: 1.8rem;
 }
 
 .shell-nav-icon {
@@ -261,9 +338,11 @@ textarea:focus-visible,
   overflow-wrap: anywhere;
 }
 
+/* Also on the bare page background, and at 0.6rem it gets no large-text
+   relief, so it takes --muted for the same reason as .is-unavailable above. */
 .shell-nav-state {
   margin-left: auto;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 0.6rem;
   font-weight: 600;
 }
@@ -305,6 +384,7 @@ textarea:focus-visible,
   display: none;
 }
 
+/* Leads the content column, above the banner and the page's own panes. */
 .route-context {
   min-width: 0;
 }
@@ -391,6 +471,17 @@ textarea:focus-visible,
   border-radius: var(--radius-lg);
   background: linear-gradient(155deg, var(--surface), var(--surface-2));
   box-shadow: var(--shadow-sm);
+}
+
+/* Grid items keep `min-width: auto`, so a track sizes itself to the widest
+   descendant's min-content — and the spatial graph's stage grows by one column
+   per epic. A Build Order with many epics therefore stretched the graph pane,
+   and with it every sibling pane in the same track, past the right edge of the
+   page instead of scrolling inside the graph's own viewport. The viewport is
+   already an `overflow: auto` scroller; zeroing the items' automatic minimum is
+   what lets it actually scroll. */
+.bo-surface > * {
+  min-width: 0;
 }
 
 .bo-state-card h3,
@@ -1715,7 +1806,7 @@ textarea:focus-visible,
   z-index: 30;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 1rem;
   flex-wrap: wrap;
   padding: 0.5rem 1.15rem;
@@ -1767,7 +1858,8 @@ textarea:focus-visible,
   flex-wrap: wrap;
   gap: 0.55rem;
   min-width: 0;
-  padding: 0.35rem 0.2rem 0.6rem 0.35rem;
+  flex: none;
+  padding: 0;
 }
 
 .brand-row .brand-live {
@@ -1780,12 +1872,29 @@ textarea:focus-visible,
   overflow: hidden;
 }
 
-.brand-row #global-pause-toggle {
-  margin-left: auto;
+/* Laid on top of the sidebar's first route, overhanging its right edge, with a
+   drop shadow so it reads as a separate control rather than another nav row.
+   The fill is opaque and qualified by `.tool-btn`: the shared pill background
+   is a 4%-alpha wash declared later in this file, so at equal specificity the
+   nav item underneath would show through the overhang. */
+.tool-btn.shell-nav-toggle {
+  position: absolute;
+  top: 0.28rem;
+  right: -1rem;
+  z-index: 5;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
 }
 
-.brand-row #nav-toggle {
-  margin-left: -0.15rem;
+.tool-btn.shell-nav-toggle:hover {
+  background: var(--surface-2);
+}
+
+/* Collapsed, the sidebar is a bare rail, so the overhang would push the button
+   into the content; it sits in the rail instead, where the nav will reappear. */
+.dashboard-shell[data-nav-collapsed="true"] .shell-nav-toggle {
+  right: auto;
+  left: 0.28rem;
 }
 
 /* The compact fleet-staleness label rides beside the brand logo. The full
@@ -1891,26 +2000,19 @@ html[data-theme="light"] .toggle-icon .moon {
   line-height: 1;
 }
 
-/* Collapsed navigation: hide the route list; the brand row (with the toggle to
-   reopen) stays, and the sidebar shrinks to reclaim space for content. */
+/* Collapsed navigation: hide the route list and let the sidebar column shrink
+   to nothing, reclaiming the space for content. The `<aside>` itself stays in
+   flow at zero width so the collapse toggle it hosts is still on screen to
+   reopen the nav. */
 .dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
   display: none;
 }
 
-.dashboard-shell[data-nav-collapsed="true"] .brand-mini-logo,
-.dashboard-shell[data-nav-collapsed="true"] .brand-wordmark,
-.dashboard-shell[data-nav-collapsed="true"] .brand-live,
-.dashboard-shell[data-nav-collapsed="true"] .nav-hide-icon {
-  display: none;
-}
-
-.dashboard-shell[data-nav-collapsed="true"] .nav-show-icon {
-  display: block;
-}
-
 @media (min-width: 960px) {
-  .dashboard-shell[data-nav-collapsed="true"] {
-    grid-template-columns: auto minmax(0, 1fr);
+  /* A rail just wide enough for the toggle, so the reopen control keeps its own
+     gutter instead of overlapping the content column. */
+  .dashboard-shell[data-nav-collapsed="true"] .shell-body {
+    grid-template-columns: var(--shell-nav-w) minmax(0, 1fr);
   }
 }
 
@@ -1920,12 +2022,14 @@ html[data-theme="light"] .toggle-icon .moon {
   justify-content: flex-end;
   gap: 0.45rem;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
-/* The one and only theme toggle, at every resolution. */
+/* The run-wide controls — pause and theme — at every resolution. */
 .topbar-controls {
   display: inline-flex;
   align-items: center;
+  gap: 0.45rem;
 }
 
 .status-badge,
@@ -2014,18 +2118,6 @@ html[data-theme="light"] .toggle-icon .moon {
   opacity: 0.85;
 }
 
-/* An expected moment must not wear incident colour. A run that has not
-   published its first snapshot yet is normal after a restart, so it keeps the
-   card layout and drops the blocking red. */
-.error-card.notice {
-  border-color: var(--line);
-  background: var(--surface);
-}
-
-.error-card.notice h2 {
-  color: var(--fg);
-}
-
 .decisions-banner {
   display: flex;
   align-items: center;
@@ -2106,7 +2198,7 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .blocking .decision-banner-cta {
   background: var(--blocking);
-  color: #fff;
+  color: var(--on-blocking);
 }
 
 .overview-strip {
@@ -3262,10 +3354,10 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.4rem;
   min-height: 2.25rem;
   padding: 0.5rem 0.85rem;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-strong);
   border-radius: 10px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-strong);
+  color: var(--on-accent);
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 650;
@@ -3286,6 +3378,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .btn.danger {
   border-color: var(--blocking);
   background: var(--blocking);
+  color: var(--on-blocking);
 }
 
 .units-card {
@@ -3315,33 +3408,10 @@ html[data-theme="light"] .toggle-icon .moon {
   vertical-align: middle;
 }
 
-.ut-id-cell {
-  position: relative;
-}
-
-.units-row.is-blocked .ut-id-cell,
-.units-row.has-alert .ut-id-cell {
-  padding-left: 1.8rem;
-}
-
 .ut-id-num {
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
-}
-
-.ut-alert {
-  position: absolute;
-  left: 0.45rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--fg);
-}
-
-.ut-alert svg {
-  display: block;
-  width: 1rem;
-  height: 1rem;
 }
 
 .ut-pill-row {
@@ -3391,9 +3461,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .u-prio.is-med {
-  color: #d98f5b;
-  border-color: rgba(217, 143, 91, 0.4);
-  background: rgba(217, 143, 91, 0.12);
+  color: #e29b63;
+  border-color: rgba(226, 155, 99, 0.4);
+  background: rgba(226, 155, 99, 0.12);
 }
 
 .u-prio.is-low {
@@ -3768,7 +3838,8 @@ html[data-theme="light"] .rs-github-mark {
 }
 
 /* An unknown token count keeps only the provider's token glyph, top right at
-   logo size, so the card keeps its footprint without a "Tokens N/A" row. */
+   logo size, so the card keeps its footprint without a "Tokens N/A" row. Only
+   Claude and Codex carry that glyph, so only their rows use this. */
 .rs-token-na {
   align-self: flex-start;
 }
@@ -3984,48 +4055,8 @@ html[data-theme="light"] .rs-github-mark {
   background: none;
 }
 
-/* The freshness chip. Every row carries one, so a stale or unavailable reading
-   can never be mistaken for a healthy zero — the distinction the compressed
-   row exists to preserve. */
-.rs-state {
-  justify-self: end;
-  padding: 0.14rem 0.5rem;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.rs-state.is-healthy {
-  border-color: color-mix(in srgb, var(--good-ink) 30%, transparent);
-  background: color-mix(in srgb, var(--good-ink) 10%, transparent);
-  color: var(--good-ink);
-}
-
-.rs-state.is-partial,
-.rs-state.is-stale {
-  border-color: color-mix(in srgb, var(--warning, #d08a2a) 35%, transparent);
-  background: color-mix(in srgb, var(--warning, #d08a2a) 12%, transparent);
-  color: var(--warning, #d08a2a);
-}
-
-.rs-state.is-unavailable {
-  border-color: color-mix(in srgb, var(--blocking) 30%, transparent);
-  background: color-mix(in srgb, var(--blocking) 10%, transparent);
-  color: var(--blocking);
-}
-
-.rs-state.is-nodata {
-  border-color: var(--line);
-  background: var(--surface-3);
-  color: var(--muted);
-}
-
-/* Narrow widths: the identity column stops being a fixed track and the state
-   chip moves under the meters, so the row wraps rather than scrolling. */
+/* Narrow widths: the identity column stops being a fixed track, so the row
+   wraps rather than scrolling. */
 @media (max-width: 720px) {
   .rs-row {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -4324,7 +4355,7 @@ html[data-theme="light"] .rs-github-mark {
 
 .units-row.has-alert .u-prio.is-med,
 .units-row.is-blocked .u-prio.is-med {
-  color: color-mix(in srgb, var(--fg) 30%, #d98f5b);
+  color: color-mix(in srgb, var(--fg) 30%, #e29b63);
 }
 
 .units-identity {
@@ -4790,7 +4821,15 @@ html[data-theme="light"] .rs-github-mark {
   font-size: 0.72rem;
 }
 
+/* The card is a grid item, which defaults to `min-width: auto` and sizes to the
+   widest cell. Without this the table would widen the whole page instead of
+   scrolling inside its own wrapper — visible at 200% text size. */
+.command-history {
+  min-width: 0;
+}
+
 .history-table-wrap {
+  max-width: 100%;
   margin-top: 0.75rem;
   overflow-x: auto;
 }
@@ -4813,8 +4852,17 @@ html[data-theme="light"] .rs-github-mark {
   white-space: nowrap;
 }
 
-.history-table tbody tr {
+.history-table tbody tr.history-row {
   border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.history-table tbody tr.history-row:hover {
+  background: var(--bg-2);
+}
+
+.history-table tbody tr.history-row.is-expanded {
+  background: var(--bg-2);
 }
 
 .history-table tbody tr[data-severity="good"] {
@@ -4844,9 +4892,34 @@ html[data-theme="light"] .rs-github-mark {
   color: var(--fg);
 }
 
-.history-outcome {
+.history-decision {
   max-width: 34ch;
   color: var(--muted);
+}
+
+/* The row is the click target, so the control inside it is a bare button: it
+   exists to carry the accessible name, aria-expanded and the focus ring, not a
+   second visual affordance. */
+.history-row-toggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-detail-row > td {
+  padding: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.history-row.is-expanded .expand-chevron {
+  transform: rotate(180deg);
 }
 
 .history-result {
@@ -4857,15 +4930,15 @@ html[data-theme="light"] .rs-github-mark {
 }
 
 .history-when {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
   color: var(--muted);
   font-size: 0.72rem;
   white-space: nowrap;
 }
 
-.history-open {
-  text-align: right;
-  white-space: nowrap;
-}
 
 .history-more {
   display: flex;
@@ -5800,15 +5873,60 @@ html[data-theme="light"] .rs-github-mark {
 }
 
 @media (min-width: 960px) {
-  .dashboard-shell {
-    grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+  .shell-body {
+    grid-template-columns: minmax(12rem, var(--shell-nav-w)) minmax(0, 1fr);
+    /* The chrome the content column is offset by: the sidebar track plus the
+       body's gap. Derived rather than written out, so changing the track or the
+       gap cannot silently desync the centring below from the actual layout. */
+    --shell-nav-w: 15rem;
+    --shell-rail: calc(var(--shell-nav-w) + var(--shell-gap));
+  }
+
+  /* Collapsed, the track is the bare toggle rail. */
+  .dashboard-shell[data-nav-collapsed="true"] .shell-body {
+    --shell-nav-w: 2.6rem;
+  }
+
+  /* The nav bar and sidebar are browser chrome, not page content: they run the
+     full width of the window, pinned to the top and the far left, so the shell
+     drops its centred 1440px cap and its outer gutter here. The page itself
+     stays centred and capped inside the content column below. */
+  .app-shell {
+    max-width: none;
+    padding: 0;
+  }
+
+  /* Centred in the window, not merely in the space left over beside the
+     sidebar: mirroring the rail as a trailing margin puts the content column's
+     midpoint back on the window's. There is only room for the full mirror once
+     the window is wider than rail + measure + rail, so the margin grows into it
+     and the page slides back to true centre instead of jumping there.
+     `100vw` counts a classic scrollbar the content cannot use, which biases the
+     result a scrollbar-width to the left; the error is a few pixels and always
+     in the safe direction (a smaller margin, never overflow). */
+  .shell-main {
+    margin-inline-end: clamp(0px, calc(100vw - var(--shell-rail, 0px) - var(--shell-measure)), var(--shell-rail, 0px));
+  }
+
+  .shell-content {
+    /* Roughly the reading width the old 1440px shell gave the content column,
+       so a page does not stretch to the full width of an ultrawide display. */
+    max-width: var(--shell-measure);
+    /* `margin-inline: auto` opts a grid item out of the default `stretch`
+       alignment, which left the column sized to each page's own max-content —
+       so Commands, Build Order, Analytics and Streamdeck each measured a
+       different width at the same viewport and the layout jumped when you
+       navigated. Claiming the whole column (capped above) makes the measure a
+       property of the shell rather than of whatever the page happens to
+       contain, so every route lines up. */
+    width: 100%;
+    margin-inline: auto;
+    padding-inline: 1.15rem;
+    padding-block-end: 1rem;
   }
 
   .shell-sidebar {
-    position: sticky;
-    /* Match .app-shell's fixed 16px block padding so the sticky offset equals
-       the resting offset regardless of root-font-size reflow timing. */
-    top: 16px;
+    align-self: start;
   }
 }
 
@@ -5903,16 +6021,11 @@ html[data-theme="light"] .rs-github-mark {
     height: 1.9rem;
   }
 
-  /* Sit on the title's line, not on a line of its own: no wrapping, and the
-     title takes the slack so the toggle stays pinned to the right. */
+  /* Brand and controls share one line, never two: the brand takes the slack so
+     the controls stay pinned to the right. */
   .topbar {
     flex-wrap: nowrap;
     align-items: center;
-  }
-
-  .topbar .route-context {
-    min-width: 0;
-    flex: 1 1 auto;
   }
 
   .topbar .toolbar {
@@ -5929,8 +6042,9 @@ html[data-theme="light"] .rs-github-mark {
     gap: 0.6rem;
   }
 
-  /* Was `width: 100%` to give the clock its own line. The clock is gone and the
-     only occupant is now the theme toggle, which belongs on the title's line. */
+  /* Was `width: 100%` to give the clock its own line. The clock is gone and
+     what is left is the pause and theme pair, which belongs beside the brand
+     rather than on a row of its own. */
   .toolbar {
     width: auto;
     justify-content: flex-end;
@@ -7359,6 +7473,12 @@ html[data-theme="light"] .rs-github-mark {
   margin: 1.25rem 0;
 }
 
+/* The graph is its own section-card pane now; the pane's padding replaces the
+   graph's own vertical breathing room so the card stays tight. */
+.bo-graph-pane .bo-grid-root {
+  margin: 0;
+}
+
 /* --- wave-progress header strip --- */
 .bo-waves-head {
   margin-bottom: 1rem;
@@ -8066,7 +8186,125 @@ html[data-theme="light"] .rs-github-mark {
   overflow: auto;
 }
 
-.sd-install-intro,
+/* The dialog title carries the eyebrow's mono/uppercase treatment: the modal
+   now leads with the instruction itself, so the separate eyebrow line above it
+   was one label too many. The `.modal-header h2` qualifier is load-bearing —
+   `.modal-header h2` sets its own `font-size`, and a bare class selector loses
+   to it on specificity regardless of source order. */
+.modal-header h2.sd-install-title {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* `.modal-panel` sizes its third row `minmax(0, 1fr)`, which was written for a
+   panel whose third child is the scrollable body. This dialog's children are
+   header, steps, and an optional note, so that row would land on the note and
+   let it collapse to nothing on a short viewport — silently hiding the Windows
+   warning. Every row here sizes to its content; the panel itself scrolls. */
+.sd-install-modal {
+  grid-template-rows: none;
+}
+
+.sd-install-step-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.86rem;
+}
+
+.sd-install-download {
+  display: inline-block;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--accent-ink);
+  border-radius: 8px;
+  color: var(--accent-ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sd-install-download:hover {
+  background: var(--accent-soft);
+}
+
+.sd-install-download:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+/* A plain container: the prompt block below carries the box, so bordering this
+   too would frame the same content twice. */
+.sd-install-prompt {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  min-width: 0;
+}
+
+/* The prompt block grows to whatever height the wrapped text needs, at every
+   width: it must never scroll sideways and never clip its tail. */
+.sd-install-prompt-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sd-install-prompt-text:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
+.sd-install-prompt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.sd-install-copy-button {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.sd-install-copy-button:hover {
+  background: var(--surface-3);
+}
+
+.sd-install-copy-button:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-install-prompt [data-copy-status] {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.sd-install-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
 .sd-install-pairing p,
 .sd-install-result p {
   margin: 0;
@@ -8088,24 +8326,19 @@ html[data-theme="light"] .rs-github-mark {
   font-size: 0.86rem;
 }
 
+/* The step titles number themselves, so the list markers would say it twice. */
 .sd-install-steps {
   display: grid;
-  gap: 0.65rem;
+  gap: 1rem;
   margin: 0;
-  padding-left: 1.4rem;
+  padding-left: 0;
+  list-style: none;
   font-size: 0.85rem;
   line-height: 1.5;
 }
 
-.sd-install-modal code {
-  overflow-wrap: anywhere;
-}
-
-.sd-install-modal .modal-meta {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  overflow-wrap: anywhere;
+.sd-install-step {
+  min-width: 0;
 }
 
 .sd-brand-logo {
@@ -9094,13 +9327,20 @@ html[data-theme="light"] .sd-device {
   opacity: 0.45;
 }
 
-/* Control feedback is screen-reader-only until there is something to report; a
-   failed control call is meant to be seen on the deck face, not just heard. */
-.sd-control-status {
-  margin: 0 0 0.4rem;
+/* Control feedback (a requested or failed control call) is rendered in a banner
+   outside the device, so the emulated deck's key/dial layout never shifts when a
+   status line appears or clears. */
+.streamdeck-status {
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 10px;
+  background: var(--attention-soft);
   color: var(--attention-ink);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-align: center;
@@ -9206,4 +9446,342 @@ html[data-theme="light"] .sd-device {
 .sd-log-badge {
   color: var(--sd-log-badge);
   font-weight: 800;
+}
+
+/* ---- Agents panel header ----
+   The same title/count pair the APIs and Models panels use, so the three panel
+   headers read as one system. It sits above the filter row, not inside it. */
+.units-group-head {
+  margin-bottom: 0.85rem;
+}
+
+/* ---- Tickets panel ----
+   Every open ticket on the repository, including the ones no agent has been
+   routed to yet. Shares the Units table's full-bleed geometry and row tones. */
+.tickets-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tickets-card .units-table-wrap {
+  margin-top: 0.85rem;
+}
+
+/* The search sits between the panel title and the table because that is the
+   order the operator reads in: what this list is, how to narrow it, then the
+   list. It spans the panel so the input is the widest thing under the header
+   and cannot be mistaken for one more filter pill. */
+.tk-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Wraps rather than crushing the field: at 320px the Clear button would
+     otherwise leave the input too narrow to read a query back in. */
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+
+/* Borrows the tokens `.field-select` established rather than forking a second
+   field look: the border, radius, surfaces, and state colours are the ones the
+   add-agent selects use, so the dashboard's form controls read as one family.
+   This is not a `.field-select` itself — that control wraps a `<select>` and
+   draws a chevron for a popup this field does not have. The height stays at the
+   44px target the Units page holds its controls to. */
+.tk-search-input {
+  flex: 1;
+  min-width: 10rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.tk-search-input::placeholder {
+  color: var(--muted);
+}
+
+.tk-search-input:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-3);
+}
+
+.tk-search-input:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+/* The page-wide focus ring covers buttons, links, and textareas but not inputs.
+   Drawn with `--accent` rather than the page-wide `--accent-line` for the
+   reason the select control documents: `--accent-line` is too transparent to
+   clear 3:1 against a filled field in either theme. */
+.tk-search-input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* WebKit draws its own clear "×" inside type="search", which no keyboard can
+   reach — two clear controls where only one is operable. The explicit Clear
+   button is the single affordance. */
+.tk-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Same box as the field it clears, so the pair reads as one control row. */
+.tk-search-clear {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.tk-search-clear:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-3);
+}
+
+/* A search that found nothing is a smaller statement than an empty backlog:
+   the panel still has tickets, just none under this query. */
+.tk-no-matches {
+  margin-top: 0.85rem;
+}
+
+.tickets-table th.tk-col-id {
+  width: 62px;
+}
+
+.tickets-table th.tk-col-labels {
+  width: 220px;
+}
+
+.tickets-table th.tk-col-action {
+  width: 68px;
+}
+
+.tickets-table td {
+  vertical-align: middle;
+}
+
+.tk-muted {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.u-label {
+  color: var(--muted);
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.u-label.is-more {
+  color: var(--faint);
+}
+
+.tk-action-cell {
+  text-align: right;
+}
+
+/* The reveal control sits outside the table so it is never mistaken for a row
+   and never intercepts a row's click. Centred, matching the History "Load more". */
+.tickets-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
+/* ---- Ticket detail modal ---- */
+.ticket-detail-body {
+  display: grid;
+  gap: 1rem;
+  overflow-y: auto;
+}
+
+.ticket-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.ticket-detail-facts dt {
+  color: var(--faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ticket-detail-facts dd {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+}
+
+/* ---- Add-agent modal ---- */
+/* Header, then the scrolling form, then the optional read-only footnote — the
+   routing explainer that used to sit between the first two rows is gone. */
+.add-agent-modal {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(520px, 100%);
+}
+
+.add-agent-form {
+  display: grid;
+  gap: 0.85rem;
+  overflow-y: auto;
+}
+
+.add-agent-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.add-agent-field > span {
+  color: var(--faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ---- Select control ----
+   Written as a shared control rather than an add-agent one-off — the modal's
+   four selects are the dashboard's only ones today, so the next select to
+   arrive should join `.field-select` instead of forking this.
+
+   Geometry matches `.btn`: same 2.25rem height and 10px radius, so the Confirm
+   row and the fields above it sit on one vertical rhythm.
+
+   Native option rows cannot be given breathing room. Chromium and WebKit hand
+   the popup to the OS and drop `padding` on `<option>` outright; only Gecko
+   renders it in-page and honours it. The `option` rule below is therefore a
+   Firefox-only gain, kept because it costs nothing where it is ignored. Buying
+   the spacing everywhere would mean a bespoke JS listbox, and this dashboard
+   has no combobox pattern to build on — a half-built one would be worse for a
+   keyboard or screen-reader operator than the native control it replaced. */
+.field-select {
+  position: relative;
+  display: grid;
+}
+
+/* Chevron drawn from two borders rather than a background SVG: a data-URI icon
+   would have to hard-code its stroke, while a border tracks the theme's
+   `--muted` and follows the control's own hover and focus states. */
+.field-select::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 0.3rem);
+  right: 0.85rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  /* The popup opens on click anywhere in the control, so the chevron must not
+     be the one spot that swallows it. */
+  pointer-events: none;
+  transform: rotate(45deg);
+  transition: border-color 0.18s ease;
+}
+
+.field-select:hover::after,
+.field-select:focus-within::after {
+  border-color: var(--fg);
+}
+
+.field-select select {
+  appearance: none;
+  width: 100%;
+  min-height: 2.25rem;
+  /* Vertical padding and line-height match `.btn`'s box exactly rather than
+     relying on the shared `min-height`, which the UA's own line box overshoots.
+     Right padding clears the chevron so a long model id truncates before it
+     rather than running underneath. */
+  padding: 0.5rem 2rem 0.5rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.field-select select:hover:not(:disabled) {
+  border-color: var(--accent-line);
+  background: var(--surface-3);
+}
+
+/* `:focus` covers the open popup, which no pseudo-class reports portably. */
+.field-select select:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+/* The page-wide ring is `--accent-line`, which is too transparent to clear 3:1
+   against `--surface-2` in either theme. `--accent` clears it at 4.1:1 dark and
+   6.3:1 light, so the ring is solid on a control the operator tabs into. */
+.field-select select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.field-select select:disabled {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--faint);
+  cursor: not-allowed;
+  /* The UA fades the whole control; `--faint` already carries the state and is
+     contrast-checked, so keep the text readable. */
+  opacity: 1;
+}
+
+.field-select:has(select:disabled)::after {
+  border-color: var(--faint);
+}
+
+.field-select option {
+  padding: 0.35rem 0.6rem;
+  background: var(--surface);
+  color: var(--fg);
+  line-height: 1.9;
+}
+
+.add-agent-preview {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.add-agent-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.add-agent-note.is-applied {
+  color: var(--ack);
+}
+
+.add-agent-note.is-error {
+  color: var(--attention);
+}
+
+.add-agent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }

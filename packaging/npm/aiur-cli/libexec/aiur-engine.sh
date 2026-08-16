@@ -314,6 +314,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
        aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
+       aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
@@ -1418,7 +1419,11 @@ wait_for_session_startup() {
   local tmux_bin="$1" socket="$2" conf="$3" session="$4" startup_capture="$5" require_control="$6"
   local max_ticks="${AIUR_TMUX_GRACE_TICKS:-30}" tick control_state
   if [ "$require_control" = "1" ]; then
-    max_ticks="${AIUR_NODE_GRACE_TICKS:-100}"
+    # 0.1s per tick. The old 100-tick (10s) budget was under a cold control
+    # plane's real boot time, so a healthy daemon was killed mid-startup and
+    # reported as a failure. Boot time grows with the module count; keep the
+    # headroom generous, since the loop exits as soon as the probe says "up".
+    max_ticks="${AIUR_NODE_GRACE_TICKS:-1200}"
   fi
 
   for ((tick = 0; tick < max_ticks; tick++)); do
@@ -1442,7 +1447,16 @@ wait_for_session_startup() {
   done
 
   if [ "$require_control" = "1" ]; then
-    echo "❌ aiur control plane did not become ready at ${RELEASE_NODE:-unknown} during startup; captured output:" >&2
+    # A live session at this point means the BEAM never died -- we ran out of
+    # patience, not the daemon out of health. Saying so is the difference
+    # between "your release is broken" and "give it longer", and the empty
+    # capture below is evidence of the latter, not of a silent crash.
+    if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+      echo "❌ aiur control plane at ${RELEASE_NODE:-unknown} was still booting after $(awk "BEGIN{printf \"%.0f\", ${max_ticks} / 10}")s; the BEAM is alive but not yet answering." >&2
+      echo "   Raise the budget with AIUR_NODE_GRACE_TICKS (ticks of 0.1s) if this box is just slow." >&2
+    else
+      echo "❌ aiur control plane did not become ready at ${RELEASE_NODE:-unknown} during startup; captured output:" >&2
+    fi
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
     return 1
   fi
@@ -2637,8 +2651,14 @@ warn_other_aiur_daemons() {
   done
 }
 
+# Set when cmd_stop returns nonzero only because there was nothing to stop. It
+# lets a caller (cmd_restart) tell that benign outcome apart from a stop that
+# failed for a real reason, without changing `aiur stop`'s own exit code.
+AIUR_STOP_FOUND_NOTHING=0
+
 # Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
+  AIUR_STOP_FOUND_NOTHING=0
   resolve_release
   aiur_resolve_identity
   RELEASE_NODE="$AIUR_RELEASE_NODE"
@@ -2667,6 +2687,7 @@ cmd_stop() {
     echo "aiur: no running aiur node at ${AIUR_RELEASE_NODE}; nothing stopped" >&2
     warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
     print_global_config_control_hint
+    AIUR_STOP_FOUND_NOTHING=1
     return 1
   fi
 
@@ -2716,6 +2737,210 @@ cmd_stop() {
   sweep_stale_tmp_artifacts
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
   warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
+}
+
+# Stop, refresh the release, start again — `aiur restart`.
+#
+# The refresh deliberately runs BETWEEN the stop and the start. A dev rebuild
+# rewrites the release directory in place, and a BEAM booted from that directory
+# is exactly what the control-retry path (EX_TEMPFAIL) exists to survive; doing
+# it while the daemon is down means the new daemon boots from a release nothing
+# else is holding half-written.
+#
+# The engine itself never knows how to build: the installed CLI runs a pinned
+# platform release with no source tree beside it, so its restart is a plain
+# bounce. The dev shim supplies its build-if-stale step through
+# AIUR_RESTART_BUILD_CMD, a shell command line run via `bash -c` so the wrapper
+# (not this parser) owns quoting.
+aiur_restart_daemon_state="untouched"
+
+# Everything between the stop and a confirmed start runs with this armed, so the
+# operator hears about a fleet that is down no matter which step failed — a
+# rebuild, a missing tmux, a BEAM that would not boot, or a Ctrl-C during the
+# minutes-long rebuild. Naming only the step that failed would let "aiur failed
+# to start" read as "nothing changed", which is the silently stopped fleet.
+aiur_restart_report_state() {
+  [ "$aiur_restart_daemon_state" = "stopped" ] || return 0
+
+  # release_dir is resolved by the stop; fall back to the caller's declared dir
+  # for the paths that fail before that.
+  local dir="${release_dir:-${AIUR_RELEASE_DIR:-}}"
+
+  echo "aiur: the daemon is STOPPED and was NOT restarted" >&2
+  if [ -n "$dir" ] && [ -x "$dir/bin/aiur" ]; then
+    echo "aiur: fix the cause and run 'aiur restart' again, or 'aiur restart --no-build' to start" >&2
+    echo "      on the release already on disk" >&2
+  else
+    # The dev builder removes an incomplete release, so after a failed rebuild
+    # there is nothing for --no-build to start. Advertising it anyway would cost
+    # the operator a second failed cycle while the fleet stays down.
+    echo "aiur: no complete release is left on disk, so --no-build has nothing to start —" >&2
+    echo "      fix the build and run 'aiur restart' again" >&2
+  fi
+}
+
+# The rebuild runs in a process this command cannot see into, so "the builder
+# exited 0" is not the same claim as "the release I am about to boot is the one
+# it just built" — a wrapper pointed at another checkout satisfies the first and
+# not the second, which is exactly how a bounce ships a stale release while every
+# step reports success. The builder leaves a receipt naming the release dir it
+# vouches for and the commit it built from; this checks both against the release
+# on disk. Anything unverifiable is reported as unverifiable, never as success.
+verify_restart_build() {
+  local receipt="$1"
+  local built_dir built_sha stamped_sha stamp target_dir
+
+  if [ ! -s "$receipt" ]; then
+    echo "aiur: the rebuild left no build receipt, so restart cannot confirm which" >&2
+    echo "      release it produced" >&2
+    return 1
+  fi
+
+  built_dir="$(sed -n 's/^release_dir=//p' "$receipt" | head -n 1)"
+  built_sha="$(sed -n 's/^source_sha=//p' "$receipt" | head -n 1)"
+
+  # Fail on the missing field rather than on whatever an empty one happens to
+  # compare equal to further down.
+  if [ -z "$built_dir" ] || [ -z "$built_sha" ]; then
+    echo "aiur: the build receipt is malformed; restart cannot confirm what was built" >&2
+    return 1
+  fi
+
+  # Compare canonical paths: the builder and this engine can reach the same
+  # release through different symlinked parents.
+  built_dir="$(cd -P "$built_dir" 2>/dev/null && pwd || printf '%s' "$built_dir")"
+  target_dir="$(cd -P "${AIUR_RELEASE_DIR:-}" 2>/dev/null && pwd || printf '%s' "${AIUR_RELEASE_DIR:-}")"
+
+  if [ "$built_dir" != "$target_dir" ]; then
+    echo "aiur: the rebuild targeted a different release than the one about to boot" >&2
+    echo "      rebuilt : $built_dir" >&2
+    echo "      booting : $target_dir" >&2
+    return 1
+  fi
+
+  stamp="$target_dir/AIUR_BUILD_STAMP"
+  if [ ! -r "$stamp" ]; then
+    echo "aiur: the release carries no build stamp, so restart cannot confirm it is" >&2
+    echo "      the one just built ($stamp)" >&2
+    return 1
+  fi
+
+  stamped_sha="$(sed -n 's/^source_sha=//p' "$stamp" | head -n 1)"
+  if [ "$stamped_sha" != "$built_sha" ]; then
+    echo "aiur: the release on disk was not built from the commit the rebuild reported" >&2
+    echo "      rebuild reported : $built_sha" >&2
+    echo "      release stamped  : $stamped_sha" >&2
+    return 1
+  fi
+
+  # Say what was actually established. "verified ... built from unknown" would be
+  # a silent-pass guard reporting success over a release it cannot identify, and
+  # a dirty tree means the SHA is a floor rather than an identity.
+  if [ "$stamped_sha" = "unknown" ]; then
+    echo "aiur: release $target_dir matches the rebuild, but its source commit is" >&2
+    echo "      unknown (built outside a git work tree) — provenance unverified" >&2
+    return 0
+  fi
+
+  if [ "$(sed -n 's/^dirty=//p' "$stamp" | head -n 1)" = "yes" ]; then
+    echo "aiur: release $target_dir built from $stamped_sha with uncommitted changes" >&2
+    return 0
+  fi
+
+  echo "aiur: verified release $target_dir built from $stamped_sha" >&2
+}
+
+cmd_restart() {
+  local skip_build=0 arg
+  local run_args=()
+
+  for arg in "$@"; do
+    case "$arg" in
+      --no-build) skip_build=1 ;;
+      *) run_args+=("$arg") ;;
+    esac
+  done
+
+  # Restarting something that is already down is a start, not an error: the
+  # operator asked for a running daemon on current code, and that is what they
+  # get. Any OTHER stop failure is fatal — building and starting on top of a
+  # half-stopped instance is the in-place rewrite this ordering exists to avoid.
+  local stop_status=0
+  cmd_stop || stop_status=$?
+  if [ "$stop_status" -ne 0 ]; then
+    if [ "${AIUR_STOP_FOUND_NOTHING:-0}" -eq 1 ]; then
+      echo "aiur: nothing was running; restart will start a fresh session" >&2
+    else
+      die "restart aborted: stop failed (exit $stop_status); the daemon may still be running"
+    fi
+  fi
+
+  # cmd_stop's tmux teardown is best-effort (`|| true`), so a stop can report
+  # success while the session survives. Starting from there would rebuild the
+  # release under a live BEAM and then hit run_session's idempotent "already
+  # running" return — exit 0, stale release, no bounce. Refuse instead.
+  # release_bin is unset only when the stop was stubbed out, i.e. in tests.
+  if [ -n "${release_bin:-}" ] && [ "$(probe_control_liveness)" = "up" ]; then
+    die "restart aborted: the previous session still answers after the stop; nothing was rebuilt or restarted"
+  fi
+
+  aiur_restart_daemon_state="stopped"
+  trap aiur_restart_report_state EXIT INT TERM
+
+  if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
+    local build_status=0 receipt
+    receipt="$(mktemp "${TMPDIR:-/tmp}/aiur-restart-receipt.XXXXXX")"
+    AIUR_RESTART_BUILD_RECEIPT="$receipt" bash -c "$AIUR_RESTART_BUILD_CMD" || build_status=$?
+    if [ "$build_status" -ne 0 ]; then
+      # Exit with the builder's own status rather than a flat 1, so a caller can
+      # still tell a failed rebuild from any other abort.
+      rm -f "$receipt"
+      echo "❌ restart aborted before start: the rebuild failed" >&2
+      aiur_restart_report_state
+      trap - EXIT INT TERM
+      exit "$build_status"
+    fi
+
+    # A builder that declares AIUR_RESTART_BUILD_VERIFIES has promised a receipt,
+    # so a missing or contradicted one is a real failure and an unverifiable
+    # rebuild is not a lesser success — starting anyway would hand back the
+    # stale-release outcome this ordering exists to prevent, with a "restarted"
+    # line on top of it. A builder that makes no such promise cannot be held to
+    # it; say plainly that the guarantee did not apply rather than convert an
+    # unknown wrapper into a stopped fleet.
+    if [ "${AIUR_RESTART_BUILD_VERIFIES:-0}" = "1" ]; then
+      local verify_status=0
+      verify_restart_build "$receipt" || verify_status=$?
+      rm -f "$receipt"
+      if [ "$verify_status" -ne 0 ]; then
+        echo "❌ restart aborted before start: the rebuild could not be verified" >&2
+        # Naming the builder makes an inherited AIUR_RESTART_BUILD_CMD — a dev
+        # shim leaking into another shell — diagnosable from this output alone,
+        # instead of an identical refusal on every retry.
+        echo "   rebuild command: ${AIUR_RESTART_BUILD_CMD}" >&2
+        echo "   Rebuild from the checkout you mean and retry, or 'aiur restart --no-build'" >&2
+        echo "   to start the release on disk without the guarantee." >&2
+        aiur_restart_report_state
+        trap - EXIT INT TERM
+        exit 70
+      fi
+    else
+      rm -f "$receipt"
+      echo "aiur: UNVERIFIED rebuild — this builder reports no receipt, so restart" >&2
+      echo "      cannot confirm the release it is about to boot is the one just built" >&2
+    fi
+  elif [ "$skip_build" -eq 1 ]; then
+    echo "aiur: --no-build — restarting on the release already on disk" >&2
+  fi
+
+  # Always detached: the daemon this stopped was itself detached, and a restart
+  # that captured the terminal would be a surprise. `--interactive` still opts
+  # into the attachable session (`aiur --bg --interactive`), and a purely
+  # foreground restart remains `aiur stop && aiur run`.
+  dispatch_run --bg "${run_args[@]+"${run_args[@]}"}"
+
+  aiur_restart_daemon_state="running"
+  trap - EXIT INT TERM
 }
 
 # --- dispatch ----------------------------------------------------------------
@@ -2861,6 +3086,10 @@ aiur_engine_main() {
       ;;
     stop)
       cmd_stop
+      ;;
+    restart)
+      shift
+      cmd_restart "$@"
       ;;
     "")
       dispatch_run
