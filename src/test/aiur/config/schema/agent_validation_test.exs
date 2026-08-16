@@ -1,13 +1,13 @@
 defmodule Aiur.Config.Schema.AgentValidationTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.Schema.{AgentValidation, Errors}
   alias Ecto.Changeset
 
   # Renders through the same flattening Schema.parse surfaces to the operator,
   # so assertions pin the user-visible message, not Ecto's internal
   # `{message, opts}` change-error shape.
-  defp rendered_errors(changeset), do: Aiur.Config.Schema.Errors.format_errors(changeset)
+  defp rendered_errors(changeset), do: Errors.format_errors(changeset)
 
   describe "normalize_issue_state/1" do
     test "lowercases the state name" do

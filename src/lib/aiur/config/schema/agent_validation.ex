@@ -302,10 +302,9 @@ defmodule Aiur.Config.Schema.AgentValidation do
   end
 
   defp provider_string_list_errors(name, value) do
-    cond do
-      is_list(value) and Enum.all?(value, &(is_binary(&1) and &1 != "")) -> []
-      true -> [backend_configs: "openrouter.provider.#{name} must be a list of non-empty strings"]
-    end
+    if is_list(value) and Enum.all?(value, &(is_binary(&1) and &1 != "")),
+      do: [],
+      else: [backend_configs: "openrouter.provider.#{name} must be a list of non-empty strings"]
   end
 
   defp provider_boolean_errors(name, value) do
