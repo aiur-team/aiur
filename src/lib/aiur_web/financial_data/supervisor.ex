@@ -6,6 +6,7 @@ defmodule AiurWeb.FinancialData.Supervisor do
   alias AiurWeb.FinancialData
   alias AiurWeb.FinancialData.{ChangeBridge, SubscriptionAuthority}
   alias AiurWeb.FinancialDataAccess.Generation
+  alias AiurWeb.VoiceSessionLimiter
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
@@ -14,7 +15,7 @@ defmodule AiurWeb.FinancialData.Supervisor do
 
   @impl true
   def init(_opts) do
-    children = [Generation, SubscriptionAuthority, FinancialData, ChangeBridge]
+    children = [Generation, SubscriptionAuthority, FinancialData, ChangeBridge, VoiceSessionLimiter]
     Supervisor.init(children, strategy: :rest_for_one)
   end
 end

@@ -110,7 +110,7 @@ A machine with no microphone is a legitimate state, not a failure: the pane says
 
 ### Voice replies are out of scope
 
-Aiur transcribes; it does not speak. The ElevenLabs key this feature uses carries the `Speech to Text` and `User` permissions only, so there is no text-to-speech path to enable and no spoken reply to configure.
+The Stream Deck path transcribes; it does not speak. It needs only the `Speech to Text` and `User` permissions. The Dashboard Units modal can separately use the same server-held credential for interactive spoken replies when `Text to Speech` permission and a `voice_id` are configured.
 
 ### Configure it
 
@@ -120,6 +120,7 @@ Voice input needs an ElevenLabs API key. Add it with `aiur init`, which offers t
 elevenlabs:
   api_key: $ELEVENLABS_API_KEY
   language_code: eng
+  voice_id: null # optional; enables Dashboard spoken replies when set
 ```
 
 Prefer the `$ELEVENLABS_API_KEY` reference over pasting the key into the file. See [Configuration](/reference/configuration) for the field reference.

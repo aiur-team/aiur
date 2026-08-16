@@ -499,14 +499,16 @@ defmodule Aiur.Config.SchemaTest do
 
       assert settings.elevenlabs.api_key == nil
       assert settings.elevenlabs.language_code == "eng"
+      assert settings.elevenlabs.voice_id == nil
     end
 
     test "parses an explicit section" do
       assert {:ok, settings} =
-               Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config", "language_code" => "spa"}})
+               Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config", "language_code" => "spa", "voice_id" => "voice-123"}})
 
       assert settings.elevenlabs.api_key == "from-config"
       assert settings.elevenlabs.language_code == "spa"
+      assert settings.elevenlabs.voice_id == "voice-123"
     end
 
     test "$ELEVENLABS_API_KEY resolves from the environment" do
