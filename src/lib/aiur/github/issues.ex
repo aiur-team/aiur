@@ -394,6 +394,7 @@ defmodule Aiur.GitHub.Issues do
       dispatch_revision: dispatch_revision,
       dispatch_authorized?: false,
       paused: paused_label?(label_names, prefix),
+      parked: parked_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
@@ -538,6 +539,14 @@ defmodule Aiur.GitHub.Issues do
 
     Enum.any?(label_names, fn name ->
       normalize_label_name(name) == paused_label
+    end)
+  end
+
+  defp parked_label?(label_names, prefix) when is_list(label_names) do
+    parked_label = normalize_label_name("#{prefix}:parked")
+
+    Enum.any?(label_names, fn name ->
+      normalize_label_name(name) == parked_label
     end)
   end
 

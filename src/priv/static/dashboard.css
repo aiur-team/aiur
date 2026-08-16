@@ -8865,11 +8865,18 @@ html[data-theme="light"] .rs-github-mark {
 .sd-log-diff-line.is-deletion { color: #ff8b8b; }
 .sd-log-diff-line { overflow: hidden; color: var(--muted); font-size: 0.54rem; text-overflow: ellipsis; white-space: nowrap; }
 .sd-log-message { font-size: 0.62rem; }
-.sd-log-speaker { font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.52rem; font-weight: 800; text-transform: uppercase; }
-.sd-log-speaker.is-agent { color: #9fd0ff; }
-.sd-log-speaker.is-tool { color: #ffcf87; }
-.sd-log-speaker.is-ci { color: #88e0a6; }
-.sd-log-speaker.is-you { color: #c69bff; }
+/* The glyph gutter carries the "this is a command/tool" signal in place of a
+   text label; the per-kind colours below are the opencode-borrowed palette
+   (#1934) that differentiate commands, agent prose and logs at a glance. */
+.sd-log-glyph { flex: none; font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.72rem; font-weight: 800; }
+.sd-log-message.is-command,
+.sd-log-message.is-command .sd-log-message-text { color: #88e0a6; }
+.sd-log-message.is-agent,
+.sd-log-message.is-agent .sd-log-message-text { color: #9fd0ff; }
+.sd-log-message.is-logs,
+.sd-log-message.is-logs .sd-log-message-text { color: #ffcf87; }
+.sd-log-message.is-user,
+.sd-log-message.is-user .sd-log-message-text { color: #c69bff; }
 .sd-log-strip-empty { align-self: center; margin: 0; color: var(--muted); font-size: 0.62rem; }
 .sd-dial-hint { display: inline-flex; justify-content: center; gap: 0.08rem; min-width: 5.2em; color: var(--muted); }
 

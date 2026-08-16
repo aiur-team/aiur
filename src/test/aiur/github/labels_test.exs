@@ -26,11 +26,22 @@ defmodule Aiur.GitHub.LabelsTest do
 
       assert "agent:watch" in labels
       assert "agent:paused" in labels
+      assert "agent:parked" in labels
       assert "agent:rate-limit-fallback" in labels
       refute "agent:watch" in Labels.state_labels("agent")
       refute "agent:paused" in Labels.state_labels("agent")
+      refute "agent:parked" in Labels.state_labels("agent")
       refute "agent:rate-limit-fallback" in Labels.state_labels("agent")
       assert Labels.marker_suffix?("rate-limit-fallback")
+    end
+
+    test "parked is a marker, not a dispatch state" do
+      assert Labels.parked_labels("agent") == ["agent:parked"]
+      # marker_suffix?/1 takes the bare suffix, not a full `prefix:suffix`
+      # label — the full form must not read as a marker suffix (see #1971).
+      assert Labels.marker_suffix?("parked")
+      refute Labels.marker_suffix?("agent:parked")
+      refute "agent:parked" in Labels.state_labels("agent")
     end
 
     test "fallback labels use the configured fallback pair" do
@@ -112,6 +123,7 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.describe("complexity:3") == "story-point complexity 3"
       assert Labels.describe("agent:watch") == "aiur watches this PR for comments"
       assert Labels.describe("agent:paused") == "suppress aiur work while preserving state"
+      assert Labels.describe("agent:parked") == "operator-held: no dispatch, no comment-driven rework"
       assert Labels.describe("agent:rate-limit-fallback") == "tracks automatic usage-limit fallback"
     end
   end

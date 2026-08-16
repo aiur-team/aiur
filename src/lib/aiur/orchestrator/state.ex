@@ -54,7 +54,8 @@ defmodule Aiur.Orchestrator.State do
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
-            rewakes: map()
+            rewakes: map(),
+            parked_ready_alerts: MapSet.t() | nil
           },
           todo_over_capacity_alert_active: boolean(),
           prewarm_blocked_alert_active: boolean(),
@@ -120,6 +121,13 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          # Ticket identifiers with an open blocking Command, read once per
+          # dispatch cycle from `DecisionStore.blocked_ticket_ids/1`. `nil`
+          # means "never computed this cycle" (treated as no gate); a `MapSet`
+          # holds exactly those tickets; `:unavailable` means the decision
+          # store could not be read, which the dispatch gate treats as
+          # fail-closed (unknown blocks hold new work).
+          blocked_ticket_ids: MapSet.t(String.t()) | :unavailable | nil,
           ci_readiness_checked: boolean() | nil,
           ci_readiness_unavailable_alerted: boolean() | nil,
           ci_readiness_check_pid: pid() | nil,
@@ -128,6 +136,8 @@ defmodule Aiur.Orchestrator.State do
           ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
           ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
+          merged_ticket_reconciliations: MapSet.t(),
+          merged_ticket_reconciliation_failures: MapSet.t(),
           control_lifecycle: ControlLifecycle.t(),
           # Consecutive poll ticks the prewarm gate has held dispatch for a
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
@@ -169,7 +179,8 @@ defmodule Aiur.Orchestrator.State do
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},
-      rewakes: %{}
+      rewakes: %{},
+      parked_ready_alerts: nil
     },
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
@@ -222,7 +233,17 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    blocked_ticket_ids: nil,
     global_pause: %{paused_at: nil, source: nil},
+    # `{issue_identifier, recent_merge_id}` pairs already reconciled by
+    # `Aiur.Orchestrator.MergedTicketReconciler`, so a retained merge record
+    # cannot close the same ticket twice — a ticket reopened for rework must
+    # win over the merge that closed it before.
+    merged_ticket_reconciliations: MapSet.new(),
+    # `{{issue_identifier, recent_merge_id}, reason}` signatures already
+    # alerted on, so a permanently failing transition raises its attention
+    # once instead of once per poll.
+    merged_ticket_reconciliation_failures: MapSet.new(),
     snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0

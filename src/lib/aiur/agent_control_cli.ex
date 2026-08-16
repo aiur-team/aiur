@@ -289,7 +289,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []) do
-    guarded("build-orders", fn -> BuildOrdersCLI.run(opts) |> exit_marker() end)
+    guarded("build-orders", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> BuildOrdersCLI.run() |> exit_marker() end)
   end
 
   @spec analytics(keyword()) :: :ok
@@ -350,20 +350,24 @@ defmodule Aiur.AgentControlCLI do
   # max-agents N`. Positive validation lives in the CLI; the orchestrator
   # applies the session cap and reports whether active work is draining down.
   @spec set_max_agents(integer()) :: :ok
-  def set_max_agents(n) when is_integer(n) and n > 0 do
+  def set_max_agents(n) do
+    guarded("set max-agents", fn -> set_max_agents_result(n) end)
+  end
+
+  defp set_max_agents_result(n) when is_integer(n) and n > 0 do
     case Orchestrator.set_max_concurrent_agents(n) do
       {:ok, status} ->
         IO.puts("aiur: max-agents set to #{status.max} (#{max_agents_status_suffix(status)})")
         exit_marker(0)
 
       {:error, reason} ->
-        IO.puts(:stderr, "aiur: failed to set max-agents (#{format_reason(reason)})")
-        exit_marker(1)
+        control_error("aiur: failed to set max-agents (#{format_reason(reason)})")
+        exit_marker(control_query_exit_code(reason))
     end
   end
 
-  def set_max_agents(_n) do
-    IO.puts(:stderr, "aiur: max-agents must be a positive integer")
+  defp set_max_agents_result(_n) do
+    control_error("aiur: max-agents must be a positive integer")
     exit_marker(1)
   end
 
@@ -668,21 +672,26 @@ defmodule Aiur.AgentControlCLI do
   # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
   @spec reset_budget([String.t()]) :: :ok
   def reset_budget(targets) when is_list(targets) do
-    targets
-    |> Enum.map(&to_string/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.each(&reset_budget_one/1)
+    guarded("reset-budget", fn ->
+      results =
+        targets
+        |> Enum.map(&to_string/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.map(&reset_budget_one/1)
 
-    exit_marker(0)
+      exit_marker(if Enum.any?(results, &match?({:error, _}, &1)), do: 1, else: 0)
+    end)
   end
 
   defp reset_budget_one(target) do
     case Orchestrator.reset_dispatch_budget(target) do
       {:ok, :queued} ->
         IO.puts("aiur: queued lifetime dispatch budget reset for ##{target}")
+        :ok
 
       {:error, reason} ->
         print_failure(:reset_budget, %{identifier: target, issue_id: target}, reason)
+        {:error, reason}
     end
   end
 
@@ -697,26 +706,34 @@ defmodule Aiur.AgentControlCLI do
   def resume_global, do: set_global_pause(false)
 
   defp set_global_pause(on?) do
+    verb = if on?, do: "pause", else: "resume"
+    guarded(verb, fn -> set_global_pause_result(on?, verb) end)
+  end
+
+  defp set_global_pause_result(on?, verb) do
     source = if(on?, do: "CLI `pause`", else: "CLI `resume`")
 
-    case Orchestrator.set_global_pause(on?, source) do
+    case set_global_pause_call(on?, source) do
       {:ok, %{globally_paused: paused}} ->
         IO.puts("aiur: global pause #{if paused, do: "ON — no agents will be provisioned", else: "OFF — agents resuming"}")
 
         exit_marker(0)
 
       {:error, reason} ->
-        verb = if on?, do: "pause", else: "resume"
-        IO.puts(:stderr, "aiur: failed to #{verb} the daemon (#{format_reason(reason)})")
-        exit_marker(1)
+        control_error("aiur: failed to #{verb} the daemon (#{format_reason(reason)})")
+        exit_marker(control_query_exit_code(reason))
     end
+  end
+
+  defp set_global_pause_call(on?, source) do
+    Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, &Orchestrator.set_global_pause/2).(on?, source)
   end
 
   @spec message(String.t(), String.t()) :: :ok
   def message(issue, text) when is_binary(issue) and is_binary(text) do
     guarded("message", fn ->
       issue
-      |> message_status(text, Orchestrator.status())
+      |> message_status(text, control_status_snapshot())
       |> exit_marker()
     end)
   end
@@ -734,7 +751,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp message_status(_issue, _text, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
-    1
+    control_query_exit_code(error)
   end
 
   # Empty/whitespace-only and over-long text are validated downstream by
@@ -748,7 +765,7 @@ defmodule Aiur.AgentControlCLI do
 
       {:error, reason} ->
         print_failure(:message, status, reason)
-        1
+        control_query_exit_code(reason)
     end
   end
 
@@ -760,13 +777,15 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control(action, targets) when action in [:pause, :resume] do
-    action
-    |> control_status(targets, Orchestrator.status())
-    |> exit_marker()
+    guarded(to_string(action), fn ->
+      action
+      |> control_status(targets, control_status_snapshot())
+      |> exit_marker()
+    end)
   end
 
   defp control_status(action, targets, statuses) when is_list(statuses) do
-    case Orchestrator.global_pause_status() do
+    case global_pause_status_for_control() do
       {:ok, %{globally_paused: true}} ->
         print_global_pause_control_error(action)
         1
@@ -779,6 +798,10 @@ defmodule Aiur.AgentControlCLI do
       {:error, :orchestrator_unavailable} ->
         print_global_pause_status_unavailable()
         1
+
+      {:error, :timeout} ->
+        print_orchestrator_status_error(:timeout)
+        124
     end
   end
 
@@ -794,17 +817,21 @@ defmodule Aiur.AgentControlCLI do
     end)
 
     print_orchestrator_status_error(error)
-    1
+    control_query_exit_code(error)
   end
 
   defp control_status(_action, _targets, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
-    1
+    control_query_exit_code(error)
+  end
+
+  defp global_pause_status_for_control do
+    Application.get_env(:aiur, :agent_control_cli_global_pause_status_fun, &Orchestrator.global_pause_status/0).()
   end
 
   defp control_selected([], action, targets) do
     print_empty_selection(action, targets)
-    0
+    1
   end
 
   defp control_selected(selected, action, _targets) do
@@ -813,10 +840,15 @@ defmodule Aiur.AgentControlCLI do
       |> Enum.map(&control_one(action, &1))
       |> resolve_queued_resumes()
 
-    failed = Enum.count(results, &match?({:error, _}, &1))
-
-    if failed > 0, do: 1, else: 0
+    results
+    |> Enum.map(&control_result_exit_code/1)
+    |> Enum.max(fn -> 0 end)
   end
+
+  defp control_result_exit_code({:error, {:resume_unconfirmed, {:unknown, %{reason: {:status_unreadable, :timeout}}}}}), do: 124
+  defp control_result_exit_code({:error, :timeout}), do: 124
+  defp control_result_exit_code({:error, _reason}), do: 1
+  defp control_result_exit_code(_result), do: 0
 
   # Every resume queued by this invocation is confirmed by one shared polling
   # loop against one shared deadline: a single fleet read per tick settles all
@@ -895,7 +927,9 @@ defmodule Aiur.AgentControlCLI do
   # Read every queued target from one fleet snapshot. The read never outlives
   # the confirmation budget, and never claims more than the status timeout.
   defp read_control_states(pending, remaining) do
-    case Orchestrator.status(Orchestrator, remaining |> max(@resume_confirm_poll_ms) |> min(@status_timeout_ms)) do
+    timeout_ms = remaining |> max(@resume_confirm_poll_ms) |> min(@status_timeout_ms)
+
+    case confirmation_status_snapshot(timeout_ms) do
       statuses when is_list(statuses) ->
         statuses_by_identifier = Map.new(statuses, &{canonical_identifier(&1), &1})
 
@@ -910,6 +944,17 @@ defmodule Aiur.AgentControlCLI do
       error when error in [:timeout, :unavailable] ->
         {:error, error}
     end
+  end
+
+  defp control_status_snapshot do
+    Application.get_env(:aiur, :agent_control_cli_status_fun, &Orchestrator.status/0).()
+  end
+
+  defp confirmation_status_snapshot(timeout_ms) do
+    Application.get_env(:aiur, :agent_control_cli_confirmation_status_fun, &Orchestrator.status/2).(
+      Orchestrator,
+      timeout_ms
+    )
   end
 
   defp resume_outcome(status, nil) do
@@ -1091,22 +1136,15 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_unapplied_resume(status, {:declined, detail}) do
-    IO.puts(
-      :stderr,
-      "aiur: resume declined for #{display_identifier(status)}; #{held_control_detail(detail)}; #{control_rejection_detail(detail)}"
-    )
+    control_error("aiur: resume declined for #{display_identifier(status)}; #{held_control_detail(detail)}; #{control_rejection_detail(detail)}")
   end
 
   defp print_unapplied_resume(status, {:dropped, detail}) do
-    IO.puts(
-      :stderr,
-      "aiur: resume request accepted for #{display_identifier(status)} but the resume dropped (#{dropped_resume_detail(detail)}); #{held_control_detail(detail)}"
-    )
+    control_error("aiur: resume request accepted for #{display_identifier(status)} but the resume dropped (#{dropped_resume_detail(detail)}); #{held_control_detail(detail)}")
   end
 
   defp print_unapplied_resume(status, {:unknown, detail}) do
-    IO.puts(
-      :stderr,
+    control_error(
       "aiur: resume request accepted for #{display_identifier(status)} but why it was not applied could not be determined (#{unknown_resume_detail(detail)}); #{held_control_detail(detail)}; outcome is unknown"
     )
   end
@@ -1168,6 +1206,7 @@ defmodule Aiur.AgentControlCLI do
     details =
       [
         waiting_reason_detail(status),
+        dispatch_decline_detail(status),
         pause_reason_detail(status),
         blocked_by_detail(status)
       ]
@@ -1185,6 +1224,11 @@ defmodule Aiur.AgentControlCLI do
     do: "waiting=#{WaitingReason.render(reason)}"
 
   defp waiting_reason_detail(_status), do: nil
+
+  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when not is_nil(reason),
+    do: "dispatch_decline=#{reason}"
+
+  defp dispatch_decline_detail(_status), do: nil
 
   defp pause_reason_detail(%{pause_reason: reason}) when not is_nil(reason),
     do: "pause_reason=#{reason}"
@@ -1476,14 +1520,14 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_global_pause_status_unavailable do
-    IO.puts(:stderr, "GLOBAL PAUSE STATUS UNAVAILABLE — cannot determine whether aiur is paused")
+    control_error("GLOBAL PAUSE STATUS UNAVAILABLE — cannot determine whether aiur is paused")
     {:error, :unavailable}
   end
 
   defp print_global_pause_control_error(action) do
     noun = if action == :pause, do: "pause", else: "resume"
-    IO.puts(:stderr, "error: aiur is globally paused; per-ticket #{noun} has no effect.")
-    IO.puts(:stderr, "       Run `aiurdev resume` (no arguments) to lift the global pause.")
+    control_error("error: aiur is globally paused; per-ticket #{noun} has no effect.")
+    control_error("Run `aiurdev resume` (no arguments) to lift the global pause.")
   end
 
   defp format_pause_source(source) when is_binary(source) and source != "", do: "set by #{source}"
@@ -2057,12 +2101,11 @@ defmodule Aiur.AgentControlCLI do
     Enum.map(removed, fn id -> "- #{id} · left the board" end)
   end
 
-  defp print_empty_selection(:pause, :all), do: IO.puts("aiur: no running agents")
-  defp print_empty_selection(:resume, :all), do: IO.puts("aiur: no paused agents")
+  defp print_empty_selection(:pause, :all), do: control_error("aiur: pause took no action because there are no running agents")
+  defp print_empty_selection(:resume, :all), do: control_error("aiur: resume took no action because there are no paused agents")
 
   defp print_orchestrator_status_error(error) do
-    IO.puts(
-      :stderr,
+    control_error(
       Map.fetch!(
         %{
           timeout: "aiur: timed out while reading agent status",
@@ -2183,21 +2226,25 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do
-    IO.puts(
-      :stderr,
-      "aiur: failed to resume #{display_identifier(status)}; resume will not hold because agent:paused could not be removed (#{format_reason(reason)})"
-    )
+    control_error("aiur: failed to resume #{display_identifier(status)}; resume will not hold because agent:paused could not be removed (#{format_reason(reason)})")
   end
 
   defp print_failure(:message, status, reason) do
-    IO.puts(:stderr, "aiur: failed to message #{display_identifier(status)} (#{format_message_reason(reason)})")
+    control_error("aiur: failed to message #{display_identifier(status)} (#{format_message_reason(reason)})")
+  end
+
+  defp print_failure(:reset_budget, status, reason) do
+    control_error("aiur: failed to reset lifetime dispatch budget for #{display_identifier(status)} (#{format_reason(reason)})")
   end
 
   defp print_failure(action, status, reason) do
-    IO.puts(
-      :stderr,
-      "aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})"
-    )
+    control_error("aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})")
+  end
+
+  defp control_error(message) do
+    message = single_line(message)
+    IO.puts(:stderr, message)
+    IO.puts("#{@error_marker}#{message}")
   end
 
   defp target_matches?(status, target) do
@@ -2264,6 +2311,69 @@ defmodule Aiur.AgentControlCLI do
   defp format_reason({:orchestrator_call_failed, reason}),
     do: "orchestrator call failed: #{inspect(reason)}"
 
+  defp format_reason({:dispatch_failed, :no_worker_capacity}),
+    do: "dispatch failed because no worker capacity is available; retry after a worker slot is free"
+
+  defp format_reason({:dispatch_failed, :state_capacity}),
+    do: "dispatch failed because this ticket state is at capacity; retry after an agent in the same state finishes"
+
+  defp format_reason({:dispatch_failed, :fleet_capacity}),
+    do: "dispatch failed because the fleet is at max concurrent agent capacity; retry after an agent slot is free"
+
+  defp format_reason({:dispatch_failed, :all_backends_usage_limited}),
+    do: "dispatch failed because every configured backend is usage-limited; retry after a provider limit resets"
+
+  defp format_reason({:dispatch_failed, :thrash_circuit_open}),
+    do: "dispatch failed because the restart circuit is open; retry after the restart window resets or run `aiurdev reset-budget <id>`"
+
+  defp format_reason({:dispatch_failed, {:dispatch_declined, reason}}),
+    do: "dispatch was declined (#{inspect(reason)}); retry after the ticket state, labels, or tracker visibility becomes dispatchable"
+
+  defp format_reason({:dispatch_failed, {:worker_start_failed, reason}}),
+    do: "dispatch failed while starting the worker (#{inspect(reason)}); inspect the daemon alert and retry after the worker failure clears"
+
+  defp format_reason({:dispatch_failed, :cause_unknown}),
+    do: "dispatch failed, but the daemon could not determine the cause; inspect `aiurdev alerts` and the daemon log before retrying"
+
+  defp format_reason({:dispatch_failed, reason}),
+    do: "dispatch failed for #{inspect(reason)}, but the daemon could not determine what clears it; inspect `aiurdev alerts` and the daemon log before retrying"
+
+  defp format_reason({:redispatch_deferred, :max_concurrent_agents_reached}),
+    do: "redispatch deferred by max concurrent agent capacity; it clears when an agent slot is free"
+
+  defp format_reason({:redispatch_deferred, :no_worker_capacity}),
+    do: "redispatch deferred because no worker capacity is available; it clears when a worker slot is free"
+
+  defp format_reason({:redispatch_deferred, :preferred_worker_unavailable}),
+    do: "redispatch deferred because the preferred worker is not selectable for this backend; it clears when a compatible worker is available or routing selects a compatible backend"
+
+  defp format_reason({:redispatch_deferred, :thrash_circuit_open}),
+    do: "redispatch deferred by the restart circuit; it clears when the restart window resets or `reset-budget` clears the latch"
+
+  defp format_reason({:redispatch_deferred, {:all_limited, backends}}),
+    do: "redispatch deferred because every fallback backend is usage-limited (#{Enum.join(backends, ", ")}); it clears after a provider limit resets"
+
+  defp format_reason({:redispatch_deferred, {:unknown_backend, backend}}),
+    do: "redispatch deferred because backend #{inspect(backend)} is not configured; it clears after the ticket selects a configured backend"
+
+  defp format_reason({:redispatch_deferred, {:not_dispatchable, reason}}),
+    do: "redispatch deferred because the refreshed ticket is not dispatchable (#{inspect(reason)}); it clears after its state, labels, or blockers become eligible"
+
+  defp format_reason({:redispatch_deferred, :missing_after_revalidation}),
+    do: "redispatch deferred because the ticket disappeared during tracker revalidation; retry after tracker visibility is restored"
+
+  defp format_reason({:redispatch_deferred, {:tracker_revalidation_failed, reason}}),
+    do: "redispatch deferred because tracker revalidation failed (#{inspect(reason)}); it clears after tracker access recovers"
+
+  defp format_reason({:redispatch_deferred, {:worker_start_failed, reason}}),
+    do: "redispatch was admitted but the replacement worker failed to start (#{inspect(reason)}); it clears after the worker startup failure is repaired"
+
+  defp format_reason({:redispatch_deferred, :cause_unknown}),
+    do: "redispatch was admitted but no replacement worker started; the cause and clearing condition could not be determined, so inspect `aiurdev alerts` and the daemon log before retrying"
+
+  defp format_reason({:redispatch_deferred, reason}),
+    do: "redispatch deferred for #{inspect(reason)}; what clears it could not be determined, so inspect `aiurdev alerts` and the daemon log before retrying"
+
   defp format_reason(reason) do
     Map.get(
       %{
@@ -2276,6 +2386,7 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
+        orchestrator_unavailable: "orchestrator unavailable",
         timeout: "orchestrator timed out",
         unknown_issue: "unknown issue",
         lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",

@@ -14,7 +14,7 @@ from validation_common import (
     Report,
     checked_string_list,
     git_no_replace_env,
-    nonempty_string,
+    lifecycle_label_prefix,
     repository_relative_path,
     strict_object,
 )
@@ -80,6 +80,26 @@ def load_frozen_publication_authority(
     return approved
 
 
+def load_manifest_publication_authority(
+    path: Path, report: Report,
+) -> PublicationAuthority | None:
+    """Read publication authority from a manifest outside the validated document.
+
+    The pre-publication run has no approved receipt commit to read the frozen
+    manifest from, but the lifecycle prefix still must not come from the Build
+    Order being checked — that is the document certifying itself.
+    """
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        report.error(f"publication manifest is unreadable: {exc}")
+        return None
+    if not isinstance(value, dict):
+        report.error("publication manifest must be a JSON object")
+        return None
+    return _parse_authority(value, "working-tree", report)
+
+
 def exact_commit(root: Path, commit: object) -> bool:
     if not isinstance(commit, str) or not SHA.fullmatch(commit):
         return False
@@ -139,7 +159,7 @@ def _parse_authority(
     if any(not ISSUE_URL.fullmatch(item) for item in reference_only):
         report.error(f"{label} reference_only_issue_urls must contain exact issue URLs")
         valid = False
-    if not nonempty_string(prefix) or ":" in str(prefix):
+    if lifecycle_label_prefix(prefix) is None:
         report.error(f"{label} tracker_lifecycle_label_prefix must be one label segment")
         valid = False
     if not valid:

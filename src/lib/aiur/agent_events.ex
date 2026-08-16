@@ -131,6 +131,78 @@ defmodule Aiur.AgentEvents do
     }
   end
 
+  @doc """
+  Derives the display body for a tool-call transcript event from the tool name
+  and its arguments.
+
+  The useful content of a tool call is its argument — the file path for
+  read/write/edit tools, the query for search tools — not the tool name. The
+  Stream Deck strip and the opencode chat pane render this body as the row
+  content, so it must carry the command or path rather than a bare tool label.
+
+  The `read <path>` / `edit <path>` / `write <path>` forms deliberately match
+  the convention `Aiur.Opencode.ChatCompletions.DeltaRenderer` already keys on,
+  so the chat pane keeps rendering edit diffs. A tool with no scalar argument
+  keeps the tool name — a deliberate fallback; the renderer's glyph and colour
+  still identify the row as a tool.
+  """
+  @spec tool_call_body(String.t(), term()) :: String.t()
+  def tool_call_body(name, arguments) when is_binary(name) do
+    cond do
+      path = tool_path(arguments) ->
+        case tool_verb(name) do
+          verb when is_binary(verb) -> "#{verb} #{to_string(path)}"
+          nil -> to_string(path)
+        end
+
+      value = tool_scalar(arguments, ["query", "glob"]) ->
+        value
+
+      true ->
+        name
+    end
+  end
+
+  def tool_call_body(name, _arguments), do: name
+
+  defp tool_path(arguments) when is_map(arguments) do
+    Enum.find_value(["file_path", "path", "file"], fn key ->
+      case Map.get(arguments, key) do
+        value when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp tool_path(_arguments), do: nil
+
+  defp tool_scalar(arguments, keys) when is_map(arguments) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(arguments, key) do
+        value when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp tool_scalar(_arguments, _keys), do: nil
+
+  # Ordered verb table: the first verb with a matching substring wins, so a name
+  # carrying two needles resolves the same way the equivalent `cond` chain did.
+  # `view` is opencode's alias for its `read` tool; naming it here keeps a view
+  # tool rendering as `read <path>` with the `→` glyph, the same as `read_file`.
+  @tool_verbs [
+    {"read", ["read", "view"]},
+    {"write", ["write", "create", "insert"]},
+    {"edit", ["edit", "replace", "patch"]}
+  ]
+
+  defp tool_verb(name) do
+    Enum.find_value(@tool_verbs, fn {verb, needles} ->
+      if Enum.any?(needles, &String.contains?(name, &1)), do: verb
+    end)
+  end
+
   @spec alert_event(String.t(), String.t(), keyword()) :: alert_event()
   def alert_event(name, message, opts \\ []) when is_binary(name) and is_binary(message) do
     %{
