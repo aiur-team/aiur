@@ -319,10 +319,11 @@ defmodule Aiur.Docs.ControlCenterFixture.MeterSource do
 end
 
 defmodule Aiur.Docs.ControlCenterFixture do
-  alias Aiur.{Decision, DecisionAnswer, RecentMerge}
   alias Aiur.BuildOrder.ProviderHealth
+  alias Aiur.{Decision, DecisionAnswer, RecentMerge}
   alias Aiur.Docs.ControlCenterFixture.MeterSource
   alias Aiur.Docs.ControlCenterFixture.Provider
+  alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.FinancialDataAccess.Generation
 
@@ -478,7 +479,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
   # temporary directory, then fed one synthetic budget observation.
   defp start_github_quota(tmp) do
     {:ok, _} =
-      Aiur.GitHub.Quota.start_link(
+      Quota.start_link(
         refresh?: false,
         emit_fun: fn _kind, _payload -> :ok end,
         shell_log_path: Path.join(tmp, "github-shell-quota.ndjson"),
@@ -487,7 +488,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     reset = DateTime.utc_now() |> DateTime.add(1_920, :second) |> DateTime.to_unix()
 
-    Aiur.GitHub.Quota.observe(%{}, {
+    Quota.observe(%{}, {
       :ok,
       %{
         body: %{
