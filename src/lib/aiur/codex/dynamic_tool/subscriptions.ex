@@ -7,12 +7,14 @@ defmodule Aiur.Codex.DynamicTool.Subscriptions do
 
   alias Aiur.Codex.DynamicTool.Errors
   alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.Events.AgentSubscriptionPolicy
 
   @aiur_subscribe_description """
   Subscribe the current issue to a topic pattern. Patterns use AMQP topic
   exchange syntax: `*` matches one segment, `#` matches zero or more.
-  Example: `ticket.42.#` (everything about ticket 42),
-  `*.*.branch.push` (any push on any ticket).
+  Manual agent subscriptions must name one literal ticket, for example
+  `ticket.42.#` (everything about ticket 42). Executor, system, bare-wildcard,
+  and wildcard-ticket bindings are refused.
 
   Persistent: the subscription survives BEAM restarts. Use this for
   watch use cases; native blocker declarations (`aiur_declare_blocker`)
@@ -82,6 +84,7 @@ defmodule Aiur.Codex.DynamicTool.Subscriptions do
       end
 
     with {:ok, pattern} <- normalize_topic_pattern(arguments),
+         :ok <- validate_subscription(action, pattern),
          true <- is_function(handler, 1) || {:error, error_atom},
          :ok <- handler.(pattern) do
       Response.build(
@@ -122,4 +125,7 @@ defmodule Aiur.Codex.DynamicTool.Subscriptions do
   end
 
   def normalize_topic_pattern(_), do: {:error, :invalid_topic_pattern}
+
+  defp validate_subscription(:subscribe, pattern), do: AgentSubscriptionPolicy.validate(pattern)
+  defp validate_subscription(:unsubscribe, _pattern), do: :ok
 end

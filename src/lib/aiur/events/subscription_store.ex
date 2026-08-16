@@ -57,7 +57,7 @@ defmodule Aiur.Events.SubscriptionStore do
   require Logger
 
   alias Aiur.Config.Paths
-  alias Aiur.Events.{DebugLog, Exchange, IdGenerator, UniversalSubscriptions}
+  alias Aiur.Events.{AgentSubscriptionPolicy, DebugLog, Exchange, IdGenerator, UniversalSubscriptions}
   alias Aiur.JsonStore
 
   @registry Aiur.Events.SubscriptionStoreRegistry
@@ -133,7 +133,15 @@ defmodule Aiur.Events.SubscriptionStore do
   `subscription_created_at_event_id` so bootstrap replay isn't reset and
   reason-filtered removal cannot drop manually retained subscriptions.
   """
-  @spec add_subscription(String.t(), String.t(), String.t()) :: :ok
+  @spec add_subscription(String.t(), String.t(), String.t()) ::
+          :ok | {:error, :agent_subscription_scope_forbidden}
+  def add_subscription(identifier, topic, "manual:agent")
+      when is_binary(identifier) and is_binary(topic) do
+    with :ok <- AgentSubscriptionPolicy.validate(topic) do
+      GenServer.call(via(identifier), {:add_subscription, topic, "manual:agent"})
+    end
+  end
+
   def add_subscription(identifier, topic, reason)
       when is_binary(identifier) and is_binary(topic) and is_binary(reason) do
     GenServer.call(via(identifier), {:add_subscription, topic, reason})
@@ -241,6 +249,7 @@ defmodule Aiur.Events.SubscriptionStore do
     # in the routing table. Otherwise a publish between attach/1 and
     # the binding registration silently drops the event.
     state = load_persisted(state)
+    state = prune_unsafe_manual_subscriptions(state)
     state = register_existing_bindings(state)
     :ok = publish_open_attention_count(state)
 
@@ -516,6 +525,37 @@ defmodule Aiur.Events.SubscriptionStore do
     end
 
     state
+  end
+
+  defp prune_unsafe_manual_subscriptions(state) do
+    {unsafe, retained} =
+      Enum.split_with(state.subscribed_to, fn entry ->
+        Map.get(entry, "reason") == "manual:agent" and
+          AgentSubscriptionPolicy.validate(Map.get(entry, "topic", "")) != :ok
+      end)
+
+    case unsafe do
+      [] ->
+        state
+
+      entries ->
+        topics = Enum.map(entries, &Map.get(&1, "topic"))
+        new_state = %{state | subscribed_to: retained}
+
+        Logger.warning(
+          "SubscriptionStore(#{state.identifier}) pruned unsafe manual agent bindings: " <>
+            inspect(topics)
+        )
+
+        if persist(new_state) != :ok do
+          Logger.warning(
+            "SubscriptionStore(#{state.identifier}) could not persist pruned manual agent bindings; " <>
+              "unsafe topics remain excluded in memory and cleanup will retry on attach"
+          )
+        end
+
+        new_state
+    end
   end
 
   defp persist(state) do

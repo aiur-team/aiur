@@ -102,6 +102,15 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       assert entry2["reason"] == "first"
       assert entry2["subscription_created_at_event_id"] == floor1
     end
+
+    test "refuses an unsafe live manual agent binding", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+
+      assert {:error, :agent_subscription_scope_forbidden} =
+               SubscriptionStore.add_subscription(id, "executor.#", "manual:agent")
+
+      assert SubscriptionStore.snapshot(id).subscribed_to == []
+    end
   end
 
   describe "remove_subscription/2" do
@@ -227,6 +236,46 @@ defmodule Aiur.Events.SubscriptionStoreTest do
                fn -> "ticket.999.#" in Exchange.bindings_for(new_pid) end,
                1_000
              )
+    end
+
+    test "prunes persisted unsafe manual bindings before Exchange registration", %{identifier: id} do
+      path =
+        Path.join(
+          Paths.log_root_dir(),
+          "#{Paths.repo_name()}.#{safe_id(id)}.subscriptions.json"
+        )
+
+      File.mkdir_p!(Path.dirname(path))
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "subscribed_to" => [
+            subscription("executor.#", "manual:agent"),
+            subscription("ticket.42.#", "manual:agent"),
+            subscription("system.main.branch.push", "base_branch:auto")
+          ],
+          "last_seen_event_id" => nil,
+          "open_attentions" => []
+        })
+      )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          :ok = SubscriptionStore.attach(id)
+        end)
+
+      assert log =~ "pruned unsafe manual agent bindings"
+      assert log =~ "executor.#"
+
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+      topics = id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
+
+      assert topics == ["ticket.42.#", "system.main.branch.push"]
+      assert Enum.sort(Exchange.bindings_for(pid)) == Enum.sort(topics)
+
+      {:ok, persisted} = JsonStore.read(path)
+      assert Enum.map(persisted["subscribed_to"], & &1["topic"]) == topics
     end
   end
 
@@ -359,6 +408,14 @@ defmodule Aiur.Events.SubscriptionStoreTest do
 
   defp safe_id(id) do
     String.replace(id, ~r/[^A-Za-z0-9._-]/, "_")
+  end
+
+  defp subscription(topic, reason) do
+    %{
+      "topic" => topic,
+      "reason" => reason,
+      "subscription_created_at_event_id" => 1
+    }
   end
 
   defp eventually(fun, timeout) do
