@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{DispatchPolicy, IssueSync, PauseResume, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, IssueSync, PauseResume, State}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -70,28 +70,77 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   @doc false
-  @spec maybe_resume_blockee_on_cleared_dependency(State.t(), map(), map(), :terminal | :removed) :: State.t()
-  def maybe_resume_blockee_on_cleared_dependency(state, blockee, blocker, clearance \\ :terminal)
+  @spec maybe_resume_blockee_on_cleared_dependency(
+          State.t(),
+          map(),
+          map(),
+          :terminal | :removed,
+          (Issue.t() -> {:ok, Issue.t()} | {:error, term()})
+        ) :: State.t()
+  def maybe_resume_blockee_on_cleared_dependency(
+        state,
+        blockee,
+        blocker,
+        clearance \\ :terminal,
+        blocked_by_hydrator \\ &Dispatcher.default_blocked_by_hydrator/1
+      )
 
-  def maybe_resume_blockee_on_cleared_dependency(%State{} = state, blockee, blocker, clearance)
-      when is_map(blockee) and is_map(blocker) and clearance in [:terminal, :removed] do
+  def maybe_resume_blockee_on_cleared_dependency(
+        %State{} = state,
+        blockee,
+        blocker,
+        clearance,
+        blocked_by_hydrator
+      )
+      when is_map(blockee) and is_map(blocker) and clearance in [:terminal, :removed] and
+             is_function(blocked_by_hydrator, 1) do
     # The caller on this path already holds the freshly polled blockee, so the
-    # blocker set read by `cleared_dependency_match/3` is current.
-    case cleared_dependency_match(state, blockee, blocker) do
-      {:ok, match} -> resume_cleared_dependency_blockee(state, match, blockee, blocker, clearance)
-      :error -> state
+    # blocker set read by `cleared_dependency_match/3` is current — once the
+    # blockee's `blocked_by` has been hydrated. GitHub polls never populate it,
+    # and `other_open_blockers?/2` below decides whether a second blocker keeps
+    # the agent parked, so without hydration every GitHub blockee looks
+    # unblocked and gets auto-resumed while a second blocker is still open
+    # (#1631).
+    case hydrate_blockee_blocked_by(blockee, blocked_by_hydrator) do
+      {:ok, %Issue{} = hydrated_blockee} ->
+        case cleared_dependency_match(state, hydrated_blockee, blocker) do
+          {:ok, match} ->
+            resume_cleared_dependency_blockee(state, match, hydrated_blockee, blocker, clearance)
+
+          :error ->
+            state
+        end
+
+      :unavailable ->
+        state
     end
   end
 
-  def maybe_resume_blockee_on_cleared_dependency(%State{} = state, _blockee, _blocker, _clearance), do: state
+  def maybe_resume_blockee_on_cleared_dependency(%State{} = state, _blockee, _blocker, _clearance, _hydrator),
+    do: state
 
   @doc false
-  @spec recheck_cleared_dependency_pauses(State.t(), ([String.t()] -> {:ok, [term()]} | {:error, term()}), [term()]) ::
-          State.t()
-  def recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, polled_issues \\ [])
+  @spec recheck_cleared_dependency_pauses(
+          State.t(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          [term()],
+          (Issue.t() -> {:ok, Issue.t()} | {:error, term()})
+        ) :: State.t()
+  def recheck_cleared_dependency_pauses(
+        state,
+        fetch_issue_states_fun,
+        polled_issues \\ [],
+        blocked_by_hydrator \\ &Dispatcher.default_blocked_by_hydrator/1
+      )
 
-  def recheck_cleared_dependency_pauses(%State{} = state, fetch_issue_states_fun, polled_issues)
-      when is_function(fetch_issue_states_fun, 1) and is_list(polled_issues) do
+  def recheck_cleared_dependency_pauses(
+        %State{} = state,
+        fetch_issue_states_fun,
+        polled_issues,
+        blocked_by_hydrator
+      )
+      when is_function(fetch_issue_states_fun, 1) and is_list(polled_issues) and
+             is_function(blocked_by_hydrator, 1) do
     with [_ | _] = blocker_identifiers <- paused_blocker_identifiers(state),
          {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
       # This path exists for blockers absent from the active poll, so the
@@ -101,13 +150,14 @@ defmodule Aiur.Orchestrator.PushRouting do
       # stale `blocked_by`.
       blockee_issues = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
 
-      Enum.reduce(blockers, state, &resume_blockees_for_terminal_blocker(&1, &2, blockee_issues))
+      Enum.reduce(blockers, state, &resume_blockees_for_terminal_blocker(&1, &2, blockee_issues, blocked_by_hydrator))
     else
       _ -> state
     end
   end
 
-  def recheck_cleared_dependency_pauses(%State{} = state, _fetch_issue_states_fun, _polled_issues), do: state
+  def recheck_cleared_dependency_pauses(%State{} = state, _fetch_issue_states_fun, _polled_issues, _hydrator),
+    do: state
 
   @doc false
   @spec record_blocker_branch_push(State.t(), String.t() | integer(), map()) :: State.t()
@@ -675,33 +725,72 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   defp matching_blockee_issue?(_issue, _identifier), do: false
 
-  defp resume_blockees_for_terminal_blocker(%{state: blocker_state} = blocker, state, blockee_issues) when is_binary(blocker_state) do
-    if blocker_terminal?(blocker), do: resume_blockees_for_cleared_blocker(state, blocker, blockee_issues), else: state
+  defp resume_blockees_for_terminal_blocker(%{state: blocker_state} = blocker, state, blockee_issues, blocked_by_hydrator)
+       when is_binary(blocker_state) do
+    if blocker_terminal?(blocker),
+      do: resume_blockees_for_cleared_blocker(state, blocker, blockee_issues, blocked_by_hydrator),
+      else: state
   end
 
-  defp resume_blockees_for_terminal_blocker(_blocker, state, _blockee_issues), do: state
+  defp resume_blockees_for_terminal_blocker(_blocker, state, _blockee_issues, _hydrator), do: state
 
-  defp resume_blockees_for_cleared_blocker(state, blocker, blockee_issues) do
+  defp resume_blockees_for_cleared_blocker(state, blocker, blockee_issues, blocked_by_hydrator) do
     blocker = blocker_as_map(blocker)
 
     blockee_issues
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.reduce(state, fn {_identifier, blockee}, acc ->
-      resume_blockee_for_cleared_blocker(acc, blockee, blocker)
+      resume_blockee_for_cleared_blocker(acc, blockee, blocker, blocked_by_hydrator)
     end)
   end
 
-  defp resume_blockee_for_cleared_blocker(state, blockee, blocker) do
+  defp resume_blockee_for_cleared_blocker(state, blockee, blocker, blocked_by_hydrator) do
     # Both the coordination event and the resume consume the same decision, so
     # an agent can never be told about a blocker it was not parked on.
-    case cleared_dependency_match(state, blockee, blocker) do
-      {:ok, match} ->
-        state
-        |> IssueSync.enqueue_dependency_event(blockee, blocker, :blocker_became_terminal)
-        |> resume_cleared_dependency_blockee(match, blockee, blocker, :terminal)
+    case hydrate_blockee_blocked_by(blockee, blocked_by_hydrator) do
+      {:ok, %Issue{} = hydrated_blockee} ->
+        case cleared_dependency_match(state, hydrated_blockee, blocker) do
+          {:ok, match} ->
+            state
+            |> IssueSync.enqueue_dependency_event(hydrated_blockee, blocker, :blocker_became_terminal)
+            |> resume_cleared_dependency_blockee(match, hydrated_blockee, blocker, :terminal)
 
-      :error ->
+          :error ->
+            state
+        end
+
+      :unavailable ->
         state
+    end
+  end
+
+  # Hydrates `blocked_by` on a blockee being considered for auto-resume on a
+  # cleared blocker. GitHub's poll never populates `blocked_by`, so without this
+  # `other_open_blockers?/2` would always see an empty blocker set and
+  # auto-resume a dependency-paused agent while a second blocker is still open
+  # (#1631). Bounded: only called for blockees with a cleared blocker, so the
+  # cost is proportional to dependency-clearance events, not tracker size.
+  #
+  # Fail-closed: an unreadable blocker set means the remaining blockers are
+  # *unknown*, and resuming on unknown blockers reintroduces exactly the defect
+  # this guard exists to prevent, so the agent stays parked until a later
+  # successful read. A `/dependencies` outage therefore stalls one auto-resume
+  # rather than waking work GitHub knows is still blocked.
+  defp hydrate_blockee_blocked_by(blockee, blocked_by_hydrator) do
+    case blocked_by_hydrator.(blockee) do
+      {:ok, %Issue{} = hydrated} ->
+        {:ok, hydrated}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Keeping dependency-paused blockee parked; blocked-by hydration failed for " <>
+            "#{inspect(Map.get(blockee, :identifier))}: #{inspect(reason)} (fail-closed)"
+        )
+
+        :unavailable
+
+      _other ->
+        :unavailable
     end
   end
 

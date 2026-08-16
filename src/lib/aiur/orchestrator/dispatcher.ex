@@ -896,15 +896,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   # The GitHub tracker populates `blocked_by` from the native Issue Dependencies
-  # API only on the dispatch path. Other trackers (Linear, memory) already carry
-  # hydrated blockers from their poll response, so hydration is a passthrough.
+  # API only when the issue is being considered for a blocked_by decision
+  # (dispatch, or dependency-pause recheck in `PushRouting`). Other trackers
+  # (Linear, memory) already carry hydrated blockers from their poll response,
+  # so hydration is a passthrough.
   @doc false
   @spec default_blocked_by_hydrator(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
   def default_blocked_by_hydrator(%Issue{} = issue) do
-    if Config.tracker_kind() == "github" do
+    if github_tracker_kind?() do
       GitHubTracker.hydrate_blocked_by(issue)
     else
       {:ok, issue}
+    end
+  end
+
+  # `Config.settings/0`, not `Config.tracker_kind/0` (which raises when no
+  # workflow file is present): this hydrator is also invoked from the
+  # dependency-pause recheck path that unit tests exercise without a workflow
+  # file, so "no config" must mean "not a GitHub tracker" (passthrough), never
+  # a crash.
+  @doc false
+  @spec github_tracker_kind?() :: boolean()
+  def github_tracker_kind? do
+    case Config.settings() do
+      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
+      _ -> false
     end
   end
 

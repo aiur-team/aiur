@@ -5,9 +5,9 @@ defmodule Aiur.GitHub.Tracker do
 
   @behaviour Aiur.Tracker
 
-  alias Aiur.Issue
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.Issue
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
