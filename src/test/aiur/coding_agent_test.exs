@@ -434,9 +434,9 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.control_application_confirmation("codex") == :confirmed
       assert CodingAgent.control_application_confirmation("claude") == :confirmed
       assert CodingAgent.control_application_confirmation("claude-repl") == :confirmed
-      assert CodingAgent.control_application_confirmation("kimi") == :request_only
-      assert CodingAgent.control_application_confirmation("deepseek") == :request_only
-      assert CodingAgent.control_application_confirmation("openrouter") == :request_only
+      assert CodingAgent.control_application_confirmation("kimi") == :confirmed
+      assert CodingAgent.control_application_confirmation("deepseek") == :confirmed
+      assert CodingAgent.control_application_confirmation("openrouter") == :confirmed
       assert CodingAgent.control_application_confirmation("unknown") == :unsupported
     end
 

@@ -63,6 +63,49 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       refute Map.has_key?(applied_state.control_lifecycle.pending, issue_id)
     end
 
+    test "an OpenAI-compat backend pause is requested, confirmed, and observed to take effect" do
+      issue_id = unique_id("control-openai-compat-pause")
+
+      # Control map exactly as `Dispatcher.default_running_control/2` builds it
+      # for an OpenAI-compat backend (deepseek/kimi/openrouter) since #1966:
+      # the worker echoes the orchestrator's `request_id`/`generation` at its
+      # pause checkpoint, so it declares correlated application confirmation.
+      entry =
+        running_entry(issue_id,
+          control: %{
+            status: :working,
+            can_interrupt: false,
+            safe_checkpoints: [:notification, :tool_result],
+            application_confirmation: :confirmed,
+            generation: 101,
+            version: 0
+          }
+        )
+
+      state = base_state(running: %{issue_id => entry})
+
+      # The pause is admitted and routed to the worker — not rejected as
+      # `:unsupported` by the control preflight.
+      assert {:reply, {:ok, request_id}, accepted_state} =
+               PauseResume.request_control_call(state, issue_id, :pause, 55)
+
+      assert_receive {:pause_agent, ^request_id, 101}
+      assert accepted_state.running[issue_id].control.status == :working
+
+      # The worker confirms with the correlated evidence it echoes from the
+      # pause control message; the orchestrator applies it.
+      assert {:noreply, applied_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{reason: :operator_pause, request_id: request_id, generation: 101}},
+                 accepted_state
+               )
+
+      assert applied_state.running[issue_id].control.status == :paused
+      assert applied_state.running[issue_id].paused_reason == :operator_pause
+      assert applied_state.control_lifecycle.records[request_id].status == :applied
+      refute Map.has_key?(applied_state.control_lifecycle.pending, issue_id)
+    end
+
     test "a supplied control request ID retries the original intent without routing twice" do
       issue_id = unique_id("control-idempotent-request")
       state = base_state(running: %{issue_id => running_entry(issue_id)})
