@@ -44,23 +44,7 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
   defp membership_tickets(membership_fun) do
     case membership_fun.() do
       %{members: members, health: health, truncated?: truncated?} when is_list(members) ->
-        tickets =
-          Enum.reduce(members, %{}, fn member, acc ->
-            case get_in(member, [:identity, :identifier]) do
-              nil ->
-                acc
-
-              identifier ->
-                identity = Map.get(member, :identity, %{})
-
-                Map.put(acc, identifier, %{
-                  identifier: identifier,
-                  terminal?: Map.get(member, :terminal?, false),
-                  in_scope?: true,
-                  url: identity_url(identity)
-                })
-            end
-          end)
+        tickets = Enum.reduce(members, %{}, &put_membership_ticket/2)
 
         {tickets, health == :healthy and not truncated?}
 
@@ -71,6 +55,23 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
     _ -> {%{}, false}
   catch
     _, _ -> {%{}, false}
+  end
+
+  defp put_membership_ticket(member, tickets) do
+    case get_in(member, [:identity, :identifier]) do
+      nil ->
+        tickets
+
+      identifier ->
+        identity = Map.get(member, :identity, %{})
+
+        Map.put(tickets, identifier, %{
+          identifier: identifier,
+          terminal?: Map.get(member, :terminal?, false),
+          in_scope?: true,
+          url: identity_url(identity)
+        })
+    end
   end
 
   defp running_identifiers(running_fun) do
@@ -157,24 +158,42 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
     conclusions = Enum.map(check_runs, &Map.get(&1, "conclusion"))
     legacy_states = commit_status |> Map.get("statuses", []) |> Enum.map(&Map.get(&1, "state"))
     combined = Map.get(commit_status, "state")
-    failures = ["failure", "error", "timed_out", "action_required"]
     combined_states = if legacy_states == [], do: [combined], else: []
-    failing = Enum.count(conclusions ++ legacy_states ++ combined_states, &(&1 in failures))
+    failing = count_ci_failures(conclusions ++ legacy_states ++ combined_states)
 
+    summarize_ci_state(failing, statuses, conclusions, legacy_states, combined)
+  end
+
+  defp count_ci_failures(states) do
+    failures = ["failure", "error", "timed_out", "action_required"]
+    Enum.count(states, &(&1 in failures))
+  end
+
+  defp summarize_ci_state(failing, _statuses, _conclusions, _legacy_states, _combined)
+       when failing > 0 do
+    "failing (#{failing} check#{if(failing == 1, do: "", else: "s")})"
+  end
+
+  defp summarize_ci_state(0, statuses, conclusions, legacy_states, combined) do
     cond do
-      failing > 0 ->
-        "failing (#{failing} check#{if(failing == 1, do: "", else: "s")})"
-
-      Enum.any?(statuses, &(&1 in ["queued", "in_progress"])) or
-        Enum.any?(legacy_states, &(&1 == "pending")) or combined == "pending" ->
+      ci_pending?(statuses, legacy_states, combined) ->
         "pending"
 
-      conclusions != [] or legacy_states != [] or combined == "success" ->
+      ci_complete?(conclusions, legacy_states, combined) ->
         "success"
 
       true ->
         "unknown"
     end
+  end
+
+  defp ci_pending?(statuses, legacy_states, combined) do
+    Enum.any?(statuses, &(&1 in ["queued", "in_progress"])) or
+      Enum.any?(legacy_states, &(&1 == "pending")) or combined == "pending"
+  end
+
+  defp ci_complete?(conclusions, legacy_states, combined) do
+    conclusions != [] or legacy_states != [] or combined == "success"
   end
 
   defp identity_url(%{kind: :github, owner: owner, repository: repository, identifier: identifier})
