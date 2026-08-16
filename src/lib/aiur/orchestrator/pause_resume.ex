@@ -1779,12 +1779,64 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp clear_and_resume_queued_issue(state, issue) do
     case clear_tracker_pause_override(state, issue) do
       {:ok, state, %Issue{} = cleared_issue} ->
-        Dispatcher.dispatch_prevalidated_issue(state, cleared_issue)
+        refresh_cleared_queued_issue(state, cleared_issue)
 
       {:error, reason} ->
         {{:error, {:pause_override_clear_failed, reason}}, state}
     end
   end
+
+  # Removing `agent:paused` is a tracker mutation, so the copy edited locally
+  # by clear_tracker_pause_override/2 is not authoritative. Re-read after the
+  # mutation and run the final decision through the same policy as polling;
+  # otherwise a simultaneous relabel can dispatch work that is no longer
+  # eligible, or bypass a newly-created runtime claim.
+  defp refresh_cleared_queued_issue(state, cleared_issue) do
+    case Tracker.fetch_issue_states_by_ids([cleared_issue.id]) do
+      {:ok, [%Issue{} = tracker_issue | _]} ->
+        state = put_in(state.last_polled_issues[tracker_issue.id], tracker_issue)
+
+        case DispatchPolicy.manual_resume_decision(tracker_issue, state) do
+          :dispatch ->
+            Dispatcher.dispatch_prevalidated_issue(state, tracker_issue)
+
+          {:skip, reason} ->
+            reason = resume_decline_reason(reason, tracker_issue)
+            {{:error, maybe_stale_tracker_reason(reason, cleared_issue, tracker_issue)}, state}
+        end
+
+      {:ok, []} ->
+        state = %{state | last_polled_issues: Map.delete(state.last_polled_issues, cleared_issue.id)}
+        {{:error, :tracker_issue_not_found}, state}
+
+      {:error, reason} ->
+        {{:error, {:tracker_refresh_failed, reason}}, state}
+    end
+  end
+
+  defp resume_decline_reason(:invalid_issue, _issue), do: :invalid_tracker_issue
+  defp resume_decline_reason(:contradictory_state_labels, _issue), do: :contradictory_tracker_state_labels
+  defp resume_decline_reason(:not_routable, _issue), do: :not_routable_to_worker
+  defp resume_decline_reason(:unauthorized, _issue), do: :dispatch_not_authorized
+  defp resume_decline_reason(:paused, _issue), do: :pause_override_still_present
+
+  defp resume_decline_reason(reason, issue)
+       when reason in [:inactive_state, :no_agent_work_state, :terminal_state],
+       do: {:tracker_state_not_resumable, DispatchPolicy.normalize_issue_state(issue.state)}
+
+  defp resume_decline_reason(:dependency, _issue), do: :waiting_for_dependencies
+  defp resume_decline_reason(:already_running, _issue), do: :already_claimed
+  defp resume_decline_reason(:auto_resume_pending, _issue), do: :auto_resume_pending
+  defp resume_decline_reason(:retry_backoff, _issue), do: :dispatch_retry_scheduled
+  defp resume_decline_reason(:model_fallback_waiting, _issue), do: :all_model_backends_limited
+  defp resume_decline_reason(:workspace_ownership_waiting, _issue), do: :workspace_ownership_waiting
+  defp resume_decline_reason(:claimed_without_runtime, _issue), do: :already_claimed
+
+  defp resume_decline_reason(:state_capacity, issue),
+    do: {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(issue.state)}
+
+  defp resume_decline_reason(:worker_capacity, _issue), do: :no_worker_capacity
+  defp resume_decline_reason(:fleet_capacity, _issue), do: :max_concurrent_agents_reached
 
   defp queued_issue_resumability(state, issue) do
     active_states = DispatchPolicy.active_state_set()

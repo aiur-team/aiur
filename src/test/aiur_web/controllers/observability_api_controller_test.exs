@@ -232,6 +232,32 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
       end
     end
 
+    test "returns detailed queued-resume refusals as conflicts" do
+      reason =
+        {:stale_tracker_state, {:tracker_state_not_resumable, "merging"}, %{cached_state: "todo", tracker_state: "merging", changed_fields: [:state]}}
+
+      orchestrator = start_control_orchestrator(resume_agent: {:error, reason})
+      configure_endpoint(orchestrator)
+
+      assert %{"error" => %{"code" => "control_conflict", "message" => message}} =
+               json_response(call(control_conn("MT-STALE", "resume")), 409)
+
+      assert message =~ "stale_tracker_state"
+      assert message =~ "merging"
+    end
+
+    test "keeps tracker refresh failures transient" do
+      orchestrator =
+        start_control_orchestrator(resume_agent: {:error, {:tracker_refresh_failed, :timeout}})
+
+      configure_endpoint(orchestrator)
+
+      assert %{"error" => %{"code" => "control_failed", "message" => message}} =
+               json_response(call(control_conn("MT-OUTAGE", "resume")), 503)
+
+      assert message =~ "tracker_refresh_failed"
+    end
+
     test "refuses both controls when the dashboard is read-only" do
       orchestrator = start_control_orchestrator(pause_agent: {:ok, 17}, resume_agent: {:ok, :resumed})
       configure_endpoint(orchestrator, dashboard_writable: false)

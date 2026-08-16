@@ -81,9 +81,18 @@ defmodule Aiur.Orchestrator.Reconciler do
         |> reconcile_missing_running_issue_ids(issue_ids, issues)
 
       {:error, reason} ->
-        Logger.debug("Failed to refresh #{context} issue states: #{inspect(reason)}; keeping active workers")
+        issue_context = refresh_issue_context(state, issue_ids)
+
+        Logger.debug("Failed to refresh #{context} issue states for #{inspect(issue_context)}: #{inspect(reason)}; keeping active workers")
+
         state
     end
+  end
+
+  defp refresh_issue_context(state, issue_ids) do
+    Enum.map(issue_ids, fn issue_id ->
+      {issue_id, get_in(state.running, [issue_id, :identifier])}
+    end)
   end
 
   @spec reconcile_running_issue_states([Issue.t()], State.t()) :: State.t()

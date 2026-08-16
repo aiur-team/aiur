@@ -34,6 +34,20 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
     defp recipient, do: Application.get_env(:aiur, :hermetic_rework_recipient)
   end
 
+  defmodule ResumeRefreshGitHubClient do
+    def fetch_issue_states_by_ids(_issue_ids) do
+      Agent.get_and_update(agent(), fn [result | rest] -> {result, rest} end)
+    end
+
+    def remove_label(issue_identifier, label) do
+      send(recipient(), {:resume_refresh_remove_label, issue_identifier, label})
+      :ok
+    end
+
+    defp agent, do: Application.fetch_env!(:aiur, :resume_refresh_agent)
+    defp recipient, do: Application.fetch_env!(:aiur, :resume_refresh_recipient)
+  end
+
   defp running_entry(issue_id, identifier, status) do
     %{
       pid: self(),
@@ -102,6 +116,28 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
     Application.put_env(:aiur, :memory_tracker_recipient, self())
     Application.put_env(:aiur, :memory_tracker_issues, issues)
+  end
+
+  defp resume_refresh_tracker!(responses) do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "agent",
+      tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"],
+      tracker_terminal_states: ["done", "cancelled", "canceled"]
+    )
+
+    {:ok, agent} = Agent.start_link(fn -> responses end)
+    previous_client = Application.get_env(:aiur, :github_client_module)
+    Application.put_env(:aiur, :github_client_module, ResumeRefreshGitHubClient)
+    Application.put_env(:aiur, :resume_refresh_agent, agent)
+    Application.put_env(:aiur, :resume_refresh_recipient, self())
+
+    on_exit(fn ->
+      restore_app_env(:github_client_module, previous_client)
+      Application.delete_env(:aiur, :resume_refresh_agent)
+      Application.delete_env(:aiur, :resume_refresh_recipient)
+    end)
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
@@ -455,6 +491,60 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       assert {:error, {:stale_tracker_state, :waiting_for_dependencies, %{cached_state: "todo", tracker_state: "todo", changed_fields: [:blockers]}}} =
                Orchestrator.resume_agent(name, cached_issue.identifier)
+    end
+
+    test "resume revalidates tracker state after clearing the pause override" do
+      name = Module.concat(__MODULE__, :ResumeRelabelRace)
+      pid = start_orchestrator(name)
+
+      paused_issue =
+        "L11-RACE"
+        |> todo_issue()
+        |> Map.put(:paused, true)
+        |> Map.put(:labels, ["agent:todo", "agent:paused"])
+
+      relabelled_issue = %{paused_issue | state: "merging", paused: false, labels: ["agent:merging"]}
+      resume_refresh_tracker!([{:ok, [paused_issue]}, {:ok, [relabelled_issue]}])
+
+      :sys.replace_state(pid, fn state ->
+        %{state | last_polled_issues: %{paused_issue.id => paused_issue}, running: %{}, claimed: MapSet.new()}
+      end)
+
+      assert {:error, {:stale_tracker_state, {:tracker_state_not_resumable, "merging"}, %{cached_state: "todo", tracker_state: "merging", changed_fields: [:state]}}} =
+               Orchestrator.resume_agent(name, paused_issue.identifier)
+
+      assert_receive {:resume_refresh_remove_label, "L11-RACE", "agent:paused"}
+      refute MapSet.member?(:sys.get_state(pid).claimed, paused_issue.id)
+    end
+
+    test "resume reports an authoritative missing ticket" do
+      name = Module.concat(__MODULE__, :ResumeMissingTrackerIssue)
+      pid = start_orchestrator(name)
+      cached_issue = todo_issue("L11-MISSING")
+      resume_refresh_tracker!([{:ok, []}])
+
+      :sys.replace_state(pid, fn state ->
+        %{state | last_polled_issues: %{cached_issue.id => cached_issue}, running: %{}, claimed: MapSet.new()}
+      end)
+
+      assert {:error, :tracker_issue_not_found} = Orchestrator.resume_agent(name, cached_issue.identifier)
+      refute Map.has_key?(:sys.get_state(pid).last_polled_issues, cached_issue.id)
+    end
+
+    test "resume reports tracker refresh failures without mutating the cache" do
+      name = Module.concat(__MODULE__, :ResumeTrackerFailure)
+      pid = start_orchestrator(name)
+      cached_issue = todo_issue("L11-TRACKER-DOWN")
+      resume_refresh_tracker!([{:error, :timeout}])
+
+      :sys.replace_state(pid, fn state ->
+        %{state | last_polled_issues: %{cached_issue.id => cached_issue}, running: %{}, claimed: MapSet.new()}
+      end)
+
+      assert {:error, {:tracker_refresh_failed, :timeout}} =
+               Orchestrator.resume_agent(name, cached_issue.identifier)
+
+      assert :sys.get_state(pid).last_polled_issues[cached_issue.id] == cached_issue
     end
   end
 

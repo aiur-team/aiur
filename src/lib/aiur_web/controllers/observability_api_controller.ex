@@ -226,14 +226,39 @@ defmodule AiurWeb.ObservabilityApiController do
     error_response(conn, 422, "invalid_identifier", "Issue identifier is invalid")
   end
 
+  defp render_control_response({:error, {:stale_tracker_state, _reason, _details} = reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
+  defp render_control_response({:error, {:tracker_state_not_resumable, _state} = reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
+  defp render_control_response({:error, {:state_concurrency_limit_reached, _state} = reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
   defp render_control_response({:error, reason}, conn, _issue_identifier, _action)
        when reason in [
               :already_inactive,
+              :already_claimed,
+              :all_model_backends_limited,
+              :auto_resume_pending,
+              :contradictory_tracker_state_labels,
               :control_request_conflict,
+              :dispatch_not_authorized,
+              :dispatch_retry_scheduled,
+              :invalid_tracker_issue,
               :max_concurrent_agents_reached,
+              :no_worker_capacity,
+              :not_routable_to_worker,
               :not_resumable,
+              :pause_override_still_present,
               :globally_paused,
-              :stale_generation
+              :stale_generation,
+              :tracker_issue_not_found,
+              :waiting_for_dependencies,
+              :workspace_ownership_waiting
             ] do
     error_response(conn, 409, "control_conflict", inspect(reason))
   end

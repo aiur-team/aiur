@@ -15,6 +15,13 @@ defmodule Aiur.GitHub.TrackerTest do
     def update_issue_state(_id, _state), do: :ok
   end
 
+  defmodule ConditionalGitHubClient do
+    def fetch_candidate_issues_conditional(cache), do: {:ok, [:candidate], Map.put(cache, :candidate, true)}
+
+    def fetch_issues_by_states_conditional(states, cache),
+      do: {:ok, states, Map.put(cache, :states, true)}
+  end
+
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
@@ -42,6 +49,20 @@ defmodule Aiur.GitHub.TrackerTest do
   test "fetch_issues_by_states delegates to client" do
     assert {:ok, issues} = GitHubTracker.fetch_issues_by_states(["todo"])
     assert length(issues) == 1
+  end
+
+  test "conditional fetches fall back for legacy clients without losing the cache" do
+    cache = %{etag: "v1"}
+
+    assert {:ok, [_issue], ^cache} = GitHubTracker.fetch_candidate_issues_conditional(cache)
+    assert {:ok, [_issue], ^cache} = GitHubTracker.fetch_issues_by_states_conditional(["todo"], cache)
+  end
+
+  test "conditional fetches delegate when the client supports them" do
+    Application.put_env(:aiur, :github_client_module, ConditionalGitHubClient)
+
+    assert {:ok, [:candidate], %{candidate: true}} = GitHubTracker.fetch_candidate_issues_conditional(%{})
+    assert {:ok, ["todo"], %{states: true}} = GitHubTracker.fetch_issues_by_states_conditional(["todo"], %{})
   end
 
   test "fetch_issue_states_by_ids delegates to client" do
