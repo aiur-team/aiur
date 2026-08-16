@@ -38,7 +38,7 @@ coverage.
 | page | route | what "working" means |
 | --- | --- | --- |
 | Units | `/` | every active agent, live state |
-| Commands | `/decisions` | real commands awaiting response |
+| Commands | `/commands` | real commands awaiting response |
 | Build Order | `/build-orders` | progress that tracks reality |
 | Analytics | `/analytics` | current data, not a frozen window |
 

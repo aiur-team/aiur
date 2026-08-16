@@ -1557,7 +1557,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     {:ok, _view, html} = live(build_conn(), "/build-orders")
 
     assert html =~ "2 units awaiting commands"
-    assert html =~ ~s(href="/decisions")
+    assert html =~ ~s(href="/commands")
   end
 
   @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}

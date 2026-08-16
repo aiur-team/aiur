@@ -399,7 +399,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         retained_counts: %{open: 0, blocking: 0, awaiting: 0, awaiting_blocking: 0, health: %{status: :available}}
       })
 
-    assert html =~ ~s(href="/decisions")
+    assert html =~ ~s(href="/commands")
     assert html =~ "1 unit awaiting commands"
     refute empty_html =~ "decisions-banner"
   end

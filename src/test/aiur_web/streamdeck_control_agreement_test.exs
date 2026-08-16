@@ -59,6 +59,13 @@ defmodule AiurWeb.StreamdeckControlAgreementTest do
     assert status.work_state == :working
   end
 
+  # The deck no longer carries a prioritize *key*: the agent view has four slots
+  # and the microphone took the fourth, so pause, logs, mic and settings is the
+  # whole set. What the deck still renders is the priority *state* — the star on
+  # the grid key and the dispatch order it implies — so this agreement is about
+  # the key face, not a command key. Priority itself remains a real orchestrator
+  # control reachable from the dashboard, and the three surfaces must still
+  # agree about it.
   test "prioritizing through the orchestrator moves the agent earlier and stars it on every surface" do
     state = state_for([running_entry("1500", :working), running_entry("1577", :working)])
 

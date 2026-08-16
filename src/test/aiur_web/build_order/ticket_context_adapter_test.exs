@@ -50,7 +50,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
              {"Issue", true, issue_url(2)},
              {"Pull request", true, "https://github.com/owner/repo/pull/77"},
              {"Chat", true, "/chat/2"},
-             {"Commands", true, "/decisions/2"},
+             {"Commands", true, "/commands/2"},
              {"Planning doc", false, nil}
            ]
 
@@ -176,7 +176,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
       {:chat, %{available?: true, destination: "/chat/2", identity: selected.identity, active?: false, readable?: true}, "Chat is inactive."},
       {:chat, %{available?: true, destination: "/chat/2", identity: selected.identity, active?: true, readable?: false}, "Chat is unreadable."},
       {:chat, %{available?: true, destination: "/chat/2", identity: identity(2, provider_id: "OTHER"), active?: true, readable?: true}, "Chat is unavailable for this ticket."},
-      {:commands, %{available?: true, destination: "/decisions/2", identity: selected.identity, readable?: false}, "Commands are unreadable."},
+      {:commands, %{available?: true, destination: "/commands/2", identity: selected.identity, readable?: false}, "Commands are unreadable."},
       {:commands, %{available?: false, identity: selected.identity, reason: :stale}, "Commands are stale."},
       {:commands, %{available?: false, identity: selected.identity, reason: :unauthorized}, "Commands are unauthorized."}
     ]
@@ -226,9 +226,9 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
     for {kind, destination, expected_reason} <- [
           {:chat, "/chat/2?capability=private", "Chat is unavailable."},
           {:chat, "/chat/2#token=private", "Chat is unavailable."},
-          {:chat, "/decisions/2", "Chat is unavailable."},
-          {:commands, "/decisions/2?token=private", "Commands are unavailable."},
-          {:commands, "/decisions/2#capability=private", "Commands are unavailable."},
+          {:chat, "/commands/2", "Chat is unavailable."},
+          {:commands, "/commands/2?token=private", "Commands are unavailable."},
+          {:commands, "/commands/2#capability=private", "Commands are unavailable."},
           {:commands, "/chat/2", "Commands are unavailable."}
         ] do
       capability =
@@ -333,7 +333,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
         number: 77
       },
       chat: %{available?: true, destination: "/chat/2", identity: identity, active?: true, readable?: true},
-      commands: %{available?: true, destination: "/decisions/2", identity: identity, readable?: true}
+      commands: %{available?: true, destination: "/commands/2", identity: identity, readable?: true}
     }
   end
 

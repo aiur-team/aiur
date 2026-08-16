@@ -15,12 +15,28 @@ import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
+import { settingsView, type SettingsView } from "./settings.js";
+import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
+import type { AudioDevice } from "./audio/index.js";
 
-export type PhysicalMode = "grid" | "cmd" | "logs";
+export type PhysicalMode = "grid" | "cmd" | "logs" | "settings";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
+  /** True while the voice buffer holds settled text; adds the Send/Cancel keys. */
+  readonly hasTranscript?: boolean;
+  /** Microphones the host last enumerated, for the settings surface. */
+  readonly microphones?: readonly AudioDevice[];
+  readonly selectedMicId?: string | null;
+  /** First microphone on the current settings page. */
+  readonly micOffset?: number;
+  /**
+   * The voice session's *local* readings — waveform columns, dBFS, buffered
+   * text. Raw rather than pre-composed so the panel's decisions stay in the
+   * covered {@link voicePanel} rather than in the process entry point.
+   */
+  readonly voice?: VoicePanelInput;
   readonly columnOffset: number;
   /** First provider row the merged provider panel shows; knob 2 moves it. */
   readonly providerOffset?: number;
@@ -141,38 +157,96 @@ export const descriptorEvents = (
   return slots;
 };
 
+/** One command key face; `identifier` namespaces it so two agents never share a cache entry. */
+const commandKey = (identifier: string, name: string, title: string, icon: string, subLabel: string): AgentInput => ({
+  identifier: `${identifier}:${name}`,
+  title,
+  vendor: "command",
+  icon,
+  role: "command",
+  subLabel,
+  bucket: "queued",
+  progress_percent: null,
+  priority: false,
+  dependency_ready: true,
+});
+
 /**
- * The four per-agent command keys, in the order the mock defines: pause/play,
- * prioritise/deprioritise, logs, and the hold-to-talk mic. Each carries its own
- * glyph and caption; the mic's caption is what tells the renderer to paint the
- * held state.
+ * The per-agent command keys: pause/play, logs, the hold-to-talk mic, settings,
+ * and — only while there is transcribed text — Send and Cancel.
+ *
+ * The prioritise key that used to sit on key 1 is gone. The orchestrator ranks
+ * tickets itself, so the key was a second and weaker way to say the same thing,
+ * and the slot it freed is what settings now occupies. This order is mirrored
+ * by `mode.ts` and by the Elixir emulator, which are under a parity contract
+ * with this table.
+ *
+ * Send and Cancel are absent rather than dimmed: before the operator has
+ * spoken there is nothing to send, and a permanently lit Send invites a press
+ * that delivers an empty message.
  */
-const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | undefined, micHeld: boolean): (AgentInput | undefined)[] => {
+const descriptorCommands = (
+  agent: Readonly<Record<string, unknown>> | null | undefined,
+  micHeld: boolean,
+  hasTranscript: boolean,
+): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
   // instead made every alert/stuck/queued agent show a Resume key that the
   // controller then had no action for, so pressing it did nothing at all.
   const paused = agent?.bucket === "paused";
-  const prioritised = agent?.priority === true;
-  const command = (name: string, title: string, icon: string, subLabel: string): AgentInput => ({
-    identifier: `${identifier}:${name}`,
-    title,
-    vendor: "command",
-    icon,
-    role: "command",
-    subLabel,
-    bucket: "queued",
-    progress_percent: null,
-    priority: false,
-    dependency_ready: true,
-  });
-  const commands: AgentInput[] = [
+  const command = (name: string, title: string, icon: string, subLabel: string): AgentInput =>
+    commandKey(identifier, name, title, icon, subLabel);
+
+  return [
     command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
-    command("priority", prioritised ? "Deprioritize" : "Prioritize", prioritised ? "down" : "up", prioritised ? "LOWER" : "RAISE"),
     command("logs", "Logs", "logs", "OPEN"),
     command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
+    command("settings", "Settings", "settings", "OPEN"),
+    hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
+    hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
+    undefined,
+    undefined,
   ];
-  return [...commands, undefined, undefined, undefined, undefined];
+};
+
+/**
+ * The settings surface's eight keys: six microphones, TestMic, and paging.
+ *
+ * The selected microphone reuses the **log surface's** selection idiom rather
+ * than inventing a second one — `role: "event"` is what paints the brighter
+ * plate, the full-height left rail and the inverted badge chip in
+ * `rasterizer.ts`. That idiom was tuned to be legible at arm's length, and a
+ * deck with two different ways to say "this one is active" is a deck where
+ * neither reads as definitive.
+ */
+export const descriptorSettings = (view: SettingsView, micHeld: boolean): (AgentInput | undefined)[] => {
+  const mics: (AgentInput | undefined)[] = view.mics.map((slot) =>
+    slot === null
+      ? undefined
+      : {
+          identifier: `mic:${slot.id}`,
+          title: slot.label,
+          vendor: "settings",
+          role: "event" as const,
+          subLabel: slot.selected ? "IN USE" : "MIC",
+          timeLabel: "",
+          selected: slot.selected,
+          bucket: "queued" as const,
+          progress_percent: null,
+          priority: false,
+          dependency_ready: true,
+        },
+  );
+
+  return [
+    ...mics,
+    commandKey("settings", "test", "TestMic", "test", micHeld ? "LIVE" : "HOLD"),
+    // Paging is present only when there is a page to go to. An inert arrow on a
+    // machine with one microphone is a key that teaches the operator that keys
+    // on this surface sometimes do nothing.
+    view.hasPaging ? commandKey("settings", "page", "More", "next", view.pageLabel) : undefined,
+  ];
 };
 
 /**
@@ -222,10 +296,20 @@ export const createPhysicalSurface = () => {
       // Events fill the keys in reading order. `layoutKeys` is column-major,
       // which is right for the agent grid (paging moves through columns) but
       // would interleave a sequential event window across the two rows.
+      // One view model for both the settings keys and the settings panel, so a
+      // key and the caption describing it cannot disagree about which
+      // microphone is selected or which page is showing.
+      const mics = settingsView(state.microphones ?? [], state.selectedMicId ?? null, state.micOffset ?? 0);
+      // Composed here rather than by the host: the panel's decisions — the
+      // status line, the decibel mapping, the column count — belong in the
+      // covered `voicePanel` module, and `main.ts` only supplies the readings.
+      const voice: VoicePanelData | undefined = state.voice === undefined ? undefined : voicePanel(state.voice);
       const visibleGrid = state.mode === "logs"
         ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
-        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true))
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true))
+        : state.mode === "settings"
+        ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {
@@ -237,9 +321,22 @@ export const createPhysicalSurface = () => {
       // and the keys disagreed about which mode the deck was in. With only the
       // identifier, the panel shows the ticket and an unknown status, which is
       // the truth.
+      const selectedMic = mics.mics.find((slot) => slot?.selected === true);
       const strip: StripData = state.mode === "cmd" ? {
         mode: "cmd",
-        data: { detail: agentDetailModel(focused ?? { identifier: state.focusedIdentifier }) },
+        data: { detail: agentDetailModel(focused ?? { identifier: state.focusedIdentifier }), voice },
+      } : state.mode === "settings" ? {
+        mode: "settings",
+        data: {
+          // The label of the mic that will actually open, falling back to the
+          // first device: `MicPreferences.resolve` picks the first when nothing
+          // is remembered, and the panel must name what capture will use rather
+          // than what was last clicked.
+          selectedLabel: selectedMic?.label ?? state.microphones?.[0]?.label ?? "",
+          deviceCount: state.microphones?.length ?? 0,
+          pageLabel: mics.pageLabel,
+          voice,
+        },
       } : state.mode === "logs" ? {
         mode: "logs",
         data: {
