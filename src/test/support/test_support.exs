@@ -19,6 +19,49 @@ defmodule Aiur.TestSupport do
   @spec github_repository_name() :: String.t()
   def github_repository_name, do: elem(@github_repository, 1)
 
+  # Application keys the `use Aiur.TestSupport` setup redirects into the
+  # per-test workflow root, and must therefore put back on the way out.
+  #
+  # `:workflow_file_path` is restored rather than deleted: deleting it leaves
+  # the global config resolving to a possibly-missing run-folder path, so any
+  # later read of `Config.settings!/0` while `WorkflowStore` is
+  # mid-reload/restart raises `missing_workflow_file`. That raise in a
+  # permanent top-level child's `init/1` (e.g. `Orchestrator`) crash-loops
+  # `Aiur.Supervisor` past its `max_restarts` and takes the whole `:aiur` app
+  # down — the #589 cascade.
+  #
+  # `:repo_base_root` is the newest member. `RepoBase` otherwise defaults to
+  # `~/.aiur/repo`, one directory shared by the whole VM, and everything it
+  # holds — asks, findings, claims, ticket state — is durable. Without a
+  # per-test root a case reads records written by a module that ran earlier in
+  # the same partition.
+  @isolated_app_env_keys [
+    :workflow_file_path,
+    :log_file,
+    :build_gate_dir_override,
+    :global_pause_store_path,
+    :repo_base_root
+  ]
+
+  @doc "The `:aiur` application keys isolated per TestSupport case."
+  @spec isolated_app_env_keys() :: [atom()]
+  def isolated_app_env_keys, do: @isolated_app_env_keys
+
+  @doc "Captures the current value of every isolated key, unset included."
+  @spec capture_app_env() :: [{atom(), {:ok, term()} | :error}]
+  def capture_app_env do
+    Enum.map(@isolated_app_env_keys, &{&1, Application.fetch_env(:aiur, &1)})
+  end
+
+  @doc "Puts back what `capture_app_env/0` recorded, deleting keys that were unset."
+  @spec restore_app_env([{atom(), {:ok, term()} | :error}]) :: :ok
+  def restore_app_env(captured) do
+    Enum.each(captured, fn
+      {key, :error} -> Application.delete_env(:aiur, key)
+      {key, {:ok, value}} -> Application.put_env(:aiur, key, value)
+    end)
+  end
+
   defmacro __using__(_opts) do
     quote do
       use ExUnit.Case
@@ -69,18 +112,10 @@ defmodule Aiur.TestSupport do
             "workflow-#{System.unique_integer([:positive])}"
           )
 
-        # The valid baseline the suite booted with (test_helper.exs points this
-        # at the checked-in `fixtures/test.aiurconfig`). Restore it on exit
-        # rather than deleting the key — deleting it leaves the global config
-        # resolving to a possibly-missing run-folder path, so any later read of
-        # `Config.settings!/0` while `WorkflowStore` is mid-reload/restart raises
-        # `missing_workflow_file`. That raise in a permanent top-level child's
-        # `init/1` (e.g. `Orchestrator`) crash-loops `Aiur.Supervisor` past its
-        # `max_restarts` and takes the whole `:aiur` app down — the #589 cascade.
-        previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
-        previous_log_file = Application.get_env(:aiur, :log_file)
-        previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
-        previous_global_pause_store_path = Application.get_env(:aiur, :global_pause_store_path)
+        # Every application key this setup overrides, captured as-is so
+        # teardown puts back exactly what was there. See
+        # `Aiur.TestSupport.isolated_app_env_keys/0`.
+        previous_app_env = Aiur.TestSupport.capture_app_env()
 
         # These callbacks live in :persistent_term so they outlast the test
         # process that installed them. Start every TestSupport case from the
@@ -91,6 +126,8 @@ defmodule Aiur.TestSupport do
         EventsSubscriptionStore.set_enqueue_fn(nil)
 
         File.mkdir_p!(workflow_root)
+
+        Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
@@ -130,26 +167,7 @@ defmodule Aiur.TestSupport do
         stop_default_http_server()
 
         on_exit(fn ->
-          case previous_workflow_file_path do
-            nil -> Application.delete_env(:aiur, :workflow_file_path)
-            path -> Application.put_env(:aiur, :workflow_file_path, path)
-          end
-
-          case previous_log_file do
-            nil -> Application.delete_env(:aiur, :log_file)
-            path -> Application.put_env(:aiur, :log_file, path)
-          end
-
-          case previous_build_gate_dir do
-            nil -> Application.delete_env(:aiur, :build_gate_dir_override)
-            path -> Application.put_env(:aiur, :build_gate_dir_override, path)
-          end
-
-          case previous_global_pause_store_path do
-            nil -> Application.delete_env(:aiur, :global_pause_store_path)
-            path -> Application.put_env(:aiur, :global_pause_store_path, path)
-          end
-
+          Aiur.TestSupport.restore_app_env(previous_app_env)
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
