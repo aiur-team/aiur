@@ -19,6 +19,8 @@ observability:
   # Retain useful cross-session telemetry without splitting an individual boot.
   telemetry_retention_max_bytes: 67108864
   telemetry_retention_max_age_days: 30
+executor_takeover_first_alert_hours: 8
+executor_takeover_continuous_alert_hours: 1
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

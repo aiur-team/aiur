@@ -129,6 +129,7 @@ defmodule Aiur.Executor.TakeoverAlert do
     lines =
       [
         header,
+        "  - Ticket/PR: " <> target_line(evidence),
         "  - Last material progress: " <> progress_line(evidence.pr, evidence.now),
         "  - Live owner: " <> owner_line(evidence.live_owner?),
         "  - Dispatch/restart count: " <> Integer.to_string(evidence.dispatches),
@@ -152,6 +153,15 @@ defmodule Aiur.Executor.TakeoverAlert do
     case String.slice(title, 0, 80) do
       "" -> ""
       slice -> " (#{slice})"
+    end
+  end
+
+  defp target_line(evidence) do
+    ticket = evidence.url || "##{evidence.identifier}"
+
+    case get_in(evidence, [:pr, :number]) do
+      number when is_integer(number) -> "#{ticket} / PR ##{number}"
+      _ -> ticket
     end
   end
 

@@ -29,7 +29,6 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
       "number" => 1144,
       "state" => "open",
       "created_at" => "2026-01-01T00:00:00Z",
-      "pushed_at" => "2026-01-01T02:00:00Z",
       "mergeable_state" => "clean",
       "head" => %{"ref" => "aiur/101", "sha" => "abc123"},
       "base" => %{"ref" => "develop"}
@@ -38,31 +37,74 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
 
   defp request_fun_returning(pull_requests) do
     fn %{method: :get, url: url} ->
-      if url =~ "head=" do
-        {:ok, %{status: 200, body: pull_requests, headers: []}}
-      else
-        {:ok, %{status: 200, body: [], headers: []}}
+      cond do
+        url =~ "/pulls/1144" ->
+          {:ok, %{status: 200, body: pr_body(), headers: []}}
+
+        url =~ "/commits/abc123" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{"commit" => %{"committer" => %{"date" => "2026-01-01T02:00:00Z"}}},
+             headers: []
+           }}
+
+        url =~ "head=" ->
+          {:ok, %{status: 200, body: pull_requests, headers: []}}
+
+        true ->
+          {:ok, %{status: 200, body: [], headers: []}}
       end
     end
   end
 
+  test "preserves terminal members and reports authoritative snapshot health" do
+    membership_fun = fn ->
+      %{
+        health: :healthy,
+        truncated?: false,
+        members: [
+          %{identity: %{identifier: "101"}, terminal?: false},
+          %{identity: %{identifier: "202"}, terminal?: true}
+        ]
+      }
+    end
+
+    assert %{authoritative?: true, tickets: tickets} =
+             Snapshot.fetch(DateTime.utc_now(), membership_fun: membership_fun, running_fun: fn -> ["101"] end)
+
+    assert %{terminal?: false, live_owner?: true} = Enum.find(tickets, &(&1.identifier == "101"))
+    assert %{terminal?: true, live_owner?: false} = Enum.find(tickets, &(&1.identifier == "202"))
+  end
+
+  test "marks degraded and truncated membership snapshots non-authoritative" do
+    for snapshot <- [
+          %{health: {:degraded, :test}, truncated?: false, members: []},
+          %{health: :healthy, truncated?: true, members: []}
+        ] do
+      assert %{authoritative?: false} =
+               Snapshot.fetch(DateTime.utc_now(), membership_fun: fn -> snapshot end, running_fun: fn -> [] end)
+    end
+  end
+
   test "parses open-PR evidence from the matching ticket branch" do
-    assert %{
-             number: 1144,
-             created_at: %DateTime{},
-             pushed_at: %DateTime{},
-             mergeable_state: "clean",
-             ci_state: nil
-           } = Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun_returning([pr_body()]))
+    assert {:ok,
+            %{
+              number: 1144,
+              created_at: %DateTime{},
+              pushed_at: %DateTime{},
+              mergeable_state: "clean",
+              ci_state: nil
+            }} = Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun_returning([pr_body()]))
   end
 
   test "returns nil when no open PR exists for the ticket" do
-    assert nil == Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun_returning([]))
+    assert {:ok, nil} == Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun_returning([]))
   end
 
   test "returns nil when the tracker is unavailable" do
     request_fun = fn _request -> {:error, :network} end
-    assert nil == Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun)
+    assert {:error, _reason} = Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun)
   end
 
   test "enriches CI state only for already-alerted tickets" do
@@ -89,7 +131,7 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
       end
     end
 
-    assert %{ci_state: "failing (1 check)"} =
+    assert {:ok, %{ci_state: "failing (1 check)"}} =
              Snapshot.fetch_open_pr(%{identifier: "101", enrich_ci?: true}, request_fun: request_fun)
   end
 
@@ -99,6 +141,6 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
       request_fun_returning([pr_body()]).(%{method: :get, url: url})
     end
 
-    assert %{ci_state: nil} = Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun)
+    assert {:ok, %{ci_state: nil}} = Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun)
   end
 end

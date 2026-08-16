@@ -108,15 +108,21 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
   defp run_tick_inner(state) do
     thresholds = state.settings_fun.()
     now = state.now_fun.()
-    tickets = state.snapshot_fun.(now)
+    {tickets, authoritative?} = normalize_snapshot(state.snapshot_fun.(now))
 
     Enum.each(tickets, fn ticket ->
       process_ticket(state, ticket, thresholds, now)
     end)
 
-    reconcile_out_of_scope(state, tickets, now)
+    if authoritative?, do: reconcile_out_of_scope(state, tickets, now)
     :ok
   end
+
+  defp normalize_snapshot(%{tickets: tickets, authoritative?: authoritative?})
+       when is_list(tickets) and is_boolean(authoritative?),
+       do: {tickets, authoritative?}
+
+  defp normalize_snapshot(tickets) when is_list(tickets), do: {tickets, true}
 
   # A ticket the monitor previously tracked but that has now disappeared from
   # the snapshot (terminal or out of run scope) is resolved and forgotten once
@@ -189,8 +195,10 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
       enrich_ticket =
         if already_alerted?, do: Map.put(ticket, :enrich_ci?, true), else: ticket
 
-      pr = safely_fetch_pr(state.pr_fetch_fun, enrich_ticket)
-      Store.record_pr(identifier, pr, now, state.store)
+      case safely_fetch_pr(state.pr_fetch_fun, enrich_ticket) do
+        {:ok, pr} -> Store.record_pr(identifier, pr, now, state.store)
+        {:error, _reason} -> Store.record_pr(identifier, record.pr, now, state.store)
+      end
     else
       record
     end
@@ -207,15 +215,20 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
   end
 
   defp safely_fetch_pr(pr_fetch_fun, ticket) do
-    pr_fetch_fun.(ticket)
+    case pr_fetch_fun.(ticket) do
+      {:ok, _pr} = result -> result
+      {:error, _reason} = result -> result
+      pr when is_map(pr) or is_nil(pr) -> {:ok, pr}
+      other -> {:error, {:invalid_pr_evidence, other}}
+    end
   rescue
     error ->
       Logger.warning("executor_takeover pr_fetch failed: #{Exception.message(error)}")
-      nil
+      {:error, error}
   catch
     kind, reason ->
       Logger.warning("executor_takeover pr_fetch caught #{kind}: #{inspect(reason)}")
-      nil
+      {:error, {kind, reason}}
   end
 
   defp emit_alert(state, ticket, record, anchor, age, thresholds, now) do

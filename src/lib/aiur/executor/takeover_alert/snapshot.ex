@@ -18,50 +18,63 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.PullRequests
 
-  @spec fetch(DateTime.t()) :: [map()]
-  def fetch(_now) do
-    running = running_identifiers()
+  @type result :: %{tickets: [map()], authoritative?: boolean()}
 
-    identifiers = in_scope_nonterminal_identifiers(running)
+  @spec fetch(DateTime.t()) :: result()
+  def fetch(now), do: fetch(now, [])
 
-    Enum.map(identifiers, fn identifier ->
-      %{
-        identifier: identifier,
-        terminal?: false,
-        in_scope?: true,
-        live_owner?: Map.has_key?(running, identifier)
-      }
-    end)
+  @doc false
+  @spec fetch(DateTime.t(), keyword()) :: result()
+  def fetch(_now, opts) do
+    running = running_identifiers(Keyword.get(opts, :running_fun, &default_running_identifiers/0))
+    {members, authoritative?} = membership_tickets(Keyword.get(opts, :membership_fun, &CurrentRunMembership.snapshot/0))
+
+    tickets =
+      running
+      |> Map.keys()
+      |> Enum.reduce(members, fn identifier, acc ->
+        Map.put_new(acc, identifier, %{identifier: identifier, terminal?: false, in_scope?: true})
+      end)
+      |> Map.values()
+      |> Enum.map(&Map.put(&1, :live_owner?, Map.has_key?(running, &1.identifier)))
+
+    %{tickets: tickets, authoritative?: authoritative?}
   end
 
-  # A set (map of identifier => true) of the in-scope nonterminal tickets: the
-  # union of the current-run membership's nonterminal members and the
-  # orchestrator's currently-running identifiers. Plain maps, not MapSet, so the
-  # fault-isolated builders below never leak an unproven opaque term to callers.
-  defp in_scope_nonterminal_identifiers(running) do
-    Map.merge(membership_nonterminal_identifiers(), running)
-  end
+  defp membership_tickets(membership_fun) do
+    case membership_fun.() do
+      %{members: members, health: health, truncated?: truncated?} when is_list(members) ->
+        tickets =
+          Enum.reduce(members, %{}, fn member, acc ->
+            case get_in(member, [:identity, :identifier]) do
+              nil ->
+                acc
 
-  defp membership_nonterminal_identifiers do
-    case CurrentRunMembership.snapshot() do
-      %{members: members} when is_list(members) ->
-        members
-        |> Enum.reject(&Map.get(&1, :terminal?, false))
-        |> Enum.map(&get_in(&1, [:identity, :identifier]))
-        |> Enum.reject(&is_nil/1)
-        |> Map.new(&{&1, true})
+              identifier ->
+                identity = Map.get(member, :identity, %{})
+
+                Map.put(acc, identifier, %{
+                  identifier: identifier,
+                  terminal?: Map.get(member, :terminal?, false),
+                  in_scope?: true,
+                  url: identity_url(identity)
+                })
+            end
+          end)
+
+        {tickets, health == :healthy and not truncated?}
 
       _ ->
-        %{}
+        {%{}, false}
     end
   rescue
-    _ -> %{}
+    _ -> {%{}, false}
   catch
-    _, _ -> %{}
+    _, _ -> {%{}, false}
   end
 
-  defp running_identifiers do
-    Orchestrator.list_running_active_identifiers(Orchestrator, 1_000)
+  defp running_identifiers(running_fun) do
+    running_fun.()
     |> Map.new(&{&1, true})
   rescue
     _ -> %{}
@@ -69,35 +82,50 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
     _, _ -> %{}
   end
 
+  defp default_running_identifiers do
+    Orchestrator.list_running_active_identifiers(Orchestrator, 1_000)
+  end
+
   @doc """
   Best-effort open-PR evidence for a ticket, or `nil` when no open PR exists or
   the tracker is unavailable. `opts` forwards to the GitHub client so tests can
   inject a `request_fun`.
   """
-  @spec fetch_open_pr(map(), keyword()) :: map() | nil
+  @spec fetch_open_pr(map(), keyword()) :: {:ok, map() | nil} | {:error, term()}
   def fetch_open_pr(ticket, opts \\ [])
 
   def fetch_open_pr(%{identifier: identifier} = ticket, opts) do
-    case GitHubClient.fetch_open_pull_request_for_branch(identifier, opts) do
-      {:ok, pr} when is_map(pr) and map_size(pr) > 0 ->
-        %{
-          number: Map.get(pr, "number"),
-          created_at: parse_timestamp(Map.get(pr, "created_at")),
-          pushed_at: parse_timestamp(Map.get(pr, "pushed_at")),
-          mergeable_state: Map.get(pr, "mergeable_state"),
-          ci_state: maybe_ci_state(pr, ticket, opts)
-        }
-
-      _ ->
-        nil
+    with {:ok, listed} when is_map(listed) <- GitHubClient.fetch_open_pull_request_for_branch(identifier, opts),
+         number when not is_nil(number) <- Map.get(listed, "number"),
+         {:ok, detail} when is_map(detail) <- GitHubClient.fetch_open_pull_request(number, opts),
+         {:ok, pushed_at} <- head_commit_timestamp(detail, opts) do
+      {:ok,
+       %{
+         number: number,
+         created_at: parse_timestamp(Map.get(detail, "created_at")),
+         pushed_at: pushed_at,
+         mergeable_state: Map.get(detail, "mergeable_state"),
+         ci_state: maybe_ci_state(detail, ticket, opts)
+       }}
+    else
+      {:ok, nil} -> {:ok, nil}
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :invalid_pull_request_evidence}
     end
   rescue
-    _ -> nil
+    error -> {:error, error}
   catch
-    _, _ -> nil
+    kind, reason -> {:error, {kind, reason}}
   end
 
-  def fetch_open_pr(_ticket, _opts), do: nil
+  def fetch_open_pr(_ticket, _opts), do: {:ok, nil}
+
+  defp head_commit_timestamp(pr, opts) do
+    case get_in(pr, ["head", "sha"]) do
+      sha when is_binary(sha) and sha != "" -> GitHubClient.fetch_commit_timestamp(sha, opts)
+      _ -> {:ok, nil}
+    end
+  end
 
   defp maybe_ci_state(pr, %{enrich_ci?: true}, opts) do
     head_sha = get_in(pr, ["head", "sha"])
@@ -111,8 +139,12 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
 
   defp ci_state_for_sha(sha, opts) do
     case PullRequests.fetch_commit_ci_status(sha, opts) do
-      {:ok, %{check_runs: check_runs}} when is_list(check_runs) -> summarize_check_runs(check_runs)
-      _ -> nil
+      {:ok, %{check_runs: check_runs, commit_status: commit_status}}
+      when is_list(check_runs) and is_map(commit_status) ->
+        summarize_ci(check_runs, commit_status)
+
+      _ ->
+        nil
     end
   rescue
     _ -> nil
@@ -120,18 +152,37 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
     _, _ -> nil
   end
 
-  defp summarize_check_runs(check_runs) when is_list(check_runs) do
+  defp summarize_ci(check_runs, commit_status) do
     statuses = Enum.map(check_runs, &Map.get(&1, "status"))
     conclusions = Enum.map(check_runs, &Map.get(&1, "conclusion"))
-    failing = Enum.count(conclusions, &(&1 in ["failure", "timed_out", "action_required"]))
+    legacy_states = commit_status |> Map.get("statuses", []) |> Enum.map(&Map.get(&1, "state"))
+    combined = Map.get(commit_status, "state")
+    failures = ["failure", "error", "timed_out", "action_required"]
+    combined_states = if legacy_states == [], do: [combined], else: []
+    failing = Enum.count(conclusions ++ legacy_states ++ combined_states, &(&1 in failures))
 
     cond do
-      failing > 0 -> "failing (#{failing} check#{if(failing == 1, do: "", else: "s")})"
-      conclusions != [] and Enum.all?(conclusions, &(&1 == "success")) -> "success"
-      Enum.any?(statuses, &(&1 in ["queued", "in_progress"])) -> "pending"
-      true -> "unknown"
+      failing > 0 ->
+        "failing (#{failing} check#{if(failing == 1, do: "", else: "s")})"
+
+      Enum.any?(statuses, &(&1 in ["queued", "in_progress"])) or
+        Enum.any?(legacy_states, &(&1 == "pending")) or combined == "pending" ->
+        "pending"
+
+      conclusions != [] or legacy_states != [] or combined == "success" ->
+        "success"
+
+      true ->
+        "unknown"
     end
   end
+
+  defp identity_url(%{kind: :github, owner: owner, repository: repository, identifier: identifier})
+       when is_binary(owner) and is_binary(repository) and is_binary(identifier) do
+    "https://github.com/#{owner}/#{repository}/issues/#{identifier}"
+  end
+
+  defp identity_url(_identity), do: nil
 
   defp parse_timestamp(nil), do: nil
 

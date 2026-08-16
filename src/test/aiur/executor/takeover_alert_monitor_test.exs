@@ -281,6 +281,59 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
     wait_until(fn -> Store.record("101", store.name) == nil end)
   end
 
+  test "a non-authoritative snapshot never forgets durable convergence state", %{} do
+    state_dir = tmp_state_dir()
+    store = start_store(state_dir)
+    {now_fun, set_time, _} = start_clock(@t0)
+    {snapshot_fun, snapshot_agent} = start_agent_snapshot([healthy_ticket("101")])
+
+    wrapped_snapshot = fn now ->
+      tickets = snapshot_fun.(now)
+      %{tickets: tickets, authoritative?: tickets != []}
+    end
+
+    pid = start_monitor(store.name, now_fun, %{first_hours: 8, continuous_hours: 1}, wrapped_snapshot)
+    tick_and_wait(pid, store.name, "101")
+
+    Agent.update(snapshot_agent, fn _ -> [] end)
+    set_time.(hours(12))
+    send(pid, :tick)
+    wait_for_mailbox_drained(pid)
+
+    refute_receive {:resolution, _payload}, 100
+    assert Store.record("101", store.name).anchor_at == @t0
+  end
+
+  test "a failed PR refresh preserves the cached PR age floor", %{} do
+    state_dir = tmp_state_dir()
+    store = start_store(state_dir)
+    {now_fun, set_time, _} = start_clock(hours(7))
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+    pr_fetch_fun = fn _ticket ->
+      Agent.get_and_update(calls, fn
+        0 -> {{:ok, %{number: 5, created_at: @t0}}, 1}
+        n -> {{:error, :network}, n + 1}
+      end)
+    end
+
+    pid =
+      start_monitor(
+        store.name,
+        now_fun,
+        %{first_hours: 8, continuous_hours: 1},
+        fn _ -> [healthy_ticket("101")] end,
+        pr_fetch_fun
+      )
+
+    tick_and_wait(pid, store.name, "101")
+    set_time.(hours(8))
+    send(pid, :tick)
+
+    assert_receive {:alert, %{identifier: "101", evidence: %{age_hours: 8.0}}}, 500
+    assert Store.record("101", store.name).pr.created_at == @t0
+  end
+
   test "a worker restart (brief absence and return) does not reset the convergence clock", %{} do
     state_dir = tmp_state_dir()
     store = start_store(state_dir)
