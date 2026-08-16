@@ -219,10 +219,111 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
   defp apply_global_pause(agent, false), do: agent
 end
 
+defmodule Aiur.Docs.ControlCenterFixture.MeterSource do
+  @moduledoc false
+
+  # DOCUMENTATION SAFETY BOUNDARY.
+  #
+  # The production `AiurWeb.OperatorControlCenter.ProviderMeterSource` reads
+  # `Aiur.ProviderMeterProjection`, which is fed by `Aiur.ProviderMeterRefresh`
+  # probing the operator's real Claude and Codex accounts over HTTP with
+  # whatever ambient credentials the shell carries. That is live account data
+  # and it must never reach a checked-in screenshot, so this fixture never
+  # starts those probes and installs this stand-in through the endpoint's
+  # `:provider_meter_source` seam instead. It performs no I/O and returns fixed
+  # synthetic readings for both providers.
+
+  alias Aiur.ProviderMeterSnapshot
+
+  # Relative to the capture, not a fixed calendar date: a hard-coded reset in the
+  # past renders as "reset time passed" on every card.
+  defp observed_at, do: DateTime.add(DateTime.utc_now(), -720, :second)
+  defp session_reset, do: DateTime.add(DateTime.utc_now(), 4_320, :second)
+  defp weekly_reset, do: DateTime.add(DateTime.utc_now(), 331_200, :second)
+
+  def subscribe(_context), do: :ok
+  def load(_context, _opts \\ []), do: snapshots()
+  def reload(_context, _message, _opts \\ []), do: snapshots()
+
+  def snapshots do
+    %{
+      claude: snapshot(:claude, :cli, "example-account-claude", :max, 34, 58),
+      codex: snapshot(:codex, :app_server, "example-account-codex", :pro, 61, 47)
+    }
+  end
+
+  # The Stream Deck projection takes its meters as a plain map, not a struct.
+  def streamdeck_meters do
+    %{
+      "claude" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"kind" => "rate_limit", "used_percent" => 34, "remaining" => "3h 48m", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 58, "remaining" => "4d", "freshness" => "fresh"}
+        }
+      },
+      "codex" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"kind" => "rate_limit", "used_percent" => 61, "remaining" => "1h 12m", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "remaining" => "4d", "freshness" => "fresh"}
+        }
+      }
+    }
+  end
+
+  defp snapshot(provider, backend, generation, tier, session_used, weekly_used) do
+    %ProviderMeterSnapshot{
+      provider: provider,
+      backend: backend,
+      provider_account_generation: generation,
+      projection_generation: 1,
+      auth_mode: :subscription,
+      plan: %{tier: tier, source: :provider, observed_at: observed_at(), freshness: :fresh},
+      update_kind: :snapshot,
+      observed_at: observed_at(),
+      age_seconds: 12,
+      ingested_at: observed_at(),
+      source: :example_fixture,
+      source_version: 1,
+      full_snapshot_observed_at: observed_at(),
+      freshness: :fresh,
+      health: %{
+        state: :healthy,
+        failure: nil,
+        last_observed_at: observed_at(),
+        last_source_version: 1,
+        last_attempt_at: observed_at(),
+        consecutive_failures: 0
+      },
+      windows: %{
+        "session" => window("Session", session_used, session_reset(), provider),
+        "weekly" => window("Weekly", weekly_used, weekly_reset(), provider)
+      }
+    }
+  end
+
+  defp window(name, used_percent, resets_at, provider) do
+    %{
+      kind: :rate_limit,
+      name: name,
+      standing: :allowed,
+      used_percent: used_percent,
+      remaining_percent: 100 - used_percent,
+      coverage: :supported,
+      freshness: :fresh,
+      resets_at: resets_at,
+      source: provider
+    }
+  end
+end
+
 defmodule Aiur.Docs.ControlCenterFixture do
   alias Aiur.{Decision, DecisionAnswer, RecentMerge}
+  alias Aiur.BuildOrder.ProviderHealth
+  alias Aiur.Docs.ControlCenterFixture.MeterSource
   alias Aiur.Docs.ControlCenterFixture.Provider
-  alias Aiur.ProviderMeters.Store, as: ProviderMeterStore
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.FinancialDataAccess.Generation
 
   @port String.to_integer(System.get_env("AIUR_DOCS_PORT", "4099"))
@@ -240,13 +341,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     {:ok, _} = Application.ensure_all_started(:bandit)
     {:ok, _} = Application.ensure_all_started(:phoenix_live_view)
-    # The Claude meter reads its quota over HTTP; without this every request
-    # fails and the card reads N/A for a reason that has nothing to do with the
-    # account.
-    {:ok, _} = Application.ensure_all_started(:req)
-    # The provider-meter baseline probe runs under the app's task supervisor.
-    # Without it the fixture dies ~400ms after boot, before a screenshot can be
-    # taken, for a reason that has nothing to do with the dashboard.
+
     {:ok, _} =
       Supervisor.start_link(
         [{Phoenix.PubSub, name: Aiur.PubSub}, {Task.Supervisor, name: Aiur.TaskSupervisor}],
@@ -255,31 +350,31 @@ defmodule Aiur.Docs.ControlCenterFixture do
 
     decisions = decisions()
 
-    # Real provider meters, not synthetic ones. The projection reads Claude's
-    # account usage endpoint directly, so it needs no agents and no daemon —
-    # which makes this fixture the cheapest way to see actual quota on a
-    # surface. Dashboard auth is configured because the meter cards sit behind
-    # the financial-data capability, and that capability can only be granted by
-    # a real session proof.
-    System.put_env("AIUR_DASHBOARD_USERNAME", "aiur")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "aiur")
+    # Documentation captures use SYNTHETIC provider meters only. The real
+    # `Aiur.ProviderMeterRefresh` / `Aiur.ProviderMeterProjection` pair probes
+    # the operator's own Claude and Codex accounts over HTTP with ambient
+    # credentials, so it is deliberately never started here — no `:req`, no
+    # meter store, no account generation server. The endpoint's
+    # `:provider_meter_source` seam points at
+    # `Aiur.Docs.ControlCenterFixture.MeterSource` instead, which is pure data.
+    #
+    # Dashboard auth stays configured because the meter cards sit behind the
+    # financial-data capability and that capability is only granted to a session
+    # carrying a real proof. The credentials are the fixed example pair the
+    # capture script sends; they guard nothing but a loopback fixture.
+    System.put_env("AIUR_DASHBOARD_USERNAME", "example")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "example")
 
     # Without this the credential check cannot mint a configuration generation,
     # so it returns :error and every request 401s regardless of what is typed.
     {:ok, _} = Generation.start_link([])
     {:ok, _} = AiurWeb.FinancialData.start_link([])
 
-    # Codex reaches the projection the long way round — its app-server session
-    # ingests into the meter store, which broadcasts — so both of these must be
-    # running or the Codex card stays N/A while the probe silently succeeds.
-    # Claude needs neither: it broadcasts its own reading.
-    {:ok, _} = Aiur.ProviderAccountGeneration.start_link([])
-    {:ok, _} = ProviderMeterStore.start_link([])
-
-    {:ok, _} = Aiur.ProviderMeterProjection.start_link([])
-    {:ok, _} = Aiur.ProviderMeterRefresh.start_link(baseline_delay_ms: 500)
+    configure_build_order_pack(tmp)
+    start_github_quota(tmp)
 
     start_provider(:docs_orchestrator, snapshot: fleet_snapshot())
+    publish_fleet_snapshot()
 
     start_provider(:docs_decisions,
       decisions: decisions,
@@ -307,6 +402,27 @@ defmodule Aiur.Docs.ControlCenterFixture do
     Process.sleep(:infinity)
   end
 
+  # The Units page reads its fleet from `SnapshotStore`, not from the
+  # orchestrator process, so a provider that only answers `:snapshot` renders an
+  # empty page. Publish the synthetic fleet into the read model and keep
+  # republishing it: a retained snapshot ages out after two minutes and would
+  # otherwise be captured behind a "last known good" staleness banner.
+  defp publish_fleet_snapshot do
+    snapshot = fleet_snapshot()
+    _generation = SnapshotStore.begin_generation(:docs_orchestrator)
+    :ok = SnapshotStore.publish(:docs_orchestrator, snapshot)
+
+    spawn_link(fn ->
+      Stream.repeatedly(fn ->
+        Process.sleep(5_000)
+        SnapshotStore.publish(:docs_orchestrator, snapshot)
+      end)
+      |> Stream.run()
+    end)
+
+    :ok
+  end
+
   defp start_provider(name, opts) do
     {:ok, _} = Provider.start_link(Keyword.put(opts, :name, name))
   end
@@ -331,48 +447,372 @@ defmodule Aiur.Docs.ControlCenterFixture do
         decision_metrics: :docs_metrics,
         recent_merge_store: :docs_merges,
         control_center_cache: false,
-        snapshot_timeout_ms: 1_000
+        snapshot_timeout_ms: 1_000,
+        # The Units catalog joins current-run membership, ticket activity, and
+        # the open-ticket listing. All three read GitHub in production, so all
+        # three are replaced by synthetic readers here.
+        units_membership_fun: &__MODULE__.units_membership/0,
+        units_activity_fun: &__MODULE__.units_activity/0,
+        # Never the real projection — see MeterSource's documentation-safety note.
+        provider_meter_source: MeterSource,
+        streamdeck_provider_meters_fun: &MeterSource.streamdeck_meters/0,
+        # The Stream Deck emulator projects its own fleet snapshot rather than
+        # the Units orchestrator bucket list, so it gets a dedicated synthetic
+        # fleet wide enough to fill the eight-key grid and its pager.
+        streamdeck_fixture_fleet: true,
+        streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
+        agent_chat_pause_fun: &__MODULE__.streamdeck_noop/1,
+        agent_chat_resume_fun: &__MODULE__.streamdeck_noop/1
       )
+      |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  # --- GitHub quota ----------------------------------------------------------
+
+  # The run summary strip reads `Aiur.GitHub.Quota`. Left unstarted it reads
+  # "Awaiting GitHub response"; started with its default options it would poll
+  # GitHub with the operator's credential. It is started here with refreshing
+  # disabled, alerts silenced, and its on-disk state confined to the fixture's
+  # temporary directory, then fed one synthetic budget observation.
+  defp start_github_quota(tmp) do
+    {:ok, _} =
+      Aiur.GitHub.Quota.start_link(
+        refresh?: false,
+        emit_fun: fn _kind, _payload -> :ok end,
+        shell_log_path: Path.join(tmp, "github-shell-quota.ndjson"),
+        hold_dir: Path.join(tmp, "github-holds")
+      )
+
+    reset = DateTime.utc_now() |> DateTime.add(1_920, :second) |> DateTime.to_unix()
+
+    Aiur.GitHub.Quota.observe(%{}, {
+      :ok,
+      %{
+        body: %{
+          "resources" => %{
+            "core" => %{"limit" => 5_000, "remaining" => 4_180, "reset" => reset},
+            "graphql" => %{"limit" => 5_000, "remaining" => 3_640, "reset" => reset}
+          }
+        }
+      }
+    })
+
+    :ok
+  end
+
+  # --- Units catalog ---------------------------------------------------------
+
+  # Every synthetic unit, in the display order the Units table shows them, with
+  # the lifecycle and progress each row should present.
+  @units [
+    {"EX-142", "Prepare example release", :active, 68},
+    {"EX-143", "Review retry policy", :active, 45},
+    {"EX-146", "Add example rate limiting", :active, 52},
+    {"EX-147", "Render the example usage view", :active, 21},
+    {"EX-148", "Seed the example dataset", :waiting, 12},
+    {"EX-144", "Validate example webhook", :retrying, 33},
+    {"EX-151", "Add example soak coverage", :retrying, 8},
+    {"EX-145", "Publish example changelog", :paused, 90},
+    {"EX-149", "Export example rollups", :queued, 0},
+    {"EX-150", "Cache example catalogue reads", :queued, 0},
+    {"EX-152", "Localise the example shell", :queued, 0},
+    {"EX-153", "Write the example runbook", :queued, 0}
+  ]
+
+  @doc false
+  def unit_identity(identifier) do
+    struct!(Aiur.TrackerIdentity,
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "example-org",
+      repository: "example-app",
+      provider_id: "EXAMPLE_NODE_#{identifier}",
+      database_id: unit_number(identifier),
+      # A joinable GitHub identity's display identifier must parse as a positive
+      # integer, so the EX- prefix is a presentation concern only.
+      identifier: to_string(unit_number(identifier)),
+      reason: nil
+    )
+  end
+
+  defp unit_number("EX-" <> digits), do: String.to_integer(digits)
+
+  @doc false
+  def units_membership do
+    observed_at = DateTime.utc_now()
+
+    %{
+      run_id: "example-run",
+      generation: 1,
+      health: :healthy,
+      health_message: nil,
+      freshness: %{status: :fresh, observed_at: observed_at},
+      truncated?: false,
+      members:
+        Enum.map(@units, fn {identifier, _title, lifecycle, _progress} ->
+          %{
+            identity: unit_identity(identifier),
+            lifecycle: lifecycle,
+            terminal?: lifecycle in [:completed, :cancelled],
+            first_observed_at: DateTime.add(observed_at, -3_600, :second),
+            last_observed_at: observed_at
+          }
+        end)
+    }
+  end
+
+  @doc false
+  def units_activity do
+    %{
+      generation: 1,
+      health: :healthy,
+      freshness: %{status: :fresh},
+      entries:
+        Enum.map(@units, fn {identifier, _title, _lifecycle, progress} ->
+          %{
+            identity: unit_identity(identifier),
+            progress: %{status: :known, percent: progress, source: :checkin, freshness: :fresh},
+            latest_evidence: %{status: :known, source: %{kind: :branch, name: "example/#{String.downcase(identifier)}"}}
+          }
+        end)
+    }
+  end
+
+  @doc false
+  # --- Build Order -----------------------------------------------------------
+
+  # The spatial Build Order page reads whatever module sits in
+  # `:build_order_data_source`. `PlanningSource` renders a graph straight from a
+  # local planning pack, so the fixture writes a synthetic pack into its own
+  # temporary directory and points the source at it. Nothing here touches
+  # GitHub: the two collaborators that would (`CurrentRunMembership` and the
+  # pack-status poller) are replaced by their documented stub seams.
+  defp configure_build_order_pack(tmp) do
+    directory = Path.join(tmp, "build_orders")
+    File.mkdir_p!(directory)
+    pack = Path.join(directory, "example-pack.json")
+
+    File.write!(pack, Jason.encode!(build_order_pack(), pretty: true))
+    File.write!(Path.join(directory, "status.json"), Jason.encode!(build_order_status(), pretty: true))
+
+    Application.put_env(:aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource)
+    Application.put_env(:aiur, :build_order_planning_pack, pack)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      %{health: :healthy, freshness: %{status: :fresh}, generation: 1, members: []}
+    end)
+
+    # `now/0` reads the run process's dictionary, so the observation time is
+    # captured here rather than inside the closure the LiveView process calls.
+    observed_at = now()
+
+    Application.put_env(:aiur, :build_order_pack_status_health_snapshot, fn ->
+      ProviderHealth.new(1, :healthy, true, observed_at: observed_at)
+    end)
+  end
+
+  @build_order_root 4_200
+  @build_order_lanes ~w(platform core api web data quality)
+
+  # A pack shaped like a real plan: six lanes across seven phases, every ticket
+  # depending on work from an earlier phase, so the graph draws phase barriers
+  # and lane columns instead of one lonely node.
+  defp build_order_pack do
+    %{
+      schema_version: 1,
+      build_order_id: "example-org/example-app:launch",
+      title: "Example App launch",
+      subtitle: "Synthetic planning pack used only for documentation screenshots",
+      repository: "example-org/example-app",
+      root_number: @build_order_root,
+      root_node_id: "EXAMPLE_BUILD_ORDER_ROOT",
+      plan_version: 1,
+      icon: "cube",
+      workstreams: Enum.map(@build_order_lanes, &%{id: &1, title: String.capitalize(&1)}),
+      tickets: build_order_tickets()
+    }
+  end
+
+  defp build_order_tickets do
+    Enum.map(build_order_plan(), fn {id, title, lane, phase, complexity, depends_on} ->
+      %{
+        id: id,
+        title: title,
+        lane: lane,
+        phase: phase,
+        complexity: complexity,
+        depends_on: depends_on,
+        ticket: build_order_number(id),
+        doc: "tickets/#{id}.md"
+      }
+    end)
+  end
+
+  defp build_order_number("EX-" <> digits), do: String.to_integer(digits)
+
+  # Phases 1-3 are finished, 4 is in flight, 5-7 are still planned — the mix the
+  # Build Order graph is designed to show.
+  @build_order_completed ~w(EX-401 EX-402 EX-403 EX-404 EX-405 EX-406 EX-407 EX-408 EX-409 EX-410 EX-411)
+  @build_order_cancelled ~w(EX-412)
+
+  defp build_order_status do
+    members =
+      Map.new(build_order_plan(), fn {id, _title, _lane, _phase, _complexity, _depends_on} ->
+        state =
+          cond do
+            id in @build_order_completed -> "completed"
+            id in @build_order_cancelled -> "cancelled"
+            true -> "open"
+          end
+
+        {to_string(build_order_number(id)), %{"lifecycle" => state}}
+      end)
+
+    %{"state" => "in_progress", "members" => members}
+  end
+
+  defp build_order_plan do
+    [
+      {"EX-401", "Scaffold the example monorepo and toolchain", "platform", 1, 3, []},
+      {"EX-402", "Add the continuous integration gate", "platform", 2, 2, ["EX-401"]},
+      {"EX-403", "Define shared domain primitives", "core", 2, 2, ["EX-401"]},
+      {"EX-404", "Publish the example design tokens", "web", 2, 2, ["EX-401"]},
+      {"EX-405", "Model the account and workspace schema", "data", 3, 3, ["EX-403"]},
+      {"EX-406", "Add the migration runner", "data", 3, 2, ["EX-403"]},
+      {"EX-407", "Expose the read-only catalogue endpoint", "api", 3, 3, ["EX-403"]},
+      {"EX-408", "Build the application shell and routing", "web", 3, 3, ["EX-404"]},
+      {"EX-409", "Add the request contract test suite", "quality", 3, 2, ["EX-402"]},
+      {"EX-410", "Wire structured logging and request ids", "platform", 3, 2, ["EX-402"]},
+      {"EX-411", "Seed the example dataset", "data", 4, 2, ["EX-405", "EX-406"]},
+      {"EX-412", "Retire the placeholder catalogue stub", "api", 4, 1, ["EX-407"]},
+      {"EX-413", "Add session issue and refresh", "api", 4, 3, ["EX-405"]},
+      {"EX-414", "Render the catalogue list view", "web", 4, 3, ["EX-407", "EX-408"]},
+      {"EX-415", "Add the golden-path browser suite", "quality", 4, 3, ["EX-408"]},
+      {"EX-416", "Cache catalogue reads at the edge", "platform", 4, 2, ["EX-407"]},
+      {"EX-417", "Add the write path for saved views", "api", 5, 3, ["EX-413"]},
+      {"EX-418", "Render the saved-view editor", "web", 5, 4, ["EX-414"]},
+      {"EX-419", "Project daily usage rollups", "data", 5, 3, ["EX-411"]},
+      {"EX-420", "Add rate limiting to the public API", "platform", 5, 2, ["EX-416"]},
+      {"EX-421", "Add accessibility checks to the suite", "quality", 5, 2, ["EX-415"]},
+      {"EX-422", "Add the usage dashboard", "web", 6, 4, ["EX-418", "EX-419"]},
+      {"EX-423", "Export usage rollups as CSV", "api", 6, 2, ["EX-419"]},
+      {"EX-424", "Add background job retries", "core", 6, 3, ["EX-411"]},
+      {"EX-425", "Add load and soak coverage", "quality", 6, 3, ["EX-420"]},
+      {"EX-426", "Add per-workspace usage alerts", "core", 6, 3, ["EX-419"]},
+      {"EX-427", "Harden the deployment pipeline", "platform", 7, 3, ["EX-420", "EX-425"]},
+      {"EX-428", "Write the launch runbook", "quality", 7, 2, ["EX-427"]},
+      {"EX-429", "Localise the application shell", "web", 7, 3, ["EX-422"]},
+      {"EX-430", "Publish the public API reference", "api", 7, 2, ["EX-423"]},
+      {"EX-431", "Archive the example migration scripts", "data", 7, 1, ["EX-424"]},
+      {"EX-432", "Add the release health check", "core", 7, 2, ["EX-427"]}
+    ]
+  end
+
+  # --- Stream Deck -----------------------------------------------------------
+
+  @doc false
+  # The emulator's grid comes from this snapshot, in the same bucket shape the
+  # orchestrator publishes. Every bucket is populated so each key face state —
+  # alert, stuck, running, paused, queued — is visible in one capture.
+  def streamdeck_snapshot do
+    %{
+      running: [
+        streamdeck_agent("EX-142", "Prepare example release", "codex", progress_percent: 62),
+        streamdeck_agent("EX-146", "Add example rate limiting", "claude", progress_percent: 41),
+        streamdeck_agent("EX-147", "Render the example usage view", "codex", progress_percent: 18)
+      ],
+      retrying: [streamdeck_agent("EX-144", "Validate example webhook", "codex", work_state: :error, progress_percent: 100)],
+      idle: [
+        streamdeck_agent("EX-143", "Review retry policy", "claude", open_decision_count: 1),
+        streamdeck_agent("EX-145", "Publish example changelog", "codex", work_state: :paused),
+        streamdeck_agent("EX-148", "Seed the example dataset", "codex", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("EX-149", "Export example rollups", "claude", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("EX-150", "Cache example catalogue reads", "codex", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("EX-151", "Add example soak coverage", "codex", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("EX-152", "Localise the example shell", "claude", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("EX-153", "Write the example runbook", "codex", waiting_reason: :waiting_for_dependency)
+      ]
+    }
+  end
+
+  @doc false
+  # The capture never presses a key; this only keeps the control facade total.
+  def streamdeck_noop(identifier), do: {:ok, to_string(identifier)}
+
+  defp streamdeck_agent(identifier, title, backend, attrs) do
+    Map.merge(
+      %{
+        identifier: identifier,
+        title: title,
+        backend: backend,
+        work_state: :working,
+        open_decision_count: 0,
+        waiting_reason: :active,
+        tracker_paused: false,
+        progress_percent: 50,
+        priority: nil
+      },
+      Map.new(attrs)
+    )
   end
 
   defp fleet_snapshot do
     %{
       running: [
         running("EX-142", "Prepare example release", :active, 1, "Drafting the release checklist"),
-        running("EX-143", "Review retry policy", :waiting_for_human, 1, "Waiting for a rollout decision")
+        running("EX-143", "Review retry policy", :waiting_for_human, 1, "Waiting for a rollout decision"),
+        running("EX-146", "Add example rate limiting", :active, 0, "Running the contract suite"),
+        running("EX-147", "Render the example usage view", :active, 0, "Wiring the usage chart"),
+        running("EX-148", "Seed the example dataset", :waiting_for_dependency, 0, "Waiting on the migration runner")
       ],
       retrying: [
-        %{
-          issue_id: "example-144",
-          identifier: "EX-144",
-          state: "in-progress",
-          title: "Validate example webhook",
-          url: "https://example.test/tickets/EX-144",
-          attempt: 2,
-          due_in_ms: 42_000,
-          error: "Synthetic upstream timeout",
-          waiting_reason: :backing_off,
-          open_decision_count: 0,
-          ci_result: nil
-        }
+        retrying("EX-144", "Validate example webhook", 2, 42_000, "Synthetic upstream timeout"),
+        retrying("EX-151", "Add example soak coverage", 1, 118_000, "Synthetic sandbox restart")
       ],
       idle: [
-        %{
-          issue_id: "example-145",
-          identifier: "EX-145",
-          state: "human-review",
-          title: "Publish example changelog",
-          url: "https://example.test/tickets/EX-145",
-          tracker_paused: false,
-          waiting_reason: :active,
-          open_decision_count: 0,
-          ci_result: %{decision: :pass, pr_number: 145, head_sha: "example145"}
-        }
+        idle("EX-145", "Publish example changelog", "human-review", %{decision: :pass, pr_number: 145, head_sha: "example145"}),
+        idle("EX-149", "Export example rollups", "human-review", %{decision: :fail, pr_number: 149, head_sha: "example149"}),
+        idle("EX-150", "Cache example catalogue reads", "todo", nil),
+        idle("EX-152", "Localise the example shell", "todo", nil),
+        idle("EX-153", "Write the example runbook", "todo", nil)
       ],
-      agent_totals: %{input_tokens: 12_400, output_tokens: 3_180, total_tokens: 15_580, seconds_running: 1_860},
+      agent_totals: %{input_tokens: 128_400, output_tokens: 31_180, total_tokens: 159_580, seconds_running: 7_860},
       rate_limits: %{primary: %{remaining_percent: 72}}
+    }
+  end
+
+  defp retrying(identifier, title, attempt, due_in_ms, error) do
+    %{
+      issue_id: "example-#{identifier}",
+      identifier: identifier,
+      tracker_identity: unit_identity(identifier),
+      state: "in-progress",
+      title: title,
+      url: "https://example.test/tickets/#{identifier}",
+      attempt: attempt,
+      due_in_ms: due_in_ms,
+      error: error,
+      waiting_reason: :backing_off,
+      open_decision_count: 0,
+      ci_result: nil
+    }
+  end
+
+  defp idle(identifier, title, state, ci_result) do
+    %{
+      issue_id: "example-#{identifier}",
+      identifier: identifier,
+      tracker_identity: unit_identity(identifier),
+      state: state,
+      title: title,
+      url: "https://example.test/tickets/#{identifier}",
+      tracker_paused: false,
+      waiting_reason: :active,
+      open_decision_count: 0,
+      ci_result: ci_result
     }
   end
 
@@ -380,6 +820,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
     %{
       issue_id: "example-#{identifier}",
       identifier: identifier,
+      tracker_identity: unit_identity(identifier),
       state: "in-progress",
       title: title,
       url: "https://example.test/tickets/#{identifier}",
