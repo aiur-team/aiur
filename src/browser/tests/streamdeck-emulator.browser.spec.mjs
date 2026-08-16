@@ -77,8 +77,11 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
     await openStreamdeck(page)
 
     const packageUrl = 'https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz'
-    await expect(page.locator('#streamdeck-download-control')).toHaveAttribute('href', packageUrl)
-    await page.getByRole('button', { name: 'Install +' }).click()
+    // The Download control is a button that opens the setup modal; it no longer
+    // starts a download and there is no separate "Install +" button.
+    await expect(page.locator('#streamdeck-download-control')).toHaveCount(1)
+    await expect(page.locator('#streamdeck-download-control')).not.toHaveAttribute('href', packageUrl)
+    await page.getByRole('button', { name: 'Download' }).click()
     let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText('Linux with udev')).toBeVisible()
@@ -107,7 +110,7 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
     await page.locator('.sd-install-backdrop').click({ position: { x: 8, y: 8 } })
     await expect(page.getByRole('dialog')).toHaveCount(0)
 
-    await page.getByRole('button', { name: 'Install +' }).click()
+    await page.getByRole('button', { name: 'Download' }).click()
     dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
     await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')

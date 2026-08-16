@@ -119,6 +119,12 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       assert AutoResume.retry_in_ms(state, @issue_id, System.monotonic_time(:millisecond)) > 0
     end
 
+    test "honors a rate-limit retry-after before attempting re-claim" do
+      state = AutoResume.schedule(%State{}, @issue_id, :rate_limit, retry_after: 600)
+
+      assert AutoResume.retry_in_ms(state, @issue_id, System.monotonic_time(:millisecond)) > 590_000
+    end
+
     test "advances through the bounded backoff schedule" do
       state = %State{}
       assert AutoResume.backoff_ms(1) == 120_000
@@ -137,6 +143,18 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
       state = AutoResume.schedule(state, @issue_id, :transient_tracker)
       refute Map.has_key?(state.auto_resume, @issue_id)
+    end
+
+    test "keeps the released-claim record when automatic recovery exhausts" do
+      state = %State{released_claims: %{@issue_id => %{cause: :rate_limit, details: %{}, released_at_ms: 1}}}
+
+      state =
+        Enum.reduce(1..(AutoResume.max_attempts() + 1), state, fn _i, acc ->
+          AutoResume.schedule(acc, @issue_id, :rate_limit)
+        end)
+
+      refute Map.has_key?(state.auto_resume, @issue_id)
+      assert %{cause: :rate_limit} = state.released_claims[@issue_id]
     end
 
     test "exhausting the attempt budget emits the operator alert the docstring promises" do

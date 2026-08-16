@@ -87,6 +87,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         Loading account meters…
       </p>
 
+      <div :if={@card.state == :signed_out} class="provider-meter-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span>
+          <b>Not signed in.</b>
+          No OAuth token is available for this account. Sign in to Claude Code to
+          read its meters.
+        </span>
+      </div>
+
       <div :if={@card.state == :error} class="provider-meter-state error-card" role="alert">
         <h4>Provider meter error</h4>
         <p>

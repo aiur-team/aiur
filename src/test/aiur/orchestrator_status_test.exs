@@ -11,6 +11,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
+    ControlLifecycle,
     HumanReview,
     OperatorMessages,
     PauseResume,
@@ -468,6 +469,42 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [] = :ets.lookup(SnapshotPublisher, orchestrator_name)
   end
 
+  test "discarding an unnamed snapshot removes the publisher delivery marker" do
+    orchestrator = self()
+    generation = SnapshotStore.begin_generation(orchestrator)
+
+    :ok = SnapshotPublisher.write(orchestrator, generation, %State{agent_totals: %{}})
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = SnapshotStore.discard(orchestrator)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+  end
+
+  test "stopping an unnamed orchestrator discards its snapshot state" do
+    {:ok, orchestrator} = Orchestrator.start_link(initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator), do: Process.exit(orchestrator, :normal)
+    end)
+
+    :sys.replace_state(orchestrator, &%{&1 | snapshot_ready?: true})
+    state = :sys.get_state(orchestrator)
+    :ok = StatusReport.notify_dashboard(state)
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = GenServer.stop(orchestrator, :normal)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+    assert :orchestrator_unavailable = SnapshotStore.read(orchestrator, 50)
+  end
+
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
     orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -539,6 +576,102 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [%{queue_depth: 1, pending_operator_messages: [%{text: "show this message"}]}] = snapshot.running
   end
 
+  test "dashboard projection retains the latest declined resume and held pause condition" do
+    issue_id = "issue-declined-resume"
+
+    entry =
+      issue_id
+      |> running_entry("MT-DECLINED-RESUME", :paused)
+      |> Map.put(:paused_reason, :max_agent_duration)
+
+    attrs = %{
+      request_id: 91,
+      issue_id: issue_id,
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 91, 1, now: ~U[2026-08-11 12:00:01Z])
+
+    {:ok, _request, lifecycle} =
+      ControlLifecycle.reject(lifecycle, 91, :not_eligible,
+        now: ~U[2026-08-11 12:00:02Z],
+        condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+      )
+
+    {:ok, _request, lifecycle} =
+      ControlLifecycle.request(
+        lifecycle,
+        %{attrs | request_id: 92, action: :pause, expected_status: :working},
+        now: ~U[2026-08-11 12:00:03Z]
+      )
+
+    snapshot =
+      %State{running: %{issue_id => entry}, control_lifecycle: lifecycle}
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert [row] = snapshot.running
+    assert row.pause_reason == :max_agent_duration
+
+    assert %{action: :pause, request_id: 92, status: :requested} = row.control.latest_control
+
+    assert %{
+             action: :resume,
+             request_id: 91,
+             status: :rejected,
+             rejection: %{
+               class: :not_eligible,
+               condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+             }
+           } = row.control.latest_resume_control
+
+    assert Enum.map(row.control.recent_controls, & &1.request_id) == [91, 92]
+  end
+
+  test "dashboard projection retains a dropped resume and its expiry reason" do
+    issue_id = "issue-dropped-resume"
+
+    entry =
+      issue_id
+      |> running_entry("MT-DROPPED-RESUME", :paused)
+      |> Map.put(:paused_reason, :operator_pause)
+
+    attrs = %{
+      request_id: 93,
+      issue_id: issue_id,
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 93, 1, now: ~U[2026-08-11 12:00:01Z])
+    {[expired], lifecycle} = ControlLifecycle.expire_due(lifecycle, 1_000, now: ~U[2026-08-11 12:00:02.001Z])
+    assert expired.expiry.reason == :timeout
+
+    snapshot =
+      %State{running: %{issue_id => entry}, control_lifecycle: lifecycle}
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert [row] = snapshot.running
+    assert row.pause_reason == :operator_pause
+
+    assert %{action: :resume, request_id: 93, status: :expired, expiry: %{reason: :timeout}} =
+             row.control.latest_resume_control
+  end
+
   test "dashboard projection retains CI facts for retries absent from the latest poll" do
     state = %State{
       retry_attempts: %{
@@ -604,7 +737,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:noreply, _store} =
              SnapshotStore.handle_info(
-               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}}},
+               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}, nil}},
                %{pending: %{}, task_ref: callback_ref, monitor_ref: nil, timer_ref: nil}
              )
 
@@ -1280,7 +1413,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
     orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     parent = self()
 
     on_exit(fn ->

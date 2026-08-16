@@ -77,6 +77,12 @@ defmodule Aiur.AgentChat do
     Orchestrator.resume_agent(issue_identifier)
   end
 
+  @spec resume_with_receipt(String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_with_receipt(issue_identifier) when is_binary(issue_identifier) do
+    Orchestrator.resume_agent_with_receipt(issue_identifier)
+  end
+
   @spec prioritize(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
   def prioritize(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.prioritize_agent(issue_identifier)

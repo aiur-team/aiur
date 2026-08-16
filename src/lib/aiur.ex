@@ -8,7 +8,7 @@ defmodule Aiur do
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    Aiur.Orchestrator.start_link(opts)
+    Aiur.Orchestrator.start_link(Keyword.put_new(opts, :name, Aiur.Orchestrator))
   end
 end
 
@@ -21,6 +21,7 @@ defmodule Aiur.Application do
 
   require Logger
 
+  alias Aiur.{AgentGitHubGuard, GitHub.Budget}
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.Config
@@ -41,6 +42,7 @@ defmodule Aiur.Application do
     install_signal_handlers()
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
+    if Budget.enabled?(), do: AgentGitHubGuard.install_host()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -134,8 +136,8 @@ defmodule Aiur.Application do
     cli_children =
       if interactive_cli? do
         [
-          Aiur.Tmux,
-          Aiur.PaneManager,
+          {Aiur.Tmux, name: Aiur.Tmux},
+          {Aiur.PaneManager, name: Aiur.PaneManager},
           Aiur.Opencode.PrewarmSupervisor,
           Aiur.AgentList.App,
           Aiur.AgentList.Input,
@@ -173,7 +175,7 @@ defmodule Aiur.Application do
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
-      Aiur.Events.Exchange,
+      {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       Aiur.Events.BranchRefStore,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
@@ -199,7 +201,7 @@ defmodule Aiur.Application do
       # over it.
       Aiur.UsageCompaction.Coordinator,
       Aiur.UsageAggregate.Store,
-      Aiur.DecisionStore,
+      {Aiur.DecisionStore, name: Aiur.DecisionStore},
       {Aiur.DecisionMetrics.Writer, path: Aiur.DecisionMetrics.metrics_file()},
       Aiur.DecisionMetrics,
       Aiur.RecentMergeStore,
@@ -225,7 +227,7 @@ defmodule Aiur.Application do
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
-      {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
+      {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,

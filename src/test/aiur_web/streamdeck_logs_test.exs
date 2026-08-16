@@ -23,6 +23,17 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert hd(selected.transcript_visible).body == "older operator event"
   end
 
+  test "wire projection is JSON-safe for real event identifiers and offsets" do
+    wire = StreamdeckLogs.project([entry("chat", "turn-1", "AGENT")]) |> StreamdeckLogs.wire()
+
+    assert wire["event_keys"] |> hd() |> Map.get("id") == "live"
+    assert wire["event_starts"] == %{"1" => 0}
+    assert wire["event_keys"] |> Enum.at(1) |> Map.get("id") == "turn:turn-1"
+    assert Enum.all?(wire["transcript"], &is_map/1)
+    assert {:ok, encoded} = Jason.encode(wire)
+    assert is_binary(encoded)
+  end
+
   test "projects every Stream Deck direction as its own badge" do
     logs =
       StreamdeckLogs.project([

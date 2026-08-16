@@ -1012,6 +1012,10 @@ defmodule Aiur.ExtensionsTest do
     assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))
     assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png"]
 
+    github_mark = get(build_conn(), "/images/github-mark.svg")
+    assert response(github_mark, 200) =~ "<svg"
+    assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
+
     bungee = get(build_conn(), "/bungee.woff2")
     assert response(bungee, 200) != ""
     assert Plug.Conn.get_resp_header(bungee, "content-type") == ["font/woff2"]

@@ -467,7 +467,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(<table class="history-table")
     assert html =~ ~s(data-severity="good")
     assert html =~ "Answered"
-    assert html =~ "Acknowledged — closed without a recorded answer"
+    assert html =~ "Closed without a recorded answer"
     refute html =~ ~s(class="decision-card)
   end
 
@@ -582,6 +582,41 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     refute html =~ ~s(phx-click="dismiss-decision")
     refute html =~ ">Acknowledge</button>"
+  end
+
+  test "blocking legacy attention offers an operator dismiss X" do
+    decision = action_decision(blocking: true, legacy_attention: %{slug: "scope-question", topic: "ticket.1.attention"})
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ~s(aria-label="Dismiss blocker")
+    assert html =~ ">×</button>"
+  end
+
+  test "blocking agent-filed command offers no dismiss control it cannot honour" do
+    # The store refuses this dismissal because nothing releases the agent.
+    # Offering the control anyway would promise a close the operator cannot get.
+    decision = action_decision(blocking: true, legacy_attention: nil)
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    refute html =~ ~s(phx-click="dismiss-decision")
+    refute html =~ ~s(aria-label="Dismiss blocker")
+  end
+
+  test "command footer never renders more than two buttons" do
+    blocking =
+      action_decision(blocking: true, legacy_attention: %{slug: "scope-question", topic: "ticket.1.attention"})
+
+    free_form = action_decision(options: [], recommendation: nil)
+
+    for decision <- [blocking, free_form] do
+      html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+      buttons = html |> Floki.parse_document!() |> Floki.find(".decision-action-buttons button")
+      assert length(buttons) == 2
+    end
   end
 
   test "dismissed historic card offers a change choice answer without another dismiss" do
@@ -988,7 +1023,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Build Order graph summary"
     refute html =~ "Unresolved"
     refute html =~ "Plan distribution"
-    refute html =~ "Build Order analytics"
+    refute html =~ ">Analytics<"
     refute html =~ "Usage and cost"
     refute html =~ "Root data is unavailable"
   end

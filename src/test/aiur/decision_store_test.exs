@@ -48,10 +48,119 @@ defmodule Aiur.DecisionStoreTest do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     start_opts =
-      Keyword.merge([name: nil, filesystem_sync_fun: fn -> :ok end], opts)
+      Keyword.merge([name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end], opts)
 
     {:ok, pid} = DecisionStore.start_link(start_opts)
     pid
+  end
+
+  test "unnamed stores require an explicit durable state directory" do
+    assert {:error, :unnamed_store_requires_state_dir} =
+             DecisionStore.start_link(filesystem_sync_fun: fn -> :ok end)
+  end
+
+  test "non-singleton stores require an explicit durable state directory" do
+    custom_name = Module.concat(__MODULE__, CustomStore)
+
+    result = DecisionStore.start_link(name: custom_name, filesystem_sync_fun: fn -> :ok end)
+
+    case result do
+      {:ok, pid} -> GenServer.stop(pid)
+      _ -> :ok
+    end
+
+    assert {:error, :non_singleton_store_requires_state_dir} = result
+  end
+
+  test "non-singleton stores reject invalid durable state directories" do
+    custom_name = Module.concat(__MODULE__, InvalidDirectoryStore)
+
+    for name <- [nil, custom_name, DecisionStore], state_dir <- [nil, "", :invalid] do
+      assert {:error, :invalid_state_dir} =
+               DecisionStore.start_link(name: name, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
+    end
+  end
+
+  test "two unnamed stores isolate their durable state", %{dir: dir} do
+    first_dir = Path.join(dir, "first")
+    second_dir = Path.join(dir, "second")
+
+    if Process.whereis(IdGenerator) == nil do
+      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :decision_store_test_id_generator)
+    end
+
+    {:ok, first} =
+      start_supervised(
+        {
+          DecisionStore,
+          [
+            state_dir: first_dir,
+            filesystem_sync_fun: fn -> :ok end
+          ]
+        },
+        id: :first_unnamed_decision_store
+      )
+
+    {:ok, second} =
+      start_supervised(
+        {
+          DecisionStore,
+          [
+            state_dir: second_dir,
+            filesystem_sync_fun: fn -> :ok end
+          ]
+        },
+        id: :second_unnamed_decision_store
+      )
+
+    assert first != second
+
+    assert {:ok, %{decision: %{decision_id: first_id}}} =
+             request(first, %{"source_id" => "first-store", "question" => "First store", "blocking" => false})
+
+    assert {:ok, %{decision: %{decision_id: second_id}}} =
+             request(second, %{"source_id" => "second-store", "question" => "Second store", "blocking" => false})
+
+    refute first_id == second_id
+    assert File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "First store"
+    refute File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "Second store"
+    assert File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "Second store"
+    refute File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "First store"
+  end
+
+  test "custom-named stores isolate their durable state", %{dir: dir} do
+    first_dir = Path.join(dir, "named-first")
+    second_dir = Path.join(dir, "named-second")
+    first_name = Module.concat(__MODULE__, FirstCustomStore)
+    second_name = Module.concat(__MODULE__, SecondCustomStore)
+
+    if Process.whereis(IdGenerator) == nil do
+      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :custom_decision_store_test_id_generator)
+    end
+
+    {:ok, first} =
+      start_supervised(
+        {DecisionStore, [name: first_name, state_dir: first_dir, filesystem_sync_fun: fn -> :ok end]},
+        id: :first_custom_decision_store
+      )
+
+    {:ok, second} =
+      start_supervised(
+        {DecisionStore, [name: second_name, state_dir: second_dir, filesystem_sync_fun: fn -> :ok end]},
+        id: :second_custom_decision_store
+      )
+
+    assert {:ok, %{decision: %{decision_id: first_id}}} =
+             request(first, %{"source_id" => "first-custom-store", "question" => "First custom store", "blocking" => false})
+
+    assert {:ok, %{decision: %{decision_id: second_id}}} =
+             request(second, %{"source_id" => "second-custom-store", "question" => "Second custom store", "blocking" => false})
+
+    refute first_id == second_id
+    assert File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "First custom store"
+    refute File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "Second custom store"
+    assert File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "Second custom store"
+    refute File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "First custom store"
   end
 
   test "dashboard projections stay bounded with 10k stored decisions", %{dir: dir} do
@@ -196,10 +305,12 @@ defmodule Aiur.DecisionStoreTest do
   test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
     pid = start_store!(dir)
 
+    # Non-blocking: dismissal closes a notice outright. A blocking Command is
+    # covered separately — dismissal cannot release its agent.
     assert {:ok, %{decision: decision}} =
              request(pid, %{
                "question" => "Use blue or green?",
-               "blocking" => true,
+               "blocking" => false,
                "options" => [
                  %{"id" => "blue", "label" => "Blue"},
                  %{"id" => "green", "label" => "Green"}
@@ -264,6 +375,53 @@ defmodule Aiur.DecisionStoreTest do
              })
 
     assert answerable.decision_status == :decided
+  end
+
+  test "operator dismissal closes a deferred legacy blocker durably", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} = project_attention(pid, minimal_attention("Still blocked?"))
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+    assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(deferred.decision_id, opts, pid)
+    assert dismissed.decision_status == :dismissed
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :dismissed
+  end
+
+  test "dismissal is refused for a blocking Command it cannot release", %{dir: dir} do
+    pid = start_store!(dir)
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    # Agent-filed: blocking, with no legacy attention to resolve alongside it.
+    # Dismissal delivers nothing to the agent, so closing it would hide a live
+    # block rather than clear it.
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Push or hold?", "blocking" => true})
+
+    assert {:error, {:conflict, :blocking_requires_answer}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert {:ok, still_open} = DecisionStore.get(decision.decision_id, pid)
+    assert still_open.decision_status == :open
+
+    # Deferring first must not open a back door to the same hidden close.
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+
+    assert {:error, {:conflict, :blocking_requires_answer}} =
+             DecisionStore.dismiss(deferred.decision_id, opts, pid)
+
+    # Answering is the path that actually releases the agent.
+    assert {:ok, %{decision: answered}} =
+             answer(pid, decision.decision_id, %{
+               "idempotency_key" => "blocking-answer",
+               "expected_version" => 1,
+               "custom_response" => "Hold the push"
+             })
+
+    assert answered.decision_status == :decided
   end
 
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
@@ -534,6 +692,28 @@ defmodule Aiur.DecisionStoreTest do
 
       assert first.decision_id == second.decision_id
       assert {:ok, [^first]} = DecisionStore.history(first.decision_id, pid)
+    end
+
+    test "changed content re-arms a dismissed Command that is not a legacy attention", %{dir: dir} do
+      pid = start_store!(dir)
+      base = %{"question" => "Roll the index?", "blocking" => false, "source_id" => "rearm-1"}
+
+      assert {:ok, %{decision: v1}} = request(pid, base)
+      refute v1.legacy_attention
+
+      assert {:ok, %{decision: dismissed}} =
+               DecisionStore.dismiss(v1.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert dismissed.decision_status == :dismissed
+
+      # The operator closed this against evidence that no longer exists, so the
+      # re-file must bring it back — the same guarantee a legacy attention gets.
+      assert {:ok, %{decision: rearmed}} =
+               request(pid, Map.merge(base, %{"question" => "Roll the index after the backfill?", "version" => 2}))
+
+      assert rearmed.decision_id == v1.decision_id
+      assert rearmed.decision_status == :open
+      assert rearmed.delivery_status == :not_dispatched
     end
 
     test "the next version with different content is accepted as an enrichment", %{dir: dir} do
@@ -1112,6 +1292,17 @@ defmodule Aiur.DecisionStoreTest do
       assert v3.question == "Which owner should take this now?"
       assert v3.kind == v2.kind
       assert v3.options == v2.options
+    end
+
+    test "changed legacy evidence re-arms an operator-dismissed attention", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{decision: v1}} = project_attention(pid, minimal_attention("Original blocker evidence"))
+      assert {:ok, %{decision: dismissed}} = DecisionStore.dismiss(v1.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+      assert dismissed.decision_status == :dismissed
+
+      assert {:ok, %{decision: rearmed}} = project_attention(pid, minimal_attention("New blocker evidence"))
+      assert rearmed.version == 2
+      assert rearmed.decision_status == :open
     end
 
     test "a stale startup import cannot replace an enriched current question", %{dir: dir} do
