@@ -216,10 +216,16 @@ defmodule Aiur.Orchestrator.Slots do
       load: Map.get(sample, :load, :unavailable),
       load_threshold: Map.get(sample, :load_threshold),
       schedulers: Map.get(sample, :schedulers),
-      queued_demand?: DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state),
+      queued_demand?: queued_dispatch_demand?(state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
+  end
+
+  defp queued_dispatch_demand?(%State{candidate_snapshot_fresh?: false}), do: false
+
+  defp queued_dispatch_demand?(%State{} = state) do
+    DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state)
   end
 
   # Deliberate/Executor pauses keep their slot reserved so the polling loop

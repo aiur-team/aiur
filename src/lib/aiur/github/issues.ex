@@ -14,7 +14,17 @@ defmodule Aiur.GitHub.Issues do
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []) do
-    fetch_issues_by_states(Config.active_states(), opts)
+    if Config.active_states() == [], do: {:ok, []}, else: do_fetch_candidate_issues(opts)
+  end
+
+  @spec fetch_candidate_issues_conditional(map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()}
+  def fetch_candidate_issues_conditional(cache, opts \\ []) when is_map(cache) do
+    if Config.active_states() == [] do
+      {:ok, [], cache}
+    else
+      do_fetch_candidate_issues_conditional(cache, opts)
+    end
   end
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
@@ -99,6 +109,65 @@ defmodule Aiur.GitHub.Issues do
       {:ok, repository} -> {:ok, repository}
       :error -> {:error, :invalid_github_repository}
     end
+  end
+
+  defp do_fetch_candidate_issues(opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      prefix = GitHub.Config.label_prefix()
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
+      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
+
+      with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
+        {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
+      end
+    end
+  end
+
+  defp do_fetch_candidate_issues_conditional(cache, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      ctx = %{
+        request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+        token: token,
+        owner: owner,
+        repo: repo,
+        prefix: GitHub.Config.label_prefix()
+      }
+
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
+      active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
+
+      case fetch_label_issue_pages_conditional(ctx, url, cache) do
+        {:ok, issues, updated_cache} ->
+          candidates =
+            filter_and_authorize_candidates(
+              issues,
+              active_states,
+              ctx.request_fun,
+              ctx.token,
+              ctx.owner,
+              ctx.repo,
+              ctx.prefix
+            )
+
+          {:ok, candidates, updated_cache}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
+    candidates =
+      Enum.filter(issues, fn issue ->
+        is_binary(issue.state) and
+          MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
+      end)
+
+    authorize_dispatches(candidates, request_fun, token, owner, repo, prefix)
   end
 
   @spec fetch_issues_for_each_label(

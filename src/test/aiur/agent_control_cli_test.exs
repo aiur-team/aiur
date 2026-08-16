@@ -1724,7 +1724,13 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
-  test "idle resume reports non-resumable issues", %{orchestrator: pid} do
+  test "idle resume reports the non-resumable tracker state", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#48" ->
+      {:error, {:tracker_state_not_resumable, "done"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
     issue = %Issue{id: "issue-48", identifier: "repo#48", state: "Done", title: "Closed"}
 
     :sys.replace_state(pid, fn state ->
@@ -1738,7 +1744,30 @@ defmodule Aiur.AgentControlCLITest do
         assert output =~ "__AIUR_CONTROL_EXIT__:1"
       end)
 
-    assert stderr =~ "aiur: failed to resume #48 (not resumable)"
+    assert stderr =~ "aiur: failed to resume #48 (tracker state done is not resumable)"
+  end
+
+  test "idle resume explains stale tracker cache rejections", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#49" ->
+      {:error, {:stale_tracker_state, {:tracker_state_not_resumable, "human-review"}, %{cached_state: "todo", tracker_state: "human-review", changed_fields: [:state]}}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    issue = %Issue{id: "issue-49", identifier: "repo#49", state: "todo", title: "Stale"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{}, last_polled_issues: %{"issue-49" => issue}}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.resume(["49"]) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~
+             "tracker cache was stale: cached=todo, tracker=human-review, changed=state; tracker state human-review is not resumable"
   end
 
   test "fallback display handles nil targets" do

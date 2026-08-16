@@ -133,7 +133,8 @@ walks:
 3. **Agents & routing** — Claude and/or Codex, optional per-complexity model
    routing, the permission mode, and an optional ordered rate-limit fallback.
 4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
-   sessions, and the tracker polling interval.
+   sessions, and the tracker polling interval. The same polling interval is the
+   debounce before Aiur raises a sustained fleet-capacity starvation alert.
 5. **GitHub token** — used to create labels and act as the bot account. With no
    `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
    failing.

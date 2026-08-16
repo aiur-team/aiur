@@ -925,8 +925,17 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp fleet_capacity_starved?(context) do
-    not context.state.globally_paused and context.ready_count > context.live_count and low_load?(context)
+    not context.state.globally_paused and context.ready_count > 0 and
+      (free_admission_capacity?(context) or
+         (context.ready_count > context.live_count and low_load?(context)))
   end
+
+  # This check runs after Dispatcher.dispatch_or_hold/2. Any issue admitted in
+  # the current poll is already present in running/claimed and therefore absent
+  # from ready_count; ready work plus a still-free slot means the poll made no
+  # usable dispatch progress.
+  defp free_admission_capacity?(context),
+    do: context.occupied_slots < context.effective_cap
 
   defp low_load?(%{load: load, target: target, schedulers: schedulers})
        when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0,
@@ -942,13 +951,19 @@ defmodule Aiur.Orchestrator.IssueSync do
     else
       since_ms = starvation[:since_ms] || now_ms
 
-      if starvation[:alert_active] or now_ms - since_ms < @capacity_starvation_alert_after_ms do
+      if starvation[:alert_active] or now_ms - since_ms < fleet_capacity_starvation_alert_after_ms(state) do
         put_fleet_capacity_starvation(state, since_ms, starvation[:alert_active] || false, context.effective_cap)
       else
         emit_fleet_capacity_starvation(state, context, since_ms)
       end
     end
   end
+
+  defp fleet_capacity_starvation_alert_after_ms(%State{poll_interval_ms: poll_interval_ms})
+       when is_integer(poll_interval_ms) and poll_interval_ms > 0,
+       do: poll_interval_ms
+
+  defp fleet_capacity_starvation_alert_after_ms(_state), do: @capacity_starvation_alert_after_ms
 
   defp emit_fleet_capacity_starvation(state, context, since_ms) do
     case Alerts.emit_system("system.fleet.capacity.starved",

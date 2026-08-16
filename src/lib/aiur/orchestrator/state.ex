@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.State do
           snapshot_key: GenServer.server() | nil,
           snapshot_generation: reference() | nil,
           snapshot_ready?: boolean(),
+          candidate_snapshot_fresh?: boolean(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -220,6 +221,7 @@ defmodule Aiur.Orchestrator.State do
     globally_paused: false,
     global_pause: %{paused_at: nil, source: nil},
     snapshot_ready?: false,
+    candidate_snapshot_fresh?: true,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0
   ]

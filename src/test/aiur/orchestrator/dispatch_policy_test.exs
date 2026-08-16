@@ -382,6 +382,20 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.should_dispatch_issue?(rework, state)
     end
 
+    test "an in-progress ticket without a running agent is recovered as dispatchable work" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      stranded = issue("stranded-in-progress", state: "in-progress")
+      state = %State{max_concurrent_agents: 5, running: %{}}
+
+      assert DispatchPolicy.queued_dispatch_demand?([stranded], state)
+      assert DispatchPolicy.dispatch_candidate?(stranded, state)
+      assert DispatchPolicy.should_dispatch_issue?(stranded, state)
+    end
+
     test "ignores running, claimed, paused, blocked, and unroutable issues" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
 
@@ -617,6 +631,32 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       }
 
       assert DispatchPolicy.dispatch_decision(released, state) == {:skip, :auto_resume_pending}
+    end
+
+    test "manual resume shares canonical state and runtime refusals" do
+      merging = issue("merging", state: "merging")
+      released = issue("rate-limited", [])
+
+      state = %State{
+        auto_resume: %{
+          released.id => %{attempt: 1, cause: :rate_limit, due_at_ms: System.monotonic_time(:millisecond) + 60_000}
+        }
+      }
+
+      assert DispatchPolicy.manual_resume_decision(merging, state) == {:skip, :no_agent_work_state}
+      assert DispatchPolicy.manual_resume_decision(released, state) == {:skip, :auto_resume_pending}
+    end
+
+    test "manual resume ignores paused reservations but respects the active fleet cap" do
+      next = issue("next", [])
+      paused = %{issue: issue("paused", []), control: %{status: :paused}}
+      active = %{issue: issue("active", state: "rework"), control: %{status: :working}}
+
+      assert DispatchPolicy.manual_resume_decision(next, %State{max_concurrent_agents: 1, running: %{"paused" => paused}}) ==
+               :dispatch
+
+      assert DispatchPolicy.manual_resume_decision(next, %State{max_concurrent_agents: 1, running: %{"active" => active}}) ==
+               {:skip, :fleet_capacity}
     end
 
     test "dispatch decisions distinguish a workspace ownership wait from an orphaned claim" do

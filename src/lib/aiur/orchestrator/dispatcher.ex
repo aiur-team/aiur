@@ -95,12 +95,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
     state = CommentPolling.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
-    state = Reconciler.refresh_running_issue_states(state)
-    state = CommandScan.scan_pr_commands(state)
-    state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
     case fetch_candidate_issues(state) do
       {:ok, issues, state} ->
+        state = Reconciler.refresh_running_issue_states(state, issues)
+        state = CommandScan.scan_pr_commands(state)
+        state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
+
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -128,7 +129,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | initial_dispatch_cycle: false}
 
       {:error, reason, state} ->
+        state = Reconciler.refresh_running_issue_states(state)
+        state = CommandScan.scan_pr_commands(state)
+        state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
         TrackerHealth.log_tracker_fetch_error(reason)
+        StatusReport.notify_dashboard(state)
         state
     end
   end
@@ -352,29 +357,60 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
 
-  defp fetch_candidate_issues(%State{} = state) do
-    if Config.tracker_kind() == "github" do
-      case GitHubTracker.fetch_issues_by_states_conditional(
-             Config.active_states(),
-             issue_list_cache(state)
-           ) do
-        {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
-        {:error, reason} -> {:error, reason, state}
-      end
-    else
-      case Tracker.fetch_candidate_issues() do
-        {:ok, issues} -> {:ok, issues, state}
-        {:error, reason} -> {:error, reason, state}
-      end
+  @doc false
+  @spec fetch_candidate_issues(State.t(), keyword()) ::
+          {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()}
+  def fetch_candidate_issues(%State{} = state, opts \\ []) when is_list(opts) do
+    # Dispatch labels are mutable authority. Keep this cache separate from the
+    # lifecycle label caches and revalidate its all-open representation on
+    # every poll.
+    fetch_fun = Keyword.get(opts, :fetch_fun, &default_candidate_fetch/1)
+    cache = candidate_list_cache(state)
+
+    case fetch_fun.(cache) do
+      {:ok, issues, updated_cache} ->
+        state = state |> put_candidate_list_cache(updated_cache) |> note_candidate_fetch_success()
+        {:ok, issues, state}
+
+      {:error, reason} ->
+        {:error, reason, mark_candidate_snapshot_unavailable(state, reason)}
     end
   end
 
-  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
-    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
+  defp note_candidate_fetch_success(%State{} = state) do
+    state = %{state | candidate_snapshot_fresh?: true}
+
+    if Config.tracker_kind() == "github" do
+      TrackerHealth.note_github_connectivity_success(state, :candidates)
+    else
+      state
+    end
   end
 
-  defp put_issue_list_cache(%State{} = state, cache) do
-    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
+  defp mark_candidate_snapshot_unavailable(%State{} = state, reason) do
+    state = %{state | candidate_snapshot_fresh?: false, snapshot_ready?: true}
+
+    if Config.tracker_kind() == "github" do
+      TrackerHealth.note_github_connectivity_failure(state, :candidates, reason)
+    else
+      state
+    end
+  end
+
+  defp default_candidate_fetch(cache) do
+    if Config.tracker_kind() == "github" do
+      GitHubTracker.fetch_candidate_issues_conditional(cache)
+    else
+      with {:ok, issues} <- Tracker.fetch_candidate_issues(), do: {:ok, issues, cache}
+    end
+  end
+
+  defp candidate_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:candidate_list_cache, %{})
+  end
+
+  defp put_candidate_list_cache(%State{} = state, cache) do
+    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :candidate_list_cache, cache))
   end
 
   # The base is readied before CPU admission so per-issue workspaces can use it
@@ -744,8 +780,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchPolicy.prewarm_gate(enabled?, phase) == :hold
   end
 
-  @spec choose_issues(State.t(), [Issue.t()]) :: State.t()
-  def choose_issues(state, issues) do
+  @spec choose_issues(State.t(), [Issue.t()], keyword()) :: State.t()
+  def choose_issues(state, issues, opts \\ []) when is_list(opts) do
     active_states = DispatchPolicy.active_state_set()
     terminal_states = DispatchPolicy.terminal_state_set()
     initial_dispatch_cycle? = state.initial_dispatch_cycle == true
@@ -756,9 +792,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
       issues
       |> DispatchPolicy.sort_issues_for_dispatch()
       |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        case DispatchPolicy.dispatch_decision(issue, state_acc, active_states, terminal_states) do
+        {state_acc, decision} =
+          recover_orphaned_claim(state_acc, issue, active_states, terminal_states)
+
+        case decision do
           :dispatch ->
-            next_state = dispatch_issue(state_acc, issue)
+            next_state = dispatch_issue(state_acc, issue, nil, nil, opts)
 
             startup_todo_index =
               maybe_schedule_startup_todo_alert(
@@ -777,6 +816,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
       end)
 
     state
+  end
+
+  defp recover_orphaned_claim(state, issue, active_states, terminal_states) do
+    case DispatchPolicy.dispatch_decision(issue, state, active_states, terminal_states) do
+      {:skip, :claimed_without_runtime} ->
+        Logger.warning("Releasing orphaned dispatch claim: #{State.issue_context(issue)}")
+        recovered = %{state | claimed: MapSet.delete(state.claimed, issue.id)}
+        {recovered, DispatchPolicy.dispatch_decision(issue, recovered, active_states, terminal_states)}
+
+      decision ->
+        {state, decision}
+    end
   end
 
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
@@ -835,6 +886,36 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
     end
+  end
+
+  @doc false
+  @spec dispatch_prevalidated_issue(State.t(), Issue.t()) ::
+          {{:ok, :started} | {:error, term()}, State.t()}
+  def dispatch_prevalidated_issue(%State{} = state, %Issue{} = issue) do
+    next_state = do_dispatch_issue(state, issue, nil, nil)
+
+    result =
+      cond do
+        MapSet.member?(next_state.claimed, issue.id) ->
+          {:ok, :started}
+
+        match?({:lifetime, _, _}, dispatch_latch_status(next_state, issue.id)) ->
+          {:error, :lifetime_dispatch_latch}
+
+        Map.has_key?(next_state.retry_attempts, issue.id) ->
+          {:error, :dispatch_retry_scheduled}
+
+        MapSet.member?(next_state.model_fallback_waiting, issue.id) ->
+          {:error, :all_model_backends_limited}
+
+        match?(%{tripped: :window}, get_in(next_state.dispatch_recovery, [:codex_thrash_budget, issue.id])) ->
+          {:error, :thrash_circuit_open}
+
+        true ->
+          {:error, :dispatch_not_started}
+      end
+
+    {result, next_state}
   end
 
   defp emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
