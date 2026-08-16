@@ -830,6 +830,48 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
     end
 
+    test "dependency-paused agents do not prevent a queued keystone from reaching dispatch selection" do
+      keystone = issue("keystone")
+      test_pid = self()
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        running: %{
+          "blocked-one" => dependency_paused_entry(keystone.identifier),
+          "blocked-two" => dependency_paused_entry(keystone.identifier)
+        }
+      }
+
+      admission_probes = fn ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 1,
+          load: :unavailable,
+          load_threshold: nil,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      selected =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [keystone],
+          &consume_available_slots/2,
+          Keyword.put(capacity_opts(test_pid, 1_000), :admission_probes_fun, admission_probes)
+        )
+
+      assert Map.has_key?(selected.running, keystone.id)
+    end
+
     test "the AIMD envelope backs off :envelope as the limiting reason while load exceeds target and work waits" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
       schedulers = System.schedulers_online()
@@ -1490,6 +1532,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp running_entry(id) do
     %{issue: issue(id), control: %{status: :working}, worker_host: nil}
+  end
+
+  defp dependency_paused_entry(blocker_identifier) do
+    %{
+      control: %{status: :paused},
+      paused_reason: :blocker_dependency,
+      blocker_pause: %{blocker_identifier: blocker_identifier}
+    }
   end
 
   describe "revalidate_issue_for_dispatch/3" do

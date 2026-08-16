@@ -240,10 +240,39 @@ Exact-match removal. No-op if the pattern wasn't subscribed.
 
 ## Default subscriptions (you don't subscribe to these explicitly)
 
-When you start working on a ticket, Aiur automatically subscribes you to:
+When you start working on a ticket, Aiur automatically subscribes you to your
+own ticket's topics:
 
-- `system.<default-branch>.branch.push` — pushes to the repo's default branch
-- (After `aiur_declare_blocker(N)`:) a useful subset of `ticket.N.*` events — the blocker's progress, decisions, branch pushes, and unblock signals
+| Topic | Why |
+| --- | --- |
+| `ticket.<self>.issue.commented` | Comments on your own issue. |
+| `ticket.<self>.pr.review_comment` | Review comments and review threads on your own PR. |
+| `ticket.<self>.ci.passed` | Terminal CI pass. |
+| `ticket.<self>.ci.failed` | Terminal CI failure. |
+| `ticket.<self>.operator.progress_request` | The periodic check-in ping. |
+| `system.<base-branch>.branch.push` | The base branch moved under you. |
+
+This set is deliberately narrow rather than a blanket `ticket.<self>.#`: you are
+**not** auto-subscribed to your own `branch.push`, `pr.opened`, or `pr.merged`
+(those are consumed by the orchestrator, which owns the resulting state
+transition). Anything outside the table needs an explicit `aiur_subscribe`.
+
+After `aiur_declare_blocker(N)`, Aiur additionally auto-subscribes both
+directions of the dependency, idempotently:
+
+| Direction | Topics |
+| --- | --- |
+| You (blocked) watch the blocker | `ticket.N.branch.push`, `.branch.force-push`, `.pr.opened`, `.pr.merged`, `.agent.decision.*`, `.agent.blocked`, `.agent.unblocked`, `.agent.attention.*`, `.issue.commented` |
+| Blocker watches you | `ticket.<self>.agent.blocked`, `.agent.unblocked` |
+
+Removing the dependency edge removes those automatic bindings; a manually-added
+binding on the same topic survives because removal is scoped by the reason it
+was created with.
+
+> Note: `ticket.N.branch.force-push` is auto-bound and mid-turn-drain-eligible,
+> but no publisher currently emits it — a force-push surfaces as a normal
+> `branch.push` (the ref SHA changes). Wait on `branch.push`, never on
+> `branch.force-push`.
 
 For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
 resumes a parked consumer through the mid-turn checkpoint drain. Load
@@ -263,6 +292,15 @@ authoritative GitHub dependency state before deciding whether a retry is safe.
 enqueue each once and continue without waiting, polling, or retrying.
 
 So you only need explicit `aiur_subscribe` for **watch use cases** — e.g., tracking a sibling ticket that isn't a blocker.
+
+## Alerts and events share a topic space
+
+`emit_alert` is not a separate channel. Milestone alerts raised with
+`emit_alert` are prefixed into `ticket.<id>.agent.<name>` and published to the
+same exchange, so a subscriber to `ticket.42.agent.#` receives alerts as well
+as events. Treat `emit_alert` as the Executor-facing variant of the same
+namespace, not a private bus — anything you alert on is visible to anyone
+bound to your `ticket.<id>.agent.#` pattern.
 
 ## Don't do
 
