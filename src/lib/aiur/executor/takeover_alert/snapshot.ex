@@ -22,26 +22,26 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
   def fetch(_now) do
     running = running_identifiers()
 
-    identifiers =
-      in_scope_nonterminal_identifiers(running)
+    identifiers = in_scope_nonterminal_identifiers(running)
 
     Enum.map(identifiers, fn identifier ->
       %{
         identifier: identifier,
         terminal?: false,
         in_scope?: true,
-        live_owner?: MapSet.member?(running, identifier)
+        live_owner?: Map.has_key?(running, identifier)
       }
     end)
   end
 
-  @spec in_scope_nonterminal_identifiers(MapSet.t()) :: MapSet.t()
+  # A set (map of identifier => true) of the in-scope nonterminal tickets: the
+  # union of the current-run membership's nonterminal members and the
+  # orchestrator's currently-running identifiers. Plain maps, not MapSet, so the
+  # fault-isolated builders below never leak an unproven opaque term to callers.
   defp in_scope_nonterminal_identifiers(running) do
-    membership_nonterminal_identifiers()
-    |> MapSet.union(running)
+    Map.merge(membership_nonterminal_identifiers(), running)
   end
 
-  @spec membership_nonterminal_identifiers() :: MapSet.t()
   defp membership_nonterminal_identifiers do
     case CurrentRunMembership.snapshot() do
       %{members: members} when is_list(members) ->
@@ -49,25 +49,24 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
         |> Enum.reject(&Map.get(&1, :terminal?, false))
         |> Enum.map(&get_in(&1, [:identity, :identifier]))
         |> Enum.reject(&is_nil/1)
-        |> MapSet.new()
+        |> Map.new(&{&1, true})
 
       _ ->
-        MapSet.new()
+        %{}
     end
   rescue
-    _ -> MapSet.new()
+    _ -> %{}
   catch
-    _, _ -> MapSet.new()
+    _, _ -> %{}
   end
 
-  @spec running_identifiers() :: MapSet.t()
   defp running_identifiers do
     Orchestrator.list_running_active_identifiers(Orchestrator, 1_000)
-    |> MapSet.new()
+    |> Map.new(&{&1, true})
   rescue
-    _ -> MapSet.new()
+    _ -> %{}
   catch
-    _, _ -> MapSet.new()
+    _, _ -> %{}
   end
 
   @doc """
