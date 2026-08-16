@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, Tracker}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
   alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
@@ -978,10 +978,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # for the backend default — either would hide the real problem. Instead the
   # Executor gets one attention naming both remediations: let `aiur init`
   # discover the new tag, or repoint a retired pin at a generic family tag.
+  #
+  # "Recognized" spans the curated registry list *and* the provider catalogue
+  # cache (`Aiur.ModelDiscovery`), so a model the provider currently serves
+  # does not raise an attention just because this build predates it. Reading
+  # that set is also what schedules the cache's background refresh; it never
+  # blocks this call and an empty cache degrades to the curated list.
   @doc false
   @spec maybe_alert_unsupported_model(Issue.t(), Path.t() | nil, worker_host(), String.t(), String.t() | nil) :: :ok
   def maybe_alert_unsupported_model(issue, workspace, worker_host, backend, model) when is_binary(model) do
-    if CodingAgent.known_model?(backend, model) do
+    if ModelDiscovery.known_model?(backend, model) do
       :ok
     else
       reason = unsupported_model_reason(backend, model)
