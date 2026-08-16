@@ -11,7 +11,6 @@ on:
   push:
     branches:
       - main
-      - develop
       - v2
 
 # Initial PR runs share a stable group; reruns and every non-PR event get a
