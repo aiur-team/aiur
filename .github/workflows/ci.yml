@@ -36,6 +36,8 @@ jobs:
         run: bash scripts/test-human-only-merge-ruleset-live.sh
       - name: Test pull request merge-gate diagnostics
         run: bash scripts/test-pr-merge-gate-diagnostic.sh
+      - name: Test CI failure diagnostics
+        run: bash scripts/test-report-ci-failures.sh
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test config documentation guard
@@ -123,14 +125,21 @@ jobs:
     needs: coverage-partition
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     defaults:
       run:
         working-directory: src
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Require successful coverage partitions
-        run: test "${{ needs.coverage-partition.result }}" = success
+      - name: Report failed coverage partitions
+        if: ${{ needs.coverage-partition.result != 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: bash scripts/report-ci-failures.sh '^coverage \([1-4]/4\)$' "${{ needs.coverage-partition.result }}"
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
       - name: Download partition coverage
@@ -179,14 +188,21 @@ jobs:
     needs: coverage
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     defaults:
       run:
         working-directory: src
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Require successful coverage gate
-        run: test "${{ needs.coverage.result }}" = success
+      - name: Report failed coverage gate
+        if: ${{ needs.coverage.result != 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: .
+        run: bash scripts/report-ci-failures.sh '^coverage( \([1-4]/4\))?$' "${{ needs.coverage.result }}"
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
       - name: Install tmux for regression test
