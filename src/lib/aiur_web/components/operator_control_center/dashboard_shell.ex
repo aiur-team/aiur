@@ -325,6 +325,14 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
     )
   end
 
+  # A stack of stored rows with a validator tag, which is what the cache holds:
+  # bodies keyed by resource identity, each with an ETag beside it.
+  defp nav_icon(:github_cache) do
+    Phoenix.HTML.raw(
+      ~s(<svg #{@nav_svg_attrs}><rect x="3" y="4" width="18" height="5" rx="1.5"/><rect x="3" y="12" width="18" height="5" rx="1.5"/><path d="M7 20h10"/></svg>)
+    )
+  end
+
   defp nav_icon(_id) do
     Phoenix.HTML.raw(~s(<svg #{@nav_svg_attrs}><circle cx="12" cy="12" r="9"/></svg>))
   end

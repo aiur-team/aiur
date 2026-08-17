@@ -403,6 +403,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   plus append-only Decision history and the 50 newest recent repository merges
 - JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
   endpoints are disabled unless `observability.dashboard_writable` is set)
+- Read-only GitHub state cache inspector at `/github-cache`, `/github-cache/:resource_type`
+  and `/github-cache/:resource_type/:identity` — the cache map, one type's entries, and one
+  entry's full record with its ETag, version, last writer and cached payload. It renders from
+  the store and subscribes to store-change events, so viewing never causes a GitHub request;
+  it deliberately offers no invalidate, eviction or force-refresh. Secret material is redacted
+  before it reaches the browser. Filters compose, are URL-addressable, and run client-side, and
+  a truncated list always states how many entries were elided
 - Read-only telemetry analytics at `/analytics` when the current run has a
   `telemetry.ndjson` input; this route uses the same dashboard basic auth,
   reducer, and self-contained renderer as the CLI artifact and is served with
