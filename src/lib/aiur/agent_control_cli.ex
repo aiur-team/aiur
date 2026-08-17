@@ -1439,11 +1439,11 @@ defmodule Aiur.AgentControlCLI do
   # short-window CPU sample before it can identify real contention.
   defp print_load_status(%{load: load, load_threshold: threshold, schedulers: schedulers})
        when is_number(load) and is_number(threshold) and is_integer(schedulers) and schedulers > 0 do
+    # The bare threshold check, deliberately: this line reports whether the
+    # LOCAL sample is over the local ceiling. It must not call the admission
+    # reason, which needs the daemon's short-window CPU measurement and
+    # dispatches without one (#2089).
     suffix =
-      # The bare threshold check, deliberately: this line reports whether the
-      # LOCAL sample is over the local ceiling. It must not call the admission
-      # reason, which needs the daemon's short-window CPU measurement and
-      # dispatches without one (#2089).
       case DispatchPolicy.load_gate(load, threshold, schedulers) do
         :hold ->
           " (local host sample; over load threshold, daemon corroborates CPU contention before holding)"
