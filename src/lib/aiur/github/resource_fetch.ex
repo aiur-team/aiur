@@ -123,7 +123,7 @@ defmodule Aiur.GitHub.ResourceFetch do
          }}
 
       :miss ->
-        upstream(key, fetcher, freshness, opts)
+        upstream(key, fetcher, opts)
     end
   end
 
@@ -136,11 +136,6 @@ defmodule Aiur.GitHub.ResourceFetch do
   """
   @spec decision() :: freshness()
   def decision, do: :strict
-
-  @doc "True when `freshness` forbids answering from the store."
-  @spec strict?(freshness()) :: boolean()
-  def strict?(:strict), do: true
-  def strict?(_freshness), do: false
 
   # -- internals ------------------------------------------------------------
 
@@ -180,7 +175,7 @@ defmodule Aiur.GitHub.ResourceFetch do
   # declines it rather than treating unknown as new.
   defp fresh_enough?(_entry, {:max_age_ms, _ms}), do: false
 
-  defp upstream(key, fetcher, freshness, opts) do
+  defp upstream(key, fetcher, opts) do
     validator = validator(key)
 
     case fetcher.(etag: validator) do
@@ -191,7 +186,7 @@ defmodule Aiur.GitHub.ResourceFetch do
         store(key, data, nil, opts)
 
       {:not_modified, etag} ->
-        revalidated(key, etag, fetcher, freshness, opts)
+        revalidated(key, etag, fetcher, opts)
 
       {:error, _reason} = error ->
         error
@@ -214,6 +209,9 @@ defmodule Aiur.GitHub.ResourceFetch do
 
   defp store(key, data, etag, opts) do
     version = version_of(data, opts)
+    # One clock read, reported and stored, so the answer's `fetched_at_ms` is the
+    # entry's rather than a few microseconds after it.
+    now = System.system_time(:millisecond)
 
     ResourceStore.put_resource(key, data,
       source: Keyword.get(opts, :source, :fetch),
@@ -227,7 +225,7 @@ defmodule Aiur.GitHub.ResourceFetch do
      %{
        outcome: :fetched,
        version: version,
-       fetched_at_ms: System.system_time(:millisecond),
+       fetched_at_ms: now,
        etag: etag,
        spent?: true
      }}
@@ -239,21 +237,30 @@ defmodule Aiur.GitHub.ResourceFetch do
   # revalidate forever. The existing `:source` and version are carried over so
   # the deposit is observably identical and wakes no subscriber for a resource
   # that did not change.
-  defp revalidated(key, etag, fetcher, freshness, opts) do
+  defp revalidated(key, etag, fetcher, opts) do
     case ResourceStore.fetch(key) do
       {:ok, entry} ->
+        # The held validator is kept in preference to the one on the `304`.
+        # GitHub may legally answer a conditional request with a *different*
+        # validator for unchanged content — weak validators, compression variants
+        # — and the store treats `:etag` as observable, so adopting it would
+        # broadcast a change to every subscriber of a resource that did not
+        # change. The held one just proved itself by earning this `304`.
+        validator = entry.etag || etag
+        now = System.system_time(:millisecond)
+
         ResourceStore.put_resource(key, entry.data,
           source: entry.source || Keyword.get(opts, :source, :fetch),
           version: entry.version,
-          etag: etag || entry.etag
+          etag: validator
         )
 
         {:ok, entry.data,
          %{
            outcome: :revalidated,
            version: entry.version,
-           fetched_at_ms: System.system_time(:millisecond),
-           etag: etag || entry.etag,
+           fetched_at_ms: now,
+           etag: validator,
            spent?: false
          }}
 
@@ -267,11 +274,11 @@ defmodule Aiur.GitHub.ResourceFetch do
             "reason=#{inspect(Keyword.get(opts, :reason))}"
         )
 
-        retry_unconditionally(key, fetcher, freshness, opts)
+        retry_unconditionally(key, fetcher, opts)
     end
   end
 
-  defp retry_unconditionally(key, fetcher, _freshness, opts) do
+  defp retry_unconditionally(key, fetcher, opts) do
     case fetcher.(etag: nil) do
       {:ok, data, etag} -> store(key, data, etag, opts)
       {:ok, data} -> store(key, data, nil, opts)

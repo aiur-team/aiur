@@ -47,8 +47,6 @@ defmodule Aiur.GitHub.ResourceFetchTest do
       assert count(calls) == 0
     end
 
-    # "Any age" is bounded by the store's own retention window, which is where
-    # a body stops being servable at all — `:any` is not "forever".
     test "a view tolerating any age never spends, however old the body is" do
       key = key(4)
       ResourceStore.put_resource(key, %{"id" => 4}, source: :webhook)
@@ -58,6 +56,20 @@ defmodule Aiur.GitHub.ResourceFetchTest do
 
       assert {:ok, %{"id" => 4}, %{outcome: :store}} = ResourceFetch.need(key, recorder, freshness: :any)
       assert count(calls) == 0
+    end
+
+    # `:any` is not "forever". It is bounded by the store's retention window,
+    # which is where a body stops being servable at all — and this crosses that
+    # line rather than merely approaching it.
+    test "a body past the store's retention window is not served, even to :any" do
+      key = key(18)
+      ResourceStore.put_resource(key, %{"id" => 18}, source: :webhook)
+      age_body!(key, 73 * 60 * 60 * 1000)
+
+      {recorder, calls} = recorder({:ok, %{"id" => :upstream}})
+
+      assert {:ok, %{"id" => :upstream}, %{outcome: :fetched}} = ResourceFetch.need(key, recorder, freshness: :any)
+      assert count(calls) == 1
     end
 
     test "a steady-state period with nothing needed spends nothing at all" do
@@ -187,9 +199,6 @@ defmodule Aiur.GitHub.ResourceFetchTest do
 
     test "decision/0 is the strict tolerance the dangerous read paths declare" do
       assert ResourceFetch.decision() == :strict
-      assert ResourceFetch.strict?(ResourceFetch.decision())
-      refute ResourceFetch.strict?(:any)
-      refute ResourceFetch.strict?({:max_age_ms, 1})
     end
   end
 
@@ -252,6 +261,59 @@ defmodule Aiur.GitHub.ResourceFetchTest do
       assert {:ok, _data, %{outcome: :revalidated}} = ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
 
       refute_receive {:github_resource_changed, _change}, 100
+    end
+
+    # GitHub may legally answer a conditional request with a *different*
+    # validator for content that did not change. The store treats `:etag` as
+    # observable, so adopting it would broadcast a change to every subscriber of a
+    # resource that did not change — a free wake, but a lying one.
+    test "a 304 carrying a different validator still wakes no subscriber" do
+      key = key(19)
+      ResourceStore.put_resource(key, %{"id" => 19}, source: :poll, version: "v", etag: ~s("e19"))
+      age_body!(key, 120_000)
+      ResourceStore.subscribe(key)
+
+      {recorder, _calls} = recorder({:not_modified, ~s(W/"e19-weak")})
+
+      assert {:ok, _data, meta} = ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
+
+      assert meta.outcome == :revalidated
+      # The held validator just proved itself by earning this 304, so it is kept.
+      assert meta.etag == ~s("e19")
+      assert ResourceStore.etag(key) == ~s("e19")
+      refute_receive {:github_resource_changed, _change}, 100
+    end
+
+    test "a fetcher answering with no resource is stored as no resource" do
+      key = key(20)
+      # The shape `PullRequests.fetch_open_pull_request_for_branch/2` answers with
+      # when a ticket has no open pull request.
+      {recorder, calls} = recorder({:ok, nil})
+
+      assert {:ok, nil, %{outcome: :fetched, version: nil}} = ResourceFetch.need(key, recorder, freshness: :strict)
+      assert count(calls) == 1
+      assert ResourceStore.fetch(key) == :miss
+    end
+
+    test "a second 304 with still nothing to serve is an error, never an empty answer" do
+      key = key(21)
+      {recorder, calls} = recorder({:not_modified, ~s("elsewhere")})
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :not_modified_without_body} = ResourceFetch.need(key, recorder, freshness: :any)
+        end)
+
+      assert log =~ "304 with no held body"
+      assert count(calls) == 2
+    end
+
+    test "an unrecognised fetcher answer is an error rather than a stored surprise" do
+      key = key(22)
+      {recorder, _calls} = recorder(:surprise)
+
+      assert {:error, {:unexpected_fetch_result, :surprise}} = ResourceFetch.need(key, recorder, freshness: :strict)
+      assert ResourceStore.fetch(key) == :miss
     end
   end
 
