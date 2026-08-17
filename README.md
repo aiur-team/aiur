@@ -119,7 +119,7 @@ Full walkthrough: [Quick start](https://aiur.team/docs/guide/quick-start).
 | **Dashboard** | Browser view of fleet, decisions, Build Order, analytics | `http://127.0.0.1:4000` | [Dashboard](https://aiur.team/docs/guide/executor-control-center) |
 | **Stream Deck** | Physical keys and dictation for the fleet | Separate sidecar, Linux x64, experimental | [Stream Deck](https://aiur.team/docs/guide/stream-deck) |
 
-Both interactive surfaces are optional: `aiur --bg` runs headless with the dashboard, and
+The TUI and dashboard are both optional: `aiur --bg` runs headless with the dashboard, and
 `--no-dashboard` drops the web listener. The dashboard is writable by default and needs
 `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` even on loopback.
 
