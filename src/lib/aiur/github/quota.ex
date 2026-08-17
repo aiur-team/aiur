@@ -41,6 +41,12 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.Workspace.Layout
 
   @primary_resources ~w(core graphql)
+  # Anonymous reads bill the 60/hr unauthenticated IP allowance, not the
+  # authenticated core budget. They get their own window so an exhausted
+  # anonymous allowance stays visible without gating fleet dispatch, and so a
+  # `limit: 60` response can never overwrite the authenticated `core` window.
+  @anonymous_resource "core:anonymous"
+  @metered_resources [@anonymous_resource | @primary_resources]
   @low_water_percent 10.0
   @attribution_window_seconds 60 * 60
   # Both primary GitHub budgets run on a one-hour window, so the window that
@@ -138,7 +144,7 @@ defmodule Aiur.GitHub.Quota do
     state =
       state
       |> prune_backoffs(now)
-      |> observe_response(result, now)
+      |> observe_response(request, result, now)
       |> observe_rejection(request, result, now)
       |> attribute_request(request, result, now)
       |> maybe_alert()
@@ -219,7 +225,7 @@ defmodule Aiur.GitHub.Quota do
 
   def handle_info({:dispatch_recovery, _stale_token}, state), do: {:noreply, state}
 
-  defp observe_response(state, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
+  defp observe_response(state, _request, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
     Enum.reduce(@primary_resources, state, fn resource, acc ->
       case Map.get(resources, resource) do
         %{} = values -> put_window_from_values(acc, resource, values, now)
@@ -228,11 +234,19 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
-  defp observe_response(state, {:ok, response}, now) when is_map(response) do
+  defp observe_response(state, request, {:ok, response}, now) when is_map(response) do
     headers = Map.get(response, :headers, [])
-    resource = Transport.header(headers, "x-ratelimit-resource")
 
-    if resource in @primary_resources do
+    # GitHub reports `core` for an anonymous read too, but that is a different
+    # 60/hr budget. Trust the request, not the header, when deciding which
+    # window the response describes.
+    resource =
+      case request_resource(request) do
+        @anonymous_resource -> @anonymous_resource
+        _authenticated -> Transport.header(headers, "x-ratelimit-resource")
+      end
+
+    if resource in @metered_resources do
       values = %{
         "limit" => Transport.header(headers, "x-ratelimit-limit"),
         "remaining" => Transport.header(headers, "x-ratelimit-remaining"),
@@ -245,7 +259,7 @@ defmodule Aiur.GitHub.Quota do
     end
   end
 
-  defp observe_response(state, _result, _now), do: state
+  defp observe_response(state, _request, _result, _now), do: state
 
   defp put_window_from_values(state, resource, values, now) do
     with {:ok, limit} <- integer_value(Map.get(values, "limit")),
@@ -541,7 +555,7 @@ defmodule Aiur.GitHub.Quota do
   # Agent-shell rows written before the resource column existed, and any row
   # naming a resource Aiur does not meter, are counted against core: `gh` spends
   # the core budget on everything but `api graphql`.
-  defp observation_resource(%{resource: resource}) when resource in @primary_resources, do: resource
+  defp observation_resource(%{resource: resource}) when resource in @metered_resources, do: resource
   defp observation_resource(_observation), do: "core"
 
   defp summarize_attribution(observations) do
@@ -762,6 +776,8 @@ defmodule Aiur.GitHub.Quota do
 
     :ok
   end
+
+  defp request_resource(%{anonymous: true}), do: @anonymous_resource
 
   defp request_resource(%{url: url}) when is_binary(url) do
     if URI.parse(url).path == "/graphql", do: "graphql", else: "core"

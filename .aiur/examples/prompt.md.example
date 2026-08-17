@@ -28,7 +28,7 @@ Continuation context:
 ## Workspace setup
 
 - Use the local tracker and repository auth already configured for this environment.
-- Work in the current workspace checkout on its generated canonical branch. Read it with `git branch --show-current`; never reconstruct a bare `aiur/{{ issue.identifier }}` ref. Use `git` directly.
+- Work in the current workspace checkout on its generated canonical branch. Set `workspace="$AIUR_AGENT_WORKSPACE"` and select repository context with `git -C "$workspace"`; never `cd` into a repository to run Git or rely on the ambient working directory. This rule overrides Git examples in every installed skill: translate ambient or `cd`-based snippets to `git -C "$workspace"`. Read the branch with `git -C "$workspace" branch --show-current`; never reconstruct a bare `aiur/{{ issue.identifier }}` ref. Do not set `GIT_DIR` or `GIT_WORK_TREE`.
 - Follow the repository's own setup, build, test, and lint instructions (see its `README`, `AGENTS.md`, or `CONTRIBUTING`).
 - If a repository-specific guard blocks manual test mode from an agent workspace, stop that verification path and report it; do not retry from `/tmp`, a copied harness, or a fresh clone.
 - For real implementation tickets, branch from the configured tracker base, keep changes small, add tests, run the project's build and lint, push to `origin`, and open a PR.

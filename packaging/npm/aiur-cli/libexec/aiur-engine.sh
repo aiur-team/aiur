@@ -876,6 +876,7 @@ run_session() {
   # treat a pre-TUI application crash as a successful `tmux attach`.
   local require_control=1
   if ! wait_for_session_startup "$tmux_bin" "$socket" "$conf" "$session" "$startup_capture" "$require_control"; then
+    print_config_status "$startup_capture"
     if [ "$mode" = "background" ]; then
       "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
       reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
@@ -887,6 +888,7 @@ run_session() {
   fi
 
   write_aiur_instance_record "$session" "$socket"
+  print_config_status "$startup_capture"
   print_dashboard_status "$no_dashboard" "$startup_capture"
 
   if [ "$mode" = "foreground" ]; then
@@ -1537,6 +1539,21 @@ probe_dashboard_status() {
   if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
     output="${output#*"$marker"}"
     printf '%s' "${output%%$'\n'*}"
+  fi
+}
+
+# Replay the exact path selected by the CLI inside tmux. The BEAM's startup
+# output is captured rather than shown directly, so the marker crosses that
+# boundary without duplicating config-discovery rules in this launcher.
+print_config_status() {
+  local startup_capture="$1" marker="__AIUR_CONFIG_PATH__:" config_path
+
+  config_path="$(awk -v marker="$marker" 'index($0, marker) == 1 { print substr($0, length(marker) + 1); exit }' "$startup_capture" 2>/dev/null || true)"
+
+  if [ -n "$config_path" ]; then
+    echo "Config: ${config_path}" >&2
+  else
+    echo "⚠️ selected config path unavailable in captured startup output." >&2
   fi
 }
 

@@ -30,7 +30,7 @@ The bare `aiur` command discovers `.aiur/config` and starts a foreground run, wh
 | Dashboard mode | Requirement |
 | --- | --- |
 | Writable | Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, including on loopback. |
-| Read-only loopback | Set `observability.dashboard_writable: false`; credentials are optional. |
+| Read-only loopback | Set `observability.dashboard_writable: false` and configure both dashboard credentials. Without them the listener may bind, but every dashboard request returns `503`. |
 | Listener disabled | No URL is printed. |
 
 Continue with the [Dashboard](/guide/executor-control-center) guide.
