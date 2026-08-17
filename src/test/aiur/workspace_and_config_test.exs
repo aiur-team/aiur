@@ -1,5 +1,6 @@
 defmodule Aiur.WorkspaceAndConfigTest do
   use Aiur.TestSupport
+  alias Aiur.AgentEnvironment
   alias Aiur.CodingAgent
   alias Aiur.Config.{RoutingValue, Schema}
   alias Aiur.Config.Schema.{AgentValidation, Codex, StringOrMap}
@@ -2939,13 +2940,30 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace)
       assert {:ok, canonical_issue_workspace} = Aiur.PathSafety.canonicalize(issue_workspace)
+      sidecar_roots = AgentEnvironment.sidecar_paths() |> Tuple.to_list()
 
       assert runtime_settings.turn_sandbox_policy == %{
                "type" => "workspaceWrite",
+               "writableRoots" =>
+                 [
+                   "relative/path",
+                   canonical_issue_workspace,
+                   sidecar_roots,
+                   Aiur.BuildGate.gate_dir()
+                 ]
+                 |> List.flatten(),
+               "networkAccess" => true
+             }
+
+      assert {:ok, remote_settings} =
+               Config.codex_runtime_settings(issue_workspace, remote: true)
+
+      assert remote_settings.turn_sandbox_policy == %{
+               "type" => "workspaceWrite",
                "writableRoots" => [
                  "relative/path",
-                 canonical_issue_workspace,
-                 Aiur.BuildGate.gate_dir()
+                 issue_workspace,
+                 Path.join(issue_workspace, ".git")
                ],
                "networkAccess" => true
              }
@@ -2964,6 +2982,57 @@ defmodule Aiur.WorkspaceAndConfigTest do
                "type" => "futureSandbox",
                "nested" => %{"flag" => true}
              }
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "generated local sandbox policy admits package-manager cache-miss writes only to sidecars" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-package-cache-sandbox-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace = Path.join(test_root, "workspace")
+      File.mkdir_p!(workspace)
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace)
+
+      assert {:ok, runtime_settings} = Config.codex_runtime_settings(workspace)
+      writable_roots = runtime_settings.turn_sandbox_policy["writableRoots"]
+      agent_env = Map.new(AgentEnvironment.workspace_env(workspace), fn {name, value} -> {to_string(name), value} end)
+      hex_home = agent_env["HEX_HOME"] |> to_string()
+      mix_home = agent_env["MIX_HOME"] |> to_string()
+      npm_cache = agent_env["npm_config_cache"] |> to_string()
+      sidecar_roots = [hex_home, mix_home, npm_cache]
+      repo_state = Path.dirname(hex_home)
+
+      assert sidecar_roots == AgentEnvironment.sidecar_paths() |> Tuple.to_list()
+      assert Enum.all?(sidecar_roots, &(&1 in writable_roots))
+      refute repo_state in writable_roots
+      refute Path.join(repo_state, "latest") in writable_roots
+      refute Path.join(repo_state, "meta") in writable_roots
+
+      env = [
+        {"HEX_HOME", hex_home},
+        {"MIX_HOME", mix_home},
+        {"npm_config_cache", npm_cache}
+      ]
+
+      command = """
+      mkdir -p "$HEX_HOME/packages/hexpm" "$MIX_HOME/archives" "$npm_config_cache/_cacache"
+      printf package > "$HEX_HOME/packages/hexpm/cache-miss.tar"
+      printf index > "$HEX_HOME/cache.ets"
+      printf archive > "$MIX_HOME/archives/hex.ez"
+      printf npm > "$npm_config_cache/_cacache/cache-miss"
+      """
+
+      assert {"", 0} = System.cmd("sh", ["-c", command], cd: workspace, env: env)
+      assert File.read!(Path.join(hex_home, "packages/hexpm/cache-miss.tar")) == "package"
+      assert File.read!(Path.join(hex_home, "cache.ets")) == "index"
+      assert File.read!(Path.join(mix_home, "archives/hex.ez")) == "archive"
+      assert File.read!(Path.join(npm_cache, "_cacache/cache-miss")) == "npm"
     after
       File.rm_rf(test_root)
     end
@@ -3007,11 +3076,14 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
     assert {:ok, canonical_gate_dir} = Aiur.PathSafety.canonicalize(gate_dir)
 
-    assert runtime_settings.turn_sandbox_policy["writableRoots"] == [
-             user_root,
-             canonical_workspace,
-             canonical_gate_dir
-           ]
+    assert runtime_settings.turn_sandbox_policy["writableRoots"] ==
+             [
+               user_root,
+               canonical_workspace,
+               AgentEnvironment.sidecar_paths() |> Tuple.to_list(),
+               canonical_gate_dir
+             ]
+             |> List.flatten()
 
     assert File.dir?(gate_dir)
     refute Aiur.BuildGate.lock_dir(gate_dir) in runtime_settings.turn_sandbox_policy["writableRoots"]

@@ -3,6 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
+  alias Aiur.AgentEnvironment
   alias Aiur.BuildGate
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
@@ -1020,8 +1021,28 @@ defmodule Aiur.Config do
 
   defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
     with {:ok, turn_sandbox_policy} <-
-           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-      maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts)
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts),
+         {:ok, turn_sandbox_policy, sandbox_opts} <-
+           maybe_add_package_manager_roots(turn_sandbox_policy, settings, workspace, opts) do
+      maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, sandbox_opts)
+    end
+  end
+
+  defp maybe_add_package_manager_roots(turn_sandbox_policy, settings, workspace, opts) do
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy, opts}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy, opts}
+
+      true ->
+        with {:ok, additional_roots} <- additional_writable_roots(opts),
+             sidecar_roots = opts |> AgentEnvironment.sidecar_paths() |> Tuple.to_list(),
+             sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ sidecar_roots),
+             {:ok, policy} <- Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts) do
+          {:ok, policy, sandbox_opts}
+        end
     end
   end
 

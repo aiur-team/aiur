@@ -414,16 +414,22 @@ defmodule Aiur.AgentEnvironmentTest do
     test "exposes repository-node hex/mix homes and the agent-workspace marker" do
       repo_url = "https://github.com/owner/project.git"
       env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration", repo_url: repo_url)
+      {hex_home, mix_home, npm_cache} = AgentEnvironment.sidecar_paths(repo_url: repo_url)
 
       assert {~c"HEX_HOME", hex} =
                List.keyfind(env, ~c"HEX_HOME", 0)
 
-      assert to_string(hex) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-hex")
+      assert to_string(hex) == hex_home
 
       assert {~c"MIX_HOME", mix} =
                List.keyfind(env, ~c"MIX_HOME", 0)
 
-      assert to_string(mix) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-mix")
+      assert to_string(mix) == mix_home
+
+      assert {~c"npm_config_cache", npm} =
+               List.keyfind(env, ~c"npm_config_cache", 0)
+
+      assert to_string(npm) == npm_cache
 
       assert {~c"AIUR_REPO_STATE_PATH", state_path} =
                List.keyfind(env, ~c"AIUR_REPO_STATE_PATH", 0)

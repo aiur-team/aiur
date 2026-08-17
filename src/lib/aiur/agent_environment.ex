@@ -386,7 +386,9 @@ defmodule Aiur.AgentEnvironment do
   defp configured_base_branch(opts), do: Config.base_branch(opts)
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
 
-  defp sidecar_paths(opts) do
+  @doc false
+  @spec sidecar_paths(keyword()) :: {Path.t(), Path.t(), Path.t()}
+  def sidecar_paths(opts \\ []) do
     root = repo_url(opts) |> RepoBase.repo_path()
 
     {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
