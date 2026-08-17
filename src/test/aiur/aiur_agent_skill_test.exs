@@ -64,6 +64,35 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "Do NOT open a new PR"
   end
 
+  test "aiur-agent requires explicit repository context for git commands" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md"))
+
+    assert content =~ "Never `cd` into a repository to run Git"
+    assert content =~ "`git -C \"$workspace\"`"
+    assert content =~ "absolute path"
+    assert content =~ "`reset --hard`"
+    assert content =~ "`clean -fd`"
+    assert content =~ "`checkout -- .`"
+    assert content =~ "`worktree remove`"
+    assert content =~ "stop rather than fall back to the current directory"
+    assert content =~ "rev-parse --path-format=absolute --git-path index.lock"
+
+    overview = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/overview.md"))
+    assert overview =~ "`git -C \"$workspace\" ls-remote`"
+  end
+
+  test "issue-worker prompts require explicit repository context for git commands" do
+    for path <- [".aiur/prompt.md", ".aiur/examples/prompt.md.example"] do
+      content = File.read!(Path.join(@repo_root, path))
+
+      assert content =~ ~s(workspace="$AIUR_AGENT_WORKSPACE")
+      assert content =~ ~s(git -C "$workspace")
+      assert content =~ "never `cd` into a repository to run Git"
+      refute content =~ "Use `git` directly"
+      refute content =~ "Read it with `git branch --show-current`"
+    end
+  end
+
   test "dictation guidance has one source shared by issue workers and Executors" do
     worker_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/SKILL.md"))
     executor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))

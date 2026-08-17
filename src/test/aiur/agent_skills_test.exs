@@ -24,6 +24,10 @@ defmodule Aiur.AgentSkillsTest do
       assert File.dir?(skill_dir), "missing .claude/skills/#{skill}"
       assert File.exists?(Path.join(skill_dir, "SKILL.md")), "missing #{skill}/SKILL.md"
     end
+
+    installed_dev_loop = File.read!(Path.join([ws, ".claude", "skills", "aiur-agent", "dev-loop.md"]))
+    assert installed_dev_loop =~ "Never `cd` into a repository to run Git"
+    assert installed_dev_loop =~ "`git -C \"$workspace\"`"
   end
 
   test "ships the pinned Compound Engineering dependency into every workspace", %{workspace: ws} do

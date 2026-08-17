@@ -311,12 +311,36 @@ defmodule AiurEngineTest do
     assert out =~ "BOUNDED"
   end
 
+  test "config startup status replays the exact selected path from boot output" do
+    capture = Path.join(System.tmp_dir!(), "aiur config capture #{System.unique_integer([:positive])}")
+    config = "/tmp/operator config/.aiur/config"
+    File.write!(capture, "booting\n__AIUR_CONFIG_PATH__:#{config}\nready\n")
+    on_exit(fn -> File.rm(capture) end)
+
+    {out, 0} = run_sourced_engine(~s(print_config_status "#{capture}"), [])
+
+    assert out == "Config: #{config}\n"
+  end
+
+  test "config startup status makes a missing selection marker visible" do
+    capture = Path.join(System.tmp_dir!(), "aiur-empty-capture-#{System.unique_integer([:positive])}")
+    File.write!(capture, "booting\n")
+    on_exit(fn -> File.rm(capture) end)
+
+    {out, 0} = run_sourced_engine(~s(print_config_status "#{capture}"), [])
+
+    assert out =~ "selected config path unavailable"
+    assert out =~ "captured startup output"
+    refute out =~ capture
+  end
+
   test "control readiness waits for full application startup before dashboard reporting" do
     engine = File.read!(@engine)
 
     assert engine =~ "Application.started_applications()"
     assert engine =~ "app == :aiur"
-    assert engine =~ ~r/write_aiur_instance_record.*print_dashboard_status/s
+    assert engine =~ ~r/write_aiur_instance_record.*print_config_status.*print_dashboard_status/s
+    assert engine =~ ~r/if ! wait_for_session_startup.*then\n\s+print_config_status/s
   end
 
   test "--version is distribution-free so it never collides with a running node" do
@@ -1507,13 +1531,18 @@ defmodule AiurEngineTest do
   test "background run arms the detached BEAM watchdog before success" do
     rel = fake_release()
     state = tmp_state()
+    logs = Path.join(state, "logs")
     tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
 
     tmux =
       fake_tmux_script("""
       case " $* " in
-        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" new-session "*)
+          printf '%s\n' '__AIUR_CONFIG_PATH__:/tmp/project config/.aiur/config' >> "#{logs}/log/boot.out.log"
+          touch "#{tmux_state}"
+          exit 0
+          ;;
         *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
         *) exit 0 ;;
       esac
@@ -1547,13 +1576,17 @@ defmodule AiurEngineTest do
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_LOGS_ROOT", logs},
         {"AIUR_NODE_GRACE_TICKS", "2"},
         {"EVENTS", events},
         {"PATH", path}
       ])
 
     assert out =~ "aiur started in the background"
-    assert out =~ "Dashboard: http://127.0.0.1:4567"
+
+    assert out =~
+             ~r/Config: \/tmp\/project config\/\.aiur\/config\nDashboard: http:\/\/127\.0\.0\.1:4567.*\naiur started in the background/s
+
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
     assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root\n/
@@ -1563,12 +1596,17 @@ defmodule AiurEngineTest do
   test "background launch with --no-dashboard in either-order form reports explicit suppression" do
     rel = fake_release()
     state = tmp_state()
+    logs = Path.join(state, "logs")
     tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
 
     tmux =
       fake_tmux_script("""
       case " $* " in
-        *" new-session "*) touch "#{tmux_state}"; exit 0 ;;
+        *" new-session "*)
+          printf '%s\n' '__AIUR_CONFIG_PATH__:/tmp/project config/.aiur/config' >> "#{logs}/log/boot.out.log"
+          touch "#{tmux_state}"
+          exit 0
+          ;;
         *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
         *) exit 0 ;;
       esac
@@ -1595,11 +1633,13 @@ defmodule AiurEngineTest do
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_LOGS_ROOT", logs},
         {"PATH", path}
       ])
 
-    assert out =~ "Dashboard disabled by --no-dashboard."
-    assert out =~ "aiur started in the background"
+    assert out =~
+             ~r/Config: \/tmp\/project config\/\.aiur\/config\nDashboard disabled by --no-dashboard\.\naiur started in the background/s
+
     refute out =~ "dashboard listener unavailable"
   end
 

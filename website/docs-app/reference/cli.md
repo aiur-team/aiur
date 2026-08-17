@@ -229,4 +229,4 @@ When the script path and current directory point at different checkouts, command
 | Repository root and source commit | A commit mismatch marks the release stale after operations such as `git switch`. |
 | Dirty-tree flag and build time | Records the exact development build provenance. |
 
-`aiur` accepts a path to a workflow configuration as the final run argument.
+`aiur` accepts a path to a workflow configuration as the final run argument. Every fresh `aiur` or `aiurdev` launch prints `Config: /absolute/path` after startup, naming the configuration selected by discovery or that explicit argument. An already-running background no-op does not load or print a configuration.

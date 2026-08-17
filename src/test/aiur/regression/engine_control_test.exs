@@ -648,6 +648,7 @@ defmodule Aiur.Regression.EngineControlTest do
 
       assert out =~ "CODE=0"
       assert out =~ "already running in the background"
+      refute out =~ "Config:"
       assert out =~ "RECORD_OK"
       refute File.read!(events) =~ "NEW_SESSION"
     end

@@ -120,7 +120,7 @@ defmodule Aiur.CLITest do
 
   test "uses an explicit workflow path override when provided" do
     parent = self()
-    workflow_path = "tmp/custom/operator.config"
+    workflow_path = "tmp/custom config/operator.config"
     expanded_path = Path.expand(workflow_path)
 
     deps = %{
@@ -138,9 +138,36 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, workflow_path], deps)
+    output = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, workflow_path], deps) end)
+
+    assert output == "__AIUR_CONFIG_PATH__:#{expanded_path}\n"
     assert_received {:workflow_checked, ^expanded_path}
     assert_received {:workflow_set, ^expanded_path}
+  end
+
+  test "announces the selected config before application startup" do
+    parent = self()
+    expanded_path = Path.expand(".aiur/config")
+
+    deps = %{
+      deps()
+      | set_workflow_file_path: fn path ->
+          send(parent, {:workflow_set, path})
+          :ok
+        end,
+        ensure_all_started: fn ->
+          send(parent, :started)
+          IO.puts(:stderr, "__AIUR_APPLICATION_STARTED__")
+          {:ok, [:aiur]}
+        end
+    }
+
+    assert capture_io(:stderr, fn ->
+             assert :ok = CLI.evaluate([@ack_flag], deps)
+             assert_received {:workflow_set, ^expanded_path}
+             assert_received :started
+           end) ==
+             "__AIUR_CONFIG_PATH__:#{expanded_path}\n__AIUR_APPLICATION_STARTED__\n"
   end
 
   test "accepts --logs-root and passes an expanded root to runtime deps" do
@@ -475,7 +502,7 @@ defmodule Aiur.CLITest do
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == 20
   end
 
-  test "--max-agents at or below the configured ceiling is silent" do
+  test "--max-agents at or below the configured ceiling adds no warning" do
     preserve_max_agents_override()
 
     stderr =
@@ -484,15 +511,16 @@ defmodule Aiur.CLITest do
         assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], configured_deps(8))
       end)
 
-    assert stderr == ""
+    marker = "__AIUR_CONFIG_PATH__:#{Path.expand(".aiurconfig")}\n"
+    assert stderr == marker <> marker
   end
 
-  test "an absent --max-agents flag is silent" do
+  test "an absent --max-agents flag adds no warning" do
     preserve_max_agents_override()
 
     stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], configured_deps(8)) end)
 
-    assert stderr == ""
+    assert stderr == "__AIUR_CONFIG_PATH__:#{Path.expand(".aiurconfig")}\n"
   end
 
   test "--max-agents rejects a non-positive value" do
