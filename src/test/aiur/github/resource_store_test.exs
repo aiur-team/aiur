@@ -1364,6 +1364,29 @@ defmodule Aiur.GitHub.ResourceStoreTest do
              "an oversized body must not be held; the reader falling back to a fetch is the pre-store behavior"
     end
 
+    # The retention half of the sweep, asserted through the sweep itself rather
+    # than through a restart, because the deletion is a conditional
+    # `select_delete/2` now: it must still drop what is genuinely past the window,
+    # and it must leave alone an entry a writer refreshed after the sweep decided
+    # about it — which a collect-then-delete pass could not.
+    test "the sweep drops what is past the retention window and keeps what a writer refreshed" do
+      ResourceStore.reset()
+      now = System.system_time(:millisecond)
+      store = Process.whereis(ResourceStore)
+
+      stale = {:issue, "owner", "repo", "9001"}
+      fresh = {:issue, "owner", "repo", "9002"}
+
+      :ets.insert(ResourceStore.Table, {stale, %{recorded_at_ms: now - 73 * 60 * 60 * 1000}})
+      :ets.insert(ResourceStore.Table, {fresh, %{recorded_at_ms: now - 1000}})
+
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      assert :ets.lookup(ResourceStore.Table, stale) == []
+      assert [_kept] = :ets.lookup(ResourceStore.Table, fresh)
+    end
+
     # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
     # fails both ways: a lower ceiling leaves fewer entries, a higher one leaves
     # the overflow in place.
