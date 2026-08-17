@@ -1291,7 +1291,10 @@ defmodule Aiur.DecisionStore do
   defp persist_answer(decision, answer, state) do
     case build_and_persist_event(:answer_recorded, decision, answer, answer.accepted_at, state) do
       {:ok, next_state, updated} ->
-        next_state = maybe_schedule_after_answer(next_state, updated, false)
+        next_state =
+          next_state
+          |> maybe_schedule_after_answer(updated, false)
+          |> supersede_duplicates(updated)
 
         {:reply,
          {:ok,
@@ -1306,6 +1309,82 @@ defmodule Aiur.DecisionStore do
         {:reply, {:error, reason}, state}
     end
   end
+
+  # One question is routinely filed as several Commands — an agent opens an
+  # attention and files a `decision.requested` about the same thing, and the two
+  # land as unrelated rows because dedup is keyed on `source_id`, which is
+  # tool-call identity. Answering one then leaves its twins sitting in the
+  # operator's queue asking a question that has already been decided.
+  #
+  # So when an answer lands, clear the siblings it just answered: same ticket,
+  # same question, still open. `unresolvable_block?/1` still has the final say,
+  # so an agent-filed blocking Command is never swept up — dismissal delivers
+  # nothing to the agent waiting on it, and that invariant does not bend for a
+  # sibling. Matching is exact-after-normalization on purpose; see
+  # `normalized_question/1`.
+  defp supersede_duplicates(state, %Decision{} = answered) do
+    case normalized_question(answered.question) do
+      nil ->
+        state
+
+      question ->
+        state.current
+        |> Map.values()
+        |> Enum.filter(&duplicate_of?(&1, answered, question))
+        |> Enum.reduce(state, &dismiss_superseded(&2, &1, answered))
+    end
+  end
+
+  defp duplicate_of?(%Decision{} = candidate, %Decision{} = answered, question) do
+    candidate.decision_id != answered.decision_id and
+      candidate.decision_status in [:open, :deferred] and
+      is_nil(candidate.answer) and
+      candidate.ticket.identifier == answered.ticket.identifier and
+      normalized_question(candidate.question) == question and
+      not unresolvable_block?(candidate)
+  end
+
+  defp dismiss_superseded(state, %Decision{} = duplicate, %Decision{} = answered) do
+    actor = %{kind: :system, id: "superseded-by:#{answered.decision_id}"}
+
+    case build_and_persist_event(:decision_dismissed, duplicate, %{actor: actor}, DateTime.utc_now(), state) do
+      {:ok, next_state, _updated} ->
+        next_state
+
+      # A duplicate that will not clear is a queue-hygiene miss, not a reason to
+      # fail an answer the operator already gave. Leave it open and keep going.
+      {:error, reason} ->
+        Logger.warning(
+          "decision supersede skipped decision_id=#{duplicate.decision_id} " <>
+            "superseded_by=#{answered.decision_id} reason=#{inspect(reason)}"
+        )
+
+        state
+    end
+  end
+
+  # Deliberately conservative: case, surrounding whitespace, markdown emphasis
+  # and a trailing `?`/`.` are noise, but nothing else is normalized away. Two
+  # Commands must ask the *same* question to be collapsed, because the failure
+  # mode of matching too loosely is dismissing a distinct open question the
+  # operator never answered. The cost is that paraphrases of one question — the
+  # shape in #1844's own #1640 example — are not linked; those stop doing harm
+  # via the `blocking: false` fix in `DecisionAttention` instead.
+  defp normalized_question(question) when is_binary(question) do
+    normalized =
+      question
+      |> String.downcase()
+      |> String.replace(~r/[`*_]+/u, "")
+      |> String.replace(~r/\s+/u, " ")
+      |> String.trim()
+      |> String.trim_trailing("?")
+      |> String.trim_trailing(".")
+      |> String.trim()
+
+    if normalized == "", do: nil, else: normalized
+  end
+
+  defp normalized_question(_question), do: nil
 
   defp handle_dismiss(decision_id, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
@@ -1351,6 +1430,17 @@ defmodule Aiur.DecisionStore do
   # dispatch. Internal delivery/persistence alerts are operational notices
   # about an existing Command, not operator-facing blocks, so they are excluded
   # exactly as in `RetainedIndex.operator_command?/1`.
+  #
+  # An option-less legacy attention never gates dispatch either, even when it
+  # was persisted `blocking: true`. `DecisionAttention.project_attention/3` now
+  # files attentions unblocking, but records written before that fix are still
+  # in operators' stores, and each one holds the whole dispatch gate for its
+  # ticket while describing a block that was never real. Reading the gate off
+  # the record's own shape retires those without a migration.
+  defp open_blocking_command?(%Decision{legacy_attention: %{slug: slug}, options: []})
+       when is_binary(slug),
+       do: false
+
   defp open_blocking_command?(%Decision{
          decision_status: status,
          blocking: true,
