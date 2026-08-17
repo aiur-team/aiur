@@ -46,25 +46,20 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "loopback bind without credentials" do
-    test "starts (loopback is the unauth-friendly path)" do
-      # Already bound by Aiur.Application during the test environment
-      # boot — calling start_link again returns either :ignore (when
-      # the gate skips loopback) or {:error, :already_started} from
-      # the underlying Endpoint. Both indicate the gate did NOT reject
-      # before reaching the Endpoint.start_link call.
-      result =
-        HttpServer.start_link(
-          host: "127.0.0.1",
-          port: 0,
-          orchestrator: Aiur.Orchestrator
-        )
+    test "warns that requests fail closed" do
+      log =
+        capture_log(fn ->
+          HttpServer.start_link(
+            host: "127.0.0.1",
+            port: 0,
+            dashboard_writable: false,
+            orchestrator: Aiur.Orchestrator
+          )
+        end)
 
-      assert result != :ignore or true
-      # We're really asserting "the gate didn't reject loopback before
-      # reaching Endpoint" — any non-`:ignore` result from above passes,
-      # and `:ignore` from this call would only happen if Config.server_port
-      # were negative which it isn't in test env.
-      refute match?({:rejected_by_credential_gate, _}, result)
+      assert log =~ "every request is refused (503)"
+      assert log =~ "AIUR_DASHBOARD_USERNAME"
+      assert log =~ "AIUR_DASHBOARD_PASSWORD"
     end
   end
 
