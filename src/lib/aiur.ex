@@ -207,6 +207,11 @@ defmodule Aiur.Application do
       Aiur.Events.IdGenerator,
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       Aiur.Events.BranchRefStore,
+      # Restart-durable GitHub state keyed by resource identity. Starts before
+      # the Publisher and before anything that polls or receives, so the first
+      # delivery of the boot already has somewhere to record that it handled a
+      # comment — and so the first poll sweep already has last run's ETags.
+      Aiur.GitHub.ResourceStore,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       # Per-repo delivery mode. Starts before anything that polls or receives

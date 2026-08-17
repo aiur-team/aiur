@@ -14,6 +14,8 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
+
 ## Who Aiur trusts
 
 | Source | Trust rule |
@@ -24,16 +26,24 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 ## Poll cadence
 
-Polling spends GraphQL points inversely to the interval, so `polling.interval_seconds` defaults to 120.
+Poll spend still scales inversely with the interval, so `polling.interval_seconds` defaults to 120.
 
-| `interval_seconds` | Approximate poll spend | Worst-case wake latency |
+Comments are read over conditional REST with `If-None-Match`. An unchanged comment list answers `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. The validators are kept on disk, so a daemon restart does not force a full-price re-read.
+
+GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
+
+The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
+
+Spend scales with target count, not with comment volume.
+
+| `interval_seconds` | Approximate GraphQL spend | Worst-case wake latency |
 | --- | --- | --- |
-| 30 | ~5,800 points/hour | 30s |
-| 60 | ~2,900 points/hour | 60s |
-| 120 | ~1,450 points/hour | 2m |
-| 300 | ~580 points/hour | 5m |
+| 30 | ~1,300 points/hour | 30s |
+| 60 | ~650 points/hour | 60s |
+| 120 | ~330 points/hour | 2m |
+| 300 | ~130 points/hour | 5m |
 
-At 30 seconds the poll loop alone can exhaust GitHub's 5,000 point/hour budget before an agent makes a request.
+Figures are for a ten-target fleet. A busy repository raises REST request counts rather than GraphQL points, and most of those requests are `304`s.
 
 GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoint, and Aiur uses the wider of the two.
 
@@ -66,6 +76,39 @@ instance — bill GitHub's 60/hour unauthenticated per-IP allowance rather than
 the authenticated core budget, so they are metered in their own window. An
 exhausted anonymous allowance holds further anonymous reads but never gates
 agent dispatch.
+
+## Comments arriving twice
+
+A comment can reach Aiur down two paths: a webhook delivery, which is free and arrives first, and the comment sweep, which reads it back from the API.
+
+Both must exist. Deliveries are genuinely lost — measured here, 9 of 100 returned `502` during a daemon restart, GitHub retried none, and none arrived later. A sweep that skipped webhook-backed repositories would drop those comments silently.
+
+Aiur therefore records each comment it has processed by its identity, and both paths write to the same record.
+
+| Situation | What happens |
+| --- | --- |
+| Delivery arrives | The comment is published once. The next sweep reads it, recognises it, and does not publish it again. |
+| Delivery is lost | Nothing recorded it, so the next sweep publishes it. No delay beyond one poll interval. |
+| Older comment lost, newer one delivered | The older one is still recovered. Suppression is per comment, not "everything before the newest thing I saw". |
+| Daemon restarts | The record is on disk, so a comment handled before the restart is not re-published after it. |
+| A comment is edited | The agent wakes again. The record stores the comment's `updated_at`, so an edit is a new state of that comment rather than a repeat of it. |
+| No webhook installed | Nothing is ever recorded by a delivery, so nothing is ever suppressed. Polling behaves exactly as it did before. |
+
+If the record is unavailable or unreadable, Aiur behaves as though it were absent: it publishes, and the existing one-hour replay window catches short-range duplicates. A duplicate wake is recoverable; a dropped comment is not.
+
+## One record for one resource
+
+The record is not only a set of marks. Aiur keeps the resource GitHub returned — the comment, the issue, the pull request — addressed by what it is: type, owner, repository, id.
+
+It is not addressed by which code path asked for it. So a resource read down one path answers every other path.
+
+Each entry carries when it was recorded, which path recorded it, the resource's own `updated_at`, and an `ETag` where GitHub provides one.
+
+When a path deposits the resource itself, that is written to disk alongside the marks, so a restart does not re-buy state the daemon already had. Keeping only the `ETag` would not achieve that: a validator sent for a resource Aiur no longer holds earns a `304 Not Modified` with no body — a spent request that returns nothing usable.
+
+Every write that changes what a reader could see is announced, so anything watching that resource learns about it without asking GitHub. A change costs one API call at most, no matter how many things were watching.
+
+The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
 
 ## Optional webhook
 
