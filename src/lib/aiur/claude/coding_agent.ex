@@ -193,12 +193,17 @@ defmodule Aiur.Claude.CodingAgent do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
         %{provider_pid: to_string(os_pid), claude_app_server_pid: to_string(os_pid)}
-        |> maybe_put_process_group(os_pid)
+        |> maybe_put_agent_process_group(os_pid)
 
       _ ->
         %{}
     end
   end
+
+  defp maybe_put_agent_process_group(metadata, group) when is_integer(group) and group > 0,
+    do: Map.put(metadata, :agent_process_group_id, group)
+
+  defp maybe_put_agent_process_group(metadata, _group), do: metadata
 
   defp send_initialize(port) do
     send_frame(port, Messages.initialize_frame())

@@ -19,7 +19,8 @@ defmodule Aiur.SSHTest do
              SSH.run("root@[::1]:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2200 root@[::1] env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null -p 2200 root@[::1]"
+    assert trace =~ "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null HOME=\"$AIUR_REMOTE_HOME\" bash -c"
     assert trace =~ "printf ok"
   end
 
@@ -39,7 +40,7 @@ defmodule Aiur.SSHTest do
              SSH.run("::1:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T ::1:2200 env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null ::1:2200"
     refute trace =~ "-p 2200"
   end
 
@@ -63,7 +64,7 @@ defmodule Aiur.SSHTest do
 
     trace = File.read!(trace_file)
     assert trace =~ "-F /tmp/aiur-test-ssh-config"
-    assert trace =~ "-T -p 2222 localhost env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null -p 2222 localhost"
     assert trace =~ "echo ready"
   end
 
@@ -83,7 +84,7 @@ defmodule Aiur.SSHTest do
              SSH.run("root@127.0.0.1:2200", "printf ok", stderr_to_stdout: true)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2200 root@127.0.0.1 env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null -p 2200 root@127.0.0.1"
     assert trace =~ "printf ok"
   end
 
@@ -128,7 +129,7 @@ defmodule Aiur.SSHTest do
 
     assert File.read!(input_file) == script
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2200 worker-01 bash -lc"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null -p 2200 worker-01"
     assert trace =~ "bash -s"
   end
 
@@ -175,7 +176,7 @@ defmodule Aiur.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T localhost env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null localhost"
     refute trace =~ " -F "
   end
 
@@ -201,12 +202,16 @@ defmodule Aiur.SSHTest do
     wait_for_trace!(trace_file)
 
     trace = File.read!(trace_file)
-    assert trace =~ "-T -p 2222 localhost env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c"
+    assert trace =~ "-T -o SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null -p 2222 localhost"
   end
 
   test "remote_shell_command/1 escapes embedded single quotes" do
-    assert SSH.remote_shell_command("printf 'hello'") ==
-             "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c 'printf '\"'\"'hello'\"'\"''"
+    command = SSH.remote_shell_command("printf 'hello'")
+
+    assert command =~ "test \"${HOME-}\" = /dev/null"
+    assert command =~ "AIUR_REMOTE_HOME=$(getent passwd \"$(id -u)\" | cut -d: -f6)"
+    assert command =~ "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null HOME=\"$AIUR_REMOTE_HOME\" bash -c"
+    assert String.ends_with?(command, Aiur.Shell.escape("printf 'hello'"))
   end
 
   defp install_fake_ssh!(test_root, trace_file, script \\ nil) do

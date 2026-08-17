@@ -149,7 +149,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
           _ =
             Alerts.emit_custom(
-              "agent.orphan_reaped",
+              "ticket.#{identifier}.agent.orphan_reaped",
               "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
               issue: Map.get(running_entry, :issue),
               workspace: Map.get(running_entry, :workspace_path),

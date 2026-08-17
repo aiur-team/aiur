@@ -266,6 +266,14 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
   describe "orphaned shell reaping" do
     test "reaps a tracked headless shell tree when its runner exits" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.ORPHAN-1.agent.orphan_reaped")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
       bash = System.find_executable("bash") || flunk("bash executable unavailable")
       port = Port.open({:spawn_executable, String.to_charlist(bash)}, [:binary, args: [~c"-c", ~c"sleep 600 & wait"]])
       assert {:os_pid, shell_pid} = :erlang.port_info(port, :os_pid)
@@ -288,7 +296,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         running: %{
           issue_id => %{
             ref: ref,
-            identifier: "repo#orphan",
+            identifier: "ORPHAN-1",
             started_at: DateTime.utc_now(),
             retry_attempt: 0,
             headless_os_pid: shell_pid,
@@ -302,6 +310,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert after_down.orphaned_agent_reap_count == 1
       refute RemoteControl.process_alive?(shell_pid)
       refute RemoteControl.process_alive?(child_pid)
+      assert_receive {:event, %{topic: "ticket.ORPHAN-1.agent.orphan_reaped"} = event}, 500
+      assert event["needs_attention"] == true
+      assert event["message"] =~ "orphaned_agent_reap_count=1"
     end
   end
 
