@@ -1,5 +1,7 @@
 defmodule Aiur.ProviderMeterProbeTest do
-  use ExUnit.Case, async: true
+  # These tests subscribe to shared provider-meter topics, so running alongside
+  # other publisher cases lets foreign snapshots satisfy their receive checks.
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
