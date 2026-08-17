@@ -183,12 +183,7 @@ defmodule Aiur.Codeowners do
 
     if codeowners.present? do
       paths
-      |> Enum.reduce_while({:ok, []}, fn path, {:ok, acc} ->
-        case codeowners.rules |> matching_rule(path) |> entries_for_rule(path, opts) do
-          {:ok, entries} -> {:cont, {:ok, entries ++ acc}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
+      |> collect_entries(fn path -> codeowners.rules |> matching_rule(path) |> entries_for_rule(path, opts) end)
       |> ownership_context()
     else
       %{codeowners_present: false, owners: [], entries: []}
@@ -204,12 +199,7 @@ defmodule Aiur.Codeowners do
 
     if codeowners.present? do
       codeowners.rules
-      |> Enum.reduce_while({:ok, []}, fn rule, {:ok, acc} ->
-        case entries_for_rule(rule, nil, opts) do
-          {:ok, entries} -> {:cont, {:ok, entries ++ acc}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
+      |> collect_entries(fn rule -> entries_for_rule(rule, nil, opts) end)
       |> ownership_context()
     else
       %{codeowners_present: false, owners: [], entries: []}
@@ -294,6 +284,19 @@ defmodule Aiur.Codeowners do
     end
   catch
     :exit, _reason -> false
+  end
+
+  # Both multi-lookup ownership paths accumulate entries and must abandon the
+  # whole context the moment one lookup cannot answer: an owner set that is
+  # merely unknown must never be reported as a smaller owner set. Shared so that
+  # halt-on-first-error rule is written once rather than per caller.
+  defp collect_entries(items, lookup) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
+      case lookup.(item) do
+        {:ok, entries} -> {:cont, {:ok, entries ++ acc}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp with_agent_logins({:error, _reason} = error, _opts), do: error
