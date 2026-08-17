@@ -563,6 +563,13 @@ defmodule Aiur.Config do
   def build_order_ticket_detail_coordinator_options do
     build_order = settings!().build_order
 
+    # Deliberately the *base* interval, unlike the graph cadences below.
+    # `TicketDetailCoordinator` reads these options once, in `init/1`, and never
+    # re-derives them — so a value taken from the effective interval would be
+    # frozen at whatever the cadence happened to be at boot and would never
+    # narrow again. It is also not part of what #2118 was about: this is a
+    # conditional REST staleness window, where an unchanged refresh is a free
+    # `304`, not an unconditional GraphQL read.
     [
       freshness_ms:
         Cadence.resolve(
@@ -592,19 +599,24 @@ defmodule Aiur.Config do
   def build_order_graph_projection_options do
     build_order = settings!().build_order
 
-    # Derived from the tracker's own cycle unless the operator said otherwise.
-    # Build Order shows state the tracker produces, so a cadence faster than the
-    # poll interval re-reads a graph that cannot have moved — which is exactly
-    # what the old 15s and 5s constants did once #2064 slowed the tracker.
-    poll_interval_seconds = poll_interval_seconds()
+    # Derived from the tracker's *effective* cycle unless the operator said
+    # otherwise — the interval the dispatcher actually scheduled, idle and
+    # webhook widening included. Build Order shows state the tracker produces,
+    # so a cadence faster than the poll re-reads a graph that cannot have moved:
+    # the old 15s and 5s constants did that once #2064 slowed the tracker, and
+    # the base interval did it again whenever the fleet went idle (#2118).
+    #
+    # `GraphProjection` calls this on every reconcile, so it derives once and
+    # reads both keys off the same map rather than deriving twice.
+    derived = Cadence.effective()
 
     [
-      catalog_refresh_ms: Cadence.resolve(:graph_catalog_refresh_ms, build_order.graph_catalog_refresh_ms, poll_interval_seconds),
+      catalog_refresh_ms: Cadence.prefer_configured(build_order.graph_catalog_refresh_ms, derived, :graph_catalog_refresh_ms),
       catalog_labels_refresh_ms:
-        Cadence.resolve(
-          :graph_catalog_labels_refresh_ms,
+        Cadence.prefer_configured(
           build_order.graph_catalog_labels_refresh_ms,
-          poll_interval_seconds
+          derived,
+          :graph_catalog_labels_refresh_ms
         ),
       refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
       max_selected_roots: build_order.graph_max_selected_roots,

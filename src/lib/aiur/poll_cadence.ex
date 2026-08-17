@@ -112,6 +112,20 @@ defmodule Aiur.PollCadence do
   end
 
   @doc """
+  What the dispatcher has actually published, or `nil` if it has not yet.
+
+  `effective_interval_ms/1` answers a number either way, which is right for a
+  staleness threshold. A caller deriving a *cadence* needs to tell the two
+  apart, because the cold-start fallback is deliberately the widest cadence the
+  configuration permits and "widest" is the wrong default for something that
+  fires.
+  """
+  @spec published_effective_interval_ms() :: pos_integer() | nil
+  def published_effective_interval_ms do
+    positive_integer(:persistent_term.get(@effective_key, nil))
+  end
+
+  @doc """
   The cadence actually in force, including idle and webhook widening, bounded by
   `@max_effective_interval_ms` so a remote `X-Poll-Interval` cannot decide how
   long Aiur calls its own data fresh.
