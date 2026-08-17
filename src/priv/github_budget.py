@@ -33,17 +33,24 @@ def connection(path):
     os.chmod(directory, 0o700)
     conn = sqlite3.connect(path, timeout=5, isolation_level=None)
     os.chmod(path, 0o600)
-    conn.execute("PRAGMA busy_timeout = 5000")
     # The daemon and up to sixteen agents open this file at once, and the claim
     # check added for #2073 U6 puts every cacheable agent read through it. Under
     # the rollback journal a reader blocks a writer and a writer blocks every
-    # reader, so admission latency grows with fleet size for no reason. Best
-    # effort: a database on a filesystem that cannot do WAL keeps the default
-    # journal and keeps working.
+    # reader, so admission latency grows with fleet size for no reason.
+    #
+    # Attempted with NO busy timeout, and before the real one is installed.
+    # Converting the journal takes a brief exclusive lock, so against a database
+    # somebody else is holding this would otherwise wait the full timeout on
+    # every single open — and the orchestrator, whose whole request deadline is
+    # shorter than that, would be stranded by a lock it is not even contending
+    # for. Failing instantly is the correct answer: the journal mode is a
+    # throughput preference, and a database already open elsewhere either is
+    # already in WAL or will be converted by whoever opens it uncontended.
     try:
         conn.execute("PRAGMA journal_mode = WAL")
-    except sqlite3.OperationalError:
+    except sqlite3.DatabaseError:
         pass
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS budgets (
