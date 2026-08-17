@@ -1,37 +1,84 @@
 # Operating Aiur
 
-## The TUI board
+## Operator surfaces
 
-The terminal agent-list board shows running, paused, and idle ticket rows with runtime, turn count, backend, pinned model, work state, and pause reason.
-
-## The dashboard
-
-The [Dashboard](/guide/executor-control-center) combines the live fleet, durable decision inbox and history, recent outcomes, provider meters, Build Orders, and analytics. Dashboard writes are enabled by default, but writable or non-loopback deployments require Basic Auth.
+| Surface | Best for |
+| --- | --- |
+| [TUI](/guide/tui) | Foreground fleet board and live agent chat. |
+| [Dashboard](/guide/executor-control-center) | Browser fleet, Commands, Build Orders, analytics, and meters. |
+| [CLI](/reference/cli) | Agent-driven operation and terminal automation. |
+| [Stream Deck](/guide/stream-deck) | Physical or browser fleet controls and event logs. |
 
 ## Hourly meta-check
 
-`aiur-run` arms a recurring one-hour `aiur-meta` check at the start of a run, **before dispatching**. It is not a status poll: the check captures and looks at Units, Commands, Build Orders, and Analytics; times the interactive CLI and treats empty or timed-out responses as findings; compares host load with the configured gate; audits the PR backlog; then names one bottleneck and records it durably.
+`aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.
 
-The timer keeps the audit from being lost during a busy merge queue. It records what an operator can actually see and treats an empty or timed-out surface as a finding.
+The timer keeps the audit from being lost during a busy merge queue.
 
-After a check, inspect its durable follow-up with `aiur findings`. Work the named bottleneck or file its evidence-backed follow-up, then use `aiur findings --unfiled` before treating the retrospective as complete: it shows records that still lack a filed ticket. The per-boot narrative is host-local at `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`; append a new durable finding only through `aiur findings --record '<json>' --repo <owner>/<repo>`, which validates the record. [State nodes and Build Orders](/concepts/state-and-build-orders#executor-handoff-and-findings) documents the ledger and its locations.
+| Check | What it catches |
+| --- | --- |
+| Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
+| Interactive CLI timing | Empty or timed-out responses hidden by static status. |
+| Host load | Capacity pressure against the configured admission gate. |
+| PR backlog | Review, conflict, and merge-queue snags. |
+| Bottleneck choice | The single largest current wall-clock constraint. |
+
+The check records what an operator can actually see and treats an empty or timed-out surface as a finding.
+
+After each check, inspect its durable follow-up with `aiur findings`.
+
+| Action | Command or location |
+| --- | --- |
+| Find unfiled records | `aiur findings --unfiled` |
+| Record a finding | `aiur findings --record '<json>' --repo <owner>/<repo>` |
+| Read the boot retrospective | `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md` |
+| Read Build Order handoff rules | [Build Orders](/concepts/build-orders#executor-handoff-and-findings) |
 
 ## Alerts
 
-Alerts are defined in the checked-in `.aiur/alerts` file. Each entry is keyed by an event-topic glob pattern and carries a `message` plus an optional `sound` list. Agents raise milestone alerts with `emit_alert`.
+| Source | Behavior |
+| --- | --- |
+| `.aiur/alerts` | Maps event-topic patterns to messages and optional sounds. |
+| `emit_alert` | Lets agents raise milestone alerts for the Executor. |
+| Dashboard and TUI | Show active attention and failure states. |
 
 ## Usage and account meters
 
-Aiur retains token usage by ticket and resolves API-equivalent cost only when it has the provider, model, pricing date, and required pricing dimensions. The built-in price table covers the registered provider families. Dashboard usage views keep unknown or partial pricing explicit instead of converting it to a zero-dollar total.
+Aiur keeps unknown, partial, and stale pricing explicit instead of turning missing evidence into zero.
 
-The dashboard shows provider meters with the age of each observation; `aiur usage` prints limit headroom observed from live agent sessions. Codex and Claude show percentage use of renewing allotment windows. DeepSeek and OpenRouter expose prepaid dollar or credit balances instead of remaining-quota headers. Aiur tracks DeepSeek's process-local concurrency for live CLI and TUI status, but omits it from retained provider cards because an instantaneous reading becomes stale. A DeepSeek percentage can appear only when Aiur has a durable prepaid-balance baseline, and means spend against that baseline, not a provider quota. Kimi is session-observation only and has no account-balance probe.
+| Provider family | Meter meaning |
+| --- | --- |
+| Codex and Claude | Percentage used in renewing allotment windows. |
+| DeepSeek and OpenRouter | Prepaid dollar or credit balance. |
+| DeepSeek percentage | Spend against a durable prepaid-balance baseline, not a provider quota. |
+| DeepSeek concurrency | Process-local; shown in live CLI and TUI status, omitted from retained provider cards because an instantaneous reading goes stale. |
+| Kimi | Session observations only; no account-balance probe. |
+| GitHub | Core REST and GraphQL percentage used. |
+| ElevenLabs | Account credit quota as percentage used, plus the amount due on the next invoice; neither figure tracks speech-to-text audio-minute spend. |
 
-Non-model APIs are metered alongside them. GitHub reports its Core and GraphQL budgets as percentage used. ElevenLabs, when a key is configured, reports its account credit quota the same way and separately labels the amount due on the next invoice; that amount is not a balance, and speech-to-text billing is per minute of audio rather than in those characters. See [API meters](/guide/executor-control-center#api-meters).
+Dashboard provider meters carry the age of each observation.
 
-## Pause / resume
+Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github) and [ElevenLabs](/apis/elevenlabs) for non-model API meaning.
 
-Executors can pause and resume agents. Space toggles the selected ticket pause. Bare `aiur pause` and `aiur resume` operate a separate global switch that stops all provisioning and holds the daemon. On a writable dashboard, the sidebar pause button controls that same durable switch; its neighboring navigation button only collapses or expands the sidebar. The switch survives a restart with recorded provenance, and a restart that cannot read the persisted state fails closed and starts paused rather than releasing a fleet an operator deliberately parked. Launch with `--pause` to cold-start paused. The concurrency cap can change at runtime with the arrow keys or `aiur set max-agents N`; `aiur status` prints which capacity bound is actually limiting the fleet.
+## Pause and capacity
+
+| Control | Scope |
+| --- | --- |
+| Space in TUI | Pause or resume the selected ticket. |
+| `aiur pause` / `aiur resume` | Durable global provisioning switch. |
+| Dashboard sidebar pause | The same durable global switch. |
+| `--pause` | Start a run globally paused. |
+| Arrow keys / `aiur set max-agents N` | Change the live concurrency cap. |
+| `aiur status` | Show the capacity bound currently limiting the fleet. |
+
+A restart that cannot read persisted global-pause state starts paused rather than releasing work.
 
 ## Remote control
 
-Remote control is opt-in per agent through the `model:remote` label or the `r` key and is local-only in v1. Chat panes let an Executor type directly into the live agent session.
+| Control | Behavior |
+| --- | --- |
+| `model:remote` label | Starts an agent with remote control. |
+| `r` key | Promotes the selected compatible agent. |
+| Chat pane | Sends Executor text into the live session. |
+
+Remote control is opt-in per agent and local-only in v1.
