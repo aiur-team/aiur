@@ -31,6 +31,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   import Plug.Test
 
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Webhooks.DeliveryLog
   alias Aiur.Workflow
   alias AiurWeb.GithubWebhook
@@ -367,12 +368,42 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     end
   end
 
+  # Clears every suppression layer, not only the in-memory window: since #2069
+  # a published comment is also recorded durably by resource identity, so a test
+  # that deliberately replays the same comment has to forget both.
+  #
+  # The drain is load-bearing. The receiver answers 202 and publishes from a
+  # supervised task, and `Publisher` records the resource *after* the exchange
+  # hands the event to subscribers — so `await_event/1` can return while the
+  # recording is still in flight. Clearing before that lands would wipe nothing
+  # and leave the replay suppressed, which is a flake, not a finding.
   defp clear_dedup do
+    await_deliveries()
+
     case :ets.whereis(@dedup_table) do
       :undefined -> :ok
       _table -> :ets.delete_all_objects(@dedup_table)
     end
 
+    ResourceStore.reset()
+
     :ok
+  end
+
+  defp await_deliveries(remaining \\ 200)
+
+  defp await_deliveries(0), do: :ok
+
+  defp await_deliveries(remaining) do
+    case Task.Supervisor.children(Aiur.TaskSupervisor) do
+      [] ->
+        :ok
+
+      _running ->
+        Process.sleep(5)
+        await_deliveries(remaining - 1)
+    end
+  catch
+    :exit, _reason -> :ok
   end
 end

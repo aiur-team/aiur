@@ -40,6 +40,7 @@ defmodule Aiur.Events.Publisher do
 
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
@@ -75,6 +76,15 @@ defmodule Aiur.Events.Publisher do
       bypasses filter (e.g. system topics like `system.<base_branch>.branch.push`)
     * `:actor` — author login; if matches `bot_account`, drop
     * `:dedup_key` — stable source-specific key; if set, dedup is applied
+    * `:resource` — an `Aiur.GitHub.ResourceStore` key naming the GitHub
+      resource this event *is*, as `{type, owner, repo, id}`. Where
+      `:dedup_key` suppresses a replay within this daemon's lifetime, this
+      suppresses one across restarts and across pipes: a comment the webhook
+      already published is not published again by the reconciliation sweep that
+      re-reads it, because both name the same resource. Absent, or with no
+      store running, publishing is exactly as it was before.
+    * `:resource_source` — which pipe produced this event (`:webhook` or
+      `:poll`), recorded alongside the resource. Defaults to `:poll`.
     * `:bypass_contamination` — when `true`, skip the tracked-issue
       filter for this publish. Used for external reactivation triggers
       (firehose `issue.commented` / `pr.review_comment`): a `:deactivated`
@@ -107,6 +117,15 @@ defmodule Aiur.Events.Publisher do
           not tracked?(Keyword.get(opts, :issue_number)) ->
         :filtered
 
+      # Durable identity gate. The in-memory window below is the fast path but
+      # it is ETS owned by this process: it empties on every daemon restart,
+      # which is exactly when a duplicate is most likely, because a webhook
+      # delivered the comment before the restart and the first sweep after it
+      # reads the same comment back. Consulted first so a hit never pollutes
+      # the volatile window with an entry that changes nothing.
+      resource_processed?(opts) ->
+        :deduped
+
       deduped?(Keyword.get(opts, :dedup_key)) ->
         :deduped
 
@@ -117,9 +136,21 @@ defmodule Aiur.Events.Publisher do
 
         subscribers = Exchange.publish(topic, event)
         record_emit_marker(topic, event, opts)
+        # Recorded *after* the publish, never before. A crash in between then
+        # leaves the resource unmarked, so the next reconciliation sweep
+        # republishes it — a duplicate the window above still absorbs. Marking
+        # first would make the same crash suppress the event permanently,
+        # because this store is the sweep's own source of suppression.
+        mark_resource_processed(opts)
         DebugLog.broadcast(:publish, topic, id: id, body: payload)
         {:ok, id, subscribers}
     end
+  end
+
+  defp resource_processed?(opts), do: opts |> Keyword.get(:resource) |> ResourceStore.processed?()
+
+  defp mark_resource_processed(opts) do
+    opts |> Keyword.get(:resource) |> ResourceStore.mark_processed(Keyword.get(opts, :resource_source, :poll))
   end
 
   @doc """

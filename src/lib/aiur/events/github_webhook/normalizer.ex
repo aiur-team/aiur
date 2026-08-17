@@ -47,6 +47,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   """
 
   alias Aiur.Events.{CommentFilter, GithubKeys}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketBranch
 
   @type triple :: {String.t(), map(), keyword()}
@@ -328,7 +329,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
              target,
              poller_comment_shape(comment),
              GithubKeys.comment_dedup_key(repo, "issue_comment", String.to_integer(number), Map.get(comment, "id")),
-             if(pull_request?, do: review_context(Map.get(issue, "pull_request")))
+             if(pull_request?, do: review_context(Map.get(issue, "pull_request"))),
+             ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
            )
          ]}
     end
@@ -349,7 +351,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            target,
            upcase_review_state(review),
            GithubKeys.pr_review_dedup_key(repo, pr_number, Map.get(review, "id")),
-           review_context(Map.get(payload, "pull_request"))
+           review_context(Map.get(payload, "pull_request")),
+           ResourceStore.key_for_repo(:pr_review, repo, Map.get(review, "id"))
          )
        ]}
     end
@@ -375,7 +378,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            target,
            poller_comment_shape(comment),
            GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
-           payload |> Map.get("pull_request") |> review_context() |> approval_only_context()
+           payload |> Map.get("pull_request") |> review_context() |> approval_only_context(),
+           ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
          )
        ]}
     end
@@ -384,7 +388,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # GithubCommentsPoller.publish_comment/4: payload keyed by the ticket
   # identifier string, actor from the comment author, contamination bypassed so
   # an inbound human comment can reactivate a deactivated ticket.
-  defp comment_triple(topic, target, comment, dedup_key, review_context) do
+  defp comment_triple(topic, target, comment, dedup_key, review_context, resource) do
     actor = get_in(comment, ["user", "login"])
 
     payload =
@@ -393,10 +397,16 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
         nil -> %{issue_number: target, comment: comment}
       end
 
+    # `:resource` names the GitHub object this delivery *is*, so the poll sweep
+    # that later re-reads the same object recognises it as already handled. It
+    # is the free pipe's contribution to the expensive one: a delivery costs
+    # nothing and arrives first, so it is the right writer of that fact.
     {topic, payload,
      [
        issue_number: target,
        dedup_key: dedup_key,
+       resource: resource,
+       resource_source: :webhook,
        actor: actor,
        bypass_contamination: true
      ]}

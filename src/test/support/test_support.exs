@@ -48,6 +48,7 @@ defmodule Aiur.TestSupport do
     :log_file,
     :build_gate_dir_override,
     :global_pause_store_path,
+    :github_resource_store_path,
     :repo_base_root
   ]
 
@@ -132,6 +133,14 @@ defmodule Aiur.TestSupport do
         # Exchange test that happens to run later in the VM.
         EventsPublisher.set_tracked_fn(fn _ -> true end)
         EventsSubscriptionStore.set_enqueue_fn(nil)
+
+        # Same reasoning, one layer down. `Aiur.GitHub.ResourceStore` records
+        # which GitHub resource each published event was, and it is deliberately
+        # global and restart-durable so a webhook delivery can suppress the poll
+        # sweep that re-reads the same comment. In a suite that means comment id
+        # 1 on issue 42 in one case would silently suppress comment id 1 on
+        # issue 42 in the next, so each case starts from an empty store.
+        Aiur.GitHub.ResourceStore.reset()
 
         File.mkdir_p!(workflow_root)
 

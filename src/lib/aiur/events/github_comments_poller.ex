@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   require Logger
 
   alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, ResourceStore}
 
   @type target :: String.t() | integer()
   @default_max_concurrency 4
@@ -196,13 +196,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
+        resource = ResourceStore.key_for_repo(:issue_comments, repo, target)
+        etag = durable_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(target, request_opts) do
           {:ok, comments, next_etag} ->
+            remember_etag(resource, next_etag)
             {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
+            remember_etag(resource, next_etag)
             {0, nil, :ok, next_etag}
 
           {:error, reason} ->
@@ -211,6 +215,19 @@ defmodule Aiur.Events.GithubCommentsPoller do
             {0, nil, {:error, {:issue_comments, reason}}, etag}
         end
     end
+  end
+
+  # The cycle's own map wins when it has an entry — it is the newest thing this
+  # daemon knows. The store answers only for a target the in-memory map has
+  # never seen, which after a restart is every target: without it the first
+  # sweep of every boot re-reads every watched ticket's whole comment list at
+  # full price, and restarts here are routine rather than rare.
+  defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: etag
+  defp durable_etag(resource, _etag), do: ResourceStore.etag(resource)
+
+  defp remember_etag(resource, etag) do
+    ResourceStore.put_etag(resource, etag)
+    etag
   end
 
   defp publish_issue_comments(target, comments, repo) do
@@ -300,13 +317,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
+        resource = ResourceStore.key_for_repo(:pr_issue_comments, repo, pr_number)
+        etag = durable_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(pr_number, request_opts) do
           {:ok, comments, next_etag} ->
+            remember_etag(resource, next_etag)
             {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
+            remember_etag(resource, next_etag)
             {0, nil, :ok, next_etag}
 
           {:error, reason} ->
@@ -474,7 +495,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: review, pull_request: review_context},
       actor,
       issue_number: target,
-      dedup_key: dedup_key
+      dedup_key: dedup_key,
+      resource: ResourceStore.key_for_repo(:pr_review, repo, review_id)
     )
   end
 
@@ -487,7 +509,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id")),
+      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
     )
   end
 
@@ -499,7 +522,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id")),
+      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
     )
   end
 
@@ -512,8 +536,26 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
-      dedup_key: dedup_key
+      dedup_key: dedup_key,
+      resource: pr_review_comment_resource(repo, comment)
     )
+  end
+
+  # Deliberately mirrors `pr_review_comment_dedup_key/3`'s granularity rather
+  # than improving on it. On the GraphQL batch path this poller dedups per
+  # *thread*, a webhook delivery can only dedup per *comment*, and that
+  # divergence is a known, pinned one (see `Normalizer`'s note and
+  # `github_webhook_equivalence_test.exs`). Naming a comment resource on a
+  # thread-keyed publish would silently reconcile the two at one granularity —
+  # a real change to when an agent wakes, and not this ticket's to make. Where
+  # the poller already keys per comment, the resource matches the delivery's
+  # and the durable layer closes the restart gap the ETS window leaves open.
+  defp pr_review_comment_resource(_repo, %{"review_thread_id" => thread_id})
+       when is_binary(thread_id) and thread_id != "",
+       do: nil
+
+  defp pr_review_comment_resource(repo, comment) when is_map(comment) do
+    ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
   end
 
   defp pr_review_comment_dedup_key(repo, pr_number, %{"review_thread_id" => thread_id})
@@ -531,6 +573,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
     publish_opts =
       publish_opts
       |> Keyword.put(:actor, actor)
+      |> Keyword.put(:resource_source, :poll)
       |> Keyword.put(:bypass_contamination, true)
 
     Publisher.publish(topic, sanitized, publish_opts)
