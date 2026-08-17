@@ -309,7 +309,18 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "preserve this transcript\n")
-    File.write!(fake_ssh, "#!/bin/sh\nshift 2\nexec sh -lc \"$1\"\n")
+    # Stands in for a real `ssh`: run the last argument (the remote command)
+    # with the startup variables the launcher sends through `-o SetEnv=`, so the
+    # stub keeps working when the option list in front of the destination grows.
+    File.write!(
+      fake_ssh,
+      """
+      #!/bin/sh
+      while [ "$#" -gt 1 ]; do shift; done
+      BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null exec sh -c "$1"
+      """
+    )
+
     File.chmod!(fake_ssh, 0o755)
     System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
 
