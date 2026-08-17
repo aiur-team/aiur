@@ -34,8 +34,9 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
   defp publish(provider, windows, opts) do
     observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
     source_version = Map.fetch!(@source_versions, provider)
+    broadcast = Keyword.get(opts, :provider_meter_broadcast_fun, &Events.broadcast/1)
 
-    Events.broadcast(%ProviderMeterSnapshot{
+    broadcast.(%ProviderMeterSnapshot{
       provider: provider,
       backend: @backend,
       provider_account_generation: nil,

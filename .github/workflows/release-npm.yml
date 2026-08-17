@@ -295,11 +295,19 @@ jobs:
 
       - name: Interactive TUI renders
         run: |
-          mkdir -p fixture
-          cat > fixture/.aiurconfig <<'EOF'
-          ---
+          mkdir -p fixture/.aiur
+          # `.aiur/config` is plain YAML. It is NOT the old `.aiurconfig`
+          # front-matter form (`---` / config / `---` / markdown body): wrapping
+          # it in document markers makes the parser yield an empty config, so
+          # every key here is silently ignored — including base_branch, whose
+          # absence then raises at boot as if the key were never written.
+          cat > fixture/.aiur/config <<'EOF'
           tracker:
             kind: memory
+            # Required: Config.base_branch/2 raises rather than defaulting, so a
+            # fixture without it fails the boot with an unresolved-config error
+            # that reads like a packaging fault rather than a missing key.
+            base_branch: main
           polling:
             interval_seconds: 5
           max_vertical_panes: 3
@@ -309,9 +317,6 @@ jobs:
             port: 4000
           workspace:
             root: /tmp/aiur-smoke-workspaces
-          ---
-
-          # Smoke Workflow
           EOF
           cd fixture
           tmux new-session -d -s smoke -x 200 -y 50 "cd $PWD; aiur >run.log 2>&1"

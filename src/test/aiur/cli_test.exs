@@ -48,7 +48,7 @@ defmodule Aiur.CLITest do
       end
     }
 
-    assert {:error, banner} = CLI.evaluate([".aiurconfig"], deps)
+    assert {:error, banner} = CLI.evaluate(["config.yaml"], deps)
     assert banner =~ "This Aiur implementation is a low key engineering preview."
     assert banner =~ "Codex will run without any guardrails."
     assert banner =~ "Aiur is not a supported product and is presented as-is."
@@ -74,6 +74,33 @@ defmodule Aiur.CLITest do
     }
 
     assert :ok = CLI.evaluate([@ack_flag], deps)
+  end
+
+  test "rejects an explicit legacy config path before starting the app" do
+    parent = self()
+
+    legacy_deps = %{
+      deps()
+      | file_regular?: fn _path ->
+          send(parent, :file_checked)
+          true
+        end,
+        set_workflow_file_path: fn _path -> send(parent, :workflow_set) end,
+        ensure_all_started: fn -> send(parent, :started) end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag, ".aiurconfig"], legacy_deps)
+    assert message =~ ".aiurconfig is no longer supported"
+    assert message =~ ".aiur/config"
+    refute_received :file_checked
+    refute_received :workflow_set
+    refute_received :started
+  end
+
+  test "a named legacy config points to the equivalent YAML filename" do
+    assert {:error, message} = CLI.evaluate([@ack_flag, "portable.aiurconfig"], deps())
+    assert message =~ "portable.aiurconfig is no longer supported"
+    assert message =~ "portable.yaml"
   end
 
   test "parses the findings command and its filters without starting the app" do
@@ -158,7 +185,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", ".aiurconfig"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", "config.yaml"], deps)
     assert_received {:logs_root, expanded_path}
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
@@ -178,7 +205,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "--host", "127.0.0.1", ".aiurconfig"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "--host", "127.0.0.1", "config.yaml"], deps)
     assert_received {:host, "127.0.0.1"}
   end
 
@@ -192,7 +219,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, "--host", "   ", ".aiurconfig"], deps)
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--host", "   ", "config.yaml"], deps)
     assert message =~ "Usage: aiur"
   end
 
@@ -206,7 +233,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, ".aiurconfig"], deps)
+    assert {:error, message} = CLI.evaluate([@ack_flag, "config.yaml"], deps)
     assert message =~ "Config file not found:"
   end
 
@@ -220,7 +247,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:error, :boom} end
     }
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, ".aiurconfig"], deps)
+    assert {:error, message} = CLI.evaluate([@ack_flag, "config.yaml"], deps)
     assert message =~ "Failed to start Aiur with workflow"
     assert message =~ ":boom"
   end
@@ -235,7 +262,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "config.yaml"], deps)
   end
 
   test "routes a bare init subcommand to the wizard with force false" do
@@ -262,7 +289,7 @@ defmodule Aiur.CLITest do
         end
       })
 
-    assert :ok = CLI.evaluate([@ack_flag, "some/.aiurconfig"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "some/config.yaml"], deps)
     assert_received {:workflow_checked, _path}
   end
 
@@ -326,7 +353,7 @@ defmodule Aiur.CLITest do
       ensure_all_started: fn -> {:ok, [:aiur]} end
     }
 
-    assert :ok = CLI.evaluate([@ack_flag, "--interactive", ".aiurconfig"], deps)
+    assert :ok = CLI.evaluate([@ack_flag, "--interactive", "config.yaml"], deps)
     assert Application.get_env(:aiur, :interactive_cli) == true
   end
 
@@ -341,7 +368,7 @@ defmodule Aiur.CLITest do
       end
     end)
 
-    assert :ok = CLI.evaluate([@ack_flag, "--executor", ".aiurconfig"], passthrough_deps())
+    assert :ok = CLI.evaluate([@ack_flag, "--executor", "config.yaml"], passthrough_deps())
     assert Application.get_env(:aiur, :executor_mode) == true
   end
 
@@ -383,7 +410,7 @@ defmodule Aiur.CLITest do
 
     Application.delete_env(:aiur, :headless)
 
-    assert :ok = CLI.evaluate([@ack_flag, "--headless", ".aiurconfig"], passthrough_deps())
+    assert :ok = CLI.evaluate([@ack_flag, "--headless", "config.yaml"], passthrough_deps())
     assert Application.get_env(:aiur, :headless) == true
   end
 
@@ -398,7 +425,7 @@ defmodule Aiur.CLITest do
 
     Application.delete_env(:aiur, :no_dashboard)
 
-    assert :ok = CLI.evaluate([@ack_flag, "--no-dashboard", ".aiurconfig"], passthrough_deps())
+    assert :ok = CLI.evaluate([@ack_flag, "--no-dashboard", "config.yaml"], passthrough_deps())
     assert Application.get_env(:aiur, :no_dashboard) == true
   end
 
@@ -413,7 +440,7 @@ defmodule Aiur.CLITest do
 
     Application.delete_env(:aiur, :launch_globally_paused)
 
-    assert :ok = CLI.evaluate([@ack_flag, "--pause", ".aiurconfig"], passthrough_deps())
+    assert :ok = CLI.evaluate([@ack_flag, "--pause", "config.yaml"], passthrough_deps())
     assert Application.get_env(:aiur, :launch_globally_paused) == true
   end
 
@@ -428,7 +455,7 @@ defmodule Aiur.CLITest do
 
     Application.delete_env(:aiur, :launch_globally_paused)
 
-    assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], passthrough_deps())
+    assert :ok = CLI.evaluate([@ack_flag, "config.yaml"], passthrough_deps())
     assert is_nil(Application.get_env(:aiur, :launch_globally_paused))
   end
 
@@ -443,7 +470,7 @@ defmodule Aiur.CLITest do
 
     Application.delete_env(:aiur, :max_concurrent_agents_override)
 
-    assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], passthrough_deps())
+    assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", "config.yaml"], passthrough_deps())
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == 4
   end
 
@@ -452,7 +479,7 @@ defmodule Aiur.CLITest do
 
     stderr =
       capture_io(:stderr, fn ->
-        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "20", ".aiurconfig"], configured_deps(8))
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "20", "config.yaml"], configured_deps(8))
       end)
 
     assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
@@ -466,7 +493,7 @@ defmodule Aiur.CLITest do
       capture_io(:stderr, fn ->
         assert :ok =
                  CLI.evaluate(
-                   [@ack_flag, "--max-agents", "4", "--max-agents", "20", ".aiurconfig"],
+                   [@ack_flag, "--max-agents", "4", "--max-agents", "20", "config.yaml"],
                    configured_deps(8)
                  )
       end)
@@ -480,8 +507,8 @@ defmodule Aiur.CLITest do
 
     stderr =
       capture_io(:stderr, fn ->
-        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "8", ".aiurconfig"], configured_deps(8))
-        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], configured_deps(8))
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "8", "config.yaml"], configured_deps(8))
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", "config.yaml"], configured_deps(8))
       end)
 
     assert stderr == ""
@@ -490,7 +517,7 @@ defmodule Aiur.CLITest do
   test "an absent --max-agents flag is silent" do
     preserve_max_agents_override()
 
-    stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], configured_deps(8)) end)
+    stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, "config.yaml"], configured_deps(8)) end)
 
     assert stderr == ""
   end
@@ -505,7 +532,7 @@ defmodule Aiur.CLITest do
         else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
     end)
 
-    assert {:error, message} = CLI.evaluate([@ack_flag, "--max-agents", "0", ".aiurconfig"], passthrough_deps())
+    assert {:error, message} = CLI.evaluate([@ack_flag, "--max-agents", "0", "config.yaml"], passthrough_deps())
     assert message =~ "Usage: aiur"
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == nil
   end

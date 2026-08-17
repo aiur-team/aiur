@@ -625,12 +625,17 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert {:ok, [^fresh], state} = Dispatcher.fetch_candidate_issues(state, fetch_fun: fetch_fun)
     assert state.ci_lifecycle.poll_cache.candidate_list_cache == %{etag: "v2"}
 
-    # Revalidation is paced by the configured polling interval...
-    assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 1.0) == 5_000
+    # `repo: nil` pins out webhook interval widening, which resolves the repo
+    # through the global `Aiur.GitHub.Config.repo/0` and its webhook-mode state.
+    # Leaving it unpinned made this assertion depend on whichever sibling test
+    # last touched that global — green alone, 10_000 in a full suite run.
+    # Webhook widening is covered by `Aiur.Webhooks.IntervalPolicy`'s own tests;
+    # what this test owns is the configured-interval pacing of revalidation.
+    assert TrackerHealth.next_poll_delay_ms(state, repo: nil, idle_widen_factor: 1.0) == 5_000
 
     # ...which an idle fleet then widens by `polling.idle_widen_factor` (5.0).
     # Snapshot freshness is bounded by the effective interval, not the raw one.
-    assert TrackerHealth.next_poll_delay_ms(state) == 25_000
+    assert TrackerHealth.next_poll_delay_ms(state, repo: nil) == 25_000
   end
 
   test "a failed GitHub candidate refresh hides stale idle labels but preserves recovery data" do

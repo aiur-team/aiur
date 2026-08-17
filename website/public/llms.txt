@@ -24,8 +24,8 @@ first-class and supported by design.
   apply merge policy, and observes the run in the dashboard. The dashboard is
   read-only by default; configured writable mode adds its supported controls.
 - **Agent-driven.** A coding agent (Claude Code, Codex) operates Aiur as the
-  Executor — launching, monitoring, recovering stuck agents, coordinating PR
-  review — while the human converses with that agent in parallel. The repository
+  Executor: launching, monitoring, recovering stuck agents, coordinating PR
+  review. The human converses with that agent in parallel. The repository
   source repository bundles skills for this: `.claude/skills/aiur-intro` (what Aiur is, install,
   choosing a mode), `.claude/skills/aiur-run` (operate a run end to end as its
   Executor), and `.claude/skills/aiur-monitor` (status board and alert feed).
@@ -88,7 +88,7 @@ credentials, workspace, and agent settings as needed. Configuration is YAML;
 Aiur discovers it in this order:
 
 ```text
-./.aiur/config → ./.aiurconfig → ~/.aiur/config → ~/.aiurconfig
+./.aiur/config → ~/.aiur/config
 ```
 
 When setup is complete, add `agent:todo` to the issues that should be worked
