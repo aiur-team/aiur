@@ -140,7 +140,7 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
     await expect(page).toHaveURL(/\/build-orders\/43$/)
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'selected_stale')
-    await expect(page.getByRole('heading', { name: 'Stale last-known-good graph' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Plan is not live' })).toBeVisible()
     await expect(page.locator('#selected-build-order-graph [data-bo-card]')).toHaveCount(1)
 
     await page.goBack()
@@ -274,14 +274,14 @@ test('an unresolvable Build Order renders one copyable page-level error state', 
 
     const card = page.locator('.bo-state-card')
     await expect(card).toHaveCount(1)
-    await expect(card.getByRole('heading', { name: 'Could not fetch planning graph' })).toBeVisible()
+    await expect(card.getByRole('heading', { name: 'Could not read the plan' })).toBeVisible()
     await expect(page.locator('.bo-summary-grid, .bo-breakdown, .bo-analytics, .bo-usage, .bo-diagnostics')).toHaveCount(0)
 
     const prompt = page.locator('#build-order-debug-prompt')
     // The prompt must name the specific reported fault, the root, and what was
     // being read — enough that pasting it to an agent starts real work.
     await expect(prompt).toHaveValue(
-      "Investigate why Build Order #1567's planning graph could not be fetched. " +
+      "Investigate why Build Order #1567's plan could not be read. " +
       'The selected-root provider reports `rate_limited` ' +
       '(reading the selected-root graph for owner/repo, provider generation 9); ' +
       'graph counts are unresolved.'
@@ -314,7 +314,7 @@ test('a malformed Build Order names the structural fault, not its fail-closed he
 
     const card = page.locator('.bo-state-card')
     await expect(card).toHaveCount(1)
-    await expect(card.getByRole('heading', { name: 'Fetched planning graph is malformed' })).toBeVisible()
+    await expect(card.getByRole('heading', { name: 'The plan is unreadable' })).toBeVisible()
     await expect(page.locator('.bo-summary-grid, .bo-breakdown, .bo-analytics, .bo-usage, .bo-diagnostics')).toHaveCount(0)
 
     // One card is only an improvement if the one card names the right reason.
@@ -322,7 +322,7 @@ test('a malformed Build Order names the structural fault, not its fail-closed he
     // structural defect, so it must appear nowhere on the page.
     await expect(card).toContainText('Reported fault: invalid_member')
     await expect(page.locator('#build-order-debug-prompt')).toHaveValue(
-      "Investigate why Build Order #1568's fetched planning graph is malformed. " +
+      "Investigate why Build Order #1568's plan is unreadable. " +
       'The selected-root provider reports `invalid_member` ' +
       '(reading the selected-root graph for owner/repo, provider generation 9) with `members: 0`.'
     )

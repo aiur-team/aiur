@@ -134,7 +134,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # The placeholder is not a unit: `#units-rows` stays empty so every row
     # selector keyed on it still counts only real units.
     refute unavailable =~ ~r{<tbody id="units-rows">\s*<tr}
-    assert unavailable =~ "Units catalog unavailable"
+    assert unavailable =~ "No live units"
     assert unavailable =~ "membership failed"
     # Every zero-unit catalog reads the same sentence. The per-status detail is
     # not lost: `UnitsPresenter.announcement/1` derives its own copy from the
@@ -155,10 +155,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # table rather than rendering a blank area. It keeps the column headings so
     # the catalog reads as empty rather than absent, and it still says why it is
     # empty instead of claiming a fleet-wide emptiness it never observed.
-    stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
+    stale_empty = render(%{status: :stale, message: "No live units. Fleet data is unavailable.", rows: [], zero_result?: false})
     refute stale_empty =~ "Stale Units catalog"
-    assert stale_empty =~ "No last-known-good Units catalog is retained."
-    refute stale_empty =~ "No live units."
+    assert stale_empty =~ "No live units. Fleet data is unavailable."
     assert stale_empty =~ "units-table"
 
     # With no reason composed, the ordinary empty-state sentence still stands in.
@@ -172,8 +171,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute stale_filtered =~ "No live units."
 
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
-    assert partial =~ "Units catalog is partial"
-    assert partial =~ "Counts are lower bounds"
+    assert partial =~ "Partial list"
+    assert partial =~ "Counts are at least this high"
   end
 
   test "keeps the column headings and names the empty state when the catalog holds no units" do
@@ -205,7 +204,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
 
     unavailable = render(%{status: :unavailable, message: "membership failed", rows: [], zero_result?: false})
     assert unavailable =~ "No active agents"
-    refute unavailable =~ "No live units."
+    refute unavailable =~ ~s(units-empty-cell\" colspan=\"5\">No live units.)
   end
 
   test "renders a named, reachable pause control for a running unit when writable" do

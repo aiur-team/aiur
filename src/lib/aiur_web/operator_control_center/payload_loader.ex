@@ -230,7 +230,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
         status: :unavailable,
         partial?: true,
         reason: :retained_store_unavailable,
-        label: "Retained Decision counts unavailable"
+        label: "Command counts unavailable"
       }
     }
   end

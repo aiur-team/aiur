@@ -149,7 +149,12 @@ defmodule Aiur.AppServer.Adapter do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(AgentEnvironment.scrub_shell_command(command))],
+            args: [
+              ~c"-c",
+              # workspace_env/1 has already removed the operator's BASH_ENV or
+              # replaced it with Aiur's immutable build-admission hook.
+              String.to_charlist(AgentEnvironment.scrub_shell_command(command, trusted_bash_env: true))
+            ],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),
             line: @port_line_bytes
@@ -181,24 +186,25 @@ defmodule Aiur.AppServer.Adapter do
   # the owned process starts.
   defp port_env(env) when is_list(env) do
     Enum.flat_map(env, fn
-      {name, value} when is_binary(name) and is_binary(value) ->
-        [{String.to_charlist(name), String.to_charlist(value)}]
+      {name, _value} = entry ->
+        if AgentEnvironment.shell_startup_env_name?(name), do: [], else: normalize_port_env(entry)
 
-      {name, false} when is_binary(name) ->
-        [{String.to_charlist(name), false}]
-
-      {name, value} when is_list(name) and is_list(value) ->
-        [{name, value}]
-
-      {name, false} when is_list(name) ->
-        [{name, false}]
-
-      _ ->
+      _other ->
         []
     end)
   end
 
   defp port_env(_env), do: []
+
+  defp normalize_port_env({name, value}) when is_binary(name) and is_binary(value),
+    do: [{String.to_charlist(name), String.to_charlist(value)}]
+
+  defp normalize_port_env({name, false}) when is_binary(name),
+    do: [{String.to_charlist(name), false}]
+
+  defp normalize_port_env({name, value}) when is_list(name) and is_list(value), do: [{name, value}]
+  defp normalize_port_env({name, false}) when is_list(name), do: [{name, false}]
+  defp normalize_port_env(_other), do: []
 
   defp terminate_uncontained_port(port) do
     case :erlang.port_info(port, :os_pid) do

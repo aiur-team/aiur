@@ -38,8 +38,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderUsage do
         >
           <span aria-hidden="true">◉</span>
           <span>
-            <b>Membership may be out of date.</b>
-            Showing the last known-good member set while the Build Order graph refreshes.
+            <b>Unit list may be out of date.</b>
+            Showing the units we last saw while the Build Order refreshes.
           </span>
         </p>
 
@@ -88,7 +88,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderUsage do
     ~H"""
     <section class="section-card bo-usage-state error-card" role="alert" aria-label="This build usage and cost">
       <h2>Usage and cost unavailable</h2>
-      <p>The current Build Order membership cannot be read right now, so build-scoped usage is unavailable.</p>
+      <p>The current Build Order's units cannot be read right now, so usage for this build is unavailable.</p>
     </section>
     """
   end

@@ -13,7 +13,7 @@ defmodule Aiur.Claude.RemoteControl do
     * `resolve_transcript_path/1` / `newest_transcript/3` — locate the
       session's `.jsonl` transcript so a re-dispatched agent resumes by cwd,
     * `graceful_kill/1` / `graceful_kill_tree/1` — SIGTERM→SIGKILL a tracked
-      OS pid (and, for the headless `bash -lc` wrapper, its orphaned subtree),
+      OS pid (and, for the headless `bash -c` wrapper, its orphaned subtree),
     * `reap_orphaned_servers/0` — sweep RC debug files left by a crashed aiur.
 
   ## Workspace trust
@@ -238,18 +238,18 @@ defmodule Aiur.Claude.RemoteControl do
 
   @doc false
   # Like graceful_kill/1 but also reaps the process subtree. The headless
-  # `claude` backend runs under a `bash -lc` wrapper that does NOT exec, so
+  # `claude` backend runs under a `bash -c` wrapper that does NOT exec, so
   # its `claude`/node grandchildren reparent to init when the bash pid dies
   # and would survive teardown. Descendants are snapshotted while the root is
-  # still alive (once it dies the parent link is lost), then each is
-  # graceful-killed alongside the root.
+  # still alive (once it dies the parent link is lost), then reaped deepest
+  # first so their living parents can collect them before the root exits.
   @spec graceful_kill_tree(nil | integer()) :: :ok
   def graceful_kill_tree(nil), do: :ok
 
   def graceful_kill_tree(os_pid) when is_integer(os_pid) do
     descendants = collect_descendants(os_pid)
+    descendants |> Enum.reverse() |> Enum.each(&graceful_kill/1)
     graceful_kill(os_pid)
-    Enum.each(descendants, &graceful_kill/1)
     :ok
   end
 

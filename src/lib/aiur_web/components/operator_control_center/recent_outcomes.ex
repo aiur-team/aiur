@@ -23,10 +23,10 @@ defmodule AiurWeb.OperatorControlCenter.RecentOutcomes do
         </div>
       </div>
       <div :if={@provider_health == :unavailable} class="empty-state compact">
-        Recent outcomes provider is currently unavailable.
+        Recent outcomes are unavailable right now.
       </div>
       <div :if={@provider_health == :degraded} class="empty-state compact">
-        Recent outcomes are degraded; showing the last validated prefix.
+        Showing a partial list of recent outcomes.
       </div>
       <div :if={@provider_health != :unavailable and @outcomes == []} class="empty-state compact">
         No recent repository merges are recorded.

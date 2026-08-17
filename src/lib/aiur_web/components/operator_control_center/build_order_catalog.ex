@@ -148,8 +148,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         class="bo-catalog-progress-unresolved bo-catalog-count-unresolved"
         data-count-state="unresolved"
         role="img"
-        aria-label={"#{@label} unresolved; count not fetched"}
-        title={"#{@label} were not fetched for this catalog entry"}
+        aria-label={"#{@label} not counted"}
+        title={"#{@label} could not be counted for this Build Order"}
       >
         Unresolved
       </span>
@@ -177,22 +177,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   defp catalog_path(_entry), do: nil
 
   defp catalog_notice(%Snapshot{health: %{state: :stale}}),
-    do: %{title: "Stale catalog", message: "Showing the last-known-good catalog while refresh is degraded."}
+    do: %{title: "Not live", message: "Showing the Build Orders we last saw; the refresh is failing."}
 
   defp catalog_notice(%Snapshot{health: %{state: :structurally_invalid}}),
     do: %{title: "Catalog validation warning", message: "Showing bounded entries with structural diagnostics."}
 
   defp catalog_notice(_snapshot), do: nil
 
-  defp catalog_state_title(:loading), do: "Loading Build Order catalog"
-  defp catalog_state_title(:stale), do: "Catalog is stale"
-  defp catalog_state_title(:invalid), do: "Catalog is structurally invalid"
-  defp catalog_state_title(_state), do: "Catalog unavailable"
+  defp catalog_state_title(:loading), do: "Loading Build Orders"
+  defp catalog_state_title(:stale), do: "Build Order list is not live"
+  defp catalog_state_title(:invalid), do: "Build Order list is unreadable"
+  defp catalog_state_title(_state), do: "No Build Order list"
 
-  defp catalog_state_message(:loading), do: "Waiting for the first validated repository catalog snapshot."
-  defp catalog_state_message(:stale), do: "The provider is stale and no last-known-good catalog is available."
-  defp catalog_state_message(:invalid), do: "The provider response failed structural validation."
-  defp catalog_state_message(_state), do: "No validated catalog snapshot is available."
+  defp catalog_state_message(:loading), do: "Waiting for the first list of Build Orders."
+  defp catalog_state_message(:stale), do: "The list is out of date and there is no earlier list to show."
+  defp catalog_state_message(:invalid), do: "The list of Build Orders came back unreadable."
+  defp catalog_state_message(_state), do: "No readable list of Build Orders is available."
 
   defp catalog_state_role(:invalid), do: "alert"
   defp catalog_state_role(_state), do: "status"

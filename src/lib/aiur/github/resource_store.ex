@@ -190,6 +190,10 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # A single check run, as one `check_run` delivery reports it. Keyed on the
+    # run's own id because that is the only identity one delivery can claim: it
+    # says nothing about the other runs on the same head.
+    :check_run,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
@@ -717,6 +721,17 @@ defmodule Aiur.GitHub.ResourceStore do
   catch
     :exit, _reason -> {:error, :unavailable}
   end
+
+  @doc """
+  True when there is a store to read and write.
+
+  Answered from the table every read and write funnels through, not from a
+  process name: writes land in ETS from the caller's own process, and the table
+  name is fixed while the process name is a start-up option. A caller that gates
+  on the wrong one would skip its work silently against a store that is running.
+  """
+  @spec running?() :: boolean()
+  def running?, do: with_table(false, fn _table -> true end)
 
   @doc "Entry count, or `0` when no store is running."
   @spec size() :: non_neg_integer()

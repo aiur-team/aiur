@@ -115,7 +115,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `worker.ssh_hosts` | array | `[]` | SSH hosts available for remote execution. |
+| `worker.ssh_hosts` | array | `[]` | SSH hosts available for remote execution. Each server must allow `BASH_ENV`, `ENV`, `HOME`, and `ZDOTDIR` through OpenSSH `AcceptEnv`; Aiur neutralizes them before the account shell starts and fails closed if the server rejects them. |
 | `worker.max_concurrent_agents_per_host` | integer or nil | nil | Per-host concurrent-agent cap. |
 
 ## agent
@@ -144,7 +144,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
-| `agent.max_load_average` | float | 1.5 | Per-scheduler load ceiling. Above it, dispatch holds only when a short-window CPU sample also shows less than 60% reclaimable capacity (idle + niced CPU); null disables it. If the CPU delta is unavailable, load remains the conservative fallback. |
+| `agent.max_load_average` | float | 1.5 | Per-scheduler load ceiling. Above it, dispatch holds only when a short-window CPU sample also shows less than 60% reclaimable capacity (idle + niced CPU); null disables it. Until that sample exists — the first dispatch decision after the daemon starts has nothing to compare against — dispatch proceeds, and the next cycle holds if the measured window confirms the contention. |
 | `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
 | `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
@@ -278,7 +278,7 @@ Fleet admission uses total host pressure instead of a hard-coded process count, 
 | --- | --- |
 | CPU load and adaptive AIMD envelope | `agent.max_load_average`, `agent.target_load_average`, `agent.load_ramp_step`, and `agent.load_cooldown_seconds` reduce and re-ramp capacity around per-scheduler targets. |
 | Run queue | `agent.run_queue_threshold` reacts to `procs_running` spikes before the one-minute load average catches up. |
-| CPU corroboration | High load or runnable counts hold dispatch only when consecutive CPU samples show less than 60% reclaimable capacity; idle and niced CPU count as reclaimable. |
+| CPU corroboration | High load or runnable counts hold dispatch only when consecutive CPU samples show less than 60% reclaimable capacity; idle and niced CPU count as reclaimable. Without a measurable window there is no hold, so every `capacity_hold` for `load` or `run_queue` carries the reclaimable-CPU measurement behind it. |
 | Memory, file descriptors, build pressure, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. |
 | Recovery | Gates reopen when pressure clears, and AIMD re-ramps within its cooldown window. |
 
