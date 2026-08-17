@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         <span><b>Partial list.</b> Counts are at least this high; some units are not shown.</span>
       </div>
 
-      <div class="units-table-wrap">
+      <div class="units-table-wrap full-bleed-table-wrap">
         <table class="units-table">
           <caption class="sr-only">Units catalog with execution facts, current evidence, and named actions</caption>
           <thead>

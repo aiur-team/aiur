@@ -204,7 +204,10 @@ defmodule Aiur.AgentRunner.CommentContext do
         comment: comment,
         source: :github,
         author: author,
-        author_trusted?: Map.get(comment, :authoritative, false)
+        # Ownership can now be *unknown* (`nil`) when a quota hold blocks the
+        # CODEOWNERS lookup. Unknown is not trusted, and the payload stays a
+        # boolean so downstream matches on `false` still hold.
+        author_trusted?: Map.get(comment, :authoritative) == true
       }
       |> Sanitizer.scrub()
 

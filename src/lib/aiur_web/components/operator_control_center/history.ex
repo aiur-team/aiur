@@ -54,14 +54,13 @@ defmodule AiurWeb.OperatorControlCenter.History do
       </div>
       <div :if={@provider_health == :ok and @loaded == 0} class="empty-state compact">No Command actions have been recorded.</div>
 
-      <div :if={@loaded > 0} class="history-table-wrap">
+      <div :if={@loaded > 0} class="history-table-wrap full-bleed-table-wrap">
         <table class="history-table" aria-label="Command history">
           <thead>
             <tr>
               <th scope="col">Command</th>
               <th scope="col">Decision</th>
               <th scope="col">Result</th>
-              <th scope="col">Raised</th>
             </tr>
           </thead>
           <tbody id="command-history-rows">
@@ -143,23 +142,23 @@ defmodule AiurWeb.OperatorControlCenter.History do
         </button>
       </td>
       <td class="history-decision">{decision_choice(@decision) || "—"}</td>
-      <td>
+      <td class="history-result-cell" data-sort-value={timestamp_sort_value(@decision.created_at)}>
         <div class="history-result">
           <span class={["chip", tone(@decision)]}>{decision_status(@decision)}</span>
           <span :if={answer_actor_label(@decision)} class={answer_actor_class(@decision)}>{answer_actor_label(@decision)}</span>
         </div>
-      </td>
-      <td class="history-when mono">
-        {raised_at(@decision.created_at)}
-        <span class="expand-chevron" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </span>
+        <div class="history-when mono">
+          <time datetime={timestamp_sort_value(@decision.created_at)}>{raised_at(@decision.created_at)}</time>
+          <span class="expand-chevron" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </span>
+        </div>
       </td>
     </tr>
     <tr :if={@expanded} id={@detail_id} class="history-detail-row">
-      <td colspan="4">
+      <td colspan="3">
         <%!-- The panel needs its own heading: a table row carries no heading
               level, so without this the detail's own h4 blocks would skip one,
               and a screen reader would meet the panel with nothing naming the
@@ -281,4 +280,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   end
 
   defp raised_at(_created_at), do: "unknown"
+
+  defp timestamp_sort_value(%DateTime{} = created_at), do: DateTime.to_iso8601(created_at)
+  defp timestamp_sort_value(_created_at), do: nil
 end

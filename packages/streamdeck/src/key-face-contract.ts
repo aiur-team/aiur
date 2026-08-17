@@ -44,6 +44,9 @@ interface KeyFaceContract {
 
 export const KEY_FACE_CONTRACT = contract as KeyFaceContract;
 
+/** Flat neutral fill shared by every Stream Deck surface with no progress reading. */
+export const UNKNOWN_PROGRESS_COLOR = "rgba(255,255,255,0.22)";
+
 function assertExactKeys(actual: object, expected: readonly string[], label: string): void {
   const actualKeys = Object.keys(actual).sort();
   const expectedKeys = [...expected].sort();

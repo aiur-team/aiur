@@ -74,7 +74,7 @@ describe("agentDetailModel", () => {
   /**
    * A missing reading is null here for the same reason it is null on the key
    * face. Returning 0 put "0%" and a full-width red meter on the 800px readout
-   * one key press after that ticket's key painted a dashed no-reading track —
+   * one key press after that ticket's key painted a neutral no-reading bar —
    * two contradictory claims about one ticket.
    */
   it("clamps a real percentage into 0..100 and reads an absent one as unknown", () => {

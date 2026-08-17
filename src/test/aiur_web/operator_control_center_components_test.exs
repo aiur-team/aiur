@@ -536,6 +536,24 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "“Ship it”"
   end
 
+  test "stacks each history result with its raised timestamp in one column" do
+    answered = inbox_decision("dec-history-stacked", decision_status: :decided, answer: action_answer(:operator))
+
+    document =
+      [answered]
+      |> render_history()
+      |> Floki.parse_document!()
+
+    timestamp = DateTime.to_iso8601(answered.created_at)
+
+    assert Floki.find(document, ".history-table thead th") |> Enum.map(&Floki.text/1) == ["Command", "Decision", "Result"]
+    assert [result_cell] = Floki.find(document, ".history-row > td.history-result-cell:has(.history-result):has(.history-when)")
+    assert Floki.attribute(result_cell, "data-sort-value") == [timestamp]
+    assert Floki.attribute(result_cell, ".history-when time", "datetime") == [timestamp]
+    assert Floki.text(result_cell |> Floki.find(".history-when") |> List.first()) =~ "UTC"
+    assert render_history([answered], expanded_id: answered.decision_id) =~ ~s(<td colspan="3">)
+  end
+
   test "quotes only what somebody actually said, never a status sentence or a blank answer" do
     deferred = inbox_decision("dec-quote-deferred", decision_status: :deferred)
     dismissed = inbox_decision("dec-quote-dismissed", decision_status: :dismissed)
