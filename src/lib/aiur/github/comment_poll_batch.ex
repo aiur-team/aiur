@@ -83,7 +83,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     query = query(indexed)
     variables = %{"owner" => owner, "repo" => repo}
 
-    case Transport.github_graphql(request_fun, token, query, variables) do
+    case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
           %{} = repository -> {:ok, build_target_batch(indexed, repository, opts)}

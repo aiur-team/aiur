@@ -163,10 +163,13 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def add_review_thread_reply(request_fun, token, thread_id, body) do
-    Transport.github_graphql(request_fun, token, @reply_review_thread_mutation, %{
-      "threadId" => thread_id,
-      "body" => body
-    })
+    Transport.github_graphql(
+      request_fun,
+      token,
+      @reply_review_thread_mutation,
+      %{"threadId" => thread_id, "body" => body},
+      caller: :review_thread_reply
+    )
   end
 
   @spec verify_review_thread_reply(function(), String.t(), String.t(), String.t(), keyword()) ::
