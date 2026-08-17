@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
   """
 
   require Logger
-  alias Aiur.GitHub.{BotIdentity, ReviewThreads, Transport}
+  alias Aiur.GitHub.{BotIdentity, ReviewThreads, Transport, WriteThrough}
   alias Aiur.GitHub.ReviewThreads.{Reply, ResolutionPolicy}
 
   @resolve_review_thread_mutation """
@@ -103,6 +103,10 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 
+      {:ok, body} = result ->
+        WriteThrough.review_thread(mutated_thread(body, "resolveReviewThread"))
+        result
+
       result ->
         result
     end
@@ -114,10 +118,27 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 
+      {:ok, body} = result ->
+        WriteThrough.review_thread(mutated_thread(body, "unresolveReviewThread"))
+        result
+
       result ->
         result
     end
   end
+
+  # The thread's resolution state is a gate Aiur reads before it will advance a
+  # ticket, so the state its own mutation just set belongs in the store rather
+  # than being re-read. Matched, never `get_in/2`: an unexpected shape must not
+  # raise out of a mutation that already succeeded.
+  defp mutated_thread(%{"data" => %{} = data}, field) do
+    case Map.get(data, field) do
+      %{"thread" => %{} = thread} -> thread
+      _other -> nil
+    end
+  end
+
+  defp mutated_thread(_body, _field), do: nil
 
   @spec unresolve_review_thread_after_post_resolution_failure(function(), String.t(), String.t(), term()) ::
           {:error, term()}

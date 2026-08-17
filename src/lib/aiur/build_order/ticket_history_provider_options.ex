@@ -2,13 +2,20 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
   @moduledoc false
 
   alias Aiur.BuildOrder.{TicketDetail, TicketHistory.Normalizer}
-  alias Aiur.{Config, IssueLog, TicketActivity, WorkflowStore}
+  alias Aiur.{Config, IssueLog, PollCadence, TicketActivity, WorkflowStore}
   alias Aiur.Events.Exchange
 
   @default_history_limit 50
   @default_max_identities 100
   @default_stale_after_ms 60_000
   @max_stale_after_ms 300_000
+
+  # Ticket history is refreshed by the same tracker sweep as everything else, so
+  # a window narrower than the cadence marks correct data stale. The configured
+  # `build_order.ticket_history_stale_after_ms` (and the 300s schema maximum)
+  # therefore act as a lower bound on operator intent, not as the final answer:
+  # the effective window is always at least two poll cycles wide.
+  @stale_after_intervals 2
 
   @spec new(keyword()) :: map()
   def new(opts) do
@@ -17,7 +24,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
     %{
       history_limit: bounded_positive(opts, :history_limit, @default_history_limit, Normalizer.hard_limit()),
       max_identities: bounded_positive(opts, :max_identities, @default_max_identities, Normalizer.hard_limit()),
-      stale_after_ms: bounded_positive(opts, :stale_after_ms, @default_stale_after_ms, @max_stale_after_ms),
+      stale_after_ms: stale_after_ms(opts),
       now: Keyword.get(opts, :now, &DateTime.utc_now/0),
       history_fun: Keyword.get(opts, :history_fun, &IssueLog.event_history/2),
       activity_snapshot_fun: Keyword.get(opts, :activity_snapshot_fun, &TicketActivity.snapshot/1),
@@ -49,6 +56,12 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
           TicketDetail.configured_repository_snapshot([])
         end)
     end
+  end
+
+  defp stale_after_ms(opts) do
+    configured_ms = bounded_positive(opts, :stale_after_ms, @default_stale_after_ms, @max_stale_after_ms)
+
+    PollCadence.stale_after_ms(@stale_after_intervals, floor_ms: configured_ms)
   end
 
   defp bounded_positive(opts, key, default, maximum) do

@@ -93,6 +93,16 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 | `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the single view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. It replaced the separate ticket-backlog, ad-hoc-overlay and pack-status cadences, which had no config key at all. |
 
+Freshness thresholds follow this cadence. You do not set them separately.
+
+- The **effective** interval is `interval_seconds` after `idle_widen_factor`,
+  `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
+- The dashboard, the Units catalog and Build Order ticket history all judge
+  staleness against that effective interval.
+- So a change to `interval_seconds` needs no matching threshold edit.
+- `aiur status` prints the effective value, for example
+  `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+
 ## webhooks
 
 | Key | Type | Default | Controls |
@@ -506,7 +516,7 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
-| `build_order.ticket_history_stale_after_ms` | integer | 60000 | Age after which ticket history is stale. |
+| `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
 | `build_order.graph_catalog_refresh_ms` | integer | derived (1× poll interval) | Catalog refresh cadence. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |

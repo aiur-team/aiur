@@ -19,7 +19,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Config, Orchestrator}
+  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Config, Orchestrator, PollCadence}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
 
   alias AiurWeb.{
@@ -1410,7 +1410,10 @@ defmodule AiurWeb.StreamdeckLive do
   defp package?(_package), do: false
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
-  defp snapshot_timeout_ms, do: endpoint_config(:snapshot_timeout_ms) || 15_000
+  # The configured value is the floor, not the tolerance: a fixed 15s window
+  # against a 120s poll marks a healthy fleet stale for most of every cycle.
+  # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
+  defp snapshot_timeout_ms, do: PollCadence.snapshot_tolerance_ms(endpoint_config(:snapshot_timeout_ms) || 15_000)
 
   defp safe_call(fun, fallback) do
     fun.()

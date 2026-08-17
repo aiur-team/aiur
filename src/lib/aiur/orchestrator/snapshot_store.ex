@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   require Logger
 
   alias Aiur.Orchestrator.{SnapshotPublisher, StatusReport}
+  alias Aiur.PollCadence
   alias AiurWeb.ObservabilityPubSub
 
   @cache_key __MODULE__
@@ -23,18 +24,34 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   # near-current snapshot to last-known-good under sustained dispatch.
   @publish_gap_history 4
   @stale_window_margin 2
-  @stale_window_ceiling_ms 60_000
+
+  # Floors, not thresholds. Both windows below are `@stale_window_margin`
+  # effective poll intervals wide (`Aiur.PollCadence`); these floors only keep
+  # behaviour identical at the tight cadences that predate #2064, where two
+  # cycles is a handful of seconds. See `stale_window_ceiling_ms/0` and
+  # `stale_age_ceiling_ms/0`.
+  @stale_window_ceiling_floor_ms 60_000
 
   # Age decides staleness; a backlogged mailbox only corroborates it. An
   # Orchestrator that wedges *after* draining its mailbox publishes nothing and
   # carries no backlog, so a depth-gated rule would serve an arbitrarily old
   # fleet view as current — the exact "stale renders as current" failure this
   # read model exists to prevent. Past this ceiling the view is stale whatever
-  # the mailbox says. The ceiling is four times the 30s default poll cadence
-  # (`polling.interval_seconds`), which is the slowest publish rhythm a healthy
-  # idle Orchestrator keeps, so a truthful "N old" banner replaces silence only
-  # once the producer is demonstrably behind its own cadence.
-  @stale_age_ceiling_ms 120_000
+  # the mailbox says.
+  #
+  # The ceiling is `@stale_window_margin` *effective* poll intervals: an idle
+  # Orchestrator only writes new snapshot input on a poll tick, so two missed
+  # ticks is the earliest moment "we should have heard by now" is true. The
+  # previous constant justified itself as "four times the 30s default poll
+  # cadence" — no 30s cadence has ever existed in this repo, and the real
+  # default is 120s, widening to 1200s under idle plus webhook backoff. Deriving
+  # it removes both the wrong number and the need to re-tune on the next
+  # cadence change.
+  #
+  # The floor keeps the pre-#2064 behaviour intact: at `interval_seconds: 5` two
+  # cycles is 10s, so without it a 5s deployment would start flagging snapshots
+  # stale twelve times sooner than it does today.
+  @stale_age_ceiling_floor_ms 120_000
 
   # Two distinct degraded states must never collapse into one operator-facing
   # message. A retained snapshot that has aged out is `{:stale, snapshot,
@@ -157,10 +174,13 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   Staleness is load-aware: a snapshot remains `:current` while it falls within
   a window derived from the Orchestrator's own recent publish cadence, so a
   busy-but-publishing Orchestrator under sustained dispatch does not demote a
-  near-current fleet view to last-known-good. That window is bounded: beyond
-  `#{@stale_age_ceiling_ms}ms` the snapshot is `:stale` with reason
-  `:snapshot_stalled` regardless of mailbox depth, so an Orchestrator that
-  wedged after draining its mailbox cannot serve an old fleet view as current.
+  near-current fleet view to last-known-good. It is also cadence-derived: both
+  the window and the hard ceiling are two effective poll intervals wide
+  (`Aiur.PollCadence`), so changing `polling.interval_seconds` needs no edit
+  here. That window is bounded: beyond `stale_age_ceiling_ms/0` the snapshot is
+  `:stale` with reason `:snapshot_stalled` regardless of mailbox depth, so an
+  Orchestrator that wedged after draining its mailbox cannot serve an old fleet
+  view as current.
 
   A retained-but-aged snapshot is always returned as `{:stale, snapshot,
   metadata}` so callers can render last-known-good data with its age.
@@ -405,20 +425,41 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   # reported as current, however quiet the producer's mailbox is.
   defp stale_beyond_ceiling?(age_ms), do: is_integer(age_ms) and age_ms >= stale_age_ceiling_ms()
 
-  defp stale_age_ceiling_ms do
-    case Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms, @stale_age_ceiling_ms) do
-      ceiling_ms when is_integer(ceiling_ms) and ceiling_ms > 0 -> ceiling_ms
-      _invalid -> @stale_age_ceiling_ms
+  @doc false
+  @spec stale_age_ceiling_ms() :: pos_integer()
+  def stale_age_ceiling_ms do
+    case Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms, nil) do
+      ceiling_ms when is_integer(ceiling_ms) and ceiling_ms > 0 ->
+        ceiling_ms
+
+      _unset_or_invalid ->
+        PollCadence.stale_after_ms(@stale_window_margin, floor_ms: @stale_age_ceiling_floor_ms)
     end
   end
 
+  defp stale_window_ceiling_ms do
+    PollCadence.stale_after_ms(@stale_window_margin, floor_ms: @stale_window_ceiling_floor_ms)
+  end
+
+  # The caller's tolerance is honoured exactly: `read/3` never widens a window
+  # the caller asked to be narrow. Deriving the tolerance from the cadence is
+  # the *caller's* job — see `AiurWeb.OperatorControlCenter.PayloadLoader` and
+  # the other dashboard readers, which pass
+  # `PollCadence.snapshot_tolerance_ms/1` rather than a fixed 15s. A reader that
+  # genuinely wants zero tolerance (a correctness-critical read) must still be
+  # able to ask for it.
+  #
+  # The observed-gap term widens on top of that, capped so one long pause cannot
+  # widen the window indefinitely. The cap itself is cadence-derived, because a
+  # fixed 60s cap clamped the adaptive window to half the 120s cadence and so
+  # disabled the very mechanism meant to absorb a slower producer.
   defp effective_window(timeout, gaps) when is_list(gaps) do
     case median(gaps) do
       nil ->
         timeout
 
       median_ms when is_integer(median_ms) and median_ms > 0 ->
-        capped = min(median_ms * @stale_window_margin, @stale_window_ceiling_ms)
+        capped = min(median_ms * @stale_window_margin, stale_window_ceiling_ms())
         max(timeout, capped)
 
       _ ->

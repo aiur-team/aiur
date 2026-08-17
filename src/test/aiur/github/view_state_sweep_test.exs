@@ -300,6 +300,23 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
              "an unversioned mark suppressed past its bound; a mapping mistake can hide a resource"
     end
 
+    # `claim/3` consults the shared predicate inside its own compare-and-swap
+    # rather than going through `processed?/2`, so a bound applied only on the
+    # read path would leave the atomic claim suppressing an unversioned mark for
+    # the full retention window. The sweep claims, so this is the path that
+    # actually decides whether a mapping mistake hides a resource.
+    test "the atomic claim honours the bound, not just the read" do
+      key = ResourceStore.key_for_repo(:issue_comment, "owner/repo", 5012)
+
+      assert :marked = ResourceStore.claim(key, :webhook, nil)
+      assert :already_processed = ResourceStore.claim(key, :poll, nil)
+
+      age_mark!(key, ResourceStore.unversioned_suppression_ms() + 1_000)
+
+      assert :marked = ResourceStore.claim(key, :poll, nil),
+             "a sweep could not recover a resource whose unversioned mark had passed its bound"
+    end
+
     test "the bound is far tighter than retention and far wider than a retry burst" do
       assert ResourceStore.unversioned_suppression_ms() >= :timer.minutes(5)
       assert ResourceStore.unversioned_suppression_ms() <= :timer.hours(2)

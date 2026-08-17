@@ -15,7 +15,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   # current and must not demote the catalog to last-known-good. The row
   # projection admits rows on the same window, so the catalog's status and its
   # contents can never disagree about which fleet views still count.
-  @fleet_stale_after_seconds Sources.fleet_stale_after_seconds()
+  #
+  # Read through `Sources.fleet_stale_after_seconds/0` at call time rather than
+  # captured into a module attribute: the window is derived from the effective
+  # poll cadence, which changes at runtime with idle backoff, and a compile-time
+  # capture would freeze it at whatever the cadence happened to be when this
+  # module was built.
 
   @type catalog_status :: :ready | :empty | :stale | :unavailable
 
@@ -301,7 +306,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   # call itself ready over the rows that disappeared.
   defp fleet_freshness_degraded?(snapshot) do
     case {fleet_freshness_status(snapshot), fleet_age_seconds(snapshot)} do
-      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds >= @fleet_stale_after_seconds
+      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds >= Sources.fleet_stale_after_seconds()
       {:stale, _no_age} -> true
       {status, _age_seconds} when status in [:unknown, :unavailable] -> true
       _freshness -> false
