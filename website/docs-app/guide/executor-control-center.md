@@ -9,7 +9,7 @@ The Dashboard is Aiur's browser interface for supervising a run. It combines the
 | Normal foreground or headless run | Listener requested. |
 | `--no-dashboard` | Listener disabled. |
 | Writable mode | Username and password required, including on loopback. |
-| Read-only loopback | May run without credentials. |
+| Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request returns `503`. |
 | Host selection | `server.host` wins over authenticated Tailscale or loopback default. |
 
 Startup prints the URL and effective bind only when the listener runs:
@@ -81,6 +81,6 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A loopback dashboard may run without them only when it is not writable. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
+Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.

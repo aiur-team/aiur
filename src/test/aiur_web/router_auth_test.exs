@@ -4,16 +4,29 @@ defmodule AiurWeb.RouterAuthTest do
   import Plug.Conn
   import Plug.Test
 
-  alias AiurWeb.{CommandsRedirectController, Router}
+  alias AiurWeb.{CommandsRedirectController, FinancialDataAccess, Router}
 
   @supervisor_token String.duplicate("s", 32)
 
   setup do
+    FinancialDataAccess.Generation.invalidate()
+
+    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
+      start_supervised!({AiurWeb.Endpoint, []})
+    end
+
+    previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
+    previous_writable = AiurWeb.Endpoint.config(:dashboard_writable)
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     original_supervisor_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
 
+    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.merge(previous_endpoint || [], dashboard_auth_required: true))
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, false)
+
     on_exit(fn ->
+      restore_application_env(AiurWeb.Endpoint, previous_endpoint)
+      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable)
       restore_env("AIUR_DASHBOARD_USERNAME", original_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", original_password)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_supervisor_token)
@@ -22,13 +35,16 @@ defmodule AiurWeb.RouterAuthTest do
     :ok
   end
 
-  test "allows dashboard requests when credentials are not configured" do
+  test "refuses dashboard requests when credentials are not configured" do
     System.delete_env("AIUR_DASHBOARD_USERNAME")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
+    Application.put_env(:aiur, AiurWeb.Endpoint, dashboard_auth_required: false)
 
     conn = Router.call(conn(:get, "/missing"), Router.init([]))
 
-    assert conn.status == 404
+    assert conn.status == 503
+    assert conn.halted
+    assert conn.resp_body =~ "Dashboard authentication is not configured"
   end
 
   test "requires basic auth when credentials are configured" do
@@ -228,12 +244,16 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "write API does not trust an attacker-controlled Host as its own origin" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
     conn =
       :get
       |> conn("/api/v1/pane/hide")
       |> Map.put(:host, "evil.example")
       |> put_req_header("origin", "http://evil.example")
       |> put_req_header("x-aiur-request", "1")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
       |> Router.call(Router.init([]))
 
     assert conn.status == 403
@@ -272,6 +292,9 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   defp write_route_get(opts) do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
     headers =
       cond do
         headers = Keyword.get(opts, :headers) -> headers
@@ -289,7 +312,9 @@ defmodule AiurWeb.RouterAuthTest do
         do: put_req_header(conn, "x-aiur-request", "1"),
         else: conn
 
-    Router.call(conn, Router.init([]))
+    conn
+    |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+    |> Router.call(Router.init([]))
   end
 
   defp supervisor_request(method, path) do
@@ -303,4 +328,7 @@ defmodule AiurWeb.RouterAuthTest do
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
+
+  defp restore_application_env(module, nil), do: Application.delete_env(:aiur, module)
+  defp restore_application_env(module, value), do: Application.put_env(:aiur, module, value)
 end

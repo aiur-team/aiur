@@ -19,6 +19,7 @@ defmodule AiurWeb.FinancialDataAccess do
   @session_key "financial_data_access"
   @conn_private_key :aiur_financial_data_session_marker
   @socket_private_key :aiur_financial_data_access
+  @missing_credentials_message "Dashboard authentication is not configured. Set AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD."
 
   defmodule Context do
     @moduledoc false
@@ -49,18 +50,7 @@ defmodule AiurWeb.FinancialDataAccess do
   def authenticate_request(conn, opts) do
     case Proof.configuration(opts, @version) do
       {:ok, config} ->
-        authenticated =
-          Plug.BasicAuth.basic_auth(conn,
-            username: config.username,
-            password: config.password,
-            realm: "Aiur"
-          )
-
-        if authenticated.halted do
-          authenticated
-        else
-          put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
-        end
+        authenticate_configured_request(conn, config)
 
       {:error, :authentication_required} ->
         conn
@@ -69,6 +59,27 @@ defmodule AiurWeb.FinancialDataAccess do
 
       {:error, :authentication_not_configured} ->
         conn
+        |> send_resp(503, @missing_credentials_message)
+        |> halt()
+    end
+  end
+
+  defp authenticate_configured_request(conn, config) do
+    # Credentials present means the request must prove them, regardless of the
+    # `required?` setting. `required?` only distinguishes how an *unconfigured*
+    # request fails (401 challenge vs 503 refusal); it must never turn a
+    # configured endpoint into an open pass-through.
+    authenticated =
+      Plug.BasicAuth.basic_auth(conn,
+        username: config.username,
+        password: config.password,
+        realm: "Aiur"
+      )
+
+    if authenticated.halted do
+      authenticated
+    else
+      put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
     end
   end
 
