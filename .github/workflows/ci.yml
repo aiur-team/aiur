@@ -44,6 +44,8 @@ jobs:
         run: bash scripts/test-check-config-docs.sh
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
+      - name: Test hourly dashboard analyzer
+        run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
 

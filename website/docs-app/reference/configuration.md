@@ -76,7 +76,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
 | `tracker.github.human_mergers` | array | `[]` | GitHub logins allowed to perform human merge actions. |
-| `tracker.github.planning_root_limit` | integer | 4 | Maximum Build Order planning roots fetched in one cycle. |
+| `tracker.github.planning_root_limit` | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
 | `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub planning pages fetched in one cycle. |
 | `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub planning calls fetched in one cycle. |
 | `tracker.linear.api_key` | string | env fallback | Linear API key; `$VAR` resolves from the environment. |
@@ -259,6 +259,16 @@ Local Codex turns use Aiur's shared build admission.
 | Admission failure | Mix does not run and the ticket reports status `125`. Repair the reported metadata or lock directory, `flock`, or `python3` dependency, then restart or re-dispatch the agent. |
 | `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the legacy records named in the message. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
+
+Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
+or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
+`--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
+holds one live-token lease.
+
+Malformed compounds and command strings that could hide a Mix build fail with status
+`125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
+canonicalized, but deliberately invoking a separate real executable by absolute,
+relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
 

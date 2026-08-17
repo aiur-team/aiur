@@ -2297,11 +2297,15 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .section-card,
 .error-card {
-  padding: 1.15rem;
+  padding: var(--section-card-padding, 1.15rem);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
+}
+
+.section-card {
+  --section-card-padding: 1.15rem;
 }
 
 .section-header {
@@ -4284,14 +4288,27 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-height: 2.75rem;
 }
 
-/* Full-bleed: rows reach both card edges (the .section-card pads by 1.15rem).
-   The wrap (not the table) carries the negative margin so its overflow:hidden
-   doesn't clip the bleed; outer cells re-inset content to line up under the
-   header. */
+/* Full-bleed tables reach both card edges using the owning card's responsive
+   padding value.
+   The wrap carries the negative inline margin; each table keeps ownership of
+   its overflow treatment while the outer cells re-inset readable content. */
+.full-bleed-table-wrap {
+  margin-left: calc(-1 * var(--section-card-padding));
+  margin-right: calc(-1 * var(--section-card-padding));
+}
+
+.full-bleed-table-wrap > table > thead > tr > th:first-child,
+.full-bleed-table-wrap > table > tbody > tr > td:first-child:not([colspan]) {
+  padding-left: var(--section-card-padding);
+}
+
+.full-bleed-table-wrap > table > thead > tr > th:last-child,
+.full-bleed-table-wrap > table > tbody > tr > td:last-child:not([colspan]) {
+  padding-right: var(--section-card-padding);
+}
+
 .units-table-wrap {
   margin-top: 1rem;
-  margin-left: -1.15rem;
-  margin-right: -1.15rem;
   overflow: hidden;
 }
 
@@ -4299,16 +4316,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-}
-
-.units-table th:first-child,
-.units-table td:first-child {
-  padding-left: 1.15rem;
-}
-
-.units-table th:last-child,
-.units-table td:last-child {
-  padding-right: 1.15rem;
 }
 
 .units-table th {
@@ -4859,18 +4866,28 @@ html[data-theme="light"] .rs-elevenlabs-mark {
    scrolling inside its own wrapper — visible at 200% text size. */
 .command-history {
   min-width: 0;
+  overflow: hidden;
 }
 
 .history-table-wrap {
-  max-width: 100%;
   margin-top: 0.75rem;
   overflow-x: auto;
 }
 
 .history-table {
   width: 100%;
+  min-width: 44rem;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 0.82rem;
+}
+
+.history-table th:first-child {
+  width: 15rem;
+}
+
+.history-table th:last-child {
+  width: 13rem;
 }
 
 .history-table thead th {
@@ -4926,8 +4943,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .history-decision {
-  max-width: 34ch;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 /* The row is the click target, so the control inside it is a bare button: it
@@ -4967,6 +4984,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
+  margin-top: 0.35rem;
   color: var(--muted);
   font-size: 0.72rem;
   white-space: nowrap;
@@ -6209,8 +6227,12 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
   .section-card,
   .error-card {
-    padding: 0.9rem;
+    padding: var(--section-card-padding, 0.9rem);
     border-radius: var(--radius);
+  }
+
+  .section-card {
+    --section-card-padding: 0.9rem;
   }
 
   .stat {

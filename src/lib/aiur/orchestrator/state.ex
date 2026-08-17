@@ -92,6 +92,7 @@ defmodule Aiur.Orchestrator.State do
             optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
           },
           running: map(),
+          running_issue_cache: %{optional(String.t()) => %{etag: String.t() | nil, issue: Issue.t()}},
           completed: MapSet.t(),
           claimed: MapSet.t(),
           dispatch_recovery: %{
@@ -207,6 +208,7 @@ defmodule Aiur.Orchestrator.State do
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
     dependency_circular_wait: %{},
     running: %{},
+    running_issue_cache: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,

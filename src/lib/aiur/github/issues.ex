@@ -54,6 +54,21 @@ defmodule Aiur.GitHub.Issues do
     if issue_ids == [], do: {:ok, []}, else: do_fetch_issue_states_by_ids(issue_ids, opts)
   end
 
+  @doc """
+  Fetches individual issues conditionally, retaining the last ETag and
+  materialized issue under a stable issue-id key.
+  """
+  @spec fetch_issue_states_by_ids_conditional([String.t()], map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()} | {:error, term(), map()}
+  def fetch_issue_states_by_ids_conditional(issue_ids, cache, opts \\ [])
+      when is_list(issue_ids) and is_map(cache) do
+    if issue_ids == [] do
+      {:ok, [], cache}
+    else
+      do_fetch_issue_states_by_ids_conditional(issue_ids, cache, opts)
+    end
+  end
+
   @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def fetch_issue_raw(issue_number, opts \\ []) do
     with {:ok, {owner, repo}} <- raw_repository(opts),
@@ -282,27 +297,28 @@ defmodule Aiur.GitHub.Issues do
   defp fetch_conditional_page(ctx, url, cached_pages, next_pages, acc) do
     cached_page = Map.get(cached_pages, url, %{})
     etag = Map.get(cached_page, :etag)
-    request = %{method: :get, url: url, token: ctx.token}
-    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
-    case ctx.request_fun.(request) do
-      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+    case conditional_get(ctx, url, etag) do
+      {:ok, body, retained_etag, response} when is_list(body) ->
         page = %{
-          etag: Transport.header(Map.get(response, :headers, []), "etag") || etag,
+          etag: retained_etag,
           issues: Enum.map(body, &normalize_issue(&1, ctx.owner, ctx.repo, ctx.prefix)),
           next_url: Transport.parse_next_page_url(Map.get(response, :headers, []))
         }
 
         continue_conditional_pages(ctx, cached_pages, Map.put(next_pages, url, page), acc ++ page.issues, page.next_url)
 
-      {:ok, %{status: 304}} ->
+      {:not_modified, _retained_etag} ->
         not_modified_page(ctx, url, cached_page, cached_pages, next_pages, acc)
 
-      {:ok, %{status: _status} = response} ->
+      {:http_error, response} ->
         {:error, Errors.github_status_error(response)}
 
       {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+        {:error, reason}
+
+      {:ok, _body, _retained_etag, response} ->
+        {:error, Errors.github_status_error(response)}
     end
   end
 
@@ -338,6 +354,32 @@ defmodule Aiur.GitHub.Issues do
       with {:ok, issues} <-
              do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix) do
         {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix)}
+      end
+    end
+  end
+
+  @spec do_fetch_issue_states_by_ids_conditional([String.t()], map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()} | {:error, term(), map()}
+  def do_fetch_issue_states_by_ids_conditional(issue_ids, cache, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      ctx = %{
+        request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+        token: token,
+        owner: owner,
+        repo: repo,
+        prefix: GitHub.Config.label_prefix()
+      }
+
+      stable_ids = Enum.map(issue_ids, &to_string/1)
+      cache = Map.take(cache, stable_ids)
+
+      result =
+        Enum.reduce_while(stable_ids, {:ok, [], cache}, &reduce_fetch_issue_conditional(ctx, &1, &2))
+
+      case result do
+        {:ok, issues, updated_cache} -> {:ok, Enum.reverse(issues), updated_cache}
+        {:error, reason, updated_cache} -> {:error, reason, updated_cache}
       end
     end
   end
@@ -434,6 +476,114 @@ defmodule Aiur.GitHub.Issues do
       {:error, reason} ->
         {:halt, {:error, Errors.classify_error({:error, reason})}}
     end
+  end
+
+  defp reduce_fetch_issue_conditional(ctx, issue_id, {:ok, issues, cache}) do
+    fetch_conditional_issue(ctx, issue_id, issues, cache, false)
+  end
+
+  defp fetch_conditional_issue(ctx, issue_id, issues, cache, retried_without_cache?) do
+    url = "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues/#{issue_id}"
+    cached_entry = Map.get(cache, issue_id, %{})
+    etag = Map.get(cached_entry, :etag)
+
+    case conditional_get(ctx, url, etag) do
+      {:ok, body, retained_etag, _response} when is_map(body) ->
+        issue =
+          body
+          |> normalize_issue(ctx.owner, ctx.repo, ctx.prefix, retained_etag)
+          |> authorize_issue(ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix)
+
+        entry = %{etag: retained_etag, issue: issue}
+        {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
+
+      {:not_modified, retained_etag} ->
+        materialize_not_modified_issue(
+          ctx,
+          issue_id,
+          issues,
+          cache,
+          cached_entry,
+          retained_etag,
+          retried_without_cache?
+        )
+
+      {:http_error, %{status: 404}} ->
+        {:cont, {:ok, issues, Map.delete(cache, issue_id)}}
+
+      {:http_error, response} ->
+        {:halt, {:error, Errors.github_status_error(response), cache}}
+
+      {:error, reason} ->
+        {:halt, {:error, reason, cache}}
+
+      {:ok, _body, _retained_etag, response} ->
+        {:halt, {:error, Errors.github_status_error(response), cache}}
+    end
+  end
+
+  defp materialize_not_modified_issue(
+         ctx,
+         issue_id,
+         issues,
+         cache,
+         cached_entry,
+         retained_etag,
+         retried_without_cache?
+       ) do
+    case Map.get(cached_entry, :issue) do
+      %Issue{} = issue ->
+        issue =
+          authorize_issue(
+            issue,
+            ctx.request_fun,
+            ctx.token,
+            ctx.owner,
+            ctx.repo,
+            ctx.prefix
+          )
+
+        entry = %{cached_entry | etag: retained_etag, issue: issue}
+        {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
+
+      _missing_materialized_issue when not retried_without_cache? ->
+        fetch_conditional_issue(ctx, issue_id, issues, Map.delete(cache, issue_id), true)
+
+      _missing_materialized_issue ->
+        {:halt, {:error, :github_issue_not_modified_without_cached_value, cache}}
+    end
+  end
+
+  defp conditional_get(ctx, url, etag) do
+    request = %{method: :get, url: url, token: ctx.token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    case ctx.request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} ->
+        retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
+        {:ok, body, retained_etag, response}
+
+      {:ok, %{status: 304} = response} ->
+        retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
+        {:not_modified, retained_etag}
+
+      {:ok, %{status: _status} = response} ->
+        {:http_error, response}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp authorize_issue(issue, request_fun, token, owner, repo, prefix) do
+    DispatchAuthorization.authorize(
+      issue,
+      owner,
+      repo,
+      prefix,
+      request_fun: request_fun,
+      token: token
+    )
   end
 
   @spec normalize_issue(map(), String.t(), String.t(), String.t()) :: Issue.t()
@@ -648,14 +798,7 @@ defmodule Aiur.GitHub.Issues do
 
   defp authorize_dispatches(issues, request_fun, token, owner, repo, prefix) do
     Enum.map(issues, fn issue ->
-      DispatchAuthorization.authorize(
-        issue,
-        owner,
-        repo,
-        prefix,
-        request_fun: request_fun,
-        token: token
-      )
+      authorize_issue(issue, request_fun, token, owner, repo, prefix)
     end)
   end
 

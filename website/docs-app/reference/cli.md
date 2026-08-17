@@ -50,7 +50,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --port 4000` | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
-| `aiur --version` | Prints the release version without contacting or claiming a running daemon. | `aiur --version` |
+| `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
 | Launch choice | Behavior |
 | --- | --- |
@@ -58,6 +58,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
 | Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
+
+When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
 
 ## Inspect and operate a running daemon
 
@@ -168,6 +170,9 @@ Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, an
 | `aiur executor-answer DECISION-ID --executor-id exec-1` | Optional attribution for the answering Executor. It must not be empty when present. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1 --executor-id exec-1` |
 | `aiur executor-escalate DECISION-ID` | Hands a decision back to the human Executor instead of answering it. It requires `--expected-version` and `--reason`. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 | `aiur executor-escalate DECISION-ID --reason "Text"` | Required. It records why the supervising Executor declined to answer. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
+
+Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly. If `executor-answer` says a field is outside Executor scope, use `aiur executor-escalate` with the same decision ID and current version. A stopped daemon is reported separately with the command needed to start it; a live but silent or unreachable daemon reports the attempted decision ID, expected version, and daemon endpoint so the same call can be diagnosed without guessing.
+
 | `aiur executor-listen` | Persists the requested subscription, then streams all persisted-pattern events after the saved cursor before live events as JSON lines. It intentionally does not use the ten-second one-shot RPC timeout. | `aiur executor-listen` |
 | `aiur executor-listen --topic 'executor.#'` | Adds that validated AMQP topic pattern before listening; the default is `executor.#`. Empty segments and malformed patterns are rejected. | `aiur executor-listen --topic 'executor.#'` |
 | `aiur executor-wait` | Returns immediately when durable Executor wake records are pending; otherwise blocks for up to 300 seconds. Exit `0` means woken, `75` means quiet timeout, and the wake cursor advances only on exit `0`. | `aiur executor-wait` |

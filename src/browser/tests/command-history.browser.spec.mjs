@@ -13,6 +13,63 @@ async function openCommands (page) {
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
+test('Command history uses the Units full-bleed geometry and keeps the combined result readable', async ({ browser }, testInfo) => {
+  for (const width of [1440, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' })
+    const page = await context.newPage()
+
+    try {
+      await openCommands(page)
+
+      const layout = await page.locator('.command-history').evaluate((card) => {
+        const wrapper = card.querySelector('.history-table-wrap')
+        const table = wrapper.querySelector('.history-table')
+        const cells = table.querySelectorAll('tbody tr.history-row:first-child > td')
+        const cardBox = card.getBoundingClientRect()
+        const wrapperBox = wrapper.getBoundingClientRect()
+        const decisionBox = cells[1].getBoundingClientRect()
+        const resultBox = cells[2].getBoundingClientRect()
+        const result = cells[2].querySelector('.history-result').getBoundingClientRect()
+        const timestamp = cells[2].querySelector('.history-when').getBoundingClientRect()
+        const cardStyle = getComputedStyle(card)
+
+        return {
+          cardLeft: cardBox.left,
+          cardRight: cardBox.right,
+          cardBorderLeft: Number.parseFloat(cardStyle.borderLeftWidth),
+          cardBorderRight: Number.parseFloat(cardStyle.borderRightWidth),
+          wrapperLeft: wrapperBox.left,
+          wrapperRight: wrapperBox.right,
+          decisionWidth: decisionBox.width,
+          resultWidth: resultBox.width,
+          timestampBelowResult: timestamp.top >= result.bottom,
+          timestampText: cells[2].querySelector('.history-when').textContent.trim(),
+          timestampSortValue: cells[2].dataset.sortValue,
+          wrapperScrollWidth: wrapper.scrollWidth,
+          wrapperClientWidth: wrapper.clientWidth,
+          documentScrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth
+        }
+      })
+
+      expect(layout.wrapperLeft - layout.cardLeft).toBeCloseTo(layout.cardBorderLeft, 1)
+      expect(layout.cardRight - layout.wrapperRight).toBeCloseTo(layout.cardBorderRight, 1)
+      expect(layout.decisionWidth).toBeGreaterThan(layout.resultWidth)
+      expect(layout.timestampBelowResult).toBe(true)
+      expect(layout.timestampText).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/)
+      expect(layout.timestampSortValue).toBe('2026-07-18T11:00:00Z')
+      expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth)
+
+      if (width === 1440) expect(layout.decisionWidth).toBeGreaterThan(layout.resultWidth * 2)
+      if (width === 390) expect(layout.wrapperScrollWidth).toBeGreaterThan(layout.wrapperClientWidth)
+
+      await page.screenshot({ path: testInfo.outputPath(`command-history-${width}.png`), fullPage: true })
+    } finally {
+      await context.close()
+    }
+  }
+})
+
 test('a history row expands in place and reports the recorded decision honestly', async ({ page }) => {
   await openCommands(page)
 
