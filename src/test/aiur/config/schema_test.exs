@@ -107,7 +107,7 @@ defmodule Aiur.Config.SchemaTest do
 
   describe "GitHub planning graph bounds" do
     test "the checked-in GitHub workflow fixture satisfies the planning bounds" do
-      fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)
+      fixture = Path.expand("../../fixtures/test.yaml", __DIR__)
 
       assert {:ok, config} = YamlElixir.read_from_file(fixture)
       assert {:ok, settings} = Schema.parse(config)

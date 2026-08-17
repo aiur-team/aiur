@@ -400,7 +400,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   # it receives to `frames`, and replies to the fixed initialize(1) /
   # thread/start(2) / turn/start(3) request ids so a full turn completes.
   # Single line + echo (no backslash escapes) so it survives YAML scalar
-  # round-tripping in the generated .aiurconfig file.
+  # round-tripping in the generated config.yaml file.
   defp fake_app_server(frames) do
     init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
     thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})

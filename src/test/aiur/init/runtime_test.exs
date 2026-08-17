@@ -13,7 +13,7 @@ defmodule Aiur.Init.RuntimeTest do
   end
 
   test "load_config returns config for a written config file", %{dir: dir} do
-    path = Path.join(dir, ".aiurconfig")
+    path = Path.join(dir, "config.yaml")
     File.write!(path, "tracker:\n  kind: memory\n")
 
     assert {:ok, %{"tracker" => %{"kind" => "memory"}}} = Runtime.load_config(path)

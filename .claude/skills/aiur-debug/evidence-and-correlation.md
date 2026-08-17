@@ -20,8 +20,9 @@ scripts/aiurdev __identity
 scripts/aiurdev status
 ```
 
-Then read config discovery in the documented order:
-`./.aiur/config` -> `./.aiurconfig` -> the user config locations. Record the
+Then read config discovery in the effective order:
+`./.aiur/config` -> reject `./.aiurconfig` -> `~/.aiur/config` -> reject
+`~/.aiurconfig`. Record the
 path actually selected, its `tracker`, `tracker.base_branch`, label prefix,
 active-state **slugs**, `workspace.root`, `server`, `agent`, and
 `observability` values. Resolve relative `prompt_file` and `hooks_file` from

@@ -1,7 +1,7 @@
 defmodule Aiur.TestBootstrapConfigTest do
   use ExUnit.Case, async: false
 
-  @fixture_path Path.expand("fixtures/test.aiurconfig", __DIR__)
+  @fixture_path Path.expand("fixtures/test.yaml", __DIR__)
   @config_path Path.expand("../config/config.exs", __DIR__)
   @test_helper_path Path.expand("test_helper.exs", __DIR__)
 
@@ -15,7 +15,7 @@ defmodule Aiur.TestBootstrapConfigTest do
     config_source = File.read!(@config_path)
 
     assert config_source =~
-             ~s|config :aiur, :workflow_file_path, Path.expand("../test/fixtures/test.aiurconfig", __DIR__)|
+             ~s|config :aiur, :workflow_file_path, Path.expand("../test/fixtures/test.yaml", __DIR__)|
 
     refute config_source =~ "../../.aiur/config"
     refute config_source =~ "../../.aiurconfig"

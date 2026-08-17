@@ -109,7 +109,7 @@ defmodule Aiur.RunTelemetryTest do
     enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
     original_pt = :persistent_term.get(enabled_key, :unset)
 
-    disabled_config = Path.join(root, "disabled.aiurconfig")
+    disabled_config = Path.join(root, "disabledconfig.yaml")
     File.mkdir_p!(Path.dirname(disabled_config))
 
     File.write!(disabled_config, """
@@ -246,7 +246,7 @@ defmodule Aiur.RunTelemetryTest do
   end
 
   test "Config.telemetry_enabled?/0 defaults to true when observability is omitted", %{root: root} do
-    default_config = Path.join(root, "default.aiurconfig")
+    default_config = Path.join(root, "defaultconfig.yaml")
     File.mkdir_p!(root)
 
     File.write!(default_config, """
@@ -262,7 +262,7 @@ defmodule Aiur.RunTelemetryTest do
   end
 
   test "Config.telemetry_enabled?/0 returns to the default when the config goes missing", %{root: root} do
-    disabled_config = Path.join(root, "disabled-then-missing.aiurconfig")
+    disabled_config = Path.join(root, "disabled-then-missingconfig.yaml")
     File.mkdir_p!(root)
 
     File.write!(disabled_config, """
@@ -278,7 +278,7 @@ defmodule Aiur.RunTelemetryTest do
     use_workflow_path!(disabled_config)
     assert Config.telemetry_enabled?() == false
 
-    :ok = Workflow.set_workflow_file_path(Path.join(root, "missing.aiurconfig"))
+    :ok = Workflow.set_workflow_file_path(Path.join(root, "missingconfig.yaml"))
     assert Config.telemetry_enabled?() == true
   end
 

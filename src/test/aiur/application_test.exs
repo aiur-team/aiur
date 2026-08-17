@@ -525,7 +525,7 @@ defmodule Aiur.ApplicationTest do
       original_path = Application.get_env(:aiur, :workflow_file_path)
 
       tmp = Path.join(System.tmp_dir!(), "disabled-boot-test-#{System.unique_integer([:positive])}")
-      config_path = Path.join(tmp, "disabled.aiurconfig")
+      config_path = Path.join(tmp, "disabledconfig.yaml")
       File.mkdir_p!(tmp)
 
       File.write!(config_path, """

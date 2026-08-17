@@ -43,4 +43,4 @@ case ":$PATH:" in
   *) echo "note: $HOME/.local/bin is not on your PATH; add it so 'aiurdev' (and mise) resolve globally" >&2 ;;
 esac
 
-echo "done — run 'aiurdev init' in a repo to scaffold .aiurconfig, then 'aiurdev'"
+echo "done — run 'aiurdev init' in a repo to scaffold .aiur/config, then 'aiurdev'"

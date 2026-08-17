@@ -128,10 +128,10 @@ defmodule Aiur.Opencode.Config do
 
     cond do
       not is_binary(executable) or executable == "" ->
-        {:error, "opencode.command is blank - set opencode.command in .aiurconfig"}
+        {:error, "opencode.command is blank - set opencode.command in .aiur/config"}
 
       is_nil(System.find_executable(executable)) ->
-        {:error, "opencode command #{inspect(executable)} was not found on PATH - install opencode or set opencode.command in .aiurconfig"}
+        {:error, "opencode command #{inspect(executable)} was not found on PATH - install opencode or set opencode.command in .aiur/config"}
 
       true ->
         :ok

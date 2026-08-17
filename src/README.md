@@ -26,7 +26,7 @@ If you want your agent to be the Executor, ask it to "run aiur"; the repository 
 
 1. **Polls a tracker** (Linear, GitHub Issues, or in-memory) for candidate work.
 2. **Creates an isolated workspace** per selected item and clones your repo into it.
-3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `.aiurconfig`
+3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `.aiur/config`
    YAML config and prompt template.
 4. **Drives the run** through repeated turns until the item reaches a terminal state
    (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
@@ -91,10 +91,11 @@ npm run setup                    # installs the toolchain (mise + erlang/elixir)
 #   (or, if you already have mise:  mise run setup)
 cd src && aiurdev init           # scaffolds .aiur/ (config, hooks, prompt.md) in the current repo
 # Or copy a starter pair (the config's prompt_file: points at the sibling template):
-#   cp examples/workflows/linear-codex.aiurconfig .aiurconfig
-#   cp examples/workflows/linear-codex.prompt.md linear-codex.prompt.md
+#   mkdir -p .aiur
+#   cp examples/workflows/linear-codex.yaml .aiur/config
+#   cp examples/workflows/linear-codex.prompt.md .aiur/linear-codex.prompt.md
 # Edit .aiur/config for your tracker, repo, credentials, and workspace.
-aiurdev                          # discovers .aiur/config (or a legacy ./.aiurconfig) automatically
+aiurdev                          # discovers .aiur/config automatically
 ```
 
 `aiurdev` is the local dev build, run from a repo clone; `aiur` is the
@@ -123,9 +124,7 @@ config or env ports are honored as pins.
 repo. aiur keeps its files in a `.aiur/` folder — `.aiur/config`, `.aiur/hooks`, and
 `.aiur/prompt.md`. On a re-run it detects an existing config,
 prints your saved selections, and resumes — it never re-asks what you already
-answered. If it finds a legacy root-level `.aiurconfig`, it offers to migrate it
-into `.aiur/` (settings preserved); a declined migration keeps working unchanged. It
-walks:
+answered. It walks:
 
 1. **Where to store config** — repo-local `./.aiur/` or global `~/.aiur/` (and, for
    repo-local, an optional prompt to add `.aiur/` to `.gitignore`).
@@ -156,12 +155,16 @@ skip or park that issue without losing the preserved state; remove only
 
 ## Config
 
-The config file (`.aiur/config`, or a legacy root `.aiurconfig`) is pure YAML for
+The config file (`.aiur/config`) is pure YAML for
 adapters, credentials, and run policy. Optional `prompt_file:` and `hooks_file:` keys
 point at sibling files (`prompt.md`, `hooks`), resolved relative to the config's own
 directory; when `prompt_file:` is omitted, a built-in default prompt is used.
-Discovery precedence: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` →
-`~/.aiurconfig`. Supported adapters:
+Discovery precedence: `./.aiur/config` → `~/.aiur/config`. If a legacy
+`.aiurconfig` exists without the corresponding canonical config, Aiur refuses
+to start and names the destination path instead of silently using defaults.
+When moving a legacy config manually, also move referenced prompt or hooks files,
+or rewrite their relative paths so they still resolve from the new config directory.
+Supported adapters:
 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`
@@ -227,11 +230,11 @@ as an empty graph.
 
 Copy one of the starter pairs (config + prompt template) and edit it for your project:
 
-- [examples/workflows/linear-codex.aiurconfig](examples/workflows/linear-codex.aiurconfig)
-- [examples/workflows/github-codex.aiurconfig](examples/workflows/github-codex.aiurconfig)
-- [examples/workflows/github-claude.aiurconfig](examples/workflows/github-claude.aiurconfig)
+- [examples/workflows/linear-codex.yaml](examples/workflows/linear-codex.yaml)
+- [examples/workflows/github-codex.yaml](examples/workflows/github-codex.yaml)
+- [examples/workflows/github-claude.yaml](examples/workflows/github-claude.yaml)
 
-If `.aiurconfig` is missing or has invalid YAML at startup, Aiur won't boot. If a later
+If `.aiur/config` is missing or has invalid YAML at startup, Aiur won't boot. If a later
 reload fails, Aiur keeps running with the last known good config and logs the error
 until the file is fixed.
 
@@ -248,7 +251,7 @@ on your `PATH`:
 | Command | What it does |
 |---|---|
 | `aiurdev` | Start the workflow in the foreground with a local-only bind |
-| `aiurdev <path-to-.aiurconfig>` | Run an explicit config in the foreground |
+| `aiurdev <config-path>` | Run an explicit YAML config in the foreground |
 | `aiurdev --test` | Reset the first pinned sandbox ticket, then start an interactive smoke run |
 | `aiurdev --test3` | Reset the pinned 3-ticket blocker-chain sandbox, then start an interactive smoke run |
 | `aiurdev --bg` | Start a detached headless BEAM with the web dashboard enabled |
@@ -265,7 +268,7 @@ on your `PATH`:
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev reset-budget <id...>` | Queue lifetime dispatch-latch resets; completion or failure is reported in alerts |
 | `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
-| `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
+| `aiurdev init [--force]` | Scaffold `.aiur/config` in the current repo |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
 Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `units`,
@@ -369,7 +372,7 @@ for one invocation:
 aiurdev --port 4099
 aiurdev --port 4099 --bg
 aiurdev --port 4099 --bg --no-dashboard
-aiurdev --port 4102 ./.aiurconfig
+aiurdev --port 4102 ./.aiur/config
 ```
 
 The `--test` and `--test3` reset paths require their pinned sandbox issues to
@@ -766,7 +769,7 @@ is not a product-performance budget; BO-014 owns those thresholds.
 - `test/` — ExUnit suite
 - `scripts/aiurdev` — dev shim over the launcher engine (local dev build)
 - `examples/workflows/` — starter config + prompt-template pairs
-- `.aiurconfig` — the config contract for in-repo runs
+- `.aiur/config` — the config contract for in-repo runs
 
 ## License
 
