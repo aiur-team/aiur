@@ -143,11 +143,12 @@ defmodule Aiur.ExecutorEvents do
   @spec replay([String.t()], non_neg_integer() | nil) :: {:ok, [map()]} | {:error, term()}
   def replay(patterns, cursor) when is_list(patterns) do
     cursor = cursor || 0
+    entries = subscription_entries()
 
     with {:ok, events} <- journal_events() do
       {:ok,
        events
-       |> Enum.filter(&(Map.get(&1, "id", 0) > cursor and matches_any?(patterns, Map.get(&1, "topic"))))
+       |> Enum.filter(&replayable?(&1, patterns, entries, cursor))
        |> Enum.sort_by(&Map.get(&1, "id", 0))}
     end
   end
@@ -495,6 +496,17 @@ defmodule Aiur.ExecutorEvents do
 
   defp matches_any?(patterns, topic) when is_binary(topic), do: Enum.any?(patterns, &Topic.matches?(&1, topic))
   defp matches_any?(_patterns, _topic), do: false
+
+  defp replayable?(event, patterns, entries, cursor) do
+    id = Map.get(event, "id", 0)
+    topic = Map.get(event, "topic")
+
+    is_integer(id) and id > cursor and matches_any?(patterns, topic) and
+      Enum.any?(entries, fn entry ->
+        floor = entry["subscription_created_at_event_id"] || 0
+        is_binary(entry["topic"]) and is_integer(floor) and id > floor and Topic.matches?(entry["topic"], topic)
+      end)
+  end
 
   defp safe_unsubscribe(topic) do
     Exchange.unsubscribe(topic)

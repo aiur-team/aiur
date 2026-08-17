@@ -105,11 +105,12 @@ From the repository root:
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
 
-Preflight also covers the Command inbox: because `--executor` is what arms the
-daemon listener, an Executor launch that forgets it is a silent omission. The
-launch section below makes the flag required and adds the `status` verification
-step; treat `LISTENER absent (executor.decision.requested will not wake the
-Executor)` on your post-launch `status` as a failed launch, not a warning.
+Preflight also covers the Executor wake path: because `--executor` is what arms
+the daemon listener, an Executor launch that forgets it is a silent omission.
+The launch section below makes the flag required and adds the `status`
+verification step; treat `LISTENER absent (no Executor wake path; Commands and
+PR events will not wake the Executor)` on your post-launch `status` as a failed
+launch, not a warning.
 
 Do not use `--test` or `--test3` for a real run. Those are destructive sandbox
 harnesses. Do not run from nested tmux.
@@ -136,16 +137,17 @@ authorizes filing or commenting on an issue; those mutations require separately
 recorded authority. Do not combine the separate `--todo` command with launch
 options.
 
-Verify `status` immediately after launch and confirm the line
-`LISTENER present (executor.#)` appears. `LISTENER absent (...)` means the
-Command inbox is not listening (the flag was forgotten, the listener lost its
-subscription, or the daemon could not establish it) — treat that as a launch
-failure and fix it before dispatching work; a run that dispatches agents but
-cannot hear their Commands is worse than one that refuses to start.
+Verify `status` immediately after launch. A healthy launch reports
+`LISTENER present (24 bindings: executor.#, ...)`; a partial binding set reports
+`LISTENER degraded (N/24 bindings; MISSING: ...)`; and no live bindings reports
+`LISTENER absent (no Executor wake path; Commands and PR events will not wake
+the Executor)`. Treat degraded or absent as a launch failure and fix it before
+dispatching work; a run that dispatches agents but cannot hear their handoffs
+is worse than one that refuses to start.
 
 **Say so to the human.** At the first status report after launch, state one
 line confirming the subscription, for example: "Listening for Executor events
-on `executor.#`." This is a deliberate spoken confirmation, not a silent
+on all 24 reviewed bindings." This is a deliberate spoken confirmation, not a silent
 internal step: a run that subscribes says so, so a run that says nothing is
 legible as broken immediately. If the listener is later confirmed dead or
 restarted, pair the same statement with that loss, so the operator learns about
@@ -224,18 +226,28 @@ Confirm the listener is live with `aiur status`. It names every live default;
 Use the bounded wait as the discovery path:
 
 ```bash
-if "$AIUR_CMD" executor-wait --timeout <seconds>; then
-  "$RETRO" plan-wait actionable "event-wake"
+RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
+export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
+wait_seconds="${AIUR_EXECUTOR_WAIT_FLOOR_SECONDS:-30}"
+
+if wake_json="$("$AIUR_CMD" executor-wait --timeout "$wait_seconds" --json)"; then
+  printf '%s\n' "$wake_json"
+  wait_plan="$("$RETRO" plan-wait actionable "event-wake")"
 else
   status=$?
   [ "$status" -eq 75 ] || exit "$status"
-  "$RETRO" plan-wait quiet "quiet-audit"
+  wait_plan="$("$RETRO" plan-wait quiet "quiet-audit")"
 fi
+
+wait_seconds="$(printf '%s\n' "$wait_plan" | jq -r '.next_interval_seconds')"
 ```
 
 Exit `0` means one or more durable wake records were consumed. Exit `75` means
-the timeout expired with the cursor unchanged. `--json` prints the identifier
-records for automation; otherwise the command prints concise wake rows.
+the timeout expired with the cursor unchanged. Always use `--json` in the
+Executor loop: inspect the projected PR number, SHA, draft/trust flags, action,
+CI conclusion, and attention flag before choosing the trusted content read or
+status command to run next. The concise form acknowledges the same record but
+omits those decision fields, so it is for human display rather than automation.
 
 `aiur executor-listen --topic executor.#` remains available as an optional raw
 JSON-line stream if you want the interactive wake in a background shell. It is
@@ -325,8 +337,6 @@ multi-phase run. Record one line per wake with the bundled helper (the same
 event also feeds the hourly retrospective's action/no-action denominator):
 
 ```bash
-RETRO="<loaded-aiur-run-skill>/scripts/executor-retrospective.sh"
-export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 "$RETRO" plan-wait actionable "dispatched-ready-batch"  # next = floor
 "$RETRO" plan-wait quiet "no-actionable-transition"     # widen toward ceiling
 "$RETRO" plan-wait thrash "pr-review-rework-loop"       # narrow to floor

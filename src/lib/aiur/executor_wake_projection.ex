@@ -25,7 +25,7 @@ defmodule Aiur.ExecutorWakeProjection do
          "head_sha" => valid_sha(value(head, :sha) || value(event, :head_sha) || value(event, :sha)),
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
-         "author_trusted?" => value(event, :author_trusted?) == true,
+         "author_trusted?" => trusted_github_author?(event),
          "ci_conclusion" => ci_conclusion(event, topic),
          "needs_attention" => strict_boolean(value(event, :needs_attention)),
          "count" => 1,
@@ -106,6 +106,10 @@ defmodule Aiur.ExecutorWakeProjection do
 
   defp strict_boolean(value) when is_boolean(value), do: value
   defp strict_boolean(_value), do: nil
+
+  defp trusted_github_author?(event) do
+    value(event, :source) in [:github, "github"] and value(event, :author_trusted?) == true
+  end
 
   defp first_present(nil, fallback), do: fallback
   defp first_present(value, _fallback), do: value

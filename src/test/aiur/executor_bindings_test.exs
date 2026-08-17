@@ -17,6 +17,17 @@ defmodule Aiur.ExecutorBindingsTest do
     assert Enum.all?(first, &is_integer(&1["subscription_created_at_event_id"]))
   end
 
+  test "allowlist accepts exact instances but rejects broader candidate wildcards" do
+    assert ExecutorBindings.allowlisted?("ticket.42.pr.opened")
+    assert ExecutorBindings.allowlisted?("ticket.*.pr.opened")
+    assert ExecutorBindings.allowlisted?("executor.#")
+    assert ExecutorBindings.allowlisted?("executor.notice.*")
+
+    refute ExecutorBindings.allowlisted?("ticket.#.pr.opened")
+    refute ExecutorBindings.allowlisted?("ticket.*.#")
+    refute ExecutorBindings.allowlisted?("system.*.capacity_starved")
+  end
+
   test "reconciliation prunes stale auto entries but preserves manual entries" do
     path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.subscriptions.json")
 

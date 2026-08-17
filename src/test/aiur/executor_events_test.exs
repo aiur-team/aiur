@@ -23,13 +23,26 @@ defmodule Aiur.ExecutorEventsTest do
 
   test "publishes executor events immediately and replays them from the persisted cursor journal" do
     :ok = Exchange.subscribe("executor.#")
+    :ok = ExecutorEvents.subscribe("executor.#")
 
     assert {:ok, id, count} = ExecutorEvents.publish("executor.notify.release", %{message: "ready"})
     assert count >= 1
     assert_receive {:event, %{id: ^id, topic: "executor.notify.release", message: "ready"}}, 500
 
-    :ok = ExecutorEvents.subscribe("executor.#")
     assert {:ok, [%{"id" => ^id, "topic" => "executor.notify.release"}]} = ExecutorEvents.replay(["executor.#"], nil)
+  end
+
+  test "replay excludes journal events from before every matching subscription floor" do
+    assert {:ok, before_binding_id, _} = ExecutorEvents.publish("executor.notify.before_binding", %{message: "old"})
+
+    :ok = ExecutorEvents.subscribe("executor.#")
+
+    assert {:ok, after_binding_id, _} = ExecutorEvents.publish("executor.notify.after_binding", %{message: "new"})
+
+    assert {:ok, [%{"id" => ^after_binding_id, "topic" => "executor.notify.after_binding"}]} =
+             ExecutorEvents.replay(["executor.#"], nil)
+
+    assert before_binding_id < after_binding_id
   end
 
   test "reconnect replay starts after the persisted Executor cursor" do
@@ -60,6 +73,7 @@ defmodule Aiur.ExecutorEventsTest do
 
   test "publishes deferred decisions with dashboard provenance" do
     :ok = Exchange.subscribe("executor.decision.deferred")
+    :ok = ExecutorEvents.subscribe("executor.decision.deferred")
 
     decision = %Decision{
       decision_id: "dec-deferred",
@@ -142,6 +156,7 @@ defmodule Aiur.ExecutorEventsTest do
 
   test "dedups duplicate defers but an explicit re-notify fans out a fresh event" do
     :ok = Exchange.subscribe("executor.decision.deferred")
+    :ok = ExecutorEvents.subscribe("executor.decision.deferred")
     decision = deferred_decision("dec-renotify")
 
     assert {:ok, first_id, first_count} = ExecutorEvents.publish_deferred(decision)

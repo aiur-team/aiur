@@ -174,6 +174,26 @@ defmodule Aiur.ExecutorListenerTest do
     refute_receive {:event, %{"topic" => "executor.command.deferred"}}, 100
   end
 
+  test "daemon replay skips commands journaled before its binding floor" do
+    :ok = Exchange.subscribe("executor.command.requested")
+
+    assert {:ok, before_binding_id, _count} =
+             ExecutorEvents.publish_requested(command_decision("dec-before-binding"))
+
+    start_listener()
+
+    refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
+    assert watermark() == nil
+
+    assert {:ok, after_binding_id, _count} =
+             ExecutorEvents.publish_requested(command_decision("dec-after-binding"))
+
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => message}}, 500
+    assert message =~ "dec-after-binding"
+    assert eventually(fn -> is_integer(watermark()) and watermark() >= after_binding_id end)
+    assert before_binding_id < after_binding_id
+  end
+
   test "non-executor events become wakes without advancing the command watermark" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
     start_listener()
@@ -188,6 +208,30 @@ defmodule Aiur.ExecutorListenerTest do
     })
 
     assert {:ok, [%{"ticket" => "42", "pr_number" => 2030}]} = ExecutorWakeInbox.wait(500)
+    assert watermark() == nil
+  end
+
+  test "system dispatch transitions become identifier-only wakes" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+    start_listener()
+
+    Exchange.publish("system.dispatch.capacity_starved", %{
+      id: System.unique_integer([:positive]),
+      topic: "system.dispatch.capacity_starved",
+      message: "untrusted dispatch detail",
+      needs_attention: true
+    })
+
+    assert {:ok,
+            [
+              %{
+                "topic" => "system.dispatch.capacity_starved",
+                "topic_class" => "system.dispatch.capacity_starved",
+                "ticket" => nil,
+                "needs_attention" => true
+              }
+            ]} = ExecutorWakeInbox.wait(500)
+
     assert watermark() == nil
   end
 

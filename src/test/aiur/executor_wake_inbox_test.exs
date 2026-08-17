@@ -32,6 +32,35 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert Enum.sum(Enum.map(records, & &1["count"])) == 40
   end
 
+  test "coalesces by topic class and ticket while keeping the latest identifiers", %{opts: opts} do
+    start_supervised!({ExecutorWakeInbox, opts})
+    first_seen = "2026-08-16T01:00:00Z"
+    last_seen = "2026-08-16T01:00:01Z"
+
+    first = record(1, "42") |> Map.put("head_sha", String.duplicate("a", 40)) |> Map.put("first_seen_at", first_seen)
+    latest = record(2, "42") |> Map.put("head_sha", String.duplicate("b", 40)) |> Map.put("last_seen_at", last_seen)
+
+    ci =
+      record(3, "42")
+      |> Map.put("topic", "ticket.42.ci.failed")
+      |> Map.put("topic_class", "ticket.ci.failed")
+
+    :ok = ExecutorWakeInbox.enqueue(first, __MODULE__)
+    :ok = ExecutorWakeInbox.enqueue(latest, __MODULE__)
+    :ok = ExecutorWakeInbox.enqueue(ci, __MODULE__)
+    Process.sleep(1_100)
+
+    records = ExecutorWakeInbox.pending(__MODULE__)
+    assert length(records) == 2
+
+    push = Enum.find(records, &(&1["topic_class"] == "ticket.branch.push"))
+    assert push["event_id"] == 2
+    assert push["head_sha"] == String.duplicate("b", 40)
+    assert push["first_seen_at"] == first_seen
+    assert push["last_seen_at"] == last_seen
+    assert push["count"] == 2
+  end
+
   test "serves concurrent waiters when a wake arrives late", %{opts: opts} do
     opts = Keyword.put(opts, :debounce_ms, 100)
     start_supervised!({ExecutorWakeInbox, opts})
@@ -41,7 +70,8 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :ok = ExecutorWakeInbox.enqueue(record(10, "42"), __MODULE__)
 
     assert {:ok, [%{"ticket" => "42"}]} = Task.await(first)
-    assert {:ok, [%{"ticket" => "42"}]} = Task.await(second)
+    assert {:ok, [%{"ticket" => "42"}] = records} = Task.await(second)
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
   end
 
   test "timeout leaves a later wake unread", %{opts: opts} do
@@ -53,7 +83,31 @@ defmodule Aiur.ExecutorWakeInboxTest do
     refute File.exists?(opts[:cursor_path])
     :ok = ExecutorWakeInbox.enqueue(record(11, "43"), __MODULE__)
     Process.sleep(30)
-    assert {:ok, [%{"event_id" => 11}]} = ExecutorWakeInbox.wait(100, __MODULE__)
+    assert {:ok, [%{"event_id" => 11}] = records} = ExecutorWakeInbox.wait(100, __MODULE__)
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+  end
+
+  test "acknowledging a high source event does not skip a later lower source event", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 20)
+    start_supervised!({ExecutorWakeInbox, opts})
+
+    :ok = ExecutorWakeInbox.enqueue(record(100, "42"), __MODULE__)
+    Process.sleep(30)
+
+    assert {:ok, [%{"wake_id" => 1, "event_id" => 100}] = first} =
+             ExecutorWakeInbox.wait(100, __MODULE__)
+
+    :ok = ExecutorWakeInbox.enqueue(record(10, "43"), __MODULE__)
+    Process.sleep(30)
+    assert :ok = ExecutorWakeInbox.acknowledge(first, __MODULE__)
+
+    assert {:ok, [%{"wake_id" => 2, "event_id" => 10}] = second} =
+             ExecutorWakeInbox.wait(100, __MODULE__)
+
+    assert :ok = ExecutorWakeInbox.acknowledge(second, __MODULE__)
+    assert :ok = ExecutorWakeInbox.acknowledge(first, __MODULE__)
+    assert {:ok, %{"last_seen_wake_id" => 2}} = Aiur.JsonStore.read(opts[:cursor_path])
+    assert ExecutorWakeInbox.pending(__MODULE__) == []
   end
 
   test "normal shutdown flushes a debounce window for restart", %{opts: opts} do
@@ -63,7 +117,8 @@ defmodule Aiur.ExecutorWakeInboxTest do
     stop_supervised!(ExecutorWakeInbox)
 
     start_supervised!({ExecutorWakeInbox, opts}, id: :restarted_wake_inbox)
-    assert {:ok, [%{"event_id" => 12}]} = ExecutorWakeInbox.wait(100, __MODULE__)
+    assert {:ok, [%{"event_id" => 12}] = records} = ExecutorWakeInbox.wait(100, __MODULE__)
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
   end
 
   test "a crash mid-window recovers the durable pending map without duplicates", %{opts: opts} do
@@ -79,8 +134,35 @@ defmodule Aiur.ExecutorWakeInboxTest do
              end
            end)
 
-    assert {:ok, [%{"event_id" => 13}]} = ExecutorWakeInbox.wait(500, __MODULE__)
+    assert {:ok, [%{"wake_id" => 1, "event_id" => 13}] = records} =
+             ExecutorWakeInbox.wait(500, __MODULE__)
+
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
     assert ExecutorWakeInbox.pending(__MODULE__) == []
+    assert opts[:path] |> File.read!() |> String.split("\n", trim: true) |> length() == 1
+  end
+
+  test "refuses startup without replacing a corrupt pending store", %{opts: opts} do
+    File.mkdir_p!(Path.dirname(opts[:pending_path]))
+    corrupt = ~s({"not valid")
+    File.write!(opts[:pending_path], corrupt)
+
+    assert {:executor_wake_pending_store_unavailable, %Jason.DecodeError{}} = start_error(opts)
+
+    assert File.read!(opts[:pending_path]) == corrupt
+  end
+
+  test "refuses unreadable and wrong-shape pending stores", %{opts: opts} do
+    File.mkdir_p!(opts[:pending_path])
+
+    assert start_error(opts) == {:executor_wake_pending_store_unavailable, :eisdir}
+
+    File.rmdir!(opts[:pending_path])
+    File.write!(opts[:pending_path], Jason.encode!([]))
+    assert start_error(opts) == :invalid_executor_wake_pending_store
+
+    File.write!(opts[:pending_path], Jason.encode!(%{"not-json" => record(1, "42")}))
+    assert start_error(opts) == :invalid_executor_wake_pending_store
   end
 
   test "reaps a dead waiter", %{opts: opts} do
@@ -100,11 +182,13 @@ defmodule Aiur.ExecutorWakeInboxTest do
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [1, 2, 3]
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
 
     for id <- 4..8, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
     assert Enum.map(records, & &1["event_id"]) == [4, 5, 6, 7, 8]
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
 
     journal_ids =
       opts[:path]
@@ -128,6 +212,13 @@ defmodule Aiur.ExecutorWakeInboxTest do
       "first_seen_at" => now,
       "last_seen_at" => now
     }
+  end
+
+  defp start_error(opts) do
+    previous = Process.flag(:trap_exit, true)
+    assert {:error, reason} = ExecutorWakeInbox.start_link(opts)
+    Process.flag(:trap_exit, previous)
+    reason
   end
 
   defp eventually(fun, attempts \\ 100)
