@@ -247,13 +247,19 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       [meter] = codex.windows
 
       assert meter.coverage == :supported
-      assert meter.meter == %{kind: :exact, now: 40, min: 0, max: 100}
+      assert meter.meter == %{kind: :exact, now: 60, min: 0, max: 100}
       assert meter.standing_label == "Allowed"
       assert meter.resets_at == @reset
     end
 
-    test "zero usage is an exact value distinct from unknown" do
+    test "an untouched quota is an exact full remaining value distinct from unknown" do
       window = window(used_percent: 0, remaining_percent: 100, coverage: :supported)
+      [meter] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"z" => window})}), :codex).windows
+      assert meter.meter == %{kind: :exact, now: 100, min: 0, max: 100}
+    end
+
+    test "an exhausted quota is an exact empty remaining value" do
+      window = window(used_percent: 100, remaining_percent: 0, coverage: :supported)
       [meter] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"z" => window})}), :codex).windows
       assert meter.meter == %{kind: :exact, now: 0, min: 0, max: 100}
     end
@@ -273,8 +279,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     end
 
     test "credit and spend-control windows name their status" do
-      credit = window(kind: :credit, name: "Credits", coverage: :supported, used_percent: nil, credits: %{status: :exhausted, amount: 0})
-      spend = window(kind: :spend_control, name: "Spend control", coverage: :supported, used_percent: nil, spend_control: %{status: :enabled, limit: 100})
+      credit = window(kind: :credit, name: "Credits", coverage: :supported, used_percent: nil, remaining_percent: nil, credits: %{status: :exhausted, amount: 0})
+      spend = window(kind: :spend_control, name: "Spend control", coverage: :supported, used_percent: nil, remaining_percent: nil, spend_control: %{status: :enabled, limit: 100})
 
       windows = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"c" => credit, "s" => spend})}), :codex).windows
       by_kind = Map.new(windows, &{&1.kind, &1})
@@ -284,10 +290,18 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert by_kind[:spend_control].spend_control.label == "Enabled"
 
       # A prepaid provider reports dollars, not a consumed fraction. A supported
-      # window carrying no used_percent must render as no meter at all: showing
-      # it as "0% used" reads as full headroom when the truth is unknown (#1436).
+      # window carrying no measured percentage must render as no meter at all:
+      # showing it as "100% remaining" fabricates headroom when the truth is unknown (#1436).
       assert by_kind[:credit].meter == %{kind: :none}
       assert by_kind[:spend_control].meter == %{kind: :none}
+    end
+
+    test "a credit window with a measured baseline exposes remaining capacity" do
+      credit = window(kind: :credit, name: "Credits", used_percent: 25, remaining_percent: nil, credits: %{status: :available, amount: 75})
+      [view] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"c" => credit})}), :codex).windows
+
+      assert view.remaining_percent == 75
+      assert view.meter == %{kind: :exact, now: 75, min: 0, max: 100}
     end
 
     test "windows sort deterministically by kind then name" do

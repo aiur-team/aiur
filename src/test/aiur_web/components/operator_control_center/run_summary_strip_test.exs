@@ -76,7 +76,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert compact(html) =~ "1.5K <img class=\"rs-token-ic\""
     assert html =~ "$2.50"
     assert html =~ "$6.25"
-    assert html =~ "40% · resets in 30m"
+    assert html =~ "60% remaining · resets in 30m"
 
     # The Live stat was dropped: it duplicated what the Units table already
     # shows, and the extra column pushed the head row past the card's edge at
@@ -120,7 +120,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(<img class="rs-logo rs-github-mark" src="/images/github-mark.svg")
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
-    assert html =~ ~s(class="is-warning" style="width:90.0%")
+    assert html =~ ~s(class="is-warning" style="width:10.0%")
     # The two GitHub budgets explain their units on hover.
     assert html =~ ~s(title="REST request budget")
     assert html =~ ~s(title="GraphQL point budget")
@@ -160,6 +160,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert html =~ "0/5000 left"
+    assert html =~ ~s(class="rs-meter is-critical")
+    assert html =~ ~s(class="is-critical" style="width:0.0%")
     refute html =~ "ticket:1790"
     refute html =~ "ticket:1791"
     refute html =~ "Attributed"
@@ -432,8 +434,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "12%"
-    refute html =~ "88%"
+    assert html =~ "88% remaining"
+    refute html =~ "12% remaining"
   end
 
   test "falls back to whatever exists when no account-wide window is reported" do
@@ -457,7 +459,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "88%"
+    assert html =~ "12% remaining"
   end
 
   # Codex reports `hasCredits`/`unlimited`/`rateLimitResetCredits` facts, not a
@@ -489,7 +491,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "12%"
+    assert html =~ "88% remaining"
     refute html =~ "balance"
     refute html =~ "Exhausted"
   end
@@ -529,9 +531,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # A prepaid balance with a durable baseline renders a real spend percentage
-  # alongside the dollar amount: a real bar plus a "Y% used" meta.
-  test "a credit window with a baseline renders the spend percentage and the dollar amount" do
+  # A prepaid balance with a durable baseline renders its remaining percentage
+  # alongside the dollar amount.
+  test "a credit window with a baseline renders remaining capacity and the dollar amount" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -564,16 +566,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$49.05 · 1.9% used"
-      # The bar renders the measured spend percentage itself (1.9% used), not an
-      # empty 0%: the probe attaches `used_percent` without a separate `meter`
-      # key, and the strip reads it directly.
-      assert html =~ ~s(<i class="" style="width:1.9%">)
+      assert html =~ "$49.05 · 98.1% remaining"
+      assert html =~ ~s(<i class="" style="width:98.1%">)
     end)
   end
 
-  # Rule 9: an exhausted prepaid balance bar (100% used) renders red.
-  test "an exhausted prepaid balance bar renders red" do
+  # An exhausted prepaid balance is empty and red.
+  test "an exhausted prepaid balance bar renders empty and red" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -606,8 +605,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$0 · 100% used"
-      assert html =~ ~s(class="is-critical" style="width:100.0%")
+      assert html =~ "$0 · 0% remaining"
+      assert html =~ ~s(class="rs-meter is-critical")
+      assert html =~ ~s(class="is-critical" style="width:0.0%")
     end)
   end
 
@@ -690,7 +690,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$49.05 · 1.9% used · as of 11:55 UTC (stale)"
+      assert html =~ "$49.05 · 98.1% remaining · as of 11:55 UTC (stale)"
       # The stale meta is not followed by the fresh "resets in" countdown; the
       # balance is presented with its age, not as a current reading.
       refute html =~ "· resets in"
@@ -716,7 +716,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       :ok =
         Aiur.ModelAvailability.observe(
           "codex",
-          %{weekly: %{used: 100, limit: 100, reset_at: DateTime.add(@now, 86_400, :second) |> DateTime.to_iso8601()}},
+          %{
+            hourly: %{used: 10, limit: 100, reset_at: DateTime.add(@now, 3_600, :second) |> DateTime.to_iso8601()},
+            weekly: %{used: 100, limit: 100, reset_at: DateTime.add(@now, 86_400, :second) |> DateTime.to_iso8601()}
+          },
           now: observed_at
         )
 
@@ -742,10 +745,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      # A ledger-only standing is stale by construction, and the meta line is the
-      # only place that says so now that the row's head chip is gone.
-      assert html =~ "100% used · as of 08:53 UTC (stale)"
-      assert html =~ ~s(class="is-critical" style="width:100%")
+      # The most-consumed window governs even when another durable window still
+      # has headroom. A ledger-only standing is stale by construction.
+      assert html =~ "0% remaining · as of 08:53 UTC (stale)"
+      assert html =~ ~s(class="rs-meter is-critical")
+      assert html =~ ~s(class="is-critical" style="width:0%")
     after
       restore_app_env(:aiur, :workflow_file_path, previous_path)
       File.rm_rf(dir)
@@ -998,9 +1002,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(<img class="rs-logo rs-token-na" src="/provider-assets/claude-token.svg")
   end
 
-  # Rule 9: any meter at exactly 100% used renders red, including rate-limit
-  # windows and the run progress bar.
-  test "a rate-limit bar at 100% used renders red" do
+  test "an exhausted rate-limit bar renders empty and red" do
     meters = %{
       state: :authorized,
       cards: [
@@ -1023,10 +1025,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ ~s(class="is-critical" style="width:100%")
+    assert html =~ "0% remaining"
+    assert html =~ ~s(class="rs-meter is-critical")
+    assert html =~ ~s(class="is-critical" style="width:0%")
   end
 
-  test "a non-critical bar at 99% used stays default" do
+  test "a nearly exhausted rate-limit bar renders one percent remaining and warns" do
     meters = %{
       state: :authorized,
       cards: [
@@ -1049,7 +1053,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ ~s(<i class="" style="width:99%">)
+    assert html =~ "1% remaining"
+    assert html =~ ~s(class="is-warning" style="width:1%")
     refute html =~ "is-critical"
   end
 
@@ -1136,13 +1141,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           })
 
         # Model windows render the percent form.
-        assert html =~ "40% · resets in 30m"
-        assert html =~ "62% · resets in 30m"
-        assert html =~ "0% · resets in 30m"
+        assert html =~ "60% remaining · resets in 30m"
+        assert html =~ "38% remaining · resets in 30m"
+        assert html =~ "100% remaining · resets in 30m"
         # GitHub keeps its own remaining/limit and reset in its pane.
         assert html =~ "3750/5000 left · resets in 30m"
       end)
     end)
+  end
+
+  test "a model's explicit remaining percentage takes precedence over derived usage" do
+    [codex | _cards] = model_cards()
+    [window] = codex.windows
+    codex = %{codex | windows: [Map.put(window, :remaining_percent, 65)]}
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: %{state: :authorized, cards: [codex]},
+        github_quota: %{state: :unknown},
+        now: @now
+      })
+
+    assert html =~ "65% remaining · resets in 30m"
+    assert html =~ ~s(style="width:65%")
+    refute html =~ "60% remaining"
   end
 
   # GitHub attribution/coverage context is removed in the full card; no ticket
@@ -1193,12 +1217,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
             now: @now
           })
 
-        # DeepSeek is a real, fresh zero-consumed reading.
-        assert html =~ "0% · resets in 30m"
+        # DeepSeek is a real, fresh untouched reading.
+        assert html =~ "100% remaining · resets in 30m"
 
         # Claude's window is stale: the reading is labelled rather than
         # presented as current.
-        assert html =~ "62% · resets in 30m (stale)"
+        assert html =~ "38% remaining · resets in 30m (stale)"
 
         # Kimi reported nothing at all, which is neither healthy nor a zero.
         assert html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
@@ -1237,7 +1261,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "40% · resets in 30m #{qualifier}"
+      assert html =~ "60% remaining · resets in 30m #{qualifier}"
     end
   end
 
@@ -1263,7 +1287,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "40% · resets in 30m (stale)"
+    assert html =~ "60% remaining · resets in 30m (stale)"
     refute html =~ "(stale) (stale)"
   end
 
@@ -1314,7 +1338,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "1 API"
   end
 
-  test "a configured account renders a filling used-credit meter and invoice amount beside GitHub" do
+  test "a configured account renders remaining credits and invoice amount beside GitHub" do
     html = strip(elevenlabs_quota: elevenlabs_quota_view())
     row = elevenlabs_row(html)
 
@@ -1323,8 +1347,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert row =~ "ElevenLabs"
     assert row =~ ~s(src="/elevenlabs-symbol.svg")
     assert row =~ "Credits"
-    assert row =~ "75.0K left · 25% used · resets 3d"
-    assert row =~ ~s(style="width:25.0%")
+    assert row =~ "75.0K left · 75% remaining · resets 3d"
+    assert row =~ ~s(style="width:75.0%")
     assert row =~ "Next invoice due"
     assert row =~ "$5.00"
     refute row =~ "100.0K"
@@ -1345,8 +1369,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   test "an absent next invoice does not hide the credit meter" do
     row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(next_invoice: nil)))
 
-    assert row =~ "75.0K left · 25% used · resets 3d"
-    assert row =~ ~s(style="width:25.0%")
+    assert row =~ "75.0K left · 75% remaining · resets 3d"
+    assert row =~ ~s(style="width:75.0%")
     refute row =~ "Next invoice due"
     refute row =~ "$"
   end
@@ -1392,10 +1416,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   test "a nearly exhausted quota warns and an exhausted one is critical" do
     warning = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 95_000)))
-    assert warning =~ ~s(class="is-warning" style="width:95.0%")
+    assert warning =~ ~s(class="is-warning" style="width:5.0%")
 
     critical = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 100_000)))
-    assert critical =~ ~s(class="is-critical" style="width:100.0%")
+    assert critical =~ ~s(class="rs-meter is-critical")
+    assert critical =~ ~s(class="is-critical" style="width:0.0%")
 
     healthy = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view()))
     refute healthy =~ "is-warning"
@@ -1406,9 +1431,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(limit: 0, used: 0)))
 
     assert row =~ "0 left"
+    assert row =~ "0% remaining"
     assert row =~ ~s(class="rs-meter")
     assert row =~ ~s(style="width:0%")
-    refute row =~ "% used"
   end
 
   # Everything after the ElevenLabs row's marker class and before the next pane.
@@ -1485,7 +1510,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       kind: :rate_limit,
       name: name,
       coverage_label: "Supported",
-      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      meter: %{kind: :exact, now: 100 - percent, min: 0, max: 100},
       used: percent,
       used_percent: percent,
       remaining: Keyword.get(opts, :remaining),
@@ -1565,23 +1590,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           kind: :rate_limit,
           name: "Session",
           coverage_label: "Supported",
-          meter: %{kind: :exact, now: percent},
+          meter: %{kind: :exact, now: 100 - percent},
           resets_at: DateTime.add(@now, 30, :minute)
         }
       ]
     }
   end
 
-  # Mirrors the shape ProviderMetersPresenter emits: the rendered percentage
-  # comes from `meter.now`, and `coverage_label` is required by the meta
-  # renderer.
+  # Mirrors the shape ProviderMetersPresenter emits: `meter.now` is remaining
+  # capacity while the raw usage fields stay available for diagnostics.
   defp scoped_window(limit_id, percent) do
     %{
       limit_id: limit_id,
       kind: :rate_limit,
       name: "Primary",
       coverage_label: "Supported",
-      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      meter: %{kind: :exact, now: 100 - percent, min: 0, max: 100},
       used: percent,
       used_percent: percent,
       resets_at: DateTime.add(@now, 30, :minute)

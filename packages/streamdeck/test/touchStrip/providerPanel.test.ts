@@ -25,7 +25,7 @@ describe("providerRows", () => {
   it("turns the projected usage map into one row per provider", () => {
     const rows = providerRows({ claude: meter("claude", 86), codex: meter("codex", 19) });
     expect(labels(rows)).toEqual(["claude", "codex"]);
-    expect(rows[0].model.session?.usedPercent).toBe(86);
+    expect(rows[0].model.session?.remainingPercent).toBe(14);
   });
 
   it("orders providers alphabetically, not by the payload's own key order", () => {

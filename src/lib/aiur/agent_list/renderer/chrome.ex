@@ -43,11 +43,11 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   end
 
   @doc """
-  Limit headroom for each provider, as a bar plus the age of the observation.
+  Remaining headroom for each provider, as a bar plus the age of the observation.
 
   Meters are observed from live agent sessions, so a bar with no age cannot be
   told apart from a current one. A provider that has never been observed reads
-  as `n/a` and draws no bar — an empty bar would read as "0% consumed".
+  as `n/a` and draws no bar — an empty bar would read as exhausted.
   """
   @spec usage_row(term(), term()) :: term()
   def usage_row(usage, inner_width) when is_map(usage) and map_size(usage) > 0 do
@@ -59,16 +59,16 @@ defmodule Aiur.AgentList.Renderer.Chrome do
 
   def usage_row(_usage, inner_width), do: metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
 
-  # Codex reports a consumed fraction, so it gets a bar. Claude reports only a
-  # standing and a reset time — its CLI exposes no utilization at all — so it
-  # gets those instead. Rendering an empty bar for Claude would read as "0%
-  # consumed", which is a claim the data does not support.
+  # Codex reports a consumed fraction, so it gets a remaining-capacity bar.
+  # Claude reports only a standing and a reset time — its CLI exposes no utilization at all — so it
+  # gets those instead. Rendering an empty bar for Claude would read as
+  # exhausted, which is a claim the data does not support.
   defp usage_segment({provider, %{state: :observed} = view}) do
     case local_concurrency_summary(view) do
       nil ->
-        case usage_percent(view) do
+        case remaining_percent(view) do
           nil -> "#{provider_abbrev(provider)} #{fact_summary(view)}"
-          percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
+          percent -> "#{provider_abbrev(provider)} #{capacity_bar(percent)} #{round(percent)}% left #{age_suffix(view[:age_seconds])}"
         end
 
       summary ->
@@ -78,21 +78,27 @@ defmodule Aiur.AgentList.Renderer.Chrome do
 
   defp usage_segment({provider, _view}), do: "#{provider_abbrev(provider)} n/a"
 
-  # The worst-consumed rate-limit window is the one that will stop work first,
+  # The least-remaining rate-limit window is the one that will stop work first,
   # so it is the number worth the header's single line.
-  defp usage_percent(%{windows: windows}) when is_map(windows) do
+  defp remaining_percent(%{windows: windows}) when is_map(windows) do
     windows
     |> Map.values()
     |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
-    |> Enum.map(&Map.get(&1, :used_percent))
+    |> Enum.map(&window_remaining_percent/1)
     |> Enum.filter(&is_number/1)
     |> case do
       [] -> nil
-      percents -> Enum.max(percents)
+      percents -> Enum.min(percents)
     end
   end
 
-  defp usage_percent(_view), do: nil
+  defp remaining_percent(_view), do: nil
+
+  defp window_remaining_percent(%{remaining_percent: percent}) when is_number(percent), do: clamp_percent(percent)
+  defp window_remaining_percent(%{used_percent: percent}) when is_number(percent), do: 100 - clamp_percent(percent)
+  defp window_remaining_percent(_window), do: nil
+
+  defp clamp_percent(percent), do: percent |> max(0) |> min(100)
 
   defp local_concurrency_summary(view) do
     view
@@ -164,7 +170,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
 
   @bar_cells 10
 
-  defp usage_bar(percent) do
+  defp capacity_bar(percent) do
     filled = percent |> max(0) |> min(100) |> Kernel./(100) |> Kernel.*(@bar_cells) |> round()
     String.duplicate("█", filled) <> String.duplicate("░", @bar_cells - filled)
   end

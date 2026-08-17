@@ -1173,17 +1173,24 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert html =~ "Session"
     assert html =~ "Weekly"
-    assert html =~ "30% · 22m"
-    assert html =~ "47% · Thu 6PM"
-    assert html =~ "50% · 1h"
-    assert html =~ "75% · Fri 8PM"
+    assert html =~ "70% remaining · 22m"
+    assert html =~ "53% remaining · Thu 6PM"
+    assert html =~ "50% remaining · 1h"
+    assert html =~ "25% remaining · Fri 8PM"
 
     Agent.update(meter_agent, fn meters ->
       put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "60% · 22m"
+    assert render(view) =~ "40% remaining · 22m"
+
+    Agent.update(meter_agent, fn meters ->
+      put_in(meters["claude"]["windows"]["session"]["remaining_percent"], 65)
+    end)
+
+    send(view.pid, {:provider_meter_changed, %{}})
+    assert render(view) =~ "65% remaining · 22m"
   end
 
   test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{snapshot_agent: snapshot_agent, meter_agent: meter_agent} do
@@ -1209,7 +1216,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       send(view.pid, {:provider_meter_changed, %{}})
       html = render(view)
 
-      assert html =~ "60% · 22m"
+      assert html =~ "40% remaining · 22m"
       # Meter observations must not re-project the fleet: the grid snapshot was
       # read once at mount and not again for the meter refresh.
       assert Agent.get(counter, & &1) == reads_before
@@ -1252,9 +1259,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
-    assert html =~ "47% · Thu 6PM · stale · 10m ago"
-    assert html =~ "Weekly · 47% · Thu 6PM · stale · 10m ago"
+    assert html =~ ~s(data-meter="weekly" data-percent="53" data-observed="true" data-freshness="stale")
+    assert html =~ "53% remaining · Thu 6PM · stale · 10m ago"
+    assert html =~ "Weekly · 53% remaining · Thu 6PM · stale · 10m ago"
   end
 
   test "renders summary build space and pager dots inside touch-strip segments" do

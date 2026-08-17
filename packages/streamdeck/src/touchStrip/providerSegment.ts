@@ -1,9 +1,9 @@
 /**
- * Claude/Codex touch-strip segment view-model — real provider usage, no
+ * Claude/Codex touch-strip segment view-model — real provider capacity, no
  * invented numbers.
  *
  * The strip's second and third segments show, respectively, Claude and Codex
- * usage. Their only sanctioned data source is `Aiur.ProviderMeterProjection`,
+ * capacity. Their only sanctioned data source is `Aiur.ProviderMeterProjection`,
  * surfaced to external controllers by the Stream Deck projection channel
  * (#1346). This module turns one provider's projected meter into the small,
  * render-ready shape the segment painter consumes. It invents nothing: every
@@ -13,7 +13,7 @@
  * the strip is ultimately painted through OpenDeck's `setFeedbackLayout`
  * (#1342's layout fork) or via direct `0x0C` region writes, both paths need the
  * same two facts per provider — a session window and a weekly window, each with
- * a used percentage and a reset time — so this view-model is common to both.
+ * a remaining percentage and a reset time — so this view-model is common to both.
  *
  * ## Payload shape (from the #1346 projection)
  *
@@ -27,7 +27,9 @@
  *
  * `windows` is keyed by an opaque `limit_id` (e.g. `"session"`, `"5h"`,
  * `"7d"`); each value carries `used_percent`, `resets_at`, and — when known —
- * `duration_minutes`. We classify session vs weekly by duration rather than by
+ * `remaining_percent` when the adapter supplies it, plus `duration_minutes`.
+ * Otherwise remaining capacity is derived from `used_percent`. We classify
+ * session vs weekly by duration rather than by
  * label string, because the label is provider-defined and not a stable
  * contract: the shortest-duration window is the session, the longest is the
  * weekly.
@@ -41,7 +43,7 @@
  * so a lone duration-less window cannot be ordered against a peer — but it is
  * still the provider's one real reading. We therefore fall back to treating a
  * SINGLE unclassifiable window as the session (never a fabricated weekly), so
- * Claude shows its real usage instead of a permanent "awaiting data". Two or
+ * Claude shows its real remaining capacity instead of a permanent "awaiting data". Two or
  * more duration-less windows stay ambiguous and are reported as no data rather
  * than guessed.
  */
@@ -49,6 +51,7 @@
 /** One observed rate-limit window, as projected. */
 export interface ProviderMeterWindow {
   readonly used_percent?: number;
+  readonly remaining_percent?: number;
   readonly resets_at?: string;
   readonly duration_minutes?: number;
 }
@@ -63,8 +66,8 @@ export interface ProviderMeter {
 
 /** A single window reduced to what the segment renders. */
 export interface UsageWindow {
-  /** Used percentage, clamped to 0..100. */
-  readonly usedPercent: number;
+  /** Remaining percentage, clamped to 0..100. */
+  readonly remainingPercent: number;
   /** ISO-8601 reset instant, or null when the window did not report one. */
   readonly resetsAt: string | null;
 }
@@ -83,20 +86,29 @@ export interface ProviderSegmentModel {
   readonly hasData: boolean;
 }
 
-function clampPercent(value: number | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+function clampPercent(value: number): number {
   if (value < 0) return 0;
   if (value > 100) return 100;
   return value;
 }
 
-function hasUsedPercent(window: ProviderMeterWindow): boolean {
-  return typeof window.used_percent === "number" && Number.isFinite(window.used_percent);
+function hasMeasuredPercent(window: ProviderMeterWindow): boolean {
+  return (
+    (typeof window.remaining_percent === "number" && Number.isFinite(window.remaining_percent)) ||
+    (typeof window.used_percent === "number" && Number.isFinite(window.used_percent))
+  );
+}
+
+function remainingPercent(window: ProviderMeterWindow): number {
+  if (typeof window.remaining_percent === "number" && Number.isFinite(window.remaining_percent)) {
+    return clampPercent(window.remaining_percent);
+  }
+  return 100 - clampPercent(window.used_percent as number);
 }
 
 function toUsageWindow(window: ProviderMeterWindow): UsageWindow {
   return {
-    usedPercent: clampPercent(window.used_percent),
+    remainingPercent: remainingPercent(window),
     resetsAt: typeof window.resets_at === "string" ? window.resets_at : null,
   };
 }
@@ -117,6 +129,7 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   let weeklyDuration = -Infinity;
 
   for (const window of all) {
+    if (!hasMeasuredPercent(window)) continue;
     const duration = window.duration_minutes;
     if (typeof duration !== "number" || !Number.isFinite(duration)) continue;
     if (duration < sessionDuration) {
@@ -135,12 +148,12 @@ function classifyWindows(windows: Readonly<Record<string, ProviderMeterWindow>>)
   // when the duration pass classified nothing AND there is a single window —
   // multiple duration-less windows stay ambiguous, never guessed.
   //
-  // The lone window must also carry a finite `used_percent`. Without it,
-  // `clampPercent(undefined)` renders a confident "0% used" — which reads as
-  // "plenty of headroom" when the truth is unknown (#1436). An honest "no data"
+  // The lone window must also carry a finite measured percentage. Without it,
+  // deriving from `undefined` could render confident headroom when the truth is
+  // unknown (#1436). An honest "no data"
   // beats a fabricated zero on a glanceable surface, so a duration-less window
   // with no percentage stays unclassified and the segment reports hasData:false.
-  if (session === null && weekly === null && all.length === 1 && hasUsedPercent(all[0])) {
+  if (session === null && weekly === null && all.length === 1 && hasMeasuredPercent(all[0])) {
     session = all[0];
   }
 

@@ -36,7 +36,7 @@ The key is optional. Without it, microphone discovery and level meters remain av
 
 | Figure | Meaning |
 | --- | --- |
-| Credit quota | Account `character_count` against `character_limit` from `GET /v1/user/subscription`, shown as percentage used. |
+| Credit quota | Account `character_count` against `character_limit` from `GET /v1/user/subscription`, shown as percentage remaining. |
 | Character pool | Text-to-speech characters reported by the ElevenLabs subscription. |
 | Speech-to-text cost | Not represented; ElevenLabs bills transcription per audio-minute. |
 | Next invoice due | `next_invoice.amount_due_cents`; money owed, not a remaining balance. |

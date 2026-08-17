@@ -13,13 +13,13 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
 
     assert text(row) =~ "Usage:"
     assert text(row) =~ "claude"
-    assert text(row) =~ "42%"
+    assert text(row) =~ "58% left"
     assert text(row) =~ "(2m)"
-    assert text(row) =~ "████░░░░░░"
+    assert text(row) =~ "██████░░░░"
   end
 
-  # An empty bar reads as "0% consumed"; a provider we have never observed must
-  # not be drawn that way.
+  # An empty bar reads as exhausted; a provider we have never observed must not
+  # be drawn that way.
   test "a never-observed provider reads n/a and draws no bar" do
     row = text(Chrome.usage_row(%{claude: unknown()}, @width))
 
@@ -30,7 +30,7 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
 
   # Claude's CLI reports a standing and a reset time but no utilization, so a
   # bar is impossible for it. Name what is known instead of drawing an empty
-  # bar, which would read as "0% consumed".
+  # bar, which would read as exhausted.
   test "a provider with a standing but no percentage names the standing" do
     view = %{
       state: :observed,
@@ -92,7 +92,7 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
   end
 
   # The window that will stop work first is the one worth the header's line.
-  test "the worst-consumed rate-limit window wins" do
+  test "the least-remaining rate-limit window wins" do
     view = %{
       state: :observed,
       age_seconds: 30,
@@ -102,7 +102,19 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
       }
     }
 
-    assert text(Chrome.usage_row(%{codex: view}, @width)) =~ "88%"
+    assert text(Chrome.usage_row(%{codex: view}, @width)) =~ "12% left"
+  end
+
+  test "an explicit remaining percentage takes precedence over derived usage" do
+    view = %{
+      state: :observed,
+      age_seconds: 30,
+      windows: %{
+        "session" => %{kind: :rate_limit, used_percent: 40, remaining_percent: 65}
+      }
+    }
+
+    assert text(Chrome.usage_row(%{codex: view}, @width)) =~ "65% left"
   end
 
   test "non-rate-limit windows are ignored" do

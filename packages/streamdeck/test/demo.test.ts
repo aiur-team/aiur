@@ -130,7 +130,7 @@ describe("demoUsage fixture", () => {
   it("projects to real session and weekly windows resetting in the future", () => {
     const claude = providerSegmentModel(usage.claude);
     expect(claude.hasData).toBe(true);
-    expect(claude.session?.usedPercent).toBe(86);
+    expect(claude.session?.remainingPercent).toBe(14);
     expect(Date.parse(String(claude.session?.resetsAt))).toBeGreaterThan(now);
     expect(Date.parse(String(claude.weekly?.resetsAt))).toBeGreaterThan(now);
   });
@@ -149,7 +149,7 @@ describe("demoUsage fixture", () => {
 
   it("spreads the meters so no two segments read alike", () => {
     const percents = Object.values(usage)
-      .map((meter) => providerSegmentModel(meter).session?.usedPercent)
+      .map((meter) => providerSegmentModel(meter).session?.remainingPercent)
       .filter((percent): percent is number => percent !== undefined);
     expect(new Set(percents).size).toBe(percents.length);
   });

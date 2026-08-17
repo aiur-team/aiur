@@ -37,15 +37,15 @@ describe("providerSegmentModel", () => {
     expect(model.provider).toBe("codex");
     expect(model.freshness).toBe("fresh");
     expect(model.hasData).toBe(true);
-    expect(model.session).toEqual({ usedPercent: 42, resetsAt: "2026-07-30T16:00:00Z" });
-    expect(model.weekly).toEqual({ usedPercent: 71, resetsAt: "2026-08-02T00:00:00Z" });
+    expect(model.session).toEqual({ remainingPercent: 58, resetsAt: "2026-07-30T16:00:00Z" });
+    expect(model.weekly).toEqual({ remainingPercent: 29, resetsAt: "2026-08-02T00:00:00Z" });
   });
 
   it("treats Claude's single duration-less window as the real session (no weekly, has data)", () => {
     const model = providerSegmentModel(claudeMeter);
     expect(model.provider).toBe("claude");
     expect(model.hasData).toBe(true);
-    expect(model.session).toEqual({ usedPercent: 63, resetsAt: "2026-07-30T16:00:00Z" });
+    expect(model.session).toEqual({ remainingPercent: 37, resetsAt: "2026-07-30T16:00:00Z" });
     expect(model.weekly).toBeNull();
   });
 
@@ -70,7 +70,7 @@ describe("providerSegmentModel", () => {
         second: { used_percent: 80, duration_minutes: 300 },
       },
     });
-    expect(model.session?.usedPercent).toBe(30);
+    expect(model.session?.remainingPercent).toBe(70);
     expect(model.weekly).toBeNull();
   });
 
@@ -82,8 +82,8 @@ describe("providerSegmentModel", () => {
         "5h": { used_percent: 90, duration_minutes: 300 },
       },
     });
-    expect(model.session?.usedPercent).toBe(90);
-    expect(model.weekly?.usedPercent).toBe(10);
+    expect(model.session?.remainingPercent).toBe(10);
+    expect(model.weekly?.remainingPercent).toBe(90);
   });
 
   it("clamps percentages to 0..100 and defaults missing to 0", () => {
@@ -94,8 +94,8 @@ describe("providerSegmentModel", () => {
         weekly: { used_percent: -5, duration_minutes: 10080 },
       },
     });
-    expect(model.session?.usedPercent).toBe(100);
-    expect(model.weekly?.usedPercent).toBe(0);
+    expect(model.session?.remainingPercent).toBe(0);
+    expect(model.weekly?.remainingPercent).toBe(100);
   });
 
   it("reports resetsAt as null when a window omits it", () => {
@@ -103,7 +103,7 @@ describe("providerSegmentModel", () => {
       provider: "claude",
       windows: { session: { used_percent: 5, duration_minutes: 300 } },
     });
-    expect(model.session).toEqual({ usedPercent: 5, resetsAt: null });
+    expect(model.session).toEqual({ remainingPercent: 95, resetsAt: null });
     // A single classifiable window is the session, never also the weekly.
     expect(model.weekly).toBeNull();
   });
@@ -121,12 +121,13 @@ describe("providerSegmentModel", () => {
     }
   });
 
-  it("defaults a window's used_percent to 0 when it is absent", () => {
+  it("does not fabricate remaining capacity when a classifiable window has no percentage", () => {
     const model = providerSegmentModel({
       provider: "claude",
       windows: { session: { resets_at: "2026-07-30T16:00:00Z", duration_minutes: 300 } },
     });
-    expect(model.session).toEqual({ usedPercent: 0, resetsAt: "2026-07-30T16:00:00Z" });
+    expect(model.session).toBeNull();
+    expect(model.hasData).toBe(false);
   });
 
   it("nulls provider/freshness and defaults windows for a bare meter object", () => {
@@ -146,7 +147,7 @@ describe("providerSegmentModel", () => {
       windows: { mystery: { used_percent: 50 } },
     });
     expect(model.hasData).toBe(true);
-    expect(model.session?.usedPercent).toBe(50);
+    expect(model.session?.remainingPercent).toBe(50);
     expect(model.weekly).toBeNull();
   });
 
@@ -158,5 +159,13 @@ describe("providerSegmentModel", () => {
     expect(model.hasData).toBe(false);
     expect(model.session).toBeNull();
     expect(model.weekly).toBeNull();
+  });
+
+  it("prefers an explicit remaining percentage over deriving it from usage", () => {
+    const model = providerSegmentModel({
+      provider: "codex",
+      windows: { session: { used_percent: 40, remaining_percent: 65, duration_minutes: 300 } },
+    });
+    expect(model.session?.remainingPercent).toBe(65);
   });
 });

@@ -155,7 +155,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
           <span class="provider-meter-fill" style={"width: #{@window.meter.now}%"}></span>
         </span>
         <span class="provider-meter-value">
-          {@window.meter.now}% used<span :if={@window.freshness == :stale}> (stale observation)</span>
+          {@window.meter.now}% remaining<span :if={@window.freshness == :stale}> (stale observation)</span>
         </span>
       </div>
 
@@ -201,8 +201,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
     """
   end
 
-  defp window_meter_aria_label(%{name: name, freshness: :stale}), do: "#{name} usage, stale observation"
-  defp window_meter_aria_label(%{name: name}), do: "#{name} usage"
+  defp window_meter_aria_label(%{name: name, freshness: :stale}), do: "#{name} capacity remaining, stale observation"
+  defp window_meter_aria_label(%{name: name}), do: "#{name} capacity remaining"
 
   attr(:value, :any, default: nil)
   attr(:class, :string, default: nil)

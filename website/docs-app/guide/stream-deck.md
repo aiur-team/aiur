@@ -13,6 +13,8 @@ Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
 
+Provider meters fill by capacity remaining: a full bar is untouched, and an empty bar is exhausted.
+
 | Control state | Behavior |
 | --- | --- |
 | Pause | The label reflects the selected agent's current state. |
@@ -185,7 +187,7 @@ Prefer the environment reference over a literal key. See [Configuration](/refere
 | Transcript returned | Text stays in memory until sent or discarded; nothing writes it to disk. |
 | Coding agent launched | `ELEVENLABS_API_KEY` is removed from its environment and never logged. |
 
-The Units meter reads the ElevenLabs credit quota as percentage used and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures).
+The Units meter reads the ElevenLabs credit quota as percentage remaining and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures).
 
 ### Without a key
 

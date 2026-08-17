@@ -105,12 +105,12 @@ defmodule AiurWeb.DashboardCssThemeTest do
     end
   end
 
-  # A meter that has reached 100% used is critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one (#1532). The rule must
+  # A quota meter with no capacity remaining is critical: the empty track turns
+  # red so an exhausted window is never mistaken for a healthy one (#1532). The rule must
   # keep using the themed blocking token so it stays legible in both themes.
-  test ".rs-meter is-critical uses the themed blocking fill" do
-    rule = css_rule(".rs-meter > i.is-critical")
-    assert rule =~ "var(--blocking)"
+  test ".rs-meter is-critical uses the themed blocking fill and empty-track outline" do
+    assert css_rule(".rs-meter.is-critical") =~ "box-shadow: inset 0 0 0 1px var(--blocking)"
+    assert css_rule(".rs-meter > i.is-critical") =~ "var(--blocking)"
   end
 
   test "dashboard progress bars match the Stream Deck progress contract" do

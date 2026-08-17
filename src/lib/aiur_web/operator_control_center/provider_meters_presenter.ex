@@ -250,6 +250,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
     coverage = Map.get(window, :coverage, :supported)
     kind = Map.get(window, :kind)
     used_percent = Map.get(window, :used_percent)
+    remaining_percent = remaining_percent(window)
     standing = Map.get(window, :standing)
     window_freshness = Map.get(window, :freshness)
 
@@ -263,7 +264,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       standing: standing,
       standing_label: standing_label(standing),
       used_percent: used_percent,
-      remaining_percent: Map.get(window, :remaining_percent),
+      remaining_percent: remaining_percent,
       used: Map.get(window, :used),
       limit: Map.get(window, :limit),
       remaining: Map.get(window, :remaining),
@@ -276,18 +277,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       freshness: window_freshness,
       freshness_label: window_freshness_label(window_freshness),
       source_label: source_label(Map.get(window, :source)),
-      meter: meter(coverage, used_percent)
+      meter: meter(coverage, remaining_percent)
     }
   end
 
   # An exact semantic meter value is exposed only for a supported window with a
-  # numeric usage percentage; unsupported and empty-supported windows carry no
-  # implied value. Zero is a real exact value, distinct from unknown.
-  defp meter(:supported, used_percent) when is_number(used_percent) do
-    %{kind: :exact, now: round(clamp_percent(used_percent)), min: 0, max: 100}
+  # numeric remaining percentage; unsupported and empty-supported windows carry
+  # no implied value. Zero is a real exhausted value, distinct from unknown.
+  defp meter(:supported, remaining_percent) when is_number(remaining_percent) do
+    %{kind: :exact, now: round(clamp_percent(remaining_percent)), min: 0, max: 100}
   end
 
-  defp meter(_coverage, _used_percent), do: %{kind: :none}
+  defp meter(_coverage, _remaining_percent), do: %{kind: :none}
+
+  defp remaining_percent(%{remaining_percent: percent}) when is_number(percent), do: clamp_percent(percent)
+  defp remaining_percent(%{used_percent: percent}) when is_number(percent), do: 100 - clamp_percent(percent)
+  defp remaining_percent(_window), do: nil
 
   defp clamp_percent(percent) when percent < 0, do: 0
   defp clamp_percent(percent) when percent > 100, do: 100

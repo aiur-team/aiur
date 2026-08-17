@@ -3926,8 +3926,13 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: var(--accent);
 }
 
-/* A meter that has reached 100% used is critical: the fill turns red so an
-   exhausted window is never mistaken for a healthy one. */
+/* A quota meter with no capacity remaining keeps its fill at a truthful zero
+   width. The blocking outline makes that empty state visible without making
+   the bar look full. */
+.rs-meter.is-critical {
+  box-shadow: inset 0 0 0 1px var(--blocking);
+}
+
 .rs-meter > i.is-critical {
   background: var(--blocking);
 }

@@ -33,7 +33,8 @@ test('Provider meters expose semantic meters, machine-readable resets, and stay 
 
       // The supported window exposes an exact semantic meter; the unsupported
       // window and the unknown Claude account carry no implied value.
-      await expect(codex.getByRole('progressbar', { name: 'Primary usage' })).toHaveAttribute('aria-valuenow', '40')
+      await expect(codex.getByRole('progressbar', { name: 'Primary capacity remaining' })).toHaveAttribute('aria-valuenow', '60')
+      await expect(codex).toContainText('60% remaining')
       await expect(codex).toContainText('Not supported')
       // The unknown Claude account reports an unknown auth mode and omits the
       // account-generation identity entirely rather than implying a value.

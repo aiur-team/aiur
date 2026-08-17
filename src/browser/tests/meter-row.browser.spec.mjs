@@ -27,10 +27,10 @@ test('the model pane groups providers, keeps every freshness state, and fits wit
       await expect(page.locator('.rs-block.rs-models')).toHaveCount(1)
 
       const elevenlabs = page.locator('.rs-elevenlabs')
-      await expect(elevenlabs).toContainText('75.0K left · 25% used · resets 3d')
+      await expect(elevenlabs).toContainText('75.0K left · 75% remaining · resets 3d')
       await expect(elevenlabs.locator('.rs-stat-label')).toHaveText('Next invoice due')
       await expect(elevenlabs.locator('.rs-stat-val')).toHaveText('$5.00')
-      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:25\.0%/)
+      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:75\.0%/)
       await expect(elevenlabs.locator('img')).toHaveAttribute('src', '/elevenlabs-symbol.svg')
       await expect.poll(() => elevenlabs.locator('img').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0)
 
@@ -65,7 +65,7 @@ test('the model pane groups providers, keeps every freshness state, and fits wit
       // line, now that the head-row chip is gone.
       await expect(page.locator('.rs-state')).toHaveCount(0)
       await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-limit-meta')).toContainText('(stale)')
-      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-limit-meta')).toContainText('0% · resets in')
+      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-limit-meta')).toContainText('100% remaining · resets in')
       await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-meta')).toHaveText('Unavailable')
 
       // Neither the row nor the page body scrolls horizontally.

@@ -577,7 +577,7 @@ defmodule AiurWeb.StreamdeckLive do
               >
                 <span class="sd-mini-top">
                   <span class="sd-mini-lbl">{meter.label}</span>
-                  <span :if={meter.observed?} class="sd-mini-r">{meter.percent}%<span :if={meter.metadata}> · {meter.metadata}</span></span>
+                  <span :if={meter.observed?} class="sd-mini-r">{meter.percent}% remaining<span :if={meter.metadata}> · {meter.metadata}</span></span>
                   <span :if={!meter.observed?} class="sd-mini-r"></span>
                 </span>
                 <span class="sd-mini-bar" role="img" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} style={"width: #{meter.percent}%"}></i></span>
@@ -958,7 +958,7 @@ defmodule AiurWeb.StreamdeckLive do
   defp hour_label(%DateTime{hour: hour}), do: "#{rem(hour + 11, 12) + 1}#{if(hour < 12, do: "AM", else: "PM")}"
 
   defp meter_aria_label(%{label: label, observed?: true, percent: percent, metadata: metadata}) do
-    Enum.reject([label, "#{percent}%", metadata], &is_nil/1) |> Enum.join(" · ")
+    Enum.reject([label, "#{percent}% remaining", metadata], &is_nil/1) |> Enum.join(" · ")
   end
 
   defp meter_aria_label(%{label: label}), do: "#{label} unavailable"
@@ -1291,18 +1291,29 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp window_percentage(window) when is_map(window) do
-    used_percent = get_value(window, "used_percent")
-    used = get_value(window, "used")
-    limit = get_value(window, "limit")
-
-    cond do
-      is_number(used_percent) -> round(used_percent)
-      is_number(used) and is_number(limit) and limit > 0 -> round(used / limit * 100)
-      true -> nil
+    case get_value(window, "remaining_percent") do
+      remaining_percent when is_number(remaining_percent) -> remaining_percent |> round() |> clamp(0, 100)
+      _other -> used_window_percentage(window)
     end
   end
 
   defp window_percentage(_window), do: nil
+
+  defp used_window_percentage(window) do
+    case get_value(window, "used_percent") do
+      used_percent when is_number(used_percent) -> used_percent |> round() |> then(&(100 - &1)) |> clamp(0, 100)
+      _other -> usage_ratio_percentage(window)
+    end
+  end
+
+  defp usage_ratio_percentage(window) do
+    used = get_value(window, "used")
+    limit = get_value(window, "limit")
+
+    if is_number(used) and is_number(limit) and limit > 0 do
+      used |> Kernel./(limit) |> Kernel.*(100) |> round() |> then(&(100 - &1)) |> clamp(0, 100)
+    end
+  end
 
   defp pause_agent(identifier) do
     case endpoint_config(:agent_chat_pause_fun) do

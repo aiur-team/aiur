@@ -320,6 +320,7 @@ defmodule AiurWeb.StreamdeckProjection do
 
     %{
       used_percent: field(window, :used_percent),
+      remaining_percent: field(window, :remaining_percent),
       remaining: field(window, :remaining),
       resets_at: window |> field(:resets_at) |> datetime(),
       observed_at: observed_at,

@@ -84,8 +84,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
                 <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
                 <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
               </div>
-              <div class="rs-meter">
-                <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+              <% remaining_percent = github_remaining_percent(window) %>
+              <div class={meter_track_class(meter_class(remaining_percent))}>
+                <i class={meter_class(remaining_percent)} style={"width:#{remaining_percent}%"}></i>
               </div>
             </div>
             <div :for={backoff <- @backoffs} class="github-quota-backoff">
@@ -114,6 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:window, window)
       |> assign(:invoice_due, elevenlabs_invoice_due(window))
       |> assign(:meter_percent, elevenlabs_meter_percent(window))
+      |> assign(:meter_class, measured_meter_class(window))
 
     ~H"""
     <div class="rs-api rs-elevenlabs">
@@ -133,9 +135,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
             <span class={["rs-limit-meta", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
           </div>
-          <div class="rs-meter">
+          <div class={meter_track_class(@meter_class)}>
             <i
-              class={meter_class(@meter_percent, 90)}
+              class={@meter_class}
               style={"width:#{@meter_percent}%"}
             >
             </i>
@@ -190,7 +192,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>
-        <div class="rs-meter"><i class={meter_class(run_percent(@run))} style={"width:#{run_percent(@run)}%"}></i></div>
+        <div class="rs-meter"><i class={progress_meter_class(run_percent(@run))} style={"width:#{run_percent(@run)}%"}></i></div>
       </div>
     </section>
     """
@@ -258,7 +260,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-label">Limits</span>
             <span class="rs-limit-meta">{durable_meta(durable_record(@card), @now)}</span>
           </div>
-          <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
+          <div class={meter_track_class(meter_class(durable_percent(durable_record(@card))))}>
+            <i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i>
+          </div>
         </div>
         <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
           <div class="rs-limit-top">
@@ -272,7 +276,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <span class="rs-limit-meta">{model_window_meta(window, @now, @standing)}</span>
           </div>
-          <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
+          <div class={meter_track_class(measured_meter_class(window))}>
+            <i class={measured_meter_class(window)} style={"width:#{meter_percent(window)}%"}></i>
+          </div>
         </div>
       </div>
     </div>
@@ -351,7 +357,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp elevenlabs_configured?(%{state: state}) when state in [:unknown, :observed, :failed], do: true
   defp elevenlabs_configured?(_quota), do: false
 
-  defp elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: percent
+  defp elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: remaining_percent(percent)
   defp elevenlabs_meter_percent(_window), do: 0
 
   defp elevenlabs_explanation do
@@ -359,7 +365,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   # The label already says Credits, so the compact line carries only the
-  # remaining count, consumed share, and day-scale reset.
+  # remaining count, remaining share, and day-scale reset.
   defp elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
     [
       "#{compact_number(window.remaining)} left",
@@ -373,7 +379,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
   defp elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
 
-  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
+  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_percent(remaining_percent(percent))}% remaining"
+  defp elevenlabs_percent_text(%{limit: limit}) when is_number(limit) and limit <= 0, do: "0% remaining"
   defp elevenlabs_percent_text(_window), do: nil
 
   defp elevenlabs_invoice_due(%{next_invoice: %{amount_due_cents: cents, currency: currency}})
@@ -432,6 +439,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp github_window_meta(window, now) do
     "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
   end
+
+  defp github_remaining_percent(%{remaining_percent: percent}) when is_number(percent), do: Float.round(percent, 1)
+
+  defp github_remaining_percent(%{remaining: remaining, limit: limit})
+       when is_number(remaining) and is_number(limit) and limit > 0,
+       do: remaining |> Kernel./(limit) |> Kernel.*(100) |> Float.round(1)
+
+  defp github_remaining_percent(_window), do: 0
 
   # A provider card only occupies strip space when the provider is actually
   # connected. OpenAI-compatible providers gate on their configured credential
@@ -525,9 +540,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     entry
     |> Map.take(@durable_windows)
     |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
-      %{percent: min(round(used / limit * 100), 100)}
+      %{percent: max(100 - min(round(used / limit * 100), 100), 0)}
     end)
-    |> Enum.max_by(& &1.percent, fn -> nil end)
+    |> Enum.min_by(& &1.percent, fn -> nil end)
   end
 
   defp provider_usage(%{usage: usage}), do: usage
@@ -709,29 +724,35 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
 
-  # A prepaid-balance window carries its spend percentage as `used_percent`
-  # (the probe attaches it only once a durable baseline exists); the bar renders
-  # that measured value rather than an empty 0%. Measured rate-limit windows
-  # carry the same percentage under `meter.now`. Credit percentages are rounded
-  # to one decimal so a float measurement never renders a noisy bar width.
-  defp meter_percent(%{kind: :credit, used_percent: percent}) when is_number(percent), do: Float.round(percent, 1)
+  # A prepaid-balance window carries its spend percentage as `used_percent`;
+  # invert it for the remaining-capacity convention. Measured rate-limit windows
+  # already carry remaining capacity under `meter.now` from the presenter.
+  defp meter_percent(%{remaining_percent: percent}) when is_number(percent), do: percent |> max(0) |> min(100)
+  defp meter_percent(%{used_percent: percent}) when is_number(percent), do: remaining_percent(percent)
   defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
   defp meter_percent(_window), do: 0
 
-  # A bar that is fully consumed reads as critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one. Credit percentages
-  # arrive as floats (e.g. 100.0), so the guard accepts any number at/above 100.
-  defp meter_class(percent, warning_threshold \\ nil)
-  defp meter_class(percent, _warning_threshold) when is_number(percent) and percent >= 100, do: "is-critical"
+  # Remaining capacity at zero is critical; the final ten percent warns. This
+  # keeps colour severity aligned with the inverted fill direction.
+  defp meter_class(percent) when is_number(percent) and percent <= 0, do: "is-critical"
+  defp meter_class(percent) when is_number(percent) and percent <= 10, do: "is-warning"
+  defp meter_class(_percent), do: ""
 
-  defp meter_class(percent, warning_threshold)
-       when is_number(percent) and is_number(warning_threshold) and percent >= warning_threshold,
-       do: "is-warning"
+  defp meter_track_class(severity) when severity in [nil, ""], do: "rs-meter"
+  defp meter_track_class(severity), do: "rs-meter #{severity}"
 
-  defp meter_class(_percent, _warning_threshold), do: ""
+  defp measured_meter_class(%{remaining_percent: percent}) when is_number(percent), do: meter_class(meter_percent(%{remaining_percent: percent}))
+  defp measured_meter_class(%{used_percent: percent}) when is_number(percent), do: meter_class(meter_percent(%{used_percent: percent}))
+  defp measured_meter_class(%{meter: %{kind: :exact, now: percent}}) when is_number(percent), do: meter_class(percent)
+  defp measured_meter_class(_window), do: ""
+
+  # Run progress is work completed, not remaining quota, so it deliberately
+  # retains the pre-existing 100%-complete class convention.
+  defp progress_meter_class(percent) when is_number(percent) and percent >= 100, do: "is-critical"
+  defp progress_meter_class(_percent), do: ""
 
   # A credit window is a dollar balance. When a durable baseline exists the
-  # window carries a measured `used_percent` and renders a real spend bar
+  # window carries a measured `used_percent` and renders a real remaining bar
   # alongside the dollar amount; without a baseline the bar stays empty and the
   # meta carries the balance, so a prepaid provider never reads as a fabricated
   # "0% consumed" (issue #1436).
@@ -741,7 +762,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # instead of presenting the balance as live (issue #1550).
   defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}} = window, now)
        when is_number(amount) and is_number(used_percent) do
-    base = "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
+    base = "#{currency_amount("USD", amount)} · #{format_percent(remaining_percent(used_percent))}% remaining"
     if credit_stale?(window, now), do: base <> credit_stale_suffix(window), else: base
   end
 
@@ -757,7 +778,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     to_string(status) <> " balance"
   end
 
-  defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
+  defp window_meta(%{meter: %{kind: :exact}} = window, now), do: "#{meter_percent(window)}% remaining · #{reset_text(window.resets_at, now)}"
   defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
 
   # The probe stamps a credit window with a 300s freshness horizon
@@ -780,7 +801,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp credit_stale_suffix(_window), do: " (stale)"
 
-  defp format_used_percent(percent) when is_number(percent) do
+  defp remaining_percent(used_percent) when is_integer(used_percent), do: used_percent |> then(&(100 - &1)) |> max(0) |> min(100)
+
+  defp remaining_percent(used_percent) when is_float(used_percent),
+    do: used_percent |> then(&(100.0 - &1)) |> max(0.0) |> min(100.0) |> Float.round(1)
+
+  defp format_percent(percent) when is_number(percent) do
     percent = percent |> max(0) |> min(100)
     rounded = Float.round(percent, 1)
 
@@ -797,7 +823,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # word; the label now has to say it here, because the meta line is the only
   # place left that qualifies the number it sits beside (issue #1564).
   defp durable_meta(%{percent: percent, observed_at: observed_at}, _now) do
-    "#{percent}% used · as of #{clock_label(observed_at)} (stale)"
+    "#{percent}% remaining · as of #{clock_label(observed_at)} (stale)"
   end
 
   defp durable_percent(%{percent: percent}), do: percent

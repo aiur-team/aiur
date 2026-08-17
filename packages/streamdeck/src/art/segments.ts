@@ -271,9 +271,9 @@ const sessionReading = (row: ProviderPanelRow, now: number): { readonly text: st
   if (!row.model.hasData) return { text: "Awaiting data", fraction: null };
   const window = row.model.session;
   if (window === null) return { text: "No session window", fraction: null };
-  const percent = Math.round(window.usedPercent);
+  const percent = Math.round(window.remainingPercent);
   const reset = resetLabel(window.resetsAt, now);
-  return { text: reset === null ? `Session ${percent}%` : `Session ${percent}% · ${reset}`, fraction: percent / 100 };
+  return { text: reset === null ? `Session ${percent}% left` : `Session ${percent}% left · ${reset}`, fraction: percent / 100 };
 };
 
 /**

@@ -48,13 +48,13 @@ Aiur keeps unknown, partial, and stale pricing explicit instead of turning missi
 
 | Provider family | Meter meaning |
 | --- | --- |
-| Codex and Claude | Percentage used in renewing allotment windows. |
+| Codex and Claude | Percentage remaining in renewing allotment windows. |
 | DeepSeek and OpenRouter | Prepaid dollar or credit balance. |
-| DeepSeek percentage | Spend against a durable prepaid-balance baseline, not a provider quota. |
+| DeepSeek percentage | Remaining capacity against a durable prepaid-balance baseline, not a provider quota. |
 | DeepSeek concurrency | Process-local; shown in live CLI and TUI status, omitted from retained provider cards because an instantaneous reading goes stale. |
 | Kimi | Session observations only; no account-balance probe. |
-| GitHub | Core REST and GraphQL percentage used. |
-| ElevenLabs | Account credit quota as percentage used, plus the amount due on the next invoice; neither figure tracks speech-to-text audio-minute spend. |
+| GitHub | Core REST and GraphQL percentage remaining. |
+| ElevenLabs | Account credit quota as percentage remaining, plus the amount due on the next invoice; neither figure tracks speech-to-text audio-minute spend. |
 
 Dashboard provider meters carry the age of each observation.
 

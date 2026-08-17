@@ -29,6 +29,16 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert get_in(view, ["kimi", "windows", "weekly", "used_percent"]) == 20
   end
 
+  test "preserves an explicit remaining percentage for the renderer" do
+    meter = observed_meter("primary", 40, 60, "secondary", 75, 10_080)
+    meter = put_in(meter, [:windows, "primary", :remaining_percent], 65)
+
+    view = StreamdeckProjection.provider_meters(%{codex: meter}, @now)
+
+    assert get_in(view, ["codex", "windows", "session", "used_percent"]) == 40
+    assert get_in(view, ["codex", "windows", "session", "remaining_percent"]) == 65
+  end
+
   test "marks retained readings stale from their observation age without trusting freshness" do
     observed_at = DateTime.add(@now, -601, :second)
 

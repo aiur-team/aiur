@@ -207,8 +207,8 @@ const provider = (model: Partial<ProviderSegmentModel>): SegmentContent => ({
   row: providerRow("claude", model),
 });
 
-const session = (usedPercent: number, resetsAt: string | null = null): Partial<ProviderSegmentModel> => ({
-  session: { usedPercent, resetsAt },
+const session = (remainingPercent: number, resetsAt: string | null = null): Partial<ProviderSegmentModel> => ({
+  session: { remainingPercent, resetsAt },
 });
 
 describe("ageLabel", () => {
@@ -550,25 +550,25 @@ describe("provider panel (two providers)", () => {
     const { ink } = render(provider(session(86, "2026-08-13T03:22:00Z")));
     expect(drew(ink, "Claude")).toBeDefined();
     expect(drew(ink, "Session")).toBeDefined();
-    expect(drew(ink, "86% · 22m")).toBeDefined();
+    expect(drew(ink, "86% left · 22m")).toBeDefined();
   });
 
   it("shows the percent alone when the window reported no reset", () => {
-    expect(drew(render(provider(session(86))).ink, "86%")).toBeDefined();
+    expect(drew(render(provider(session(86))).ink, "86% left")).toBeDefined();
   });
 
-  // "no reading yet" and "zero usage" are different states; rendering both as
-  // 0% is the parity bug this panel exists to avoid.
-  it("distinguishes a provider with no reading from one at zero", () => {
+  // "no reading yet" and zero capacity remaining are different states;
+  // rendering both without a reading is the parity bug this panel avoids.
+  it("distinguishes a provider with no reading from one that is exhausted", () => {
     const awaiting = render(provider({ hasData: false }));
     expect(drew(awaiting.ink, "Awaiting data")).toBeDefined();
     expect(awaiting.ink.some((entry) => entry.text.includes("0%"))).toBe(false);
 
-    expect(drew(render(provider(session(0))).ink, "0%")).toBeDefined();
+    expect(drew(render(provider(session(0))).ink, "0% left")).toBeDefined();
   });
 
   it("says which window is missing when a reporting provider has no session", () => {
-    const { ink } = render(provider({ hasData: true, session: null, weekly: { usedPercent: 12, resetsAt: null } }));
+    const { ink } = render(provider({ hasData: true, session: null, weekly: { remainingPercent: 12, resetsAt: null } }));
     expect(drew(ink, "No session window")).toBeDefined();
   });
 
@@ -603,8 +603,8 @@ describe("provider panel (three or more)", () => {
     expect(drew(ink, "Claude")).toBeDefined();
     expect(drew(ink, "Codex")).toBeDefined();
     expect(drew(ink, "Deepseek")).toBeDefined();
-    expect(drew(ink, "Session 86% · 22m")).toBeDefined();
-    expect(drew(ink, "Session 19%")).toBeDefined();
+    expect(drew(ink, "Session 86% left · 22m")).toBeDefined();
+    expect(drew(ink, "Session 19% left")).toBeDefined();
   });
 
   it("keeps every row and the scroll label inside the panel", () => {

@@ -39,9 +39,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
 
     assert html =~ ~s(id="provider-meter-codex-title")
     assert html =~ ~s(role="progressbar")
-    assert html =~ ~s(aria-valuenow="40")
+    assert html =~ ~s(aria-valuenow="60")
     assert html =~ ~s(aria-valuemin="0")
     assert html =~ ~s(aria-valuemax="100")
+    assert html =~ "60% remaining"
+    assert html =~ ~s(aria-label="Primary capacity remaining")
     assert html =~ ~s(<time)
     assert html =~ ~s(datetime="2026-07-18T12:00:00Z")
     assert html =~ "Subscription"
