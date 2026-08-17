@@ -88,6 +88,36 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert status.blocked_by == []
   end
 
+  test "distinguishes an orphaned tracker claim from a live in-progress runtime" do
+    orphan = %Issue{id: "orphan", identifier: "repo#orphan", state: "in-progress", title: "Orphaned claim"}
+    live = %Issue{id: "live", identifier: "repo#live", state: "in-progress", title: "Live claim"}
+
+    state = %State{
+      last_polled_issues: %{orphan.id => orphan, live.id => live},
+      running: %{
+        live.id => %{
+          identifier: live.identifier,
+          issue: live,
+          started_at: DateTime.utc_now(),
+          control: %{status: :working}
+        }
+      }
+    }
+
+    statuses = StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+    orphan_status = Enum.find(statuses, &(&1.issue_id == orphan.id))
+    live_status = Enum.find(statuses, &(&1.issue_id == live.id))
+
+    assert orphan_status.state == :idle
+    assert orphan_status.waiting_reason == :orphaned_claim
+    assert orphan_status.reason == :orphaned_claim
+    assert live_status.state == :running
+    assert live_status.waiting_reason == :active
+
+    [snapshot_orphan] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).idle
+    assert snapshot_orphan.waiting_reason == :orphaned_claim
+  end
+
   test "idle dependency rows expose the blocker and dependency waiting reason" do
     blocker = %{id: "blocker", identifier: "repo#blocker", state: "in-progress"}
     issue = %Issue{id: "waiting", identifier: "repo#waiting", state: "todo", blocked_by: [blocker]}

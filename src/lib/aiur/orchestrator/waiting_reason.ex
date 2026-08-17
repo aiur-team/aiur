@@ -8,6 +8,8 @@ defmodule Aiur.Orchestrator.WaitingReason do
   live state so this module stays trivially unit-testable.
   """
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   @type t ::
           :waiting_for_human
           | :waiting_for_supervisor
@@ -24,6 +26,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :backing_off
           | :unresponsive
           | :claim_released
+          | :orphaned_claim
           | :active
 
   @doc """
@@ -74,6 +77,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:backing_off), do: "backing_off"
   def render(:unresponsive), do: "unresponsive"
   def render(:claim_released), do: "claim_released"
+  def render(:orphaned_claim), do: "orphaned_claim"
   def render(:active), do: "active"
   def render(other), do: to_string(other)
 
@@ -137,21 +141,21 @@ defmodule Aiur.Orchestrator.WaitingReason do
         capacity_or_tracker_state(tracker_state)
 
       true ->
-        by_tracker_state(tracker_state)
+        idle_by_tracker_state(tracker_state)
     end
   end
 
   # A capacity hold only reclassifies dispatchable rows (the `:active` fallback)
   # as `:backing_off`; rows waiting on CI, review, etc. keep their own reason.
   defp capacity_or_tracker_state(tracker_state) do
-    case by_tracker_state(tracker_state) do
+    case idle_by_tracker_state(tracker_state) do
       :active -> :backing_off
       other -> other
     end
   end
 
   defp dispatch_hold_or_tracker_state(tracker_state) do
-    case by_tracker_state(tracker_state) do
+    case idle_by_tracker_state(tracker_state) do
       :active -> :tracker_unavailable
       other -> other
     end
@@ -177,6 +181,13 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp open_decision?(count), do: is_integer(count) and count > 0
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
+
+  defp idle_by_tracker_state(state) do
+    case DispatchPolicy.normalize_issue_state(state) do
+      state when state in ["in-progress", "in progress"] -> :orphaned_claim
+      _other -> by_tracker_state(state)
+    end
+  end
 
   defp by_tracker_state(state) when is_binary(state) do
     case state |> String.downcase() |> String.trim() do
