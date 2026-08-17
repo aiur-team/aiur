@@ -16,19 +16,19 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
-  describe "load_admission_reason/3" do
+  describe "load_admission_reason/4" do
+    @contention %{idle_percent: 5.0, nice_percent: 0.0, reclaimable_percent: 5.0, runnable: 20}
+    @clear_headroom %{idle_percent: 10.0, nice_percent: 70.0, reclaimable_percent: 80.0, runnable: 74}
+
     test "returns the exact binding details used by admission_gate" do
       assert {:hold, %{signal: :load, measured: 25.0, threshold: 24.0}} =
-               DispatchPolicy.load_admission_reason(25.0, 1.5, 16)
+               DispatchPolicy.load_admission_reason(25.0, 1.5, 16, @contention)
 
-      assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16) == :dispatch
+      assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16, @contention) == :dispatch
     end
 
     test "requires real CPU contention before a high load average holds dispatch" do
-      clear_headroom = %{idle_percent: 10.0, nice_percent: 70.0, reclaimable_percent: 80.0, runnable: 74}
-      contention = %{idle_percent: 5.0, nice_percent: 0.0, reclaimable_percent: 5.0, runnable: 20}
-
-      assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, clear_headroom) == :dispatch
+      assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @clear_headroom) == :dispatch
 
       assert {:hold,
               %{
@@ -37,19 +37,39 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                 threshold: 24.0,
                 reclaimable_cpu_percent: 5.0,
                 reclaimable_cpu_threshold: 60.0
-              }} = DispatchPolicy.load_admission_reason(143.0, 1.5, 16, contention)
-
-      assert {:hold, %{signal: :load, measured: 143.0}} =
-               DispatchPolicy.load_admission_reason(143.0, 1.5, 16, :unavailable)
+              }} = DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @contention)
     end
 
-    # admission_gate/1 must never report a load decision that load_admission_reason/3
-    # would not make, and the reported threshold must always be the already
-    # multiplied `threshold * schedulers` — the operator reads that number
-    # straight off the status line, so the two surfaces cannot be allowed to
-    # print different values for the same gate (#1610).
+    # #2089: `SystemCpu.headroom/2` needs two `/proc/stat` reads, so the first
+    # admission decision after the orchestrator boots — the ramp-from-zero
+    # decision — has no window and yields `:unavailable`. Holding on that put
+    # back the uncorroborated load-average false positive #1610 removed: on a
+    # host whose load average is inflated by niced builds or I/O wait, new work
+    # was withheld with no CPU evidence at all. An unmeasured corroboration is
+    # not a measurement of contention, so it must dispatch. Every hold therefore
+    # carries a measured `reclaimable_cpu_percent`.
+    test "an unmeasured CPU window cannot hold, however high the load average" do
+      for load <- [24.1, 143.0, 10_000.0] do
+        assert DispatchPolicy.load_admission_reason(load, 1.5, 16, :unavailable) == :dispatch
+        assert DispatchPolicy.run_queue_admission_reason(9_999, 16, 1.5, :unavailable) == :dispatch
+      end
+
+      # The corroboration is what releases the hold, not the absence of the gate:
+      # the same load with a measured low-headroom window still holds.
+      assert {:hold, %{signal: :load, reclaimable_cpu_percent: 5.0}} =
+               DispatchPolicy.load_admission_reason(143.0, 1.5, 16, @contention)
+
+      assert {:hold, %{signal: :run_queue, reclaimable_cpu_percent: 5.0}} =
+               DispatchPolicy.run_queue_admission_reason(9_999, 16, 1.5, @contention)
+    end
+
+    # admission_gate/1 must never report a load decision that
+    # load_admission_reason/4 would not make, and the reported threshold must
+    # always be the already multiplied `threshold * schedulers` — the operator
+    # reads that number straight off the status line, so the two surfaces cannot
+    # be allowed to print different values for the same gate (#1610).
     test "admission_gate never disagrees with load_admission_reason" do
-      probes = fn load ->
+      probes = fn load, cpu_headroom ->
         %{
           memory_mb: :unavailable,
           memory_threshold_mb: nil,
@@ -63,17 +83,20 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
           provider_backends: [],
           github_quota: :available,
           cpu_snapshot: :unavailable,
+          cpu_headroom: cpu_headroom,
           target: nil,
           queued_demand?: true
         }
       end
 
-      for load <- [0.0, 1.0, 23.9, 24.0, 24.1, 25.0, 400.0, :unavailable] do
-        assert DispatchPolicy.admission_gate(probes.(load)) ==
-                 DispatchPolicy.load_admission_reason(load, 1.5, 16)
+      for load <- [0.0, 1.0, 23.9, 24.0, 24.1, 25.0, 400.0, :unavailable],
+          cpu_headroom <- [@contention, @clear_headroom, :unavailable] do
+        assert DispatchPolicy.admission_gate(probes.(load, cpu_headroom)) ==
+                 DispatchPolicy.load_admission_reason(load, 1.5, 16, cpu_headroom)
       end
 
-      assert {:hold, %{signal: :load, threshold: 24.0}} = DispatchPolicy.admission_gate(probes.(25.0))
+      assert {:hold, %{signal: :load, threshold: 24.0}} =
+               DispatchPolicy.admission_gate(probes.(25.0, @contention))
     end
   end
 
@@ -226,6 +249,9 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
           build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
           provider_backends: [],
           github_quota: :available,
+          # A measured window with no reclaimable CPU: the load and run-queue
+          # gates need one before they can hold at all (#2089).
+          cpu_headroom: %{idle_percent: 5.0, nice_percent: 0.0, reclaimable_percent: 5.0, runnable: 20},
           queued_demand?: true
         },
         overrides
