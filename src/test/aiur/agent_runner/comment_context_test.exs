@@ -63,6 +63,31 @@ defmodule Aiur.AgentRunner.CommentContextTest do
       assert summary =~ "a follow-up comment"
     end
 
+    # A quota hold leaves CODEOWNER authority *unknown*, which classification
+    # reports as `authoritative: nil` rather than `false`. Unknown is not
+    # trusted, and the event payload has to stay a boolean so the downstream
+    # `author_trusted? == true` gate and `false` matches both keep working.
+    test "unknown CODEOWNER authority stamps author_trusted?: false, not nil" do
+      issue = %Issue{identifier: "CC-04", id: "gid-cc04"}
+
+      unknown = %{
+        "id" => 4,
+        "body" => "reviewed during a quota hold",
+        "updated_at" => "2025-07-01T00:00:00Z",
+        :authoritative => nil
+      }
+
+      fetchers = %{
+        issue_comments: fn _id -> {:ok, [unknown]} end,
+        open_pr: fn _id -> {:ok, nil} end,
+        pr_review_comments: fn _id -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _pr -> {:ok, []} end
+      }
+
+      assert [event] = CommentContext.events(issue, fetchers)
+      assert event.author_trusted? === false
+    end
+
     test "dedupes by (topic, comment_id) so the same comment on the same topic appears only once" do
       issue = %Issue{identifier: "CC-03", id: "gid-cc03"}
 
