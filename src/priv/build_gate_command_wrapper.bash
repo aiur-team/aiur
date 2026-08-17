@@ -14,8 +14,8 @@ aiur_build_gate_wrapper_real_command() {
     [ -n "$path_entry" ] || path_entry=.
     candidate="$path_entry/$command_name"
 
-    if [ "$candidate" != "$AIUR_BUILD_GATE_BIN/$command_name" ] &&
-      [ -f "$candidate" ] && [ -x "$candidate" ]; then
+    if [ -f "$candidate" ] && [ -x "$candidate" ] &&
+      ! [ "$candidate" -ef "$0" ] 2>/dev/null; then
       IFS=$saved_ifs
       printf '%s\n' "$candidate"
       return 0
@@ -61,7 +61,9 @@ aiur_build_gate_wrapper_path_without_self() {
   for path_entry in $PATH; do
     [ -n "$path_entry" ] || path_entry=.
 
-    if [ "$path_entry" != "$AIUR_BUILD_GATE_BIN" ]; then
+    candidate="$path_entry/$command_name"
+
+    if ! [ "$candidate" -ef "$0" ] 2>/dev/null; then
       filtered_path="$filtered_path$separator$path_entry"
       separator=:
     fi
@@ -71,20 +73,28 @@ aiur_build_gate_wrapper_path_without_self() {
   printf '%s\n' "$filtered_path"
 }
 
+aiur_build_gate_wrapper_ambiguous_string() {
+  case $1 in
+    *';'* | *'&'* | *'|'* | *'<'* | *'>'* | *'$'* | *'`'* | *'('* | *')'* | *'\'* | *"'"* | *'"'* | *'*'* | *'?'* | *'['* | *']'* | *'~'* | *"
+"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 aiur_build_gate_needs_wrapper() {
   case $command_name in
     elixir)
       elixir_mix_task=$(aiur_build_gate_wrapper_elixir_mix_task "$@") || return 1
 
       case $elixir_mix_task in
-        compile | test) return 0 ;;
+        compile | test | do) return 0 ;;
         *) return 1 ;;
       esac
       ;;
 
     mix)
       case ${1:-} in
-        compile | test) return 0 ;;
+        compile | test | do) return 0 ;;
         *) return 1 ;;
       esac
       ;;
@@ -96,20 +106,64 @@ aiur_build_gate_needs_wrapper() {
       esac
 
       while [ "$#" -gt 0 ]; do
-        if [ "$1" = -- ]; then
-          shift
-          break
-        fi
-        shift
+        case $1 in
+          --)
+            shift
+            [ "$#" -gt 0 ] || return 1
+
+            if [ "${1##*/}" = mix ]; then
+              shift
+              case ${1:-} in
+                compile | test | do) return 0 ;;
+                *) return 1 ;;
+              esac
+            fi
+
+            if [ "${1##*/}" = env ]; then
+              shift
+              while [ "$#" -gt 0 ]; do
+                case $1 in
+                  *=* | -i | --ignore-environment | -0 | --null) shift ;;
+                  --) shift; break ;;
+                  -*) return 0 ;;
+                  *) break ;;
+                esac
+              done
+              [ "$#" -gt 0 ] && [ "${1##*/}" = mix ] && return 0
+            fi
+
+            return 1
+            ;;
+
+          -c | --command)
+            shift
+            [ "$#" -gt 0 ] || return 0
+            aiur_build_gate_wrapper_ambiguous_string "$1" && return 0
+            case $1 in
+              mix\ compile* | mix\ test* | mix\ do* | */mix\ compile* | */mix\ test* | */mix\ do* | env\ *mix*)
+                return 0
+                ;;
+              *) return 1 ;;
+            esac
+            ;;
+
+          --command=*)
+            command_string=${1#--command=}
+            aiur_build_gate_wrapper_ambiguous_string "$command_string" && return 0
+            case $command_string in
+              mix\ compile* | mix\ test* | mix\ do* | */mix\ compile* | */mix\ test* | */mix\ do* | env\ *mix*)
+                return 0
+                ;;
+              *) return 1 ;;
+            esac
+            ;;
+
+          mix | */mix) return 0 ;;
+          *) shift ;;
+        esac
       done
 
-      [ "${1:-}" = mix ] || return 1
-      shift
-
-      case ${1:-} in
-        compile | test) return 0 ;;
-        *) return 1 ;;
-      esac
+      return 1
       ;;
 
     *)
@@ -131,8 +185,7 @@ if [ "${1:-}" = __aiur_build_gate_bash__ ]; then
   exit 125
 fi
 
-if [ "${AIUR_BUILD_GATE_ACTIVE:-0}" != 1 ] &&
-  [ -n "${AIUR_BUILD_GATE_DIR:-}" ] &&
+if [ -n "${AIUR_BUILD_GATE_DIR:-}" ] &&
   aiur_build_gate_needs_wrapper "$@"; then
   if [ ! -r "${BASH_ENV:-}" ]; then
     printf 'aiur_build_gate gate_error reason=hook_unavailable command=%s status=125\n' \

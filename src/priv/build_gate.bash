@@ -44,12 +44,199 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     esac
   }
 
+  aiur_build_gate_ambiguous_command() {
+    aiur_build_gate_log "gate_error reason=ambiguous_command command=$* status=125"
+    return 125
+  }
+
+  aiur_build_gate_mix_phase() {
+    local token task phase="" expect_task=0
+
+    if aiur_build_gate_needs_slot "${1:-}"; then
+      printf '%s\n' "$1"
+      return 0
+    fi
+
+    [[ ${1:-} == do ]] || return 1
+    shift
+
+    while (($#)); do
+      case $1 in
+        --app)
+          shift
+          (($#)) && [[ -n $1 && $1 != -* ]] || return 125
+          shift
+          ;;
+        --app=*)
+          [[ -n ${1#--app=} ]] || return 125
+          shift
+          ;;
+        *) break ;;
+      esac
+    done
+
+    (($#)) || return 125
+    expect_task=1
+
+    for token in "$@"; do
+      if ((expect_task == 1)); then
+        [[ $token != + && $token != , ]] || return 125
+        [[ $token != *,, ]] || return 125
+
+        task=${token%,}
+        [[ -n $task && $task != *","* ]] || return 125
+        if [[ -z $phase ]] && aiur_build_gate_needs_slot "$task"; then
+          phase=$task
+        fi
+
+        if [[ $token == *, ]]; then
+          expect_task=1
+        else
+          expect_task=0
+        fi
+      else
+        case $token in
+          + | ,) expect_task=1 ;;
+          *,,) return 125 ;;
+          *,) expect_task=1 ;;
+        esac
+      fi
+    done
+
+    ((expect_task == 0)) || return 125
+    [[ -n $phase ]] || return 1
+    printf '%s\n' "$phase"
+  }
+
+  aiur_build_gate_is_mix_command() {
+    local candidate=${1:-} real_mix
+
+    [[ $candidate == mix ]] && return 0
+    [[ $candidate == */* && -x $candidate ]] || return 1
+    real_mix=$(aiur_build_gate_real_command mix) || return 1
+    [[ $candidate -ef $real_mix ]]
+  }
+
+  aiur_build_gate_env_runs_mix() {
+    [[ ${1##*/} == env ]] || return 1
+    shift
+
+    while (($#)); do
+      case $1 in
+        --)
+          shift
+          break
+          ;;
+        -i | --ignore-environment | -0 | --null | *=*) shift ;;
+        -u | --unset | -C | --chdir)
+          shift
+          (($#)) || return 125
+          shift
+          ;;
+        --unset=* | --chdir=*) shift ;;
+        -*) return 125 ;;
+        *) break ;;
+      esac
+    done
+
+    (($#)) && aiur_build_gate_is_mix_command "$1"
+  }
+
+  aiur_build_gate_mise_command_string_phase() {
+    local command_string=$1
+    local -a words=()
+
+    if [[ $command_string == *[';&|<>$`()\']* ]] ||
+      [[ $command_string == *'"'* || $command_string == *'*'* ||
+        $command_string == *'?'* || $command_string == *'['* ||
+        $command_string == *']'* || $command_string == *'~'* ||
+        $command_string == *$'\n'* ]]; then
+      return 125
+    fi
+
+    read -r -a words <<<"$command_string"
+    ((${#words[@]})) || return 1
+
+    if aiur_build_gate_is_mix_command "${words[0]}"; then
+      aiur_build_gate_mix_phase "${words[@]:1}"
+    else
+      aiur_build_gate_env_runs_mix "${words[@]}"
+      case $? in
+        0 | 125) return 125 ;;
+        *) return 1 ;;
+      esac
+    fi
+  }
+
+  aiur_build_gate_mise_phase() {
+    local command=${1:-} command_string="" command_source="" option
+    shift || true
+
+    case $command in
+      exec | x) ;;
+      *) return 1 ;;
+    esac
+
+    while (($#)); do
+      option=$1
+
+      case $option in
+        --)
+          [[ -z $command_source ]] || return 125
+          shift
+          (($#)) || return 1
+          if ! aiur_build_gate_is_mix_command "${1:-}"; then
+            aiur_build_gate_env_runs_mix "$@"
+            case $? in
+              0 | 125) return 125 ;;
+              *) return 1 ;;
+            esac
+          fi
+          shift
+          aiur_build_gate_mix_phase "$@"
+          return $?
+          ;;
+        -c | --command)
+          [[ -z $command_source ]] || return 125
+          shift
+          (($#)) || return 125
+          command_string=$1
+          command_source=string
+          shift
+          ;;
+        --command=*)
+          [[ -z $command_source && -n ${option#--command=} ]] || return 125
+          command_string=${option#--command=}
+          command_source=string
+          shift
+          ;;
+        -j | --jobs | -C | --cd | -E | --env | --allow-env | --allow-net | --allow-read | --allow-write)
+          shift
+          (($#)) || return 125
+          shift
+          ;;
+        --jobs=* | --cd=* | --env=* | --allow-env=* | --allow-net=* | --allow-read=* | --allow-write=*)
+          shift
+          ;;
+        -*) shift ;;
+        *)
+          [[ -z $command_source ]] || return 125
+          aiur_build_gate_is_mix_command "$option" && return 125
+          shift
+          ;;
+      esac
+    done
+
+    [[ $command_source == string ]] || return 1
+    aiur_build_gate_mise_command_string_phase "$command_string"
+  }
+
   aiur_build_gate_real_command() {
     local command_name=$1 candidate
     local wrapper_path="${AIUR_BUILD_GATE_BIN:-}/$command_name"
 
     while IFS= read -r candidate; do
-      if [[ -z ${AIUR_BUILD_GATE_BIN:-} || $candidate != "$wrapper_path" ]]; then
+      if [[ -z ${AIUR_BUILD_GATE_BIN:-} || ! $candidate -ef $wrapper_path ]]; then
         printf '%s\n' "$candidate"
         return 0
       fi
@@ -59,12 +246,18 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   aiur_build_gate_owner_pid() {
-    local owner_file=$1 first_line
+    local owner_file=$1 line
 
     [[ -f $owner_file ]] || return 1
-    IFS= read -r first_line <"$owner_file" || return 1
-    [[ $first_line =~ ^pid=([1-9][0-9]*)$ ]] || return 1
-    printf '%s\n' "${BASH_REMATCH[1]}"
+
+    while IFS= read -r line; do
+      if [[ $line =~ ^pid=([1-9][0-9]*)$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+      fi
+    done <"$owner_file"
+
+    return 1
   }
 
   aiur_build_gate_owner_pgid() {
@@ -184,6 +377,101 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     fi
 
     printf '%s\n' "$contents"
+  }
+
+  aiur_build_gate_live_lease() {
+    local gate_dir=${AIUR_BUILD_GATE_DIR:-} lease_path=${AIUR_BUILD_GATE_LEASE_PATH:-}
+    local lease_token=${AIUR_BUILD_GATE_LEASE_TOKEN:-} contents line recorded_token=""
+
+    if [[ -z $lease_path && -z $lease_token ]]; then
+      return 1
+    fi
+
+    if [[ -z $gate_dir || -z $lease_path || -z $lease_token ]] ||
+      [[ ! $lease_token =~ ^[A-Za-z0-9._-]+$ ]] ||
+      [[ $lease_path != "$gate_dir"/* ]] ||
+      [[ ${lease_path#"$gate_dir"/} == */* ]]; then
+      aiur_build_gate_fail "lease_marker_invalid" "${lease_path:-unset}"
+      return 125
+    fi
+
+    if contents=$(aiur_build_gate_read_regular "$lease_path"); then
+      while IFS= read -r line; do
+        if [[ $line == token=* ]]; then
+          [[ -z $recorded_token ]] || {
+            aiur_build_gate_fail "lease_marker_invalid" "$lease_path"
+            return 125
+          }
+          recorded_token=${line#token=}
+        fi
+      done <<<"$contents"
+    else
+      case $? in
+        1) return 1 ;;
+        *) return 125 ;;
+      esac
+    fi
+
+    [[ $recorded_token == "$lease_token" ]]
+  }
+
+  aiur_build_gate_execute_under_lease() {
+    local lease_path=$1 lease_token=$2
+    shift 2
+
+    AIUR_BUILD_GATE_LEASE_PATH=$lease_path \
+      AIUR_BUILD_GATE_LEASE_TOKEN=$lease_token \
+      "$@"
+  }
+
+  aiur_build_gate_execute_with_ephemeral_lease() {
+    local gate_dir=$1 phase=$2 executable=$3 lease_path lease_token result
+    shift 3
+
+    lease_path=$(mktemp "$gate_dir/.active-lease.XXXXXXXXXX" 2>/dev/null) || {
+      aiur_build_gate_fail "lease_marker_create_failed" "$gate_dir"
+      return 125
+    }
+    lease_token=${lease_path##*/}
+    lease_token=${lease_token#.active-lease.}
+
+    if ! printf 'version=2\ntoken=%s\nphase=%s\ncommand=%s\n' \
+      "$lease_token" "$phase" "$*" >"$lease_path"; then
+      rm -f "$lease_path" 2>/dev/null || true
+      aiur_build_gate_fail "lease_marker_write_failed" "$lease_path"
+      return 125
+    fi
+
+    if aiur_build_gate_execute_under_lease "$lease_path" "$lease_token" "$executable" "$@"; then
+      result=0
+    else
+      result=$?
+    fi
+
+    if ! rm -f "$lease_path" 2>/dev/null; then
+      aiur_build_gate_fail "lease_marker_release_failed" "$lease_path"
+      return 125
+    fi
+
+    return "$result"
+  }
+
+  aiur_build_gate_run_or_reuse() {
+    local phase=$1 executable=$2 lease_result
+    shift 2
+
+    if aiur_build_gate_live_lease; then
+      "$executable" "$@"
+    else
+      lease_result=$?
+
+      if ((lease_result == 1)); then
+        unset AIUR_BUILD_GATE_LEASE_PATH AIUR_BUILD_GATE_LEASE_TOKEN
+        aiur_build_gate_run "$phase" "$executable" "$@"
+      else
+        return "$lease_result"
+      fi
+    fi
   }
 
   aiur_build_gate_write_reserved_regular() {
@@ -473,7 +761,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     # then keeps the lease until every adopted descendant has exited.
     holder_script="$(dirname "${BASH_SOURCE[0]}")/build_gate_holder.py"
 
-    AIUR_BUILD_GATE_ACTIVE=1 exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
+    exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
       "$command_ready_path" "$status_path" "$status_ack_path" "$owner_path" "$token" \
       "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "$@"
   }
@@ -694,7 +982,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     local stagger_seconds=${AIUR_BUILD_START_STAGGER_SECONDS:-0}
     local timeout_seconds=${AIUR_BUILD_GATE_TIMEOUT_SECONDS:-900}
     local min_free_memory_mb=${AIUR_MIN_FREE_MEMORY_MB:-0}
-    local queue_dir queue_file deadline slot slot_path owner_candidate owner_pid owner_pgid result pacing_result
+    local queue_dir queue_file deadline slot slot_path owner_candidate owner_pid owner_pgid result pacing_result token
     local available_memory_mb memory_deferred=0 memory_unavailable_logged=0
 
     if [[ ! $slots =~ ^[0-9]+$ ]] ||
@@ -783,7 +1071,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           return 125
         fi
 
-        if AIUR_BUILD_GATE_ACTIVE=1 "$executable" "$@"; then
+        if aiur_build_gate_execute_with_ephemeral_lease "$gate_dir" "$phase" "$executable" "$@"; then
           result=0
         else
           result=$?
@@ -797,7 +1085,10 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
         slot_path="$gate_dir/slot-$slot"
         owner_candidate="$gate_dir/.slot-$slot-owner.$owner_pid.$RANDOM"
 
-        if ! printf 'pid=%s\npgid=%s\ncommand=%s\n' "$owner_pid" "$owner_pgid" "$*" >"$owner_candidate"; then
+        token="$owner_pid.$slot.$RANDOM.$SECONDS"
+
+        if ! printf 'pid=%s\npgid=%s\nversion=2\ntoken=%s\ncommand=%s\n' \
+          "$owner_pid" "$owner_pgid" "$token" "$*" >"$owner_candidate"; then
           rm -f "$owner_candidate"
           rm -f "$queue_file"
           aiur_build_gate_fail "owner_write_failed" "$owner_candidate"
@@ -840,7 +1131,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
             return "$pacing_result"
           fi
 
-          if AIUR_BUILD_GATE_ACTIVE=1 "$executable" "$@"; then
+          if aiur_build_gate_execute_under_lease "$slot_path" "$token" "$executable" "$@"; then
             result=0
           else
             result=$?
@@ -1074,7 +1365,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
         fi
 
         exec {queue_fd}>&-
-        if AIUR_BUILD_GATE_ACTIVE=1 "$executable" "$@"; then
+        if aiur_build_gate_execute_with_ephemeral_lease "$gate_dir" "$phase" "$executable" "$@"; then
           result=0
         else
           result=$?
@@ -1311,39 +1602,15 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     fi
   }
 
-  aiur_build_gate_mise_phase() {
-    local command=${1:-}
-    shift || true
-
-    case $command in
-      exec | x) ;;
-      *) return 1 ;;
-    esac
-
-    while (($#)); do
-      if [[ $1 == -- ]]; then
-        shift
-        break
-      fi
-
-      shift
-    done
-
-    [[ ${1:-} == mix ]] || return 1
-    shift
-    aiur_build_gate_needs_slot "${1:-}" || return 1
-    printf '%s\n' "$1"
-  }
-
-  aiur_build_gate_elixir_mix_task() {
+  aiur_build_gate_elixir_mix_phase() {
     while (($#)); do
       case $1 in
         -S)
           shift
           [[ ${1:-} == mix ]] || return 1
           shift
-          printf '%s\n' "${1:-}"
-          return 0
+          aiur_build_gate_mix_phase "$@"
+          return $?
           ;;
 
         -e | -r | -pr | -pa | -pz | --app | --erl | --cookie)
@@ -1352,6 +1619,28 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           shift
           ;;
 
+        --) return 1 ;;
+        -*) shift ;;
+        *) return 1 ;;
+      esac
+    done
+
+    return 1
+  }
+
+  aiur_build_gate_elixir_uses_mix() {
+    while (($#)); do
+      case $1 in
+        -S)
+          shift
+          [[ ${1:-} == mix ]]
+          return $?
+          ;;
+        -e | -r | -pr | -pa | -pz | --app | --erl | --cookie)
+          shift
+          (($#)) || return 1
+          shift
+          ;;
         --) return 1 ;;
         -*) shift ;;
         *) return 1 ;;
@@ -1376,7 +1665,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       [[ -n $path_entry ]] || path_entry=.
 
-      if [[ $path_entry != "${AIUR_BUILD_GATE_BIN:-}" ]]; then
+      if [[ ! $path_entry/elixir -ef ${AIUR_BUILD_GATE_BIN:-}/elixir ]]; then
         filtered_path+="$separator$path_entry"
         separator=:
       fi
@@ -1393,7 +1682,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   elixir() {
-    local elixir_binary mix_task real_path
+    local elixir_binary phase real_path classification
     elixir_binary=$(aiur_build_gate_real_command elixir)
 
     if [[ -z $elixir_binary ]]; then
@@ -1401,42 +1690,70 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       return $?
     fi
 
-    if mix_task=$(aiur_build_gate_elixir_mix_task "$@"); then
-      real_path=$(aiur_build_gate_path_without_wrapper)
-
-      if aiur_build_gate_needs_slot "$mix_task"; then
-        aiur_build_gate_run "$mix_task" env "PATH=$real_path" "$elixir_binary" "$@"
-      else
-        PATH=$real_path "$elixir_binary" "$@"
-      fi
+    if phase=$(aiur_build_gate_elixir_mix_phase "$@"); then
+      classification=0
     else
-      "$elixir_binary" "$@"
+      classification=$?
     fi
+
+    case $classification in
+      0)
+        real_path=$(aiur_build_gate_path_without_wrapper)
+        aiur_build_gate_run_or_reuse "$phase" env "PATH=$real_path" "$elixir_binary" "$@"
+        ;;
+      1)
+        if aiur_build_gate_elixir_uses_mix "$@"; then
+          real_path=$(aiur_build_gate_path_without_wrapper)
+          PATH=$real_path "$elixir_binary" "$@"
+        else
+          "$elixir_binary" "$@"
+        fi
+        ;;
+      *) aiur_build_gate_ambiguous_command elixir "$@" ;;
+    esac
   }
 
   mix() {
-    local mix_binary
+    local mix_binary phase classification
     mix_binary=$(aiur_build_gate_real_command mix)
 
-    if [[ -n $mix_binary ]] && aiur_build_gate_needs_slot "${1:-}"; then
-      aiur_build_gate_run "${1:-}" "$mix_binary" "$@"
-    elif [[ -n $mix_binary ]]; then
-      "$mix_binary" "$@"
-    else
+    if [[ -z $mix_binary ]]; then
       aiur_build_gate_command_unavailable mix
+      return $?
     fi
+
+    if phase=$(aiur_build_gate_mix_phase "$@"); then
+      classification=0
+    else
+      classification=$?
+    fi
+
+    case $classification in
+      0) aiur_build_gate_run_or_reuse "$phase" "$mix_binary" "$@" ;;
+      1) "$mix_binary" "$@" ;;
+      *) aiur_build_gate_ambiguous_command mix "$@" ;;
+    esac
   }
 
   mise() {
-    local mise_binary phase
+    local mise_binary phase classification
     mise_binary=$(aiur_build_gate_real_command mise)
 
-    if [[ -n $mise_binary ]] && phase=$(aiur_build_gate_mise_phase "$@"); then
-      aiur_build_gate_run "$phase" "$mise_binary" "$@"
-    elif [[ -n $mise_binary ]]; then
-      "$mise_binary" "$@"
-    else
+    if [[ -z $mise_binary ]]; then
       aiur_build_gate_command_unavailable mise
+      return $?
     fi
+
+    if phase=$(aiur_build_gate_mise_phase "$@"); then
+      classification=0
+    else
+      classification=$?
+    fi
+
+    case $classification in
+      0) aiur_build_gate_run_or_reuse "$phase" "$mise_binary" "$@" ;;
+      1) "$mise_binary" "$@" ;;
+      *) aiur_build_gate_ambiguous_command mise "$@" ;;
+    esac
   }
 fi
