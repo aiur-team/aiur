@@ -99,6 +99,93 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
   end
 
+  # A deposit nobody can address is a write to nowhere: it costs bytes against
+  # the size cap and the entry ceiling, a checkpoint every 30 seconds and a
+  # publish on every arrival, and returns nothing. That is not hypothetical.
+  # `:pull_request` is deposited keyed by **pull request number**, while the
+  # only pull-request consumer reads `:branch_pull_request` keyed by **ticket
+  # number** — two pipes keyed so they can never meet (#2126).
+  #
+  # Nothing caught that, because nothing asserted the two halves address the
+  # same entry. This table does, in both directions:
+  #
+  #   * every type a delivery actually deposits must appear here, so a new type
+  #     cannot be added and quietly skipped;
+  #   * every type here must declare how it is reached, and one declared
+  #     unreachable must *stay* unreachable until somebody reclassifies it.
+  #
+  # A table that silently ignored a type it did not recognise would be the same
+  # absence-of-evidence shape as the guards this file exists to replace.
+  #
+  #   `{:read_by, who, keys}`  — a consumer addresses exactly these keys.
+  #   `{:signal_only, why}`    — no key-addressed reader; consumed as a change
+  #                              signal by type, so the key still has to be one
+  #                              the store recognises.
+  #   `{:unreachable, why}`    — nothing consumes it at all.
+  #
+  # Each key is built from the *resource's own* identifiers — issue 42, comment
+  # 9401, review 9403 — the way the consumer derives them, and never from the id
+  # the deposit happened to choose. Feeding the deposited id back into the
+  # consumer's key function would make the two agree by construction and would
+  # only prove that both call `key/4`.
+  defp reachability,
+    do: %{
+      issue: {:read_by, "Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)", [ResourceStore.key(:issue, "owner", "repo", 42)]},
+      issue_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:602)", [ResourceStore.key_for_repo(:issue_comment, @repo, 9401)]},
+      pr_review: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:587)", [ResourceStore.key_for_repo(:pr_review, @repo, 9403)]},
+      pr_review_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:650)", [ResourceStore.key_for_repo(:pr_review_comment, @repo, 9402)]},
+      issue_labels:
+        {:signal_only,
+         "retires the agent `gh` wrapper's cache through AgentCacheBridge's @invalidating_types; " <>
+           "no module builds an :issue_labels key to read one"},
+      pull_request:
+        {:signal_only,
+         "retires the agent cache by type, but no reader addresses it: the only pull-request " <>
+           "consumer reads :branch_pull_request keyed by ticket number (#2126)"},
+      check_run:
+        {:unreachable,
+         "deliberately excluded from AgentCacheBridge — a CI verdict is never served from a cache — " <>
+           "and no module reads it, so this deposit currently buys nothing (#2126)"}
+    }
+
+  describe "every deposit is addressable by whoever wants it" do
+    test "the table covers exactly the types a delivery deposits" do
+      assert deposited_types() == reachability() |> Map.keys() |> MapSet.new(),
+             "a deposited type missing from reachability/0 is an unreviewed write, and a table entry " <>
+               "for a type nothing deposits any more is a claim about code that is gone"
+    end
+
+    test "a consumer addresses exactly the keys the deposit wrote" do
+      deposited = deposited_keys_by_type()
+
+      checked =
+        for {type, {:read_by, who, consumer_keys}} <- reachability() do
+          assert Map.get(deposited, type) == MapSet.new(consumer_keys),
+                 "#{type} is deposited as #{inspect(Map.get(deposited, type))} but #{who} addresses " <>
+                   "#{inspect(MapSet.new(consumer_keys))}; the two pipes can never meet"
+
+          type
+        end
+
+      # Without this the comprehension could match nothing at all and still
+      # pass, which is the precise vacuity this file is being hardened against.
+      assert MapSet.new(checked) == read_by_types(),
+             "the key-agreement assertion did not run for every :read_by type"
+    end
+
+    # The other direction, and the one that would have caught `:pull_request`:
+    # a type declared unreachable must have no reader, so the day somebody wires
+    # one up this fails and forces the declaration to be corrected rather than
+    # left describing the old world.
+    test "a type declared unreachable still has no reader" do
+      for {type, {kind, why}} <- reachability(), kind in [:signal_only, :unreachable] do
+        assert reader_sites(type) == [],
+               "#{type} is declared unreachable (#{why}) but #{inspect(reader_sites(type))} now " <>
+                 "builds a key for it; reclassify it as :read_by and assert the keys agree"
+      end
+    end
+  end
+
   describe "delivery types that deposit bodies" do
     test "issue_comment deposits the comment in the poller's shape" do
       GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9201), repo: @repo)
@@ -518,6 +605,72 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # test-local closure only ever proves `ResourceStore.fetch/1` did not miss,
   # whereas `ResourceFetch.need/3`'s fetcher is the one seam an upstream request
   # would actually leave through — so a zero here is a zero on the rate limit.
+  # Derived by driving real deliveries through `Deposit.deposit/3` and reading
+  # back the keys it reports writing, rather than by restating a list. A list
+  # would agree with the table by construction and prove nothing.
+  @deliveries [
+    {"issue_comment", :issue_comment_delivery},
+    {"issues", :issues_delivery},
+    {"pull_request_review_comment", :review_comment_delivery},
+    {"pull_request_review", :review_delivery},
+    {"pull_request", :pull_request_delivery},
+    {"check_run", :check_run_delivery}
+  ]
+
+  defp deposited_keys do
+    Enum.flat_map(@deliveries, fn {event, fixture} -> deposit_fixture(event, fixture) end)
+  end
+
+  defp deposited_types, do: deposited_keys() |> Enum.map(fn {type, _id, _key} -> type end) |> MapSet.new()
+
+  defp deposited_keys_by_type do
+    deposited_keys()
+    |> Enum.group_by(fn {type, _id, _key} -> type end, fn {_type, _id, key} -> key end)
+    |> Map.new(fn {type, keys} -> {type, MapSet.new(keys)} end)
+  end
+
+  defp read_by_types do
+    reachability()
+    |> Enum.filter(&match?({_type, {:read_by, _who, _fun}}, &1))
+    |> Enum.map(&elem(&1, 0))
+    |> MapSet.new()
+  end
+
+  defp deposit_fixture(event, fixture) do
+    payload =
+      case fixture do
+        :issue_comment_delivery -> issue_comment_delivery(9401)
+        :issues_delivery -> issues_delivery("edited")
+        :review_comment_delivery -> review_comment_delivery(9402)
+        :review_delivery -> review_delivery(9403)
+        :pull_request_delivery -> pull_request_delivery()
+        :check_run_delivery -> check_run_delivery(9404)
+      end
+
+    event
+    |> GithubWebhook.Deposit.deposit(payload, @repo)
+    |> Enum.map(fn {type, _owner, _repo, id} = key -> {type, id, key} end)
+  end
+
+  # Every module that constructs a key of `type` in order to *use* one, which is
+  # every construction site outside the writers. Scanning the source is the only
+  # way to assert the absence of a reader: a runtime check can only see the
+  # readers that happen to run.
+  @writer_files ~w(deposit.ex write_through.ex normalizer.ex resource_store.ex resource_events.ex)
+  @lib_root Path.expand("../../../../lib", __DIR__)
+
+  defp reader_sites(type) do
+    pattern = ~r/ResourceStore\.key(_for_repo)?\(:#{type}\b/
+
+    @lib_root
+    |> Path.join("**/*.ex")
+    |> Path.wildcard()
+    |> Enum.reject(&(Path.basename(&1) in @writer_files))
+    |> Enum.filter(&Regex.match?(pattern, File.read!(&1)))
+    |> Enum.map(&Path.relative_to(&1, @lib_root))
+    |> Enum.sort()
+  end
+
   defp read_through(key) do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
