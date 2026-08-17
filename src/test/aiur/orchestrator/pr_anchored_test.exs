@@ -15,6 +15,9 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
     :ok
   end
 
+  @cpu_baseline %{total: 1_000, idle: 700, nice: 100, runnable: 20}
+  @cpu_current %{total: 1_200, idle: 710, nice: 100, runnable: 20}
+
   defp base_state do
     %State{
       running: %{},
@@ -32,7 +35,11 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
       max_concurrent_agents: nil,
       session_max_concurrent_agents: nil,
       effective_concurrent_agents: nil,
-      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+      # A polling orchestrator already holds the previous /proc/stat sample. The
+      # load gate needs it: paired with `admission_probes/1`'s current sample it
+      # measures a 5%-reclaimable window, and without a measured window there is
+      # no hold to test (#2089).
+      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: @cpu_baseline},
       next_poll_due_at_ms: nil,
       poll_check_in_progress: nil,
       tick_timer_ref: nil,
@@ -61,7 +68,7 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
       build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
       provider_backends: [],
       github_quota: :available,
-      cpu_snapshot: :unavailable,
+      cpu_snapshot: @cpu_current,
       target: nil
     }
   end
