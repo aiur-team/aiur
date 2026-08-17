@@ -219,6 +219,13 @@ defmodule Aiur.Codex.DynamicTool.Errors do
       }
     }
 
+  def payload(:agent_subscription_scope_forbidden),
+    do: %{
+      "error" => %{
+        "message" => "`aiur_subscribe.topic_pattern` must name one literal ticket, for example `ticket.42.#`; Executor, system, bare-wildcard, and wildcard-ticket patterns are unavailable to agents."
+      }
+    }
+
   def payload(:subscriber_unavailable),
     do: %{
       "error" => %{"message" => "`aiur_subscribe` is unavailable in the current runtime context."}

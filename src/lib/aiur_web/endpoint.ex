@@ -21,6 +21,13 @@ defmodule AiurWeb.Endpoint do
     longpoll: false
   )
 
+  # Dashboard dictation audio. The browser streams PCM here and the server owns
+  # the ElevenLabs STT session; auth reuses the LiveView session proof.
+  socket("/voice", AiurWeb.VoiceSocket,
+    websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],
+    longpoll: false
+  )
+
   plug(:authenticate_static_asset)
 
   plug(Plug.Static,

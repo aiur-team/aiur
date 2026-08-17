@@ -8,7 +8,16 @@ A topic-exchange event bus that lets Aiur agents on different tickets coordinate
 - A **payload** (free-form structured data)
 - A monotonic **id** (assigned by `Aiur.Events.IdGenerator`)
 
-Subscribers bind **patterns** (`ticket.42.#`, `*.*.branch.push`). The exchange fans out every published event to every subscriber whose pattern matches.
+Subscribers bind **patterns**, and the exchange fans out every published event
+to every subscriber whose pattern matches. Ticket agents may manually bind only
+patterns rooted at one literal ticket identifier, such as `ticket.42.#` or
+`ticket.42.branch.*`; broader bindings are available only to trusted internal
+consumers.
+
+An agent cannot manually subscribe to `executor.*` or `system.*`, start a
+pattern with a bare `*` or `#`, or wildcard the ticket identifier (for example,
+`ticket.*.branch.push`). These patterns span trusted control-plane or fleet-wide
+traffic and are refused before a binding is created.
 
 ## Why it exists
 

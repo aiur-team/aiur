@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
   All state mutation runs inside the orchestrator GenServer process.
   """
 
-  alias Aiur.Orchestrator.{GlobalPauseStore, PauseResume, SnapshotStore, State, StatusReport}
+  alias Aiur.Orchestrator.{GlobalPauseStore, Lifecycle, PauseResume, SnapshotStore, State, StatusReport}
 
   @call_timeout 15_000
 
@@ -103,7 +103,11 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
     case GlobalPauseStore.save(global_pause_status_for_state(next_state)) do
       :ok ->
-        state = apply_global_pause_transition(next_state, current, on?)
+        state =
+          next_state
+          |> apply_global_pause_transition(current, on?)
+          |> maybe_wake_after_unpause(current, on?)
+
         publish_global_pause(state)
         StatusReport.notify_dashboard(state)
         {:reply, {:ok, global_pause_status_for_state(state)}, state}
@@ -134,6 +138,12 @@ defmodule Aiur.Orchestrator.GlobalPause do
     do: PauseResume.resume_running_from_global(state)
 
   defp apply_global_pause_transition(state, _current, _on?), do: state
+
+  # An idle fleet may have a substantially widened timer. Unpausing is an
+  # explicit admission request, so cancel that timer and reconcile fresh state
+  # before any queued ticket can dispatch.
+  defp maybe_wake_after_unpause(state, true, false), do: state |> Lifecycle.request_refresh_state() |> elem(0)
+  defp maybe_wake_after_unpause(state, _current, _on?), do: state
 
   defp publish_global_pause(%State{} = state) do
     SnapshotStore.publish_global_pause(

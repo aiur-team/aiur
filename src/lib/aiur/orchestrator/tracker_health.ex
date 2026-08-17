@@ -80,9 +80,9 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # 60s header override a deliberately widened `polling.interval_seconds` and
   # quietly undo the quota saving it was set to buy.
   #
-  # The base floor is the *webhook-adjusted* interval rather than the raw
-  # configured one. `IntervalPolicy` widens it only for a repo proven
-  # webhook-backed, so this is the seam where the cutover actually happens —
+  # The base floor composes the webhook and idle widening factors rather than
+  # using the raw configured interval. `IntervalPolicy` widens the webhook
+  # portion only for a repo proven webhook-backed, so this is the seam where the cutover actually happens —
   # and, more importantly, where it comes back. When W-6's silence sweep
   # degrades a repo, its transport reverts to `:polling`, `IntervalPolicy`
   # returns the base interval again, and the very next tick is computed at the
@@ -93,18 +93,44 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # the live registry.
   @spec next_poll_delay_ms(State.t(), keyword()) :: non_neg_integer()
   def next_poll_delay_ms(%State{} = state, opts \\ []) do
-    base_ms = webhook_adjusted_interval_ms(state, opts)
+    poll_schedule(state, opts).delay_ms
+  end
 
-    case github_next_poll_delay_ms(state) do
-      github_ms when is_integer(github_ms) and is_integer(base_ms) ->
-        max(github_ms, base_ms)
+  @doc false
+  @spec poll_schedule(State.t(), keyword()) :: %{
+          delay_ms: non_neg_integer(),
+          idle_backoff?: boolean(),
+          idle_widen_factor: float()
+        }
+  def poll_schedule(%State{} = state, opts \\ []) do
+    webhook_ms = webhook_adjusted_interval_ms(state, opts)
+    idle_factor = idle_widen_factor(opts)
+    idle_backoff? = idle_fleet?(state) and idle_factor > 1.0
+    base_ms = if idle_backoff?, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
 
-      github_ms when is_integer(github_ms) ->
-        github_ms
+    delay_ms =
+      case github_next_poll_delay_ms(state) do
+        github_ms when is_integer(github_ms) and is_integer(base_ms) -> max(github_ms, base_ms)
+        github_ms when is_integer(github_ms) -> github_ms
+        _none -> base_ms
+      end
 
-      _none ->
-        base_ms
-    end
+    %{delay_ms: delay_ms, idle_backoff?: idle_backoff?, idle_widen_factor: idle_factor}
+  end
+
+  defp idle_fleet?(%State{running: running}), do: State.active_running_count(running) == 0
+  defp idle_fleet?(_state), do: false
+
+  defp idle_widen_factor(opts) do
+    factor =
+      Keyword.get_lazy(opts, :idle_widen_factor, fn ->
+        case Config.settings() do
+          {:ok, settings} -> settings.polling.idle_widen_factor
+          _error -> 1.0
+        end
+      end)
+
+    IntervalPolicy.widen_factor(widen_factor: factor)
   end
 
   # A repo we cannot name cannot be looked up, so it keeps the configured

@@ -45,7 +45,7 @@ Important boundary:
 
 ### 2.1 Goals
 
-- Poll the issue tracker on a fixed cadence and dispatch work with bounded concurrency.
+- Poll the issue tracker on a bounded, activity-aware cadence and dispatch work with bounded concurrency.
 - Maintain a single authoritative orchestrator state for dispatch, retries, and reconciliation.
 - Create deterministic per-issue workspaces and preserve them across runs.
 - Stop active runs when issue state changes make them ineligible.
@@ -271,7 +271,8 @@ Single authoritative in-memory state owned by the orchestrator.
 
 Fields:
 
-- `poll_interval_ms` (current effective poll interval)
+- `poll_interval_ms` (configured base poll interval)
+- `effective_poll_interval_ms` (current interval after widening and tracker floors)
 - `max_concurrent_agents` (current effective global concurrency limit)
 - `running` (map `issue_id -> running entry`)
 - `claimed` (set of issue IDs reserved/running/retrying)
@@ -393,9 +394,12 @@ Fields:
 
 Fields:
 
-- `interval_ms` (integer)
-  - Default: `30000`
+- `interval_seconds` (positive integer)
+  - Default: `120`
   - Changes SHOULD be re-applied at runtime and affect future tick scheduling without restart.
+- `idle_widen_factor` (number from `1.0` through `100.0`)
+  - Default: `5.0`
+  - Multiplies the base interval while no agent is actively running and composes with other widening factors.
 
 #### 5.3.3 `workspace` (object)
 
@@ -649,7 +653,8 @@ not require recognizing or validating extension fields unless that extension is 
 - `tracker.project_slug`: string, REQUIRED when `tracker.kind=linear`
 - `tracker.active_states`: list of strings, default `["Todo", "In Progress"]`
 - `tracker.terminal_states`: list of strings, default `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]`
-- `polling.interval_ms`: integer, default `30000`
+- `polling.interval_seconds`: positive integer, default `120`
+- `polling.idle_widen_factor`: number from `1.0` through `100.0`, default `5.0`
 - `workspace.root`: path resolved to absolute, default `<system-temp>/aiur_workspaces`
 - `hooks.after_create`: shell script or null
 - `hooks.before_run`: shell script or null
@@ -788,8 +793,12 @@ Distinct terminal reasons are important because retry logic and logs differ.
 
 ### 8.1 Poll Loop
 
-At startup, the service validates config, performs startup cleanup, schedules an immediate tick, and
-then repeats every `polling.interval_ms`.
+At startup, the service validates config, performs startup cleanup, and schedules an immediate tick.
+After each cycle it schedules the next tick from `polling.interval_seconds`, any composable widening
+factors, and tracker-provided minimum delays. When no agent is actively running,
+`polling.idle_widen_factor` widens the interval. A webhook delivery, an operator action that may admit
+work, or a dispatch request schedules a coalesced immediate tick so the first agent never starts from
+stale tracker state.
 
 The effective poll interval SHOULD be updated when workflow config changes are re-applied.
 

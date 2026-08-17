@@ -186,6 +186,7 @@ defmodule Aiur.AgentControlCLI do
     end
 
     print_capacity_status(Map.get(snapshot, :capacity))
+    print_polling_status(Map.get(snapshot, :polling))
 
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
@@ -194,6 +195,26 @@ defmodule Aiur.AgentControlCLI do
     print_blocking_asks(opts)
     exit_marker(supervision_exit_code)
   end
+
+  defp print_polling_status(%{
+         checking?: false,
+         idle_backoff: %{active?: true, factor: factor},
+         effective_interval_ms: effective_ms,
+         poll_interval_ms: base_ms,
+         next_poll_in_ms: next_ms
+       }) do
+    IO.puts(
+      "POLL idle backoff active: interval=#{poll_seconds(effective_ms)}s " <>
+        "base=#{poll_seconds(base_ms)}s factor=#{factor}x next=#{poll_seconds(next_ms)}s"
+    )
+  end
+
+  defp print_polling_status(_polling), do: :ok
+
+  defp poll_seconds(milliseconds) when is_integer(milliseconds) and milliseconds >= 0,
+    do: div(milliseconds, 1_000)
+
+  defp poll_seconds(_milliseconds), do: 0
 
   # Concise one-line-per-agent activity summary — the built-in, headless
   # equivalent of the dashboard / `aiur-status` log-tailing skill. Pulls the
@@ -387,6 +408,7 @@ defmodule Aiur.AgentControlCLI do
                 |> normalize_todo_ids()
                 |> queue_todo_issues(config, deps)
                 |> maybe_clear_other_todos(only?, config, deps)
+                |> maybe_request_todo_refresh(deps)
 
               {:error, reason} ->
                 IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
@@ -593,6 +615,14 @@ defmodule Aiur.AgentControlCLI do
     Map.merge(%{queued: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
   end
 
+  defp maybe_request_todo_refresh(%{queued: queued, cleared: cleared} = result, deps)
+       when queued > 0 or cleared > 0 do
+    _ = deps.request_refresh.()
+    result
+  end
+
+  defp maybe_request_todo_refresh(result, _deps), do: result
+
   defp todo_runtime_deps do
     %{
       ensure_started: &ensure_todo_runtime_started/0,
@@ -600,7 +630,8 @@ defmodule Aiur.AgentControlCLI do
       fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
       fetch_active: &GitHubTracker.fetch_issues_by_states/1,
       add_label: &GitHubTracker.add_label/2,
-      remove_label: &GitHubTracker.remove_label/2
+      remove_label: &GitHubTracker.remove_label/2,
+      request_refresh: &Orchestrator.request_refresh/0
     }
   end
 
