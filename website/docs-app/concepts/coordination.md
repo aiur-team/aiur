@@ -45,10 +45,10 @@ Progress events are estimates for the Executor’s fleet view; they do not advan
 
 Use events for cross-ticket coordination that another agent may consume. Use alerts for immediate Executor-facing notification. See [Dashboard](/guide/executor-control-center) for the browser projections of these facts.
 
-## GitHub listener automation
+## GitHub events and trust
 
-Aiur observes GitHub through a narrow repository-events firehose and targeted polling. The firehose publishes default-branch pushes, opened pull requests, and merged pull requests. It drops issue events. Ticket-branch pushes are polled separately with `git ls-remote`; comments and review threads are polled for trusted review-driven wakeups; and CI is polled while a ticket is in `agent:ci-wait`.
+Aiur surfaces default-branch pushes, opened and merged pull requests, validated ticket-branch pushes, trusted comments and review feedback, and terminal CI results. The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`. The Executor control-plane subscription is distinct from the agent manual-subscription policy above.
 
-Comment commands and review-driven rework are accepted only from the configured trusted accounts or the resolved CODEOWNERS set. Aiur refreshes CODEOWNERS on the configured cadence and surfaces a safe degraded-trust alert if it cannot resolve the file. The bot identity is excluded to prevent self-triggered loops.
+Comment commands and review-driven rework are accepted only from configured trusted accounts or the resolved CODEOWNERS set. If Aiur cannot resolve CODEOWNERS, it raises a degraded-trust alert instead of silently widening authority. The bot identity cannot trigger its own work.
 
-The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`. The Executor control-plane subscription is distinct from the agent manual-subscription policy above. Treat a branch push as evidence to inspect, not as an unblock signal. CI and review facts are ultimately tracker-derived polling results, even when their projections appear live in the dashboard.
+A branch push alone never resumes a dependent ticket. Before the blocker merges, readiness comes from an explicit validated `ticket.<id>.agent.unblocked` event; reconciling the blocker as merged can also clear the dependency pause.

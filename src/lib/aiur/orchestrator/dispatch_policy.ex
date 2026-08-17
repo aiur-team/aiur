@@ -651,6 +651,31 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
+  @doc false
+  # Manual starts share every canonical eligibility and ownership check with
+  # polling, but intentionally ignore slots reserved by paused agents. The
+  # Executor may fill a genuinely free active slot while another agent remains
+  # parked in the running map.
+  @spec manual_resume_decision(term(), State.t()) ::
+          :dispatch | {:skip, dispatch_decline_reason()}
+  def manual_resume_decision(issue, %State{} = state) do
+    case dispatch_candidate_decision(
+           issue,
+           state,
+           active_state_set(),
+           terminal_state_set(),
+           state.blocked_ticket_ids
+         ) do
+      :dispatch ->
+        if State.active_running_count(state.running) < Slots.max_concurrent_agent_limit(state),
+          do: :dispatch,
+          else: {:skip, :fleet_capacity}
+
+      {:skip, _reason} = declined ->
+        declined
+    end
+  end
+
   # All dispatch preconditions except the global active+paused slot reservation.
   # Polling layers `available_slots > 0` on top of this to honor paused-agent
   # slot holds; manual start paths (e.g., space on a queued ticket) instead
