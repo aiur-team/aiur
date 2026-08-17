@@ -210,12 +210,14 @@ defmodule Aiur.ExecutorWakeInbox do
     with {:ok, durable_ids} <- durable_wake_ids(path) do
       records
       |> Enum.reject(&MapSet.member?(durable_ids, &1["wake_id"]))
-      |> Enum.reduce_while(:ok, fn record, :ok ->
-        case DecisionLog.append(path, record) do
-          :ok -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      |> Enum.reduce_while(:ok, &append_record(path, &1, &2))
+    end
+  end
+
+  defp append_record(path, record, :ok) do
+    case DecisionLog.append(path, record) do
+      :ok -> {:cont, :ok}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
