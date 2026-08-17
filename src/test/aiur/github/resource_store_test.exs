@@ -65,6 +65,49 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert :already_processed = ResourceStore.claim(key, :poll)
     end
 
+    # A GitHub comment's id survives an edit; only `updated_at` moves. Without
+    # the version an edited comment would read as already processed for the full
+    # 72-hour window, so the operator's correction would never wake the agent.
+    test "a resource whose version moved reads as unprocessed" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 9010)
+
+      ResourceStore.mark_processed(key, :webhook, "2026-08-17T10:00:00Z")
+
+      assert ResourceStore.processed?(key, "2026-08-17T10:00:00Z")
+      refute ResourceStore.processed?(key, "2026-08-17T12:00:00Z")
+    end
+
+    test "re-marking at the new version suppresses that version in turn" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 9011)
+
+      ResourceStore.mark_processed(key, :webhook, "2026-08-17T10:00:00Z")
+      ResourceStore.mark_processed(key, :poll, "2026-08-17T12:00:00Z")
+
+      assert ResourceStore.processed?(key, "2026-08-17T12:00:00Z")
+      refute ResourceStore.processed?(key, "2026-08-17T10:00:00Z")
+    end
+
+    test "claim treats a moved version as a fresh resource state" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 9012)
+
+      assert :marked = ResourceStore.claim(key, :webhook, "2026-08-17T10:00:00Z")
+      assert :already_processed = ResourceStore.claim(key, :poll, "2026-08-17T10:00:00Z")
+      assert :marked = ResourceStore.claim(key, :poll, "2026-08-17T12:00:00Z")
+    end
+
+    # A resource with no readable version keeps the pre-version behavior rather
+    # than looking edited on every read, which would republish the whole window
+    # every cycle.
+    test "a versionless resource is suppressed on identity alone" do
+      key = ResourceStore.key(:pr_review, "owner", "repo", 9013)
+
+      ResourceStore.mark_processed(key, :webhook, nil)
+
+      assert ResourceStore.processed?(key, nil)
+      assert ResourceStore.processed?(key)
+      refute ResourceStore.processed?(key, "2026-08-17T12:00:00Z")
+    end
+
     # Marking one resource must not answer for its siblings, which is the whole
     # reason suppression is keyed by identity rather than by a timestamp
     # watermark: an older comment whose delivery was dropped is a different
@@ -120,14 +163,31 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       restart_store!(path)
 
       ResourceStore.put_etag(etag_key, ~s("survives"))
-      ResourceStore.mark_processed(mark_key, :webhook)
+      ResourceStore.mark_processed(mark_key, :webhook, "2026-08-17T10:00:00Z")
       assert :ok = ResourceStore.flush()
       assert File.exists?(path)
 
       restart_store!(path)
 
       assert ResourceStore.etag(etag_key) == ~s("survives")
-      assert ResourceStore.processed?(mark_key)
+      assert ResourceStore.processed?(mark_key, "2026-08-17T10:00:00Z")
+    end
+
+    # The version has to round-trip too, or a restart would resurrect the very
+    # bug it prevents: the mark survives, the version does not, and an edit made
+    # before the restart looks already-processed after it.
+    test "a version survives the checkpoint so an edit still re-publishes", %{path: path} do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 5160)
+
+      restart_store!(path)
+
+      ResourceStore.mark_processed(key, :webhook, "2026-08-17T10:00:00Z")
+      assert :ok = ResourceStore.flush()
+
+      restart_store!(path)
+
+      assert ResourceStore.processed?(key, "2026-08-17T10:00:00Z")
+      refute ResourceStore.processed?(key, "2026-08-17T12:00:00Z")
     end
 
     # Failing open is the rule everywhere in this store: a cache that cannot

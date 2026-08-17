@@ -100,6 +100,27 @@ nothing processed. A cache that cannot answer costs throughput, never
 correctness, and the safe direction is a duplicate that the publisher's existing
 one-hour window still catches, never a dropped event.
 
+### Identity is not enough on its own: comments are mutable
+
+A GitHub comment's id survives an edit; only `updated_at` moves. Since the
+sweep's `?since=` filter is on `updated_at`, an edited comment comes back around
+on the next cycle — and suppressing on identity alone would read that as a
+redelivery of the original and swallow it for the full 72-hour window, across
+restarts. Editing a ticket comment to correct an agent's instructions is a normal
+workflow here, so that would be a real regression against today's behavior, where
+the publisher's one-hour volatile window expires and the edit wakes the agent.
+
+Each mark therefore records the `updated_at` it was made at, and a resource whose
+version has moved reads as unprocessed. This is still not a watermark: nothing is
+compared for order, only for equality against the version actually processed, so
+an older lost comment recovers exactly as before.
+
+Shortening the retention window was the alternative and it is the wrong trade —
+72 hours is the envelope in which GitHub still retries a delivery, which is the
+whole reason the window exists. The version is recorded instead, so both
+properties hold at once: an unchanged re-fetch stays suppressed for three days,
+and an edit at any point inside them still wakes the agent.
+
 ## Unchanged on purpose
 
 - **`Webhooks.IntervalPolicy`'s invariant.** A repo that is not proven

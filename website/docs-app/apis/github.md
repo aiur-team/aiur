@@ -84,6 +84,7 @@ Aiur therefore records each comment it has processed by its identity, and both p
 | Delivery is lost | Nothing recorded it, so the next sweep publishes it. No delay beyond one poll interval. |
 | Older comment lost, newer one delivered | The older one is still recovered. Suppression is per comment, not "everything before the newest thing I saw". |
 | Daemon restarts | The record is on disk, so a comment handled before the restart is not re-published after it. |
+| A comment is edited | The agent wakes again. The record stores the comment's `updated_at`, so an edit is a new state of that comment rather than a repeat of it. |
 | No webhook installed | Nothing is ever recorded by a delivery, so nothing is ever suppressed. Polling behaves exactly as it did before. |
 
 If the record is unavailable or unreadable, Aiur behaves as though it were absent: it publishes, and the existing one-hour replay window catches short-range duplicates. A duplicate wake is recoverable; a dropped comment is not.

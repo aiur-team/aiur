@@ -496,7 +496,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       actor,
       issue_number: target,
       dedup_key: dedup_key,
-      resource: ResourceStore.key_for_repo(:pr_review, repo, review_id)
+      resource: ResourceStore.key_for_repo(:pr_review, repo, review_id),
+      resource_version: resource_version(review)
     )
   end
 
@@ -510,7 +511,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       actor,
       issue_number: target,
       dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id")),
-      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
+      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
+      resource_version: resource_version(comment)
     )
   end
 
@@ -523,7 +525,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       actor,
       issue_number: target,
       dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id")),
-      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id"))
+      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
+      resource_version: resource_version(comment)
     )
   end
 
@@ -537,7 +540,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       actor,
       issue_number: target,
       dedup_key: dedup_key,
-      resource: pr_review_comment_resource(repo, comment)
+      resource: pr_review_comment_resource(repo, comment),
+      resource_version: resource_version(comment)
     )
   end
 
@@ -557,6 +561,18 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp pr_review_comment_resource(repo, comment) when is_map(comment) do
     ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
   end
+
+  # Pairs with the resource key to say *which version* of that resource was
+  # processed. The sweep's `?since=` filter is on `updated_at`, so an edited
+  # comment comes back around; without a version, identity alone would treat it
+  # as a redelivery of the original and the edit would never reach the agent.
+  # Mirrors `Normalizer.resource_version/1` so both pipes agree on the marker.
+  defp resource_version(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
+
+  defp resource_version(%{"submitted_at" => submitted_at}) when is_binary(submitted_at) and submitted_at != "",
+    do: submitted_at
+
+  defp resource_version(_resource), do: nil
 
   defp pr_review_comment_dedup_key(repo, pr_number, %{"review_thread_id" => thread_id})
        when is_binary(thread_id) and thread_id != "" do

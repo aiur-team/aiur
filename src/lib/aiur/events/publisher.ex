@@ -83,6 +83,13 @@ defmodule Aiur.Events.Publisher do
       already published is not published again by the reconciliation sweep that
       re-reads it, because both name the same resource. Absent, or with no
       store running, publishing is exactly as it was before.
+    * `:resource_version` — the resource's own mutation marker, normally the
+      comment's `updated_at`. A GitHub comment is mutable and its id is stable
+      across an edit, so identity alone cannot distinguish "already handled"
+      from "changed since I handled it". Without this an edited comment would
+      stay suppressed for the store's full retention window, and editing a
+      comment to correct an agent is a normal workflow. Absent, suppression
+      falls back to identity alone.
     * `:resource_source` — which pipe produced this event (`:webhook` or
       `:poll`), recorded alongside the resource. Defaults to `:poll`.
     * `:bypass_contamination` — when `true`, skip the tracked-issue
@@ -157,10 +164,16 @@ defmodule Aiur.Events.Publisher do
     {:ok, id, subscribers}
   end
 
-  defp resource_processed?(opts), do: opts |> Keyword.get(:resource) |> ResourceStore.processed?()
+  defp resource_processed?(opts) do
+    ResourceStore.processed?(Keyword.get(opts, :resource), Keyword.get(opts, :resource_version))
+  end
 
   defp mark_resource_processed(opts) do
-    opts |> Keyword.get(:resource) |> ResourceStore.mark_processed(Keyword.get(opts, :resource_source, :poll))
+    ResourceStore.mark_processed(
+      Keyword.get(opts, :resource),
+      Keyword.get(opts, :resource_source, :poll),
+      Keyword.get(opts, :resource_version)
+    )
   end
 
   @doc """

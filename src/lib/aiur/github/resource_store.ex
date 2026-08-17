@@ -22,6 +22,26 @@ defmodule Aiur.GitHub.ResourceStore do
       is free rather than merely cheap.
     * `:processed_at_ms` — the moment some pipe finished processing this exact
       resource. This is the suppress half of the sweep.
+    * `:version` — the resource's own mutation marker, a comment's `updated_at`.
+
+  ## Identity says *which* resource; version says *which state of it*
+
+  A GitHub comment is mutable. An edit keeps the id and moves only `updated_at`,
+  and the sweep's `?since=` filter is on `updated_at`, so an edited comment comes
+  back around on the next cycle. Suppressing on identity alone would read that as
+  a redelivery of the original and swallow it for the full retention window —
+  three days, across restarts. Editing a comment to correct an agent's
+  instructions is a normal workflow here, so that would be a real loss.
+
+  So a mark records the version it was made at, and a resource whose version has
+  moved reads as unprocessed. Note this is *not* a watermark: nothing is compared
+  for order, only for equality against the version that was actually processed.
+  An older lost comment still recovers, because it is a different resource
+  entirely.
+
+  Shortening the retention window would have bought the edit back by giving up
+  the thing the window exists for — a delivery GitHub retries up to three days
+  later — so the version is recorded instead.
 
   ## Suppress and recover are not in tension once the key is identity
 
@@ -152,48 +172,71 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   @doc """
-  True when some pipe has already processed this exact resource.
+  True when some pipe has already processed this exact resource *at this
+  version*.
+
+  `version` is the resource's own mutation marker — a comment's `updated_at`.
+  Identity alone is not enough to decide "already handled", because a GitHub
+  comment is mutable: its id is stable across an edit and only `updated_at`
+  moves. Editing a ticket comment to correct an agent's instructions is a normal
+  workflow here and it must re-wake the agent, so a resource whose version has
+  changed since it was marked reads as unprocessed and is published again.
 
   Answers `false` whenever the store cannot answer, because publishing a
   duplicate is recoverable and dropping an event is not.
   """
-  @spec processed?(key() | nil) :: boolean()
-  def processed?(nil), do: false
+  @spec processed?(key() | nil, String.t() | nil) :: boolean()
+  def processed?(key, version \\ nil)
 
-  def processed?(key) do
+  def processed?(nil, _version), do: false
+
+  def processed?(key, version) do
     case lookup(key) do
-      %{processed_at_ms: at} when is_integer(at) -> not expired?(at)
-      _other -> false
+      %{processed_at_ms: at} = entry when is_integer(at) ->
+        not expired?(at) and Map.get(entry, :version) == normalize_version(version)
+
+      _other ->
+        false
     end
   end
 
-  @doc "Marks `key` processed by `source` (`:webhook` or `:poll`)."
-  @spec mark_processed(key() | nil, atom()) :: :ok
-  def mark_processed(nil, _source), do: :ok
+  @doc """
+  Marks `key` processed by `source` (`:webhook` or `:poll`) at `version`.
 
-  def mark_processed(key, source) when is_atom(source) do
+  Recording the version is what lets a later edit of the same resource be told
+  apart from a redelivery of it.
+  """
+  @spec mark_processed(key() | nil, atom(), String.t() | nil) :: :ok
+  def mark_processed(key, source, version \\ nil)
+
+  def mark_processed(nil, _source, _version), do: :ok
+
+  def mark_processed(key, source, version) when is_atom(source) do
     update(key, fn entry ->
       entry
       |> Map.put(:processed_at_ms, now_ms())
       |> Map.put(:source, source)
+      |> Map.put(:version, normalize_version(version))
     end)
   end
 
   @doc """
-  Marks `key` processed only if it was not already.
+  Marks `key` processed at `version` only if it was not already.
 
   Returns `:marked` for the first caller and `:already_processed` for every
   later one inside the retention window, so a caller can gate a publish on the
   answer without a separate read.
   """
-  @spec claim(key() | nil, atom()) :: :marked | :already_processed
-  def claim(nil, _source), do: :marked
+  @spec claim(key() | nil, atom(), String.t() | nil) :: :marked | :already_processed
+  def claim(key, source, version \\ nil)
 
-  def claim(key, source) when is_atom(source) do
-    if processed?(key) do
+  def claim(nil, _source, _version), do: :marked
+
+  def claim(key, source, version) when is_atom(source) do
+    if processed?(key, version) do
       :already_processed
     else
-      mark_processed(key, source)
+      mark_processed(key, source, version)
       :marked
     end
   end
@@ -409,6 +452,7 @@ defmodule Aiur.GitHub.ResourceStore do
         Map.put(acc, encoded, %{
           "etag" => Map.get(entry, :etag),
           "processed_at_ms" => Map.get(entry, :processed_at_ms),
+          "version" => Map.get(entry, :version),
           "source" => entry |> Map.get(:source) |> encode_atom(),
           "recorded_at_ms" => Map.get(entry, :recorded_at_ms)
         })
@@ -488,6 +532,7 @@ defmodule Aiur.GitHub.ResourceStore do
     %{
       etag: string_or_nil(Map.get(value, "etag")),
       processed_at_ms: integer_or_nil(Map.get(value, "processed_at_ms")),
+      version: string_or_nil(Map.get(value, "version")),
       source: value |> Map.get("source") |> decode_source(),
       recorded_at_ms: integer_or_nil(Map.get(value, "recorded_at_ms")) || 0
     }
@@ -507,6 +552,14 @@ defmodule Aiur.GitHub.ResourceStore do
   defp normalize_id(id) when is_integer(id), do: Integer.to_string(id)
   defp normalize_id(id) when is_binary(id) and id != "", do: id
   defp normalize_id(_id), do: nil
+
+  # A resource with no readable version is stored as `nil`, which matches only
+  # another `nil` — so such a resource keeps the pre-version behavior of being
+  # suppressed on identity alone. That is the right default: it is the current
+  # behavior, and inventing a version would make every re-read look like an
+  # edit and republish the whole window every cycle.
+  defp normalize_version(version) when is_binary(version) and version != "", do: version
+  defp normalize_version(_version), do: nil
 
   defp resolve_path(opts) do
     case Keyword.fetch(opts, :path) do

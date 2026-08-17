@@ -92,6 +92,92 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
     end
   end
 
+  # An operator editing a comment to correct an agent's instructions is a normal
+  # workflow here. A GitHub comment is mutable: an edit keeps the id and moves
+  # only `updated_at`, so suppressing on identity alone would swallow that edit
+  # for the store's full 72-hour retention, across restarts.
+  #
+  # Every case here first expires the volatile replay window. That is not test
+  # convenience — it *is* the scenario. `Publisher`'s in-memory window suppresses
+  # any repeat for an hour and always did, so an edit made minutes later is
+  # suppressed on `main` too and proves nothing about this change. The regression
+  # only exists past that hour, where the durable store is the sole remaining
+  # gate, so these cases start where it is the only thing deciding.
+  describe "an edited comment, more than an hour after posting" do
+    test "re-publishes when the sweep sees a changed updated_at" do
+      :ok = Exchange.subscribe(@topic)
+
+      assert %{status: :published, published: [@topic]} =
+               GithubWebhook.handle_delivery("issue_comment", delivery(9020, "run the wrong thing"), repo: @repo)
+
+      assert %{comment: %{"body" => "run the wrong thing"}} = await_event(@topic)
+      clear_replay_window()
+
+      # Operator corrects the instruction. Same comment id, later updated_at.
+      {_calls, result} = sweep([comment(9020, "run the right thing", "2026-06-24T14:00:00Z")])
+
+      assert {:ok, %{count: 1}} = result
+      assert %{comment: %{"body" => "run the right thing"}} = await_event(@topic)
+    end
+
+    test "re-publishes when the edit itself arrives as a delivery" do
+      :ok = Exchange.subscribe(@topic)
+
+      assert %{status: :published, published: [@topic]} =
+               GithubWebhook.handle_delivery("issue_comment", delivery(9021, "first"), repo: @repo)
+
+      assert %{comment: %{"body" => "first"}} = await_event(@topic)
+      clear_replay_window()
+
+      edited =
+        9021
+        |> delivery("corrected")
+        |> Map.put("action", "edited")
+        |> put_in(["comment", "updated_at"], "2026-06-24T14:00:00Z")
+
+      assert %{status: :published, published: [@topic]} =
+               GithubWebhook.handle_delivery("issue_comment", edited, repo: @repo)
+
+      assert %{comment: %{"body" => "corrected"}} = await_event(@topic)
+    end
+
+    # The other half of the contract, and the reason this is a version check
+    # rather than a shortened TTL: with the volatile window gone, an *unchanged*
+    # comment re-read by the sweep is still suppressed, however many cycles run
+    # over it. Shortening the TTL would have bought the edit back by giving up
+    # exactly this.
+    test "an unchanged re-fetch is still suppressed once the window has expired" do
+      :ok = Exchange.subscribe(@topic)
+
+      assert %{status: :published, published: [@topic]} =
+               GithubWebhook.handle_delivery("issue_comment", delivery(9022, "unchanged"), repo: @repo)
+
+      assert %{comment: %{"id" => 9022}} = await_event(@topic)
+      clear_replay_window()
+
+      for _cycle <- 1..3 do
+        assert {:ok, %{count: 0}} = elem(sweep([comment(9022, "unchanged")]), 1)
+      end
+
+      refute_event(@topic)
+    end
+
+    test "a version change is what unsuppresses, not the passage of time" do
+      key = ResourceStore.key_for_repo(:issue_comment, @repo, 9023)
+
+      ResourceStore.mark_processed(key, :webhook, "2026-06-24T12:00:00Z")
+
+      assert ResourceStore.processed?(key, "2026-06-24T12:00:00Z")
+      refute ResourceStore.processed?(key, "2026-06-24T14:00:00Z")
+
+      # Re-marking at the new version suppresses that version in turn, so an
+      # edit wakes the agent once rather than every cycle thereafter.
+      ResourceStore.mark_processed(key, :poll, "2026-06-24T14:00:00Z")
+      assert ResourceStore.processed?(key, "2026-06-24T14:00:00Z")
+      refute ResourceStore.processed?(key, "2026-06-24T12:00:00Z")
+    end
+  end
+
   describe "a comment whose delivery was lost" do
     # Acceptance criterion 4. Nothing marked this comment, so nothing suppresses
     # it. This is the case a blanket skip-when-webhook-backed would drop on the

@@ -401,16 +401,28 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     # that later re-reads the same object recognises it as already handled. It
     # is the free pipe's contribution to the expensive one: a delivery costs
     # nothing and arrives first, so it is the right writer of that fact.
+    #
+    # `:resource_version` is what keeps that from over-reaching. This module
+    # normalizes `edited` deliveries as well as `created` ones, and an edit
+    # keeps the comment's id, so identity alone would make an edited comment
+    # look like a redelivery of the original and swallow it.
     {topic, payload,
      [
        issue_number: target,
        dedup_key: dedup_key,
        resource: resource,
+       resource_version: resource_version(comment),
        resource_source: :webhook,
        actor: actor,
        bypass_contamination: true
      ]}
   end
+
+  # `updated_at` for comments; a review submission has no `updated_at`, and its
+  # `submitted_at` is the marker the poller's own cutoff already keys on.
+  defp resource_version(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
+  defp resource_version(%{"submitted_at" => submitted_at}) when is_binary(submitted_at) and submitted_at != "", do: submitted_at
+  defp resource_version(_comment), do: nil
 
   # Project a delivery's comment onto the shape the poller publishes.
   #
