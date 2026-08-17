@@ -300,6 +300,10 @@ jobs:
           ---
           tracker:
             kind: memory
+            # Required: Config.base_branch/2 raises rather than defaulting, so a
+            # fixture without it fails the boot with an unresolved-config error
+            # that reads like a packaging fault rather than a missing key.
+            base_branch: main
           polling:
             interval_seconds: 5
           max_vertical_panes: 3
