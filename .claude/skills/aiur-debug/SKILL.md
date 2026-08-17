@@ -95,8 +95,7 @@ Related maintained guidance:
 
 - [`/aiur-run`](../aiur-run/SKILL.md) — launch and lifecycle ownership
 - [`/aiur-monitor`](../aiur-monitor/SKILL.md) — authoritative one-glance run status
-- [`/using-aiur`](../using-aiur/SKILL.md) — ticket lifecycle and workpad rules
-- [`/aiur-agent`](../aiur-agent/SKILL.md) — coordination event vocabulary and durable decisions
+- [`/aiur-agent`](../aiur-agent/SKILL.md) — the operating manual: ticket lifecycle, workpad rules, dev loop, and coordination event vocabulary
 - [Manual TUI verification](../../../AGENTS.md#manual-testing--the-only-definition)
 - [Repository logging contract](../../../src/docs/logging.md)
 - [CLI and workspace setup](../../../src/README.md)

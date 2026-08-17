@@ -211,8 +211,8 @@ flowchart LR
 - Modify: `.aiur/prompt.md`
 - Modify: `.aiur/examples/hooks.example`
 - Modify: `.aiur/examples/prompt.md.example`
-- Modify: `.claude/skills/using-aiur/SKILL.md`
-- Modify: `.claude/skills/using-aiur/dev-loop.md`
+- Modify: `.claude/skills/aiur-agent/SKILL.md`
+- Modify: `.claude/skills/aiur-agent/dev-loop.md`
 - Modify: `.claude/skills/aiur-agent/event-taxonomy.md`
 - Modify: `.claude/skills/aiur-agent/emit-and-subscribe.md`
 - Test: `src/test/aiur/init/templates_test.exs`

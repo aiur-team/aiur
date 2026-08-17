@@ -44,7 +44,7 @@ Continuation context:
 
 ## How to operate
 
-Follow the **`using-aiur`** skill for how to run this ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review turn workflow and which CE skill to use when, milestone alerts (`emit_alert`), the Agent Workpad template, complexity routing, and the dev loop / commit / PR conventions. Load it before you start. Cross-ticket coordination and the Executor-bar progress protocol are covered in the shared instructions above this template.
+Follow the **`aiur-agent`** skill for how to run this ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review turn workflow and which CE skill to use when, milestone alerts (`emit_alert`), the Agent Workpad template, complexity routing, the dev loop / commit / PR conventions, and cross-ticket events. Load it before you start. Cross-ticket coordination and the Executor-bar progress protocol are covered in the shared instructions above this template.
 
 ### Large design imports
 
@@ -57,4 +57,4 @@ from that file path instead of retrying the tool call. This disk-first path is
 the recovery path for large HTML design exports and does not require restarting
 the agent thread.
 
-When a declared blocker emits `ticket.N.agent.unblocked`, treat that explicit signal as readiness to consume. Load `/aiur-agent`, then use the latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref (do not guess `origin/aiur/N`), adopt the real API, remove temporary stubs, and keep your PR stacked on the blocker branch while it remains unmerged. Never infer readiness from `branch.push` alone; if the explicitly-unblocked dependency is unusable, keep only that integration point blocked and record the concrete reason.
+When a declared blocker emits `ticket.N.agent.unblocked`, treat that explicit signal as readiness to consume. Load `aiur-agent`, then use the latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref (do not guess `origin/aiur/N`), adopt the real API, remove temporary stubs, and keep your PR stacked on the blocker branch while it remains unmerged. Never infer readiness from `branch.push` alone; if the explicitly-unblocked dependency is unusable, keep only that integration point blocked and record the concrete reason.
