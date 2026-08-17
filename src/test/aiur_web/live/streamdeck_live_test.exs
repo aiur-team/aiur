@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckLiveTest do
   use Aiur.TestSupport
 
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, IssueLog}
@@ -1645,6 +1645,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # Stream Deck is a control surface the operator runs the fleet from. An
     # unrelated Command action anywhere must not take it down.
     assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
+  # Dashboard routes are behind the FinancialDataAccess plug, which challenges
+  # any request once credentials are configured (regardless of `dashboard_auth_required`).
+  # test_helper configures credentials globally, so every Stream Deck render test must
+  # present them.
+  defp build_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header(
+      "authorization",
+      "Basic " <> Base.encode64("operator:test-dashboard-secret")
+    )
   end
 
   # --- awaiting-Commands banner ---------------------------------------------

@@ -1,7 +1,7 @@
 defmodule AiurWeb.AnalyticsLiveTest do
   use Aiur.TestSupport
 
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -83,13 +83,28 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Peak concurrency"
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
-    assert html =~ "Locked"
     assert html =~ "Per-unit CPU"
     assert html =~ "Cost per ticket"
     assert html =~ "Complexity breakdown"
-    assert html =~ "—"
     assert html =~ "<svg"
     refute html =~ "No run telemetry to analyze yet"
+  end
+
+  test "unconfigured dashboard authentication refuses the analytics route with its cause" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    System.delete_env("AIUR_DASHBOARD_USERNAME")
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
+
+    response = get(Phoenix.ConnTest.build_conn(), "/analytics")
+
+    assert response.status == 503
+    assert response.resp_body =~ "Dashboard authentication is not configured"
   end
 
   test "renders current-session completion KPIs and protected UsageAggregate provider spend" do
@@ -272,6 +287,19 @@ defmodule AiurWeb.AnalyticsLiveTest do
     full_range = render_hook(view, "time-domain", %{"t0" => start_ms, "t1" => end_ms})
 
     refute full_range =~ ~s(class="an-zoombar")
+  end
+
+  # Dashboard routes are behind the FinancialDataAccess plug, which challenges
+  # any request once credentials are configured (regardless of `dashboard_auth_required`).
+  # test_helper configures credentials globally, so every analytics render test must
+  # present them. Tests that exercise the missing-configuration path build their own
+  # unauthenticated conn explicitly.
+  defp build_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header(
+      "authorization",
+      "Basic " <> Base.encode64("operator:test-dashboard-secret")
+    )
   end
 
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)
