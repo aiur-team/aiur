@@ -9,8 +9,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   require Logger
 
-  alias Aiur.{Alerts, Issue, Tracker}
-  alias Aiur.Orchestrator.State
+  alias Aiur.{Alerts, Config, Issue, Tracker}
+  alias Aiur.Orchestrator.{DispatchPolicy, State}
 
   @spec reconcile(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
   def reconcile(state, issues, opts \\ [])
@@ -34,12 +34,17 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     {%{state | startup_claim_reconciliation_complete?: complete?}, issues}
   end
 
-  defp reconcile_issue(%State{} = state, %Issue{state: "in-progress", identifier: identifier} = issue, live_identifiers, opts)
+  defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
        when is_binary(identifier) do
-    if MapSet.member?(live_identifiers, identifier) do
-      {:ok, state, issue}
-    else
-      release_orphaned_claim(state, issue, opts)
+    cond do
+      DispatchPolicy.state_slug(issue.state) != "in-progress" ->
+        {:ok, resolve_release_failure(state, issue, opts), issue}
+
+      MapSet.member?(live_identifiers, identifier) ->
+        {:ok, resolve_release_failure(state, issue, opts), issue}
+
+      true ->
+        release_orphaned_claim(state, issue, opts)
     end
   end
 
@@ -56,17 +61,20 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   end
 
   defp release_orphaned_claim(%State{} = state, %Issue{} = issue, opts) do
+    todo_state = lifecycle_state_name(opts, "todo", "todo")
+
     update_issue_state_fun =
       Keyword.get(opts, :update_issue_state_fun, fn identifier, state_name, expected_state ->
         Tracker.update_issue_state(identifier, state_name, expected_state: expected_state)
       end)
 
-    case update_issue_state_fun.(issue.identifier, "todo", "in-progress") do
+    case update_issue_state_fun.(issue.identifier, todo_state, issue.state) do
       :ok ->
-        Logger.warning("Released orphaned startup claim for ticket #{issue.identifier} to todo; no live runtime owns it")
+        Logger.warning("Released orphaned startup claim to todo; no live runtime owns it #{State.issue_context(issue)}")
+
         emit_released_alert(issue, opts)
         state = resolve_release_failure(state, issue, opts)
-        {:ok, state, %{issue | state: "todo"}}
+        {:ok, state, %{issue | state: todo_state}}
 
       {:error, reason} ->
         state = emit_release_failed(state, issue, reason, opts)
@@ -93,11 +101,10 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   defp emit_release_failed(%State{} = state, %Issue{} = issue, reason, opts) do
     signature = {issue.identifier, inspect(reason)}
+    prior_failure? = failure_recorded?(state, issue)
 
-    if MapSet.member?(state.startup_claim_reconciliation_failures, signature) do
-      state
-    else
-      Logger.error("Failed to release orphaned startup claim for ticket #{issue.identifier}: #{inspect(reason)}; retrying on a later candidate poll")
+    unless prior_failure? do
+      Logger.error("Failed to release orphaned startup claim: #{inspect(reason)}; retrying on a later candidate poll #{State.issue_context(issue)}")
 
       emit_alert_fun = Keyword.get(opts, :emit_alert_fun, &Alerts.emit_system/2)
 
@@ -111,15 +118,15 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
         severity: "warning",
         central: true
       )
-
-      failures =
-        state.startup_claim_reconciliation_failures
-        |> Enum.reject(fn {identifier, _reason} -> identifier == issue.identifier end)
-        |> MapSet.new()
-        |> MapSet.put(signature)
-
-      %{state | startup_claim_reconciliation_failures: failures}
     end
+
+    failures =
+      state.startup_claim_reconciliation_failures
+      |> Enum.reject(fn {identifier, _reason} -> identifier == issue.identifier end)
+      |> MapSet.new()
+      |> MapSet.put(signature)
+
+    %{state | startup_claim_reconciliation_failures: failures}
   end
 
   defp resolve_release_failure(%State{} = state, %Issue{} = issue, opts) do
@@ -134,7 +141,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
       emit_alert_fun.(failure_topic(issue) <> ".resolved",
         issue: issue,
         message: "Startup claim reconciliation recovered for ticket #{issue.identifier}.",
-        reason: "The orphaned in-progress claim was successfully released to todo on retry.",
+        reason: "A fresh tracker snapshot no longer reports an orphaned in-progress claim for ticket #{issue.identifier}.",
         needs_attention: false,
         severity: "info",
         central: true
@@ -142,6 +149,18 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     end
 
     %{state | startup_claim_reconciliation_failures: MapSet.new(retained)}
+  end
+
+  defp failure_recorded?(%State{} = state, %Issue{} = issue) do
+    Enum.any?(state.startup_claim_reconciliation_failures, fn {identifier, _reason} ->
+      identifier == issue.identifier
+    end)
+  end
+
+  defp lifecycle_state_name(opts, slug, fallback) do
+    opts
+    |> Keyword.get_lazy(:active_states, &Config.active_states/0)
+    |> Enum.find(fallback, &(DispatchPolicy.state_slug(&1) == slug))
   end
 
   defp failure_topic(issue), do: "ticket.#{issue.identifier}.agent.attention.startup_claim_reconciliation_failed"

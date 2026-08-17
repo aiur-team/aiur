@@ -33,7 +33,26 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
     assert_receive {:result, {state, [%Issue{state: "todo"}]}}
     assert state.startup_claim_reconciliation_complete?
-    assert log =~ "Released orphaned startup claim for ticket 2076"
+    assert log =~ "Released orphaned startup claim to todo"
+    assert log =~ "issue_id=issue-2076 issue_identifier=2076"
+  end
+
+  test "uses tracker-native lifecycle names for a guarded release" do
+    issue = issue("LIN-2076", "In Progress")
+    parent = self()
+
+    {state, [%Issue{state: "Todo"}]} =
+      StartupClaimReconciler.reconcile(%State{}, [issue],
+        active_states: ["Todo", "In Progress"],
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        emit_alert_fun: fn _topic, _opts -> :ok end
+      )
+
+    assert_receive {:transition, "LIN-2076", "Todo", "In Progress"}
+    assert state.startup_claim_reconciliation_complete?
   end
 
   test "protects an in-progress claim with a matching live runtime" do
@@ -112,7 +131,8 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
     assert_receive {:failed_result, {failed_state, [^issue]}}
     refute failed_state.startup_claim_reconciliation_complete?
-    assert log =~ "Failed to release orphaned startup claim for ticket 2076"
+    assert log =~ "Failed to release orphaned startup claim"
+    assert log =~ "issue_id=issue-2076 issue_identifier=2076"
 
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", alert_opts}
     assert alert_opts[:needs_attention]
@@ -149,6 +169,60 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
     assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}
     refute resolved_opts[:needs_attention]
+  end
+
+  test "latches a release failure by ticket while retaining the latest reason" do
+    issue = issue("2076", "in-progress")
+    parent = self()
+
+    {failed_state, [^issue]} =
+      StartupClaimReconciler.reconcile(%State{}, [issue],
+        update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
+          {:error, :first_reason}
+        end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+      )
+
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}
+
+    repeated_log =
+      capture_log(fn ->
+        {repeated_state, [^issue]} =
+          StartupClaimReconciler.reconcile(failed_state, [issue],
+            update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
+              {:error, :changed_reason}
+            end,
+            emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+          )
+
+        assert repeated_state.startup_claim_reconciliation_failures ==
+                 MapSet.new([{"2076", ":changed_reason"}])
+      end)
+
+    assert repeated_log == ""
+    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}
+  end
+
+  test "resolves a prior failure when a fresh snapshot no longer shows an orphan" do
+    issue = issue("2076", "todo")
+
+    state = %State{
+      startup_claim_reconciliation_failures: MapSet.new([{"2076", ":tracker_unavailable"}])
+    }
+
+    {reconciled, [^issue]} =
+      StartupClaimReconciler.reconcile(state, [issue],
+        update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
+          flunk("a non-orphan must not be updated")
+        end,
+        emit_alert_fun: fn topic, opts -> send(self(), {:alert, topic, opts}) end
+      )
+
+    assert reconciled.startup_claim_reconciliation_complete?
+    assert reconciled.startup_claim_reconciliation_failures == MapSet.new()
+
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", opts}
+    assert opts[:reason] =~ "no longer reports an orphaned"
   end
 
   test "a completed startup pass never releases claims discovered on later polls" do
