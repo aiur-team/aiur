@@ -324,8 +324,17 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       base = [repository: @repository, request_fun: request_fun]
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, base)
 
-      # The delivery lands between the read and its revalidation.
-      ResourceStore.put_resource(key, newer, source: :webhook, version: "2026-01-09T00:00:00Z")
+      # The delivery lands between the read and its revalidation, carrying the
+      # validator the held body was fetched under. That is what keeps this case
+      # about the `304` path: a delivery that deposits a *different* body with no
+      # validator of its own discards the held one — a validator may never sit
+      # beside a body it does not describe — and the revalidation would then be an
+      # unconditional read rather than the read-then-write pair under test.
+      ResourceStore.put_resource(key, newer,
+        source: :webhook,
+        version: "2026-01-09T00:00:00Z",
+        etag: "\"v1\""
+      )
 
       assert {:ok, _body, :not_modified} =
                Issues.fetch_issue_raw_conditional(7, base ++ [revalidate: true])

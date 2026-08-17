@@ -68,9 +68,6 @@ defmodule Aiur.Orchestrator.CommandScan do
     {review_comments, review_etag} = command_scan_review_comments(Keyword.put(fetch_opts, :etag, review_etag_in))
     {issue_comments, issue_etag} = command_scan_issue_comments(Keyword.put(fetch_opts, :etag, issue_etag_in))
 
-    remember_etag(review_resource, review_etag)
-    remember_etag(issue_resource, issue_etag)
-
     pr_comments =
       (review_comments ++ issue_comments)
       |> Enum.map(&command_scan_annotate(&1))
@@ -82,6 +79,15 @@ defmodule Aiur.Orchestrator.CommandScan do
     newest = command_scan_newest_datetime(pr_comments)
 
     publish_command_hits(pr_comments, repo, command_scan_limit(opts))
+
+    # Recorded only now, never before the publish above. These are durable
+    # *endpoint* validators: GitHub answering `304` to one suppresses the whole
+    # stream at once, so a cycle that read a command and died before publishing
+    # it would come back to a validator that hides the command for the store's
+    # full retention window. Written after the publish, the same crash leaves no
+    # validator and the next scan reads unconditionally and finds it again.
+    remember_etag(review_resource, review_etag)
+    remember_etag(issue_resource, issue_etag)
 
     %{
       state
@@ -153,12 +159,17 @@ defmodule Aiur.Orchestrator.CommandScan do
   end
 
   # The cycle's own map wins when it has an entry; the store answers only when it
-  # does not, which after a restart is both streams. Mirrors
-  # `Aiur.Events.GithubCommentsPoller.durable_etag/2` deliberately — one rule for
-  # every conditional read, so a reader cannot be surprised by which pipe warmed
-  # its validator.
+  # does not, which after a restart is both streams.
+  #
+  # `change_validator/1` rather than `etag/1`, and the difference is the whole
+  # design of this scan: it keeps no body, so a `304` here means "no new
+  # commands, do nothing" and is a genuine saving. `etag/1` is for a reader that
+  # wants the body back and would be handed nothing. Depositing the streams as
+  # bodies — the way the comment poller does — would let a `304` republish
+  # anything a crash left unpublished, and is the better shape for this scan to
+  # grow into.
   defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: etag
-  defp durable_etag(resource, _etag), do: ResourceStore.etag(resource)
+  defp durable_etag(resource, _etag), do: ResourceStore.change_validator(resource)
 
   defp remember_etag(resource, etag) do
     ResourceStore.put_etag(resource, etag)
