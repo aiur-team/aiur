@@ -5220,12 +5220,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-height: 44px;
 }
 
-.ticket-context-fresh-chip {
-  color: var(--fg);
-  background: var(--good-soft);
-  border-color: var(--good-line);
-}
-
 .ticket-context-description {
   min-width: 0;
 }
