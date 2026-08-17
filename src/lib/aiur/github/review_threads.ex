@@ -118,9 +118,8 @@ defmodule Aiur.GitHub.ReviewThreads do
 
     case Transport.github_graphql(request_fun, token, @unaddressed_review_threads_query, variables) do
       {:ok, body} ->
-        with {:ok, {threads, page_info}} <- review_threads_page(body) do
-          comments = unaddressed_thread_comments(threads, opts)
-
+        with {:ok, {threads, page_info}} <- review_threads_page(body),
+             {:ok, comments} <- unaddressed_thread_comments_result(threads, opts) do
           continue_unaddressed_review_thread_pages(
             request_fun,
             token,
@@ -184,6 +183,22 @@ defmodule Aiur.GitHub.ReviewThreads do
 
   def unaddressed_thread_comments(_threads, _opts), do: []
 
+  defp unaddressed_thread_comments_result(threads, opts) do
+    threads
+    |> Enum.reduce_while({:ok, []}, fn thread, {:ok, acc} ->
+      comments = unaddressed_thread_comment(thread, opts)
+
+      case Enum.find(comments, &(Map.get(&1, :authoritative) == nil)) do
+        nil -> {:cont, {:ok, Enum.reverse(comments, acc)}}
+        comment -> {:halt, {:error, get_in(comment, [:codeowners, :reason]) || :codeowners_ownership_unavailable}}
+      end
+    end)
+    |> case do
+      {:ok, comments} -> {:ok, Enum.reverse(comments)}
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp unaddressed_thread_comment(%{"isResolved" => false} = thread, opts) do
     thread
     |> thread_comments()
@@ -191,6 +206,9 @@ defmodule Aiur.GitHub.ReviewThreads do
     |> classify_thread_comment(thread, opts)
     |> case do
       %{authoritative: true} = comment ->
+        [comment]
+
+      %{authoritative: nil} = comment ->
         [comment]
 
       %{} = comment ->

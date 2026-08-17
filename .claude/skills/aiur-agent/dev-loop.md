@@ -2,7 +2,25 @@
 
 ## Branch
 
-The branch already exists when your workspace boots. Read it with `git branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
+The branch already exists when your workspace boots. Read it with `git -C "$workspace" branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
+
+## Repository command safety
+
+Never `cd` into a repository to run Git. Set `workspace` from the absolute path
+in the ticket's workspace context, verify that `git -C "$workspace"
+rev-parse --show-toplevel` resolves to that same absolute path, and use
+`git -C "$workspace"` for every repository operation. A relative path or a
+path merely nested inside some other repository is not an acceptable target.
+
+Destructive forms — including `reset --hard`, `clean -fd`, `checkout -- .`,
+`restore -- .`, and `worktree remove` — must always carry the explicit `-C`
+target. Prefer absolute paths for every command that configures or mutates
+state. If the expected path is missing or no longer resolves to the expected
+worktree, stop rather than fall back to the current directory. Do not join a
+directory change and a Git command with `;`, `&&`, a pipeline, or a subshell.
+This is a cross-skill override: while working an Aiur ticket, translate Git
+examples from every other installed skill to `git -C "$workspace"` and never
+use their `cd`-based or ambient repository context.
 
 The agent environment also carries the active workflow's authoritative
 integration branch as `AIUR_BASE_BRANCH`. It comes from the configured
@@ -17,7 +35,8 @@ lock", "cannot create FETCH_HEAD"), do NOT clone a recovery checkout into
 `/tmp` — that path pays a full `mix deps.get` + compile (5–10 min) for no
 benefit. The real cause is almost always either a stale `.git/index.lock` from a
 prior cancelled command or a sandbox snapshot from before this turn. Recovery, in
-order: (a) `rm -f .git/index.lock`, (b) re-run the failing command, (c) if it
+order: (a) `rm -f "$(git -C "$workspace" rev-parse --path-format=absolute --git-path index.lock)"`,
+(b) re-run the failing command with `git -C "$workspace"`, (c) if it
 still fails, commit your uncommitted edits with a temporary message and re-attempt
 the merge/fetch — committing avoids the stash path that often triggers the
 index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
@@ -28,7 +47,8 @@ index-write failure. Never `mktemp -d /tmp/...` for recovery and never push from
 `ticket.<blocker-id>.branch.push` payload to fetch the actual validated ref (or
 discover it with `scripts/resolve-ticket-branch <blocker-id>`)
 → commit your local WIP if any → merge that fetched ref → resolve any conflicts →
-continue. Never infer readiness from the branch push alone. Do NOT `git stash`
+continue. Never infer readiness from the branch push alone. Do NOT run
+`git -C "$workspace" stash`
 before the merge — committing WIP is just as safe
 and avoids the index-write failure path entirely.
 
@@ -94,7 +114,7 @@ blocking finding is the only enforcement they have.
    `its-everdred` already carry that credit and need no trailer. **Never** mention
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
-7. Push to the exact branch returned by `git branch --show-current`. On GitHub,
+7. Push to the exact branch returned by `git -C "$workspace" branch --show-current`. On GitHub,
    `GITHUB_TOKEN` is the push identity: verify that exact token resolves to the
    configured `tracker.github.bot_account` before the first push, without
    printing the token:
@@ -110,7 +130,7 @@ blocking finding is the only enforcement they have.
 
    ```bash
    agent_helper='!f() { if test "$1" = get; then if test -z "${GITHUB_TOKEN:-}"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; fi; }; f'
-   GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c credential.helper="$agent_helper" push origin HEAD
+   GIT_TERMINAL_PROMPT=0 git -C "$workspace" -c credential.helper= -c credential.helper="$agent_helper" push origin HEAD
    ```
 
    Do not put a token in a remote URL or rely on a lone inline helper override:

@@ -162,8 +162,48 @@ defmodule Aiur.CodeownersTest do
 
     opts = [repo_root: repo_root, token: "token", request_fun: request_fun]
 
-    assert Codeowners.owners_for_path("lib/app.ex", opts) == []
+    assert Codeowners.owners_for_path("lib/app.ex", opts) ==
+             {:error, {:github_api_status, 500}}
+
     assert Codeowners.owners_for_path("lib/other.ex", opts) == ["owner-one"]
+  end
+
+  test "quota holds keep pull request ownership unknown", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "* @owner-one")
+
+    request_fun = fn _req -> {:ok, %{status: 429, body: %{}}} end
+    opts = [repo_root: repo_root, repo: "acme/widgets", token: "token", request_fun: request_fun]
+
+    assert Codeowners.owners_for_pr(42, opts) == {:error, :quota_hold}
+  end
+
+  test "team lookup failures propagate for pull requests with supplied paths", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "* @acme/platform")
+
+    request_fun = fn _req -> {:ok, %{status: 429, body: %{}}} end
+    opts = [repo_root: repo_root, token: "token", request_fun: request_fun]
+
+    assert Codeowners.owners_for_pr(["lib/app.ex"], opts) == {:error, :quota_hold}
+  end
+
+  test "quota holds keep team-backed authority unknown", %{repo_root: repo_root} do
+    write_codeowners!(repo_root, ".github/CODEOWNERS", "* @acme/platform")
+
+    request_fun = fn _req -> {:ok, %{status: 429, body: %{}}} end
+    opts = [repo_root: repo_root, token: "token", request_fun: request_fun]
+
+    assert Codeowners.ownership_for_path("lib/app.ex", opts) == {:error, :quota_hold}
+    assert Codeowners.authoritative?("owner-one", opts ++ [path: "lib/app.ex"]) == nil
+
+    classified =
+      Codeowners.classify_comment(
+        %{"user" => %{"login" => "owner-one"}, "body" => "Please change this."},
+        {:error, :quota_hold}
+      )
+
+    assert classified.authoritative == nil
+    assert classified.authority_reason == "CODEOWNER authority is unknown because GitHub quota is held."
+    assert classified.codeowners == %{status: :unknown, reason: :quota_hold}
   end
 
   test "matches CODEOWNER logins case-insensitively", %{repo_root: repo_root} do

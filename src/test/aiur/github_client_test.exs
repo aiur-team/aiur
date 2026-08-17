@@ -754,6 +754,31 @@ defmodule Aiur.GitHub.ClientTest do
 
       File.rm_rf!(repo_root)
     end
+
+    test "abstains when a team-backed CODEOWNERS lookup is quota-held" do
+      repo_root = codeowners_repo!("* @acme/platform")
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/repos/owner/repo/pulls/9/files" ->
+            {:ok, %{status: 200, body: [%{"filename" => "lib/app.ex"}]}}
+
+          url =~ "/repos/owner/repo/pulls/9/comments" ->
+            {:ok, %{status: 200, body: [%{"user" => %{"login" => "owner"}, "body" => "Fix this"}]}}
+
+          url =~ "/orgs/acme/teams/platform/members" ->
+            {:ok, %{status: 429, body: %{}}}
+        end
+      end
+
+      assert {:error, :quota_hold} =
+               Client.fetch_classified_pr_review_comments(9,
+                 request_fun: request_fun,
+                 repo_root: repo_root
+               )
+
+      File.rm_rf!(repo_root)
+    end
   end
 
   describe "fetch_unaddressed_pr_review_thread_comments/2" do
@@ -1430,6 +1455,28 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert owner_comment.authoritative
       refute guest_comment.authoritative
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "abstains when a team-backed CODEOWNERS lookup is quota-held" do
+      repo_root = codeowners_repo!("* @acme/platform")
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url =~ "/orgs/acme/teams/platform/members" ->
+            {:ok, %{status: 429, body: %{}}}
+
+          url =~ "/repos/owner/repo/issues/43/comments" ->
+            {:ok, %{status: 200, body: [%{"user" => %{"login" => "owner"}, "body" => "Directive"}]}}
+        end
+      end
+
+      assert {:error, :quota_hold} =
+               Client.fetch_classified_issue_comments("43",
+                 request_fun: request_fun,
+                 repo_root: repo_root
+               )
 
       File.rm_rf!(repo_root)
     end
