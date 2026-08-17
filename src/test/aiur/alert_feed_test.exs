@@ -211,6 +211,23 @@ defmodule Aiur.AlertFeedTest do
       assert ledger_topics(ledger) == ["ticket.2.agent.attention.scope", "ticket.3.agent.attention.scope", "system.alert-ledger.compaction"]
     end
 
+    test "keeps later active attentions that fit after rejecting an oversized candidate", %{ledger: ledger} do
+      smaller = alert_line("ticket.1.agent.attention.scope", "2026-06-25T01:00:00Z", true, "small")
+      oversized = alert_line("ticket.2.agent.attention.scope", "2026-06-25T01:01:00Z", true, String.duplicate("x", 200))
+      newest = alert("system.alert-ledger.compaction", "2026-06-25T01:02:00Z", false, "newest")
+      max_bytes = byte_size(smaller) + byte_size(encoded_line(newest))
+
+      write_ledger!(ledger, smaller <> oversized)
+
+      log =
+        capture_log(fn ->
+          assert :ok = AlertLedger.append(newest, ledger_path: ledger, max_bytes: max_bytes)
+        end)
+
+      assert log =~ "dropped_active_count=1"
+      assert ledger_topics(ledger) == ["ticket.1.agent.attention.scope", "system.alert-ledger.compaction"]
+    end
+
     test "rejects an indivisible alert larger than the ceiling without mutating the ledger", %{ledger: ledger} do
       original = alert_line("ticket.42.agent.progress", "2026-06-25T01:00:00Z", false, "original")
       oversized = alert("ticket.42.agent.progress", "2026-06-25T01:01:00Z", false, String.duplicate("x", 200))
@@ -224,18 +241,45 @@ defmodule Aiur.AlertFeedTest do
       assert File.read!(ledger) == original
     end
 
-    test "serializes concurrent compaction-triggering appends without losing either active alert", %{ledger: ledger} do
+    test "blocks concurrent compaction-triggering appends until the append lock is released", %{ledger: ledger} do
       old_history = alert_line("ticket.0.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("h", 200))
       first = alert("ticket.1.agent.attention.scope", "2026-06-25T01:01:00Z", true, "first")
       second = alert("ticket.2.agent.attention.scope", "2026-06-25T01:02:00Z", true, "second")
       max_bytes = byte_size(encoded_line(first)) + byte_size(encoded_line(second))
       write_ledger!(ledger, old_history)
 
+      parent = self()
+
+      lock_holder =
+        Task.async(fn ->
+          AlertLedger.with_lock([ledger_path: ledger, lock_timeout: 5_000], fn ->
+            send(parent, :append_lock_acquired)
+
+            receive do
+              :release_append_lock -> :ok
+            end
+          end)
+        end)
+
+      assert_receive :append_lock_acquired
+
       tasks =
         for record <- [first, second] do
-          Task.async(fn -> AlertLedger.append(record, ledger_path: ledger, max_bytes: max_bytes, lock_timeout: 5_000) end)
+          Task.async(fn ->
+            send(parent, {:append_started, self()})
+            AlertLedger.append(record, ledger_path: ledger, max_bytes: max_bytes, lock_timeout: 5_000)
+          end)
         end
 
+      for task <- tasks do
+        assert_receive {:append_started, pid} when pid == task.pid
+        assert Task.yield(task, 0) == nil
+      end
+
+      assert File.read!(ledger) == old_history
+
+      send(lock_holder.pid, :release_append_lock)
+      assert :ok = Task.await(lock_holder, 5_000)
       assert Enum.map(tasks, &Task.await(&1, 5_000)) == [:ok, :ok]
       assert MapSet.new(ledger_topics(ledger)) == MapSet.new([first["topic"], second["topic"]])
       assert File.stat!(ledger).size <= max_bytes

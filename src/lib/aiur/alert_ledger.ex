@@ -294,8 +294,12 @@ defmodule Aiur.AlertLedger do
 
   defp do_select_active([entry | rest], selection, max_bytes) do
     case select_entry(selection, entry, max_bytes) do
-      ^selection -> {selection, length(rest) + 1}
-      updated -> do_select_active(rest, updated, max_bytes)
+      ^selection ->
+        {updated, dropped_count} = do_select_active(rest, selection, max_bytes)
+        {updated, dropped_count + 1}
+
+      updated ->
+        do_select_active(rest, updated, max_bytes)
     end
   end
 
