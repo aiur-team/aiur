@@ -3,7 +3,7 @@ defmodule Aiur.CLI do
   Escript entrypoint for running Aiur with an explicit config-file path.
   """
 
-  alias Aiur.LogFile
+  alias Aiur.{LogFile, Workflow}
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @repo "aiur-team/aiur"
@@ -348,6 +348,14 @@ defmodule Aiur.CLI do
   def run(workflow_path, deps, opts) do
     expanded_path = Path.expand(workflow_path)
 
+    if Workflow.legacy_config_path?(expanded_path) do
+      {:error, Workflow.legacy_config_error(expanded_path)}
+    else
+      start_with_config(expanded_path, deps, opts)
+    end
+  end
+
+  defp start_with_config(expanded_path, deps, opts) do
     if deps.file_regular?.(expanded_path) do
       :ok = deps.set_workflow_file_path.(expanded_path)
 

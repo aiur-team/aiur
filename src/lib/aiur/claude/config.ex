@@ -42,7 +42,7 @@ defmodule Aiur.Claude.Config do
     if byte_size(String.trim(command())) > 0 do
       :ok
     else
-      {:error, "Claude command missing — set claude.command in .aiurconfig"}
+      {:error, "Claude command missing — set claude.command in .aiur/config"}
     end
   end
 

@@ -19,6 +19,14 @@ defmodule Aiur.TestSupport do
   @spec github_repository_name() :: String.t()
   def github_repository_name, do: elem(@github_repository, 1)
 
+  @doc false
+  @spec prepare_workflow_file_path!(Path.t()) :: Path.t()
+  def prepare_workflow_file_path!(root) do
+    path = Path.join([root, ".aiur", "config"])
+    File.mkdir_p!(Path.dirname(path))
+    path
+  end
+
   # Application keys the `use Aiur.TestSupport` setup redirects into the
   # per-test workflow root, and must therefore put back on the way out.
   #
@@ -130,7 +138,7 @@ defmodule Aiur.TestSupport do
         Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
-        workflow_file = Path.join(workflow_root, ".aiurconfig")
+        workflow_file = Aiur.TestSupport.prepare_workflow_file_path!(workflow_root)
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
 

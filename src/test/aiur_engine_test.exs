@@ -147,6 +147,198 @@ defmodule AiurEngineTest do
     end
   end
 
+  test "run refuses a legacy config before release startup" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-legacy-config-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(root, "repo")
+    File.mkdir_p!(home)
+    File.mkdir_p!(repo)
+    File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      System.cmd(@engine, [],
+        cd: repo,
+        env: [
+          {"HOME", home},
+          {"AIUR_REPO_ROOT", nil},
+          {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+          {"USER", "tester"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert code == 1
+    assert out =~ ".aiurconfig is no longer supported"
+    assert out =~ ".aiur/config"
+    assert out =~ "relative prompt_file and hooks_file paths"
+    refute out =~ "release not found"
+  end
+
+  test "legacy preflight checks the global fallback but canonical config wins" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-global-legacy-config-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(home, "repo")
+    File.mkdir_p!(repo)
+    File.write!(Path.join(home, ".aiurconfig"), "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    env = [
+      {"HOME", home},
+      {"AIUR_REPO_ROOT", nil},
+      {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+      {"USER", "tester"}
+    ]
+
+    {legacy_out, 1} = System.cmd(@engine, [], cd: repo, env: env, stderr_to_stdout: true)
+    assert legacy_out =~ ".aiurconfig is no longer supported"
+
+    File.mkdir_p!(Path.join(home, ".aiur"))
+    File.write!(Path.join([home, ".aiur", "config"]), "tracker:\n  kind: memory\n")
+
+    {canonical_out, 1} = System.cmd(@engine, [], cd: repo, env: env, stderr_to_stdout: true)
+    refute canonical_out =~ ".aiurconfig is no longer supported"
+    assert canonical_out =~ "AIUR_RELEASE_DIR does not exist"
+  end
+
+  test "run refuses an explicit named legacy config before release startup" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-explicit-legacy-config-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(root, "repo")
+    legacy = Path.join(repo, "portable.aiurconfig")
+    File.mkdir_p!(home)
+    File.mkdir_p!(repo)
+    File.write!(legacy, "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      System.cmd(@engine, [legacy],
+        cd: repo,
+        env: [
+          {"HOME", home},
+          {"AIUR_REPO_ROOT", nil},
+          {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+          {"USER", "tester"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert code == 1
+    assert out =~ "portable.aiurconfig is no longer supported"
+    assert out =~ "portable.yaml"
+    refute out =~ "AIUR_RELEASE_DIR does not exist"
+  end
+
+  test "legacy preflight does not mistake option values for config paths" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-legacy-option-value-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(root, "repo")
+    File.mkdir_p!(home)
+    File.mkdir_p!(Path.join(repo, ".aiur"))
+    File.write!(Path.join([repo, ".aiur", "config"]), "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      System.cmd(@engine, ["--bg", "--logs-root", Path.join(root, "archive.aiurconfig")],
+        cd: repo,
+        env: [
+          {"HOME", home},
+          {"AIUR_REPO_ROOT", nil},
+          {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+          {"USER", "tester"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert code == 1
+    refute out =~ "aiurconfig is no longer supported"
+    refute out =~ "basename:"
+    assert out =~ "AIUR_RELEASE_DIR does not exist"
+  end
+
+  test "explicit repo root still checks the global legacy fallback" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-explicit-root-global-legacy-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(root, "repo")
+    File.mkdir_p!(home)
+    File.mkdir_p!(repo)
+    File.write!(Path.join(home, ".aiurconfig"), "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      System.cmd(@engine, [],
+        cd: repo,
+        env: [
+          {"HOME", home},
+          {"AIUR_REPO_ROOT", repo},
+          {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+          {"USER", "tester"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert code == 1
+    assert out =~ Path.join(home, ".aiurconfig")
+    assert out =~ "is no longer supported"
+    refute out =~ "AIUR_RELEASE_DIR does not exist"
+  end
+
+  test "an explicit canonical config wins over an ambient legacy file" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-explicit-canonical-config-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(root, "repo")
+    canonical = Path.join(root, "portable.yaml")
+    File.mkdir_p!(home)
+    File.mkdir_p!(repo)
+    File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
+    File.write!(canonical, "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      System.cmd(@engine, [canonical],
+        cd: repo,
+        env: [
+          {"HOME", home},
+          {"AIUR_REPO_ROOT", repo},
+          {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+          {"USER", "tester"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert code == 1
+    refute out =~ "aiurconfig is no longer supported"
+    assert out =~ "AIUR_RELEASE_DIR does not exist"
+  end
+
+  test "argument terminator preserves dashed explicit config precedence" do
+    root = Path.join(System.tmp_dir!(), "aiur-engine-dashed-explicit-config-#{System.unique_integer([:positive])}")
+    home = Path.join(root, "home")
+    repo = Path.join(root, "repo")
+    File.mkdir_p!(home)
+    File.mkdir_p!(repo)
+    File.write!(Path.join(repo, ".aiurconfig"), "tracker:\n  kind: memory\n")
+    File.write!(Path.join(repo, "--portable.yaml"), "tracker:\n  kind: memory\n")
+    File.write!(Path.join(repo, "--portable.aiurconfig"), "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    env = [
+      {"HOME", home},
+      {"AIUR_REPO_ROOT", repo},
+      {"AIUR_RELEASE_DIR", Path.join(root, "missing-release")},
+      {"USER", "tester"}
+    ]
+
+    {canonical_out, 1} = System.cmd(@engine, ["--", "--portable.yaml"], cd: repo, env: env, stderr_to_stdout: true)
+    refute canonical_out =~ "aiurconfig is no longer supported"
+    assert canonical_out =~ "AIUR_RELEASE_DIR does not exist"
+
+    {legacy_out, 1} = System.cmd(@engine, ["--", "--portable.aiurconfig"], cd: repo, env: env, stderr_to_stdout: true)
+    assert legacy_out =~ "--portable.aiurconfig is no longer supported"
+    assert legacy_out =~ "--portable.yaml"
+    refute legacy_out =~ "basename:"
+  end
+
   test "usage describes init and no longer lists sweep" do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
@@ -2167,6 +2359,28 @@ defmodule AiurEngineTest do
       |> Enum.map(&List.last/1)
 
     assert markers == ["STOP", "BUILD", "RUN: --bg"]
+  end
+
+  test "restart refuses a legacy config before stopping or rebuilding" do
+    root = Path.join(System.tmp_dir!(), "aiur-restart-legacy-config-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    File.write!(Path.join(root, ".aiurconfig"), "tracker:\n  kind: memory\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_RESTART_BUILD_CMD", "echo BUILD"}
+        ]
+      )
+
+    assert code == 1
+    assert out =~ ".aiurconfig is no longer supported"
+    assert out =~ "relative prompt_file and hooks_file paths"
+    refute out =~ "STOP"
+    refute out =~ "BUILD"
+    refute out =~ "RUN:"
   end
 
   test "restart confirms the release it is about to boot is the one just built" do

@@ -24,7 +24,7 @@ The service solves four operational problems:
 - It turns issue execution into a repeatable daemon workflow instead of manual scripts.
 - It isolates agent execution in per-issue workspaces so agent commands run only inside per-issue
   workspace directories.
-- It keeps the workflow policy in-repo (`.aiurconfig`, plus an optional referenced prompt template)
+- It keeps the workflow policy in-repo (`.aiur/config`, plus an optional referenced prompt template)
   so teams version the agent prompt and runtime settings with their code.
 - It provides enough observability to operate and debug multiple concurrent agent runs.
 
@@ -50,7 +50,7 @@ Important boundary:
 - Create deterministic per-issue workspaces and preserve them across runs.
 - Stop active runs when issue state changes make them ineligible.
 - Recover from transient failures with exponential backoff.
-- Load runtime behavior from a repository-owned `.aiurconfig` contract.
+- Load runtime behavior from a repository-owned `.aiur/config` contract.
 - Expose Executor-visible observability (at minimum structured logs).
 - Support tracker/filesystem-driven restart recovery without requiring a persistent database; exact
   in-memory scheduler state is not restored. An implementation MAY persist a durable per-issue
@@ -75,7 +75,7 @@ Important boundary:
 ### 3.1 Main Components
 
 1. `Workflow Loader`
-   - Reads `.aiurconfig`.
+   - Reads `.aiur/config`.
    - Parses the YAML config and resolves the optional `prompt_file:` template.
    - Returns `{config, prompt_template}`.
 
@@ -123,11 +123,11 @@ Important boundary:
 Aiur is easiest to port when kept in these layers:
 
 1. `Policy Layer` (repo-defined)
-   - The prompt template referenced by `.aiurconfig`'s `prompt_file:` (or the built-in default).
+   - The prompt template referenced by `.aiur/config`'s `prompt_file:` (or the built-in default).
    - Team-specific rules for ticket handling, validation, and handoff.
 
 2. `Configuration Layer` (typed getters)
-   - Parses the `.aiurconfig` YAML into typed runtime settings.
+   - Parses the `.aiur/config` YAML into typed runtime settings.
    - Handles defaults, environment tokens, and path normalization.
 
 3. `Coordination Layer` (orchestrator)
@@ -185,7 +185,7 @@ Fields:
 
 #### 4.1.2 Workflow Definition
 
-Parsed `.aiurconfig` payload:
+Parsed `.aiur/config` payload:
 
 - `config` (map)
   - YAML root object.
@@ -302,7 +302,7 @@ Fields:
 Config file path precedence:
 
 1. Explicit application/runtime setting (set by CLI startup path).
-2. Default: `.aiurconfig` in the current process working directory.
+2. Default: `.aiur/config` in the current process working directory.
 
 Loader behavior:
 
@@ -311,11 +311,11 @@ Loader behavior:
 
 ### 5.2 File Format
 
-`.aiurconfig` is a pure YAML file.
+`.aiur/config` is a pure YAML file.
 
 Design note:
 
-- `.aiurconfig` SHOULD be self-contained enough to describe and run different workflows (prompt
+- `.aiur/config` SHOULD be self-contained enough to describe and run different workflows (prompt
   reference, runtime settings, hooks, and tracker selection/config) without requiring out-of-band
   service-specific configuration.
 
@@ -358,17 +358,17 @@ Note:
 #### 5.3.0 `prompt_file` (string)
 
 - OPTIONAL path to a prompt template file (typically Liquid/Markdown).
-- Relative paths are resolved relative to the directory containing `.aiurconfig`.
+- Relative paths are resolved relative to the directory containing `.aiur/config`.
 - When absent or empty, a built-in default prompt is used.
 - A named file that cannot be read is a `missing_prompt_file` error.
 
 #### 5.3.0.1 `hooks_file` (string)
 
 - OPTIONAL path to a YAML file whose keys become the `hooks:` map (same fields as the inline `hooks:` object in 5.3.4).
-- Relative paths are resolved relative to the directory containing `.aiurconfig`.
+- Relative paths are resolved relative to the directory containing `.aiur/config`.
 - When set, it REPLACES any inline `hooks:` block; when absent or empty, the inline `hooks:` block (if any) is used unchanged.
 - A named file that cannot be read is a `missing_hooks_file` error; a file whose top-level YAML is not a map is an `invalid_hooks_file` error.
-- `aiur init` scaffolds a `.aiurhooks` (from `.aiurhooks.example`) and the generated `.aiurconfig` references it via `hooks_file: .aiurhooks`.
+- `aiur init` scaffolds `.aiur/hooks` and the generated `.aiur/config` references it via `hooks_file: hooks`.
 
 #### 5.3.1 `tracker` (object)
 
@@ -408,7 +408,7 @@ Fields:
 - `root` (path string or `$VAR`)
   - Default: `<system-temp>/aiur_workspaces`
   - `~` is expanded.
-  - Relative paths are resolved relative to the directory containing `.aiurconfig`.
+  - Relative paths are resolved relative to the directory containing `.aiur/config`.
   - The effective workspace root is normalized to an absolute path before use.
 
 #### 5.3.4 `hooks` (object)
@@ -532,7 +532,7 @@ triggered agent works the PR's existing branch directly (PR-anchored, keyed by P
 
 ### 5.4 Prompt Template Contract
 
-The prompt template referenced by `.aiurconfig`'s `prompt_file:` (or the built-in default) is the
+The prompt template referenced by `.aiur/config`'s `prompt_file:` (or the built-in default) is the
 per-issue prompt template.
 
 Rendering requirements:
@@ -578,7 +578,7 @@ Dispatch gating behavior:
 Configuration is resolved in this order:
 
 1. Select the config file path (explicit runtime setting, otherwise cwd default).
-2. Parse the `.aiurconfig` YAML into a raw config map.
+2. Parse the `.aiur/config` YAML into a raw config map.
 3. Apply built-in defaults for missing OPTIONAL fields.
 4. Resolve `$VAR_NAME` indirection only for config values that explicitly contain `$VAR_NAME`.
 5. Coerce and validate typed values.
@@ -594,13 +594,13 @@ Value coercion semantics:
   - Apply expansion only to values intended to be local filesystem paths; do not rewrite URIs or
     arbitrary shell command strings.
 - Relative `workspace.root` values resolve relative to the directory containing the selected
-  `.aiurconfig`.
+  `.aiur/config`.
 
 ### 6.2 Dynamic Reload Semantics
 
 Dynamic reload is REQUIRED:
 
-- The software MUST detect `.aiurconfig` changes (including changes to the referenced `prompt_file:`).
+- The software MUST detect `.aiur/config` changes (including changes to the referenced `prompt_file:`).
 - On change, it MUST re-read and re-apply workflow config and prompt template without restart.
 - The software MUST attempt to adjust live behavior to the new config (for example polling
   cadence, concurrency limits, active/terminal states, codex settings, workspace paths/hooks, and
@@ -1484,7 +1484,7 @@ Extension config:
 Enablement (extension):
 
 - Start the HTTP server when a CLI `--port` argument is provided.
-- Start the HTTP server when `server.port` is present in `.aiurconfig`.
+- Start the HTTP server when `server.port` is present in `.aiur/config`.
 - The `server` top-level key is owned by this extension.
 - Positive `server.port` values bind that port.
 - Implementations SHOULD bind loopback by default (`127.0.0.1` or host equivalent) unless explicitly
@@ -1641,7 +1641,7 @@ API design notes:
 ### 14.1 Failure Classes
 
 1. `Workflow/Config Failures`
-   - Missing `.aiurconfig`
+   - Missing `.aiur/config`
    - Invalid YAML (non-map root)
    - Missing or unreadable `prompt_file:`
    - Unsupported tracker kind or missing tracker credentials/project slug
@@ -1713,8 +1713,8 @@ After restart:
 
 Executors can control behavior by:
 
-- Editing `.aiurconfig` (runtime settings) or its referenced `prompt_file:` (prompt).
-- `.aiurconfig` and `prompt_file:` changes are detected and re-applied automatically without restart
+- Editing `.aiur/config` (runtime settings) or its referenced `prompt_file:` (prompt).
+- `.aiur/config` and `prompt_file:` changes are detected and re-applied automatically without restart
   according to Section 6.2.
 - Changing issue states in the tracker:
   - terminal state -> running session is stopped and workspace cleaned when reconciled
@@ -1759,7 +1759,7 @@ RECOMMENDED additional hardening for ports:
 
 ### 15.4 Hook Script Safety
 
-Workspace hooks are arbitrary shell scripts from `.aiurconfig`.
+Workspace hooks are arbitrary shell scripts from `.aiur/config`.
 
 Implications:
 
@@ -2055,11 +2055,11 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 - Config file path precedence:
   - explicit runtime path is used when provided
-  - cwd default is `.aiurconfig` when no explicit runtime path is provided
+  - cwd default is `.aiur/config` when no explicit runtime path is provided
 - Config file and `prompt_file:` changes are detected and trigger re-read/re-apply without restart
 - Invalid reload keeps last known good effective configuration and emits an
   Executor-visible error
-- Missing `.aiurconfig` returns typed error
+- Missing `.aiur/config` returns typed error
 - Non-map YAML returns typed error
 - Missing or unreadable `prompt_file:` returns typed error
 - Config defaults apply when OPTIONAL values are missing
@@ -2160,9 +2160,9 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 ### 17.7 CLI and Host Lifecycle
 
-- CLI accepts a positional config path argument (`path-to-.aiurconfig`)
-- CLI uses `./.aiurconfig` when no config path argument is provided
-- CLI errors on nonexistent explicit config path or missing default `./.aiurconfig`
+- CLI accepts a positional YAML config path argument (`config-path`)
+- CLI uses `./.aiur/config` when no config path argument is provided
+- CLI errors on nonexistent explicit config path or missing default `./.aiur/config`
 - CLI surfaces startup failure cleanly
 - CLI exits with success when application starts and shuts down normally
 - CLI exits nonzero when startup fails or the host process exits abnormally
@@ -2191,9 +2191,9 @@ Use the same validation profiles as Section 17:
 ### 18.1 REQUIRED for Conformance
 
 - Config path selection supports explicit runtime path and cwd default
-- `.aiurconfig` loader with YAML config + optional `prompt_file:` template resolution
+- `.aiur/config` loader with YAML config + optional `prompt_file:` template resolution
 - Typed config layer with defaults and `$` resolution
-- Dynamic `.aiurconfig` (and `prompt_file:`) watch/reload/re-apply for config and prompt
+- Dynamic `.aiur/config` (and `prompt_file:`) watch/reload/re-apply for config and prompt
 - Polling orchestrator with single-authority mutable state
 - Issue tracker client with candidate fetch + state refresh + terminal fetch
 - Workspace manager with sanitized per-issue workspaces
@@ -2216,7 +2216,7 @@ Use the same validation profiles as Section 17:
 - `linear_graphql` client-side tool extension exposes raw Linear GraphQL access through the
   app-server session using configured Aiur auth.
 - TODO: Persist retry queue and session metadata across process restarts.
-- TODO: Make observability settings configurable in `.aiurconfig` without prescribing UI
+- TODO: Make observability settings configurable in `.aiur/config` without prescribing UI
   implementation details.
 - TODO: Add first-class tracker write APIs (comments/state transitions) in the orchestrator instead
   of only via agent tools.

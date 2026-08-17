@@ -3930,7 +3930,7 @@ defmodule Aiur.OrchestratorStatusTest do
   @tag :tmp_dir
   test "tracker rework after completed CI wait honors all-limited model admission", %{tmp_dir: tmp_dir} do
     issue = %{completed_rework_issue("all-limited") | selected_backend: nil}
-    workflow_path = Path.join(tmp_dir, ".aiurconfig")
+    workflow_path = Aiur.TestSupport.prepare_workflow_file_path!(tmp_dir)
     Workflow.set_workflow_file_path(workflow_path)
 
     configure_completed_revalidation!([issue],

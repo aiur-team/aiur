@@ -756,7 +756,7 @@ defmodule Aiur.RepoBaseTest do
       git!(["-C", origin, "commit", "--quiet", "-am", "v2 initial"])
       v2_initial = head(origin)
 
-      config = Path.join(tmp, "v2.aiurconfig")
+      config = Path.join(tmp, "v2config.yaml")
       previous_config = Application.get_env(:aiur, :workflow_file_path)
       File.write!(config, "tracker:\n  kind: memory\n  base_branch: v2\n")
       Aiur.Workflow.set_workflow_file_path(config)

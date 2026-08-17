@@ -303,9 +303,18 @@ defmodule Aiur.CoreTest do
   end
 
   test "checked-in workflow examples parse and portable examples stay generic" do
-    workflow_paths =
-      Path.wildcard("examples/workflows/*.aiurconfig") ++
-        Path.wildcard("../.aiur/config")
+    example_paths = Path.wildcard("examples/workflows/*.yaml")
+
+    assert Enum.sort(example_paths) ==
+             Enum.sort([
+               "examples/workflows/github-claude.yaml",
+               "examples/workflows/github-codex.yaml",
+               "examples/workflows/linear-codex.yaml"
+             ])
+
+    assert Path.wildcard("examples/workflows/*.aiurconfig") == []
+
+    workflow_paths = example_paths ++ Path.wildcard("../.aiur/config")
 
     assert Enum.any?(workflow_paths)
 
@@ -315,9 +324,7 @@ defmodule Aiur.CoreTest do
       assert String.trim(prompt) != ""
     end
 
-    portable_paths =
-      Path.wildcard("examples/workflows/*.aiurconfig") ++
-        Path.wildcard("examples/workflows/*.prompt.md")
+    portable_paths = example_paths ++ Path.wildcard("examples/workflows/*.prompt.md")
 
     machine_local_pattern = ~r/(\/home\/|100\.\d+\.\d+\.\d+|applekid|orangekid|its-applekid|ethereum-optimism)/
 
@@ -331,8 +338,8 @@ defmodule Aiur.CoreTest do
 
     try do
       for path <- [
-            "examples/workflows/github-codex.aiurconfig",
-            "examples/workflows/github-claude.aiurconfig"
+            "examples/workflows/github-codex.yaml",
+            "examples/workflows/github-claude.yaml"
           ] do
         Workflow.set_workflow_file_path(Path.expand(path))
         settings = Config.settings!()
@@ -349,7 +356,7 @@ defmodule Aiur.CoreTest do
 
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
-      "examples/workflows/github-codex.aiurconfig",
+      "examples/workflows/github-codex.yaml",
       "../.aiur/config"
     ]
 
@@ -426,7 +433,7 @@ defmodule Aiur.CoreTest do
 
   test "workflow file path resolves from app env when set" do
     original_workflow_path = Workflow.workflow_file_path()
-    app_workflow_path = "/tmp/app/.aiurconfig"
+    app_workflow_path = "/tmp/app/config.yaml"
 
     try do
       Workflow.set_workflow_file_path(app_workflow_path)
@@ -438,7 +445,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "workflow load accepts a config with no prompt_file and an empty prompt" do
-    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "no-prompt.aiurconfig")
+    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "no-promptconfig.yaml")
     File.write!(workflow_path, "tracker:\n  kind: linear\n")
 
     assert {:ok, %{config: %{"tracker" => %{"kind" => "linear"}}, prompt: "", prompt_template: ""}} =
@@ -446,7 +453,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "workflow load rejects a config that does not decode to a map" do
-    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "not-a-map.aiurconfig")
+    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "not-a-mapconfig.yaml")
     File.write!(workflow_path, "- not-a-map\n")
 
     assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(workflow_path)

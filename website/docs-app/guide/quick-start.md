@@ -10,21 +10,30 @@ npm install -g aiur-cli
 
 ## Initialize
 
-Run `aiur init` in the repository you want Aiur to work on. It detects the available agent toolchains, scaffolds `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`, prepares the repository state node, and offers a pre-warmed base build with a sibling `.aiur/prewarm` script. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN`; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
+Run `aiur init` in the repository Aiur should operate.
 
-The wizard asks for:
-
-- tracker and repository settings;
-- agent backends, routing, limits, and toolchain readiness;
-- the GitHub token setup instructions and lifecycle labels.
+| Setup step | Result |
+| --- | --- |
+| Detect tools | Finds available agent toolchains. |
+| Scaffold | Writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`. |
+| Prepare state | Creates the repository state node and optional `.aiur/prewarm`. |
+| GitHub auth | Writes `./.env` guidance for `GITHUB_TOKEN` without prompting for the secret. |
+| Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
+| Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
 Add `agent:todo` to the issues you want worked.
 
 ## First run
 
-The bare `aiur` command discovers `.aiur/config` and starts a foreground run. `aiur run` is the explicit-verb equivalent.
+The bare `aiur` command discovers `.aiur/config` and starts a foreground run, while `aiur run` is the explicit-verb equivalent.
 
-Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before the default writable dashboard can start, including on loopback. Alternatively set `observability.dashboard_writable: false` for an unauthenticated loopback dashboard. The launch output prints the dashboard URL only when the listener starts. Continue with the [Dashboard](/guide/executor-control-center) guide.
+| Dashboard mode | Requirement |
+| --- | --- |
+| Writable | Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, including on loopback. |
+| Read-only loopback | Set `observability.dashboard_writable: false`; credentials are optional. |
+| Listener disabled | No URL is printed. |
+
+Continue with the [Dashboard](/guide/executor-control-center) guide.
 
 ## Core subcommands
 

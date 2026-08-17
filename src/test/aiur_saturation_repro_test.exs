@@ -161,6 +161,7 @@ defmodule AiurSaturationReproTest do
 
     sourced("""
     resolved_dump="#{dir}/erl_crash.dump"
+    __base=$(command date +%s)
     #{dump_setup}
     daemon_state() { printf '%s' "#{stub_daemon_state}"; }
     sleep() { :; }
@@ -174,7 +175,6 @@ defmodule AiurSaturationReproTest do
     # reads the clock as `$(date +%s)`, and a variable incremented inside that
     # command substitution's subshell would never advance in the parent — the
     # loop condition would then never terminate.
-    __base=$(command date +%s)
     __clock_file="#{dir}/clock"
     echo 0 > "$__clock_file"
     date() {
