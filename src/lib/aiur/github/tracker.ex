@@ -55,6 +55,24 @@ defmodule Aiur.GitHub.Tracker do
     end
   end
 
+  @doc """
+  Preflight for callers that run on a timer.
+
+  Unlike `auth_preflight/0` this answers from the proven-credential memo when
+  one is held, so a steady poll cycle spends nothing. Clients that do not
+  implement it fall back to the full check.
+  """
+  @spec ensure_auth_preflight() :: :ok | {:error, term()}
+  def ensure_auth_preflight do
+    client = client_module()
+
+    if Code.ensure_loaded?(client) and function_exported?(client, :ensure_preflight, 0) do
+      client.ensure_preflight()
+    else
+      auth_preflight()
+    end
+  end
+
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states), do: client_module().fetch_issues_by_states(states)
 
