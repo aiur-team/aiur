@@ -157,8 +157,15 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     test "watchdog receives the workspace root file and sweeps after BEAM death" do
       source = File.read!(@engine)
 
+      assert source =~ ~s(workspace_root_file="${10:-}"),
+             "watchdog must accept the workspace-root handoff file path"
+
       assert source =~ ~r/reap_aiur_agents "\$socket" "\$pidfile"\n\s+reap_workspace_cwd_from_file "\$workspace_root_file"/,
              "watchdog must run the cwd sweep after pidfile agent reap"
+
+      assert source =~
+               ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 \\\n\s+"\$AIUR_RELEASE_NODE" "\$\{AIUR_LOGS_ROOT:-\}" \\\n\s+"\$\(aiur_stop_sentinel_path\)" "\$\(aiur_crash_marker_path\)" "\$AIUR_WORKSPACE_ROOT_FILE" \\\n\s+"\$AIUR_ALERT_LEDGER_PATH_FILE" "\$crash_dump_baseline_file"/,
+             "background watchdog must receive AIUR_WORKSPACE_ROOT_FILE and the crash handoffs"
     end
   end
 
