@@ -5,7 +5,7 @@ defmodule Aiur.AgentEnvironmentTest do
   # module's value (#1920).
   use ExUnit.Case, async: false
 
-  alias Aiur.AgentEnvironment
+  alias Aiur.{AgentEnvironment, BuildGate}
   alias Aiur.GitHub.Budget
 
   test "identifies inherited Erlang distribution environment names" do
@@ -64,6 +64,13 @@ defmodule Aiur.AgentEnvironmentTest do
       )
 
     assert output == "OTHER_COOKIE=keep\n"
+  end
+
+  test "scrub_shell_command can retain an Aiur-owned build hook" do
+    command = AgentEnvironment.scrub_shell_command("printf ready", trusted_bash_env: true)
+
+    refute command =~ "unset BASH_ENV"
+    assert command =~ "unset ENV"
   end
 
   test "scrub_shell_command clears the restart rebuild command bound to the outer checkout" do
@@ -380,6 +387,27 @@ defmodule Aiur.AgentEnvironmentTest do
     refute remote_output =~ "elevenlabs-secret"
   end
 
+  test "shell startup suppression clears profile hooks" do
+    assert AgentEnvironment.shell_startup_env() == [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", "/dev/null"}]
+    assert AgentEnvironment.shell_startup_prefix() == "unset BASH_ENV ENV; export ZDOTDIR='/dev/null'"
+    assert AgentEnvironment.shell_startup_env_name?("BASH_ENV")
+    assert AgentEnvironment.shell_startup_env_name?(~c"ZDOTDIR")
+    refute AgentEnvironment.shell_startup_env_name?("HOME")
+  end
+
+  test "System.cmd startup suppression uses nil, not false, and survives System.cmd" do
+    assert AgentEnvironment.system_shell_startup_env() ==
+             [{"BASH_ENV", nil}, {"ENV", nil}, {"ZDOTDIR", "/dev/null"}]
+
+    # System.validate_env/1 raises FunctionClauseError on a `false` value, so
+    # this asserts the shape is actually accepted by the call sites that use it.
+    assert {"/dev/null\n", 0} =
+             System.cmd("sh", ["-c", "printf '%s\\n' \"${ZDOTDIR:-unset}\""],
+               env: AgentEnvironment.system_shell_startup_env(),
+               stderr_to_stdout: true
+             )
+  end
+
   test "scrub_shell_command preserves caller exec choice" do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
@@ -491,8 +519,12 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      assert {~c"BASH_ENV", hook_path} = List.keyfind(env, ~c"BASH_ENV", 0)
-      assert File.regular?(to_string(hook_path))
+      # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
+      # an operator-provided value is replaced at the launch boundary.
+      assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert to_string(build_gate_hook) == BuildGate.hook_path()
+      assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
+      assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
 
       assert {~c"AIUR_BUILD_GATE_BIN", ~c"/work/aiur/440/.aiur-runtime/build-bin"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_BIN", 0)

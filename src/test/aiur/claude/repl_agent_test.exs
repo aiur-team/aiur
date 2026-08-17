@@ -49,6 +49,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     # 1. new-window spawns the pane.
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert String.starts_with?(cmd, "new-window -d -n aiur-repl-test")
+    assert String.contains?(cmd, "-e BASH_ENV= -e ENV= -e ZDOTDIR=/dev/null")
     assert String.contains?(cmd, "exec claude")
     assert String.contains?(cmd, "--model 'claude-opus-4-8'")
     assert String.contains?(cmd, "--effort 'max'")

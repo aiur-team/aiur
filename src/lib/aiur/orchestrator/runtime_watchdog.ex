@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
 
   require Logger
 
-  alias Aiur.{Config, Issue}
+  alias Aiur.{Alerts, Config, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
   @spec apply_overrun_check(State.t(), non_neg_integer()) :: State.t()
@@ -198,6 +198,18 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
       session_id = State.running_entry_session_id(running_entry)
 
       Logger.warning("Issue stalled: issue_id=#{issue_id} issue_identifier=#{identifier} session_id=#{session_id} elapsed_ms=#{elapsed_ms}; restarting with backoff")
+
+      _ =
+        Alerts.emit_custom(
+          "ticket.#{identifier}.agent.stalled",
+          "Agent command made no progress for #{elapsed_ms}ms; terminating it and scheduling a retry",
+          issue: Map.get(running_entry, :issue),
+          workspace: Map.get(running_entry, :workspace_path),
+          worker_host: Map.get(running_entry, :worker_host),
+          reason: "agent command exceeded the #{timeout_ms}ms no-progress window without completing or returning an error",
+          needs_attention: true,
+          severity: "warning"
+        )
 
       next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
 
