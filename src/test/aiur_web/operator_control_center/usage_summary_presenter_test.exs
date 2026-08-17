@@ -23,6 +23,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
       },
       contributors: %{
         by_provider: [contributor(:claude, "USD", "2.50")],
+        by_provider_route: [],
         by_auth_mode: [contributor(:api_key, "USD", "2.50")],
         by_ticket: [contributor({"acme", "aiur", 42}, "USD", "2.50")],
         by_model: [],
@@ -245,6 +246,48 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
     end
   end
 
+  describe "provider routes" do
+    test "presents routed, direct, and missing-upstream identities without joining them" do
+      snap =
+        snapshot(%{
+          contributors: %{
+            snapshot().contributors
+            | by_provider_route: [
+                contributor(%{provider: :openrouter, upstream_provider: "DeepSeek"}, "USD", "2.50"),
+                contributor(%{provider: :deepseek, upstream_provider: nil}, "USD", "1.50"),
+                contributor(%{provider: :openrouter, upstream_provider: nil}, "USD", "0.50")
+              ]
+          }
+        })
+
+      view = Presenter.present(snap)
+
+      assert [routed, direct, unknown] = view.routes.entries
+      assert routed.provider == :openrouter
+      assert routed.upstream_provider == "DeepSeek"
+      assert routed.label == "OpenRouter -> DeepSeek"
+      assert routed.accessible_label == "OpenRouter routed through DeepSeek"
+      assert direct.label == "DeepSeek"
+      assert direct.accessible_label == "DeepSeek"
+      assert unknown.label == "OpenRouter -> upstream unknown"
+      assert unknown.accessible_label == "OpenRouter routed through upstream provider unknown"
+    end
+
+    test "names absent monetary estimates Unknown" do
+      route = %{
+        key: %{provider: :openrouter, upstream_provider: "DeepSeek"},
+        tokens: %{input: 10},
+        provider_reported: %{},
+        api_equivalent: %{amount: %{}, coverage: %{known: 0, unknown: 1, reasons: [], status: :unknown}}
+      }
+
+      snap = snapshot(%{contributors: %{snapshot().contributors | by_provider_route: [route]}})
+      assert [presented] = Presenter.present(snap).routes.entries
+      assert presented.provider_reported_label == "Unknown"
+      assert presented.api_equivalent_label == "Unknown"
+    end
+  end
+
   describe "states" do
     test "each snapshot state maps to a distinct view state" do
       assert Presenter.present(snapshot(%{state: :ok})).state == :ready
@@ -303,6 +346,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
       assert view.state == :locked
       refute Map.has_key?(view, :tokens)
       refute Map.has_key?(view, :api_equivalent)
+      refute Map.has_key?(view, :routes)
       refute Map.has_key?(view, :tier)
       assert view.reason =~ "Authentication is required"
     end
@@ -340,12 +384,21 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
 
   describe "announcement/1" do
     test "ready announcement is bounded and names scope, totals, coverage, health" do
-      text = Presenter.present(snapshot(), tier_facts: %{}) |> Presenter.announcement()
+      snap =
+        snapshot(%{
+          contributors: %{
+            snapshot().contributors
+            | by_provider_route: [contributor(%{provider: :openrouter, upstream_provider: "DeepSeek"}, "USD", "2.50")]
+          }
+        })
+
+      text = Presenter.present(snap, tier_facts: %{}) |> Presenter.announcement()
 
       assert text =~ "This run usage."
       assert text =~ "1500 total tokens."
       assert text =~ "API-equivalent estimate 2.50 USD."
       assert text =~ "Provider-reported estimate 1.25 USD."
+      assert text =~ "Provider routes: OpenRouter routed through DeepSeek."
       assert text =~ "Source coverage Full."
       assert text =~ "Health Healthy, freshness Fresh."
     end
@@ -353,6 +406,19 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
     test "locked and loading announcements leak no value" do
       assert Presenter.announcement(Presenter.locked_view()) =~ "locked"
       assert Presenter.announcement(%{state: :loading}) =~ "Loading"
+    end
+
+    test "announces direct and unknown-upstream routes truthfully" do
+      routes = [
+        contributor(%{provider: :deepseek, upstream_provider: nil}, "USD", "1.00"),
+        contributor(%{provider: :openrouter, upstream_provider: nil}, "USD", "1.00")
+      ]
+
+      snap = snapshot(%{contributors: %{snapshot().contributors | by_provider_route: routes}})
+      text = snap |> Presenter.present() |> Presenter.announcement()
+
+      assert text =~ "Provider routes: DeepSeek; OpenRouter routed through upstream provider unknown."
+      refute text =~ "DeepSeek routed through"
     end
 
     test "a subscription total is announced as an estimate" do

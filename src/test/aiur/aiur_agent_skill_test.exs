@@ -59,6 +59,19 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "Do NOT open a new PR"
   end
 
+  test "dictation guidance has one source shared by issue workers and Executors" do
+    worker_skill = File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/SKILL.md"))
+    executor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    guidance_path = Path.join(@repo_root, ".claude/skills/using-aiur/dictated-input.md")
+    guidance = File.read!(guidance_path)
+
+    assert worker_skill =~ "dictated-input.md"
+    assert executor_skill =~ "../using-aiur/dictated-input.md"
+    assert guidance =~ "Voice-originated text may render **Aiur**"
+    assert guidance =~ "`A, your`"
+    assert guidance =~ "never silently rewriting a real word or acronym"
+  end
+
   # #1793: 29 tickets were filed with no `agent:*` label. Each was
   # undispatchable and invisible in every state-scoped view, so the fleet read
   # as having no work left. Every path that can file a ticket must state a

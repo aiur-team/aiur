@@ -14,10 +14,13 @@ defmodule Aiur.Config.Schema.ElevenLabs do
     # ISO-639-3 transcription language handed to the ElevenLabs API ("eng" for
     # English). Leave the default unless dictating in another language.
     field(:language_code, :string, default: "eng")
+    # Stock or owned voice used for dashboard conversation replies. Voice IDs
+    # are account-visible identifiers, not credentials.
+    field(:voice_id, :string)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
-    cast(schema, attrs, [:api_key, :language_code], empty_values: [])
+    cast(schema, attrs, [:api_key, :language_code, :voice_id], empty_values: [])
   end
 end

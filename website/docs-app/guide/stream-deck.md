@@ -110,7 +110,7 @@ A machine with no microphone is a legitimate state, not a failure: the pane says
 
 ### Voice replies are out of scope
 
-Aiur transcribes; it does not speak. The ElevenLabs key this feature uses carries the `Speech to Text` and `User` permissions only, so there is no text-to-speech path to enable and no spoken reply to configure.
+The Stream Deck path transcribes; it does not speak. It needs only the `Speech to Text` and `User` permissions. The Dashboard Units modal can separately use the same server-held credential for interactive spoken replies when `Text to Speech` permission and a `voice_id` are configured.
 
 ### Configure it
 
@@ -120,6 +120,7 @@ Voice input needs an ElevenLabs API key. Add it with `aiur init`, which offers t
 elevenlabs:
   api_key: $ELEVENLABS_API_KEY
   language_code: eng
+  voice_id: null # optional; enables Dashboard spoken replies when set
 ```
 
 Prefer the `$ELEVENLABS_API_KEY` reference over pasting the key into the file. See [Configuration](/reference/configuration) for the field reference.
@@ -139,7 +140,8 @@ The path a spoken word takes is:
 1. The sidecar captures 16 kHz mono audio from the microphone on its own machine.
 2. It sends that audio to **Aiur**, over the same authenticated Stream Deck channel it already uses for fleet state — not to any third party.
 3. **Aiur** opens the connection to ElevenLabs, using the key from its own configuration, and streams the audio on.
-4. ElevenLabs returns text, Aiur pushes it back to the deck, and the finished message is delivered to the agent through the ordinary AgentChat path.
+4. ElevenLabs returns text and Aiur pushes it back to the deck. Before display or delivery, the sidecar corrects unambiguous mishearings of the coined name — `aeor`, `iyer`, `ayer`, and `A, your` become **Aiur**. Real words and acronyms such as `higher`, `iron`, `ire`, and `IR` are left unchanged rather than risk silently corrupting the operator's meaning.
+5. The finished message is delivered to the agent through the ordinary AgentChat path.
 
 The consequences of that arrangement:
 

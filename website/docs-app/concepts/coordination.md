@@ -14,6 +14,14 @@ ticket.142.branch.push
 
 Events are signals, not shared mutable state. A consumer that needs code or a durable decision follows the event’s validated reference or correlation fields and reads the owning source of truth.
 
+Ticket agents can create persistent watches with `aiur_subscribe`, but each
+manual pattern must start with one literal ticket identifier, such as
+`ticket.142.#` or `ticket.314.branch.push`. Agent requests for `executor.*`,
+`system.*`, bare `*` or `#`, and fleet-wide ticket patterns such as
+`ticket.*.branch.push` are refused. Automatic own-ticket, blocker, CI, review,
+and base-branch subscriptions are trusted internal wiring and continue to use
+their purpose-specific topics.
+
 ## Dependencies
 
 Declaring another issue as a blocker creates a native issue dependency and subscribes the blocked ticket to relevant lifecycle and branch events. The blocked agent should keep independent preparation moving, but must not duplicate blocker-owned code.
@@ -43,4 +51,4 @@ Aiur observes GitHub through a narrow repository-events firehose and targeted po
 
 Comment commands and review-driven rework are accepted only from the configured trusted accounts or the resolved CODEOWNERS set. Aiur refreshes CODEOWNERS on the configured cadence and surfaces a safe degraded-trust alert if it cannot resolve the file. The bot identity is excluded to prevent self-triggered loops.
 
-The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`. Treat a branch push as evidence to inspect, not as an unblock signal. CI and review facts are ultimately tracker-derived polling results, even when their projections appear live in the dashboard.
+The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`. The Executor control-plane subscription is distinct from the agent manual-subscription policy above. Treat a branch push as evidence to inspect, not as an unblock signal. CI and review facts are ultimately tracker-derived polling results, even when their projections appear live in the dashboard.

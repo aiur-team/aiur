@@ -141,6 +141,8 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
         GlobalPause.set_global_pause_call(state, false)
 
       refute resumed_state.globally_paused
+      assert is_reference(resumed_state.tick_timer_ref)
+      assert resumed_state.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
 
       # Only the globally held agent gets a resume request.
       assert_receive {:resume_agent, held_rid, 101}

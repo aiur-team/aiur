@@ -29,6 +29,7 @@ export * from "./usb-backend.js";
 export * from "./device-path.js";
 export * from "./runtime.js";
 export * from "./channel.js";
+export * from "./aiur-speech.js";
 export * from "./input.js";
 export * from "./surface.js";
 export * from "./controller.js";

@@ -70,6 +70,11 @@ alerts:
     message: Merge complete
     sound:
       - "~/alerts/archon/archon-merging-complete.wav"
+  "ticket.*.pr.draft_approved_green":
+    message: Approved green PR left as a draft
+    sound:
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
   "ticket.*.issue.state.changed":
     message: Task state changed
     sound:

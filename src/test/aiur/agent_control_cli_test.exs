@@ -68,6 +68,10 @@ defmodule Aiur.AgentControlCLITest do
       remove_label: fn id, label ->
         send(parent, {:todo_remove_label, id, label})
         remove_result.(id, label)
+      end,
+      request_refresh: fn ->
+        send(parent, :todo_request_refresh)
+        %{queued: true}
       end
     }
   end
@@ -235,6 +239,14 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "todo/2" do
+    test "requests an immediate reconciliation after queueing work" do
+      issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
+
+      {_stdout, _stderr, 0} = capture_todo(["11"], deps: todo_deps(issues))
+
+      assert_receive :todo_request_refresh
+    end
+
     test "mutates the tracker and emits the control exit marker" do
       issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
 
@@ -521,6 +533,29 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "#88    running Issue "
     assert populated_output =~ "worker-alpha running Issue worker-alpha"
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "status surfaces an active idle polling backoff" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 590_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0}
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~ "POLL idle backoff active: interval=600s base=120s factor=5.0x next=590s"
   end
 
   test "status surfaces whether the Executor listener is currently listening", %{orchestrator: _pid} do
