@@ -3,6 +3,8 @@ defmodule Aiur.ExecutorWakeInbox do
 
   use GenServer
 
+  require Logger
+
   alias Aiur.DecisionLog
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
@@ -343,22 +345,44 @@ defmodule Aiur.ExecutorWakeInbox do
   # that nobody will ever acknowledge. Dropping only consumed records left the
   # ledger unbounded in exactly that case, which is the growth #1661 is about.
   # The retained set is therefore capped at `max_records` outright: consumed
-  # records go first, then the oldest unread, so the bound holds with or without
-  # a consumer.
+  # records are evicted first and only then the oldest unread, so the bound
+  # holds with or without a consumer.
+  #
+  # Evicting an unread record loses a wake, so it is never silent — it is logged
+  # with the count and the id range, and the durable cursor is advanced past the
+  # dropped range so a consumer's next read is honest about where the stream now
+  # begins rather than replaying a gap it cannot fill.
   defp trim_consumed(state) do
     cursor = read_cursor(state.cursor_path)
 
     with {:ok, records, nil} <- DecisionLog.replay(state.path, &validate_record/1) do
       unread = Enum.filter(records, &(&1["wake_id"] > cursor))
       consumed = Enum.filter(records, &(&1["wake_id"] <= cursor))
-      consumed_limit = max(state.max_records - length(unread), 0)
-      retained = Enum.take(consumed, -consumed_limit) ++ Enum.take(unread, -state.max_records)
+      retained_unread = Enum.take(unread, -state.max_records)
+      consumed_limit = max(state.max_records - length(retained_unread), 0)
+      retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
+
+      report_dropped_unread(state, unread -- retained_unread)
 
       if length(retained) < length(records) do
         contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
         _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
       end
     end
+
+    :ok
+  end
+
+  defp report_dropped_unread(_state, []), do: :ok
+
+  defp report_dropped_unread(state, dropped) do
+    ids = Enum.map(dropped, & &1["wake_id"])
+    :ok = advance_cursor(state.cursor_path, dropped)
+
+    Logger.warning(
+      "aiur_executor_wake_inbox phase=unread_evicted count=#{length(dropped)} " <>
+        "first_wake_id=#{Enum.min(ids)} last_wake_id=#{Enum.max(ids)} max_records=#{state.max_records}"
+    )
 
     :ok
   end
