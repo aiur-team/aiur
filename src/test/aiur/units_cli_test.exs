@@ -254,7 +254,7 @@ defmodule Aiur.UnitsCLITest do
         assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: unavailable_catalog()} end)
       end)
 
-    assert unavailable_output =~ "Units catalog unavailable; units have not been observed."
+    assert unavailable_output =~ "No live units; units have not been observed."
 
     zero_result_output =
       capture_io(fn ->
@@ -339,7 +339,7 @@ defmodule Aiur.UnitsCLITest do
   defp empty_catalog do
     %{
       status: :empty,
-      message: "No units have been observed in this run.",
+      message: "No units in this run yet.",
       truncated?: false,
       snapshot: %{freshness: %{membership: %{status: :fresh}}, rows: []}
     }

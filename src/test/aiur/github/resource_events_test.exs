@@ -46,6 +46,37 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       assert ResourceEvents.type_topic(:issue_comment, "aiur") == nil
       assert ResourceEvents.type_topic(:issue_comment, nil) == nil
     end
+
+    # This module's own rule is that a write must never fail because the
+    # announcement could not be addressed. Every addressing function therefore
+    # answers `nil` for an unaddressable argument instead of raising — the store
+    # calls them from inside a write, after the entry has already landed in ETS,
+    # so a raise here writes the entry and kills the caller.
+    test "an unaddressable type or key answers nil rather than raising" do
+      assert ResourceEvents.type_topic("issue_comment") == nil
+      assert ResourceEvents.type_topic(nil) == nil
+      assert ResourceEvents.topic({"issue_comment", @owner, @repo, "1"}) == nil
+      assert ResourceEvents.type_topic("issue_comment", "aiur-team/aiur") == nil
+    end
+
+    test "publishing an unaddressable key announces nothing and does not raise" do
+      :ok = ResourceEvents.subscribe(:issue_comment)
+
+      assert :ok = ResourceEvents.publish({"issue_comment", @owner, @repo, "1"}, %{etag: ~s("x")})
+      assert :ok = ResourceEvents.publish({:issue_comment, %{}, @repo, "1"}, %{etag: ~s("x")})
+
+      refute_receive {:github_resource_changed, _change}, 100
+    end
+
+    test "subscribing or unsubscribing with an unaddressable type does not raise" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = ResourceEvents.subscribe("issue_comment")
+        end)
+
+      assert log =~ "unknown resource type"
+      assert :ok = ResourceEvents.unsubscribe("issue_comment")
+    end
   end
 
   describe "a store write reaches its subscribers" do

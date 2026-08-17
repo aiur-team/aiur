@@ -460,6 +460,26 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   defp poller_comment_shape(comment), do: comment
 
+  @doc """
+  The poller's comment shape for one delivered comment.
+
+  Public for `Aiur.Events.GithubWebhook.Deposit`, which writes the delivered
+  comment into the resource store. A stored comment has to be the same shape as
+  a published one for the same reason a published one does: a consumer must not
+  be able to tell which producer paid for it.
+  """
+  @spec comment_shape(term()) :: term()
+  def comment_shape(comment), do: poller_comment_shape(comment)
+
+  @doc """
+  The poller's review shape for one delivered review.
+
+  Same contract as `comment_shape/1`, for the one topic the poller publishes
+  unprojected: only the `state` casing differs between the two producers.
+  """
+  @spec review_shape(term()) :: term()
+  def review_shape(review), do: upcase_review_state(review)
+
   # Review-staleness context for the orchestrator's rework gate
   # (`Aiur.Orchestrator.ReviewFreshness`), mirroring
   # GithubCommentsPoller.review_context/1 key for key.

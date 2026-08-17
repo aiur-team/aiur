@@ -147,7 +147,81 @@ When a path deposits the resource itself, that is written to disk alongside the 
 
 Every write that changes what a reader could see is announced, so anything watching that resource learns about it without asking GitHub. A change costs one API call at most, no matter how many things were watching.
 
+A webhook delivery is the cheapest writer of all — GitHub has already paid for the round trip, and the delivery arrives before any sweep would have read the same object — so every delivery for a tracked repository deposits the state it carries, whether or not it also wakes an agent.
+
+| Delivery | What it deposits |
+| --- | --- |
+| Any comment activity | The issue or pull request the comment hangs off, with its label set. |
+| Comment created or edited | That comment as well. |
+| Review submitted, edited or dismissed | The review, and the pull request. |
+| Pull request, any action | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
+| Issue, any action | The issue and its label set, whether or not the action is one Aiur reacts to. |
+| Check run | That check run. It says nothing about the other runs on the same head, so a reader asking about the head still reads. |
+| A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
+| A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
+
+A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
+
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+
+## Shared agent reads
+
+Agents run `gh` through a wrapper that keeps the answers, so the next agent
+asking the same question is served the first agent's answer — the exact output
+the first call produced, replayed byte for byte.
+
+These reads are shared:
+
+| Read | Shared |
+| --- | --- |
+| `gh pr view`, `gh issue view` with `--json` and a number | Yes |
+| `gh pr list`, `gh issue list` with `--json` | Yes |
+| `gh api` GET of a repository endpoint | Yes |
+| A CI or merge verdict — `gh pr checks`, or `--json` asking for `statusCheckRollup`, `mergeable`, `mergeStateStatus`, `state`, `reviewDecision` and their like | No; never shared, at any age |
+| Anything else — no `--json`, `gh pr diff`, `gh api graphql`, every write | No; the call goes to GitHub as before |
+
+A verdict is refused rather than kept briefly because a push and a completing
+check run do not pass through the wrapper, so nothing could retire the answer
+before an agent acted on it.
+
+An answer is kept for 60 seconds.
+
+Editing a ticket or a pull request discards the kept answers for it at once, so
+an agent never reads back what it just replaced.
+
+So does anything the daemon learns about that resource — a webhook delivery, a
+comment Aiur posted itself. That is what lets a free delivery stop sixteen agents
+paying to discover the same change.
+
+Agents that ask **at the same moment** are also one call, not many.
+
+Thirteen agents opening the same pull request in the same second cannot be helped
+by a kept answer, because none exists yet when they all look. One is admitted to
+fetch and the rest wait behind it, then read what it wrote.
+
+If the admitted one never answers, the others stop waiting and fetch. The cost is
+the single call the waiting was meant to save, never a stall.
+
+Sharing is controlled by these settings:
+
+| Setting | Effect |
+| --- | --- |
+| `AIUR_GITHUB_STATE_CACHE_ENABLED=0` | Turns sharing off; every call goes to GitHub. |
+| `AIUR_GITHUB_STATE_CACHE_BYPASS=1` | Makes one call ignore kept answers, for a decision that must not be stale. |
+| `AIUR_GITHUB_STATE_CACHE_TTL_MS` | How long an answer is kept, in milliseconds, rounded down to whole seconds. Below 1000 keeps nothing. |
+| `AIUR_GITHUB_STATE_CACHE_WAIT_MS` | How long an agent waits for another agent's identical call before making its own. |
+
+If the store is missing or unwritable, every call behaves as it did before.
+
+Sharing is between the agents on one host that use the same GitHub credential —
+the same boundary the shared request budget draws. A second credential keeps its
+own answers, because a response can depend on who asked.
+
+A change made outside those agents — a merge from the web UI, a label set by
+somebody else — is not seen by the wrapper. Aiur learns of it through the webhook
+or the next poll and retires the affected answers then.
+
+That gap is the exposure, and it is why a verdict is never kept at all.
 
 ## Optional webhook
 
