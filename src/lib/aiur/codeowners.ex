@@ -168,7 +168,7 @@ defmodule Aiur.Codeowners do
         |> matching_rule(path)
         |> entries_for_rule(path, opts)
 
-      ownership_context(true, entries_result)
+      ownership_context(entries_result)
     else
       %{codeowners_present: false, owners: [], entries: []}
     end
@@ -189,7 +189,7 @@ defmodule Aiur.Codeowners do
           {:error, _reason} = error -> {:halt, error}
         end
       end)
-      |> ownership_context(true)
+      |> ownership_context()
     else
       %{codeowners_present: false, owners: [], entries: []}
     end
@@ -210,7 +210,7 @@ defmodule Aiur.Codeowners do
           {:error, _reason} = error -> {:halt, error}
         end
       end)
-      |> ownership_context(true)
+      |> ownership_context()
     else
       %{codeowners_present: false, owners: [], entries: []}
     end
@@ -448,14 +448,12 @@ defmodule Aiur.Codeowners do
     end
   end
 
-  defp ownership_context({:error, _reason} = error, _codeowners_present), do: error
+  defp ownership_context({:error, _reason} = error), do: error
 
-  defp ownership_context({:ok, entries}, codeowners_present) do
+  defp ownership_context({:ok, entries}) do
     entries = entries |> Enum.reverse() |> uniq_entries()
-    %{codeowners_present: codeowners_present, owners: usernames(entries), entries: entries}
+    %{codeowners_present: true, owners: usernames(entries), entries: entries}
   end
-
-  defp ownership_context(codeowners_present, entries_result), do: ownership_context(entries_result, codeowners_present)
 
   defp owners_from_context({:error, _reason} = error), do: error
   defp owners_from_context(context), do: Map.fetch!(context, :owners)
