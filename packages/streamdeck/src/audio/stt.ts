@@ -5,19 +5,14 @@
  * sidecar. This is the seam the voice stack is meant to be extracted along:
  * a future package would take `src/audio/**` wholesale, and the only thing the
  * sidecar keeps is a call to `createVoiceSession` with a transcriber it chose.
+ *
+ * The contract has two implementations. `createUnavailableTranscriber` below is
+ * the degraded one, used when transcription is off. The working one is
+ * `createRelayTranscriber` in `relay.ts`, which streams audio to Aiur and
+ * receives text back: **the provider call happens in Aiur, not here.** No
+ * provider credential exists anywhere under `src/audio/`, so no socket, URL or
+ * header in this stack can leak one.
  */
-
-/** Minimal websocket shape, redeclared here so the audio stack owns no sidecar types. */
-export interface SocketLike {
-  send(data: string): void;
-  close(): void;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data: string }) => void) | null;
-  onerror: ((error: unknown) => void) | null;
-  onclose: (() => void) | null;
-}
-
-export type SocketFactory = (url: string, headers: Readonly<Record<string, string>>) => SocketLike;
 
 /**
  * A transcript update.

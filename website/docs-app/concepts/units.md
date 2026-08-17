@@ -25,9 +25,50 @@ The Units strip shows non-model APIs beside model-provider meters.
 | GitHub Core | REST request budget percentage used | [GitHub API budgets](/apis/github#api-budgets) |
 | GitHub GraphQL | Query-point budget percentage used | [GitHub API budgets](/apis/github#api-budgets) |
 | GitHub secondary limit | Active abuse-control backoff | [GitHub API budgets](/apis/github#api-budgets) |
-| ElevenLabs | Subscription character pool; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
+| ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
+| ElevenLabs next invoice due | Amount owed on the next invoice, not a remaining balance | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
 
 A configured meter that cannot refresh names authorization, rate-limit, or connectivity failure without exposing its credential.
+
+An ElevenLabs account with a zero character limit renders an empty track, because there is no denominator to state a percentage against.
+
+## Agent conversation and voice
+
+Selecting an agent opens its live conversation without leaving Units.
+
+| Control | Behavior |
+| --- | --- |
+| Composer | A writable dashboard sends typed text to the selected agent. |
+| Microphone | Transcribes speech into the same composer when ElevenLabs speech-to-text is configured; the operator reviews the text and presses **Send**. |
+| Waveform | Confirms the browser is receiving audio. |
+| Spoken conversation | A separate half-duplex control: press, speak, press again; settled text is sent through the ordinary composer and enters the ticket transcript. |
+| Spoken reply | Aiur streams ElevenLabs text-to-speech audio back to the browser when the agent replies. |
+| Device selection | Browser-local and saved per dashboard origin, independent of the Stream Deck microphone preference. |
+
+Dictation never sends a message automatically, and the browser never receives the API key.
+
+Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission before using spoken conversation; voice cloning and barge-in are not part of this mode.
+
+| Browser requirement | Result |
+| --- | --- |
+| Secure context | `localhost` qualifies; a plain-HTTP LAN address does not. |
+| Remote access | Use HTTPS through a trusted private proxy. |
+| Insecure origin or unsupported browser | The control is disabled with an explanation. |
+| Permission denied | Explained beside the control, which stays available for a retry after a site-permission change. |
+
+## Usage and cost
+
+The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**.
+
+| Route case | How it reads |
+| --- | --- |
+| Routed call | Names both hops, such as `OpenRouter -> DeepSeek`. |
+| Direct provider | Appears without an arrow. |
+| Unreported upstream | Reads `OpenRouter -> upstream unknown`. |
+| Unavailable estimate | Reads **Unknown**, never zero. |
+| `mix aiur.cost_report --json` | Keeps `provider` and `upstream_provider` as separate fields. |
+
+Provider-reported and API-equivalent estimates stay separate.
 
 ## Tickets
 

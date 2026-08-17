@@ -216,7 +216,7 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert [%{id: message_id, body: "hello world"}] = partial.messages
+    assert [%{id: message_id, body: "hello world", complete?: false}] = partial.messages
     assert_opaque_id(message_id)
 
     assert {:ok, replayed} =
@@ -235,7 +235,7 @@ defmodule Aiur.LiveConversationTest do
                server: server
              )
 
-    assert [%{id: ^message_id, body: "hello, world"}] = completed.messages
+    assert [%{id: ^message_id, body: "hello, world", complete?: true}] = completed.messages
 
     assert {:ok, late_delta} =
              LiveConversation.observe(source, %{kind: :assistant_delta, id: "turn-1", body: " ignored"}, server: server)

@@ -25,6 +25,8 @@
  * here and a blank box on the device.
  */
 
+import { progressFreshness, type ProgressFreshness } from "../keys.js";
+
 /** Which vector glyph the painter draws for an activity. */
 export type ActivityGlyph = "brainstorm" | "plan" | "work" | "review" | "waiting";
 
@@ -61,6 +63,7 @@ export interface AgentDetailModel {
   readonly status: string;
   /** Progress percent 0..100, or `null` when the daemon has no reading. */
   readonly percent: number | null;
+  readonly freshness: ProgressFreshness;
   /** Time spent so far ("42m", "3h 07m"), or null when the daemon sent none. */
   readonly elapsedLabel: string | null;
   readonly activity: AgentActivity | null;
@@ -106,13 +109,19 @@ const clampPercent = (value: unknown): number | null => {
  * back to something printable rather than to `undefined`: the panel is 800px of
  * lit LCD either way, and a blank one reads as a crashed sidecar.
  */
-export const agentDetailModel = (agent: Readonly<Record<string, unknown>>): AgentDetailModel => ({
-  ticketId: asString(agent.identifier, "—"),
-  title: asString(agent.title, "Untitled ticket"),
-  icon: asString(agent.icon, ""),
-  vendor: asString(agent.vendor, "unknown"),
-  status: asString(agent.bucket, "unknown"),
-  percent: clampPercent(agent.progress_percent),
-  elapsedLabel: elapsedLabel(agent.runtime_seconds),
-  activity: agentActivity(agent.activity),
-});
+export const agentDetailModel = (agent: Readonly<Record<string, unknown>>): AgentDetailModel => {
+  const measured = clampPercent(agent.progress_percent);
+  const freshness = progressFreshness(agent.progress_freshness, measured);
+
+  return {
+    ticketId: asString(agent.identifier, "—"),
+    title: asString(agent.title, "Untitled ticket"),
+    icon: asString(agent.icon, ""),
+    vendor: asString(agent.vendor, "unknown"),
+    status: asString(agent.bucket, "unknown"),
+    percent: freshness === "unknown" ? null : measured,
+    freshness,
+    elapsedLabel: elapsedLabel(agent.runtime_seconds),
+    activity: agentActivity(agent.activity),
+  };
+};

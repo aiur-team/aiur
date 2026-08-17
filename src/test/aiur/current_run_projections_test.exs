@@ -121,6 +121,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert view.eta.label == "ETA pending — progress inputs are still settling"
     refute view.eta.label =~ "weight facts"
 
+    await_projection_idle(owner)
     Agent.update(source, &Map.put(&1, :status, :timeout))
     assert :ok = CurrentRunProjections.refresh(owner)
 
@@ -158,6 +159,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert settling_view.progress.progress_status_label == "Progress not computed yet"
     assert settling_view.progress.fact_status_label == "Still settling"
 
+    await_projection_idle(owner)
     Agent.update(source, &Map.put(&1, :status, :timeout))
     assert :ok = CurrentRunProjections.refresh(owner)
 
@@ -946,6 +948,21 @@ defmodule Aiur.CurrentRunProjectionsTest do
     owner = start_supervised!({CurrentRunProjections, owner_options(source, pubsub, extra_opts)})
 
     {source, owner, pubsub}
+  end
+
+  defp await_projection_idle(owner, attempts \\ 1_000)
+
+  defp await_projection_idle(_owner, 0), do: flunk("projection owner did not become idle")
+
+  defp await_projection_idle(owner, attempts) do
+    state = :sys.get_state(owner)
+
+    if is_nil(state.refresh) and is_nil(state.checkpoint_write) and not state.refresh_pending? do
+      :ok
+    else
+      Process.sleep(5)
+      await_projection_idle(owner, attempts - 1)
+    end
   end
 
   defp owner_options(source, pubsub, extra_opts) do

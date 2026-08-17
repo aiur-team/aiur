@@ -12,6 +12,46 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
 | `debug` | boolean | false | Enables file logging without the CLI debug flag. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
+| `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
+| `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
+
+## executor takeover alerts
+
+Aiur watches nonterminal tickets in the run scope and, once a ticket's
+**convergence age** crosses a configurable threshold, raises an advisory
+`needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
+watch actionable section. The alerts are advisory takeover prompts — they never
+perform a takeover automatically.
+
+- `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
+  first raises the advisory once its convergence age reaches this value.
+- `executor_takeover_continuous_alert_hours` (default `1`) — while the ticket
+  stays nonterminal and unresolved, the advisory is repeated at most this often.
+  A value of `0` disables repeats (first alert only); `0` on the first threshold
+  disables the feature. Negative or non-integer values are rejected.
+
+**Convergence age** is `now − min(first_observed_active_work_at,
+open_pr_created_at)`:
+
+- `first_observed_active_work_at` is persisted durably per ticket in daemon
+  state, set once the first time the monitor observes the ticket as nonterminal
+  and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon
+  restart never resets it.
+- `open_pr_created_at` is the creation time of the ticket's open PR (a floor,
+  so an already-open PR is never hidden by a freshly installed or restarted
+  monitor).
+
+The alert carries actionable evidence.
+
+| Evidence | Detail |
+| --- | --- |
+| Identity | Ticket and PR. |
+| Age | Elapsed convergence age. |
+| Activity | Last material push, current live-owner state, and dispatch/restart count. |
+| PR health | Base and merge freshness. |
+| CI | Current state when available, for tickets already alerted. |
+
+A ticket that becomes terminal or leaves the run scope resolves its active advisory and forgets its convergence state; a re-opened ticket starts a fresh episode.
 
 ## tracker
 
@@ -45,6 +85,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 
 ## webhooks
@@ -99,9 +140,9 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
-| `agent.max_load_average` | float | 1.5 | Holds dispatch above the load threshold; null disables it. |
+| `agent.max_load_average` | float | 1.5 | Per-scheduler load ceiling. Above it, dispatch holds only when a short-window CPU sample also shows less than 60% reclaimable capacity (idle + niced CPU); null disables it. If the CPU delta is unavailable, load remains the conservative fallback. |
 | `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
-| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it (the 1-minute load gate still applies). When enabled, new dispatch holds while `procs_running` exceeds `run_queue_threshold × schedulers`, catching short CPU bursts the lagging load average smooths out (`run_queue` capacity hold). |
+| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
@@ -171,16 +212,34 @@ means direct-only, always. Routing through OpenRouter is something you write.
 | **Transient error (5xx, timeout, malformed response)** | Retries, then advances **for that claim only**, and raises an operator attention. Deliberately *not* written to `model-usage.json`: that file means "rate-limited until `reset_at`", and recording an outage there would make the outage indistinguishable from a quota event. |
 | **Auth rejected (401)** | Does **not** advance. Hard failure plus an attention. A key that is present and wrong is a config error, and falling through would move spend silently onto another route while the broken credential stayed hidden. |
 
-#### `backend_configs.openrouter`
+#### `agent.backend_configs.<backend>`
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.<backend>.enabled` | boolean | backend registry default | Explicitly enables or disables dispatch for the backend. `agent.priority` takes precedence by enabling every backend it names. |
+| `agent.backend_configs.<backend>.command` | string | backend registry command | Overrides the backend command used for model discovery and setup where supported. |
+| `agent.backend_configs.<backend>.model` | string or nil | nil | Selects the backend's default model where the backend accepts a configured model. |
+| `agent.backend_configs.<backend>.default_model` | string or nil | backend registry value | Overrides the registry fallback model for an OpenAI-compatible backend; `model` takes precedence. |
+| `agent.backend_configs.<backend>.base_url` | URL string | backend registry value | Overrides the registry endpoint for an OpenAI-compatible backend. |
+| `agent.backend_configs.<backend>.api_key_env` | string | backend registry value | Names the environment variable containing the backend API key. |
+| `agent.backend_configs.<backend>.management_api_key_env` | string or nil | backend registry value | Names the environment variable containing a provider's usage-management API key. |
+| `agent.backend_configs.<backend>.transport` | string | backend registry value | Overrides the OpenAI-compatible transport with `chat_completions` or `responses`. |
+| `agent.backend_configs.<backend>.balance_baseline` | number or nil | nil | Seeds prepaid-balance usage tracking for backends that expose a balance API. |
+| `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | backend registry value | Replays reasoning content when the backend requires it in later requests. |
+| `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | backend registry value | Parses text-encoded tool calls when the backend does not return structured calls. |
+| `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | backend registry value | Enables OpenRouter endpoint metadata used for billing attribution. |
+| `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | backend registry value | Applies aiur's local concurrency slot around backend requests. |
+
+#### `agent.backend_configs.openrouter`
 
 These settings control the OpenRouter *transport*; selection lives entirely in `agent.priority`.
 
-| Key | Type | Controls |
-| --- | --- | --- |
-| `backend_configs.openrouter.provider.order` | array of strings | Preferred upstream providers, most preferred first. |
-| `backend_configs.openrouter.provider.ignore` | array of strings | Upstream providers to exclude. |
-| `backend_configs.openrouter.provider.allow_fallbacks` | boolean | Whether OpenRouter may cross to another upstream within one request. |
-| `backend_configs.openrouter.provider.sort` | string | `price`, `throughput`, or `latency`. |
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.openrouter.provider.order` | array of strings or nil | omitted | Preferred upstream providers, most preferred first. |
+| `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
+| `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
+| `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
 
 #### Cost attribution
 
@@ -205,13 +264,14 @@ Fleet admission uses total host pressure instead of a hard-coded process count, 
 | --- | --- |
 | CPU load and adaptive AIMD envelope | `agent.max_load_average`, `agent.target_load_average`, `agent.load_ramp_step`, and `agent.load_cooldown_seconds` reduce and re-ramp capacity around per-scheduler targets. |
 | Run queue | `agent.run_queue_threshold` reacts to `procs_running` spikes before the one-minute load average catches up. |
+| CPU corroboration | High load or runnable counts hold dispatch only when consecutive CPU samples show less than 60% reclaimable capacity; idle and niced CPU count as reclaimable. |
 | Memory, file descriptors, build pressure, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. |
 | Recovery | Gates reopen when pressure clears, and AIMD re-ramps within its cooldown window. |
 
 | Hold signal | Where it appears |
 | --- | --- |
 | Idle rows | `backing off` |
-| Dashboard and status | `capacity_hold` with the measured signal and threshold |
+| Dashboard and status | `capacity_hold` with the measured signal, threshold, and corroborating reclaimable-CPU measurement |
 | Telemetry | `capacity_hold` and `capacity_resumed` |
 | Alert feed | Debounced `system.fleet.capacity.backoff` |
 
@@ -360,18 +420,21 @@ agent:
 
 ## elevenlabs
 
-This optional section sends Stream Deck dictation through ElevenLabs speech-to-text and delivers the transcript through the Dashboard operator-message path; omitting it uses the defaults below.
+Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
+
+This optional section backs Stream Deck voice input, Dashboard dictation, and interactive spoken replies; omitting it uses the defaults below.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. Speech input needs Speech to Text permission; spoken replies also need Text to Speech permission. |
 | `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+| `elevenlabs.voice_id` | string or nil | nil | Stock or owned ElevenLabs voice used for Dashboard interactive conversation replies. Find the identifier in **My Voices**; Aiur does not clone or manage voices. |
 
 `ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
 
 The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
-Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what the figure does and does not measure.
+Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
 
 ## observability
 

@@ -4,8 +4,16 @@ defmodule AiurWeb.StreamdeckChannel do
   use Phoenix.Channel
 
   alias Aiur.{AgentChat, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+
+  # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
+  # base64 characters. The ceiling is set an order of magnitude above that so a
+  # device that regroups differently still works, while a frame that could only
+  # be a mistake or an attempt to make the channel buffer megabytes is refused
+  # before it reaches the provider.
+  @max_audio_frame_bytes 65_536
 
   @impl true
   def join(
@@ -28,7 +36,7 @@ defmodule AiurWeb.StreamdeckChannel do
     send(self(), :streamdeck_snapshot)
     Process.send_after(self(), :streamdeck_auth_expired, max(expires_at_ms - System.system_time(:millisecond), 0))
 
-    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil)}
+    {:ok, assign(socket, focused_agent: nil, transcript_relay: nil, voice_session: nil)}
   end
 
   def join("streamdeck:fleet", _payload, _socket), do: {:error, %{reason: "unauthorized"}}
@@ -36,7 +44,9 @@ defmodule AiurWeb.StreamdeckChannel do
   @impl true
   def handle_in("focus", %{"identifier" => identifier}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 do
-    socket = unsubscribe_focused(socket)
+    # Leaving the agent ends the hold with it: a dictation belongs to the agent
+    # it was started on, so it must not follow focus to another one.
+    socket = socket |> stop_voice_session() |> unsubscribe_focused()
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
 
     socket = assign(socket, focused_agent: identifier, transcript_relay: relay)
@@ -47,18 +57,23 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_in("focus", _payload, socket), do: {:reply, {:error, %{reason: "invalid_identifier"}}, socket}
 
   def handle_in("unfocus", _payload, socket) do
-    {:reply, {:ok, %{"focused" => nil}}, unsubscribe_focused(socket)}
+    {:reply, {:ok, %{"focused" => nil}}, socket |> stop_voice_session() |> unsubscribe_focused()}
   end
 
-  @doc "Routes a physical key toggle through the same AgentChat facade as the emulator."
+  @doc """
+  Routes a physical key toggle through the same AgentChat facade as the emulator.
+
+  Pause and resume are the whole action set. The deck's agent view no longer
+  carries a prioritize key — its four slots are pause, logs, mic and settings —
+  so the channel no longer accepts an action no surface can send. Orchestrator
+  priority itself is untouched and stays reachable from the dashboard.
+  """
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
-      when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume", "prioritize", "deprioritize"] do
+      when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
     result =
       case action do
         "pause" -> AgentChat.pause(identifier)
         "resume" -> AgentChat.resume(identifier)
-        "prioritize" -> AgentChat.prioritize(identifier)
-        "deprioritize" -> AgentChat.deprioritize(identifier)
       end
 
     case result do
@@ -87,6 +102,49 @@ defmodule AiurWeb.StreamdeckChannel do
     do: {:reply, {:error, %{reason: "invalid_message"}}, socket}
 
   def handle_in("say", _payload, socket), do: {:reply, {:error, %{reason: "unauthorized"}}, socket}
+
+  # Voice input: the device streams captured audio here and Aiur performs the
+  # ElevenLabs call, so `ELEVENLABS_API_KEY` never exists in the sidecar. Audio
+  # arrives as the base64 string the provider's own frame wants, so this channel
+  # relays it verbatim and transcodes nothing.
+  def handle_in("voice_start", _payload, %{assigns: %{streamdeck_authenticated: true}} = socket) do
+    # A second hold replaces the first rather than racing it, and the replaced
+    # session is stopped before a new one exists so nothing it already emitted
+    # can be relabelled with the new session id.
+    socket = stop_voice_session(socket)
+
+    case open_voice_session() do
+      {:ok, session} -> {:reply, {:ok, %{"session" => session.id}}, assign(socket, :voice_session, session)}
+      {:error, reason} -> {:reply, {:error, %{"reason" => reason_text(reason)}}, socket}
+    end
+  end
+
+  def handle_in("voice_start", _payload, socket), do: {:reply, {:error, %{"reason" => "unauthorized"}}, socket}
+
+  # The repeated `session` binding is the whole stale-frame guard: a frame from a
+  # previous hold cannot match the live session and therefore cannot reach the
+  # provider.
+  def handle_in("voice_audio", %{"session" => session, "audio" => audio}, %{assigns: %{voice_session: %{id: session, pid: pid, module: module}}} = socket)
+      when is_binary(audio) and byte_size(audio) <= @max_audio_frame_bytes do
+    :ok = module.push(pid, audio)
+    {:noreply, socket}
+  end
+
+  # An unknown session, an oversized frame or a malformed payload is dropped in
+  # silence. A device that has already moved on must not be answered, and must
+  # not be able to crash the channel either.
+  def handle_in("voice_audio", _payload, socket), do: {:noreply, socket}
+
+  def handle_in("voice_stop", %{"session" => session}, %{assigns: %{voice_session: %{id: session, pid: pid, module: module}}} = socket) do
+    # Commit rather than kill: the documented commit flush is what settles the
+    # tail of the utterance, and the session closes itself once it arrives.
+    :ok = module.commit(pid)
+    {:reply, {:ok, %{}}, socket}
+  end
+
+  # A stop for a session that is already gone is the ordinary end of a hold, not
+  # an error, so it is acknowledged and does nothing.
+  def handle_in("voice_stop", _payload, socket), do: {:reply, {:ok, %{}}, socket}
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
@@ -146,15 +204,101 @@ defmodule AiurWeb.StreamdeckChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:elevenlabs_transcript, kind, text}, %{assigns: %{voice_session: %{id: session}}} = socket)
+      when kind in [:partial, :final] and is_binary(text) do
+    push(socket, "voice", %{"session" => session, "kind" => Atom.to_string(kind), "text" => text})
+    {:noreply, socket}
+  end
+
+  def handle_info({:elevenlabs_error, reason}, %{assigns: %{voice_session: %{id: session}}} = socket) do
+    push(socket, "voice_error", %{"session" => session, "reason" => reason_text(reason)})
+    {:noreply, socket}
+  end
+
+  def handle_info({:elevenlabs_closed}, %{assigns: %{voice_session: %{id: session, ref: ref}}} = socket) do
+    Process.demonitor(ref, [:flush])
+    push(socket, "voice_closed", %{"session" => session})
+    {:noreply, assign(socket, :voice_session, nil)}
+  end
+
+  # The session died without announcing it. The device is told the hold is over
+  # rather than being left waiting on text that is never coming.
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{assigns: %{voice_session: %{id: session, ref: ref}}} = socket) do
+    push(socket, "voice_closed", %{"session" => session})
+    {:noreply, assign(socket, :voice_session, nil)}
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
-  def terminate(_reason, %{assigns: %{transcript_relay: relay}}) when is_pid(relay) do
-    :ok = GenServer.stop(relay, :normal)
+  def terminate(_reason, socket) do
+    socket |> assigns() |> Map.get(:transcript_relay) |> stop_child()
+    socket |> assigns() |> Map.get(:voice_session) |> voice_pid() |> stop_child()
     :ok
   end
 
-  def terminate(_reason, _socket), do: :ok
+  defp assigns(%{assigns: assigns}) when is_map(assigns), do: assigns
+  defp assigns(_socket), do: %{}
+
+  defp voice_pid(%{pid: pid}), do: pid
+  defp voice_pid(_session), do: nil
+
+  defp stop_child(pid) when is_pid(pid) do
+    GenServer.stop(pid, :normal)
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp stop_child(_absent), do: :ok
+
+  # The session module is the seam, never the credential: a test supplies a fake
+  # session and no configuration anywhere can be made to carry an API key into
+  # this channel.
+  defp voice_session_module do
+    case Endpoint.config(:streamdeck_voice_session) do
+      module when is_atom(module) and not is_nil(module) -> module
+      _absent -> Realtime
+    end
+  end
+
+  defp open_voice_session do
+    module = voice_session_module()
+
+    case module.start(owner: self()) do
+      # The module is remembered with the session rather than re-read per frame,
+      # so a configuration change cannot leave `push` and `commit` addressing a
+      # different implementation than the one that opened the connection.
+      {:ok, pid} -> {:ok, %{id: mint_session_id(), pid: pid, ref: Process.monitor(pid), module: module}}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :voice_unavailable}
+    end
+  end
+
+  # Opaque and server-minted, so a device cannot address a session it did not
+  # open and a replayed id from a previous hold cannot collide with a live one.
+  defp mint_session_id, do: Base.url_encode64(:crypto.strong_rand_bytes(12), padding: false)
+
+  defp stop_voice_session(%{assigns: %{voice_session: %{pid: pid, ref: ref}}} = socket) do
+    Process.demonitor(ref, [:flush])
+    stop_child(pid)
+    # `GenServer.stop/2` is synchronous, so everything the stopped session ever
+    # sent is already in this mailbox. Draining it here is what stops a transcript
+    # from the abandoned hold being pushed under the next session's id.
+    drain_voice_messages()
+    assign(socket, :voice_session, nil)
+  end
+
+  defp stop_voice_session(socket), do: socket
+
+  defp drain_voice_messages do
+    receive do
+      {:elevenlabs_transcript, _kind, _text} -> drain_voice_messages()
+      {:elevenlabs_error, _reason} -> drain_voice_messages()
+      {:elevenlabs_closed} -> drain_voice_messages()
+    after
+      0 -> :ok
+    end
+  end
 
   # Mirrors `Aiur.Orchestrator.OperatorMessages`' own ceiling so an over-long
   # dictation is refused here, with a reason the device can show, instead of

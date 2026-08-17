@@ -14,6 +14,36 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+## Poll cadence
+
+Polling spends GraphQL points inversely to the interval, so `polling.interval_seconds` defaults to 120.
+
+| `interval_seconds` | Approximate poll spend | Worst-case wake latency |
+| --- | --- | --- |
+| 30 | ~5,800 points/hour | 30s |
+| 60 | ~2,900 points/hour | 60s |
+| 120 | ~1,450 points/hour | 2m |
+| 300 | ~580 points/hour | 5m |
+
+At 30 seconds the poll loop alone can exhaust GitHub's 5,000 point/hour budget before an agent makes a request.
+
+GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoint, and Aiur uses the wider of the two.
+
+| Widening | Effect |
+| --- | --- |
+| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is actively running, turning the 120-second base into a 10-minute sweep. |
+| Proven webhook repo (`webhooks.poll_widen_factor`, default 2.0) | Multiplies the interval for reconciliation polls. |
+| Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
+| `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
+
+| Immediate wake | Why idle backoff does not delay it |
+| --- | --- |
+| First startup sweep | Always immediate. |
+| Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
+| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
+
+Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
+
 ## API budgets
 
 | Budget | Unit | Where to read it |

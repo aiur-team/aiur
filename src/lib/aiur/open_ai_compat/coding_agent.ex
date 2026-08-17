@@ -266,13 +266,15 @@ defmodule Aiur.OpenAICompat.CodingAgent do
         request_id: completion.id,
         model: completion.model,
         provider: completion.provider,
+        upstream_provider: Map.get(completion, :upstream_provider),
         account_generation: account_generation,
         usage: completion.usage,
         payload: %{
           "usage" => completion.usage,
           "request_id" => completion.id,
           "model" => completion.model,
-          "provider" => completion.provider
+          "provider" => completion.provider,
+          "upstream_provider" => Map.get(completion, :upstream_provider)
         }
       })
     end

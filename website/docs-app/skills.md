@@ -6,9 +6,13 @@ title: Skills
 
 Aiur skills are grouped by where they run.
 
+`@issue_worker_skills` in [`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex) combines Aiur's worker skills with the pinned Compound Engineering manifest, and [`aiur_agent_skill_test.exs`](../../src/test/aiur/aiur_agent_skill_test.exs) cross-checks both sets so they cannot drift.
+
 ## Agent-workspace skills
 
-These four skills are installed into every ticket workspace for both Claude and Codex agents.
+These four Aiur skills and the complete pinned Compound Engineering set are installed into every ticket workspace, for both Claude and Codex agents.
+
+`Aiur.AgentSkills.install/1` writes them into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` by relative symlink, so neither backend depends on a machine-local plugin cache.
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
@@ -46,6 +50,8 @@ These stay with the Executor and are not copied into ticket workspaces.
 
 ## Compound Engineering
 
+Aiur vendors the complete Compound Engineering **3.19.0** skill tree under [`.claude/skills/`](../../.claude/skills/), so every dispatched workspace receives the same pinned set.
+
 | Skill | Purpose |
 | --- | --- |
 | `ce-brainstorm` | Clarify requirements and alternatives. |
@@ -53,3 +59,25 @@ These stay with the Executor and are not copied into ticket workspaces.
 | `ce-work` | Execute a concrete plan or request. |
 | `ce-code-review` | Review bugs, regressions, tests, and standards. |
 | `ce-doc-review` | Review documentation structure and accuracy. |
+| `ce-debug` | Diagnose failing behavior. |
+
+The complexity router invokes those skills directly, and they conditionally invoke sibling CE skills; the complete tree keeps those branches reproducible.
+
+| Pin record | Location |
+| --- | --- |
+| Version | [`compound-engineering.version`](../../.claude/skills/compound-engineering.version) |
+| Managed skill names | [`compound-engineering.skills`](../../.claude/skills/compound-engineering.skills) |
+| Upstream MIT license | [`compound-engineering.LICENSE`](../../.claude/skills/compound-engineering.LICENSE) |
+
+To update the vendored copy, clone the exact upstream release tag and run the guarded refresh script:
+
+```bash
+update_dir=$(mktemp -d)
+git clone https://github.com/EveryInc/compound-engineering-plugin.git "$update_dir/compound-engineering"
+git -C "$update_dir/compound-engineering" checkout <exact-release-ref>
+scripts/update-compound-engineering-skills X.Y.Z "$update_dir/compound-engineering"
+```
+
+Choose the release ref whose `.claude-plugin/plugin.json` reports `X.Y.Z`; the refresh script rejects a mismatch.
+
+Review the upstream release notes and the resulting skill diff, then run the AgentSkills tests before committing. The script replaces only previously managed CE skill paths, refreshes the license, version, and manifest files, and recreates the Claude-to-Codex links.

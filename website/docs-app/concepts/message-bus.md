@@ -56,6 +56,19 @@ Agents automatically subscribe to events relevant to their ticket, pull request,
 
 Manual `aiur_subscribe` is for additional watch cases, not for the standard ticket lifecycle.
 
+## Manual subscription scope
+
+Every manual `aiur_subscribe` pattern must start with one literal ticket identifier.
+
+| Request | Result |
+| --- | --- |
+| `ticket.142.#` or `ticket.314.branch.push` | Accepted; one named ticket. |
+| `ticket.*.branch.push` | Refused; fleet-wide ticket patterns are out of scope. |
+| `executor.*` or `system.*` | Refused; control-plane topics are not agent-subscribable. |
+| Bare `*` or `#` | Refused. |
+
+Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are trusted internal wiring and keep their purpose-specific topics. The Executor control-plane subscription under `executor.#` is distinct from this agent policy.
+
 ## Dependencies
 
 | Step | Contract |

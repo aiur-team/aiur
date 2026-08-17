@@ -74,7 +74,7 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(config).toContain("{ text: 'Dashboard', link: '/guide/executor-control-center' }")
   expect(config).toContain("{ text: 'Stream Deck', link: '/guide/stream-deck' }")
   expect(dashboard).toContain('| **Units** | `/`')
-  expect(dashboard).toContain('| **Commands** | `/decisions`')
+  expect(dashboard).toContain('| **Commands** | `/commands`')
   expect(dashboard).toContain('| **Build Order** | `/build-orders`')
   expect(dashboard).toContain('| **Analytics** | `/analytics`')
   expect(dashboard).toContain('| **Streamdeck+** | `/streamdeck`')

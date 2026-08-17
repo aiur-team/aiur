@@ -9,7 +9,7 @@ const answeredPanel = '#history-detail-history-answered-command'
 async function openCommands (page) {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
-  await page.goto('/decisions')
+  await page.goto('/commands')
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
@@ -45,7 +45,7 @@ test('a history row expands in place and reports the recorded decision honestly'
   // context arrives beneath that row rather than at the top of the page.
   await page.locator(`${answeredRow} .history-when`).click()
 
-  await expect(page).toHaveURL(/\/decisions\/answered-command$/)
+  await expect(page).toHaveURL(/\/commands\/answered-command$/)
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   const panel = page.locator(answeredPanel)
   await expect(panel).toBeVisible()
@@ -103,7 +103,7 @@ for (const key of ['Enter', ' ']) {
 
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(page.locator(answeredPanel)).toBeVisible()
-    await expect(page).toHaveURL(/\/decisions\/answered-command$/)
+    await expect(page).toHaveURL(/\/commands\/answered-command$/)
 
     // Opening moves focus into the panel; wait for that before taking focus
     // back, or the close press below lands on whatever the race left focused.

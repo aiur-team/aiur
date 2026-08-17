@@ -63,7 +63,7 @@ The deterministic fixture validates rendering and documentation privacy. Final i
 Use the wrapper/inner-tmux procedure in the repository `AGENTS.md`, then exercise the real run:
 
 1. Record a reversible, human-required decision from a running synthetic ticket.
-2. Open its stable `/decisions/:decision_id` deep link and verify Recorded state and latency.
+2. Open its stable `/commands/:decision_id` deep link and verify Recorded state and latency.
 3. Answer in the writable dashboard and observe correlated delivery in the target chat.
 4. Revise the answer and confirm the original and correction remain in History.
 5. Have the target emit the exact correlated acknowledgement and resolution events.

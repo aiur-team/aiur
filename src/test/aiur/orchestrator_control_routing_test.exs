@@ -2,7 +2,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentPubSub, Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{ControlLifecycle, PauseResume, PushRouting, RuntimeWatchdog, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, PauseResume, PushRouting, RuntimeWatchdog, State}
 
   describe "control-status writes" do
     test "accepted pause stays working until matching worker evidence applies it" do
@@ -602,6 +602,44 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert working.routing_marker == :preserved
       assert is_nil(working.paused_at)
       assert shift_seconds in earliest_shift..latest_shift
+    end
+
+    test "the first resumed agent wakes a widened idle poll deadline" do
+      issue_id = unique_id("control-working-wake")
+
+      entry =
+        running_entry(issue_id,
+          control: %{status: :paused, can_interrupt: true},
+          paused_at: DateTime.utc_now()
+        )
+
+      state = base_state(running: %{issue_id => entry}) |> Lifecycle.schedule_tick(60_000)
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working},
+                 state
+               )
+
+      assert next.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+      assert_receive {:tick, _token}
+    end
+
+    test "a legacy resume also wakes a widened idle poll deadline" do
+      issue_id = unique_id("legacy-control-working-wake")
+
+      entry =
+        running_entry(issue_id,
+          control: %{status: :paused, can_interrupt: true},
+          paused_at: DateTime.utc_now()
+        )
+
+      state = base_state(running: %{issue_id => entry}) |> Lifecycle.schedule_tick(60_000)
+
+      assert {{:ok, :resumed}, next} = PauseResume.resume_issue(state, issue_id)
+      assert next.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+      assert_receive {:resume_agent, _request_id}
+      assert_receive {:tick, _token}
     end
   end
 

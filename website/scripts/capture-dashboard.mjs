@@ -25,7 +25,7 @@ const surfaces = [
   // Units is the tall one because the page's point is the fleet table and the
   // Tickets backlog panel below it.
   { name: "units", path: "/", selector: ".dashboard-shell", clipHeight: 1700, marker: "example/ex-142", modelMeters: true },
-  { name: "commands", path: "/decisions", selector: ".dashboard-shell", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
+  { name: "commands", path: "/commands", selector: ".dashboard-shell", clipHeight: 1250, marker: "dec-example-blocking", modelMeters: false },
   {
     name: "build-orders",
     path: "/build-orders/4200",
@@ -176,10 +176,10 @@ async function waitUntilReady(fixture) {
     }
 
     try {
-      // `/decisions` renders its synthetic Commands straight into the
+      // `/commands` renders its synthetic Commands straight into the
       // disconnected mount, so it proves the fixture is up AND that it is the
       // example-only fixture rather than a real dashboard on the same port.
-      const response = await fetch(`${baseURL}/decisions`, {
+      const response = await fetch(`${baseURL}/commands`, {
         headers: { authorization: authorizationHeader },
       });
       const body = await response.text();

@@ -167,6 +167,7 @@ defmodule Aiur.Init.ResumeTest do
       assert_received {:appended, "/tmp/aiur-config", yaml}
       assert yaml =~ "api_key: $ELEVENLABS_API_KEY"
       assert yaml =~ "language_code: eng"
+      assert yaml =~ "voice_id: null"
     end
 
     test "declining the offer appends nothing" do

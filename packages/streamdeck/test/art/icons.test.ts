@@ -165,8 +165,21 @@ describe("commandIsFilled", () => {
   it("marks only the solid glyphs as filled", () => {
     expect(commandIsFilled("play")).toBe(true);
     expect(commandIsFilled("pause")).toBe(true);
+    // A paper plane outlined reads as an unrelated open chevron.
+    expect(commandIsFilled("send")).toBe(true);
     expect(commandIsFilled("back")).toBe(false);
+    expect(commandIsFilled("settings")).toBe(false);
     expect(commandIsFilled(null)).toBe(false);
     expect(commandIsFilled(undefined)).toBe(false);
+  });
+});
+
+// Every voice key needs a glyph of its own: `commandFragment` falls back to the
+// logs bars, so a missing entry is four keys wearing the same icon rather than
+// an error anyone would notice.
+describe("the voice key glyphs", () => {
+  it.each(["settings", "send", "cancel", "test", "next"])("resolves %s to its own fragment", (command) => {
+    expect(commandFragment(command)).toBe(COMMAND_ICONS[command]);
+    expect(commandFragment(command)).not.toBe(COMMAND_ICONS.logs);
   });
 });

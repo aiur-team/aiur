@@ -59,6 +59,19 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "Do NOT open a new PR"
   end
 
+  test "dictation guidance has one source shared by issue workers and Executors" do
+    worker_skill = File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/SKILL.md"))
+    executor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+    guidance_path = Path.join(@repo_root, ".claude/skills/using-aiur/dictated-input.md")
+    guidance = File.read!(guidance_path)
+
+    assert worker_skill =~ "dictated-input.md"
+    assert executor_skill =~ "../using-aiur/dictated-input.md"
+    assert guidance =~ "Voice-originated text may render **Aiur**"
+    assert guidance =~ "`A, your`"
+    assert guidance =~ "never silently rewriting a real word or acronym"
+  end
+
   # #1793: 29 tickets were filed with no `agent:*` label. Each was
   # undispatchable and invisible in every state-scoped view, so the fleet read
   # as having no work left. Every path that can file a ticket must state a
@@ -128,9 +141,11 @@ defmodule Aiur.AiurAgentSkillTest do
     # its list against the canonical sets here so the two cannot drift — adding
     # or renaming a skill forces a conscious decision about issue-worker exposure.
     issue_worker = Aiur.AgentSkills.issue_worker_skills()
+    compound_engineering = Aiur.AgentSkills.compound_engineering_skills()
+    aiur_issue_worker = issue_worker -- compound_engineering
 
-    assert issue_worker -- @codex_exposed_aiur_skills == [],
-           "issue-worker skills must be a subset of @codex_exposed_aiur_skills"
+    assert aiur_issue_worker -- @codex_exposed_aiur_skills == [],
+           "Aiur-authored issue-worker skills must be a subset of @codex_exposed_aiur_skills"
 
     for skill <- issue_worker do
       refute skill in @claude_executor_only_skills,
@@ -138,6 +153,10 @@ defmodule Aiur.AiurAgentSkillTest do
 
       assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
              "issue-worker skill #{skill} has no canonical .claude/skills/#{skill} dir"
+    end
+
+    for skill <- compound_engineering do
+      assert_codex_skill_is_tracked_symlink(skill)
     end
   end
 
@@ -147,6 +166,7 @@ defmodule Aiur.AiurAgentSkillTest do
       |> Path.join(".claude/skills/*/SKILL.md")
       |> Path.wildcard()
       |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
+      |> Kernel.--(Aiur.AgentSkills.compound_engineering_skills())
       |> Enum.sort()
 
     assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_executor_only_skills)

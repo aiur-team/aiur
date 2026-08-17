@@ -39,6 +39,31 @@ defmodule Aiur.UsageAggregate.QueryTest do
     }
   end
 
+  defp openrouter_envelope(upstream_provider) do
+    envelope(%{
+      provider: :openrouter,
+      source: "openrouter.openai_compat.request_usage",
+      source_version: "openai-compatible-2026-08",
+      attribution: attribution("run-A", identity(1)),
+      agent_family: :openrouter,
+      backend: :openai_compat,
+      transport: :openai_compat,
+      auth_mode: :api_key,
+      requested_model: "deepseek/deepseek-v4-flash",
+      resolved_model: "deepseek/deepseek-v4-flash",
+      upstream_provider: upstream_provider,
+      relationship_revision: "openrouter-request-usage-2026-08",
+      account_generation: %{
+        provider: :openrouter,
+        backend: :openai_compat,
+        generation: "generation-o",
+        freshness: :current,
+        health: :healthy,
+        reason: nil
+      }
+    })
+  end
+
   defp scenario do
     ticket_one = envelope(%{attribution: attribution("run-A", identity(1))})
     ticket_one_more = envelope(%{attribution: attribution("run-A", identity(1))})
@@ -105,5 +130,35 @@ defmodule Aiur.UsageAggregate.QueryTest do
     assert summary.groups.by_relationship_revision["codex-app-server-2026-07"].tokens == %{input: 10}
     assert summary.groups.by_relationship_revision["codex-app-server-2026-08"].tokens == %{input: 4}
     assert summary.reconciliation.reconciled?
+  end
+
+  test "upstream provider separates aggregate identity and forms a reconciling raw group" do
+    projection =
+      Projection.new()
+      |> Projection.apply_record(record(1, openrouter_envelope("DeepSeek"), %{tokens: %{input: 10}, cost: "1.00"}))
+      |> Projection.apply_record(record(2, openrouter_envelope("Anthropic"), %{tokens: %{input: 4}, cost: "2.00"}))
+
+    summary = Query.summary(state(projection), %{runs: ["run-A"]})
+
+    assert map_size(projection.cells) == 4
+    assert summary.groups.by_upstream_provider["DeepSeek"].tokens == %{input: 10}
+    assert summary.groups.by_upstream_provider["Anthropic"].tokens == %{input: 4}
+    assert Decimal.equal?(summary.groups.by_upstream_provider["DeepSeek"].money[{:provider_reported_estimate, "USD"}], Decimal.new("1.00"))
+    assert summary.reconciliation.by_dimension.by_upstream_provider
+    assert summary.coverage.unknown_attribution.upstream_provider == 0
+  end
+
+  test "only an OpenRouter cell without upstream metadata has unknown upstream attribution" do
+    direct = envelope(%{attribution: attribution("run-A", identity(1))})
+
+    projection =
+      Projection.new()
+      |> Projection.apply_record(record(1, direct, %{tokens: %{input: 3}}))
+      |> Projection.apply_record(record(2, openrouter_envelope(nil), %{tokens: %{input: 5}}))
+
+    summary = Query.summary(state(projection), %{runs: ["run-A"]})
+
+    assert summary.coverage.unknown_attribution.upstream_provider == 1
+    assert summary.groups.by_upstream_provider[nil].tokens == %{input: 8}
   end
 end

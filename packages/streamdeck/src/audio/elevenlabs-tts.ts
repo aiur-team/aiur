@@ -17,6 +17,7 @@
 
 import type { TTSInput, TTSProvider } from "./tts.js";
 import { createNodeFetch } from "./node-fetch.js";
+import { prepareAiurForSpeech } from "../aiur-speech.js";
 
 /** The streaming endpoint; `output_format` is appended as a query param. */
 export const ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech";
@@ -71,7 +72,7 @@ export function createElevenLabsTTSProvider(options: ElevenLabsTTSOptions): TTSP
           "xi-api-key": options.apiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text: input.text, model_id: modelId }),
+        body: JSON.stringify({ text: prepareAiurForSpeech(input.text), model_id: modelId }),
       });
       if (!response.ok) {
         throw new Error(`ElevenLabs TTS failed with status ${response.status}`);
