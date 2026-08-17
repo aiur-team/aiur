@@ -108,7 +108,7 @@ When a path deposits the resource itself, that is written to disk alongside the 
 
 Every write that changes what a reader could see is announced, so anything watching that resource learns about it without asking GitHub. A change costs one API call at most, no matter how many things were watching.
 
-A webhook delivery is the cheapest writer of all: GitHub has already paid for the round trip and the delivery arrives before any sweep would have read the same object. So every delivery for a tracked repository deposits the state it carries, whether or not it also wakes an agent.
+A webhook delivery is the cheapest writer of all — GitHub has already paid for the round trip, and the delivery arrives before any sweep would have read the same object — so every delivery for a tracked repository deposits the state it carries, whether or not it also wakes an agent.
 
 | Delivery | What it deposits |
 | --- | --- |
