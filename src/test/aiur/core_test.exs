@@ -3765,7 +3765,7 @@ defmodule Aiur.CoreTest do
         "type" => "workspaceWrite",
         "writableRoots" =>
           [canonical_workspace] ++
-            Tuple.to_list(Aiur.AgentEnvironment.sidecar_paths()) ++
+            Aiur.AgentEnvironment.package_cache_paths() ++
             [Aiur.BuildGate.gate_dir()],
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
@@ -3985,9 +3985,7 @@ defmodule Aiur.CoreTest do
         [Path.expand(workspace), workspace_cache]
         |> then(fn roots -> if canonical_workspace in roots, do: roots, else: roots ++ [canonical_workspace] end)
         |> then(fn roots ->
-          Enum.reduce(Tuple.to_list(Aiur.AgentEnvironment.sidecar_paths()), roots, fn root, acc ->
-            if root in acc, do: acc, else: acc ++ [root]
-          end)
+          Enum.uniq(roots ++ Aiur.AgentEnvironment.package_cache_paths())
         end)
         |> then(fn roots ->
           gate_dir = Aiur.BuildGate.gate_dir()

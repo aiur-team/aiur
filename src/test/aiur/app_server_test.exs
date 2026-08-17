@@ -1437,7 +1437,7 @@ defmodule Aiur.AppServerTest do
   defp expected_runtime_policy(%{"type" => "workspaceWrite"} = policy, workspace) do
     roots =
       [workspace] ++
-        Tuple.to_list(Aiur.AgentEnvironment.sidecar_paths()) ++
+        Aiur.AgentEnvironment.package_cache_paths() ++
         [Aiur.BuildGate.gate_dir()]
 
     Enum.reduce(roots, policy, &add_expected_root/2)

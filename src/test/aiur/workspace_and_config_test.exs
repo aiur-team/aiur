@@ -2938,9 +2938,17 @@ defmodule Aiur.WorkspaceAndConfigTest do
         }
       )
 
-      assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace)
+      repo_url = "https://github.com/owner/project.git"
+      repo_state = Aiur.RepoBase.repo_path(repo_url)
+
+      sidecar_roots = [
+        Path.join(repo_state, ".aiur-hex"),
+        Path.join(repo_state, ".aiur-mix"),
+        Path.join(repo_state, ".aiur-npm-cache")
+      ]
+
+      assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace, repo_url: repo_url)
       assert {:ok, canonical_issue_workspace} = Aiur.PathSafety.canonicalize(issue_workspace)
-      sidecar_roots = AgentEnvironment.sidecar_paths() |> Tuple.to_list()
 
       assert runtime_settings.turn_sandbox_policy == %{
                "type" => "workspaceWrite",
@@ -2956,7 +2964,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              }
 
       assert {:ok, remote_settings} =
-               Config.codex_runtime_settings(issue_workspace, remote: true)
+               Config.codex_runtime_settings(issue_workspace, remote: true, repo_url: repo_url)
 
       assert remote_settings.turn_sandbox_policy == %{
                "type" => "workspaceWrite",
@@ -2976,7 +2984,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
         }
       )
 
-      assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace)
+      assert {:ok, runtime_settings} = Config.codex_runtime_settings(issue_workspace, repo_url: repo_url)
 
       assert runtime_settings.turn_sandbox_policy == %{
                "type" => "futureSandbox",
@@ -2988,37 +2996,45 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "generated local sandbox policy admits package-manager cache-miss writes only to sidecars" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-package-cache-sandbox-#{System.unique_integer([:positive])}"
-      )
+    test_id = System.unique_integer([:positive])
+    test_root = Path.join(System.tmp_dir!(), "aiur-elixir-package-cache-sandbox-#{test_id}")
+    repo_url = "https://github.com/owner/cache-miss-#{test_id}.git"
+    repo_state = Aiur.RepoBase.repo_path(repo_url)
 
     try do
       workspace = Path.join(test_root, "workspace")
       File.mkdir_p!(workspace)
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace)
 
-      assert {:ok, runtime_settings} = Config.codex_runtime_settings(workspace)
-      writable_roots = runtime_settings.turn_sandbox_policy["writableRoots"]
-      agent_env = Map.new(AgentEnvironment.workspace_env(workspace), fn {name, value} -> {to_string(name), value} end)
-      hex_home = agent_env["HEX_HOME"] |> to_string()
-      mix_home = agent_env["MIX_HOME"] |> to_string()
-      npm_cache = agent_env["npm_config_cache"] |> to_string()
-      sidecar_roots = [hex_home, mix_home, npm_cache]
-      repo_state = Path.dirname(hex_home)
+      expected_sidecar_roots = [
+        Path.join(repo_state, ".aiur-hex"),
+        Path.join(repo_state, ".aiur-mix"),
+        Path.join(repo_state, ".aiur-npm-cache")
+      ]
 
-      assert sidecar_roots == AgentEnvironment.sidecar_paths() |> Tuple.to_list()
+      assert {:ok, runtime_settings} = Config.codex_runtime_settings(workspace, repo_url: repo_url)
+      writable_roots = runtime_settings.turn_sandbox_policy["writableRoots"]
+      agent_env = AgentEnvironment.workspace_env(workspace, repo_url: repo_url)
+      env_map = Map.new(agent_env, fn {name, value} -> {to_string(name), value} end)
+      hex_home = env_map["HEX_HOME"] |> to_string()
+      mix_home = env_map["MIX_HOME"] |> to_string()
+      npm_cache = env_map["npm_config_cache"] |> to_string()
+      sidecar_roots = [hex_home, mix_home, npm_cache]
+
+      assert sidecar_roots == expected_sidecar_roots
       assert Enum.all?(sidecar_roots, &(&1 in writable_roots))
       refute repo_state in writable_roots
       refute Path.join(repo_state, "latest") in writable_roots
       refute Path.join(repo_state, "meta") in writable_roots
 
-      env = [
-        {"HEX_HOME", hex_home},
-        {"MIX_HOME", mix_home},
-        {"npm_config_cache", npm_cache}
-      ]
+      Enum.each(writable_roots, &File.mkdir_p!/1)
+      File.mkdir_p!(Path.join(repo_state, "meta"))
+
+      env =
+        Enum.flat_map(agent_env, fn
+          {name, value} when is_list(name) and is_list(value) -> [{to_string(name), to_string(value)}]
+          _unset -> []
+        end)
 
       command = """
       mkdir -p "$HEX_HOME/packages/hexpm" "$MIX_HOME/archives" "$npm_config_cache/_cacache"
@@ -3026,15 +3042,36 @@ defmodule Aiur.WorkspaceAndConfigTest do
       printf index > "$HEX_HOME/cache.ets"
       printf archive > "$MIX_HOME/archives/hex.ez"
       printf npm > "$npm_config_cache/_cacache/cache-miss"
+      if printf denied > "$AIUR_REPO_STATE_PATH/meta/denied" 2>/dev/null; then exit 70; fi
       """
 
-      assert {"", 0} = System.cmd("sh", ["-c", command], cd: workspace, env: env)
-      assert File.read!(Path.join(hex_home, "packages/hexpm/cache-miss.tar")) == "package"
-      assert File.read!(Path.join(hex_home, "cache.ets")) == "index"
-      assert File.read!(Path.join(mix_home, "archives/hex.ez")) == "archive"
-      assert File.read!(Path.join(npm_cache, "_cacache/cache-miss")) == "npm"
+      case System.find_executable("bwrap") do
+        nil ->
+          :ok
+
+        bwrap ->
+          bind_args = Enum.flat_map(writable_roots, &["--bind", &1, &1])
+
+          assert {output, 0} =
+                   System.cmd(
+                     bwrap,
+                     ["--die-with-parent", "--ro-bind", "/", "/"] ++
+                       bind_args ++ ["--chdir", workspace, "--", "/bin/sh", "-c", command],
+                     env: env,
+                     stderr_to_stdout: true
+                   )
+
+          assert output =~ "Read-only file system"
+
+          assert File.read!(Path.join(hex_home, "packages/hexpm/cache-miss.tar")) == "package"
+          assert File.read!(Path.join(hex_home, "cache.ets")) == "index"
+          assert File.read!(Path.join(mix_home, "archives/hex.ez")) == "archive"
+          assert File.read!(Path.join(npm_cache, "_cacache/cache-miss")) == "npm"
+          refute File.exists?(Path.join(repo_state, "meta/denied"))
+      end
     after
       File.rm_rf(test_root)
+      File.rm_rf(repo_state)
     end
   end
 
@@ -3080,7 +3117,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
              [
                user_root,
                canonical_workspace,
-               AgentEnvironment.sidecar_paths() |> Tuple.to_list(),
+               AgentEnvironment.package_cache_paths(),
                canonical_gate_dir
              ]
              |> List.flatten()

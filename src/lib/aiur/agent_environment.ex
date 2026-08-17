@@ -145,7 +145,7 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env(workspace, opts \\ [])
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
-    {hex, mix, npm_cache} = sidecar_paths(opts)
+    [hex, mix, npm_cache] = package_cache_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
@@ -387,11 +387,11 @@ defmodule Aiur.AgentEnvironment do
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
 
   @doc false
-  @spec sidecar_paths(keyword()) :: {Path.t(), Path.t(), Path.t()}
-  def sidecar_paths(opts \\ []) do
+  @spec package_cache_paths(keyword()) :: [Path.t()]
+  def package_cache_paths(opts \\ []) do
     root = repo_url(opts) |> RepoBase.repo_path()
 
-    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+    RepoBase.cache_sidecar_paths(root)
   end
 
   # Remote workers have their own home directories, so shell launches must
@@ -400,7 +400,7 @@ defmodule Aiur.AgentEnvironment do
   defp remote_sidecar_paths(opts) do
     root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
 
-    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+    root |> RepoBase.cache_sidecar_paths() |> List.to_tuple()
   end
 
   @doc """
