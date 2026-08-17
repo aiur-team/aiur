@@ -550,8 +550,10 @@ defmodule AiurWeb.DashboardLiveTest do
       start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
       {:ok, _view, html} = live(build_conn(), "/")
 
-      assert html =~ "Aiur is globally paused."
+      assert html =~ "global-pause-toggle is-paused"
+      assert html =~ ~s(aria-pressed="true")
       assert html =~ "Resume all agents (globally paused)"
+      refute html =~ "global-pause-banner"
     end
 
     test "renders a pause affordance while the daemon is running and writable" do
@@ -571,7 +573,9 @@ defmodule AiurWeb.DashboardLiveTest do
       assert html =~ "global-pause-toggle is-paused"
       assert html =~ ~s(aria-pressed="true")
       assert html =~ "Resume all agents (globally paused)"
-      assert html =~ "Aiur is globally paused."
+      # The nav toggle is the only global-pause signal; the standalone banner is gone.
+      refute html =~ "global-pause-banner"
+      refute html =~ "lift the global pause"
     end
 
     test "surfaces a persistence error without claiming the toggle changed" do
