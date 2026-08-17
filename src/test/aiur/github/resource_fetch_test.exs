@@ -355,6 +355,132 @@ defmodule Aiur.GitHub.ResourceFetchTest do
     end
   end
 
+  # Since #2106 the webhook pipe deposits bodies for `:issue`, `:pull_request`,
+  # comments and `:check_run` on every delivery, so a revalidation and a delivery
+  # now contend on exactly the same keys. A `304` confirms the validator this
+  # caller sent against the body this caller held — it says nothing about a body
+  # somebody else deposited a microsecond ago, and must not roll it back.
+  describe "a revalidation racing a concurrent deposit" do
+    test "never rolls the held body backwards, and never loses a deposit" do
+      key = key(30)
+      per_writer = 150
+      me = self()
+
+      ResourceStore.put_resource(key, %{"gen" => 0}, source: :webhook, version: "v0", etag: ~s("e30"))
+
+      # Reports the first regression and then only waits for `:stop`, so the
+      # failure is one clear message rather than a flood, and `:sampled` still
+      # arrives to let the assertions below run in order.
+      sampler =
+        spawn_link(fn ->
+          watch = fn watch, highest, reported? ->
+            receive do
+              :stop -> send(me, :sampled)
+            after
+              0 ->
+                case :ets.lookup(ResourceStore.Table, key) do
+                  [{^key, %{data: %{"gen" => gen}}}] when gen < highest ->
+                    unless reported?, do: send(me, {:regressed, highest, gen})
+                    watch.(watch, highest, true)
+
+                  [{^key, %{data: %{"gen" => gen}}}] ->
+                    watch.(watch, gen, reported?)
+
+                  _other ->
+                    watch.(watch, highest, reported?)
+                end
+            end
+          end
+
+          watch.(watch, 0, false)
+        end)
+
+      # Half the writers deliver newer bodies, as the webhook pipe does. The
+      # other half revalidate, each one having read the entry before the
+      # deposits it races.
+      depositors =
+        for _writer <- 1..2 do
+          Task.async(fn ->
+            for _step <- 1..per_writer do
+              ResourceStore.update_resource(
+                key,
+                fn held -> %{"gen" => Map.get(held || %{}, "gen", 0) + 1} end,
+                source: :webhook
+              )
+            end
+          end)
+        end
+
+      revalidators =
+        for _writer <- 1..2 do
+          Task.async(fn ->
+            for _step <- 1..per_writer do
+              # Strict, so the store is never consulted for the answer and the
+              # conditional request always runs. The read-then-write window
+              # inside the revalidation is the thing under test.
+              ResourceFetch.need(key, fn _opts -> {:not_modified, ~s("e30")} end, freshness: :strict)
+            end
+          end)
+        end
+
+      Enum.each(depositors ++ revalidators, &Task.await(&1, 60_000))
+
+      send(sampler, :stop)
+      assert_receive :sampled, 10_000
+
+      refute_received {:regressed, _highest, _gen},
+                      "a revalidation re-deposited a body it had read earlier and rolled a concurrent deposit back"
+
+      assert ResourceStore.data(key) == %{"gen" => 2 * per_writer},
+             "every deposit must survive a concurrent revalidation; a lower count is a lost update"
+    end
+
+    # A deposit that lands while the conditional request is still in flight is
+    # already visible to the revalidation's own read, so it resolves as a normal
+    # confirmation of the *newer* body — the caller is never handed the older one.
+    test "a deposit during the request is answered with the newer body, not the older one" do
+      key = key(31)
+      ResourceStore.put_resource(key, %{"gen" => 1}, source: :poll, version: "v1", etag: ~s("e31"))
+
+      fetcher = fn _opts ->
+        ResourceStore.put_resource(key, %{"gen" => 2}, source: :webhook, version: "v2", etag: ~s("e31-new"))
+        {:not_modified, ~s("e31")}
+      end
+
+      assert {:ok, answer, meta} = ResourceFetch.need(key, fetcher, freshness: :strict)
+
+      assert answer == %{"gen" => 2}
+      refute meta.spent?
+
+      # The deposit's own metadata survives intact: nothing was re-stamped from
+      # the revalidation's earlier read of the entry.
+      assert ResourceStore.data(key) == %{"gen" => 2}
+      assert ResourceStore.etag(key) == ~s("e31-new")
+      {:ok, current} = ResourceStore.fetch(key)
+      assert current.version == "v2"
+      assert current.source == :webhook
+    end
+
+    test "an uncontended revalidation still refreshes the window and keeps its validator" do
+      key = key(32)
+      ResourceStore.put_resource(key, %{"gen" => 1}, source: :poll, version: "v1", etag: ~s("e32"))
+      age_body!(key, 120_000)
+
+      {recorder, calls} = recorder({:not_modified, ~s("e32")})
+
+      assert {:ok, %{"gen" => 1}, %{outcome: :revalidated}} =
+               ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
+
+      # The refresh is real: the next read of the same tolerance is a store hit.
+      assert {:ok, %{"gen" => 1}, %{outcome: :store}} = ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
+      assert count(calls) == 1
+
+      {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.version == "v1"
+      assert entry.source == :poll
+    end
+  end
+
   # -- helpers --------------------------------------------------------------
 
   defp key(id), do: ResourceStore.key(:pull_request, "aiur-team", "aiur", 90_000 + id)

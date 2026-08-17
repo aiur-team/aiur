@@ -320,14 +320,18 @@ defmodule Aiur.GitHub.ResourceStore do
   def processed?(nil, _version), do: false
 
   def processed?(key, version) do
-    case lookup(key) do
-      %{processed_at_ms: at} = entry when is_integer(at) ->
-        not expired?(at) and Map.get(entry, :version) == normalize_version(version)
-
-      _other ->
-        false
-    end
+    processed_entry?(lookup(key), normalize_version(version))
   end
+
+  # One definition of "already handled", shared by the read and by `claim/3`'s
+  # compare-and-swap. Two copies of this predicate is how the two answers drift
+  # apart, and a `claim/3` that disagreed with `processed?/2` would suppress an
+  # event nothing had published.
+  defp processed_entry?(%{processed_at_ms: at} = entry, version) when is_integer(at) do
+    not expired?(at) and Map.get(entry, :version) == version
+  end
+
+  defp processed_entry?(_entry, _version), do: false
 
   @doc """
   Marks `key` processed by `source` (`:webhook` or `:poll`) at `version`.
@@ -352,9 +356,15 @@ defmodule Aiur.GitHub.ResourceStore do
   @doc """
   Marks `key` processed at `version` only if it was not already.
 
-  Returns `:marked` for the first caller and `:already_processed` for every
+  Returns `:marked` for **exactly one** caller and `:already_processed` for every
   later one inside the retention window, so a caller can gate a publish on the
   answer without a separate read.
+
+  "Exactly one" is the whole contract, so the test and the mark happen inside a
+  single compare-and-swap. Read-then-write would let two sweep passes over one
+  resource both observe "not processed" and both publish, waking an agent twice
+  for one human comment — which is the duplicate this function exists to stop,
+  reintroduced by the gap between its two halves.
   """
   @spec claim(key() | nil, atom(), String.t() | nil) :: :marked | :already_processed
   def claim(key, source, version \\ nil)
@@ -362,12 +372,18 @@ defmodule Aiur.GitHub.ResourceStore do
   def claim(nil, _source, _version), do: :marked
 
   def claim(key, source, version) when is_atom(source) do
-    if processed?(key, version) do
-      :already_processed
-    else
-      mark_processed(key, source, version)
-      :marked
-    end
+    version = normalize_version(version)
+
+    update_reply(key, :marked, fn existing ->
+      if processed_entry?(existing, version) do
+        {existing, :already_processed}
+      else
+        {existing
+         |> Map.put(:processed_at_ms, now_ms())
+         |> Map.put(:source, source)
+         |> Map.put(:version, version), :marked}
+      end
+    end)
   end
 
   @doc """
@@ -476,6 +492,64 @@ defmodule Aiur.GitHub.ResourceStore do
       nil -> nil
       data -> if expired?(Map.get(entry, :fetched_at_ms) || 0), do: nil, else: data
     end
+  end
+
+  @doc """
+  Records that a conditional read confirmed the held body is still current.
+
+  This is what a `304` is allowed to write, and the restraint is the point. A
+  `304` confirms **the validator this caller sent, against the body this caller
+  was holding**. It says nothing whatsoever about a body some other writer
+  deposited in the meantime — and since #2106 the webhook pipe deposits bodies
+  for `:issue`, `:issue_labels`, `:pull_request`, `:pr_review`, comments and
+  `:check_run` on every delivery, so that other writer is real and lands on
+  exactly these keys.
+
+  So the decision, made inside the swap where the answer is knowable:
+
+    * **The body is never overwritten.** A read-then-write that re-deposits the
+      body it read a moment earlier rolls a concurrent deposit back. Measured on
+      `:issue`: four writers doing 150 increments each through read-then-write
+      finished at 258 instead of 600.
+    * **`:version` and `:source` are never re-stamped.** Both describe the body
+      actually held. Stamping this caller's version onto a newer body, or
+      attributing a webhook's body to a fetch, is a marker that lies — and a
+      wrong `:version` is worse than a missing one, because suppression trusts it.
+    * **The validator is installed only when the body is unchanged.** If a newer
+      body landed, this caller's ETag no longer describes what sits beside it,
+      and a mismatched validator is the bodyless-`304` hazard wearing a
+      disguise: the next reader sends `If-None-Match`, is told nothing changed,
+      and confidently serves the wrong body.
+    * **`fetched_at_ms` moves only in the confirmed case.** When a newer body
+      landed, its own `fetched_at_ms` is already newer than anything this call
+      could offer.
+
+  Answers `:confirmed` when the held body was still the one revalidated and the
+  entry was refreshed, `:superseded` when a concurrent writer had already
+  replaced it — in which case **nothing is written at all** and the caller should
+  hand its own reader the newer body — and `:miss` when no body is held, which is
+  the bodyless-`304` case the caller must resolve by re-reading unconditionally.
+  """
+  @spec revalidate(key() | nil, term(), String.t() | nil) :: :confirmed | :superseded | :miss
+  def revalidate(key, confirmed_data, etag)
+
+  def revalidate(nil, _confirmed_data, _etag), do: :miss
+
+  def revalidate(key, confirmed_data, etag) do
+    update_reply(key, :miss, fn existing ->
+      case held_body(existing) do
+        nil ->
+          {existing, :miss}
+
+        ^confirmed_data ->
+          {existing
+           |> Map.put(:fetched_at_ms, now_ms())
+           |> deposit_etag(confirmed_data, etag), :confirmed}
+
+        _newer ->
+          {existing, :superseded}
+      end
+    end)
   end
 
   @doc """
@@ -738,7 +812,22 @@ defmodule Aiur.GitHub.ResourceStore do
   # writer makes this one read again and re-apply `fun`, so both writes survive.
   @update_attempts 50
   defp update(key, fun) do
-    with_table(:ok, fn table -> update_cas(table, key, fun, @update_attempts) end)
+    with_table(:ok, fn table ->
+      {_reply, result} = update_cas(table, key, &{fun.(&1), :ok}, @update_attempts)
+      result
+    end)
+  end
+
+  # The reply-carrying form. `fun` answers `{entry, reply}`, so a caller whose
+  # decision depends on what it found *inside* the swap can report that decision
+  # without a second, racy read. `revalidate/3` is the reason it exists: whether a
+  # `304` confirmed the held body or was superseded by a concurrent deposit is
+  # only knowable at the instant of the compare-and-swap.
+  defp update_reply(key, default, fun) do
+    with_table(default, fn table ->
+      {reply, _result} = update_cas(table, key, fun, @update_attempts)
+      reply
+    end)
   end
 
   defp update_cas(table, key, fun, attempts_left) do
@@ -748,11 +837,12 @@ defmodule Aiur.GitHub.ResourceStore do
         _other -> nil
       end
 
-    entry = (existing || %{}) |> fun.() |> Map.put(:recorded_at_ms, now_ms())
+    {entry, reply} = fun.(existing || %{})
+    entry = Map.put(entry, :recorded_at_ms, now_ms())
 
     if swapped?(table, key, existing, entry) do
       announce(key, existing || %{}, entry)
-      :ok
+      {reply, :ok}
     else
       retry_update(table, key, fun, attempts_left - 1, entry)
     end
@@ -768,7 +858,7 @@ defmodule Aiur.GitHub.ResourceStore do
 
     :ets.insert(table, {key, entry})
     announce(key, %{}, entry)
-    :ok
+    {:ok, :ok}
   end
 
   defp retry_update(table, key, fun, attempts_left, _entry), do: update_cas(table, key, fun, attempts_left)

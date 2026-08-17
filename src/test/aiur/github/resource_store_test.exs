@@ -632,6 +632,136 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
   end
 
+  # What a `304` is allowed to write. It confirms the validator its caller sent
+  # against the body its caller held, and nothing more — since #2106 the webhook
+  # pipe deposits bodies on these same keys, so "nothing more" is load-bearing.
+  describe "revalidate/3" do
+    test "confirms the held body, refreshes its window and installs the validator" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 8300)
+      body = %{"gen" => 1}
+      ResourceStore.put_resource(key, body, source: :poll, version: "v1")
+      {:ok, before} = ResourceStore.fetch(key)
+
+      assert :confirmed = ResourceStore.revalidate(key, body, ~s("e8300"))
+
+      {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.data == body
+      assert entry.etag == ~s("e8300")
+      assert entry.fetched_at_ms >= before.fetched_at_ms
+      # The body did not change, so neither did what describes it.
+      assert entry.version == "v1"
+      assert entry.source == :poll
+    end
+
+    # The lost update this exists to prevent. A newer body means this caller's
+    # `304` describes something the store no longer holds, so every field it
+    # would have re-stamped is wrong — including, most dangerously, the
+    # validator, which would then earn the next reader a `304` and a body it did
+    # not validate.
+    test "a body replaced underneath is left completely untouched" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 8301)
+      ResourceStore.put_resource(key, %{"gen" => 1}, source: :poll, version: "v1", etag: ~s("old"))
+      stale_read = %{"gen" => 0}
+
+      ResourceStore.put_resource(key, %{"gen" => 2}, source: :webhook, version: "v2", etag: ~s("new"))
+      {:ok, before} = ResourceStore.fetch(key)
+
+      assert :superseded = ResourceStore.revalidate(key, stale_read, ~s("mine"))
+
+      {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.data == %{"gen" => 2}
+      assert entry.version == "v2"
+      assert entry.source == :webhook
+      assert entry.etag == ~s("new")
+      assert entry.fetched_at_ms == before.fetched_at_ms
+    end
+
+    test "a superseded revalidation wakes no subscriber, because it wrote nothing" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 8302)
+      ResourceStore.put_resource(key, %{"gen" => 2}, source: :webhook, version: "v2")
+      ResourceStore.subscribe(key)
+
+      assert :superseded = ResourceStore.revalidate(key, %{"gen" => 1}, ~s("mine"))
+
+      refute_receive {:github_resource_changed, _change}, 100
+    end
+
+    test "answers :miss when no body is held, so the caller re-reads unconditionally" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 8303)
+      assert :miss = ResourceStore.revalidate(key, %{"gen" => 1}, ~s("mine"))
+
+      # A validator with no body is the same case: there is nothing to confirm.
+      ResourceStore.put_etag(key, ~s("orphan"))
+      assert :miss = ResourceStore.revalidate(key, %{"gen" => 1}, ~s("mine"))
+    end
+
+    test "an unusable identity is a miss rather than a crash" do
+      assert :miss = ResourceStore.revalidate(nil, %{"gen" => 1}, ~s("mine"))
+    end
+  end
+
+  describe "claim/3 under contention" do
+    # "Exactly one" is the entire contract. Two sweep passes over one resource
+    # both observing "not processed" and both publishing is the duplicate agent
+    # wake this function exists to prevent, reappearing in the gap between a
+    # read and a write.
+    # The callers are started first and released together, because a read and a
+    # write are only a handful of microseconds apart: tasks that merely start at
+    # roughly the same time mostly miss the window and would let a check-then-act
+    # implementation pass. Repeated over many keys so hitting it is not luck.
+    test "grants exactly one winner however many callers race" do
+      keys = 8400..8500
+      callers = 8
+
+      double_claimed =
+        for id <- keys, reduce: [] do
+          acc ->
+            key = ResourceStore.key(:issue_comment, "owner", "repo", id)
+            parent = self()
+
+            tasks =
+              for _caller <- 1..callers do
+                Task.async(fn ->
+                  send(parent, {:ready, self()})
+
+                  receive do
+                    :go -> ResourceStore.claim(key, :poll, "v1")
+                  after
+                    5_000 -> :never_released
+                  end
+                end)
+              end
+
+            for _task <- tasks, do: assert_receive({:ready, _pid}, 5_000)
+            for task <- tasks, do: send(task.pid, :go)
+
+            results = Enum.map(tasks, &Task.await(&1, 30_000))
+            winners = Enum.count(results, &(&1 == :marked))
+
+            if winners == 1, do: acc, else: [{id, winners} | acc]
+        end
+
+      assert double_claimed == [],
+             "a claim was granted more than once; every extra winner publishes a duplicate and wakes an agent twice: " <>
+               inspect(double_claimed)
+    end
+
+    test "a new version is a new claim, and again only one caller wins it" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 8401)
+      assert :marked = ResourceStore.claim(key, :webhook, "v1")
+      assert :already_processed = ResourceStore.claim(key, :poll, "v1")
+
+      # The comment was edited. That is a different state of the same resource,
+      # so it is claimable again — once.
+      results =
+        1..8
+        |> Enum.map(fn _caller -> Task.async(fn -> ResourceStore.claim(key, :poll, "v2") end) end)
+        |> Enum.map(&Task.await(&1, 30_000))
+
+      assert Enum.count(results, &(&1 == :marked)) == 1
+    end
+  end
+
   describe "concurrent writers" do
     # Two writers share a key as soon as one pipe deposits a body and another
     # records a validator for the same resource, which is exactly what the
