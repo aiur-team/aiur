@@ -1512,15 +1512,15 @@ defmodule Aiur.CoreTest do
     prompt = PromptBuilder.build_prompt(issue)
 
     # The shared prefix is slimmed to the always-visible / between-turn
-    # reflexes plus a pointer to the `using-aiur` operating-manual skill.
+    # reflexes plus a pointer to the `aiur-agent` operating-manual skill.
     assert prompt =~ "## Shared Agent Instructions"
-    assert prompt =~ "using-aiur"
+    assert prompt =~ "aiur-agent"
     assert prompt =~ "Progress emits"
     assert prompt =~ "Executor check-ins"
 
     # The general operating manual (complexity routing, CODEOWNERS authority,
     # PR shape, milestone-alert names, the dev loop) now lives only in the
-    # `using-aiur` skill — it is no longer inlined into every per-turn prompt.
+    # `aiur-agent` skill — it is no longer inlined into every per-turn prompt.
     refute prompt =~ "### Complexity routing"
     refute prompt =~ "#### `complexity:"
     refute prompt =~ "label-based complexity is the default"

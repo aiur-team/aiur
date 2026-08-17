@@ -136,7 +136,7 @@ larger cost line than the four tools (which are input/context-side).**
 4. **universal-ctags pilot (low effort, zero LLM tokens)** — native Elixir symbol kinds since
    2018, no MCP wiring, safe at 16-way concurrency. The **cheapest Serena backstop**: agents
    grep a flat tags file instead of whole-file reads. Bake `ctags -R` into the prewarm step.
-5. **Skill-surface slimming (low effort)** — worker skills loaded per workspace: using-aiur
+5. **Skill-surface slimming (low effort)** — worker skills loaded per workspace: aiur-agent
    22 KB, aiur-agent 19 KB, **aiur-debug 45 KB**. Confirm aiur-debug isn't loaded defensively
    on non-debug turns; push low-frequency prose in `shared-agent-instructions.md` into
    on-demand skill bodies (progressive disclosure).

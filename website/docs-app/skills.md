@@ -11,14 +11,15 @@ Aiur ships Agent Skills under `.claude/skills/` and makes them available to Code
 
 ## Agent-workspace skills
 
-These four skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`, so a Claude workspace and a Codex workspace get the same set without a machine-local plugin cache.
+These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`, so a Claude workspace and a Codex workspace get the same set without a machine-local plugin cache.
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
-| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn | Agent labels, phases, Workpad, alerts, complexity, development, and PR handoff. |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before event or blocker work | [Message Bus](/concepts/message-bus), subscriptions, dependencies, and attentions. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer | The `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and [Message Bus](/concepts/message-bus) events, subscriptions, blockers, and attentions. |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | Run, daemon, agent, or workspace failure | Correlated evidence and safe recovery order. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Large frontend design import | Disk-first import without overflowing agent context. |
+
+Executor skills are deliberately excluded from this set: an issue worker has no reason to run Aiur itself.
 
 ## Executor skills
 
@@ -80,3 +81,5 @@ scripts/update-compound-engineering-skills X.Y.Z "$update_dir/compound-engineeri
 Choose the release ref whose `.claude-plugin/plugin.json` reports `X.Y.Z`; the refresh script rejects a mismatch.
 
 Review the upstream release notes and the resulting skill diff, then run the AgentSkills tests before committing. The script replaces only previously managed CE skill paths, refreshes the license, version, and manifest files, and recreates the Claude-to-Codex links.
+
+The complexity routing rules that pick which CE skill to run live in [complexity-routing.md](../../.claude/skills/aiur-agent/complexity-routing.md).

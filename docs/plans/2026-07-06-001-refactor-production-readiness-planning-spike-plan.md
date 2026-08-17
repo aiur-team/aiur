@@ -100,7 +100,7 @@ agents), A4 (aiur-loop pipeline)
 
 ## Context & Research
 
-### Ticket contract (from `.claude/skills/using-aiur/` + `.claude/skills/aiur-loop/`)
+### Ticket contract (from `.claude/skills/aiur-agent/` + `.claude/skills/aiur-loop/`)
 
 - Labels: `agent:todo` + `complexity:N` + optional `model:<backend>`. This
   repo's `.aiur/config` routes complexity 1–3 → codex, 4–5 → claude. Backends:
@@ -814,7 +814,7 @@ PR (R1).
 
 - **Origin document:** `docs/brainstorms/2026-07-06-production-readiness-refactor-planning-requirements.md`
 - Authoritative brief: `docs/refactor/fable-planning-prompt.md`
-- Ticket conventions: `.claude/skills/using-aiur/` (dev-loop, turn-workflow,
+- Ticket conventions: `.claude/skills/aiur-agent/` (dev-loop, turn-workflow,
   complexity-routing, conventions), `.claude/skills/aiur-loop/SKILL.md`
 - Backend registry: `src/lib/aiur/coding_agent.ex`; residual branches:
   `src/lib/aiur/agent_runner.ex`

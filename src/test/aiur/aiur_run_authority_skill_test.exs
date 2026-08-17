@@ -35,7 +35,7 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
 
   test "worker push guidance fails closed on the configured agent token" do
     skill = read(".claude/skills/aiur-run/SKILL.md")
-    dev_loop = read(".claude/skills/using-aiur/dev-loop.md")
+    dev_loop = read(".claude/skills/aiur-agent/dev-loop.md")
 
     assert skill =~ "Never embed a token in the remote URL"
     assert skill =~ "fail-closed helper\nrecipe"
