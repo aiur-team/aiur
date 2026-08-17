@@ -30,6 +30,13 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert outcomes.completeness == :complete
     assert length(outcomes.outcomes) == 1
 
+    # The bounded source adapter must retain the existing routing facts that
+    # the Units row already knows how to render as agent/model tags.
+    assert [unit] = :sys.get_state(owner).units.rows
+    assert unit.backend == :codex
+    assert unit.agent_family == :codex
+    assert unit.requested_model == "gpt-5"
+
     assert CurrentRunSummary.snapshot(server: owner) == summary
     assert CurrentRunSummary.health(server: owner) == summary.health
     assert CurrentRunSummary.freshness(server: owner) == summary.freshness

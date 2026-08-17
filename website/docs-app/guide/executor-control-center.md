@@ -24,7 +24,7 @@ Use the browser when you need interactive detail; use the paired command when te
 
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
-| **Units** | `/` is the Agents fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
+| **Units** | `/` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` is live-run telemetry and an optional Build Order scope. | `aiur analytics` |
@@ -37,6 +37,8 @@ Use the browser when you need interactive detail; use the paired command when te
 | `/api/v1/decisions`, `decision_id`, event topics | Keep the **decision** vocabulary for compatibility. |
 
 The operator-facing UI and CLI call these records **Commands**.
+
+Dashboard data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs; icon and action columns are not sortable.
 
 ## The pages
 

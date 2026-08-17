@@ -65,19 +65,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
           </tr>
         </thead>
         <tbody>
-          <tr :for={entry <- @entries} class={if(entry.completed?, do: "bo-catalog-completed", else: "bo-catalog-active")}>
+          <%= for entry <- @entries do %>
+          <% progress = ProgressRenderer.html(entry) %>
+          <tr class={if(entry.completed?, do: "bo-catalog-completed", else: "bo-catalog-active")} data-sort-id={catalog_sort_id(entry)}>
             <td data-sort-value={entry.title}>
               <span class="bo-catalog-icon" aria-label={catalog_icon_label(entry.icon)}>{catalog_icon(entry.icon)}</span>
               <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="bo-catalog-link">{entry.title}</.link>
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
             </td>
-            <td class="bo-catalog-progress-cell" data-sort-value={entry_progress_percent(entry)}>
-              <.catalog_progress entry={entry} />
+            <td class="bo-catalog-progress-cell" data-sort-value={progress.percent || ""}>
+              <.catalog_progress progress={progress} />
             </td>
             <td class="bo-catalog-num mono num" data-sort-value={entry.member_count}>{count_display(entry.member_count)}</td>
             <td class="bo-catalog-num mono num" data-sort-value={entry.epic_count}><.catalog_count count={entry.epic_count} label="Epics" /></td>
             <td class="bo-catalog-num mono num" data-sort-value={entry.phase_count}><.catalog_count count={entry.phase_count} label="Waves" /></td>
           </tr>
+          <% end %>
         </tbody>
       </table>
 
@@ -108,8 +111,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   end
 
   defp catalog_progress(assigns) do
-    assigns = assign(assigns, :progress, ProgressRenderer.html(assigns.entry))
-
     ~H"""
     <div
       :if={is_integer(@progress.percent)}
@@ -145,7 +146,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
     """
   end
 
-  defp entry_progress_percent(entry), do: entry |> ProgressRenderer.html() |> Map.get(:percent)
+  defp catalog_sort_id(%{identity: %TrackerIdentity{identifier: identifier}}), do: identifier
+  defp catalog_sort_id(entry), do: entry.title
 
   attr(:count, :any, required: true)
   attr(:label, :string, required: true)
@@ -156,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       {@count}
     <% else %>
       <span
-        class="bo-catalog-progress-unresolved bo-catalog-count-unresolved"
+        class="bo-catalog-count-unresolved"
         data-count-state="unresolved"
         role="img"
         aria-label={"#{@label} unresolved; count not fetched"}

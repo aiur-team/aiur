@@ -2,6 +2,7 @@
   "use strict";
 
   var PARAM = "sort";
+  var CHANGE_EVENT = "aiur:table-sort-changed";
 
   function stateValue(table, column, direction) {
     return [table, column, direction].join(":");
@@ -23,10 +24,6 @@
   }
 
   function compareValues(left, right, type) {
-    if (left === "" && right === "") return 0;
-    if (left === "") return 1;
-    if (right === "") return -1;
-
     if (type === "number") {
       var leftNumber = Number(left);
       var rightNumber = Number(right);
@@ -38,36 +35,67 @@
 
   function sortableRows(table) {
     return Array.from(table.tBodies).flatMap(function (body) {
-      return Array.from(body.rows).filter(function (row) {
-        return !row.classList.contains("history-detail-row") && row.cells.length > 1;
-      });
+      return sortableBodyRows(body);
     });
+  }
+
+  function sortableBodyRows(body) {
+    return Array.from(body.rows).filter(function (row) {
+      return !row.classList.contains("history-detail-row") && row.cells.length > 1;
+    });
+  }
+
+  function cellValue(row, columnIndex) {
+    var cell = row.cells[columnIndex];
+    if (!cell) return "";
+    return cell.hasAttribute("data-sort-value") ? cell.dataset.sortValue : cell.textContent.trim();
+  }
+
+  function detailRows(body) {
+    return new Map(Array.from(body.rows)
+      .filter(function (row) { return row.dataset.sortDetailFor; })
+      .map(function (row) { return [row.dataset.sortDetailFor, row]; }));
+  }
+
+  function rowKey(row) {
+    return row.id || row.dataset.sortId || null;
   }
 
   window.AiurSortableTableHook = {
     mounted: function () {
       this.tableKey = this.el.dataset.sortTable;
       this.sequence = 0;
+      this.ranks = new Map();
       this.onHeaderClick = this.headerClicked.bind(this);
+      this.onExternalChange = this.externalChange.bind(this);
       this.bindHeaders();
       this.captureRanks();
       this.state = urlState(this.tableKey);
+      window.addEventListener(CHANGE_EVENT, this.onExternalChange);
+      window.addEventListener("popstate", this.onExternalChange);
       this.applySort();
     },
 
     beforeUpdate: function () {
       this.captureRanks();
+      var focused = document.activeElement;
+      this.focusedId = focused && this.el.contains(focused) ? focused.id : null;
     },
 
     updated: function () {
       this.bindHeaders();
-      this.captureRanks();
-      this.state = urlState(this.tableKey) || this.state;
+      this.captureRanks(true);
+      this.state = urlState(this.tableKey);
       this.applySort();
+      var focused = this.focusedId && document.getElementById(this.focusedId);
+      if (focused && this.el.contains(focused)) focused.focus();
+      this.focusedId = null;
     },
 
     destroyed: function () {
       this.unbindHeaders();
+      window.removeEventListener(CHANGE_EVENT, this.onExternalChange);
+      window.removeEventListener("popstate", this.onExternalChange);
     },
 
     bindHeaders: function () {
@@ -75,7 +103,7 @@
       this.headers = Array.from(this.el.querySelectorAll("thead th[data-sort-key]"));
       this.headers.forEach(function (header) {
         header.tabIndex = 0;
-        header.setAttribute("role", "button");
+        header.title = "Sort by " + header.textContent.trim();
         header.addEventListener("click", this.onHeaderClick);
         header.addEventListener("keydown", this.onHeaderClick);
       }, this);
@@ -88,10 +116,26 @@
       }, this);
     },
 
-    captureRanks: function () {
+    captureRanks: function (prune) {
+      var currentKeys = new Set();
       sortableRows(this.el).forEach(function (row) {
-        if (!row.dataset.sortRank) row.dataset.sortRank = String(this.sequence++);
+        var key = rowKey(row);
+        var rank = key && this.ranks.get(key);
+
+        if (rank === undefined) {
+          rank = this.sequence++;
+          if (key) this.ranks.set(key, rank);
+        }
+
+        if (key) currentKeys.add(key);
+        row.dataset.sortRank = String(rank);
       }, this);
+
+      if (prune) {
+        this.ranks.forEach(function (_rank, key) {
+          if (!currentKeys.has(key)) this.ranks.delete(key);
+        }, this);
+      }
     },
 
     headerClicked: function (event) {
@@ -107,7 +151,14 @@
       var url = new URL(window.location.href);
       url.searchParams.set(PARAM, value);
       window.history.replaceState(window.history.state, "", url);
+      window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { sort: value } }));
       this.pushEvent("table-sort-changed", { sort: value });
+    },
+
+    externalChange: function (event) {
+      var value = event.type === CHANGE_EVENT ? event.detail && event.detail.sort : new URL(window.location.href).searchParams.get(PARAM);
+      var state = parseState(value);
+      this.state = state && state.table === this.tableKey ? state : null;
       this.applySort();
     },
 
@@ -119,36 +170,39 @@
 
       this.headers.forEach(function (candidate) {
         var active = candidate === header;
-        candidate.classList.toggle("is-sort-active", active);
         candidate.setAttribute("aria-sort", active ? (state.direction === "desc" ? "descending" : "ascending") : "none");
       });
 
-      if (!header) return;
-      var columnIndex = header.cellIndex;
-      var type = header.dataset.sortType || "text";
-      var direction = state.direction === "desc" ? -1 : 1;
+      var columnIndex = header ? header.cellIndex : -1;
+      var type = header ? (header.dataset.sortType || "text") : "text";
+      var direction = header && state.direction === "desc" ? -1 : 1;
 
       Array.from(this.el.tBodies).forEach(function (body) {
-        var rows = sortableRows({ tBodies: [body] });
-        var details = new Map(Array.from(body.rows)
-          .filter(function (row) { return row.classList.contains("history-detail-row"); })
-          .map(function (row) { return [row.id.replace(/^history-detail-/, ""), row]; }));
-        rows.sort(function (left, right) {
-          var leftCell = left.cells[columnIndex];
-          var rightCell = right.cells[columnIndex];
-          var leftValue = leftCell ? (leftCell.dataset.sortValue || leftCell.textContent.trim()) : "";
-          var rightValue = rightCell ? (rightCell.dataset.sortValue || rightCell.textContent.trim()) : "";
-          var compared = compareValues(leftValue, rightValue, type);
-          return compared === 0 ? Number(left.dataset.sortRank) - Number(right.dataset.sortRank) : compared * direction;
+        var rows = sortableBodyRows(body);
+        var details = detailRows(body);
+        var records = rows.map(function (row) {
+          return { row: row, rank: Number(row.dataset.sortRank), value: header ? cellValue(row, columnIndex) : "" };
         });
-        rows.forEach(function (row) {
-          body.appendChild(row);
-          var detail = details.get(row.id);
-          if (detail) body.appendChild(detail);
+        records.sort(function (left, right) {
+          if (!header) return left.rank - right.rank;
+          if (left.value === "" && right.value === "") return left.rank - right.rank;
+          if (left.value === "") return 1;
+          if (right.value === "") return -1;
+
+          var compared = compareValues(left.value, right.value, type);
+          return compared === 0 ? left.rank - right.rank : compared * direction;
         });
+
+        if (rows.every(function (row, index) { return row === records[index].row; })) return;
+
+        var fragment = document.createDocumentFragment();
+        records.forEach(function (record) {
+          fragment.appendChild(record.row);
+          var detail = details.get(record.row.id);
+          if (detail) fragment.appendChild(detail);
+        });
+        body.appendChild(fragment);
       });
     }
   };
-
-  window.AiurSortableTable = { compareValues: compareValues, parseState: parseState, stateValue: stateValue };
 })();

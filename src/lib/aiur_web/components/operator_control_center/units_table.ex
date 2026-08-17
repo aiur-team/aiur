@@ -95,7 +95,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </span>
               </td>
 
-              <td data-label="Latest" data-sort-value={known_percent(row.progress)} class="ut-latest-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Latest" data-sort-value={known_percent(row.progress) || ""} class="ut-latest-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-latest-head">
                   <span :if={evidence_emoji(row)} class="ut-latest-emoji" aria-hidden="true">{evidence_emoji(row)}</span>
                   <span class="ut-latest-text">{latest_text(row)}</span>

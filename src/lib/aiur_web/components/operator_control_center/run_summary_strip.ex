@@ -166,6 +166,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:run_ready?, run_state in [:ready, :stale])
       |> assign(:remaining, remaining)
       |> assign(:run_percent, run_percent(assigns.run))
+      |> assign(:progress_label, progress_label(assigns.run))
       |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))
 
     ~H"""
@@ -187,7 +188,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-progress">
         <div class="rs-limit-top">
           <span class="rs-limit-label">Progress</span>
-          <span :if={progress_label(@run)} class="rs-limit-meta">{progress_label(@run)}</span>
+          <span :if={@progress_label} class="rs-limit-meta">{@progress_label}</span>
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>

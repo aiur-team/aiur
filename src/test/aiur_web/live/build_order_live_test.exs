@@ -291,7 +291,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
            |> Enum.all?(
              &(Floki.find(
                  &1,
-                 ~s(.bo-catalog-progress-unresolved.bo-catalog-count-unresolved[data-count-state="unresolved"])
+                 ~s(.bo-catalog-count-unresolved[data-count-state="unresolved"])
                ) != [])
            )
 

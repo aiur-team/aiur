@@ -22,6 +22,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.LogEntry do
   @moduledoc false
 
   @type t :: %__MODULE__{
+          event_id: pos_integer() | nil,
           kind: atom(),
           label: String.t(),
           source: :exchange | :issue_log,
@@ -31,7 +32,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.LogEntry do
         }
 
   @enforce_keys [:kind, :label, :source, :observed_at]
-  defstruct [:kind, :label, :source, :occurred_at, :observed_at, details: %{}]
+  defstruct [:event_id, :kind, :label, :source, :occurred_at, :observed_at, details: %{}]
 end
 
 defmodule AiurWeb.BuildOrder.TicketContextPresenter.View do
@@ -279,6 +280,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
 
   defp log_entry(%Entry{} = entry) do
     normalized_log_entry(
+      entry.event_id,
       entry.kind,
       entry.source,
       entry.label,
@@ -290,7 +292,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
 
   defp log_entry(_entry), do: []
 
-  defp normalized_log_entry(kind, source, label, occurred_at, observed_at, details)
+  defp normalized_log_entry(event_id, kind, source, label, occurred_at, observed_at, details)
        when kind in [
               :agent_attention,
               :agent_decision,
@@ -305,6 +307,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
               source in [:exchange, :issue_log] and is_struct(observed_at, DateTime) do
     [
       %LogEntry{
+        event_id: if(is_integer(event_id) and event_id > 0, do: event_id),
         kind: kind,
         label: log_label(kind, label),
         source: source,
@@ -315,7 +318,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     ]
   end
 
-  defp normalized_log_entry(_kind, _source, _label, _occurred_at, _observed_at, _details), do: []
+  defp normalized_log_entry(_event_id, _kind, _source, _label, _occurred_at, _observed_at, _details), do: []
 
   defp log_details(:progress, details) when is_map(details) do
     case map_value(details, :percent) do
@@ -510,6 +513,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp normalized_view_log_entry(%LogEntry{} = entry),
     do:
       normalized_log_entry(
+        entry.event_id,
         entry.kind,
         entry.source,
         entry.label,

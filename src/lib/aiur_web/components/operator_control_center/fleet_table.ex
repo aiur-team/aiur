@@ -42,6 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
             <tr
               :for={row <- @rows}
               class={["fleet-row", row_class(row)]}
+              data-sort-id={row.issue_identifier}
               phx-click={row.bucket == :running && "show-agent-log"}
               phx-value-issue={row.bucket == :running && row.issue_identifier}
             >
@@ -58,12 +59,12 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                 <span class={state_chip_class(row.state)}>{humanize(row.state || row.bucket)}</span>
                 <span class="fleet-latest-meta">{ci_review(row)}</span>
               </td>
-              <td data-label="Waiting" data-sort-value={row.waiting_reason}><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
-              <td data-label="Latest" data-sort-value={row[:last_event_at]}>
+              <td data-label="Waiting" data-sort-value={row.waiting_reason || ""}><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
+              <td data-label="Latest" data-sort-value={row[:last_event_at] || ""}>
                 <span class="fleet-latest" title={latest(row)}>{latest(row)}</span>
                 <span :if={row[:last_event_at]} class="fleet-latest-meta mono">{row.last_event_at}</span>
               </td>
-              <td class="mono num" data-label="Elapsed" data-sort-value={row[:runtime_seconds]}>{runtime(row, @now)}</td>
+              <td class="mono num" data-label="Elapsed" data-sort-value={row[:runtime_seconds] || ""}>{runtime(row, @now)}</td>
               <td class="num" data-label="Commands" data-sort-value={row.open_decision_count}>
                 <span :if={row.open_decision_count > 0} class="chip attention">! {row.open_decision_count}</span>
                 <span :if={row.open_decision_count == 0} class="muted">—</span>

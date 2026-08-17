@@ -161,7 +161,7 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
       identity: sanitize_identity(Value.get(fact, :identity, nil) || Value.get(fact, :tracker_identity, nil)),
       state: Value.get(fact, :tracker_state, nil) || Value.get(fact, :state, nil),
       complexity: Value.get(fact, :complexity),
-      backend: Value.get(fact, :backend, nil),
+      backend: Value.get(fact, :backend, nil) || Value.get(fact, :selected_backend, nil),
       selected_backend: Value.get(fact, :selected_backend, nil),
       agent_family: Value.get(fact, :agent_family, nil),
       requested_model: Value.get(fact, :requested_model, nil),

@@ -131,7 +131,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
             </tr>
           </thead>
           <tbody>
-            <tr :for={route <- @view.routes.entries}>
+            <tr :for={route <- @view.routes.entries} data-sort-id={inspect(route.key)}>
               <th scope="row" data-sort-value={route.label}>
                 <span aria-hidden="true">{route.label}</span>
                 <span class="sr-only">{route.accessible_label}</span>

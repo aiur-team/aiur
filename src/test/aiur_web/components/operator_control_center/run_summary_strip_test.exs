@@ -294,7 +294,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "$8.75"
   end
 
-  test "partial current facts show a qualified percentage and distinguish settling from degradation" do
+  test "partial current facts keep the aggregate percentage without refresh diagnostics" do
     partial_progress = %{
       kind: :partial,
       percent: 40,
@@ -332,18 +332,18 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert settling_html =~ "40%"
-    assert settling_html =~ "1 of 2 members current"
-    assert settling_html =~ "Still settling"
     assert settling_html =~ ~s(style="width:40%")
     refute settling_html =~ "Unavailable"
     refute settling_html =~ "weight facts"
+    refute settling_html =~ "1 of 2 members current"
+    refute settling_html =~ "Still settling"
 
     assert degraded_html =~ "40%"
-    assert degraded_html =~ "Refresh degraded"
+    refute degraded_html =~ "Refresh degraded"
     refute degraded_html =~ "Still settling"
   end
 
-  test "no current facts show a status-bearing pending figure without projection jargon" do
+  test "unknown aggregate progress keeps a flat inert meter without refresh diagnostics" do
     pending = %{
       kind: :pending,
       percent: nil,
@@ -365,9 +365,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "Progress not computed yet"
-    assert html =~ "0 of 2 members current"
-    assert html =~ "Still settling"
+    assert html =~ ~s(<span class="rs-limit-label">Progress</span>)
+    assert html =~ ~s(class="rs-meter is-unknown")
+    refute html =~ ~s(class="rs-meter is-unknown"><i)
+    refute html =~ "Progress not computed yet"
+    refute html =~ "0 of 2 members current"
+    refute html =~ "Still settling"
+    refute html =~ "Refresh degraded"
     refute html =~ "weight facts"
     refute html =~ ~s(style="width:40%")
   end

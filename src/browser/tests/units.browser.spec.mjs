@@ -177,6 +177,60 @@ test('Units URL history restores independent conditions and copied links', async
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
 })
 
+test('Units tables sort stably, persist in the URL, and keep unknown progress flat grey', async ({ page }) => {
+  await openUnits(page)
+
+  const units = page.locator('#units-table')
+  const unitRows = units.locator('#units-rows tr.units-row')
+  const identifiers = () => unitRows.locator('.ut-id-num').allTextContents()
+
+  // The existing pills are fed through the complete runtime projection again.
+  await expect(unitRows.first().locator('.u-agent')).toHaveText('Codex')
+  await expect(unitRows.first().locator('.u-model')).toHaveText('gpt-5.6-terra')
+
+  const unknownTrack = unitRows.nth(1).locator('.ut-pbar.is-unknown')
+  const unknownStyle = await unknownTrack.evaluate((track) => {
+    const style = getComputedStyle(track)
+    return { background: style.backgroundColor, border: style.borderTopStyle }
+  })
+  expect(unknownStyle.background).not.toBe('rgba(0, 0, 0, 0)')
+  expect(unknownStyle.border).toBe('none')
+
+  const idHeader = units.getByRole('columnheader', { name: 'ID' })
+  await idHeader.click()
+  await expect(idHeader).toHaveAttribute('aria-sort', 'descending')
+  await expect(page).toHaveURL(/sort=units%3Aid%3Adesc/)
+  await expect.poll(identifiers).toEqual(['1111', '1110'])
+
+  await idHeader.click()
+  await expect(idHeader).toHaveAttribute('aria-sort', 'ascending')
+  await expect.poll(identifiers).toEqual(['1110', '1111'])
+
+  const latestHeader = units.getByRole('columnheader', { name: 'Latest' })
+  await latestHeader.focus()
+  await page.keyboard.press('Enter')
+  await expect(latestHeader).toHaveAttribute('aria-sort', 'descending')
+  await expect(page).toHaveURL(/sort=units%3Alatest%3Adesc/)
+  // A missing value stays last in either direction instead of becoming a
+  // fabricated zero that jumps ahead of measured progress.
+  await expect.poll(identifiers).toEqual(['1110', '1111'])
+
+  await page.getByRole('button', { name: 'Update same Unit' }).click()
+  await expect(latestHeader).toHaveAttribute('aria-sort', 'descending')
+  await expect.poll(identifiers).toEqual(['1110', '1111'])
+
+  const showMoreTickets = page.getByRole('button', { name: /Show \d+ more ticket/ })
+  if (await showMoreTickets.count()) await showMoreTickets.click()
+  const tickets = page.locator('#tickets-table')
+  const ticketIds = () => tickets.locator('.tk-id-cell .ut-id-num').allTextContents()
+  const ticketIdHeader = tickets.getByRole('columnheader', { name: 'ID' })
+  await ticketIdHeader.click()
+  await expect(ticketIdHeader).toHaveAttribute('aria-sort', 'descending')
+  await expect(latestHeader).toHaveAttribute('aria-sort', 'none')
+  await expect(page).toHaveURL(/sort=tickets%3Aid%3Adesc/)
+  await expect.poll(ticketIds).toEqual(['2102', '2101'])
+})
+
 test('Units keeps its column headings at zero units and names the empty state in both themes', async ({ page }) => {
   await openUnits(page, '/units?catalog=empty')
 
@@ -200,7 +254,7 @@ test('Units keeps its column headings at zero units and names the empty state in
   })
   expect(emptyBelowTable).toBe(true)
 
-  // The box reads as a muted dashed placeholder in both themes. Colours come
+  // The box reads as a muted solid placeholder in both themes. Colours come
   // from the theme tokens, so they must actually differ between the two.
   const readStyle = () =>
     empty.evaluate((box) => {
@@ -215,7 +269,7 @@ test('Units keeps its column headings at zero units and names the empty state in
     })
 
   const dark = await readStyle()
-  expect(dark.borderStyle).toBe('dashed')
+  expect(dark.borderStyle).toBe('solid')
   expect(dark.borderWidth).toBe('1px')
   expect(dark.textAlign).toBe('center')
 
@@ -227,7 +281,7 @@ test('Units keeps its column headings at zero units and names the empty state in
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   await settleAnimations(page)
   const light = await readStyle()
-  expect(light.borderStyle).toBe('dashed')
+  expect(light.borderStyle).toBe('solid')
   expect(light.textAlign).toBe('center')
   expect(light.color).not.toBe(dark.color)
   expect(light.borderColor).not.toBe(dark.borderColor)

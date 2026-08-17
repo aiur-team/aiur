@@ -893,7 +893,7 @@ defmodule AiurWeb.DashboardLive do
             now={@now}
           />
           <div class="rs-group-head units-group-head">
-            <span class="rs-group-title" id="units-agents-title">Units</span>
+            <span class="rs-group-title" id="units-title">Units</span>
             <span class="rs-group-count">{@units_count_label}</span>
           </div>
           <UnitsFilters.units_filters

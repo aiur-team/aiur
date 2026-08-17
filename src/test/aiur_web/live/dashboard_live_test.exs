@@ -4610,10 +4610,10 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, _view, html} = live(build_conn(), "/")
 
     # The same title/count pair the APIs and Models panels use.
-    assert html =~ ~s(<span class="rs-group-title" id="units-agents-title">Agents</span>)
-    assert html =~ ~s(<span class="rs-group-count">1 agent</span>)
+    assert html =~ ~s(<span class="rs-group-title" id="units-title">Units</span>)
+    assert html =~ ~s(<span class="rs-group-count">1 unit</span>)
 
-    [_before, after_header] = String.split(html, "units-agents-title", parts: 2)
+    [_before, after_header] = String.split(html, "units-title", parts: 2)
     assert after_header =~ "units-filter-list"
   end
 
