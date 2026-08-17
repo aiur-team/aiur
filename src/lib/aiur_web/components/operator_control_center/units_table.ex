@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         <span><b>Units catalog is partial.</b> Counts are lower bounds for the bounded membership prefix.</span>
       </div>
 
-      <div class="units-table-wrap">
+      <div class="units-table-wrap full-bleed-table-wrap">
         <table class="units-table">
           <caption class="sr-only">Units catalog with execution facts, current evidence, and named actions</caption>
           <thead>
