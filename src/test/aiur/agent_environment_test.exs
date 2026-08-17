@@ -66,6 +66,13 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "OTHER_COOKIE=keep\n"
   end
 
+  test "scrub_shell_command can retain an Aiur-owned build hook" do
+    command = AgentEnvironment.scrub_shell_command("printf ready", trusted_bash_env: true)
+
+    refute command =~ "unset BASH_ENV"
+    assert command =~ "unset ENV"
+  end
+
   test "scrub_shell_command clears the restart rebuild command bound to the outer checkout" do
     # AIUR_RESTART_BUILD_CMD names one checkout's builder. Inherited by an agent,
     # an inner `aiur restart` runs the OUTER checkout's rebuild against whatever

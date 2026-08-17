@@ -1383,8 +1383,18 @@ defmodule Aiur.AppServerTest do
         |> File.read!()
         |> :binary.split(<<0>>, [:global, :trim_all])
 
-      assert ["-T", "-p", "2200", "worker-01", remote_command] = ssh_argv
-      assert remote_command =~ "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null bash -c "
+      assert [
+               "-T",
+               "-o",
+               "SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null",
+               "-p",
+               "2200",
+               "worker-01",
+               remote_command
+             ] = ssh_argv
+
+      assert remote_command =~ "test \"${HOME-}\" = /dev/null"
+      assert remote_command =~ "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null HOME=\"$AIUR_REMOTE_HOME\" bash -c "
       refute remote_command =~ "bash -lc "
       assert remote_command =~ "cd "
       assert remote_command =~ remote_workspace

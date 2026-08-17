@@ -15,8 +15,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
-    AutoResume,
     AgentTeardown,
+    AutoResume,
     ControlLifecycle,
     ControlLifecycleStore,
     DispatchPolicy,

@@ -40,7 +40,7 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_command(String.t(), keyword()) :: String.t()
   def scrub_shell_command(command, opts \\ []) when is_binary(command) do
     exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
-    "#{shell_startup_prefix()}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+    "#{shell_startup_prefix(opts)}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
   end
 
   @doc """
@@ -82,8 +82,11 @@ defmodule Aiur.AgentEnvironment do
     end)
   end
 
-  @spec shell_startup_prefix() :: String.t()
-  def shell_startup_prefix, do: "unset BASH_ENV ENV; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
+  @spec shell_startup_prefix(keyword()) :: String.t()
+  def shell_startup_prefix(opts \\ []) do
+    unset_names = if Keyword.get(opts, :trusted_bash_env, false), do: "ENV", else: "BASH_ENV ENV"
+    "unset #{unset_names}; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
+  end
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do

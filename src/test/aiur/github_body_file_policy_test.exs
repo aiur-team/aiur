@@ -34,38 +34,46 @@ defmodule Aiur.GitHubBodyFilePolicyTest do
   defp inline_gh_body_offenders(path) do
     case System.cmd("git", ["show", ":#{path}"], cd: @repo_root, stderr_to_stdout: true) do
       {contents, 0} ->
-        if String.valid?(contents) do
-          contents
-          |> executable_source_lines(path)
-          |> Enum.filter(fn {line, _line_number} -> inline_gh_body_line?(line) end)
-          |> Enum.map(fn {_line, line_number} -> "#{path}:#{line_number}" end)
-        else
-          []
-        end
+        offenders_from_contents(contents, path)
 
       {_error, _status} ->
         []
     end
   end
 
+  defp offenders_from_contents(contents, path) do
+    if String.valid?(contents) do
+      contents
+      |> executable_source_lines(path)
+      |> Enum.filter(fn {line, _line_number} -> inline_gh_body_line?(line) end)
+      |> Enum.map(fn {_line, line_number} -> "#{path}:#{line_number}" end)
+    else
+      []
+    end
+  end
+
   defp executable_source_lines(contents, path) do
     lines = contents |> String.split("\n") |> Enum.with_index(1)
 
-    if Path.extname(path) == ".md" do
-      {executable, _inside_fence?} =
-        Enum.reduce(lines, {[], false}, fn {line, _line_number} = numbered_line, {acc, inside_fence?} ->
-          if String.starts_with?(String.trim_leading(line), "```") do
-            {acc, not inside_fence?}
-          else
-            {if(inside_fence?, do: [numbered_line | acc], else: acc), inside_fence?}
-          end
-        end)
-
-      Enum.reverse(executable)
-    else
-      Enum.reject(lines, fn {line, _line_number} -> String.starts_with?(String.trim_leading(line), ["#", "//"]) end)
-    end
+    if Path.extname(path) == ".md",
+      do: markdown_executable_lines(lines),
+      else: Enum.reject(lines, &comment_line?/1)
   end
+
+  defp markdown_executable_lines(lines) do
+    {executable, _inside_fence?} =
+      Enum.reduce(lines, {[], false}, fn {line, _line_number} = numbered_line, {acc, inside_fence?} ->
+        if String.starts_with?(String.trim_leading(line), "```") do
+          {acc, not inside_fence?}
+        else
+          {if(inside_fence?, do: [numbered_line | acc], else: acc), inside_fence?}
+        end
+      end)
+
+    Enum.reverse(executable)
+  end
+
+  defp comment_line?({line, _line_number}), do: String.starts_with?(String.trim_leading(line), ["#", "//"])
 
   defp inline_gh_body_line?(line) do
     gh_command = ~r/(?:^|\s)gh\s+.*(?:--body(?:\s|=)|-b(?:\s|=)|-[fF]\s+["']?body=(?!@))/

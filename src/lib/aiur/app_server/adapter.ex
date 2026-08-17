@@ -149,7 +149,12 @@ defmodule Aiur.AppServer.Adapter do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-c", String.to_charlist(AgentEnvironment.scrub_shell_command(command))],
+            args: [
+              ~c"-c",
+              # workspace_env/1 has already removed the operator's BASH_ENV or
+              # replaced it with Aiur's immutable build-admission hook.
+              String.to_charlist(AgentEnvironment.scrub_shell_command(command, trusted_bash_env: true))
+            ],
             cd: String.to_charlist(workspace),
             env: AgentEnvironment.workspace_env(workspace) ++ port_env(Keyword.get(opts, :env, [])),
             line: @port_line_bytes
