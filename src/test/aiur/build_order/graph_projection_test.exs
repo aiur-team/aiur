@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GitHubGraph.Normalizer
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.{Failure, Policy, Snapshot}
   alias Aiur.TrackerIdentity
@@ -346,6 +347,103 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert entry.timer == nil
   end
 
+  # The regression this whole trigger exists to avoid, and the one a marker built
+  # only from the *root* issue silently reintroduces.
+  #
+  # GitHub does not bump a parent issue's `updatedAt` when a sub-issue closes, and
+  # closing does not change `member_count`. So a member finishing — the single
+  # change a Build Order page exists to show — leaves an `{identity, member_count,
+  # updated_at}` marker byte-identical, and the graph is never re-read. Under the
+  # deleted 15s cadence it appeared within 15 seconds; with that marker it never
+  # appears at all.
+  #
+  # The roots here are built by the real `Normalizer.root/2` from raw GraphQL
+  # nodes rather than by a fixture with a hand-set digest, so the test cannot pass
+  # by agreeing with itself about what the marker contains.
+  test "a member closing re-reads the graph even though the root is untouched" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+
+    # The cold read, so what follows is a *change* rather than a first fill.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # Nothing has changed yet, so nothing is bought.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # One member closes. The root issue itself is untouched: same `updatedAt`,
+    # same `member_count`, same title, same labels.
+    closed = normalized_root(1, ["CLOSED", "OPEN", "OPEN"])
+    assert closed.updated_at == open.updated_at
+    assert closed.member_count == open.member_count
+
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([closed]))})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+  end
+
+  # A lost update, and the reason the marker is captured at dispatch rather than
+  # at completion.
+  #
+  # A read starts while the catalog says D1. The catalog then moves to D2, so the
+  # root is due — but a read is already inflight and the request is declined. That
+  # read finally lands carrying D1-era data. If it stamps the marker held *now*,
+  # it stamps D2: the root is recorded as current at a state it has never held,
+  # and because nothing else moves the marker it is never read again.
+  #
+  # Two things have to be true to avoid that: the completion stamps D1, and the
+  # request declined mid-flight is queued rather than dropped.
+  test "a catalog change during an inflight read is not lost when the read lands" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+
+    # A read is dispatched against the D1 catalog, and deliberately left running.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    stale_reader = await_reader({:selected, first})
+
+    # The world moves underneath it: a member closes.
+    closed = normalized_root(1, ["CLOSED", "OPEN", "OPEN"])
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([closed]))})
+
+    # The inflight read cannot answer the new question, so no second reader starts
+    # yet — but the request must not have been thrown away either.
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 200
+
+    # The D1-era read lands. Its data is D1-era, so it must be recorded as D1 and
+    # the queued D2 request must now run.
+    finish(stale_reader, {:ok, ProviderResult.complete(selected(first))})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+
+    # And the stamp itself, which is the half the queue would otherwise paper
+    # over: the landed read holds D1-era data, so it must be recorded at D1. A D2
+    # stamp here is the lost update — it claims the root is current at a state it
+    # has never held, and the moment anything drops the queued read (a failure, a
+    # restart, an eviction) nothing is left that would ever re-read it.
+    recorded = :sys.get_state(projection).selected_fingerprints[Policy.root_key(first)]
+    assert recorded == Catalog.root_fingerprint(catalog([open]), first)
+    refute recorded == Catalog.root_fingerprint(catalog([closed]), first)
+  end
+
   # Deleting the viewer cadences leaves a question the cadence used to answer:
   # what reads a selected root at all? The answer must be a writer, and the only
   # daemon-owned writer left is the catalog reconciliation. If nothing triggered a
@@ -681,6 +779,45 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       epic_count: Keyword.get(opts, :epic_count),
       phase_count: Keyword.get(opts, :phase_count)
     })
+  end
+
+  # A root as the catalog GraphQL query actually returns it, put through the real
+  # normalizer. `member_states` are the sub-issue lifecycles; everything about the
+  # root itself is fixed, so any marker that moves between two calls moved because
+  # of a *member*.
+  defp normalized_root(number, member_states, {owner, repo} \\ @repository) do
+    members =
+      Enum.map(member_states, fn
+        "CLOSED" -> %{"state" => "CLOSED", "stateReason" => "COMPLETED"}
+        state -> %{"state" => state, "stateReason" => nil}
+      end)
+
+    Normalizer.root(
+      %{
+        "id" => "I#{number}",
+        "databaseId" => number,
+        "number" => number,
+        "title" => "Build Order #{number}",
+        "url" => "https://github.com/#{owner}/#{repo}/issues/#{number}",
+        "state" => "OPEN",
+        "stateReason" => nil,
+        "createdAt" => "2026-07-01T10:00:00Z",
+        "updatedAt" => "2026-07-15T11:00:00Z",
+        "repository" => %{"name" => repo, "owner" => %{"login" => owner}},
+        "parent" => nil,
+        "labels" => %{
+          "totalCount" => 1,
+          "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+          "nodes" => [%{"name" => "build-order"}]
+        },
+        "subIssues" => %{
+          "totalCount" => length(members),
+          "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+          "nodes" => members
+        }
+      },
+      {owner, repo}
+    )
   end
 
   defp identity(number, provider_id, repository \\ @repository) do

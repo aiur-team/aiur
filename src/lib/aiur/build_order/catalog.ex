@@ -128,15 +128,24 @@ defmodule Aiur.BuildOrder.Catalog do
   @doc """
   The change marker the catalog holds for one root, or `nil`.
 
-  This is the same `{identity, member_count, updated_at}` triple that
-  `carry_forward_counts/2` uses as its match key, exposed so a caller can ask
-  "has this root moved since I last read it?" without re-reading the root.
+  Deliberately **not** `carry_key/1`, because the two answer different questions
+  and conflating them broke one of them. `carry_key/1` asks "may I reuse the
+  epic/phase counts I resolved last time?", which stays true while the members'
+  *labels* are unchanged — a member closing does not invalidate it. This asks
+  "must I re-read this root's graph?", which a member closing very much does.
 
-  It answers that question no more precisely than `carry_forward_counts/2` does
-  — see the note there. GitHub does not bump a parent issue's `updatedAt` when a
-  sub-issue is relabelled, so a member changing lane or phase looks unchanged
-  here. What it does catch is the coarser drift: the root edited, a member added
-  or removed, or a different root under the same key.
+  So this adds the members' lifecycle digest to the triple. That matters more
+  than it sounds: **GitHub does not bump a parent issue's `updatedAt` when a
+  sub-issue closes**, and closing does not change `member_count` either, so
+  without the digest the single most important change a Build Order page can show
+  — a member finishing — left this marker byte-identical and the graph was never
+  re-read. The digest costs nothing: the catalog query already asks every member
+  for `state`/`stateReason`.
+
+  What it still does not catch is a member being *relabelled*: the catalog read
+  that produces this marker deliberately omits the per-member `labels` connection
+  because that variant costs 26 points against 1 (#1766). That gap belongs to the
+  plan's slow safety sweep.
 
   `nil` means "no comparable marker", which is deliberately different from a
   marker that differs. A caller must not read the difference between two `nil`s
@@ -145,12 +154,19 @@ defmodule Aiur.BuildOrder.Catalog do
   @spec root_fingerprint(t(), term()) :: term() | nil
   def root_fingerprint(%__MODULE__{entries: entries}, identity) do
     case Enum.find(entries, &same_identity?(&1.identity, identity)) do
-      %RootSummary{} = root -> carry_key(root)
+      %RootSummary{} = root -> change_key(root)
       _other -> nil
     end
   end
 
   def root_fingerprint(_catalog, _identity), do: nil
+
+  defp change_key(%RootSummary{member_state_digest: digest} = root) do
+    case carry_key(root) do
+      nil -> nil
+      key -> {key, digest}
+    end
+  end
 
   @spec select(t(), term()) :: selection()
   def select(%__MODULE__{} = catalog, identity) do

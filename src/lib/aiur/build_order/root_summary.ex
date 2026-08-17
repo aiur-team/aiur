@@ -21,6 +21,7 @@ defmodule Aiur.BuildOrder.RootSummary do
           progress: non_neg_integer() | nil,
           progress_resolution: progress_resolution(),
           progress_resolved_count: non_neg_integer() | nil,
+          member_state_digest: non_neg_integer() | nil,
           completed?: boolean(),
           diagnostics: [Diagnostic.t()]
         }
@@ -40,6 +41,11 @@ defmodule Aiur.BuildOrder.RootSummary do
             progress: nil,
             progress_resolution: :unknown,
             progress_resolved_count: nil,
+            # A hash of the members' lifecycle states, or nil when the read could
+            # not resolve them. Not rendered anywhere: it exists so a caller can
+            # ask "did any member change state?" without a second request, which
+            # is the one question the root issue's own `updatedAt` cannot answer.
+            member_state_digest: nil,
             completed?: false,
             diagnostics: []
 
@@ -80,6 +86,7 @@ defmodule Aiur.BuildOrder.RootSummary do
       progress: progress,
       progress_resolution: progress_resolution,
       progress_resolved_count: count(Map.get(attributes, :progress_resolved_count)),
+      member_state_digest: digest(Map.get(attributes, :member_state_digest)),
       completed?: Map.get(attributes, :completed?) == true,
       diagnostics: diagnostics
     }
@@ -133,6 +140,9 @@ defmodule Aiur.BuildOrder.RootSummary do
   end
 
   defp parent(_parent), do: {nil, Diagnostic.new(:root_has_parent)}
+
+  defp digest(value) when is_integer(value) and value >= 0, do: value
+  defp digest(_value), do: nil
 
   defp lifecycle(%{lifecycle: %Lifecycle{} = lifecycle}), do: lifecycle
 
