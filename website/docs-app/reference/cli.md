@@ -191,6 +191,8 @@ Normal control commands use a bounded RPC. After ten seconds the launcher termin
 
 An open **blocking** ask is also printed by plain `aiur status`; no extra flag is required. That keeps a durable request in the normal operating view instead of hiding it in a ledger that nobody reads.
 
+`--blocking` and `--filter blocking` mean *dispatch is held until you answer this*, which is also what the dispatch gate reads. An agent attention is a visibility signal rather than a gate — the agent keeps running after it opens one — so attentions are listed by `aiur commands` but are not counted as blocking. Answering a Command also dismisses any still-open Command asking the same question on the same ticket, so a question filed more than once clears in one answer.
+
 ## Operational facts that change an incident response
 
 | Fact | Response |
