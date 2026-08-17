@@ -112,7 +112,7 @@ targets_release_deliberately() {
     agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
     watch | init | findings | guard-pr-deletions | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    ask | asks | usage | commands | units | build-orders | analytics) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | analytics | github-cost) return 1 ;;
     executor-*) return 1 ;;
     *) return 0 ;;
   esac
@@ -501,7 +501,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 0 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost) return 0 ;;
     *) return 1 ;;
   esac
 }

@@ -4,6 +4,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.BuildGate
+  alias Aiur.BuildOrder.Cadence
   alias Aiur.Config.RoutingValue
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
@@ -558,12 +559,17 @@ defmodule Aiur.Config do
   end
 
   @doc false
-  @spec build_order_ticket_detail_cache_options() :: keyword()
-  def build_order_ticket_detail_cache_options do
+  @spec build_order_ticket_detail_coordinator_options() :: keyword()
+  def build_order_ticket_detail_coordinator_options do
     build_order = settings!().build_order
 
     [
-      freshness_ms: build_order.ticket_detail_freshness_ms,
+      freshness_ms:
+        Cadence.resolve(
+          :ticket_detail_freshness_ms,
+          build_order.ticket_detail_freshness_ms,
+          poll_interval_seconds()
+        ),
       max_entries: build_order.ticket_detail_max_entries,
       max_description_bytes: build_order.ticket_detail_max_description_bytes
     ]
@@ -586,11 +592,20 @@ defmodule Aiur.Config do
   def build_order_graph_projection_options do
     build_order = settings!().build_order
 
+    # Derived from the tracker's own cycle unless the operator said otherwise.
+    # Build Order shows state the tracker produces, so a cadence faster than the
+    # poll interval re-reads a graph that cannot have moved — which is exactly
+    # what the old 15s and 5s constants did once #2064 slowed the tracker.
+    poll_interval_seconds = poll_interval_seconds()
+
     [
-      catalog_refresh_ms: build_order.graph_catalog_refresh_ms,
-      catalog_labels_refresh_ms: build_order.graph_catalog_labels_refresh_ms,
-      selected_refresh_ms: build_order.graph_selected_refresh_ms,
-      demand_refresh_ms: build_order.graph_demand_refresh_ms,
+      catalog_refresh_ms: Cadence.resolve(:graph_catalog_refresh_ms, build_order.graph_catalog_refresh_ms, poll_interval_seconds),
+      catalog_labels_refresh_ms:
+        Cadence.resolve(
+          :graph_catalog_labels_refresh_ms,
+          build_order.graph_catalog_labels_refresh_ms,
+          poll_interval_seconds
+        ),
       refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
       max_selected_roots: build_order.graph_max_selected_roots,
       max_inflight: build_order.graph_max_inflight

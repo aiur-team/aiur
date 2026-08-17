@@ -202,7 +202,7 @@ defmodule Aiur.Application do
       # API key it observes nothing at all, so an unconfigured account costs a
       # boot-time config read and never a request.
       Aiur.ElevenLabs.Quota,
-      {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
+      {Aiur.BuildOrder.TicketDetailCoordinator, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},

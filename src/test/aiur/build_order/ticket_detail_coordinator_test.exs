@@ -1,12 +1,22 @@
-defmodule Aiur.BuildOrder.TicketDetailCacheTest do
+defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{BuildOrder.Lifecycle, BuildOrder.TicketDetail, TrackerIdentity}
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}
-  alias Aiur.BuildOrder.TicketDetailCache
+  alias Aiur.BuildOrder.TicketDetailCoordinator
+  alias Aiur.GitHub.ResourceStore
 
   @configured {"owner", "repo"}
   @workflow_configuration_topic "workflow_store:configuration"
+
+  # The coordinator no longer holds GitHub bodies — `Aiur.GitHub.ResourceStore`
+  # does, keyed by the issue rather than by the reader. That is the point of the
+  # change, and it means these cases, which all read issue 42 with a different
+  # stubbed body, would otherwise serve each other's bodies.
+  setup do
+    ResourceStore.reset()
+    :ok
+  end
 
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
@@ -33,12 +43,12 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable, generation: 1}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable, generation: 1}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, reader_pid}, 2_000
 
     for _ <- 1..3 do
-      assert {:ok, %State{health: :unavailable, generation: 1}} = TicketDetailCache.request(cache, identity)
+      assert {:ok, %State{health: :unavailable, generation: 1}} = TicketDetailCoordinator.request(cache, identity)
     end
 
     refute_receive {:reader_started, _reader_pid}
@@ -50,7 +60,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     )
 
     assert {:ok, %State{health: :healthy, generation: 1, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.current(cache, identity)
+             TicketDetailCoordinator.current(cache, identity)
   end
 
   test "constant repository fixture does not subscribe to workflow configuration" do
@@ -68,8 +78,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, reader_pid}, 2_000
 
     refute Enum.any?(
@@ -92,7 +102,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     {:ok, cache} =
       start_cache(reader: fn _identity -> flunk("reader must not be invoked") end)
 
-    assert {:error, %Failure{kind: :nonfetchable_repository}} = TicketDetailCache.request(cache, foreign)
+    assert {:error, %Failure{kind: :nonfetchable_repository}} = TicketDetailCoordinator.request(cache, foreign)
     assert %{entries: %{}} = :sys.get_state(cache)
   end
 
@@ -108,14 +118,14 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         reader: fn _identity -> Agent.get_and_update(results, fn [result | rest] -> {result, rest} end) end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
 
     Agent.update(clock, fn _ -> 11 end)
 
     assert {:ok, %State{health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -132,8 +142,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     identity = identity(42, "I42")
     {:ok, cache} = start_cache(reader: fn _identity -> {:error, %Failure{kind: :not_found}} end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -149,15 +159,15 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     {:ok, cache} =
       start_cache(reader: fn _identity -> Agent.get_and_update(results, fn [result | rest] -> {result, rest} end) end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive(
       {:ticket_detail_updated, %State{generation: 1, health: :unavailable, detail: nil}},
       2_000
     )
 
-    assert {:ok, %State{generation: 2, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert {:ok, %State{generation: 2, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive(
       {:ticket_detail_updated, %State{generation: 2, health: :healthy, detail: %Snapshot{title: "recovered"}}},
@@ -172,14 +182,14 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     {:ok, cache} =
       start_cache(max_entries: 1, reader: fn identity -> {:ok, snapshot(identity, identity.identifier)} end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, first)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, first)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, first)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, identity: ^first}}, 2_000
 
-    assert :ok = TicketDetailCache.subscribe(cache, second)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, second)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, second)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, second)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, identity: ^second}}, 2_000
-    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, first)
+    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCoordinator.current(cache, first)
   end
 
   test "notifies every subscriber before evicting a completed entry" do
@@ -195,7 +205,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     assert_receive {:detail_subscribed, ^first_subscriber}, 2_000
     assert_receive {:detail_subscribed, ^second_subscriber}, 2_000
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, first)
 
     assert_receive {:detail_update, ^first_subscriber, {:ticket_detail_updated, first_update}}, 2_000
     assert %State{generation: 1, health: :healthy, identity: ^first} = first_update
@@ -203,7 +213,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert_receive {:detail_update, ^second_subscriber, {:ticket_detail_updated, second_update}}, 2_000
     assert %State{generation: 1, health: :healthy, identity: ^first} = second_update
 
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, second)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, second)
 
     assert_receive {
                      :detail_update,
@@ -233,7 +243,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
                    },
                    2_000
 
-    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCache.current(cache, first)
+    assert {:ok, %State{health: :unavailable, detail: nil}} = TicketDetailCoordinator.current(cache, first)
   end
 
   test "does not evict an in-flight identity to exceed the configured capacity" do
@@ -253,9 +263,9 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, first)
     assert_receive {:reader_started, reader_pid}, 2_000
-    assert {:error, %Failure{kind: :capacity}} = TicketDetailCache.request(cache, second)
+    assert {:error, %Failure{kind: :capacity}} = TicketDetailCoordinator.request(cache, second)
     send(reader_pid, :finish)
   end
 
@@ -266,8 +276,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     {:ok, cache} =
       start_cache(reader: fn _identity -> {:ok, snapshot(other_identity, "wrong ticket")} end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -305,8 +315,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive(
       {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
@@ -316,7 +326,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     Agent.update(clock, fn _ -> 2 end)
 
     assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:reader_started, reader_pid}, 2_000
     assert @configured == inflight_repository(cache, identity)
@@ -354,13 +364,13 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
 
     Agent.update(repository, fn _repository -> {"other", "repo"} end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, switched_identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, switched_identity)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -368,19 +378,19 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
                    },
                    2_000
 
-    assert {:error, %Failure{kind: :nonfetchable_repository}} = TicketDetailCache.current(cache, identity)
+    assert {:error, %Failure{kind: :nonfetchable_repository}} = TicketDetailCoordinator.current(cache, identity)
 
     assert {:ok, %State{identity: ^switched_identity, health: :unavailable}} =
-             TicketDetailCache.current(cache, switched_identity)
+             TicketDetailCoordinator.current(cache, switched_identity)
 
     assert %{entries: %{}} = :sys.get_state(cache)
 
     Agent.update(repository, fn _repository -> @configured end)
 
     assert {:ok, %State{identity: ^identity, health: :unavailable, detail: nil}} =
-             TicketDetailCache.current(cache, identity)
+             TicketDetailCoordinator.current(cache, identity)
 
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "second"}}}, 2_000
     assert Agent.get(attempts, & &1) == 2
   end
@@ -404,14 +414,14 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, first)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, first)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, first)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, first)
     assert_receive {:reader_started, ^first, _first_reader}, 2_000
 
     Agent.update(repository, fn _repository -> {"other", "repo"} end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, second)
-    assert {:ok, %State{identity: ^second, health: :unavailable}} = TicketDetailCache.request(cache, second)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, second)
+    assert {:ok, %State{identity: ^second, health: :unavailable}} = TicketDetailCoordinator.request(cache, second)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -439,8 +449,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       )
 
     assert_receive {:configuration_subscribed, ^cache}, 2_000
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, identity: ^identity}}, 2_000
 
     Agent.update(repository, fn _repository -> {"other", "repo"} end)
@@ -470,13 +480,13 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         reader: fn requested_identity -> {:ok, snapshot(requested_identity, "first")} end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
 
     Agent.update(mode, fn _mode -> :failed end)
 
-    assert {:error, %Failure{kind: :configuration}} = TicketDetailCache.current(cache, identity)
+    assert {:error, %Failure{kind: :configuration}} = TicketDetailCoordinator.current(cache, identity)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -489,7 +499,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     Agent.update(mode, fn _mode -> :healthy end)
 
     assert {:ok, %State{health: :healthy, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.current(cache, identity)
+             TicketDetailCoordinator.current(cache, identity)
   end
 
   test "configuration failure cancels an in-flight refresh without losing last-known-good detail" do
@@ -524,20 +534,20 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, detail: %Snapshot{title: "first"}}}, 2_000
 
     Agent.update(clock, fn _clock -> 2 end)
 
     assert {:ok, %State{health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:reader_started, reader_pid}, 2_000
     ref = inflight_ref(cache, identity)
     Agent.update(mode, fn _mode -> :failed end)
 
-    assert {:error, %Failure{kind: :configuration}} = TicketDetailCache.current(cache, identity)
+    assert {:error, %Failure{kind: :configuration}} = TicketDetailCoordinator.current(cache, identity)
 
     assert_receive {
                      :ticket_detail_updated,
@@ -568,8 +578,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, reader_pid}, 2_000
     ref = inflight_ref(cache, identity)
 
@@ -581,7 +591,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute Process.alive?(reader_pid)
 
     assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
-             TicketDetailCache.current(cache, identity)
+             TicketDetailCoordinator.current(cache, identity)
   end
 
   test "publishes structured credential-sanitized detail without the raw provider body" do
@@ -632,8 +642,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:ticket_detail_updated, %State{detail: %Snapshot{description: description}}}, 2_000
     assert description =~ "[REDACTED:credential]"
@@ -708,8 +718,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{detail: %Snapshot{description: description}}}, 2_000
 
     for secret <- [
@@ -753,8 +763,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{detail: %Snapshot{description: description}}}, 2_000
 
     assert description =~ "[REDACTED:credential]"
@@ -793,8 +803,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive(
       {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
@@ -805,7 +815,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     Agent.update(clock, fn _ -> 2 end)
 
     assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:ticket_detail_updated, outage_state}, 2_000
 
@@ -821,7 +831,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     :sys.replace_state(cache, &Map.put(&1, :task_supervisor, recovered_supervisor))
 
     assert {:ok, %State{generation: 3, health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:ticket_detail_updated,
                     %State{
@@ -842,10 +852,10 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         reader: fn _identity -> {:ok, snapshot(identity, "recovered")} end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
 
     assert {:ok, %State{generation: 1, health: :unavailable, failure: %Failure{kind: :transport}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:ticket_detail_updated,
                     %State{
@@ -859,7 +869,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     {:ok, healthy_supervisor} = Task.Supervisor.start_link()
     :sys.replace_state(cache, &Map.put(&1, :task_supervisor, healthy_supervisor))
 
-    assert {:ok, %State{generation: 2, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert {:ok, %State{generation: 2, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:ticket_detail_updated,
                     %State{
@@ -886,8 +896,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, reader_pid}, 2_000
     ref = inflight_ref(cache, identity)
     send(cache, {:refresh_timeout, ref, 1})
@@ -901,7 +911,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
 
     assert {:ok, %State{health: :unavailable, failure: %Failure{kind: :timeout}}} =
-             TicketDetailCache.current(cache, identity)
+             TicketDetailCoordinator.current(cache, identity)
   end
 
   test "keeps last-known-good detail stale when a refresh task times out" do
@@ -930,8 +940,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive(
       {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
@@ -941,7 +951,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     Agent.update(clock, fn _ -> 2 end)
 
     assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:reader_started, reader_pid}, 2_000
     ref = inflight_ref(cache, identity)
@@ -991,8 +1001,8 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1, health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
 
     assert_receive(
       {:ticket_detail_updated, %State{generation: 1, health: :healthy, detail: %Snapshot{title: "first"}}},
@@ -1002,7 +1012,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     Agent.update(clock, fn _ -> 2 end)
 
     assert {:ok, %State{generation: 2, health: :stale, detail: %Snapshot{title: "first"}}} =
-             TicketDetailCache.request(cache, identity)
+             TicketDetailCoordinator.request(cache, identity)
 
     assert_receive {:reader_started, reader_pid}, 2_000
     ref = inflight_ref(cache, identity)
@@ -1050,15 +1060,15 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
         end
       )
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{generation: 1}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{generation: 1}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, 1, first_reader}, 2_000
     first_ref = inflight_ref(cache, identity)
     send(first_reader, :finish)
     assert_receive {:ticket_detail_updated, %State{generation: 1, detail: %Snapshot{title: "first"}}}, 2_000
 
     Agent.update(clock, fn _ -> 11 end)
-    assert {:ok, %State{generation: 2, health: :stale}} = TicketDetailCache.request(cache, identity)
+    assert {:ok, %State{generation: 2, health: :stale}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, 2, second_reader}, 2_000
 
     send(cache, {first_ref, {:ok, snapshot(identity, "late")}})
@@ -1073,15 +1083,15 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     identity = identity(42, "I42")
     {:ok, cache} = start_cache(reader: fn identity -> {:ok, snapshot(identity, "first")} end)
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, identity: ^identity}}, 2_000
     :ok = GenServer.stop(cache)
 
     {:ok, restarted} = start_cache(reader: fn _identity -> flunk("current must not fetch") end)
 
     assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
-             TicketDetailCache.current(restarted, identity)
+             TicketDetailCoordinator.current(restarted, identity)
   end
 
   test "abnormal supervised restart tells existing subscribers to clear detail" do
@@ -1098,21 +1108,21 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       reader: fn requested_identity -> {:ok, snapshot(requested_identity, "first")} end
     ]
 
-    {:ok, supervisor} = Supervisor.start_link([{TicketDetailCache, cache_options}], strategy: :one_for_one)
+    {:ok, supervisor} = Supervisor.start_link([{TicketDetailCoordinator, cache_options}], strategy: :one_for_one)
     cache = cache_child(supervisor)
 
-    assert :ok = TicketDetailCache.subscribe(cache, identity)
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert :ok = TicketDetailCoordinator.subscribe(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:ticket_detail_updated, %State{health: :healthy, identity: ^identity}}, 2_000
 
     Process.exit(cache, :kill)
 
-    assert_receive {:ticket_detail_cache_reset, 2}, 2_000
+    assert_receive {:ticket_detail_coordinator_reset, 2}, 2_000
     restarted = cache_child(supervisor)
     refute restarted == cache
 
     assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
-             TicketDetailCache.current(restarted, identity)
+             TicketDetailCoordinator.current(restarted, identity)
   end
 
   test "abnormal restart kills owned in-flight reads before replacement demand" do
@@ -1136,10 +1146,10 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
       end
     ]
 
-    {:ok, supervisor} = Supervisor.start_link([{TicketDetailCache, cache_options}], strategy: :one_for_one)
+    {:ok, supervisor} = Supervisor.start_link([{TicketDetailCoordinator, cache_options}], strategy: :one_for_one)
     cache = cache_child(supervisor)
 
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(cache, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, 1, old_reader}, 2_000
     old_reader_ref = Process.monitor(old_reader)
 
@@ -1148,7 +1158,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
     restarted = cache_child(supervisor)
     refute restarted == cache
-    assert {:ok, %State{health: :unavailable}} = TicketDetailCache.request(restarted, identity)
+    assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(restarted, identity)
     assert_receive {:reader_started, 2, new_reader}, 2_000
     refute Process.alive?(old_reader)
     send(new_reader, :finish)
@@ -1174,7 +1184,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
   defp start_cache(opts) do
     {:ok, task_supervisor} = Task.Supervisor.start_link()
 
-    TicketDetailCache.start_link(
+    TicketDetailCoordinator.start_link(
       Keyword.merge(
         [
           name: nil,
@@ -1251,14 +1261,14 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
 
   defp subscribe_and_forward(cache, identity, parent) do
     spawn_link(fn ->
-      :ok = TicketDetailCache.subscribe(cache, identity)
+      :ok = TicketDetailCoordinator.subscribe(cache, identity)
       send(parent, {:detail_subscribed, self()})
       forward_detail_updates(parent)
     end)
   end
 
   defp cache_child(supervisor) do
-    [{TicketDetailCache, cache, :worker, _modules}] = Supervisor.which_children(supervisor)
+    [{TicketDetailCoordinator, cache, :worker, _modules}] = Supervisor.which_children(supervisor)
     cache
   end
 
