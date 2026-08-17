@@ -341,7 +341,7 @@ defmodule Aiur.BuildOrder.PackStatus do
     query = issue_state_query(numbers)
     variables = %{"owner" => owner, "name" => repo}
 
-    case Transport.github_graphql(state.request_fun, token, query, variables) do
+    case Transport.github_graphql(state.request_fun, token, query, variables, caller: :build_order_pack_status) do
       {:ok, %{"data" => %{"repository" => repository}}} when is_map(repository) ->
         complete_lifecycles(numbers, repository)
 

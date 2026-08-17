@@ -190,9 +190,14 @@ reads retain the last-known-good file and mark Build Order health stale or
 unavailable until a later refresh succeeds.
 
 The optional root-level `build_order` section configures three supervised,
-in-memory configured-repository stores. Ticket detail defaults to a 30-second
-freshness window, 32 retained identities, and 16,384 sanitized description
-bytes. `ticket_detail_freshness_ms` accepts `1..300000`,
+in-memory configured-repository stores. Ticket detail retains 32 identities and
+16,384 sanitized description bytes. Its freshness window is derived from
+`polling.interval_seconds` (a quarter of it, floored at 5 seconds, so 30 seconds
+at the default 120-second poll) rather than fixed, because Build Order shows
+state the tracker produces and cannot be fresher than the tracker's own cycle.
+It is not a cadence — nothing fires on it. It is the staleness a ticket-detail
+reader accepts from the shared store before revalidating.
+`ticket_detail_freshness_ms` accepts `1..300000`,
 `ticket_detail_max_entries` accepts `1..100`, and
 `ticket_detail_max_description_bytes` accepts `1..16384`.
 
@@ -207,16 +212,44 @@ evidence is observed.
 The planning graph projection owns provider polling independently of connected
 browsers. Its public settings and inclusive bounds are:
 
-- `graph_catalog_refresh_ms`: default `60000`, range `1..3600000`.
-- `graph_catalog_labels_refresh_ms`: default `600000`, range `1..3600000`.
+Three settings have no fixed default: the two catalog cadences below, plus the
+`ticket_detail_freshness_ms` window described above. They are derived from
+`polling.interval_seconds` — see `Aiur.BuildOrder.Cadence` — and an explicit
+value overrides the derivation. Fixed constants are what let the previous
+defaults, chosen for a 5-second tracker poll, survive the move to 120 seconds.
+
+- `graph_catalog_refresh_ms`: derived at 1x the poll interval, range `1..3600000`.
+  This is daemon-owned catalog reconciliation — it runs whether or not anyone is
+  watching, and it is what notices a root appearing or changing.
+- `graph_catalog_labels_refresh_ms`: derived at 5x the poll interval with a
+  600000 floor, never below `graph_catalog_refresh_ms`, range `1..3600000`.
   Epic and wave counts are label-derived, and the per-member label read costs
   roughly 26 GraphQL points against the 5000-points/hour budget versus 1
   without it, so it runs on this slower cadence. Resolved counts carry forward
   across the cheaper polls only while a root is provably unchanged.
-- `graph_selected_refresh_ms`: default `15000`, range `1..300000`, while a
-  selected root has active demand.
-- `graph_demand_refresh_ms`: default `5000`, range `1..300000`; it must not
-  exceed `graph_selected_refresh_ms`.
+
+`graph_selected_refresh_ms` and `graph_demand_refresh_ms` are gone — deleted from
+the config schema, not retuned. They were the two settings by which *viewing*
+bought GitHub reads: `graph_demand_refresh_ms` fired when an operator selected a
+root, and `graph_selected_refresh_ms` repeated for as long as the page stayed
+open. No value makes that correct, because it makes API cost track who is looking
+rather than what changed. A selected root is now read only when a writer — a
+webhook, an agent mutation, or the daemon's catalog reconciliation — or an
+explicit `Aiur.BuildOrder.GraphProjection.refresh/2` asks for it, so opening the
+Build Order page, selecting a root, and holding it open cost zero GitHub reads. A
+configuration that still sets either key keeps loading: the schema ignores keys
+outside its permitted list, so an upgrade yields the new behaviour rather than a
+boot failure.
+
+No GraphQL read behind Build Order can be revalidated: GitHub's GraphQL API
+returns no `ETag`, so `AiurBuildOrderCatalog`, `AiurBuildOrderSelectedRoot` and
+`AiurLinkedPullRequests` can never answer `304`, and cadence and connection size
+are their only cost controls. The REST ticket-detail read is conditional and goes
+through `Aiur.GitHub.ResourceStore`, so an unchanged refresh costs no primary
+rate limit and a ticket the tracker poll already fetched costs nothing at all.
+
+The remaining graph settings keep fixed defaults:
+
 - `graph_refresh_timeout_ms`: default `30000`, range `1..120000`.
 - `graph_max_selected_roots`: default `32`, range `1..100` retained
   last-known-good roots.

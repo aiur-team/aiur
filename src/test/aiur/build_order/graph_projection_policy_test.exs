@@ -8,36 +8,35 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
   @repository {"owner", "repo"}
   @now ~U[2026-07-15 12:00:00Z]
 
-  test "default catalog, selected, and demand freshness become due at exact boundaries" do
+  test "catalog freshness becomes due at exact boundaries" do
     baseline_ms = 1_000
     policy = Options.new(clock_ms: fn -> baseline_ms end).policy
     entry = %{last_success_ms: baseline_ms}
 
     assert policy.catalog_refresh_ms == 60_000
-    assert policy.selected_refresh_ms == 15_000
-    assert policy.demand_refresh_ms == 5_000
 
-    for interval <- [
-          policy.catalog_refresh_ms,
-          policy.selected_refresh_ms,
-          policy.demand_refresh_ms
-        ] do
-      refute Policy.due?(entry, baseline_ms + interval - 1, interval)
-      assert Policy.due?(entry, baseline_ms + interval, interval)
-      assert Policy.due?(entry, baseline_ms + interval + 1, interval)
-    end
+    interval = policy.catalog_refresh_ms
+    refute Policy.due?(entry, baseline_ms + interval - 1, interval)
+    assert Policy.due?(entry, baseline_ms + interval, interval)
+    assert Policy.due?(entry, baseline_ms + interval + 1, interval)
+  end
+
+  # The catalog is the only scope left with an interval. A selected root is read
+  # when a writer or an explicit refresh asks for it, so a policy that still
+  # carried a selected or demand interval would mean the viewer-driven refresh
+  # had come back.
+  test "the policy carries no viewer-driven interval" do
+    policy = Options.new(clock_ms: fn -> 0 end).policy
+
+    refute Map.has_key?(policy, :selected_refresh_ms)
+    refute Map.has_key?(policy, :demand_refresh_ms)
   end
 
   test "configured refresh interval preserves the same deterministic boundary" do
     baseline_ms = 10_000
     configured_ms = 120_000
 
-    policy =
-      Options.policy_options(
-        catalog_refresh_ms: configured_ms,
-        selected_refresh_ms: 30_000,
-        demand_refresh_ms: 10_000
-      )
+    policy = Options.policy_options(catalog_refresh_ms: configured_ms)
 
     entry = %{last_success_ms: baseline_ms}
 
@@ -47,16 +46,19 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
     assert Policy.due?(entry, baseline_ms + configured_ms + 1, configured_ms)
   end
 
-  test "demand refresh falls back when it exceeds selected refresh" do
+  # A configuration still carrying the deleted viewer cadences must be inert
+  # rather than fatal: the keys are ignored, not honoured and not rejected.
+  test "the deleted viewer cadences are ignored if still configured" do
     policy =
       Options.policy_options(
+        catalog_refresh_ms: 60_000,
         selected_refresh_ms: 10_000,
         demand_refresh_ms: 10_001
       )
 
-    assert policy.selected_refresh_ms == 10_000
-    assert policy.demand_refresh_ms == 5_000
-    assert policy.demand_refresh_ms <= policy.selected_refresh_ms
+    assert policy.catalog_refresh_ms == 60_000
+    refute Map.has_key?(policy, :selected_refresh_ms)
+    refute Map.has_key?(policy, :demand_refresh_ms)
   end
 
   test "only complete matching candidates pass the atomic publication gate" do

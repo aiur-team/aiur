@@ -185,7 +185,11 @@ defmodule Aiur.GitHub.ResourceStore do
     :pr_issue_comments,
     :pull_request,
     :pull_request_reviews,
-    :labelled_pull_requests
+    :labelled_pull_requests,
+    # The open pull request belonging to a ticket's head branch. Keyed by the
+    # ticket number rather than the PR number, because that is the only identity
+    # the caller holds before the lookup answers.
+    :branch_pull_request
   ]
 
   @type resource_type :: atom()
