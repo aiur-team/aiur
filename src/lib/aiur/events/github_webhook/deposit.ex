@@ -241,29 +241,38 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         []
 
       key ->
-        # The ordering guard runs *inside* the store's compare-and-swap, against
-        # the marker the entry holds at the instant of the write. Asking the store
-        # first and depositing afterwards made this a check-then-act with a whole
-        # round trip in the middle: a newer delivery or a mutation response
-        # landing in that gap was answered "no regression" and then overwritten by
-        # this older body, `"state"` included — the exact rollback the guard
-        # exists to refuse, committed by the guard's own call site.
-        #
-        # No `:etag`: a delivery carries no validator, and the store refuses a
-        # new validator that arrives without the body it validates anyway.
-        outcome =
-          ResourceStore.update_resource(
-            key,
-            fn _held, %{version: held} -> if regression?(held, version), do: :unchanged, else: body end,
-            source: :webhook,
-            version: version
-          )
-
-        case outcome do
+        case deposit_unless_older(key, body, version) do
           :unchanged -> []
           :ok -> confirm(key)
         end
     end
+  end
+
+  # The ordering guard runs *inside* the store's compare-and-swap, against the
+  # marker the entry holds at the instant of the write. Asking the store first and
+  # depositing afterwards made this a check-then-act with a whole round trip in
+  # the middle: a newer delivery or a mutation response landing in that gap was
+  # answered "no regression" and then overwritten by this older body, `"state"`
+  # included — the exact rollback the guard exists to refuse, committed by the
+  # guard's own call site. Keep the comparison in `accept/4`; hoisting it back out
+  # to a separate read restores the defect and nothing here would say so.
+  #
+  # No `:etag`: a delivery carries no validator, and the store refuses a new
+  # validator that arrives without the body it validates anyway.
+  defp deposit_unless_older(key, body, version) do
+    ResourceStore.update_resource(
+      key,
+      &accept(&1, &2, body, version),
+      source: :webhook,
+      version: version
+    )
+  end
+
+  # Answers the body to deposit, or `:unchanged` to decline the write — evaluated
+  # by the store inside its swap, so `held` is the marker the entry carries at
+  # that instant rather than one read a round trip earlier.
+  defp accept(_held_body, %{version: held}, body, version) do
+    if regression?(held, version), do: :unchanged, else: body
   end
 
   # GitHub does not order deliveries, and a single delivery carries more than the
@@ -281,8 +290,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # legitimately differ under an unchanged marker (a dismissed review), and the
   # newer arrival is the better answer. A missing marker on either side is not a
   # judgement that anything went backwards, so it writes.
-  # A pure comparison of two markers, so it can be evaluated inside the store's
-  # swap instead of in a separate read.
+  #
+  # A pure comparison of two markers, deliberately, so it can be evaluated inside
+  # the store's swap instead of in a separate read.
   defp regression?(held, version) when is_binary(held) and is_binary(version), do: version < held
   defp regression?(_held, _version), do: false
 
