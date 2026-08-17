@@ -216,9 +216,10 @@ operator action.
 
 ### Executor roster states
 
-`aiur executor-roster` derives state from evidence, never from presence. A
-stalled consumer still holds a claim and still renews its lease, so a
+A stalled consumer still holds a claim and still renews its lease, so a
 presence-based list reports it as fine.
+
+`aiur executor-roster` derives state from evidence, never from presence.
 
 | State | Meaning |
 | --- | --- |
