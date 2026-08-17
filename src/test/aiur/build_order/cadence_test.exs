@@ -27,11 +27,14 @@ defmodule Aiur.BuildOrder.CadenceTest do
     # they no longer exist. Deriving a better number for them would have kept the
     # page paying for being open; the fix was to delete them. This test is the
     # guard against a later change quietly reintroducing one.
+    # Asserted as the exact key set, not as two absent names. `derive/1` returns
+    # a closed map literal, so `refute Map.has_key?(derived, :anything_at_all)`
+    # is statically true and would pass against any implementation. The set is
+    # what fails when a cadence is added back — under either of those names or a
+    # new one.
     test "no viewer-driven cadence is derived" do
-      derived = Cadence.derive(120)
-
-      refute Map.has_key?(derived, :graph_selected_refresh_ms)
-      refute Map.has_key?(derived, :graph_demand_refresh_ms)
+      assert 120 |> Cadence.derive() |> Map.keys() |> Enum.sort() ==
+               [:graph_catalog_labels_refresh_ms, :graph_catalog_refresh_ms, :ticket_detail_freshness_ms]
     end
 
     # The labelled catalog read costs 26 points per page against the cheap read's

@@ -18,7 +18,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubWebhook, Publisher}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
   alias Aiur.Workflow
 
   @repo "owner/repo"
@@ -513,22 +513,27 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # only on a miss. The fetcher stands in for the upstream read — every
   # invocation of it is one request the consumer had to pay for — so the count it
   # returns is the number of upstream calls serving this resource cost.
+  # Goes through the real read-before-spend path rather than a `case` the test
+  # wrote for itself. That distinction is the whole assertion: counting a
+  # test-local closure only ever proves `ResourceStore.fetch/1` did not miss,
+  # whereas `ResourceFetch.need/3`'s fetcher is the one seam an upstream request
+  # would actually leave through — so a zero here is a zero on the rate limit.
   defp read_through(key) do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
-    fetcher = fn ->
+    fetcher = fn _opts ->
       Agent.update(counter, &(&1 + 1))
-      :fetched_from_github
+      {:ok, :fetched_from_github}
     end
 
-    body =
-      case ResourceStore.fetch(key) do
-        {:ok, %{data: data}} -> data
-        :miss -> fetcher.()
-      end
+    {:ok, body, meta} = ResourceFetch.need(key, fetcher, freshness: :any)
 
     calls = Agent.get(counter, & &1)
     Agent.stop(counter)
+
+    # `spent?` and the call count are two independent witnesses of the same
+    # fact; they must never disagree.
+    assert meta.spent? == calls > 0
 
     {calls, body}
   end

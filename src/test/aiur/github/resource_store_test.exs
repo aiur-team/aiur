@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.ResourceStoreTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
 
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}")
@@ -257,6 +257,54 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert ResourceStore.size() == 1, "a source atom must not decode into a resource key"
     end
 
+    # The retention window is a number nothing pinned: every ageing test used
+    # 73 hours, so shortening the window to 25 hours left the whole suite green
+    # while silently throwing away two days of held bodies. These two bracket it
+    # — one entry an hour inside the window and one an hour outside — so the
+    # constant can only change by failing a test.
+    test "the retention window keeps an entry an hour inside it", %{path: path} do
+      inside_ms = System.system_time(:millisecond) - (72 * 60 * 60 * 1000 - 60 * 60 * 1000)
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue_comment|owner|repo|5160" => %{
+              "processed_at_ms" => inside_ms,
+              "recorded_at_ms" => inside_ms
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      assert ResourceStore.processed?(ResourceStore.key(:issue_comment, "owner", "repo", 5160)),
+             "an entry inside the 72h retention window must survive a restart"
+    end
+
+    test "the retention window drops an entry an hour outside it", %{path: path} do
+      outside_ms = System.system_time(:millisecond) - (72 * 60 * 60 * 1000 + 60 * 60 * 1000)
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue_comment|owner|repo|5161" => %{
+              "processed_at_ms" => outside_ms,
+              "recorded_at_ms" => outside_ms
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      refute ResourceStore.processed?(ResourceStore.key(:issue_comment, "owner", "repo", 5161))
+    end
+
     test "entries older than the retention window are not reloaded", %{path: path} do
       stale_ms = System.system_time(:millisecond) - 73 * 60 * 60 * 1000
 
@@ -355,26 +403,28 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     # Two consumers inside one freshness window cost one upstream call. The
     # assertion is the call count, because that is the thing that shows up on the
     # rate limit; latency would pass against a cache that never hits.
+    # Read through `ResourceFetch.need/3`, the real read-before-spend path, so
+    # the counted function is the one an upstream request would actually leave
+    # through. A hand-rolled `case` in the test counts only whether
+    # `ResourceStore.fetch/1` missed, which is a weaker claim than "one upstream
+    # call" and would pass against a path that never consulted the store at all.
     test "the second consumer of a resource costs no upstream call" do
       key = ResourceStore.key(:pull_request, "owner", "repo", 13)
       {:ok, calls} = Agent.start_link(fn -> 0 end)
 
-      read = fn ->
-        case ResourceStore.fetch(key) do
-          {:ok, %{data: data}} ->
-            data
-
-          :miss ->
-            Agent.update(calls, &(&1 + 1))
-            data = %{"number" => 13}
-            ResourceStore.put_resource(key, data, source: :fetch)
-            data
-        end
+      upstream = fn _opts ->
+        Agent.update(calls, &(&1 + 1))
+        {:ok, %{"number" => 13}, "W/\"pr13\""}
       end
 
-      assert read.() == %{"number" => 13}
-      assert read.() == %{"number" => 13}
-      assert read.() == %{"number" => 13}
+      assert {:ok, %{"number" => 13}, %{outcome: :fetched, spent?: true}} =
+               ResourceFetch.need(key, upstream, freshness: :any)
+
+      assert {:ok, %{"number" => 13}, %{outcome: :store, spent?: false}} =
+               ResourceFetch.need(key, upstream, freshness: :any)
+
+      assert {:ok, %{"number" => 13}, %{outcome: :store, spent?: false}} =
+               ResourceFetch.need(key, upstream, freshness: :any)
 
       assert Agent.get(calls, & &1) == 1
     end
@@ -959,6 +1009,82 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       assert log =~ "cannot checkpoint key"
       assert log =~ "not_a_real_type"
+    end
+  end
+
+  # Every bound in this module was free to move: the size cap could be raised to
+  # 290 KiB, the entry ceiling changed to anything, and the sweep cadence to any
+  # interval, with the whole suite still green. A bound nothing pins is not a
+  # bound, so each of these brackets its constant rather than restating it.
+  describe "the bounds the store is built on" do
+    # `{"b":"…"}` is the payload plus eight bytes of JSON framing, so these two
+    # bodies encode to exactly the cap and exactly one byte past it.
+    test "a body encoding to exactly the size cap is stored" do
+      key = ResourceStore.key(:issue, "owner", "repo", 6001)
+      data = %{"b" => String.duplicate("x", 256 * 1024 - 8)}
+
+      assert byte_size(Jason.encode!(data)) == 256 * 1024
+
+      ResourceStore.put_resource(key, data, source: :fetch)
+
+      assert ResourceStore.data(key) == data
+    end
+
+    test "a body one byte over the size cap is refused" do
+      key = ResourceStore.key(:issue, "owner", "repo", 6002)
+      data = %{"b" => String.duplicate("x", 256 * 1024 - 7)}
+
+      assert byte_size(Jason.encode!(data)) == 256 * 1024 + 1
+
+      ResourceStore.put_resource(key, data, source: :fetch)
+
+      assert ResourceStore.data(key) == nil,
+             "an oversized body must not be held; the reader falling back to a fetch is the pre-store behavior"
+    end
+
+    # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
+    # fails both ways: a lower ceiling leaves fewer entries, a higher one leaves
+    # the overflow in place.
+    test "the entry ceiling evicts the oldest down to exactly its limit" do
+      ResourceStore.reset()
+      now = System.system_time(:millisecond)
+      store = Process.whereis(ResourceStore)
+
+      rows =
+        for index <- 1..100_001 do
+          {{:issue, "owner", "repo", Integer.to_string(index)}, %{recorded_at_ms: now - (100_001 - index)}}
+        end
+
+      :ets.insert(ResourceStore.Table, rows)
+      assert ResourceStore.size() == 100_001
+
+      send(store, :sweep)
+      # `:sys.get_state/1` returns only after every earlier message is handled,
+      # so the sweep has finished by the time it answers.
+      _state = :sys.get_state(store)
+
+      assert ResourceStore.size() == 100_000
+      assert :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "1"}) == []
+      assert [_kept] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "2"})
+    end
+
+    # The sweep cadence has no observable consequence inside a test's lifetime,
+    # so it is asserted where it is set: the timer the sweep re-arms for itself.
+    test "the sweep re-arms on its five-minute cadence" do
+      store = Process.whereis(ResourceStore)
+
+      :erlang.trace_pattern({:erlang, :send_after, 3}, true, [:global])
+      :erlang.trace(store, true, [:call])
+
+      on_exit(fn ->
+        :erlang.trace_pattern({:erlang, :send_after, 3}, false, [:global])
+      end)
+
+      send(store, :sweep)
+
+      assert_receive {:trace, ^store, :call, {:erlang, :send_after, [300_000, _dest, :sweep]}}, 2_000
+
+      :erlang.trace(store, false, [:call])
     end
   end
 

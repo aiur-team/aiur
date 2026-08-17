@@ -10,7 +10,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{ResourceEvents, ResourceStore}
+  alias Aiur.GitHub.{ResourceEvents, ResourceFetch, ResourceStore}
 
   @owner "aiur-team"
   @repo "aiur"
@@ -229,6 +229,60 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       assert ResourceStore.data(key) == %{"body" => "second"}
     end
 
+    # `observable/1` names six members and the suite only isolated `:data`, so
+    # dropping any of the other five was an uncaught mutation. These two isolate
+    # the members that no other case moves on their own: everything except the
+    # one member under test is byte-identical across the two writes, so the
+    # publish can only be attributed to that member.
+    test "a source-only change publishes" do
+      key = key(22)
+      opts = [etag: "W/\"same\"", version: "v1"]
+
+      ResourceStore.put_resource(key, %{"body" => "same"}, [source: :poll] ++ opts)
+      :ok = ResourceEvents.subscribe(key)
+
+      ResourceStore.put_resource(key, %{"body" => "same"}, [source: :webhook] ++ opts)
+
+      assert_receive {:github_resource_changed, change}
+      assert change.source == :webhook
+      assert change.data_version == "v1"
+    end
+
+    test "a data-version-only change publishes" do
+      key = key(23)
+      opts = [etag: "W/\"same\"", source: :fetch]
+
+      ResourceStore.put_resource(key, %{"body" => "same"}, [version: "v1"] ++ opts)
+      :ok = ResourceEvents.subscribe(key)
+
+      ResourceStore.put_resource(key, %{"body" => "same"}, [version: "v2"] ++ opts)
+
+      assert_receive {:github_resource_changed, change}
+      assert change.data_version == "v2"
+      assert change.source == :fetch
+    end
+
+    # The sixth member, `:version`, is the processed marker, and the store
+    # refuses to move it without `:processed_at_ms` on purpose — see the
+    # moduledoc: advancing it alone would suppress a version nothing handled. So
+    # it cannot be isolated through the public API, and this is the invariant
+    # that makes that true, asserted rather than assumed.
+    test "the processed marker never advances without its timestamp" do
+      key = key(24)
+
+      ResourceStore.put_resource(key, %{"body" => "same"}, source: :poll, version: "v1", processed: true)
+      assert ResourceStore.processed?(key, "v1")
+
+      # No `processed: true`, so a newer body version must leave the marker
+      # where it is: the store must still say v2 is unhandled, which is what
+      # stops the deposit from suppressing an event nothing has seen.
+      ResourceStore.put_resource(key, %{"body" => "moved"}, source: :poll, version: "v2")
+
+      assert {:ok, %{version: "v2"}} = ResourceStore.fetch(key)
+      assert ResourceStore.processed?(key, "v1")
+      refute ResourceStore.processed?(key, "v2")
+    end
+
     test "an edit to the same resource does publish" do
       key = key(19)
       ResourceStore.put_resource(key, %{"body" => "first"}, etag: "W/\"e\"", version: "v1")
@@ -252,6 +306,16 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       {:ok, calls} = Agent.start_link(fn -> 0 end)
       test = self()
 
+      # The one upstream seam in this scenario. Both the writer and the watcher
+      # go through `ResourceFetch.need/3`, and this fetcher is the only thing
+      # either of them can use to leave for GitHub — so the counter below is the
+      # scenario's real rate-limit cost, not a number the test incremented for
+      # itself.
+      upstream = fn _opts ->
+        Agent.update(calls, &(&1 + 1))
+        {:ok, %{"body" => "from the writer"}, "W/\"v1\""}
+      end
+
       # Unlinked on purpose: the watcher ends on its own, and killing a linked
       # helper would take the test process with it.
       _watcher =
@@ -261,24 +325,43 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
           receive do
             {:github_resource_changed, %{key: ^key}} ->
-              # A watcher re-reads the store. It never fetches, which is why no
-              # branch here touches the counter.
-              send(test, {:rendered, ResourceStore.data(key)})
+              # A watcher re-reads through the same read-before-spend path a page
+              # uses. If the writer's body had not reached the store, this would
+              # miss and pay, and the count below would be two.
+              {:ok, data, meta} = ResourceFetch.need(key, upstream, freshness: :any)
+              send(test, {:rendered, data, meta.outcome, meta.spent?})
           after
-            1_000 -> send(test, :never_told)
+            2_000 -> send(test, :never_told)
           end
         end)
 
       assert_receive :watching
 
-      # The writer is an agent that needed the comment for its own reasons.
-      Agent.update(calls, &(&1 + 1))
-      ResourceStore.put_resource(key, %{"body" => "from the writer"}, source: :fetch, version: "v1")
+      # The writer is an agent that needed the resource for its own reasons and
+      # paid one round trip for it.
+      assert {:ok, _data, %{outcome: :fetched, spent?: true}} = ResourceFetch.need(key, upstream, freshness: :any)
 
-      assert_receive {:rendered, %{"body" => "from the writer"}}
-      assert Agent.get(calls, & &1) == 1, "the watcher must not have added a call of its own"
+      assert_receive {:rendered, %{"body" => "from the writer"}, :store, false}
 
-      refute_received :never_told
+      assert Agent.get(calls, & &1) == 1,
+             "the watcher must ride on the writer's fetch, not add an upstream call of its own"
+    end
+
+    # Non-vacuousness, asserted rather than claimed: an unsubscribed reader of a
+    # resource nobody wrote pays for exactly one call through the same seam. If
+    # the store stopped serving, the case above would read two here instead —
+    # which is the shape of the failure it exists to catch.
+    test "a reader with nobody's write to ride on pays for one call" do
+      key = key(31)
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      upstream = fn _opts ->
+        Agent.update(calls, &(&1 + 1))
+        {:ok, %{"body" => "paid for"}, "W/\"v1\""}
+      end
+
+      assert {:ok, _data, %{outcome: :fetched, spent?: true}} = ResourceFetch.need(key, upstream, freshness: :any)
+      assert Agent.get(calls, & &1) == 1
     end
   end
 
