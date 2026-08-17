@@ -1,5 +1,37 @@
 defmodule Aiur.GitHub.CommentPollBatch do
-  @moduledoc false
+  @moduledoc """
+  GraphQL batch for the comment poll's **pull request discovery**.
+
+  This used to fetch comments too, and that is what made it the daemon's single
+  largest GraphQL consumer. The cost was not in reading comments for pull
+  requests the poller cares about; it was in reading them for pull requests it
+  had not identified yet. Each target contributes up to two `headRefName`
+  lookups asking for `first: 5` candidate pull requests, and every one of those
+  candidates carried the full field set — `comments(last: 100)` plus
+  `reviewThreads(first: 100) { comments(last: 20) }`, about 2,100 nodes each.
+  Discovering one pull request therefore paid for the complete contents of up to
+  ten, and GitHub's GraphQL budget is scored on nodes requested, not on nodes
+  used.
+
+  So the two jobs are now separated by cost. Identity is cheap and speculative:
+  branch candidates ask for numbers and review context only. Content is
+  expensive and never speculative: comments come from
+  `Aiur.GitHub.Comments.fetch_issue_comments_conditional/2`, where an unchanged
+  list answers `304` and costs nothing against the primary REST limit, and
+  review threads are fetched for the one pull request that actually resolved.
+
+  What this module still answers, and why each has to stay here:
+
+    * `:open_pull_request` — the number, head/base refs, `reviewDecision` and
+      head commit date. REST has no single call that returns review decision,
+      and branch-to-PR discovery over REST is a `?head=` query plus a paginated
+      scan of every open pull request when the branch is not the legacy one.
+    * `:review_thread_comments` — resolution state per inline thread, which the
+      REST review-comment endpoints do not expose. Emitted only for a target
+      whose threads were actually part of the query; a target discovered
+      through a branch alias omits the key entirely so the poller falls back to
+      a per-pull-request read rather than mistaking "not asked for" for "none".
+  """
 
   require Logger
 
@@ -115,18 +147,21 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
-      ... on Issue { comments(last: 100) { pageInfo { hasPreviousPage } nodes { #{comment_fields()} } } }
+      ... on Issue { __typename }
       ... on PullRequest { #{pull_request_fields()} }
     }
     #{branch_aliases}
     """
   end
 
+  # Identity only. These candidates are speculative — at most one of up to ten
+  # is the pull request the target actually has — so asking each of them for its
+  # comments and review threads is paying for content that will be discarded.
   defp branch_alias(branch, index, candidate) do
     """
     branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
-      nodes { #{pull_request_fields()} }
+      nodes { #{pull_request_identity_fields()} }
     }
     """
   end
@@ -135,11 +170,16 @@ defmodule Aiur.GitHub.CommentPollBatch do
     value |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
   end
 
-  defp pull_request_fields do
+  defp pull_request_identity_fields do
     """
     number state headRefName headRefOid baseRefName reviewDecision
     commits(last: 1) { nodes { commit { committedDate } } }
-    comments(last: 100) { pageInfo { hasPreviousPage } nodes { #{comment_fields()} } }
+    """
+  end
+
+  defp pull_request_fields do
+    """
+    #{pull_request_identity_fields()}
     reviewThreads(first: 100) {
       pageInfo { hasNextPage endCursor }
       nodes { id isResolved path line comments(last: 20) { nodes { #{thread_comment_fields()} } } }
@@ -147,7 +187,6 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp comment_fields, do: "databaseId body createdAt updatedAt url author { login }"
   defp thread_comment_fields, do: "databaseId body createdAt updatedAt url author { login }"
 
   defp build_target_batch(indexed, repository, opts) do
@@ -208,65 +247,57 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp branch_pull_request(%{known_branch: false}, []), do: :unknown
   defp branch_pull_request(_entry, []), do: {:ok, nil}
-  defp branch_pull_request(_entry, [node | _rest]), do: {:ok, normalize_pull_request(node)}
+  defp branch_pull_request(_entry, [node | _rest]), do: {:ok, normalize_pull_request(node, false)}
 
-  defp target_batch(target, direct, pull_request, opts) do
+  # No `:issue_comments` or `:pr_issue_comments` key is ever emitted now, so the
+  # poller's `batch_value/3` answers `:missing` for both and every comment read
+  # goes through the conditional REST path. That is the inversion: the priced
+  # request is no longer the default and the free one no longer the error
+  # handler.
+  defp target_batch(target, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
-    since = target_since(opts, target)
 
-    batch =
-      put_comments_if_complete(
-        batch,
-        :issue_comments,
-        direct,
-        target,
-        "issue_comments",
-        since
-      )
+    cond do
+      not threads_included?(pull_request) ->
+        # Identity came from a branch alias, which does not carry threads.
+        # Omitting the key is the whole point: an empty list here would read as
+        # "this pull request has no unaddressed threads" and silently drop
+        # every inline review comment on it.
+        batch
 
-    batch =
-      put_comments_if_complete(
-        batch,
-        :pr_issue_comments,
-        pull_request || %{},
-        target,
-        "pull_request_comments",
-        since
-      )
+      review_threads_overflow?(pull_request) ->
+        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{target}")
+        batch
 
-    if review_threads_overflow?(pull_request) do
-      Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{target}")
-      batch
-    else
-      Map.put(
-        batch,
-        :review_thread_comments,
-        if(is_map(pull_request), do: ReviewThreads.unaddressed_thread_comments(Map.get(pull_request, :review_threads, []), opts), else: [])
-      )
+      true ->
+        Map.put(
+          batch,
+          :review_thread_comments,
+          ReviewThreads.unaddressed_thread_comments(Map.get(pull_request, :review_threads, []), opts)
+        )
     end
   end
+
+  defp threads_included?(%{threads_included?: true}), do: true
+  defp threads_included?(_pull_request), do: false
 
   # The comments poller reads PR identity (number/head/state) from the
   # open_pull_request value; strip the batch-internal normalization keys.
   defp pull_request_payload(nil), do: nil
 
   defp pull_request_payload(%{} = pull_request) do
-    Map.drop(pull_request, [:kind, :comments, :comments_page_info, :review_threads, :review_threads_page_info])
+    Map.drop(pull_request, [:kind, :threads_included?, :review_threads, :review_threads_page_info])
   end
 
-  defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request), do: normalize_pull_request(pull_request)
+  defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request),
+    do: normalize_pull_request(pull_request, true)
 
-  defp normalize_issue_or_pull_request(issue) do
-    %{
-      kind: :issue,
-      comments: normalize_comments(get_in(issue, ["comments", "nodes"])),
-      comments_page_info: comments_page_info(issue)
-    }
-  end
+  defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 
-  defp normalize_pull_request(pull_request) do
+  defp normalize_pull_request(pull_request, threads_included?) do
     %{
       :kind => :pull_request,
+      :threads_included? => threads_included?,
       "number" => Map.get(pull_request, "number"),
       "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
       "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
@@ -274,10 +305,11 @@ defmodule Aiur.GitHub.CommentPollBatch do
       # Review-staleness context for the rework gate (#1756). `reviewDecision`
       # is nil until the first review lands; `head_committed_at` is the commit
       # date of the head commit the reviews are (or are not) talking about.
+      # Both stay on the identity field set, so a branch-discovered pull request
+      # keeps full review-freshness context and the gate never goes inert
+      # because of the comment inversion.
       "review_decision" => Map.get(pull_request, "reviewDecision"),
       "head_committed_at" => head_committed_at(pull_request),
-      comments: normalize_comments(get_in(pull_request, ["comments", "nodes"])),
-      comments_page_info: comments_page_info(pull_request),
       review_threads: review_thread_nodes(pull_request),
       review_threads_page_info: review_thread_page_info(pull_request)
     }
@@ -304,112 +336,10 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp normalize_comments(comments) when is_list(comments) do
-    Enum.map(comments, fn comment ->
-      %{
-        "id" => Map.get(comment, "databaseId"),
-        "body" => Map.get(comment, "body") || "",
-        "created_at" => Map.get(comment, "createdAt"),
-        "updated_at" => Map.get(comment, "updatedAt") || Map.get(comment, "createdAt"),
-        "html_url" => Map.get(comment, "url"),
-        "user" => %{"login" => get_in(comment, ["author", "login"])}
-      }
-    end)
-  end
-
-  defp normalize_comments(_comments), do: []
-
   defp review_threads_overflow?(%{review_threads_page_info: %{} = page_info}),
     do: Map.get(page_info, "hasNextPage") == true
 
   defp review_threads_overflow?(_pull_request), do: false
-
-  defp put_comments_if_complete(batch, key, source, target, label, since) do
-    if comments_truncated?(source, since) do
-      Logger.warning("Github comment GraphQL batch overflow: #{label} target=#{target}")
-      batch
-    else
-      Map.put(batch, key, since_filtered(Map.get(source, :comments, []), since))
-    end
-  end
-
-  # The REST path passes `since` to GitHub, which filters server-side. The batch
-  # always gets the newest 100, so filter here to keep both paths semantically
-  # identical — otherwise every cycle republishes the whole window and relies
-  # entirely on publisher dedup, which re-fires old comments once its TTL lapses.
-  # Inclusive, matching REST `since`, and on `updated_at` with a `created_at`
-  # fallback, matching the poller's own `comment_datetime/1`.
-  defp since_filtered(comments, %DateTime{} = since) do
-    Enum.filter(comments, fn comment ->
-      case comment_datetime(comment) do
-        nil -> true
-        datetime -> DateTime.compare(datetime, since) != :lt
-      end
-    end)
-  end
-
-  defp comment_datetime(comment) do
-    parse_datetime(Map.get(comment, "updated_at") || Map.get(comment, "created_at"))
-  end
-
-  # The batch asks for the *newest* 100 comments (`last: 100`), so a target with
-  # more than 100 comments is not truncated in any way the poller cares about:
-  # it only wants comments newer than its `since` cursor. The window is
-  # incomplete only when older comments exist AND the window's own oldest
-  # comment is still newer than `since` — i.e. more than 100 comments arrived in
-  # one poll interval. Without a known cursor, stay conservative and fall back.
-  # No cursor for this target means the batch cannot bound the window at all.
-  # The REST path would still apply the poller's default `since` (the boot
-  # cutoff), so returning the raw window here would replay a target's whole
-  # comment history as fresh events after an orchestrator restart. Omit instead
-  # and let REST read it.
-  defp comments_truncated?(_source, nil), do: true
-
-  defp comments_truncated?(source, since) when is_map(source) do
-    Map.get(comments_page_info(source), "hasPreviousPage") == true and
-      not window_covers_since?(Map.get(source, :comments, []), since)
-  end
-
-  defp window_covers_since?(comments, %DateTime{} = since) do
-    case oldest_created_at(comments) do
-      nil -> false
-      oldest -> DateTime.compare(oldest, since) != :gt
-    end
-  end
-
-  defp oldest_created_at(comments) do
-    comments
-    |> Enum.map(&comment_datetime/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
-  end
-
-  defp comments_page_info(%{comments_page_info: %{} = page_info}), do: page_info
-
-  defp comments_page_info(source) when is_map(source) do
-    case get_in(source, ["comments", "pageInfo"]) do
-      %{} = page_info -> page_info
-      _other -> %{}
-    end
-  end
-
-  defp target_since(opts, target) do
-    case Keyword.get(opts, :since) do
-      %{} = since_by_target -> parse_datetime(Map.get(since_by_target, target))
-      since -> parse_datetime(since)
-    end
-  end
-
-  defp parse_datetime(%DateTime{} = value), do: value
-
-  defp parse_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _other -> nil
-    end
-  end
-
-  defp parse_datetime(_value), do: nil
 
   defp positive_number?(target) do
     case Integer.parse(target) do
