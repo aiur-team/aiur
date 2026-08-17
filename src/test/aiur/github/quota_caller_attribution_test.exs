@@ -77,6 +77,19 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
     assert caller.estimated?
   end
 
+  test "treats a nonsense reported cost as unpriced rather than believing it" do
+    quota = start_quota()
+
+    # A negative cost would subtract from the total the reconciliation checks
+    # against, turning a broken reading into an apparently tighter breakdown.
+    Quota.observe(quota, graphql_request("hostile_caller"), graphql_response(-500, 4999))
+
+    [caller] = graphql_callers(Quota.snapshot(quota))
+
+    assert caller.points == 1
+    assert caller.estimated?
+  end
+
   test "the breakdown reconciles with the window's own used figure" do
     quota = start_quota()
 

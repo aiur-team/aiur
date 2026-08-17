@@ -87,6 +87,38 @@ defmodule Aiur.GitHub.GraphQLCostTest do
     end
   end
 
+  describe "reported/1" do
+    test "reads the cost block GitHub put in the response body" do
+      response = %{status: 200, body: %{"data" => %{"rateLimit" => %{"cost" => 26, "remaining" => 4974, "limit" => 5000, "resetAt" => "2026-08-17T13:00:00Z"}}}}
+
+      assert GraphQLCost.reported(response) == %{
+               cost: 26,
+               remaining: 4974,
+               limit: 5000,
+               reset_at: "2026-08-17T13:00:00Z"
+             }
+    end
+
+    test "answers nil when the query did not ask, so the call stays visibly unpriced" do
+      for response <- [
+            %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "bot"}}}},
+            %{status: 200, body: %{}},
+            %{status: 502, body: "gateway"},
+            %{}
+          ] do
+        assert GraphQLCost.reported(response) == nil
+      end
+    end
+
+    test "refuses a nonsense cost rather than recording it" do
+      # A negative or non-integer cost is not a cheap call, it is a broken
+      # reading, and recording it would corrupt the very total the ranking is
+      # checked against.
+      assert %{cost: nil} = GraphQLCost.reported(%{body: %{"data" => %{"rateLimit" => %{"cost" => -3}}}})
+      assert %{cost: nil} = GraphQLCost.reported(%{body: %{"data" => %{"rateLimit" => %{"cost" => "26"}}}})
+    end
+  end
+
   describe "derive/1" do
     test "prefers the caller the call site declared" do
       assert GraphQLCost.derive(%{caller: :comment_poll_batch}) == "comment_poll_batch"

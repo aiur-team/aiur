@@ -527,16 +527,13 @@ defmodule Aiur.GitHub.Quota do
   defp request_cost(_resource, 304, _response), do: {0, :reported}
 
   defp request_cost("graphql", _status, response) do
-    case graphql_reported_cost(response) do
-      cost when is_integer(cost) and cost >= 0 -> {cost, :reported}
+    case GraphQLCost.reported(response) do
+      %{cost: cost} when is_integer(cost) and cost >= 0 -> {cost, :reported}
       _unreported -> {1, :assumed}
     end
   end
 
   defp request_cost(_resource, _status, _response), do: {1, :reported}
-
-  defp graphql_reported_cost(%{body: %{"data" => %{"rateLimit" => %{"cost" => cost}}}}), do: cost
-  defp graphql_reported_cost(_response), do: nil
 
   defp prune_observations(state, now) do
     cutoff = DateTime.add(now, -@attribution_window_seconds, :second)

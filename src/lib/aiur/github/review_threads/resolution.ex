@@ -99,9 +99,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
 
   @spec resolve_review_thread_mutation(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def resolve_review_thread_mutation(request_fun, token, thread_id) do
-    case Transport.github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id},
-           caller: :review_thread_resolve
-         ) do
+    case Transport.github_graphql(request_fun, token, @resolve_review_thread_mutation, %{"threadId" => thread_id}, caller: :review_thread_resolve) do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 
@@ -112,9 +110,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
 
   @spec unresolve_review_thread_mutation(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def unresolve_review_thread_mutation(request_fun, token, thread_id) do
-    case Transport.github_graphql(request_fun, token, @unresolve_review_thread_mutation, %{"threadId" => thread_id},
-           caller: :review_thread_unresolve
-         ) do
+    case Transport.github_graphql(request_fun, token, @unresolve_review_thread_mutation, %{"threadId" => thread_id}, caller: :review_thread_unresolve) do
       {:error, {:github_graphql_errors, errors}} ->
         {:error, classify_review_thread_resolution_errors(thread_id, errors)}
 

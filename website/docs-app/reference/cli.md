@@ -20,7 +20,7 @@ Run the command from the repository that owns the run. An instance is keyed to t
 | Job | Commands | Notes |
 | --- | --- | --- |
 | Start a run | `aiur`, `aiur run` | Foreground gives the TUI board and chat panes; background is headless. |
-| Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage` | Read-only reports from the running daemon. |
+| Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost` | Read-only reports from the running daemon. |
 | Operate the fleet | `set max-agents`, `pause`, `resume`, `message`, `reset-budget`, `stop`, `restart` | Steers a live run. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `analytics` | Read-only terminal forms of the dashboard pages. |
 | Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-emit`, `executor-listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
@@ -68,6 +68,9 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur help` | Prints the current launcher usage. | `aiur help` |
 | `aiur status` | Shows daemon and capacity status, including `AGENTS occupied/max (binding: ...)`. A CPU-corroborated load or run-queue hold includes both the pressure and reclaimable-CPU thresholds; a high local load sample alone says the daemon still corroborates CPU contention. A GitHub quota hold includes its resource, measured remaining/limit, and observation time, and becomes `github_quota stale` after two missed probes. Other bindings include `config max_concurrent_agents`, `AIMD envelope`, `paused reservations`, `ticket supply`, `session max_concurrent_agents`, or `none`; `ticket supply` means no queued ticket is available. | `aiur status` |
 | `aiur usage` | Prints the current provider-meter observations and their known headroom. | `aiur usage` |
+| `aiur github-cost` | Ranks GitHub API spend by the call site that caused it, in points and points per hour, and prints the reconciliation against the credential's own window beside it. Reads the meter the daemon already keeps and issues no GitHub request of its own. Defaults to the `graphql` budget. | `aiur github-cost` |
+| `aiur github-cost --budget core` | Selects one budget: `graphql`, `core`, or `all`. The two budgets are never summed into one number because GitHub bills them separately, on separate windows. | `aiur github-cost --budget core` |
+| `aiur github-cost --json` | Emits the ranking as one versioned envelope. | `aiur github-cost --json` |
 | `aiur agents` | Prints each active agent's state and current activity. | `aiur agents` |
 | `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished`, choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
 | `aiur units --condition alert` | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |

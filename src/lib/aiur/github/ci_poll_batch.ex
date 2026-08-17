@@ -89,9 +89,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp fetch_chunk(request_fun, token, owner, repo, entries) do
     indexed = Enum.with_index(entries)
 
-    case Transport.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo},
-           caller: :ci_poll_batch
-         ) do
+    case Transport.github_graphql(request_fun, token, query(indexed), %{"owner" => owner, "repo" => repo}, caller: :ci_poll_batch) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
           %{} = repository -> {:ok, match_entries(indexed, repository)}
