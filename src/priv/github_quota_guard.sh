@@ -1026,9 +1026,42 @@ if [ -n "$cache_root" ]; then
             if cache_valid_slug "$cache_api_owner/$cache_api_repo"; then
               cache_owner=$cache_api_owner
               cache_repo_name=$cache_api_repo
-              cache_kind=api
-              cache_id=$(printf '%s' "$cache_endpoint" | cache_fingerprint) || cache_id=
-              cache_valid_digest "$cache_id" || cache_id=
+
+              # An endpoint that NAMES a resource is filed under that resource,
+              # not under the endpoint. `repos/o/r/pulls/1670` and
+              # `gh pr view 1670 --json body` are the same pull request, so a
+              # writer retiring pull request 1670 must retire both — and it
+              # cannot, if one of them is filed under a digest of a URL the
+              # writer has never seen. The endpoint still separates the two
+              # entries, because every argument is hashed into the shape.
+              cache_api_number=
+              case "$cache_api_rest" in
+                */issues/*|*/pulls/*)
+                  cache_api_tail=${cache_api_rest#*/}
+                  case "$cache_api_tail" in
+                    issues/*) cache_api_kind=issue; cache_api_tail=${cache_api_tail#issues/} ;;
+                    pulls/*) cache_api_kind=pr; cache_api_tail=${cache_api_tail#pulls/} ;;
+                    *) cache_api_kind= ;;
+                  esac
+                  cache_api_number=${cache_api_tail%%/*}
+                  if [ -n "$cache_api_kind" ] && cache_numeric "$cache_api_number"; then
+                    cache_kind=$cache_api_kind
+                    cache_id=$cache_api_number
+                  fi
+                  unset cache_api_tail cache_api_kind
+                  ;;
+              esac
+
+              if [ -z "$cache_id" ]; then
+                # An endpoint naming no single resource — a list, a search, a
+                # repository-level read. Filed under the endpoint and treated as a
+                # collection, so a write anywhere in the repository retires it.
+                cache_kind=api
+                cache_collection=1
+                cache_id=$(printf '%s' "$cache_endpoint" | cache_fingerprint) || cache_id=
+                cache_valid_digest "$cache_id" || cache_id=
+              fi
+              unset cache_api_number
             fi
             unset cache_api_rest cache_api_owner cache_api_repo
             ;;
@@ -1105,6 +1138,30 @@ fi
 # process's start and is re-sampled only by a coalesced follower, which is the
 # one caller for whom "now" has genuinely moved since it started.
 cache_now=${cache_started_at:-0}
+
+if [ -n "$cache_root" ] && [ -n "$cache_owner" ] && [ -n "$cache_repo_name" ]; then
+  # Down-cased, exactly as `Aiur.GitHub.ResourceStore.key/4` does, because the
+  # daemon and this wrapper must name one repository one way. `-R AIUR-Team/Aiur`
+  # and a webhook's `aiur-team/aiur` are the same repository, and filed apart the
+  # daemon would retire entries no agent is reading while the agents keep serving
+  # the ones it meant to retire — a cache that is wrong in the one direction a
+  # cache may not be wrong in.
+  if command -v tr >/dev/null 2>&1; then
+    cache_identity=$(printf '%s/%s' "$cache_owner" "$cache_repo_name" | tr '[:upper:]' '[:lower:]')
+    case "$cache_identity" in
+      ?*/?*)
+        cache_owner=${cache_identity%%/*}
+        cache_repo_name=${cache_identity#*/}
+        ;;
+      *) cache_root= ;;
+    esac
+    unset cache_identity
+  else
+    # No `tr`, no way to guarantee one spelling. Caching nothing is the safe
+    # answer; a half-shared store is worse than none.
+    cache_root=
+  fi
+fi
 
 if [ -n "$cache_root" ] && [ -n "$cache_owner" ] && [ -n "$cache_repo_name" ]; then
   cache_repo_dir=$cache_root/v1/$cache_owner/$cache_repo_name

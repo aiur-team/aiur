@@ -52,7 +52,7 @@ defmodule Aiur.GitHub.AgentCache do
 
   require Logger
 
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.{Budget, ResourceStore}
 
   @relative_root "state-cache/v1"
 
@@ -124,8 +124,77 @@ defmodule Aiur.GitHub.AgentCache do
     end
   end
 
+  @doc """
+  Where the `gh` wrapper keeps every cached shape of one resource, or `nil` for a
+  resource the wrapper has no directory for.
+
+  This is the join between the two halves, and the reason it takes a
+  `Aiur.GitHub.ResourceStore` key rather than strings: a shell reader and an
+  Elixir writer that disagree on where a resource lives produce a cache that is
+  always cold and always looks healthy. One function derives the path, and
+  `Aiur.AgentGitHubGuardTest` asserts it against the directory the wrapper
+  actually created for the same resource.
+  """
+  @spec resource_dir(ResourceStore.key() | nil, keyword()) :: Path.t() | nil
+  def resource_dir(key, opts \\ [])
+
+  def resource_dir({type, owner, repo, id}, opts) do
+    with kind when is_binary(kind) <- wrapper_kind(type),
+         {:ok, repo_dir} <- repo_dir("#{owner}/#{repo}", opts),
+         {:ok, normalized} <- normalize_number(id) do
+      Path.join([repo_dir, kind, normalized])
+    else
+      _unavailable -> nil
+    end
+  end
+
+  def resource_dir(_key, _opts), do: nil
+
+  @doc """
+  Retires every cached shape of the resource a store key names.
+
+  The bridge from `Aiur.GitHub.ResourceStore`'s change events: a webhook
+  delivery, a mutation write-through or a need-driven fetch deposits a resource
+  in the store, and the agents' copies of it stop being served in the same
+  moment. That is the whole point of the store being keyed by identity — a fact
+  learned for free down one pipe retires the paid reads down another.
+  """
+  @spec invalidate_key(ResourceStore.key() | nil, keyword()) :: :ok
+  def invalidate_key(key, opts \\ [])
+
+  def invalidate_key({_type, owner, repo, id} = key, opts) do
+    case resource_dir(key, opts) do
+      dir when is_binary(dir) ->
+        mark(Path.join(dir, ".invalidated"))
+        # Issues and pull requests share GitHub's number space, so the sibling
+        # spelling of the same number is retired too.
+        invalidate("#{owner}/#{repo}", id, opts)
+
+      nil ->
+        # A resource type the wrapper files nothing under — a comment, a review
+        # thread — still changes what a read of its parent would answer, and the
+        # parent's number is not derivable from the comment's id. The
+        # repository's collections are retired instead: one re-fetch rather than
+        # a stale answer for a whole window.
+        invalidate_collections("#{owner}/#{repo}", opts)
+    end
+  end
+
+  def invalidate_key(_key, _opts), do: :ok
+
+  # The wrapper's two resource directories. Everything else has no agent-side
+  # directory, and is deliberately not invented one here: a name the wrapper does
+  # not write is a mark nothing will ever read.
+  defp wrapper_kind(:pull_request), do: "pr"
+  defp wrapper_kind(:issue), do: "issue"
+  defp wrapper_kind(_type), do: nil
+
+  # Down-cased, matching `ResourceStore.key/4`. The two pipes disagree on casing —
+  # the poller uses the configured repo identity and the webhook uses GitHub's
+  # delivered `repository.full_name` — and the wrapper down-cases for the same
+  # reason. An exact-match layout would file the same repository under two names.
   defp repo_dir(full_name, opts) when is_binary(full_name) do
-    with [owner, repo] <- String.split(full_name, "/"),
+    with [owner, repo] <- full_name |> String.downcase() |> String.split("/"),
          true <- safe_segment?(owner),
          true <- safe_segment?(repo),
          path when is_binary(path) <- root(opts) do

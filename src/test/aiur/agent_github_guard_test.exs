@@ -3,7 +3,7 @@ defmodule Aiur.AgentGitHubGuardTest do
   @moduletag :tmp_dir
 
   alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.AgentCache
+  alias Aiur.GitHub.{AgentCache, ResourceStore}
   alias Aiur.GitHub.Budget
 
   setup %{tmp_dir: root} do
@@ -2202,6 +2202,61 @@ defmodule Aiur.AgentGitHubGuardTest do
                )
 
       assert upstream_calls(context) == 2
+    end
+
+    test "a REST read of a pull request is filed under that pull request", context do
+      # The join with the daemon's writers. `gh api repos/owner/repo/pulls/1670`
+      # and `gh pr view 1670` are the same resource; filed under a digest of the
+      # URL instead, the first would survive a writer retiring the second.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+      assert upstream_calls(context) == 1
+
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+      assert upstream_calls(context) == 2
+    end
+
+    test "a REST read naming no single resource is retired by any write in the repository", context do
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/labels"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/labels"])
+      assert upstream_calls(context) == 1
+
+      assert :ok = AgentCache.invalidate_collections("owner/repo", state_dir: cache_state_dir(context))
+
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/labels"])
+      assert upstream_calls(context) == 2
+    end
+
+    # The trap this pair exists for: an Elixir writer and a shell reader that
+    # disagree on where a resource lives give a cache that is always cold and
+    # always looks healthy. So the identity is asserted from both ends against the
+    # SAME resource — the directory the shell actually created, and the path the
+    # Elixir side derives from `ResourceStore.key/4`.
+    test "the daemon and the wrapper agree on where a resource lives", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      [{shape, body}] = cached_shapes(context)
+      assert shape =~ ~r/\Aowner\/repo\/pr\/1670\/[0-9a-f]{64}\z/
+
+      key = ResourceStore.key(:pull_request, "owner", "repo", 1670)
+
+      assert AgentCache.resource_dir(key, state_dir: cache_state_dir(context)) ==
+               Path.dirname(body)
+    end
+
+    test "a resource the daemon spells differently still resolves to one place", context do
+      # `ResourceStore.key/4` down-cases owner and repo because the pipes disagree
+      # on casing. The wrapper's directories are the same identity, so the store's
+      # spelling must land on them.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      [{_shape, body}] = cached_shapes(context)
+
+      key = ResourceStore.key(:pull_request, "OWNER", "Repo", "1670")
+
+      assert AgentCache.resource_dir(key, state_dir: cache_state_dir(context)) ==
+               Path.dirname(body)
     end
 
     test "the merge gate still refuses with the store enabled", context do
