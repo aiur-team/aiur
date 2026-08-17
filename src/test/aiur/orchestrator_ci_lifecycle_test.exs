@@ -74,6 +74,29 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "CI pruning preserves tracker list caches shared with other poll phases" do
+      state = %State{
+        ci_lifecycle: %{
+          %State{}.ci_lifecycle
+          | poll_cache: %{
+              "stale-target" => %{head_sha: "old"},
+              issue_list_cache: %{pages: %{1 => %{etag: "ci-v1"}}},
+              candidate_list_cache: %{pages: %{1 => %{etag: "candidates-v1"}}}
+            }
+        }
+      }
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end
+        )
+
+      assert next.ci_lifecycle.poll_cache == %{
+               issue_list_cache: %{pages: %{1 => %{etag: "ci-v1"}}},
+               candidate_list_cache: %{pages: %{1 => %{etag: "candidates-v1"}}}
+             }
+    end
+
     test "a completed runner entering CI wait is parked without a cooperative pause" do
       identifier = unique_identifier("completed-ci-wait")
       recorder = start_recorder()

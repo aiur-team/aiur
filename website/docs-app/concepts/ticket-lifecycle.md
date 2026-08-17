@@ -6,9 +6,9 @@
 | --- | --- |
 | Issue | `agent:todo` enters the dispatch queue after slot and blocker checks. |
 | Workspace | Aiur provisions an isolated checkout with `logs/agent.md` and `logs/agent.ndjson`. |
-| Agent turn | The agent works on its generated branch and keeps one `## Agent Workpad` current. |
-| Draft PR | The agent opens a closing PR, runs the scoped local gate, and self-reviews. |
-| CI wait | `agent:ci-wait` releases the turn while the central poller watches terminal checks. |
+| Agent turn | The agent works on its generated ticket branch, up to the configured `max_turns`, and keeps one `## Agent Workpad` current. |
+| Draft PR | The agent opens a `Closes #<issue>` draft PR, runs the scoped local gate, and self-reviews the pushed diff. |
+| CI wait | `agent:ci-wait` releases the turn and dispatch slot while Aiur waits for terminal checks. |
 | Review | Passing work becomes `agent:human-review`; trusted feedback becomes `agent:rework`. |
 | Merge | The agent never self-merges; a merged PR closes the issue and terminalizes `agent:done`. |
 
@@ -38,4 +38,3 @@ Automatic CI and review transitions only apply to tickets already in the agent l
 | Location | One pinned issue comment beginning `## Agent Workpad`. |
 | Contents | Plan, validation, decisions, blockers, PR, and current handoff. |
 | Updates | Edited in place across turns. |
-| Event behavior | Filtered from comment polling so agent edits do not wake the ticket. |

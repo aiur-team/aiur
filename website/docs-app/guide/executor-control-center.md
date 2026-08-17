@@ -1,10 +1,6 @@
 # Dashboard
 
-The Dashboard is Aiur's browser surface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics without turning the browser into a second source of truth.
-
-::: info Example data
-Every screenshot on this page was captured from the shipped LiveView dashboard against an isolated fixture. Tickets (`EX-142` and similar), agents, decisions, repositories, and links are synthetic.
-:::
+The Dashboard is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
 ## Open the dashboard
 
@@ -24,7 +20,7 @@ Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 
 ## Find a surface
 
-The navigation labels and routes are the same projections the page-parity CLI reads; use the browser for interactive detail and the paired command for terminal output.
+Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
 
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
@@ -32,7 +28,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` is live-run telemetry and an optional Build Order scope. | `aiur analytics` |
-| **Streamdeck+** | `/streamdeck` is the browser emulator for the same live projection used by the authenticated physical Stream Deck + sidecar; [#1358](https://github.com/aiur-team/aiur/issues/1358) defines the remaining terminal hardware proof. | none |
+| **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
 | --- | --- |
@@ -88,15 +84,3 @@ aiur
 Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A loopback dashboard may run without them only when it is not writable. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
-
-## Reproduce the screenshots
-
-The checked-in capture command starts the real endpoint with isolated in-memory providers and captures one desktop image for each documented surface. Keeping a single image prevents a screen change from creating a stale light, dark, and mobile set:
-
-```bash
-cd website
-npm ci
-npm run shot:dashboard
-```
-
-The fixture never reads a live repository, customer record, issue, agent transcript, or secret. Do not replace its `example.test` data with production data when updating these assets.

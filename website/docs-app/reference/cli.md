@@ -104,15 +104,17 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
 
+Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
+
 | Development refresh evidence | Result |
 | --- | --- |
-| Receipt matches release directory and source commit | Starts the rebuilt release. |
-| Declared receipt cannot be confirmed | Aborts with exit code 70 and names the builder. |
-| Builder does not declare receipt support | Starts and reports that verification was unavailable. |
+| Rebuild verified against the expected checkout and commit | Starts the rebuilt release. |
+| Rebuild cannot be verified | Leaves the daemon stopped, exits with code 70, and names the unconfirmed builder. |
+| Custom build command without verification support | Starts and reports the result as unverified. |
 
 ## Dashboard page commands
 
-`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of Dashboard pages that use the page projection or provider rather than an independent GitHub poll or `/api/v1/state`.
+`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages and show the same data.
 
 | Command | Page view and important inputs | Example |
 | --- | --- | --- |

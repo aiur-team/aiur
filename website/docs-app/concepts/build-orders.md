@@ -31,6 +31,21 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
+## The repository state node
+
+Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.
+
+| Path | Holds |
+| --- | --- |
+| `latest/` | Aiur-managed warm clone of the configured base branch. |
+| `builds/` | State-node Build Order packs, daemon status projections, and cross-boot build summaries. |
+| `analytics/` | Telemetry summaries, including `runs/<boot-id>/run-summary.json`. |
+| `meta/` | Executor findings at `findings.ndjson` and narrative retrospectives at `retros/<boot-id>.md`. |
+
+These paths are machine-local. Do not commit them, and do not expect copying a repository to copy its run state.
+
+`aiur init` and the first run create this state as needed. Aiur does not create `executor/handoff.md`: the durable narrative is `meta/retros/<boot-id>.md`, and the shareable artifact is the generated `docs/executor/open-findings.md` digest.
+
 ## Executor handoff and findings
 
 | Durable record | Location or command |

@@ -79,7 +79,7 @@ Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are tru
 | Signal | `ticket.N.agent.unblocked` carries the validated ref and commit. |
 | Integrate | The dependent agent fetches that exact ref, inspects it, and removes provisional code. |
 
-A branch push is evidence to inspect, not an unblock signal by itself.
+A branch push alone never resumes a dependent ticket. Before the blocker merges, readiness comes from an explicit validated `ticket.<id>.agent.unblocked` event; reconciling the blocker as merged can also clear the dependency pause.
 
 ## Commands and decisions
 

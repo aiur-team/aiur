@@ -1250,7 +1250,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     poll_cache =
       existing_poll_cache
       |> Map.take(targets)
-      |> maybe_keep_issue_list_cache(existing_poll_cache)
+      |> keep_shared_list_caches(existing_poll_cache)
 
     # Base repair invalidations intentionally survive while their ticket is in
     # rework (and therefore absent from this CI-only target list). The marker is
@@ -1277,11 +1277,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp maybe_keep_issue_list_cache(poll_cache, existing_poll_cache) do
-    case Map.fetch(existing_poll_cache, :issue_list_cache) do
-      {:ok, cache} -> Map.put(poll_cache, :issue_list_cache, cache)
-      :error -> poll_cache
-    end
+  defp keep_shared_list_caches(poll_cache, existing_poll_cache) do
+    Map.merge(
+      poll_cache,
+      Map.take(existing_poll_cache, [:issue_list_cache, :candidate_list_cache])
+    )
   end
 
   defp ensure_ci_terminal_subscription(state, issue) do

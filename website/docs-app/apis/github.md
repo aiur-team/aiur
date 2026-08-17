@@ -14,6 +14,14 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+## Who Aiur trusts
+
+| Source | Trust rule |
+| --- | --- |
+| Comment commands and review-driven rework | Accepted only from configured trusted accounts or the resolved CODEOWNERS set. |
+| Unresolvable CODEOWNERS | Raises a degraded-trust alert instead of silently widening authority. |
+| The bot identity | Cannot trigger its own work. |
+
 ## Poll cadence
 
 Polling spends GraphQL points inversely to the interval, so `polling.interval_seconds` defaults to 120.
@@ -63,7 +71,14 @@ The webhook shortens reaction time for repository events while polling continues
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
 
-`POST /api/v1/github/webhook` rejects a missing, blank, malformed, or mismatched secret with `401`; an unset `AIUR_GITHUB_WEBHOOK_SECRET` never enables unsigned access.
+`POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
+
+| Delivery | Result |
+| --- | --- |
+| Signature header absent, malformed, or mismatched | Rejected with `401`. |
+| `AIUR_GITHUB_WEBHOOK_SECRET` unset or blank | Rejected with `401` and a needs-attention `system.github_webhook.secret_missing` alert; an unset secret never enables unsigned access. |
+| Legacy SHA-1 `X-Hub-Signature` header | Ignored; never accepted as a fallback. |
+| Body larger than 25 MB | Refused, matching GitHub's own delivery ceiling. |
 
 | Webhook state | Polling behavior |
 | --- | --- |
