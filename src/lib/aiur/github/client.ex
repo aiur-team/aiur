@@ -25,6 +25,9 @@ defmodule Aiur.GitHub.Client do
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []), do: AuthPreflight.preflight_auth(opts)
 
+  @spec ensure_preflight(keyword()) :: :ok | {:error, term()}
+  def ensure_preflight(opts \\ []), do: AuthPreflight.ensure_preflight(opts)
+
   @spec check_ci_readiness(keyword()) :: {:ok, CiReadiness.result()} | {:error, term()}
   def check_ci_readiness(opts \\ []), do: CiReadiness.check(opts)
 

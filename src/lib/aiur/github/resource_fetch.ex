@@ -180,7 +180,10 @@ defmodule Aiur.GitHub.ResourceFetch do
   defp fresh_enough?(_entry, {:max_age_ms, _ms}), do: false
 
   defp upstream(key, fetcher, opts) do
-    validator = validator(key)
+    # `ResourceStore.etag/1` answers only alongside a body the store will serve,
+    # which is the judgement this module used to make for itself. One rule, in
+    # the store, so a second reader cannot drift from it.
+    validator = ResourceStore.etag(key)
 
     case fetcher.(etag: validator) do
       {:ok, data, etag} ->
@@ -197,17 +200,6 @@ defmodule Aiur.GitHub.ResourceFetch do
 
       other ->
         {:error, {:unexpected_fetch_result, other}}
-    end
-  end
-
-  # A validator is offered only alongside the body it validates. `ResourceStore`
-  # already refuses to record an ETag for a body it declined, but a body can also
-  # outlive its usefulness by ageing out of the retention window while the
-  # validator stays, and a `304` then costs a request and returns nothing.
-  defp validator(key) do
-    case ResourceStore.fetch(key) do
-      {:ok, %{etag: etag}} when is_binary(etag) and etag != "" -> etag
-      _other -> nil
     end
   end
 

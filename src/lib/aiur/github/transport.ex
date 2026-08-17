@@ -27,6 +27,7 @@ defmodule Aiur.GitHub.Transport do
   """
 
   alias Aiur.GitHub
+  alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
@@ -431,7 +432,19 @@ defmodule Aiur.GitHub.Transport do
   defp orchestrator_process?, do: self() == GenServer.whereis(Aiur.Orchestrator)
 
   defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
-  defp quota_observe(quota, request, result), do: Quota.observe(quota, request, result)
+
+  # Every real GitHub response passes here, which makes it the one place that
+  # can tell the auth preflight memo its answer went stale. See
+  # `Aiur.GitHub.AuthPreflight.note_response/2`.
+  #
+  # Quota accounting goes first and owns the return value. It gates the whole
+  # fleet, so it must not be able to be skipped by a defect in an advisory
+  # cache hint that was bolted on after it.
+  defp quota_observe(quota, request, result) do
+    observed = Quota.observe(quota, request, result)
+    AuthPreflight.note_response(request, result)
+    observed
+  end
 
   defp held_response(hold) do
     reset_unix = DateTime.to_unix(hold.reset_at)

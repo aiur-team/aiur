@@ -81,6 +81,28 @@ defmodule Aiur.ConfigurationReferenceTest do
     end
   end
 
+  # Moving a key into `@contextual_defaults` removes it from the comparison
+  # above — and the comparison's own `flunk` branch went with it, so the row
+  # could be deleted from the reference with nothing failing. That is how three
+  # `build_order` rows became unchecked. The value cannot be compared with
+  # `struct!/1` for these keys, but its presence can, and presence is what the
+  # dropped `flunk` used to guarantee.
+  describe "contextually defaulted keys" do
+    for key <- @contextual_defaults do
+      test "the reference still documents #{key}" do
+        assert documented_row_count(unquote(key)) == 1,
+               "configuration reference has #{documented_row_count(unquote(key))} rows for " <>
+                 "#{unquote(key)}; a contextually defaulted key is still a documented key"
+      end
+    end
+  end
+
+  defp documented_row_count(key) do
+    ~r/^\| `#{Regex.escape(key)}` \|/m
+    |> Regex.scan(@configuration_reference)
+    |> length()
+  end
+
   defp documented_default(key) do
     regex = ~r/^\| `#{Regex.escape(key)}` \| [^|]+ \| (?<default>[^|]+) \|/m
 

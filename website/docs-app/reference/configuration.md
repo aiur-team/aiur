@@ -99,6 +99,8 @@ Freshness thresholds follow this cadence. You do not set them separately.
   `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
 - The dashboard, the Units catalog and Build Order ticket history all judge
   staleness against that effective interval.
+- Build Order's own refresh cadences are derived from it too, so an idle fleet
+  widens the Build Order catalog sweep exactly as it widens the tracker poll.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
@@ -517,8 +519,8 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× poll interval) | Catalog refresh cadence. |
-| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence. |
+| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
@@ -553,9 +555,8 @@ a boot failure.
 
 ### Derived Build Order cadences
 
-Three of these keys have no fixed default. They are derived from
-`polling.interval_seconds`, and setting any of them explicitly overrides the
-derivation.
+Three of these keys have no fixed default. They are derived from the poll
+interval, and setting any of them explicitly overrides the derivation.
 
 Build Order displays state that the tracker produces, so it cannot be fresher
 than the tracker's own cycle. Refreshing faster only re-reads a graph that cannot
@@ -565,13 +566,34 @@ The previous fixed defaults were chosen when the tracker polled every 5 seconds,
 and did not move when the tracker changed to 120 seconds. Deriving them is what
 stops that recurring.
 
-Each derivation, and the value it produces at the default poll interval:
+The two **graph cadences** follow the *effective* interval: the one the daemon
+actually scheduled.
 
-| Key | Derivation | At a 120s poll interval |
-| --- | --- | --- |
-| `graph_catalog_refresh_ms` | 1× poll interval | 120000 |
-| `graph_catalog_labels_refresh_ms` | 5× poll interval, floor 600000, never below `graph_catalog_refresh_ms` | 600000 |
-| `ticket_detail_freshness_ms` | ¼ poll interval, floor 5000 | 30000 |
+- It is not `polling.interval_seconds` alone. It includes
+  `polling.idle_widen_factor` and `webhooks.poll_widen_factor`.
+- It is the value `aiur status` reports as `interval=`.
+- So an idle fleet widens the Build Order catalog exactly as it widens the
+  tracker, and a fleet that picks up work narrows both back together.
+- Deriving from the base interval instead made the catalog poll five times more
+  often than the tracker it projects, with nobody watching.
+
+`ticket_detail_freshness_ms` follows the **base** interval instead. It is a
+staleness window for the ticket-detail drawer, read once when the daemon starts
+and never re-derived, so tying it to a cadence that moves would freeze it at
+whatever the cadence was at boot.
+
+Each derivation, and the values it produces at a 120s base interval:
+
+| Key | Derivation | Busy fleet | Idle, polling repo | Idle, webhook-backed |
+| --- | --- | --- | --- | --- |
+| `graph_catalog_refresh_ms` | 1× effective interval, ceiling 3600000 | 120000 | 600000 | 1200000 |
+| `graph_catalog_labels_refresh_ms` | 5× effective interval, floor 600000, ceiling 3600000, never below `graph_catalog_refresh_ms` | 600000 | 3000000 | 3600000 |
+| `ticket_detail_freshness_ms` | ¼ base interval, floor 5000, ceiling 300000 | 30000 | 30000 | 30000 |
+
+The effective interval at idle is 600s for a repository Aiur polls, and 1200s
+once that repository is a proven webhook source (`webhooks.poll_widen_factor`
+multiplies again). The labelled catalog read reaches its 3600000 ceiling in that
+last column.
 
 `graph_catalog_labels_refresh_ms` covers the 26-point catalog variant, so it is
 the slowest of the three, and it can never fall below the catalog cadence it

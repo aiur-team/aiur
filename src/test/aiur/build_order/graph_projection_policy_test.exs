@@ -25,11 +25,21 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
   # when a writer or an explicit refresh asks for it, so a policy that still
   # carried a selected or demand interval would mean the viewer-driven refresh
   # had come back.
+  #
+  # Asserted as the exact key set: `policy_options/1` returns a closed map
+  # literal, so refuting two names it cannot contain is statically true and
+  # passes against every implementation, including one that reinstated the
+  # cadence under a third name.
   test "the policy carries no viewer-driven interval" do
     policy = Options.new(clock_ms: fn -> 0 end).policy
 
-    refute Map.has_key?(policy, :selected_refresh_ms)
-    refute Map.has_key?(policy, :demand_refresh_ms)
+    assert policy |> Map.keys() |> Enum.sort() == [
+             :catalog_labels_refresh_ms,
+             :catalog_refresh_ms,
+             :max_inflight,
+             :max_selected_roots,
+             :refresh_timeout_ms
+           ]
   end
 
   test "configured refresh interval preserves the same deterministic boundary" do
@@ -48,17 +58,35 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
   # A configuration still carrying the deleted viewer cadences must be inert
   # rather than fatal: the keys are ignored, not honoured and not rejected.
+  # Asserted as "the policy is identical with and without them", which fails the
+  # moment either key starts being honoured. Refuting the keys on a fixed map
+  # literal could not.
   test "the deleted viewer cadences are ignored if still configured" do
-    policy =
-      Options.policy_options(
-        catalog_refresh_ms: 60_000,
-        selected_refresh_ms: 10_000,
-        demand_refresh_ms: 10_001
-      )
+    assert Options.policy_options(
+             catalog_refresh_ms: 60_000,
+             selected_refresh_ms: 10_000,
+             demand_refresh_ms: 10_001
+           ) == Options.policy_options(catalog_refresh_ms: 60_000)
+  end
 
-    assert policy.catalog_refresh_ms == 60_000
-    refute Map.has_key?(policy, :selected_refresh_ms)
-    refute Map.has_key?(policy, :demand_refresh_ms)
+  # The cross-field clamp #1766 exists for: the labelled catalog read costs ~26
+  # points per page against the cheap read's ~1, so it may never run more often
+  # than the catalog poll it rides on. This is the only guard on that rule —
+  # delete the `max/2` in `policy_options/1` and the first assertion fails.
+  test "a labels cadence faster than the catalog poll is clamped up to it" do
+    clamped = Options.policy_options(catalog_refresh_ms: 120_000, catalog_labels_refresh_ms: 30_000)
+
+    assert clamped.catalog_labels_refresh_ms == 120_000
+
+    # Equal is the boundary itself and is already legal, so the clamp must leave
+    # it alone rather than push it out by one interval.
+    at_boundary = Options.policy_options(catalog_refresh_ms: 120_000, catalog_labels_refresh_ms: 120_000)
+    assert at_boundary.catalog_labels_refresh_ms == 120_000
+
+    # Just outside, and the operator's slower number survives untouched: this is
+    # a floor, not a blanket override.
+    above = Options.policy_options(catalog_refresh_ms: 120_000, catalog_labels_refresh_ms: 120_001)
+    assert above.catalog_labels_refresh_ms == 120_001
   end
 
   test "only complete matching candidates pass the atomic publication gate" do
