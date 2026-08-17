@@ -181,30 +181,25 @@ defmodule Aiur.AppServer.Adapter do
   # the owned process starts.
   defp port_env(env) when is_list(env) do
     Enum.flat_map(env, fn
-      {name, _value} when name in ["BASH_ENV", "ENV", "ZDOTDIR"] ->
-        []
+      {name, _value} = entry ->
+        if AgentEnvironment.shell_startup_env_name?(name), do: [], else: normalize_port_env(entry)
 
-      {name, _value} when name in [~c"BASH_ENV", ~c"ENV", ~c"ZDOTDIR"] ->
-        []
-
-      {name, value} when is_binary(name) and is_binary(value) ->
-        [{String.to_charlist(name), String.to_charlist(value)}]
-
-      {name, false} when is_binary(name) ->
-        [{String.to_charlist(name), false}]
-
-      {name, value} when is_list(name) and is_list(value) ->
-        [{name, value}]
-
-      {name, false} when is_list(name) ->
-        [{name, false}]
-
-      _ ->
+      _other ->
         []
     end)
   end
 
   defp port_env(_env), do: []
+
+  defp normalize_port_env({name, value}) when is_binary(name) and is_binary(value),
+    do: [{String.to_charlist(name), String.to_charlist(value)}]
+
+  defp normalize_port_env({name, false}) when is_binary(name),
+    do: [{String.to_charlist(name), false}]
+
+  defp normalize_port_env({name, value}) when is_list(name) and is_list(value), do: [{name, value}]
+  defp normalize_port_env({name, false}) when is_list(name), do: [{name, false}]
+  defp normalize_port_env(_other), do: []
 
   defp terminate_uncontained_port(port) do
     case :erlang.port_info(port, :os_pid) do

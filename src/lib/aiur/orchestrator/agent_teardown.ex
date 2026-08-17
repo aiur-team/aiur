@@ -210,14 +210,24 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     process_group_id = Map.get(running_entry, :headless_process_group_id)
     root_pid = Map.get(running_entry, :headless_os_pid) || Map.get(running_entry, :repl_os_pid)
 
-    group_alive? = RemoteControl.process_group_alive?(process_group_id)
-    root_alive? = RemoteControl.process_alive?(root_pid)
-
-    if group_alive?, do: RemoteControl.graceful_kill_process_group(process_group_id)
-    if root_alive?, do: RemoteControl.graceful_kill_tree(root_pid)
-
-    if group_alive? or root_alive?, do: :reaped, else: :gone
+    if RemoteControl.process_group_alive?(process_group_id) do
+      case RemoteControl.graceful_kill_process_group(process_group_id) do
+        {:ok, :reaped} -> :reaped
+        _other -> reap_orphaned_root(root_pid)
+      end
+    else
+      reap_orphaned_root(root_pid)
+    end
   end
 
   def reap_orphaned_agent_shell(_running_entry), do: :gone
+
+  defp reap_orphaned_root(root_pid) do
+    if RemoteControl.process_alive?(root_pid) do
+      RemoteControl.graceful_kill_tree(root_pid)
+      :reaped
+    else
+      :gone
+    end
+  end
 end

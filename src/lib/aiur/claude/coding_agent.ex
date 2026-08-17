@@ -15,7 +15,6 @@ defmodule Aiur.Claude.CodingAgent do
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.Claude.{AccountGeneration, AccountMeters, NotificationPolicy}
   alias Aiur.Claude.RemoteControl
-  alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.DynamicTool
   alias Aiur.Config
 
@@ -177,7 +176,7 @@ defmodule Aiur.Claude.CodingAgent do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
         %{root_pid: os_pid}
-        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
+        |> maybe_put_process_group(os_pid)
         |> Map.put(:descendant_pids, RemoteControl.process_tree(os_pid))
 
       _ ->
@@ -194,7 +193,7 @@ defmodule Aiur.Claude.CodingAgent do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
         %{provider_pid: to_string(os_pid), claude_app_server_pid: to_string(os_pid)}
-        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
+        |> maybe_put_process_group(os_pid)
 
       _ ->
         %{}

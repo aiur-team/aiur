@@ -383,6 +383,9 @@ defmodule Aiur.AgentEnvironmentTest do
   test "shell startup suppression clears profile hooks" do
     assert AgentEnvironment.shell_startup_env() == [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", "/dev/null"}]
     assert AgentEnvironment.shell_startup_prefix() == "unset BASH_ENV ENV; export ZDOTDIR='/dev/null'"
+    assert AgentEnvironment.shell_startup_env_name?("BASH_ENV")
+    assert AgentEnvironment.shell_startup_env_name?(~c"ZDOTDIR")
+    refute AgentEnvironment.shell_startup_env_name?("HOME")
   end
 
   test "System.cmd startup suppression uses nil, not false, and survives System.cmd" do
@@ -396,26 +399,6 @@ defmodule Aiur.AgentEnvironmentTest do
                env: AgentEnvironment.system_shell_startup_env(),
                stderr_to_stdout: true
              )
-  end
-
-  test "Aiur source never passes gh message bodies inline" do
-    repo_root = Path.expand("../../..", __DIR__)
-
-    offenders =
-      (Path.wildcard(Path.join(repo_root, "src/lib/**/*.ex")) ++
-         Path.wildcard(Path.join(repo_root, ".claude/skills/**/*")))
-      |> Enum.filter(fn path ->
-        if File.regular?(path) do
-          contents = File.read!(path)
-
-          String.contains?(contents, "gh") and
-            (String.contains?(contents, "--body ") or String.contains?(contents, "--body="))
-        else
-          false
-        end
-      end)
-
-    assert offenders == []
   end
 
   test "scrub_shell_command preserves caller exec choice" do

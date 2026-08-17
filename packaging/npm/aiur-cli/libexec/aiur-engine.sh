@@ -1199,7 +1199,7 @@ reap_stale_manual_smoke() {
 # Echo $1 and every descendant pid, depth-first. Mac-safe (`pgrep -P`, no
 # /proc), mirroring Aiur.RemoteControl.collect_descendants so the launcher reaps
 # the same tree the BEAM-side reaper would. The recorded agent pid is a bash
-# `-lc` wrapper; the model process (claude --print / codex) is its child and
+# `-c` wrapper; the model process (claude --print / codex) is its child and
 # reparents to init if only the wrapper is signalled — orphan-and-survive is
 # exactly the bug — so the whole tree must be collected before any kill lands.
 agent_pid_tree() {

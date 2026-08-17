@@ -51,6 +51,15 @@ defmodule Aiur.AgentEnvironment do
   @spec shell_startup_env() :: [{String.t(), String.t() | false}]
   def shell_startup_env, do: [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", @neutral_zdotdir}]
 
+  @spec shell_startup_env_name?(String.t() | charlist()) :: boolean()
+  def shell_startup_env_name?(name) when is_binary(name),
+    do: Enum.any?(shell_startup_env(), fn {startup_name, _value} -> startup_name == name end)
+
+  def shell_startup_env_name?(name) when is_list(name),
+    do: shell_startup_env_name?(List.to_string(name))
+
+  def shell_startup_env_name?(_name), do: false
+
   @doc """
   Same suppression as `shell_startup_env/0`, in the shape `System.cmd/3`
   accepts. `System.cmd` spells "remove this variable" as `nil`; `Port.open`
@@ -196,9 +205,9 @@ defmodule Aiur.AgentEnvironment do
         fn name -> {String.to_charlist(name), false} end
       )
 
-    shell_startup_env =
+    port_startup_env =
       shell_startup_env()
-      |> replace_bash_env(BuildGate.shell_env())
+      |> replace_bash_env(build_gate_env)
       |> Enum.map(fn
         {name, false} -> {String.to_charlist(name), false}
         {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
@@ -256,7 +265,7 @@ defmodule Aiur.AgentEnvironment do
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
-        shell_startup_env
+        port_startup_env
 
     unset_inherited_env ++ workspace_env
   end

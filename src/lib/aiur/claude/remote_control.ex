@@ -241,15 +241,15 @@ defmodule Aiur.Claude.RemoteControl do
   # `claude` backend runs under a `bash -c` wrapper that does NOT exec, so
   # its `claude`/node grandchildren reparent to init when the bash pid dies
   # and would survive teardown. Descendants are snapshotted while the root is
-  # still alive (once it dies the parent link is lost), then each is
-  # graceful-killed alongside the root.
+  # still alive (once it dies the parent link is lost), then reaped deepest
+  # first so their living parents can collect them before the root exits.
   @spec graceful_kill_tree(nil | integer()) :: :ok
   def graceful_kill_tree(nil), do: :ok
 
   def graceful_kill_tree(os_pid) when is_integer(os_pid) do
     descendants = collect_descendants(os_pid)
+    descendants |> Enum.reverse() |> Enum.each(&graceful_kill/1)
     graceful_kill(os_pid)
-    Enum.each(descendants, &graceful_kill/1)
     :ok
   end
 
