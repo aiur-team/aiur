@@ -81,10 +81,13 @@ Then **look at the screenshots**. Reading extracted text is not the same as
 seeing the page; a table of em-dashes reads as "empty" in text and as "broken" on
 sight.
 
-What to flag: staleness banners, `N/A` or em-dash where a number belongs, a
-metric column that is entirely one repeated value, an empty table, a banner whose
-two halves contradict each other, and any figure that disagrees with a known
-configured value.
+What to flag: missing primary content, rendered unavailable/error states,
+staleness banners, `N/A` or em-dash where a number belongs, a metric column whose
+values are mostly missing (or missing for any populated row), a metric column
+that is entirely one repeated value, an empty table, a banner whose two halves
+contradict each other, and any figure that disagrees with a known configured
+value. A settled page that contains nothing recognizable is attention, never
+evidence of health.
 
 ### The interactive CLI
 
