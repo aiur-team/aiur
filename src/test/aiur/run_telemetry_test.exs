@@ -5,20 +5,33 @@ defmodule Aiur.RunTelemetryTest do
   alias Aiur.RunTelemetry.{Dashboard, Lifecycle, Writer}
   alias Aiur.Workflow
 
+  setup_all do
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.RunTelemetry.Supervisor)
+
+    on_exit(fn ->
+      {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, Aiur.RunTelemetry.Supervisor)
+    end)
+
+    :ok
+  end
+
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
+
+    refute Process.whereis(Aiur.RunTelemetry.Writer),
+           "the application telemetry writer must be stopped before assigning a per-test log root"
 
     root = Path.join(System.tmp_dir!(), "aiur-run-telemetry-#{System.unique_integer([:positive])}")
     log_file = Path.join(root, "log/aiur.log")
     Application.put_env(:aiur, :log_file, log_file)
 
     on_exit(fn ->
-      File.rm_rf!(root)
-
       case original_log_file do
         nil -> Application.delete_env(:aiur, :log_file)
         value -> Application.put_env(:aiur, :log_file, value)
       end
+
+      File.rm_rf!(root)
     end)
 
     %{root: root}
