@@ -62,13 +62,13 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
       <div :if={@state == :stale} class="current-run-outcomes-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
         <span>
-          <b>Stale outcomes.</b>
-          Showing the last validated snapshot for this run; a refresh could not be confirmed.
+          <b>Not live.</b>
+          Showing the outcomes we last read for this run; the refresh did not confirm.
         </span>
       </div>
 
       <div :if={@state == :partial} class="empty-state compact">
-        These outcomes may be incomplete; a source was degraded, truncated, or still reconciling.
+        These outcomes may be incomplete.
       </div>
 
       <div :if={@state == :healthy_empty} class="empty-state compact">
