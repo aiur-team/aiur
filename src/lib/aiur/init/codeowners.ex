@@ -108,7 +108,10 @@ defmodule Aiur.Init.Codeowners do
   end
 
   defp codeowners_has_login?(repo_root, login) do
-    login in Codeowners.repo_ownership(repo_root: repo_root).owners
+    case Codeowners.repo_ownership(repo_root: repo_root) do
+      {:error, _reason} -> false
+      context -> login in context.owners
+    end
   end
 
   defp offer_operator_codeowner(io, path, login) do

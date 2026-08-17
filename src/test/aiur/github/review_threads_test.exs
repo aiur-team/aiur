@@ -156,6 +156,104 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
       File.rm_rf!(repo_root)
     end
 
+    test "returns an error when team-backed CODEOWNER authority is unavailable during a quota hold" do
+      repo_root = codeowners_repo!("* @acme/platform\n")
+
+      request_fun = fn
+        %{method: :post, url: "https://api.github.com/graphql"} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{
+                   "pullRequest" => %{
+                     "reviewThreads" => %{
+                       "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                       "nodes" => [
+                         %{
+                           "id" => "PRRT_quota_hold",
+                           "isResolved" => false,
+                           "path" => "src/lib/foo.ex",
+                           "line" => 5,
+                           "comments" => %{
+                             "nodes" => [review_thread_comment(12, "platform-owner", "please fix")]
+                           }
+                         }
+                       ]
+                     }
+                   }
+                 }
+               }
+             }
+           }}
+
+        %{method: :get, url: "https://api.github.com/orgs/acme/teams/platform/members?per_page=100"} ->
+          {:ok, %{status: 429, body: %{}}}
+      end
+
+      assert {:error, :quota_hold} =
+               ReviewThreads.fetch_unaddressed_pr_review_thread_comments(1,
+                 request_fun: request_fun,
+                 repo_root: repo_root,
+                 agent_logins: ["aiur-bot"]
+               )
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "still surfaces an agent-authored latest reply for required resolution during a quota hold" do
+      repo_root = codeowners_repo!("* @acme/platform\n")
+
+      request_fun = fn
+        %{method: :post, url: "https://api.github.com/graphql"} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{
+                   "pullRequest" => %{
+                     "reviewThreads" => %{
+                       "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                       "nodes" => [
+                         %{
+                           "id" => "PRRT_agent_quota_hold",
+                           "isResolved" => false,
+                           "path" => "src/lib/foo.ex",
+                           "line" => 5,
+                           "comments" => %{
+                             "nodes" => [
+                               review_thread_comment(13, "platform-owner", "please fix"),
+                               review_thread_comment(14, "aiur-bot", "fixed")
+                             ]
+                           }
+                         }
+                       ]
+                     }
+                   }
+                 }
+               }
+             }
+           }}
+
+        %{method: :get, url: "https://api.github.com/orgs/acme/teams/platform/members?per_page=100"} ->
+          {:ok, %{status: 429, body: %{}}}
+      end
+
+      assert {:ok, [comment]} =
+               ReviewThreads.fetch_unaddressed_pr_review_thread_comments(1,
+                 request_fun: request_fun,
+                 repo_root: repo_root,
+                 agent_logins: ["aiur-bot"]
+               )
+
+      assert comment.authoritative
+      assert comment["review_thread_resolution_required"]
+
+      File.rm_rf!(repo_root)
+    end
+
     test "paginates across two pages via GraphQL cursor" do
       repo_root = codeowners_repo!("* @owner\n")
       {:ok, page_count} = Agent.start_link(fn -> 0 end)

@@ -21,6 +21,8 @@ defmodule Aiur.Codeowners do
           optional(:agent_logins) => [String.t()]
         }
 
+  @type ownership_error :: :quota_hold | {:github_api_status, non_neg_integer()} | {:github_api_request, term()}
+
   @codeowners_paths [
     ".github/CODEOWNERS",
     "CODEOWNERS",
@@ -61,31 +63,36 @@ defmodule Aiur.Codeowners do
   function are available. If no CODEOWNERS file exists or no rule matches,
   this returns an empty list, and `authoritative?/2` then trusts nobody —
   see the fail-closed invariant there.
+
+  If a team cannot be expanded — a quota hold is the common cause — this
+  returns an error instead, so callers do not mistake unknown ownership for
+  no owners.
   """
-  @spec owners_for_path(String.t(), keyword()) :: [String.t()]
+  @spec owners_for_path(String.t(), keyword()) :: [String.t()] | {:error, ownership_error()}
   def owners_for_path(path, opts \\ []) when is_binary(path) do
     path
     |> ownership_for_path(opts)
-    |> Map.fetch!(:owners)
+    |> owners_from_context()
   end
 
   @doc """
   Returns usernames responsible for any changed path in a pull request.
 
   Pass `changed_paths: [...]` to avoid a GitHub API call, or pass a PR number
-  with repository configuration available.
+  with repository configuration available. GitHub lookup failures are returned
+  rather than collapsed into an empty owner list.
   """
-  @spec owners_for_pr(String.t() | integer() | [String.t()], keyword()) :: [String.t()]
+  @spec owners_for_pr(String.t() | integer() | [String.t()], keyword()) :: [String.t()] | {:error, term()}
   def owners_for_pr(pr_or_paths, opts \\ []) do
     cond do
       is_list(pr_or_paths) ->
         pr_or_paths
         |> ownership_for_paths(opts)
-        |> Map.fetch!(:owners)
+        |> owners_from_context()
 
       is_binary(pr_or_paths) or is_integer(pr_or_paths) ->
         case Keyword.get(opts, :changed_paths) || fetch_pr_changed_paths(pr_or_paths, opts) do
-          {:error, _reason} -> []
+          {:error, reason} -> normalize_ownership_error(reason)
           paths when is_list(paths) -> owners_for_pr(paths, opts)
         end
     end
@@ -100,8 +107,10 @@ defmodule Aiur.Codeowners do
   - a keyword list with `:path`, `:changed_paths`, `:owners`, and/or
     `:agent_logins`
   """
-  @spec authoritative?(String.t() | nil, ownership_context() | [String.t()] | keyword()) :: boolean()
+  @spec authoritative?(String.t() | nil, ownership_context() | {:error, term()} | [String.t()] | keyword()) :: boolean() | nil
   def authoritative?(commenter, _context) when not is_binary(commenter), do: false
+
+  def authoritative?(_commenter, {:error, _reason}), do: nil
 
   def authoritative?(commenter, context) when is_map(context) do
     cond do
@@ -149,17 +158,17 @@ defmodule Aiur.Codeowners do
   @doc """
   Returns ownership metadata for a path, including the matched pattern.
   """
-  @spec ownership_for_path(String.t(), keyword()) :: ownership_context()
+  @spec ownership_for_path(String.t(), keyword()) :: ownership_context() | {:error, ownership_error()}
   def ownership_for_path(path, opts \\ []) when is_binary(path) do
     codeowners = read_codeowners(opts)
 
     if codeowners.present? do
-      entries =
+      entries_result =
         codeowners.rules
         |> matching_rule(path)
         |> entries_for_rule(path, opts)
 
-      %{codeowners_present: true, owners: usernames(entries), entries: entries}
+      ownership_context(entries_result)
     else
       %{codeowners_present: false, owners: [], entries: []}
     end
@@ -168,21 +177,14 @@ defmodule Aiur.Codeowners do
   @doc """
   Returns ownership metadata for multiple paths.
   """
-  @spec ownership_for_paths([String.t()], keyword()) :: ownership_context()
+  @spec ownership_for_paths([String.t()], keyword()) :: ownership_context() | {:error, ownership_error()}
   def ownership_for_paths(paths, opts \\ []) when is_list(paths) do
     codeowners = read_codeowners(opts)
 
     if codeowners.present? do
-      entries =
-        paths
-        |> Enum.flat_map(fn path ->
-          codeowners.rules
-          |> matching_rule(path)
-          |> entries_for_rule(path, opts)
-        end)
-        |> uniq_entries()
-
-      %{codeowners_present: true, owners: usernames(entries), entries: entries}
+      paths
+      |> collect_entries(fn path -> codeowners.rules |> matching_rule(path) |> entries_for_rule(path, opts) end)
+      |> ownership_context()
     else
       %{codeowners_present: false, owners: [], entries: []}
     end
@@ -191,17 +193,14 @@ defmodule Aiur.Codeowners do
   @doc """
   Returns ownership metadata for all owners in the active CODEOWNERS file.
   """
-  @spec repo_ownership(keyword()) :: ownership_context()
+  @spec repo_ownership(keyword()) :: ownership_context() | {:error, ownership_error()}
   def repo_ownership(opts \\ []) do
     codeowners = read_codeowners(opts)
 
     if codeowners.present? do
-      entries =
-        codeowners.rules
-        |> Enum.flat_map(&entries_for_rule(&1, nil, opts))
-        |> uniq_entries()
-
-      %{codeowners_present: true, owners: usernames(entries), entries: entries}
+      codeowners.rules
+      |> collect_entries(fn rule -> entries_for_rule(rule, nil, opts) end)
+      |> ownership_context()
     else
       %{codeowners_present: false, owners: [], entries: []}
     end
@@ -210,8 +209,20 @@ defmodule Aiur.Codeowners do
   @doc """
   Adds authoritative/advisory metadata to a comment map.
   """
-  @spec classify_comment(map(), ownership_context(), keyword()) :: map()
-  def classify_comment(comment, ownership_context, opts \\ []) when is_map(comment) and is_map(ownership_context) do
+  @spec classify_comment(map(), ownership_context() | {:error, term()}, keyword()) :: map()
+  def classify_comment(comment, ownership_context, opts \\ [])
+
+  def classify_comment(comment, {:error, reason}, opts) when is_map(comment) do
+    author = comment_author(comment)
+    agent_comment? = agent_login?(author, Keyword.get(opts, :agent_logins, []))
+
+    comment
+    |> Map.put(:authoritative, if(agent_comment?, do: false, else: nil))
+    |> Map.put(:authority_reason, unknown_authority_reason(reason, agent_comment?))
+    |> Map.put(:codeowners, %{status: :unknown, reason: reason})
+  end
+
+  def classify_comment(comment, ownership_context, opts) when is_map(comment) and is_map(ownership_context) do
     author = comment_author(comment)
     context = Map.put(ownership_context, :agent_logins, Keyword.get(opts, :agent_logins, []))
     authoritative = authoritative?(author, context)
@@ -248,17 +259,17 @@ defmodule Aiur.Codeowners do
       path = Keyword.get(opts, :path) ->
         path
         |> ownership_for_path(opts)
-        |> Map.put(:agent_logins, Keyword.get(opts, :agent_logins, []))
+        |> with_agent_logins(opts)
 
       paths = Keyword.get(opts, :changed_paths) ->
         paths
         |> ownership_for_paths(opts)
-        |> Map.put(:agent_logins, Keyword.get(opts, :agent_logins, []))
+        |> with_agent_logins(opts)
 
       true ->
         opts
         |> repo_ownership()
-        |> Map.put(:agent_logins, Keyword.get(opts, :agent_logins, []))
+        |> with_agent_logins(opts)
     end
   end
 
@@ -274,6 +285,22 @@ defmodule Aiur.Codeowners do
   catch
     :exit, _reason -> false
   end
+
+  # Both multi-lookup ownership paths accumulate entries and must abandon the
+  # whole context the moment one lookup cannot answer: an owner set that is
+  # merely unknown must never be reported as a smaller owner set. Shared so that
+  # halt-on-first-error rule is written once rather than per caller.
+  defp collect_entries(items, lookup) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, acc} ->
+      case lookup.(item) do
+        {:ok, entries} -> {:cont, {:ok, entries ++ acc}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp with_agent_logins({:error, _reason} = error, _opts), do: error
+  defp with_agent_logins(context, opts), do: Map.put(context, :agent_logins, Keyword.get(opts, :agent_logins, []))
 
   # A file that parses to no rules — most commonly the comments-only placeholder
   # `aiur init` writes when the operator declines to name an owner — grants
@@ -355,22 +382,29 @@ defmodule Aiur.Codeowners do
     |> List.last()
   end
 
-  defp entries_for_rule(nil, _path, _opts), do: []
+  defp entries_for_rule(nil, _path, _opts), do: {:ok, []}
 
   defp entries_for_rule(%{pattern: pattern, owners: owners}, path, opts) do
-    Enum.map(owners, fn owner ->
-      %{handle: owner, usernames: usernames_for_owner(owner, opts), pattern: pattern, path: path}
+    Enum.reduce_while(owners, {:ok, []}, fn owner, {:ok, entries} ->
+      case usernames_for_owner(owner, opts) do
+        {:ok, usernames} ->
+          entry = %{handle: owner, usernames: usernames, pattern: pattern, path: path}
+          {:cont, {:ok, [entry | entries]}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
     end)
   end
 
   defp usernames_for_owner("@" <> owner = handle, opts) do
     case String.split(owner, "/", parts: 2) do
-      [_user] -> [normalize_login(handle)]
+      [_user] -> {:ok, [normalize_login(handle)]}
       [org, team_slug] -> team_members(org, team_slug, opts)
     end
   end
 
-  defp usernames_for_owner(owner, _opts), do: [normalize_login(owner)]
+  defp usernames_for_owner(owner, _opts), do: {:ok, [normalize_login(owner)]}
 
   defp team_members(org, team_slug, opts) do
     cache_key = {__MODULE__, :team_members, String.downcase(org), String.downcase(team_slug)}
@@ -380,14 +414,14 @@ defmodule Aiur.Codeowners do
         case fetch_team_members(org, team_slug, opts) do
           {:ok, members} ->
             Process.put(cache_key, members)
-            members
+            {:ok, members}
 
-          {:error, _reason} ->
-            []
+          {:error, _reason} = error ->
+            error
         end
 
       members ->
-        members
+        {:ok, members}
     end
   end
 
@@ -406,10 +440,30 @@ defmodule Aiur.Codeowners do
 
         {:ok, logins}
 
-      _ ->
-        {:error, :team_members_unavailable}
+      {:ok, %{status: status}} ->
+        normalize_ownership_error({:github_api_status, status})
+
+      {:error, reason} ->
+        {:error, {:github_api_request, reason}}
+
+      _invalid_response ->
+        {:error, {:github_api_request, :invalid_response}}
     end
   end
+
+  defp ownership_context({:error, _reason} = error), do: error
+
+  defp ownership_context({:ok, entries}) do
+    entries = entries |> Enum.reverse() |> uniq_entries()
+    %{codeowners_present: true, owners: usernames(entries), entries: entries}
+  end
+
+  defp owners_from_context({:error, _reason} = error), do: error
+  defp owners_from_context(context), do: Map.fetch!(context, :owners)
+
+  defp normalize_ownership_error({:github_api_status, 429}), do: {:error, :quota_hold}
+  defp normalize_ownership_error({:github_api_status, status}), do: {:error, {:github_api_status, status}}
+  defp normalize_ownership_error(reason), do: {:error, reason}
 
   defp fetch_pr_changed_paths(pr_number, opts) do
     with {:ok, {owner, repo}} <- parse_repo(opts),
@@ -570,16 +624,25 @@ defmodule Aiur.Codeowners do
     end
   end
 
+  defp unknown_authority_reason(_reason, true), do: "Agent's own comment; never authoritative."
+  defp unknown_authority_reason(:quota_hold, false), do: "CODEOWNER authority is unknown because GitHub quota is held."
+  defp unknown_authority_reason(_reason, false), do: "CODEOWNER authority is unknown because owner lookup failed."
+
   defp path_suffix(nil), do: ""
   defp path_suffix(path), do: " matching #{path}"
 
+  # Anonymous reads still spend a GitHub budget — the 60/hr unauthenticated IP
+  # allowance — so they go through `Transport` like every other call rather than
+  # straight to `Req`. They are tagged `anonymous: true` so `Quota` meters them
+  # against their own window instead of polluting the authenticated one.
   defp default_request_fun(%{method: :get, url: url, token: token}) do
-    if is_binary(token) and token != "" do
-      Transport.default_request_fun(%{method: :get, url: url, token: token})
-    else
-      Req.get(url, headers: github_headers(nil), connect_options: [timeout: 30_000])
-    end
-  end
+    request = %{method: :get, url: url, token: token}
 
-  defp github_headers(nil), do: [{"Accept", "application/vnd.github+json"}]
+    request =
+      if is_binary(token) and token != "",
+        do: request,
+        else: Map.put(request, :anonymous, true)
+
+    Transport.default_request_fun(request)
+  end
 end

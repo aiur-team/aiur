@@ -43,7 +43,7 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
     refute skill =~ "explicit\ntoken-bearing URL"
 
     assert dev_loop =~ "configured `tracker.github.bot_account`"
-    assert dev_loop =~ "GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c credential.helper=\"$agent_helper\" push"
+    assert dev_loop =~ "GIT_TERMINAL_PROMPT=0 git -C \"$workspace\" -c credential.helper= -c credential.helper=\"$agent_helper\" push"
     assert dev_loop =~ "printf \"quit=true\\n\""
     assert dev_loop =~ "never\n   retry through the Executor keyring"
     assert dev_loop =~ "empty commit or API ref update does\n   not repair"
