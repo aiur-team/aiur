@@ -1564,7 +1564,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     repo = Path.join(context.workspace, "repo")
     File.mkdir_p!(repo)
 
-    assert {_, 0} = System.cmd("git", ["init", repo], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["init", repo], stderr_to_stdout: true)
 
     assert {_, 0} =
              System.cmd(
@@ -1576,13 +1576,163 @@ defmodule Aiur.AgentGitHubGuardTest do
     {output, exit_code} =
       System.cmd(context.git_wrapper, ["push", "--dry-run", "origin", "HEAD"],
         cd: repo,
-        env: [{"AIUR_REAL_GIT", System.find_executable("git")}, {"GITHUB_TOKEN", "agent-token"}],
+        env: [{"AIUR_REAL_GIT", real_git()}, {"GITHUB_TOKEN", "agent-token"}],
         stderr_to_stdout: true
       )
 
     assert exit_code == 64
     assert output =~ "credential-free https://github.com remote"
     refute output =~ "embedded-token"
+  end
+
+  test "git push inspects the repository selected by -C", context do
+    repo = Path.join(context.workspace, "target-repo")
+    File.mkdir_p!(repo)
+
+    assert {_, 0} = System.cmd(real_git(), ["-C", repo, "init", "--quiet"], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(
+               real_git(),
+               ["-C", repo, "remote", "add", "origin", "https://agent:embedded-token@github.com/owner/repo.git"],
+               stderr_to_stdout: true
+             )
+
+    assert {output, 64} = run_git_guard(context, ["-C", repo, "push", "--dry-run", "origin", "HEAD"])
+    assert output =~ "credential-free https://github.com remote"
+    refute output =~ "embedded-token"
+  end
+
+  test "git wrapper refuses destructive commands without explicit repository context", context do
+    init_git_workspace(context)
+
+    for args <- [
+          ["reset", "--hard", "HEAD"],
+          ["clean", "-fdn"],
+          ["checkout", "--", "."],
+          ["restore", "--", "."],
+          ["restore", "tracked.txt"],
+          ["worktree", "remove", "missing-worktree"]
+        ] do
+      assert {output, 64} = run_git_guard(context, args)
+      assert output =~ "destructive git commands require an explicit absolute -C workspace"
+    end
+  end
+
+  test "git wrapper treats accepted hard-reset abbreviations as destructive", context do
+    init_git_workspace(context)
+    other = Path.join(Path.dirname(context.workspace), "other-reset-abbreviation")
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", other], stderr_to_stdout: true)
+
+    for option <- ~w(--h --ha --har --hard) do
+      assert {output, 64} = run_git_guard(context, ["reset", option, "HEAD"])
+      assert output =~ "destructive git commands require an explicit absolute -C workspace"
+
+      assert {output, 64} = run_git_guard(context, ["-C", other, "reset", option, "HEAD"])
+      assert output =~ "destructive git target is not the agent workspace"
+
+      assert {_output, 0} =
+               run_git_guard(context, ["-C", context.workspace, "reset", option, "HEAD"])
+    end
+  end
+
+  test "git wrapper rejects deleting clean without a force flag", context do
+    init_git_workspace(context)
+
+    config_env = [
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "clean.requireForce",
+      GIT_CONFIG_VALUE_0: "false"
+    ]
+
+    assert {output, 64} = run_git_guard(context, ["clean", "-d"], config_env)
+    assert output =~ "destructive git commands require an explicit absolute -C workspace"
+
+    assert {_output, 0} =
+             run_git_guard(context, ["-C", context.workspace, "clean", "-d", "-e", ".aiur-runtime/"], config_env)
+
+    assert {_output, 0} = run_git_guard(context, ["clean", "--dry-run"], config_env)
+  end
+
+  test "git wrapper resolves aliases before classifying destructive commands", context do
+    init_git_workspace(context)
+    other = Path.join(Path.dirname(context.workspace), "other-alias")
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", other], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "config", "alias.wipe", "reset --hard"], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "config", "alias.inspect", "status --short"], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", other, "config", "alias.wipe", "reset --hard"], stderr_to_stdout: true)
+
+    assert {output, 64} = run_git_guard(context, ["wipe"])
+    assert output =~ "destructive git commands require an explicit absolute -C workspace"
+    assert {_output, 0} = run_git_guard(context, ["-C", context.workspace, "wipe"])
+    assert {_output, 0} = run_git_guard(context, ["inspect"])
+
+    assert {output, 64} = run_git_guard(context, ["-C", other, "wipe"])
+    assert output =~ "destructive git target is not the agent workspace"
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "config", "alias.shell-wipe", "!git reset --hard"], stderr_to_stdout: true)
+
+    assert {output, 64} = run_git_guard(context, ["-C", context.workspace, "shell-wipe"])
+    assert output =~ "shell git aliases cannot be validated safely"
+
+    assert {output, 64} = run_git_guard(context, ["-c", "alias.inline-wipe=reset --hard", "inline-wipe"])
+    assert output =~ "inline git aliases cannot bypass repository context"
+  end
+
+  test "git wrapper accepts only an explicit context resolving to its workspace", context do
+    init_git_workspace(context)
+    nested = Path.join(context.workspace, "nested")
+    other = Path.join(Path.dirname(context.workspace), "other")
+    File.mkdir_p!(nested)
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", other], stderr_to_stdout: true)
+
+    assert {_output, 0} = run_git_guard(context, ["-C", context.workspace, "reset", "--hard", "HEAD"])
+    assert {_output, 0} = run_git_guard(context, ["-C", nested, "reset", "--hard", "HEAD"])
+
+    for target <- [".", Path.join(context.workspace, "missing"), other] do
+      assert {output, 64} = run_git_guard(context, ["-C", target, "reset", "--hard", "HEAD"])
+      assert output =~ "destructive git target is not the agent workspace"
+      refute output =~ "fatal: cannot change to"
+    end
+  end
+
+  test "git wrapper derives its workspace from its installed path", context do
+    init_git_workspace(context)
+
+    assert {_output, 0} =
+             run_git_guard(context, ["-C", context.workspace, "reset", "--hard", "HEAD"], AIUR_AGENT_WORKSPACE: nil)
+
+    assert {_output, 0} =
+             run_git_guard(context, ["-C", context.workspace, "reset", "--hard", "HEAD"], AIUR_AGENT_WORKSPACE: Path.dirname(context.workspace))
+  end
+
+  test "git wrapper rejects competing context selectors for destructive commands", context do
+    init_git_workspace(context)
+    git_dir = Path.join(context.workspace, ".git")
+
+    for {args, env} <- [
+          {["-C", context.workspace, "--git-dir", git_dir, "reset", "--hard", "HEAD"], []},
+          {["-C", context.workspace, "--work-tree", context.workspace, "reset", "--hard", "HEAD"], []},
+          {["-C", context.workspace, "-c", "core.worktree=#{Path.dirname(context.workspace)}", "reset", "--hard", "HEAD"], []},
+          {["-C", context.workspace, "--config-env=core.worktree=FAKE_WORK_TREE", "reset", "--hard", "HEAD"], [FAKE_WORK_TREE: Path.dirname(context.workspace)]},
+          {["-C", context.workspace, "reset", "--hard", "HEAD"], [GIT_DIR: git_dir]},
+          {["-C", context.workspace, "reset", "--hard", "HEAD"], [GIT_WORK_TREE: context.workspace]}
+        ] do
+      assert {output, 64} = run_git_guard(context, args, env)
+      assert output =~ "destructive git commands cannot use competing repository context"
+    end
+  end
+
+  test "git wrapper leaves read-only commands available without -C", context do
+    init_git_workspace(context)
+    assert {_output, 0} = run_git_guard(context, ["status", "--short"])
   end
 
   # #1793: 29 tickets were filed mid-run with no `agent:*` label. Each one was
@@ -1821,7 +1971,7 @@ defmodule Aiur.AgentGitHubGuardTest do
 
   defp run_git_credential(context, input, extra_env) do
     env =
-      [{"AIUR_REAL_GIT", System.find_executable("git")}] ++
+      [{"AIUR_REAL_GIT", real_git()}] ++
         Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
 
     System.cmd("sh", ["-c", ~s(printf '%s' "$2" | "$1" credential fill), "sh", context.git_wrapper, input],
@@ -1829,6 +1979,32 @@ defmodule Aiur.AgentGitHubGuardTest do
       stderr_to_stdout: true
     )
   end
+
+  defp run_git_guard(context, args, extra_env \\ []) do
+    extra_env = Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+
+    System.cmd(context.git_wrapper, args,
+      cd: context.workspace,
+      env:
+        [
+          {"AIUR_REAL_GIT", real_git()},
+          {"AIUR_AGENT_WORKSPACE", context.workspace},
+          {"GITHUB_TOKEN", "agent-token"}
+        ] ++ extra_env,
+      stderr_to_stdout: true
+    )
+  end
+
+  defp init_git_workspace(context) do
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", context.workspace], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", context.workspace, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", context.workspace, "config", "user.name", "Test"], stderr_to_stdout: true)
+    File.write!(Path.join(context.workspace, "tracked.txt"), "tracked\n")
+    assert {_, 0} = System.cmd(real_git(), ["-C", context.workspace, "add", "tracked.txt"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", context.workspace, "commit", "--quiet", "-m", "initial"], stderr_to_stdout: true)
+  end
+
+  defp real_git, do: System.get_env("AIUR_REAL_GIT") || System.find_executable("git")
 
   defp guard_env(context) do
     [
