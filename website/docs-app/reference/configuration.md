@@ -92,13 +92,15 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 
-Freshness thresholds follow this cadence rather than being configured
-separately. The dashboard, the Units catalog and the Build Order ticket history
-all judge "we should have heard by now" against the **effective** interval —
-`interval_seconds` after `idle_widen_factor`, `webhooks.poll_widen_factor` and
-GitHub's own poll floors have been applied — so changing `interval_seconds`
-never needs a matching threshold edit. `aiur status` prints the effective value
-(`POLL idle backoff active: interval=1200s base=120s factor=5.0x`).
+Freshness thresholds follow this cadence. You do not set them separately.
+
+- The **effective** interval is `interval_seconds` after `idle_widen_factor`,
+  `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
+- The dashboard, the Units catalog and Build Order ticket history all judge
+  staleness against that effective interval.
+- So a change to `interval_seconds` needs no matching threshold edit.
+- `aiur status` prints the effective value, for example
+  `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
 
 ## webhooks
 
