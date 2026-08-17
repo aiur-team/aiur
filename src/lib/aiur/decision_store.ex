@@ -1354,10 +1354,9 @@ defmodule Aiur.DecisionStore do
       # A duplicate that will not clear is a queue-hygiene miss, not a reason to
       # fail an answer the operator already gave. Leave it open and keep going.
       {:error, reason} ->
-        Logger.warning("decision supersede skipped",
-          decision_id: duplicate.decision_id,
-          superseded_by: answered.decision_id,
-          reason: inspect(reason)
+        Logger.warning(
+          "decision supersede skipped decision_id=#{duplicate.decision_id} " <>
+            "superseded_by=#{answered.decision_id} reason=#{inspect(reason)}"
         )
 
         state
