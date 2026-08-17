@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.CommandScanTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{CommandScan, State}
 
   setup do
@@ -111,6 +112,75 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       assert_receive {:review_etag, "review-etag"}
       assert_receive {:issue_etag, "issue-etag"}
+    end
+
+    # The fifth pipe (#2073 U6). These validators used to be keyed by call site
+    # in orchestrator memory, so nothing else could reach them and a restart
+    # threw them away. Keyed by the repository's own identity they survive both.
+    test "records each stream's validator under the repository's resource identity" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, [], "review-etag-1"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [], "issue-etag-1"} end
+      ]
+
+      CommandScan.scan_pr_commands(base_state(), opts)
+
+      assert ResourceStore.etag(ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")) ==
+               "review-etag-1"
+
+      assert ResourceStore.etag(ResourceStore.key_for_repo(:repo_issue_comment_stream, "owner/repo", "issues/comments")) ==
+               "issue-etag-1"
+    end
+
+    test "a restart revalidates from the store instead of re-reading both streams in full" do
+      warm = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, [], "review-etag-1"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [], "issue-etag-1"} end
+      ]
+
+      CommandScan.scan_pr_commands(base_state(), warm)
+
+      # A fresh orchestrator: `github_comment_etags` is empty, exactly as it is
+      # on the first tick after a restart.
+      test_pid = self()
+
+      cold = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "review-etag-1"}
+        end,
+        command_scan_issue_comment_fetcher: fn opts ->
+          send(test_pid, {:issue_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "issue-etag-1"}
+        end
+      ]
+
+      assert base_state().github_comment_etags == %{}
+      CommandScan.scan_pr_commands(base_state(), cold)
+
+      assert_receive {:review_etag, "review-etag-1"}
+      assert_receive {:issue_etag, "issue-etag-1"}
+    end
+
+    test "an unavailable store leaves the scan reading unconditionally" do
+      ResourceStore.reset()
+      test_pid = self()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:ok, []}
+        end,
+        command_scan_issue_comment_fetcher: fn opts ->
+          send(test_pid, {:issue_etag, Keyword.get(opts, :etag)})
+          {:ok, []}
+        end
+      ]
+
+      CommandScan.scan_pr_commands(base_state(), opts)
+
+      assert_receive {:review_etag, nil}
+      assert_receive {:issue_etag, nil}
     end
 
     test "a 304 on both streams leaves the cursor and the etags untouched" do
