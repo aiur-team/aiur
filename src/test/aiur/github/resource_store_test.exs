@@ -381,6 +381,22 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert ResourceStore.etag(key) == "W/\"keep\""
     end
 
+    # The eviction sweep runs every five minutes, so between sweeps an entry can
+    # outlive the window it is allowed to answer for. A read must decline it
+    # rather than hand back a body nothing has revalidated for three days.
+    test "a body older than the retention window is not served" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 15)
+      ResourceStore.put_resource(key, %{"title" => "ancient"})
+      assert {:ok, _entry} = ResourceStore.fetch(key)
+
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+      aged = Map.put(entry, :recorded_at_ms, System.system_time(:millisecond) - 73 * 60 * 60 * 1000)
+      :ets.insert(ResourceStore.Table, {key, aged})
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.data(key) == nil
+    end
+
     # A deposit is not a processed mark. Merging them would let a writer drag the
     # suppression mark forward onto a version nothing has handled, and the wake
     # for that version would never happen.

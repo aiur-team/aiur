@@ -362,6 +362,16 @@ defmodule Aiur.GitHub.ResourceStore do
   A miss is not an error. It means this reader has to decide whether it needs
   the data enough to pay for it, which is the decision the store exists to make
   visible rather than automatic.
+
+  The `:version` in the answer is the version of the **body being handed back**,
+  not the version some pipe processed. Those are different facts and the entry
+  keeps them apart; a reader wants to know what it is holding, and a sweep wants
+  to know what has been handled.
+
+  `:fetched_at_ms` is there so a consumer can state the staleness it tolerates
+  rather than trust the store's own idea of fresh. Past the retention window the
+  store declines outright, which keeps a body from outliving the entry that
+  describes it if the eviction sweep has not run yet.
   """
   @spec fetch(key() | nil) :: {:ok, entry()} | :miss
   def fetch(nil), do: :miss
@@ -369,14 +379,18 @@ defmodule Aiur.GitHub.ResourceStore do
   def fetch(key) do
     case lookup(key) do
       %{data: data} = entry when not is_nil(data) ->
-        {:ok,
-         %{
-           data: data,
-           version: Map.get(entry, :data_version),
-           source: Map.get(entry, :source),
-           fetched_at_ms: Map.get(entry, :fetched_at_ms),
-           etag: Map.get(entry, :etag)
-         }}
+        if expired?(Map.get(entry, :recorded_at_ms) || 0) do
+          :miss
+        else
+          {:ok,
+           %{
+             data: data,
+             version: Map.get(entry, :data_version),
+             source: Map.get(entry, :source),
+             fetched_at_ms: Map.get(entry, :fetched_at_ms),
+             etag: Map.get(entry, :etag)
+           }}
+        end
 
       _other ->
         :miss
