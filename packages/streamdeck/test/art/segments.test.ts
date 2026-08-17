@@ -821,13 +821,17 @@ describe("agent detail panel", () => {
     expect(pixelAt(complete.pixels, 800, 300, 79)).toEqual([116, 212, 127]);
   });
 
-  it("keeps unknown progress structurally distinct from a measured zero", () => {
+  it("paints unknown progress as flat grey, distinct from a measured zero", () => {
     const unknown = render(detail({ identifier: "401", bucket: "running", progress_percent: null }), 800);
     const zero = render(detail({ identifier: "401", bucket: "running", progress_percent: 0 }), 800);
 
     expect(drew(unknown.ink, "—")).toBeDefined();
     expect(drew(zero.ink, "0%")).toBeDefined();
     expect(Array.from(unknown.pixels)).not.toEqual(Array.from(zero.pixels));
+    const neutral = pixelAt(unknown.pixels, 800, 300, 79);
+    expect(neutral).toEqual([68, 70, 73]);
+    expect(neutral).toEqual(pixelAt(unknown.pixels, 800, 306, 79));
+    expect(neutral).not.toEqual(pixelAt(zero.pixels, 800, 300, 79));
   });
 
   it("dims only a stale detail fill while leaving its track unchanged", () => {

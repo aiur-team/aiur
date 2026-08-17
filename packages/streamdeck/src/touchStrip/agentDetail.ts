@@ -95,9 +95,9 @@ const asString = (value: unknown, fallback: string): string => (typeof value ===
  * `null` when the daemon has no reading, exactly as the key face reads it.
  *
  * This used to return `0`, so pressing an agent's grid key moved from a key
- * face showing a hollow dot and a dashed no-reading track to an 800px readout
- * announcing "0%" over a full-width red meter — two contradictory claims about
- * one ticket, one key press apart.
+ * face showing a neutral no-reading bar to an 800px readout announcing "0%"
+ * over a full-width red meter — two contradictory claims about one ticket, one
+ * key press apart.
  */
 const clampPercent = (value: unknown): number | null => {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;

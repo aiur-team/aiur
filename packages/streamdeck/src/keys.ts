@@ -3,10 +3,11 @@ import {
   type BucketId,
   KEY_FACE_CONTRACT,
   progressBarColor,
+  UNKNOWN_PROGRESS_COLOR,
 } from "./key-face-contract.js";
 
 export type { BucketId } from "./key-face-contract.js";
-export { progressBarColor };
+export { progressBarColor, UNKNOWN_PROGRESS_COLOR };
 export type Vendor = string;
 
 /**
@@ -193,14 +194,11 @@ function buildFooter(agent: AgentInput): Footer {
   const pct = freshness === "unknown" ? null : clamped;
   return {
     kind: KEY_FACE_CONTRACT.footers.progress.kind,
-    barColor: pct === null ? UNKNOWN_BAR_COLOR : progressBarColor(pct),
+    barColor: pct === null ? UNKNOWN_PROGRESS_COLOR : progressBarColor(pct),
     percent: pct,
     freshness,
   };
 }
-
-/** Neutral track tint for a bar with no reading behind it. */
-const UNKNOWN_BAR_COLOR = "rgba(255,255,255,0.22)";
 
 function buildAgentKey(agent: AgentInput): AgentKey {
   const pct = clampPercent(agent.progress_percent);

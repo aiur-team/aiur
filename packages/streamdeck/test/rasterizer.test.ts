@@ -165,20 +165,42 @@ describe("createRasterizer key", () => {
     expect(Buffer.from(withBar).equals(Buffer.from(withoutBar))).toBe(false);
   });
 
+  it("gives unknown LIVE progress the same flat-grey treatment as the grid", async () => {
+    const rasterizer = createRasterizer();
+    const live = (progress: number | null): AgentInput =>
+      agent({ role: "live", title: "LIVE", identifier: "401", bucket: "running", progress_percent: progress });
+    const unknown = rasterizer.key(layoutKeys([live(null)], 0)[0]);
+    const zero = rasterizer.key(layoutKeys([live(0)], 0)[0]);
+
+    expect(await keyPixel(unknown, 38, 105)).toEqual([67, 72, 78]);
+    expect(await keyPixel(unknown, 38, 105)).not.toEqual(await keyPixel(zero, 38, 105));
+  });
+
   /**
    * The flicker fix, at the pixel level. An unknown reading and a real 0% both
    * used to paint an empty track, so a ticket whose progress had merely gone
    * stale was indistinguishable from one that had done nothing at all.
    */
-  it("paints unknown progress differently from a real zero, and stale differently from fresh", () => {
+  it("paints unknown progress as flat grey, differently from a real zero", async () => {
     const rasterizer = createRasterizer();
     const bar = (percent: number | null, freshness: string): AgentInput =>
       agent({ bucket: "running", progress_percent: percent, progress_freshness: freshness });
     const unknown = rasterizer.key(layoutKeys([bar(null, "unknown")], 0)[0]);
     const zero = rasterizer.key(layoutKeys([bar(0, "fresh")], 0)[0]);
-    const fresh = rasterizer.key(layoutKeys([bar(70, "fresh")], 0)[0]);
-    const stale = rasterizer.key(layoutKeys([bar(70, "stale")], 0)[0]);
     expect(Buffer.from(unknown).equals(Buffer.from(zero))).toBe(false);
+
+    const neutral = await keyPixel(unknown, 38, 105);
+    expect(neutral).toEqual([67, 72, 78]);
+    expect(neutral).toEqual(await keyPixel(unknown, 42, 105));
+    expect(neutral).not.toEqual(await keyPixel(zero, 42, 105));
+  });
+
+  it("paints stale progress differently from fresh progress", () => {
+    const rasterizer = createRasterizer();
+    const bar = (freshness: string): AgentInput =>
+      agent({ bucket: "running", progress_percent: 70, progress_freshness: freshness });
+    const fresh = rasterizer.key(layoutKeys([bar("fresh")], 0)[0]);
+    const stale = rasterizer.key(layoutKeys([bar("stale")], 0)[0]);
     expect(Buffer.from(fresh).equals(Buffer.from(stale))).toBe(false);
   });
 
