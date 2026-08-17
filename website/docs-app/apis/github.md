@@ -224,7 +224,8 @@ Two consequences:
 | Situation | What happens |
 | --- | --- |
 | A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
-| The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment. |
+| The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
+| A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |
 
 Suppression here is per resource **and per version**, as above. A later edit of that same comment moves its `updated_at`, so it wakes the agent normally.
 
