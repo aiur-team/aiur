@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.IssueState do
   """
 
   alias Aiur.GitHub.Config
-  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{Errors, HumanReviewGate, Issues, Labels, StatePolicy, Transport, WriteThrough}
 
   @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def update_issue_state(issue_number, state_name, opts \\ [])
@@ -44,9 +44,18 @@ defmodule Aiur.GitHub.IssueState do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
 
       case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
-        {:ok, %{status: status}} when status in 200..299 -> :ok
-        {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+        {:ok, %{status: status, body: labels}} when status in 200..299 ->
+          WriteThrough.issue_labels(issue_number, labels)
+          :ok
+
+        {:ok, %{status: status}} when status in 200..299 ->
+          :ok
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
       end
     end
   end
@@ -62,10 +71,21 @@ defmodule Aiur.GitHub.IssueState do
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
 
       case request_fun.(%{method: :delete, url: url, token: token}) do
+        # A removal answers with the labels that survived it, so the deposit is
+        # the issue's whole truthful label set rather than a delta.
+        {:ok, %{status: status, body: labels}} when status in 200..299 ->
+          WriteThrough.issue_labels(issue_number, labels)
+          :ok
+
         # 404 = label already absent; treat as success so the toggle is idempotent.
-        {:ok, %{status: status}} when status in 200..299 or status == 404 -> :ok
-        {:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)}
-        {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
+        {:ok, %{status: status}} when status in 200..299 or status == 404 ->
+          :ok
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
       end
     end
   end
@@ -292,6 +312,10 @@ defmodule Aiur.GitHub.IssueState do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels/#{URI.encode(label)}"
 
     case request_fun.(%{method: :delete, url: url, token: token}) do
+      {:ok, %{status: status, body: labels}} when status in [200, 204] ->
+        WriteThrough.issue_labels(issue_number, labels)
+        :ok
+
       {:ok, %{status: status}} when status in [200, 204, 404] ->
         :ok
 
@@ -309,6 +333,10 @@ defmodule Aiur.GitHub.IssueState do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/labels"
 
     case request_fun.(%{method: :post, url: url, token: token, body: %{"labels" => [label]}}) do
+      {:ok, %{status: status, body: labels}} when status in [200, 201] ->
+        WriteThrough.issue_labels(issue_number, labels)
+        :ok
+
       {:ok, %{status: status}} when status in [200, 201] ->
         :ok
 
@@ -329,6 +357,13 @@ defmodule Aiur.GitHub.IssueState do
              token: token,
              body: %{"state" => "closed"}
            }) do
+        # A `PATCH /issues/:number` answers with the whole issue at its new
+        # `updated_at`, so closing a ticket deposits the closed issue and marks
+        # that version handled rather than leaving a sweep to rediscover it.
+        {:ok, %{status: status, body: issue}} when status in [200, 201] ->
+          WriteThrough.issue(issue)
+          :ok
+
         {:ok, %{status: status}} when status in [200, 201] ->
           :ok
 

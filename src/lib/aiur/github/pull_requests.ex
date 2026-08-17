@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.PullRequests do
   require Logger
 
   alias Aiur.{Codeowners, TicketBranch}
-  alias Aiur.GitHub.{Comments, Errors, Transport}
+  alias Aiur.GitHub.{Comments, Errors, Transport, WriteThrough}
 
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
@@ -394,10 +394,11 @@ defmodule Aiur.GitHub.PullRequests do
          {:ok,
           %{
             status: 200,
-            body: %{
-              "base" => %{"ref" => expected_base},
-              "head" => %{"sha" => confirmed_head_sha}
-            }
+            body:
+              %{
+                "base" => %{"ref" => expected_base},
+                "head" => %{"sha" => confirmed_head_sha}
+              } = pull_request
           }},
          pr_number,
          _current_base,
@@ -405,6 +406,10 @@ defmodule Aiur.GitHub.PullRequests do
        )
        when is_binary(confirmed_head_sha) and confirmed_head_sha != "" do
     Logger.info("Pull request base repaired: pr=#{pr_number} base=#{inspect(expected_base)} action=repaired")
+    # The repair response is the whole pull request at its new `updated_at`.
+    # Only the confirmed repair deposits: the not-confirmed clause below is a
+    # state Aiur is refusing to believe, so caching it would be caching a doubt.
+    WriteThrough.pull_request(pull_request)
     {:ok, {:repaired, confirmed_head_sha}}
   end
 
