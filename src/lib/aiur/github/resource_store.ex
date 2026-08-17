@@ -86,6 +86,12 @@ defmodule Aiur.GitHub.ResourceStore do
   @filename "github_resources.json"
   @max_entries 100_000
 
+  # Ceiling on a single cached response body, encoded. A Build Order graph
+  # response over 54 members is large, and an unbounded body cache is a memory
+  # leak wearing a cache's clothes. Anything past this is refused rather than
+  # stored, and refusing also drops the validator so the pair stays consistent.
+  @max_payload_bytes 256 * 1024
+
   # The closed set of resource identities. Declared here rather than left to
   # whichever module happens to be loaded first, because `decode_key/1` resolves
   # a checkpointed type with `String.to_existing_atom/1` and would otherwise
@@ -162,13 +168,112 @@ defmodule Aiur.GitHub.ResourceStore do
     end
   end
 
-  @doc "Stores a validator for `key`. A `nil` or empty validator is discarded."
+  @doc """
+  Stores a validator for `key`. A `nil` or empty validator is discarded.
+
+  A validator is only useful alongside the body it validates — see
+  `put_payload/2` for why the two are written together.
+  """
   @spec put_etag(key() | nil, String.t() | nil) :: :ok
   def put_etag(nil, _etag), do: :ok
   def put_etag(_key, etag) when not is_binary(etag) or etag == "", do: :ok
 
   def put_etag(key, etag) do
     update(key, fn entry -> Map.put(entry, :etag, etag) end)
+  end
+
+  @doc """
+  The cached response body for `key`, or `nil`.
+
+  ## Why the store must hold bodies, not just validators
+
+  A validator alone cannot serve a second reader. If two consumers want the same
+  resource and the store holds only an `ETag`, the second sends `If-None-Match`,
+  receives `304 Not Modified` — and a `304` carries **no body**. It has spent a
+  request and learned nothing it can use.
+
+  That turns a duplicate fetch into a *dropped read*, which is strictly worse
+  than the duplication it was meant to remove. So a reader is only served from
+  the store when the body is present.
+  """
+  @spec payload(key() | nil) :: term() | nil
+  def payload(nil), do: nil
+
+  def payload(key) do
+    case lookup(key) do
+      %{payload: payload} = entry when not is_nil(payload) ->
+        # Body freshness keys off when the body was *recorded*, not off
+        # `processed_at_ms`. Those are different facts: a fetch can cache a body
+        # for other readers without any pipe having processed that resource, and
+        # keying off the processing mark would make such a body invisible.
+        if expired?(Map.get(entry, :recorded_at_ms)), do: nil, else: payload
+
+      _other ->
+        nil
+    end
+  end
+
+  @doc """
+  Stores a response body for `key`, optionally with the validator that proves it
+  current.
+
+  Prefer this over `put_etag/2` whenever a fetch actually returned data. A
+  validator on its own is still useful — the sweep sends `If-None-Match` purely
+  to learn *whether anything changed*, and a `304` answers that for free without
+  needing a body. But a validator alone can never **serve** a second reader, and
+  that distinction is the rule callers must respect:
+
+  > Ask `payload/1` before spending a request. Never treat a `304` as data.
+
+  A reader that finds no body must fetch, even when a validator exists.
+  `payload/1` enforces this by answering `nil` whenever the body is absent, so a
+  caller cannot accidentally mistake "unchanged" for "here it is".
+
+  Bodies are bounded: anything larger than #{div(@max_payload_bytes, 1024)} KiB
+  encoded is refused rather than stored, because a cached graph response over 54
+  members is large and an unbounded body cache is a memory leak wearing a
+  cache's clothes. Refusing keeps any existing validator, since change detection
+  is still worth having when the body is not.
+  """
+  @spec put_payload(key() | nil, term(), String.t() | nil) :: :ok
+  def put_payload(key, payload, etag \\ nil)
+
+  def put_payload(nil, _payload, _etag), do: :ok
+
+  def put_payload(key, payload, etag) do
+    if oversized?(payload) do
+      # Refuse the body but keep change detection: drop only the stale payload.
+      drop_payload(key)
+    else
+      update(key, fn entry ->
+        entry
+        |> Map.put(:payload, payload)
+        |> then(fn e -> if is_binary(etag) and etag != "", do: Map.put(e, :etag, etag), else: e end)
+      end)
+    end
+  end
+
+  @doc """
+  Removes the cached body for `key`, leaving any validator in place.
+
+  The validator still answers "has this changed?" cheaply. It simply cannot
+  answer "what is it?" — which is why `payload/1` returns `nil` here and the
+  caller fetches.
+  """
+  @spec drop_payload(key() | nil) :: :ok
+  def drop_payload(nil), do: :ok
+
+  def drop_payload(key) do
+    update(key, fn entry -> Map.delete(entry, :payload) end)
+  end
+
+  defp oversized?(payload) do
+    case Jason.encode(payload) do
+      {:ok, encoded} -> byte_size(encoded) > @max_payload_bytes
+      # Unencodable payloads cannot be persisted or measured, so treat them as
+      # oversized rather than storing something the checkpoint would choke on.
+      _error -> true
+    end
   end
 
   @doc """
@@ -451,6 +556,7 @@ defmodule Aiur.GitHub.ResourceStore do
       encoded ->
         Map.put(acc, encoded, %{
           "etag" => Map.get(entry, :etag),
+          "payload" => Map.get(entry, :payload),
           "processed_at_ms" => Map.get(entry, :processed_at_ms),
           "version" => Map.get(entry, :version),
           "source" => entry |> Map.get(:source) |> encode_atom(),
@@ -531,6 +637,7 @@ defmodule Aiur.GitHub.ResourceStore do
   defp decode_entry(%{} = value) do
     %{
       etag: string_or_nil(Map.get(value, "etag")),
+      payload: Map.get(value, "payload"),
       processed_at_ms: integer_or_nil(Map.get(value, "processed_at_ms")),
       version: string_or_nil(Map.get(value, "version")),
       source: value |> Map.get("source") |> decode_source(),

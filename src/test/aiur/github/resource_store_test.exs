@@ -264,6 +264,64 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
   end
 
+
+  describe "cached bodies" do
+    test "a body written by one reader serves the next with no upstream call" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 7)
+      assert ResourceStore.payload(key) == nil
+
+      ResourceStore.put_payload(key, %{"title" => "hello"}, "W/\"abc\"")
+
+      assert ResourceStore.payload(key) == %{"title" => "hello"}
+      assert ResourceStore.etag(key) == "W/\"abc\""
+    end
+
+    # The rule this feature turns on: a 304 is not data. A validator alone is
+    # still worth keeping — the sweep uses it to learn *whether* anything
+    # changed — but it can never serve a reader, so `payload/1` must answer nil
+    # and force a fetch rather than let a caller mistake "unchanged" for "here".
+    test "a validator without a body never serves a reader" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 8)
+      ResourceStore.put_etag(key, "W/\"abc\"")
+
+      assert ResourceStore.etag(key) == "W/\"abc\"", "change detection survives"
+      assert ResourceStore.payload(key) == nil, "but it must not be mistaken for data"
+    end
+
+    test "dropping a body keeps change detection" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 11)
+      ResourceStore.put_payload(key, %{"title" => "hello"}, "W/\"abc\"")
+
+      ResourceStore.drop_payload(key)
+
+      assert ResourceStore.payload(key) == nil
+      assert ResourceStore.etag(key) == "W/\"abc\""
+    end
+
+    test "an oversized body is refused, and refusing also drops the validator" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 9)
+      ResourceStore.put_payload(key, %{"small" => true}, "W/\"old\"")
+
+      huge = %{"blob" => String.duplicate("x", 300 * 1024)}
+      ResourceStore.put_payload(key, huge, "W/\"new\"")
+
+      assert ResourceStore.payload(key) == nil, "an oversized body is refused, not stored"
+      assert ResourceStore.etag(key) == "W/\"old\"", "change detection is still worth keeping"
+    end
+
+    test "a body survives a restart, and so does its validator", %{path: path} do
+      restart_store!(path)
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 10)
+      ResourceStore.put_payload(key, %{"title" => "durable"}, "W/\"keep\"")
+      assert :ok = ResourceStore.flush()
+
+      restart_store!(path)
+
+      assert ResourceStore.payload(key) == %{"title" => "durable"}
+      assert ResourceStore.etag(key) == "W/\"keep\""
+    end
+  end
+
   defp stop_store! do
     case Process.whereis(ResourceStore) do
       nil ->
