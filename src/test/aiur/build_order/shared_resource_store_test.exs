@@ -11,7 +11,9 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
 
   use Aiur.TestSupport
 
+  alias Aiur.BuildOrder.TicketDetail
   alias Aiur.GitHub.{Issues, ResourceStore}
+  alias Aiur.TrackerIdentity
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @repository {"owner", "repo"}
@@ -118,6 +120,44 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
 
       assert count(recorder) == 2
+    end
+  end
+
+  # The seam, not just the endpoint. `Issues.fetch_issue_raw_conditional/2` can be
+  # perfect and Build Order still pay full price if the coordinator's freshness
+  # requirement is dropped somewhere between `TicketDetail.fetch/2` and the store
+  # — which is a keyword list passed through three modules, so exactly the kind of
+  # thing that is silently lost. This asserts through the real Build Order entry
+  # point instead of the one below it.
+  describe "the Build Order ticket-detail seam" do
+    test "two detail reads of one ticket inside the window issue one request" do
+      recorder = start_recorder()
+      # `node_id` matters here and nowhere else in this file: the detail path
+      # verifies that the body it got back really is the ticket it asked for.
+      body =
+        Map.merge(issue_body(42), %{
+          "node_id" => "I42",
+          "repository_url" => "https://api.github.com/repos/owner/repo",
+          "state" => "open",
+          "state_reason" => nil
+        })
+
+      request_fun = recording_fun(recorder, fn _request -> {:ok, %{status: 200, headers: [], body: body}} end)
+
+      opts = [
+        configured_repo: @repository,
+        request_fun: request_fun,
+        freshness_ms: @tolerance_ms,
+        relationship_reader: fn _identity, _repository -> {:ok, %{nodes: [], truncated?: false}} end
+      ]
+
+      identity = ticket_identity(42, "I42")
+
+      assert {:ok, first} = TicketDetail.fetch(identity, opts)
+      assert {:ok, second} = TicketDetail.fetch(identity, opts)
+
+      assert first.title == second.title
+      assert issue_count(recorder) == 1
     end
   end
 
@@ -264,6 +304,17 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
 
   defp ok_issue(number) do
     {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: issue_body(number)}}
+  end
+
+  defp ticket_identity(number, node_id) do
+    {:ok, identity} =
+      TrackerIdentity.from_github(
+        %{"node_id" => node_id, "number" => number},
+        @repository,
+        @repository
+      )
+
+    identity
   end
 
   defp start_recorder do

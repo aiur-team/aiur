@@ -346,6 +346,34 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert entry.timer == nil
   end
 
+  # The other way a deleted cadence can come back: not as a setting, but as a
+  # successor timer armed when a read finishes. That is where
+  # `graph_selected_refresh_ms` actually lived — every completed selected read
+  # queued the next one — so deleting the setting without deleting the
+  # rescheduling would move the cost rather than remove it.
+  test "a completed selected read arms no successor for the watcher" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The watcher is still there and still watching, which is exactly the state
+    # that used to guarantee a successor read.
+    entry = :sys.get_state(projection).selected[Policy.root_key(first)]
+    assert MapSet.size(entry.demanders) == 1
+    assert entry.timer == nil
+
+    # And no second reader starts, however long the page stays open.
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+  end
+
   test "selected-root demand coalesces, protects live entries, and evicts released LRU entries" do
     first = identity(1, "I1")
     second = identity(2, "I2")
