@@ -539,10 +539,14 @@ Three of these keys have no fixed default. They are derived from
 derivation.
 
 Build Order displays state that the tracker produces, so it cannot be fresher
-than the tracker's own cycle — refreshing faster only re-reads a graph that
-cannot have moved. The previous fixed defaults were chosen when the tracker
-polled every 5 seconds, and did not move when the tracker changed to 120 seconds.
-Deriving them is what stops that recurring.
+than the tracker's own cycle. Refreshing faster only re-reads a graph that cannot
+have moved.
+
+The previous fixed defaults were chosen when the tracker polled every 5 seconds,
+and did not move when the tracker changed to 120 seconds. Deriving them is what
+stops that recurring.
+
+Each derivation, and the value it produces at the default poll interval:
 
 | Key | Derivation | At a 120s poll interval |
 | --- | --- | --- |
@@ -564,9 +568,19 @@ refresh can be a free `304` rather than a paid query.
 ### What these cadences cost
 
 GitHub's GraphQL API sends no `ETag`, no `Last-Modified` and no `Cache-Control`,
-and every query is a `POST`. There is no conditional request to make, so the
-three GraphQL reads below cannot return `304` however they are written — cadence
-and connection size are their entire cost story.
+and every query is a `POST`. There is no conditional request to make, so no
+GraphQL read below can ever return `304`, however it is written.
+
+What that leaves is **how often a query runs**, which is where almost all of the
+cost is.
+
+GitHub's point cost is `round(connection_requests / 100)`, with a minimum of one
+point. Anything below roughly 150 connection requests therefore costs exactly one
+point, however much it asks for.
+
+Size is not free above that threshold, but the lever is small: measured, a
+54-member Build Order root costs 3 points at the shipped 100-per-page and 2 at
+54-per-page. Running a query less often is worth far more than making it leaner.
 
 Measured against `aiur-team/aiur` with GitHub's own `rateLimit { cost }`:
 

@@ -49,13 +49,66 @@ x-ratelimit-resource: graphql
 ```
 
 There is no validator to send, so no GraphQL read in Aiur can ever answer `304`,
-however it is written. For those queries cadence and connection size are the
-entire cost story. That is why this change derives the cadences that survive and
-deletes the two that existed only to serve viewers, rather than adding
-conditional requests to them, and it is the honest answer to "add conditional
-revalidation to graph reads": for the graph, it is not available.
+however it is written. That is the honest answer to "add conditional revalidation
+to graph reads": for the graph, it is not available.
+
+### What actually drives the cost: requests, not bytes
+
+Corrected against measurement, because the opposite was assumed. GitHub's GraphQL
+point cost is close to flat per request: #2084's instrumentation priced four live
+call sites at **1 point each**, and a `build_order_catalog` read of 50 issues with
+nested label connections cost the same single point as a one-field identity
+lookup. So the daemon's observed ~250 points/minute is ~250 *requests* per minute,
+about four per second.
+
+That is not the same as "size is free", and the published algorithm says so:
+`cost = round(connection_requests / 100)`, minimum 1. Anything under roughly 150
+connection requests costs exactly one point, however much it asks for, and
+`build_order_catalog` is ~51 connection requests. It is a steep discount below a
+threshold, not indifference.
+
+### Is the graph query over that threshold? Measured, at a real member count
+
+Worth checking rather than assuming, because a Build Order root carries up to 54
+members and a 5-member fixture would have read 1 point and proved nothing. Root
+#1084 has 54 members (confirmed by `subIssues { totalCount }`), and the shipped
+query was priced at four page sizes against it:
+
+| `pageSize` | Requests for a full read | Measured cost | Total |
+| --- | --- | --- | --- |
+| 10 | 6 | 1 point | 6 points |
+| 25 | 3 | 1 point | 3 points |
+| 54 | 1 | **2 points** | **2 points** |
+| 100 (shipped) | 1 | **3 points** | 3 points |
+
+So the graph query **is** above the one-point floor, and page size does move it.
+The available saving is exactly **1 point per full graph read** — 3 down to 2, by
+asking for 54 per page instead of 100 — and it only holds at this member count:
+the tuning is a function of the largest root, so it would be wrong again the next
+time a root grows. Paginating smaller is worse, not better, because each page
+costs its own minimum point.
+
+That is the whole size lever, and it is one point. The cadence lever, by contrast,
+was 240 requests/hour for a single selected root and 720 requests/hour for one
+viewed graph at the 5-second demand floor, each costing at least one point.
+
+The consequence for this change, stated plainly: **no field was removed and no page
+size was changed.** Trimming was measured and found to be worth 1 point per read;
+the cadences were worth two orders of magnitude more requests, so that is where the
+work went. The numbers below are request counts priced at their measured point
+cost, not payload sizes.
 
 ## Hourly cost, one catalog and one selected root
+
+Requests first, because requests are what the budget is actually spent on, then
+the same rows priced at their measured cost.
+
+| | Before | After |
+| --- | --- | --- |
+| catalog, cheap | 60 requests/h | 30 requests/h |
+| catalog, labelled | 6 requests/h | 6 requests/h |
+| selected root | 240 requests/h | **no timer** |
+| **scheduled requests/hour** | **306** | **36** |
 
 | | Before | After |
 | --- | --- | --- |
@@ -63,6 +116,10 @@ revalidation to graph reads": for the graph, it is not available.
 | catalog, labelled | 6/h × 26 = 156 | 6/h × 26 = 156 |
 | selected root | 240/h × 3 = 720 | **no timer** — 3 points/page per writer or explicit refresh |
 | **total on a timer** | **~936 points/hour** | **186 points/hour** |
+
+The request row is the one to read. Per *viewed* graph the demand cadence alone
+was 12 requests/minute at its 5s floor, and the selected cadence another 4 at 15s;
+both are now zero.
 
 Cadences before: catalog 60s, labels 600s, selected 15s. After: the two catalog
 cadences derive from the 120s tracker poll interval — catalog 120s, labels 600s —
