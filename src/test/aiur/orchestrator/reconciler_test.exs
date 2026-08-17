@@ -8,6 +8,63 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   alias Aiur.TrackerIdentity
   alias Aiur.Workspace.Layout
 
+  describe "refresh_running_issue_states/3" do
+    test "reuses visible candidates and fetches only missing running IDs" do
+      old_one = %Issue{id: "one", identifier: "I-one", state: "Todo", title: "One"}
+      old_two = %Issue{id: "two", identifier: "I-two", state: "In Progress", title: "Two"}
+      fresh_one = %{old_one | state: "todo"}
+      fresh_two = %{old_two | state: "Todo"}
+
+      state = %State{
+        running: %{
+          "one" => %{identifier: "I-one", issue: old_one, control: %{status: :working}},
+          "two" => %{identifier: "I-two", issue: old_two, control: %{status: :working}}
+        }
+      }
+
+      fetch_fun = fn ids ->
+        send(self(), {:fetched_running_ids, ids})
+        {:ok, [fresh_two]}
+      end
+
+      next = Reconciler.refresh_running_issue_states(state, [fresh_one], fetch_fun)
+
+      assert_receive {:fetched_running_ids, ["two"]}
+      assert next.running["one"].issue.state == "todo"
+      assert next.running["two"].issue.state == "Todo"
+    end
+
+    test "skips fallback reads when every running issue is visible" do
+      issue = %Issue{id: "one", identifier: "I-one", state: "todo", title: "One"}
+
+      state = %State{
+        running: %{
+          "one" => %{identifier: "I-one", issue: %{issue | state: "Todo"}, control: %{status: :working}}
+        }
+      }
+
+      next =
+        Reconciler.refresh_running_issue_states(state, [issue], fn _ids ->
+          flunk("visible running issues must not be fetched twice")
+        end)
+
+      assert next.running["one"].issue.state == "todo"
+    end
+
+    test "keeps missing workers when the fallback tracker read fails" do
+      issue = %Issue{id: "missing", identifier: "I-missing", state: "in-progress", title: "Missing"}
+
+      state = %State{
+        running: %{
+          "missing" => %{identifier: "I-missing", issue: issue, control: %{status: :working}}
+        }
+      }
+
+      assert Reconciler.refresh_running_issue_states(state, [], fn ["missing"] -> {:error, :tracker_down} end) ==
+               state
+    end
+  end
+
   describe "reconcile_running_issue_states/4" do
     test "returns state unchanged for empty list" do
       state = %State{running: %{"issue-1" => %{pid: self()}}}

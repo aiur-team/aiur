@@ -155,7 +155,17 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
-    if state.snapshot_ready? == true, do: :ok = publish_snapshot(state)
+    # `snapshot_ready?` means this generation has completed a poll attempt, so a
+    # snapshot retained from a prior same-name orchestrator must no longer be
+    # served. It does not mean the board is good: a failed candidate refresh
+    # leaves `candidate_snapshot_fresh?: false`, which blanks the idle rows
+    # (`visible_polled_issues/1`). Publishing that would install a blank board
+    # as the last-known-good snapshot, so a later `aiur status` against a busy
+    # or stopped orchestrator would render an empty fleet instead of the real
+    # one — or instead of the clean "orchestrator is not running" error (#1814).
+    if state.snapshot_ready? == true and state.candidate_snapshot_fresh? != false do
+      :ok = publish_snapshot(state)
+    end
 
     state
     |> running_summaries()
@@ -193,6 +203,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :agent_rate_limits,
       :agent_totals,
       :capacity_hold,
+      :candidate_snapshot_fresh?,
       :dispatch_declines,
       :dispatch_hold,
       # `agent_statuses/1` reads the codex thrash budget to explain why an idle
@@ -277,7 +288,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     state.running
     |> Map.values()
     |> Enum.map(&Map.get(&1, :identifier))
-    |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
+    |> Kernel.++(Enum.map(visible_polled_issues(state), fn {_issue_id, issue} -> issue.identifier || issue.id end))
     |> Kernel.++(Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end))
     |> Enum.filter(&is_binary/1)
     |> Enum.uniq()
@@ -399,7 +410,8 @@ defmodule Aiur.Orchestrator.StatusReport do
         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
         poll_interval_ms: state.poll_interval_ms,
         effective_interval_ms: state.effective_poll_interval_ms || state.poll_interval_ms,
-        idle_backoff: state.idle_poll_backoff
+        idle_backoff: state.idle_poll_backoff,
+        tracker_snapshot_fresh?: state.candidate_snapshot_fresh?
       }
     }
   end
@@ -511,7 +523,7 @@ defmodule Aiur.Orchestrator.StatusReport do
          activity_by_identity
        ) do
     identifier = Map.get(retry, :identifier)
-    issue = Map.get(state.last_polled_issues, issue_id)
+    issue = Map.get(visible_polled_issues(state), issue_id)
     tracker_identity = retry_snapshot_tracker_identity(retry, issue)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
 
@@ -552,7 +564,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     terminal_states = DispatchPolicy.terminal_state_set()
 
     idle_issues =
-      state.last_polled_issues
+      visible_polled_issues(state)
       |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
 
     # One durable-store read for the whole board, not one per idle ticket.
@@ -570,6 +582,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       )
     end)
   end
+
+  defp visible_polled_issues(%State{candidate_snapshot_fresh?: false}), do: %{}
+  defp visible_polled_issues(%State{} = state), do: state.last_polled_issues
 
   defp idle_issue_snapshot(
          %State{} = state,
@@ -843,7 +858,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     now = DateTime.utc_now()
 
     polled_summaries =
-      state.last_polled_issues
+      visible_polled_issues(state)
       |> Enum.map(&polled_summary(&1, state, now))
 
     # Cover the narrow race where an agent is mid-dispatch and the
@@ -851,7 +866,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     # `state.running` but not in `last_polled_issues`.
     extra_running =
       state.running
-      |> Enum.flat_map(&unpolled_running_summary(&1, state.last_polled_issues, now))
+      |> Enum.flat_map(&unpolled_running_summary(&1, visible_polled_issues(state), now))
 
     (polled_summaries ++ extra_running)
     |> Enum.reject(fn %{identifier: id} -> id == "" end)
@@ -1042,7 +1057,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     now_ms = System.monotonic_time(:millisecond)
 
     Enum.map(state.retry_attempts, fn {issue_id, retry} ->
-      issue = Map.get(state.last_polled_issues, issue_id)
+      issue = Map.get(visible_polled_issues(state), issue_id)
       identifier = Map.get(retry, :identifier) || Map.get(issue || %{}, :identifier) || issue_id
       due_in_ms = max(0, Map.get(retry, :due_at_ms, now_ms) - now_ms)
       retry_reason = StatusReason.for_retry(Map.get(retry, :error), due_in_ms)
@@ -1102,7 +1117,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     max_dispatches = Config.agent_max_dispatches_per_ticket()
 
     idle_issues =
-      Enum.reject(state.last_polled_issues, fn {issue_id, _issue} ->
+      Enum.reject(visible_polled_issues(state), fn {issue_id, _issue} ->
         Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id)
       end)
 
