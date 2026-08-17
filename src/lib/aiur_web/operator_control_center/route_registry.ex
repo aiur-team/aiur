@@ -47,6 +47,17 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       active_actions: [:analytics]
     },
     %{
+      id: :github_cache,
+      label: "GitHub cache",
+      icon: "▤",
+      description: "Read-only inspector for the shared GitHub state cache.",
+      path: "/github-cache",
+      type: :live,
+      owner: :github_cache,
+      availability: :available,
+      active_actions: [:github_cache, :github_cache_group, :github_cache_entry]
+    },
+    %{
       id: :streamdeck,
       label: "Streamdeck+",
       icon: "◉",

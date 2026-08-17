@@ -666,6 +666,16 @@ defmodule Aiur.GitHub.ResourceStore do
   @spec running?() :: boolean()
   def running?, do: with_table(false, fn _table -> true end)
 
+  @doc """
+  How long an entry is kept, in milliseconds.
+
+  Exposed so a reader deciding what to call stale does not restate the number.
+  A view calling an entry expired while the store still holds and serves it is
+  a disagreement about the same fact, and the two would drift apart silently.
+  """
+  @spec retention_ms() :: pos_integer()
+  def retention_ms, do: @retention_ms
+
   @doc "Entry count, or `0` when no store is running."
   @spec size() :: non_neg_integer()
   def size do
