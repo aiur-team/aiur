@@ -11,7 +11,7 @@ This directory contains the Elixir agent orchestration service that polls Linear
 
 ## Codebase-Specific Conventions
 
-- Runtime config is loaded from `.aiur/config` (pure YAML, optional `prompt_file:`/`hooks_file:`), with a backward-compatible fallback to a legacy root `.aiurconfig`, via `Aiur.Workflow` and `Aiur.Config`.
+- Runtime config is loaded from `.aiur/config` (pure YAML, optional `prompt_file:`/`hooks_file:`) via `Aiur.Workflow` and `Aiur.Config`; legacy `.aiurconfig` files are rejected rather than loaded or ignored.
 - Keep the implementation aligned with [`../SPEC.md`](../SPEC.md) where practical.
   - The implementation may be a superset of the spec.
   - The implementation must not conflict with the spec.

@@ -45,10 +45,10 @@ defmodule Aiur.Linear.Config do
   def validate! do
     cond do
       !is_binary(api_key()) ->
-        {:error, "Linear API token missing — set linear.api_key in .aiurconfig or LINEAR_API_KEY env var"}
+        {:error, "Linear API token missing — set linear.api_key in .aiur/config or LINEAR_API_KEY env var"}
 
       !is_binary(project_slug()) ->
-        {:error, "Linear project slug missing — set linear.project_slug in .aiurconfig"}
+        {:error, "Linear project slug missing — set linear.project_slug in .aiur/config"}
 
       true ->
         :ok

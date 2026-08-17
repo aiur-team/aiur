@@ -10,7 +10,6 @@ defmodule Aiur.Init do
   alias Aiur.Init.Alerts
   alias Aiur.Init.ElevenLabs
   alias Aiur.Init.Format
-  alias Aiur.Init.Migration
   alias Aiur.Init.Prewarm
   alias Aiur.Init.Questions
   alias Aiur.Init.Resume
@@ -69,17 +68,25 @@ defmodule Aiur.Init do
     ]
   end
 
-  defp resume(io, deps, {kind, location, target}) do
+  defp resume(_io, deps, {:legacy, location, target}) do
+    canonical = deps.config_target.(location)
+
+    {:error,
+     "#{target} is no longer supported. " <>
+       "Move it to #{canonical} before running `aiur init` again. " <>
+       "Keep relative prompt_file and hooks_file paths valid from the new config directory."}
+  end
+
+  defp resume(io, deps, {:new, location, target}) do
     case deps.load_config.(target) do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
-        effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = Resume.tracker_from_config(deps, config, config_path: effective_target)
+        tracker = Resume.tracker_from_config(deps, config, config_path: target)
 
         case deps.setup_repo_state.(tracker) do
           :ok ->
-            Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+            Resume.backfill_missing_sections(io, deps, location, tracker, config, target)
             Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
             Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
             provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
@@ -110,7 +117,7 @@ defmodule Aiur.Init do
         max_duration = Questions.prompt_max_duration(io)
         pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
         # Matches Schema.Polling's default. The scaffold writes this value into
-        # .aiurconfig explicitly, so it — not the schema default — is what new
+        # the generated config explicitly, so it — not the schema default — is what new
         # installs actually poll at.
         polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 120, 1)
         prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
@@ -232,16 +239,6 @@ defmodule Aiur.Init do
 
   @spec runtime_deps() :: deps()
   def runtime_deps, do: Runtime.runtime_deps()
-
-  @doc """
-  Migrate a legacy root-level aiur layout into the `.aiur/` folder.
-  """
-  @spec migrate_layout(%{
-          :legacy_config => Path.t(),
-          :new_config => Path.t(),
-          optional(:ignore) => boolean()
-        }) :: {:ok, %{moved: [Path.t()]}} | {:error, term()}
-  defdelegate migrate_layout(opts), to: Migration
 
   @doc "Raw .aiurhooks template that `aiur init` scaffolds."
   @spec aiurhooks_template() :: String.t()

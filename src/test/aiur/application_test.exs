@@ -156,9 +156,11 @@ defmodule Aiur.ApplicationTest do
     test "the Executor listener starts only for an --executor (Executor-owned) run" do
       plain = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: false))
       refute Aiur.ExecutorListener in plain, "a non-Executor launch must not acquire a Command inbox"
+      refute Aiur.ExecutorWakeInbox in plain, "a non-Executor launch must not acquire a wake inbox"
 
       executor = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: true))
       assert Aiur.ExecutorListener in executor, "an --executor launch must start the Command inbox"
+      assert Aiur.ExecutorWakeInbox in executor, "an --executor launch must start the wake inbox"
     end
 
     test "headless run starts the dashboard by default without reviving panes" do
@@ -525,7 +527,7 @@ defmodule Aiur.ApplicationTest do
       original_path = Application.get_env(:aiur, :workflow_file_path)
 
       tmp = Path.join(System.tmp_dir!(), "disabled-boot-test-#{System.unique_integer([:positive])}")
-      config_path = Path.join(tmp, "disabled.aiurconfig")
+      config_path = Path.join(tmp, "disabledconfig.yaml")
       File.mkdir_p!(tmp)
 
       File.write!(config_path, """

@@ -141,7 +141,7 @@ defmodule Aiur.Git do
   @doc """
   The `owner/name` of the `origin` remote in the current working directory,
   or `nil` when there is no git repo / origin. Used to auto-detect the repo
-  for a global `.aiurconfig` that carries no repo of its own.
+  for a global `.aiur/config` that carries no repo of its own.
   """
   @spec origin_repo() :: String.t() | nil
   def origin_repo do

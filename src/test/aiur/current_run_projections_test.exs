@@ -350,6 +350,30 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert Process.alive?(owner)
   end
 
+  test "refresh called during an older full refresh waits for a post-call read" do
+    {source, owner, _pubsub} = start_owner()
+    original_status = Agent.get(source, & &1.status)
+    test_pid = self()
+
+    Agent.update(source, &Map.put(&1, :status, {:block, test_pid}))
+    first_refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+
+    assert_receive {:projection_reader_blocked, :status, status_reader}, 2_000
+
+    # Change the source after the first refresh has already read it. A second
+    # synchronous refresh must not join that pre-call read and return stale
+    # data; it waits for a follow-up refresh that begins after this call.
+    Agent.update(source, &Map.put(&1, :status, :timeout))
+    second_refresh = Task.async(fn -> CurrentRunProjections.refresh(owner) end)
+
+    assert wait_for_refresh_waiters(owner, 2)
+    send(status_reader, {:release_projection_reader, :status, original_status})
+
+    assert Task.await(first_refresh, 2_000) == :ok
+    assert Task.await(second_refresh, 2_000) == :ok
+    assert :sys.get_state(owner).weight_health == :unavailable
+  end
+
   test "blocked source readers run concurrently while snapshots remain readable" do
     {source, owner, _pubsub} = start_owner(fn value -> value end, source_timeout_ms: 2_500)
     :ok = CurrentRunProjections.refresh(owner)
@@ -1007,6 +1031,23 @@ defmodule Aiur.CurrentRunProjectionsTest do
   end
 
   defp read_value(value, _key), do: value
+
+  defp wait_for_refresh_waiters(owner, expected, attempts \\ 1_000)
+
+  defp wait_for_refresh_waiters(_owner, _expected, 0), do: false
+
+  defp wait_for_refresh_waiters(owner, expected, attempts) do
+    state = :sys.get_state(owner)
+    active = state.refresh |> Map.get(:waiters, []) |> length()
+    queued = length(state.queued_waiters)
+
+    if active + queued == expected do
+      true
+    else
+      Process.sleep(1)
+      wait_for_refresh_waiters(owner, expected, attempts - 1)
+    end
+  end
 
   defp sources do
     ticket = identity()

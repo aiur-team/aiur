@@ -170,8 +170,10 @@ Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, an
 | `aiur executor-escalate DECISION-ID --reason "Text"` | Required. It records why the supervising Executor declined to answer. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 | `aiur executor-listen` | Persists the requested subscription, then streams all persisted-pattern events after the saved cursor before live events as JSON lines. It intentionally does not use the ten-second one-shot RPC timeout. | `aiur executor-listen` |
 | `aiur executor-listen --topic 'executor.#'` | Adds that validated AMQP topic pattern before listening; the default is `executor.#`. Empty segments and malformed patterns are rejected. | `aiur executor-listen --topic 'executor.#'` |
+| `aiur executor-wait` | Returns immediately when durable Executor wake records are pending; otherwise blocks for up to 300 seconds. Exit `0` means woken, `75` means quiet timeout, and the wake cursor advances only on exit `0`. | `aiur executor-wait` |
+| `aiur executor-wait --timeout 60 --json` | Sets the positive timeout in seconds and emits the identifier-only wake batch as JSON. Non-Executor wakes contain validated IDs and typed flags, never source free text. | `aiur executor-wait --timeout 60 --json` |
 | `aiur executor-emit executor.note --payload '{"text":"ready"}'` | Publishes JSON on a nonempty `executor.` topic. Empty segments and other namespaces are rejected. | `aiur executor-emit executor.note --payload '{"text":"ready"}'` |
-| `aiur executor-subscribe 'executor.#'` | Adds a persistent Executor event binding. | `aiur executor-subscribe 'executor.#'` |
+| `aiur executor-subscribe 'executor.#'` | Adds a persistent Executor event binding. Bindings accept `executor.*` and reviewed ticket/system patterns only; broader wildcards are rejected. | `aiur executor-subscribe 'executor.#'` |
 | `aiur executor-unsubscribe 'executor.#'` | Removes that exact persistent binding. | `aiur executor-unsubscribe 'executor.#'` |
 | `aiur executor-subscriptions` | Lists persistent Executor event bindings. | `aiur executor-subscriptions` |
 | `aiur findings` | Reads the host-local findings ledger. | `aiur findings` |

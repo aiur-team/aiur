@@ -147,7 +147,7 @@ defmodule Aiur.GitHub.Config do
 
   @doc """
   Returns the GitHub login that Aiur posts under (PR comments, dependency
-  declarations, etc.). Read from `github.bot_account` in .aiurconfig.
+  declarations, etc.). Read from `github.bot_account` in .aiur/config.
   Returns `nil` when unset — `validate!/0` does not require it, since
   bot identity is only load-bearing for the events foundation (CODEOWNERS
   allowlist self-include + native dependency authorship).
@@ -298,7 +298,7 @@ defmodule Aiur.GitHub.Config do
         {:error, "GitHub token missing — set GITHUB_TOKEN env var"}
 
       !is_binary(repo()) ->
-        {:error, "GitHub repo missing — set github.repo in .aiurconfig"}
+        {:error, "GitHub repo missing — set github.repo in .aiur/config"}
 
       true ->
         :ok

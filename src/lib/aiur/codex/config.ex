@@ -59,7 +59,7 @@ defmodule Aiur.Codex.Config do
       if byte_size(String.trim(command())) > 0 do
         :ok
       else
-        {:error, "Codex command missing — set codex.command in .aiurconfig"}
+        {:error, "Codex command missing — set codex.command in .aiur/config"}
       end
     end
   end
@@ -98,12 +98,12 @@ defmodule Aiur.Codex.Config do
 
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> {:error, "Invalid codex.thread_sandbox in .aiurconfig: #{inspect(value)}"}
+          "" -> {:error, "Invalid codex.thread_sandbox in .aiur/config: #{inspect(value)}"}
           _trimmed -> {:ok, value}
         end
 
       value ->
-        {:error, "Invalid codex.thread_sandbox in .aiurconfig: #{inspect(value)}"}
+        {:error, "Invalid codex.thread_sandbox in .aiur/config: #{inspect(value)}"}
     end
   end
 

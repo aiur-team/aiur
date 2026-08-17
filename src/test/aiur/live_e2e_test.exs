@@ -439,7 +439,7 @@ defmodule Aiur.LiveE2ETest do
     run_id = "aiur-live-e2e-#{backend}-#{System.unique_integer([:positive])}"
     test_root = Path.join(System.tmp_dir!(), run_id)
     workflow_root = Path.join(test_root, "workflow")
-    workflow_file = Path.join(workflow_root, ".aiurconfig")
+    workflow_file = Path.join(workflow_root, "config.yaml")
     worker_setup = live_worker_setup!(backend, run_id, test_root)
     team_key = System.get_env("AIUR_LIVE_LINEAR_TEAM_KEY") || @default_team_key
     original_workflow_path = Workflow.workflow_file_path()
