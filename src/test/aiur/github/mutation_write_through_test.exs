@@ -229,6 +229,31 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert %{"labels" => [%{"name" => "agent:todo"}]} = ResourceStore.data(issue_key(42))
     end
 
+    # A4b for the label path, which reaches it a different way than the comment
+    # path does and is the reason this case exists rather than being assumed
+    # from the comment one. An `issues` delivery is never published as a ticket
+    # event at all: `Normalizer` answers `{:reconcile, ...}`, so the label Aiur
+    # applied causes a "go look at the state" hint and no wake. Asserting the
+    # status here pins that, so a later change that started publishing `issues`
+    # deliveries through `Publisher` — recreating the self-loop for every label
+    # the orchestrator writes — fails in this file instead of in production.
+    test "its own issues delivery is a reconcile hint and wakes nobody" do
+      :ok = Exchange.subscribe(@topic)
+      :ok = Exchange.subscribe("ticket.42.issue.label.added.agent.in-progress")
+      seed_issue(42, ["agent:todo"])
+
+      {_calls, :ok} =
+        record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "agent:in-progress"])}} end, fn fun ->
+          IssueState.add_label("42", "agent:in-progress", request_fun: fun)
+        end)
+
+      assert %{status: :reconciled, hint: %{kind: :issue_state, action: "labeled"}} =
+               GithubWebhook.handle_delivery("issues", labelled_delivery("agent:in-progress"), repo: @repo)
+
+      refute_event(@topic)
+      refute_event("ticket.42.issue.label.added.agent.in-progress")
+    end
+
     # A label response cannot name the issue's new `updated_at`, so the deposit
     # claims no version. Claiming the old one would let this body outrank a
     # writer that genuinely knows, and inventing one would suppress a change
@@ -508,6 +533,16 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
        status: 200,
        body: %{"data" => %{"resolveReviewThread" => %{"thread" => %{"id" => "PRRT_thread", "isResolved" => true}}}}
      }}
+  end
+
+  defp labelled_delivery(label) do
+    %{
+      "action" => "labeled",
+      "repository" => %{"full_name" => @repo},
+      "label" => %{"name" => label},
+      "issue" => %{"number" => 42, "updated_at" => "2026-08-17T13:00:00Z"},
+      "sender" => %{"login" => @author}
+    }
   end
 
   defp delivery(id, body) do
