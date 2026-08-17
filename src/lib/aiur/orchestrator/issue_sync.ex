@@ -9,8 +9,8 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
-  alias Aiur.PollCadence
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
+  alias Aiur.PollCadence
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
