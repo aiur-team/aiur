@@ -24,7 +24,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubWebhook}
-  alias Aiur.GitHub.{Comments, DependenciesApi, IssueState, PullRequests, ResourceStore}
+  alias Aiur.GitHub.{Comments, DependenciesApi, IssueState, PullRequests, ResourceStore, WriteThrough}
   alias Aiur.GitHub.ReviewThreads.{Reply, Resolution}
 
   @repo "owner/repo"
@@ -194,6 +194,27 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       Process.exit(view, :kill)
     end
 
+    # Both label deposits must leave a marker behind.
+    # `GithubWebhook.Deposit.regression?/2` decides staleness by comparing an
+    # incoming version against the held `data_version`, and its guard clause
+    # needs *both* sides to be binaries — so a deposit that writes `nil` there
+    # does not merely omit a marker, it makes every later stale delivery for
+    # that key compare as "no judgement" and land. This asserts the marker
+    # survives on both keys, which is what keeps that guard switched on.
+    test "leaves a version behind so the stale-delivery guard keeps working" do
+      seed_issue(42, ["agent:todo"])
+
+      {_calls, :ok} =
+        record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "agent:watch"])}} end, fn fun ->
+          IssueState.add_label("42", "agent:watch", request_fun: fun)
+        end)
+
+      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} = ResourceStore.fetch(issue_key(42))
+
+      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} =
+               ResourceStore.fetch(ResourceStore.key(:issue_labels, "owner", "repo", 42))
+    end
+
     test "deposits the whole label set the endpoint returns" do
       {_calls, :ok} =
         record(fn _request -> {:ok, %{status: 200, body: labels(["agent:todo", "priority:1"])}} end, fn fun ->
@@ -254,11 +275,73 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       refute_event("ticket.42.issue.label.added.agent.in-progress")
     end
 
-    # A label response cannot name the issue's new `updated_at`, so the deposit
-    # claims no version. Claiming the old one would let this body outrank a
-    # writer that genuinely knows, and inventing one would suppress a change
-    # nothing has handled.
-    test "claims no version it cannot vouch for" do
+    # The lost update, pinned. `Aiur.Events.GithubWebhook.Deposit` writes the
+    # whole `:issue` body on every `issues` and `issue_comment` delivery, so the
+    # racing writer here is the live one, not a hypothetical.
+    #
+    # The marker is monotonic and the sampler asserts the held body never goes
+    # backwards, because that is the failure with teeth: `"state"` rolls back
+    # with everything else, so a reader is served `open` for a ticket Aiur has
+    # closed. Counting the final generation as well catches a merge that drops
+    # the last writes without ever visibly reversing.
+    test "concurrent label merges never roll the held issue body backwards" do
+      key = issue_key(77)
+      generations = 150
+
+      ResourceStore.put_resource(key, issue_at(0), source: :webhook, version: version_at(0))
+
+      sampler = start_monotonic_sampler(key)
+
+      deliveries =
+        Task.async(fn ->
+          Enum.each(1..generations, fn generation ->
+            ResourceStore.put_resource(key, issue_at(generation),
+              source: :webhook,
+              version: version_at(generation)
+            )
+          end)
+        end)
+
+      merges =
+        Task.async(fn ->
+          Enum.each(1..generations, fn n ->
+            WriteThrough.issue_labels(77, labels(["agent:todo", "merge:#{n}"]))
+          end)
+        end)
+
+      Task.await(deliveries, 30_000)
+      Task.await(merges, 30_000)
+
+      %{max: max, regressions: regressions} = stop_monotonic_sampler(sampler)
+
+      # No sample ever saw the generation decrease.
+      assert regressions == [], "held issue body rolled backwards: #{inspect(Enum.take(regressions, 5))}"
+
+      held = ResourceStore.data(key)
+
+      # The last delivery survived the last merge, rather than being overwritten
+      # by a snapshot the merge had read before it.
+      assert held["generation"] == generations
+      assert max == generations
+
+      # And the merge still did its job: the label set the mutation returned is
+      # the one on the body, so A4a holds under contention too.
+      assert Enum.map(held["labels"], & &1["name"]) == ["agent:todo", "merge:#{generations}"]
+
+      # The marker moved with the body. A version-less merge would leave this
+      # `nil`, which is precisely the field `GithubWebhook.Deposit.regression?/2`
+      # consults — so losing it switches off the stale-delivery guard.
+      assert {:ok, %{version: version}} = ResourceStore.fetch(key)
+      assert version == version_at(generations)
+    end
+
+    # The marker the merge carries is the snapshot's, never a newer one it made
+    # up: a label response cannot name the issue's new `updated_at`. Under-
+    # claiming is the safe direction — it refuses only what is strictly older
+    # than the snapshot these labels were applied to — and it must not be
+    # confused with marking the resource *processed*, which needs a version the
+    # writer genuinely vouches for and is still refused here.
+    test "claims the snapshot's version and never marks it processed" do
       seed_issue(42, ["agent:todo"])
 
       {_calls, :ok} =
@@ -266,7 +349,10 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
           IssueState.add_label("42", "agent:watch", request_fun: fun)
         end)
 
-      assert {:ok, %{version: nil}} = ResourceStore.fetch(issue_key(42))
+      assert {:ok, %{version: "2026-08-17T12:00:00Z"}} = ResourceStore.fetch(issue_key(42))
+
+      # A label write is not a wake-suppressing event for the issue.
+      refute ResourceStore.processed?(issue_key(42), "2026-08-17T12:00:00Z")
       refute ResourceStore.processed?(issue_key(42), nil)
     end
   end
@@ -481,10 +567,20 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     pid
   end
 
+  # GitHub's own issue object, which is the shape
+  # `Aiur.Events.GithubWebhook.Deposit` deposits under `:issue` and therefore the
+  # shape anything reading that key is entitled to assume. `updated_at` is part
+  # of it: every writer in the system derives its version from that field, so a
+  # fixture without one would be testing a body no writer can produce.
   defp seed_issue(number, label_names) do
     ResourceStore.put_resource(
       issue_key(number),
-      %{"number" => number, "state" => "open", "labels" => labels(label_names)},
+      %{
+        "number" => number,
+        "state" => "open",
+        "updated_at" => "2026-08-17T12:00:00Z",
+        "labels" => labels(label_names)
+      },
       source: :fetch,
       version: "2026-08-17T12:00:00Z"
     )
@@ -533,6 +629,64 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
        status: 200,
        body: %{"data" => %{"resolveReviewThread" => %{"thread" => %{"id" => "PRRT_thread", "isResolved" => true}}}}
      }}
+  end
+
+  # A whole GitHub issue object at generation `n`, in the shape
+  # `Aiur.Events.GithubWebhook.Deposit` deposits: GitHub's own REST object, with
+  # `"labels"` as the raw label array.
+  defp issue_at(n) do
+    %{
+      "number" => 77,
+      "state" => if(n < 100, do: "open", else: "closed"),
+      "generation" => n,
+      "updated_at" => version_at(n),
+      "labels" => labels(["agent:todo"])
+    }
+  end
+
+  # Zero-padded so the store's lexical version comparison orders these the same
+  # way the integer generation does.
+  defp version_at(n), do: "2026-08-17T12:00:#{String.pad_leading(to_string(n), 3, "0")}Z"
+
+  # Reads the held body in a tight loop and records every sample where the
+  # generation went down. A poll rather than a subscription on purpose: it must
+  # observe the store itself, not the announcements, since a lost update is a
+  # write that lands and is then silently undone.
+  defp start_monotonic_sampler(key) do
+    test = self()
+
+    pid =
+      spawn_link(fn ->
+        sample(test, key, -1, [], 0)
+      end)
+
+    pid
+  end
+
+  defp sample(test, key, seen, regressions, max) do
+    receive do
+      {:stop, from} -> send(from, {:samples, %{max: max, regressions: Enum.reverse(regressions)}})
+    after
+      0 ->
+        case ResourceStore.data(key) do
+          %{"generation" => generation} when is_integer(generation) ->
+            regressions = if generation < seen, do: [{seen, generation} | regressions], else: regressions
+            sample(test, key, generation, regressions, max(max, generation))
+
+          _other ->
+            sample(test, key, seen, regressions, max)
+        end
+    end
+  end
+
+  defp stop_monotonic_sampler(pid) do
+    send(pid, {:stop, self()})
+
+    receive do
+      {:samples, samples} -> samples
+    after
+      5_000 -> flunk("sampler did not answer")
+    end
   end
 
   defp labelled_delivery(label) do

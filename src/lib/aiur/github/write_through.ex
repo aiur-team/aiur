@@ -125,6 +125,15 @@ defmodule Aiur.GitHub.WriteThrough do
   issue body, if there is one, has its `"labels"` replaced in the same pass so a
   view rendering the issue sees the new label without a fetch — which is the
   point of the unit.
+
+  Both deposits carry the held issue's `updated_at`. A label response cannot
+  name the issue's *new* marker, so this is a lower bound rather than the exact
+  version — which is the safe direction: it refuses only deliveries strictly
+  older than the snapshot these labels were applied to, and can never wrongly
+  refuse a newer one. Claiming nothing is the option that is *not* safe, because
+  `Aiur.Events.GithubWebhook.Deposit` decides staleness by comparing against the
+  held `data_version`, so a version-less deposit switches that guard off for the
+  key rather than merely leaving it unset.
   """
   @spec issue_labels(term(), term(), keyword()) :: :ok
   def issue_labels(issue_number, labels, opts \\ []) do
@@ -132,8 +141,14 @@ defmodule Aiur.GitHub.WriteThrough do
       with true <- is_list(labels),
            {:ok, owner, repo} <- repo_identity(nil, opts),
            key when not is_nil(key) <- ResourceStore.key(:issue_labels, owner, repo, issue_number) do
-        ResourceStore.put_resource(key, labels, source: source(opts))
-        merge_issue_labels(owner, repo, issue_number, labels, opts)
+        issue_key = ResourceStore.key(:issue, owner, repo, issue_number)
+
+        ResourceStore.put_resource(key, labels,
+          source: source(opts),
+          version: held_issue_version(issue_key)
+        )
+
+        merge_issue_labels(issue_key, labels, opts)
       else
         _other -> :ok
       end
@@ -175,20 +190,67 @@ defmodule Aiur.GitHub.WriteThrough do
     end
   end
 
-  defp merge_issue_labels(owner, repo, issue_number, labels, opts) do
-    key = ResourceStore.key(:issue, owner, repo, issue_number)
-
+  # The marker of the issue snapshot these labels were applied to, or `nil` when
+  # the store holds no issue — in which case nothing is being blinded, because
+  # there is no held version for a guard to have compared against.
+  defp held_issue_version(key) do
     case ResourceStore.fetch(key) do
-      {:ok, %{data: %{} = issue}} ->
-        # No version is claimed: a labels-only response cannot name the issue's
-        # new `updated_at`, and inventing one would let this body outrank a
-        # writer that genuinely knows.
-        ResourceStore.put_resource(key, Map.put(issue, "labels", labels), source: source(opts))
-
-      _other ->
-        :ok
+      {:ok, %{version: version}} -> version
+      :miss -> nil
     end
   end
+
+  defp merge_issue_labels(key, labels, opts) do
+    # Not a read-modify-write, despite the shape. Nothing read here crosses into
+    # the write: this only declines to create an entry for an issue the store
+    # has never held, because `update_resource/3` always writes, and a body-less
+    # entry would announce a change to every subscriber of an issue nobody has
+    # cached — on every label the orchestrator applies. If a body lands between
+    # this check and the merge, skipping is exactly what the pre-store behaviour
+    # was, and that delivery carried its own authoritative labels anyway.
+    case ResourceStore.fetch(key) do
+      {:ok, %{data: %{}}} -> atomically_merge_labels(key, labels, opts)
+      _other -> :ok
+    end
+  end
+
+  # One `update_resource/3` call, so the read of the held issue, the label swap,
+  # and the write are a single compare-and-swap.
+  #
+  # `fetch/1` followed by `put_resource/3` loses this race, and not rarely: the
+  # window spans a full round trip through this module, so a webhook delivery
+  # depositing the fresh issue in between is overwritten by the stale snapshot
+  # read first. `"state"` is among the fields that roll back, so a reader can be
+  # served `open` for a ticket Aiur has closed.
+  #
+  # The fun is pure because a swap collision re-runs it against the new body.
+  defp atomically_merge_labels(key, labels, opts) do
+    ResourceStore.update_resource(
+      key,
+      fn
+        %{} = issue -> Map.put(issue, "labels", labels)
+        _absent -> nil
+      end,
+      source: source(opts),
+      version: &issue_version/1
+    )
+  end
+
+  # The merged body is the held snapshot with one field corrected, so it carries
+  # that snapshot's own marker — read off the body being written rather than
+  # supplied by this module, which is what keeps it right when a collision makes
+  # the merge re-run against a newer body.
+  #
+  # A labels-only response cannot name the issue's *new* `updated_at`, and this
+  # deliberately does not invent one: the marker never claims to be newer than
+  # it is, so it can never wrongly refuse a genuinely newer delivery. What it
+  # must not do is claim nothing. Depositing with no version writes
+  # `data_version: nil`, and `Aiur.Events.GithubWebhook.Deposit`'s stale-delivery
+  # guard compares an incoming version against exactly that field — so a
+  # version-less merge does not merely lose the marker, it switches the guard
+  # off for this issue and lets every later stale delivery through.
+  defp issue_version(%{"updated_at" => at}) when is_binary(at) and at != "", do: at
+  defp issue_version(_body), do: nil
 
   defp source(opts), do: Keyword.get(opts, :source, :mutation)
 

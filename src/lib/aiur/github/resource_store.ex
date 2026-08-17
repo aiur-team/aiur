@@ -462,6 +462,30 @@ defmodule Aiur.GitHub.ResourceStore do
   The guarantee is scoped to this store's entry for one key. It is not a
   distributed lock: two daemons on one checkpoint file still resolve by
   last-writer-wins at checkpoint time.
+
+  ## Versioning a body you did not choose
+
+  `:version` also accepts a **1-arity function**, applied to the merged body
+  inside the same compare-and-swap. A fixed version cannot be correct here: the
+  caller computes it before the call, from a body a concurrent writer may have
+  replaced by the time `fun` re-runs, so a retry would stamp the losing read's
+  marker onto the winning read's content. The result is a body labelled older
+  than it is, and the next genuinely stale delivery is accepted against it —
+  the rollback this function exists to prevent, one step removed.
+
+  Every writer in this system derives a version from the body it is depositing
+  (`updated_at` on an issue, a pull request, a comment), so a function of the
+  merged body is the shape that is always available and always honest:
+
+      ResourceStore.update_resource(key, &Map.put(&1, "labels", labels),
+        source: :mutation,
+        version: fn body -> body["updated_at"] end
+      )
+
+  A binary `:version` still behaves exactly as `put_resource/3` documents. The
+  function is applied to the body actually being stored, so it sees `nil` for a
+  body the store refused, and answering `nil` records "version unknown" the same
+  way a missing `:version` does.
   """
   @spec update_resource(key() | nil, (term() -> term()), keyword()) :: :ok
   def update_resource(key, fun, opts \\ [])
@@ -469,14 +493,19 @@ defmodule Aiur.GitHub.ResourceStore do
   def update_resource(nil, _fun, _opts), do: :ok
 
   def update_resource(key, fun, opts) when is_function(fun, 1) do
-    version = normalize_version(Keyword.get(opts, :version))
     source = Keyword.get(opts, :source, :mutation)
+    version = Keyword.get(opts, :version)
 
     update(key, fn existing ->
       storable = existing |> held_body() |> fun.() |> then(&storable_data(key, &1))
-      deposit(existing, storable, source, version, opts)
+      deposit(existing, storable, source, resolve_version(version, storable), opts)
     end)
   end
+
+  # Resolved inside the caller's critical section, never before it, so a retry
+  # re-derives the marker from the body that actually won the swap.
+  defp resolve_version(version, body) when is_function(version, 1), do: normalize_version(version.(body))
+  defp resolve_version(version, _body), do: normalize_version(version)
 
   # `fun` is handed what a reader would have been handed, which means an expired
   # body is `nil` here for the same reason `fetch/1` declines it: merging into a

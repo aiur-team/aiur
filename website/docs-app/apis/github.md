@@ -231,6 +231,10 @@ Suppression here is per resource **and per version**, as above. A later edit of 
 
 Where GitHub's answer cannot name a version — the label endpoints return the label array and nothing else — Aiur keeps the state but suppresses nothing. The resource's next genuine change is never swallowed.
 
+Such a write still records the marker of the snapshot it was applied to, rather than recording nothing. That is what keeps "a delayed delivery carrying older state is refused" true afterwards: staleness is judged against the marker on the record, so a record left unmarked would accept every late delivery instead of refusing the old ones.
+
+A label write also corrects the labels on the issue Aiur already holds, and does so as one indivisible step. Reading the issue, changing it, and writing it back as separate steps would let a delivery that landed in between be overwritten by the older copy — including its `open` or `closed` state.
+
 A write that fails records nothing.
 
 ## Optional webhook
