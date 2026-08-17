@@ -38,7 +38,9 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
-Dashboard data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs; icon and action columns are not sortable. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
+Dashboard data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
+
+The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
 ## The pages
 
