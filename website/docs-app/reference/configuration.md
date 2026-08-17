@@ -260,6 +260,16 @@ Local Codex turns use Aiur's shared build admission.
 | `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the legacy records named in the message. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
+Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
+or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
+`--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
+holds one live-token lease.
+
+Malformed compounds and command strings that could hide a Mix build fail with status
+`125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
+canonicalized, but deliberately invoking a separate real executable by absolute,
+relative, or symlinked path bypasses the entrypoint and is not admitted.
+
 ## Host-pressure fleet admission
 
 Fleet admission uses total host pressure instead of a hard-coded process count, and disabled or unreadable signals fail open.

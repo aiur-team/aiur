@@ -146,6 +146,63 @@ reject_legacy_config() {
 
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+package_version() {
+  local package_file="$1"
+  [ -r "$package_file" ] || return 1
+  sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$package_file" | head -n 1
+}
+
+cli_package_version() {
+  package_version "$engine_dir/../package.json"
+}
+
+version_is_older() {
+  local installed="$1" available="$2"
+  local installed_major installed_minor installed_patch installed_pre
+  local available_major available_minor available_patch available_pre
+
+  if [[ ! "$installed" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-([0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$ ]]; then return 1; fi
+  installed_major="${BASH_REMATCH[1]}"
+  installed_minor="${BASH_REMATCH[2]}"
+  installed_patch="${BASH_REMATCH[3]}"
+  installed_pre="${BASH_REMATCH[5]}"
+
+  if [[ ! "$available" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-([0-9A-Za-z.-]+))?(\+[0-9A-Za-z.-]+)?$ ]]; then return 1; fi
+  available_major="${BASH_REMATCH[1]}"
+  available_minor="${BASH_REMATCH[2]}"
+  available_patch="${BASH_REMATCH[3]}"
+  available_pre="${BASH_REMATCH[5]}"
+
+  [ "$installed_major" -lt "$available_major" ] ||
+    { [ "$installed_major" -eq "$available_major" ] && [ "$installed_minor" -lt "$available_minor" ]; } ||
+    { [ "$installed_major" -eq "$available_major" ] && [ "$installed_minor" -eq "$available_minor" ] && [ "$installed_patch" -lt "$available_patch" ]; } ||
+    {
+      [ "$installed_major" -eq "$available_major" ] &&
+        [ "$installed_minor" -eq "$available_minor" ] &&
+        [ "$installed_patch" -eq "$available_patch" ] &&
+        {
+          { [ -n "$installed_pre" ] && [ -z "$available_pre" ]; } ||
+            { [ -n "$installed_pre" ] && [ -n "$available_pre" ] && [[ "$installed_pre" < "$available_pre" ]]; }
+        }
+    }
+}
+
+warn_if_cli_behind_release_checkout() {
+  local stamp="${AIUR_RELEASE_DIR:-}/AIUR_BUILD_STAMP"
+  local repo_root installed_version checkout_version
+
+  [ -r "$stamp" ] || return 0
+  repo_root="$(sed -n 's/^repo_root=//p' "$stamp" | head -n 1)"
+  [ -n "$repo_root" ] || return 0
+
+  installed_version="$(cli_package_version || true)"
+  checkout_version="$(package_version "$repo_root/packaging/npm/aiur-cli/package.json" || true)"
+
+  if version_is_older "$installed_version" "$checkout_version"; then
+    echo "aiur: installed CLI $installed_version is older than checkout CLI $checkout_version; update aiur-cli before retrying" >&2
+  fi
+}
+
 # --- distribution identity (per-instance: keyed by the aiur project root) -----
 
 # The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
@@ -432,6 +489,8 @@ EOF
 
 run_version() {
   resolve_release
+  AIUR_CLI_VERSION="$(cli_package_version || true)"
+  export AIUR_CLI_VERSION
   # Distribution-free (like init): printing the version is a compile-time
   # constant, so never claim the node name — otherwise `aiur --version` fails
   # whenever an aiur session is already running.
@@ -3216,6 +3275,7 @@ aiur_engine_main() {
         dispatch_run "$@"
       else
         echo "aiur: unknown command: $cmd" >&2
+        warn_if_cli_behind_release_checkout
         usage >&2
         exit 64
       fi

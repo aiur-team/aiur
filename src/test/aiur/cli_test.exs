@@ -7,6 +7,17 @@ defmodule Aiur.CLITest do
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
+  test "version line identifies both the release and dispatcher" do
+    assert CLI.version_line("1.3.0", "1.2.3") =~
+             ~r/^aiur 1\.3\.0 \(aiur-team\/aiur [0-9a-f]*\), cli 1\.2\.3$/
+
+    assert CLI.version_line("1.3.0", nil) =~
+             ~r/^aiur 1\.3\.0 \(aiur-team\/aiur [0-9a-f]*\)$/
+
+    assert CLI.version_line("1.3.0", "") =~
+             ~r/^aiur 1\.3\.0 \(aiur-team\/aiur [0-9a-f]*\)$/
+  end
+
   defp deps do
     %{
       file_regular?: fn _path -> true end,
