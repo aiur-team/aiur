@@ -112,6 +112,16 @@ defmodule Aiur.GitHub.ResourceStore do
   A validator is never recorded for a body the store refused, at deposit time
   *or* at checkpoint time. See `deposit_etag/3` and `encode_fields/2`.
 
+  ## Changing a held body: never fetch-then-put
+
+  A writer that reads the held body, changes part of it and puts it back must
+  use `update_resource/3`, which does all three inside one compare-and-swap.
+  The same thing written as `fetch/1` followed by `put_resource/3` loses writes
+  within the first handful of concurrent merges, because the window is a whole
+  round trip through the caller: a webhook delivery depositing the fresh object
+  in between is overwritten by the stale snapshot, `"state"` included. There is
+  no volume threshold below which this is safe.
+
   ## Bodies must be JSON that round-trips unchanged
 
   A checkpointed body has to come back the shape it went in. `Jason` does not
@@ -401,11 +411,71 @@ defmodule Aiur.GitHub.ResourceStore do
   def put_resource(nil, _data, _opts), do: :ok
 
   def put_resource(key, data, opts) do
+    update_resource(key, fn _held -> data end, opts)
+  end
+
+  @doc """
+  Deposits a body derived from the one currently held, atomically.
+
+  This is the writer for anything shaped "read what is there, change part of it,
+  put it back" — merging labels into a held issue, folding a mutation's response
+  into a fuller object. `fun` receives the held body, or `nil` when the store
+  holds none, and its result is deposited exactly as `put_resource/3` would
+  deposit it. Options are `put_resource/3`'s.
+
+  ## The concurrency guarantee, stated plainly
+
+  A caller that does the same thing with `fetch/1` followed by `put_resource/3`
+  **loses writes**, and not rarely: two processes merging into one `:issue` key
+  regressed the held body within the first twenty writes. The read-modify-write
+  spans an entire round trip through the caller, so anything deposited in
+  between — a webhook delivery carrying the fresh object, another mutation's
+  response — is overwritten by the stale snapshot the loser read first. The
+  rolled-back fields include `"state"`, so a reader can be handed `open` for a
+  ticket Aiur has closed: a correctness failure on dispatch-relevant state, not
+  cosmetic staleness. Worse, a merge that deposits with no `:version` writes
+  `data_version: nil` in the same breath, so nothing marks the body as older
+  than what it replaced.
+
+  This function closes that window: the read, `fun`, and the write are one
+  compare-and-swap against the exact entry that was read (`:ets.select_replace/2`,
+  or `:ets.insert_new/2` when the entry is absent). A concurrent write makes this
+  call re-read and re-apply `fun`, so both writes survive and the held body never
+  goes backwards.
+
+  **`fun` must therefore be pure and cheap** — it can run more than once, and it
+  must not perform IO, spend an API call, or depend on anything but its
+  argument. It sees the held body only while it is still current; anything
+  needing the wider world happens before the call and is passed in.
+
+  The guarantee is scoped to this store's entry for one key. It is not a
+  distributed lock: two daemons on one checkpoint file still resolve by
+  last-writer-wins at checkpoint time.
+  """
+  @spec update_resource(key() | nil, (term() -> term()), keyword()) :: :ok
+  def update_resource(key, fun, opts \\ [])
+
+  def update_resource(nil, _fun, _opts), do: :ok
+
+  def update_resource(key, fun, opts) when is_function(fun, 1) do
     version = normalize_version(Keyword.get(opts, :version))
     source = Keyword.get(opts, :source, :mutation)
-    storable = storable_data(key, data)
 
-    update(key, fn existing -> deposit(existing, storable, source, version, opts) end)
+    update(key, fn existing ->
+      storable = existing |> held_body() |> fun.() |> then(&storable_data(key, &1))
+      deposit(existing, storable, source, version, opts)
+    end)
+  end
+
+  # `fun` is handed what a reader would have been handed, which means an expired
+  # body is `nil` here for the same reason `fetch/1` declines it: merging into a
+  # body nothing has revalidated for three days would resurrect it under a fresh
+  # `fetched_at_ms`.
+  defp held_body(entry) do
+    case Map.get(entry, :data) do
+      nil -> nil
+      data -> if expired?(Map.get(entry, :fetched_at_ms) || 0), do: nil, else: data
+    end
   end
 
   @doc """

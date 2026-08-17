@@ -701,6 +701,103 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
   end
 
+  describe "merging into a held body" do
+    # The write shape that loses data: read the held issue, change part of it,
+    # put it back. Done as `fetch/1` then `put_resource/3` the window is an
+    # entire round trip through the caller, and a probe with two writers
+    # regressed the held body inside the first twenty writes — a webhook
+    # delivery carrying the fresh object lands in the middle and the loser's
+    # stale snapshot overwrites it. `"state"` is one of the fields that rolls
+    # back, so a reader can be served `open` for a ticket Aiur has closed.
+    #
+    # Counting is the assertion, because it is exact: N atomic increments must
+    # leave the counter at N. A lost update leaves it lower, always.
+    test "concurrent merges lose nothing and the body never goes backwards" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8200)
+      writers = 4
+      per_writer = 150
+      me = self()
+
+      ResourceStore.put_resource(key, %{"gen" => 0, "state" => "open"}, version: "v0")
+
+      sampler =
+        spawn_link(fn ->
+          watch = fn watch, highest ->
+            receive do
+              :stop -> send(me, :sampled)
+            after
+              0 ->
+                case :ets.lookup(ResourceStore.Table, key) do
+                  [{^key, %{data: %{"gen" => gen}}}] when gen < highest ->
+                    send(me, {:regressed, highest, gen})
+
+                  [{^key, %{data: %{"gen" => gen}}}] ->
+                    watch.(watch, gen)
+
+                  _other ->
+                    watch.(watch, highest)
+                end
+            end
+          end
+
+          watch.(watch, 0)
+        end)
+
+      1..writers
+      |> Enum.map(fn _writer ->
+        Task.async(fn ->
+          for _step <- 1..per_writer do
+            ResourceStore.update_resource(
+              key,
+              fn held -> %{"gen" => Map.get(held || %{}, "gen", 0) + 1, "state" => "open"} end,
+              source: :mutation
+            )
+          end
+        end)
+      end)
+      |> Enum.each(&Task.await(&1, 60_000))
+
+      send(sampler, :stop)
+
+      assert_receive :sampled, 10_000
+
+      refute_received {:regressed, _highest, _gen}
+
+      assert ResourceStore.data(key) == %{"gen" => writers * per_writer, "state" => "open"},
+             "every merge must survive; a lower count is a lost update"
+    end
+
+    test "a merge sees the held body and nil when there is none" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8201)
+
+      assert :ok = ResourceStore.update_resource(key, fn held -> %{"seen" => held} end)
+      assert ResourceStore.data(key) == %{"seen" => nil}
+
+      assert :ok = ResourceStore.update_resource(key, fn held -> Map.put(held, "merged", true) end, version: "v1")
+
+      assert ResourceStore.data(key) == %{"seen" => nil, "merged" => true}
+      assert {:ok, %{version: "v1"}} = ResourceStore.fetch(key)
+    end
+
+    # The same refusals `put_resource/3` applies, applied to what the merge
+    # returns rather than to what the caller passed.
+    test "a merge that returns an unstorable body is refused with its validator" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8202)
+      ResourceStore.put_resource(key, %{"kept" => true}, etag: ~s("old"))
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = ResourceStore.update_resource(key, fn _held -> %{atom: :keys} end, etag: ~s("new"))
+      end)
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.etag(key) == ~s("old")
+    end
+
+    test "a merge on a nil key is a no-op" do
+      assert :ok = ResourceStore.update_resource(nil, fn _held -> %{"a" => 1} end)
+    end
+  end
+
   describe "an unlisted resource type fails loudly" do
     # The trap: `@resource_types` is a closed set that `decode_key/1` resolves
     # against, so an unlisted type reads and writes perfectly until the next
