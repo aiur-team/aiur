@@ -263,10 +263,12 @@ Local Codex turns use Aiur's shared build admission.
 Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
 or legacy comma separators, `elixir -S mix`, and `mise exec` / `mise x` commands after
 `--` or in a simple `-c` / `--command` string. One compound or nested wrapper chain
-holds one live-token lease. Malformed compounds and command strings that could hide a
-Mix build fail with status `125`. This is a cooperative PATH/shell boundary: aliases of
-Aiur's wrappers are canonicalized, but deliberately invoking a separate real executable
-by absolute, relative, or symlinked path bypasses the entrypoint and is not admitted.
+holds one live-token lease.
+
+Malformed compounds and command strings that could hide a Mix build fail with status
+`125`. This is a cooperative PATH/shell boundary: aliases of Aiur's wrappers are
+canonicalized, but deliberately invoking a separate real executable by absolute,
+relative, or symlinked path bypasses the entrypoint and is not admitted.
 
 ## Host-pressure fleet admission
 
