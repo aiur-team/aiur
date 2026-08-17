@@ -1573,6 +1573,56 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
   end
 
+  test "git wrapper rejects deleting clean without a force flag", context do
+    init_git_workspace(context)
+
+    config_env = [
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "clean.requireForce",
+      GIT_CONFIG_VALUE_0: "false"
+    ]
+
+    assert {output, 64} = run_git_guard(context, ["clean", "-d"], config_env)
+    assert output =~ "destructive git commands require an explicit absolute -C workspace"
+
+    assert {_output, 0} =
+             run_git_guard(context, ["-C", context.workspace, "clean", "-d", "-e", ".aiur-runtime/"], config_env)
+
+    assert {_output, 0} = run_git_guard(context, ["clean", "--dry-run"], config_env)
+  end
+
+  test "git wrapper resolves aliases before classifying destructive commands", context do
+    init_git_workspace(context)
+    other = Path.join(Path.dirname(context.workspace), "other-alias")
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", other], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "config", "alias.wipe", "reset --hard"], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "config", "alias.inspect", "status --short"], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", other, "config", "alias.wipe", "reset --hard"], stderr_to_stdout: true)
+
+    assert {output, 64} = run_git_guard(context, ["wipe"])
+    assert output =~ "destructive git commands require an explicit absolute -C workspace"
+    assert {_output, 0} = run_git_guard(context, ["-C", context.workspace, "wipe"])
+    assert {_output, 0} = run_git_guard(context, ["inspect"])
+
+    assert {output, 64} = run_git_guard(context, ["-C", other, "wipe"])
+    assert output =~ "destructive git target is not the agent workspace"
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "config", "alias.shell-wipe", "!git reset --hard"], stderr_to_stdout: true)
+
+    assert {output, 64} = run_git_guard(context, ["-C", context.workspace, "shell-wipe"])
+    assert output =~ "shell git aliases cannot be validated safely"
+
+    assert {output, 64} = run_git_guard(context, ["-c", "alias.inline-wipe=reset --hard", "inline-wipe"])
+    assert output =~ "inline git aliases cannot bypass repository context"
+  end
+
   test "git wrapper accepts only an explicit context resolving to its workspace", context do
     init_git_workspace(context)
     nested = Path.join(context.workspace, "nested")
@@ -1586,6 +1636,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     for target <- [".", Path.join(context.workspace, "missing"), other] do
       assert {output, 64} = run_git_guard(context, ["-C", target, "reset", "--hard", "HEAD"])
       assert output =~ "destructive git target is not the agent workspace"
+      refute output =~ "fatal: cannot change to"
     end
   end
 

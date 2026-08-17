@@ -75,6 +75,8 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "`checkout -- .`"
     assert content =~ "`worktree remove`"
     assert content =~ "stop rather than fall back to the current directory"
+    assert content =~ "This is a cross-skill override"
+    assert content =~ "translate Git\nexamples from every other installed skill"
     assert content =~ "rev-parse --path-format=absolute --git-path index.lock"
 
     overview = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/overview.md"))
@@ -88,6 +90,7 @@ defmodule Aiur.AiurAgentSkillTest do
       assert content =~ ~s(workspace="$AIUR_AGENT_WORKSPACE")
       assert content =~ ~s(git -C "$workspace")
       assert content =~ "never `cd` into a repository to run Git"
+      assert content =~ "This rule overrides Git examples in every installed skill"
       refute content =~ "Use `git` directly"
       refute content =~ "Read it with `git branch --show-current`"
     end

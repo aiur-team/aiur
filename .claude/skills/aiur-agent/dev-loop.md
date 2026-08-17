@@ -18,6 +18,9 @@ target. Prefer absolute paths for every command that configures or mutates
 state. If the expected path is missing or no longer resolves to the expected
 worktree, stop rather than fall back to the current directory. Do not join a
 directory change and a Git command with `;`, `&&`, a pipeline, or a subshell.
+This is a cross-skill override: while working an Aiur ticket, translate Git
+examples from every other installed skill to `git -C "$workspace"` and never
+use their `cd`-based or ambient repository context.
 
 The agent environment also carries the active workflow's authoritative
 integration branch as `AIUR_BASE_BRANCH`. It comes from the configured

@@ -21,6 +21,7 @@ git_context=
 git_context_count=0
 competing_context=false
 config_override=false
+alias_override=false
 expect_global_value=
 
 for arg in "$@"; do
@@ -33,6 +34,9 @@ for arg in "$@"; do
       context)
         git_context=$arg
         git_context_count=$((git_context_count + 1))
+        ;;
+      config)
+        case "$arg" in alias.*=*) alias_override=true ;; esac
         ;;
     esac
     expect_global_value=
@@ -56,10 +60,17 @@ for arg in "$@"; do
       ;;
     -c | --config-env)
       config_override=true
-      expect_global_value=other
+      expect_global_value=config
       ;;
-    -c?* | --config-env=*)
+    -c?*)
       config_override=true
+      config_value=${arg#-c}
+      case "$config_value" in alias.*=*) alias_override=true ;; esac
+      ;;
+    --config-env=*)
+      config_override=true
+      config_value=${arg#--config-env=}
+      case "$config_value" in alias.*=*) alias_override=true ;; esac
       ;;
     --namespace | --exec-path)
       expect_global_value=other
@@ -76,9 +87,56 @@ for arg in "$@"; do
   esac
 done
 
+if [ "$alias_override" = true ]; then
+  printf '%s\n' 'aiur: inline git aliases cannot bypass repository context' >&2
+  exit 64
+fi
+
+git_in_context() {
+  if [ "$git_context_count" -eq 1 ]; then
+    "$real_git" -C "$git_context" "$@"
+  else
+    "$real_git" "$@"
+  fi
+}
+
+resolved_git_command=$git_command
+alias_depth=0
+alias_command=false
+
+while [ "$alias_depth" -lt 8 ]; do
+  alias_value=$(git_in_context config --get "alias.$resolved_git_command" 2>/dev/null || true)
+  [ -n "$alias_value" ] || break
+  alias_command=true
+
+  case "$alias_value" in
+    !*)
+      printf '%s\n' 'aiur: shell git aliases cannot be validated safely' >&2
+      exit 64
+      ;;
+  esac
+
+  resolved_git_command=${alias_value%%[[:space:]]*}
+  case "$resolved_git_command" in
+    '' | -*)
+      printf '%s\n' 'aiur: git alias repository context cannot be validated safely' >&2
+      exit 64
+      ;;
+  esac
+
+  alias_depth=$((alias_depth + 1))
+done
+
+if [ "$alias_depth" -eq 8 ] && git_in_context config --get "alias.$resolved_git_command" >/dev/null 2>&1; then
+  printf '%s\n' 'aiur: git alias chain cannot be validated safely' >&2
+  exit 64
+fi
+
 destructive_command=false
 after_git_command=false
 worktree_subcommand=
+clean_force=false
+clean_dry_run=false
 
 for arg in "$@"; do
   if [ "$after_git_command" = false ]; then
@@ -94,9 +152,12 @@ for arg in "$@"; do
       ;;
     clean)
       case "$arg" in
-        --force | -*)
+        --force) clean_force=true ;;
+        --dry-run) clean_dry_run=true ;;
+        -*)
           clean_options=${arg#-}
-          case "$clean_options" in *f*) destructive_command=true ;; esac
+          case "$clean_options" in *f*) clean_force=true ;; esac
+          case "$clean_options" in *n*) clean_dry_run=true ;; esac
           ;;
       esac
       ;;
@@ -114,7 +175,18 @@ done
 
 case "$git_command" in
   checkout | restore) destructive_command=true ;;
+  clean)
+    if [ "$clean_force" = true ] || [ "$clean_dry_run" = false ]; then
+      destructive_command=true
+    fi
+    ;;
 esac
+
+if [ "$alias_command" = true ]; then
+  case "$resolved_git_command" in
+    reset | clean | checkout | restore | worktree) destructive_command=true ;;
+  esac
+fi
 
 if [ "$destructive_command" = true ]; then
   if [ "$competing_context" = true ] || [ "$config_override" = true ] || [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
@@ -144,21 +216,15 @@ if [ "$destructive_command" = true ]; then
   expected_workspace=$(dirname "$runtime_dir")
   expected_workspace=$(CDPATH= cd -P "$expected_workspace" 2>/dev/null && pwd)
   target_top=$("$real_git" -C "$git_context" rev-parse --show-toplevel 2>/dev/null || true)
-  target_top=$(CDPATH= cd -P "$target_top" 2>/dev/null && pwd)
+  if [ -n "$target_top" ]; then
+    target_top=$(CDPATH= cd -P "$target_top" 2>/dev/null && pwd)
+  fi
 
   if [ -z "$expected_workspace" ] || [ -z "$target_top" ] || [ "$target_top" != "$expected_workspace" ]; then
     printf '%s\n' 'aiur: destructive git target is not the agent workspace' >&2
     exit 64
   fi
 fi
-
-git_in_context() {
-  if [ "$git_context_count" -eq 1 ]; then
-    "$real_git" -C "$git_context" "$@"
-  else
-    "$real_git" "$@"
-  fi
-}
 
 push_command=false
 [ "$git_command" = push ] && push_command=true
