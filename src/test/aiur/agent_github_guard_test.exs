@@ -2362,6 +2362,62 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 3
     end
 
+    test "an agent that opts out of reading still retires what it changes", context do
+      # The store is shared by the whole host. One process declining to read from
+      # it must not leave every other agent replaying an answer it just replaced.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 1
+
+      assert {_, 0} =
+               run_cached_guard(context, ["issue", "comment", "1670", "--body", "hi"], AIUR_GITHUB_STATE_CACHE_ENABLED: "0")
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 3
+    end
+
+    test "a write against another GitHub deployment retires nothing here", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["issue", "comment", "1670", "--hostname", "ghe.example.com", "--body", "hi"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "naming the default host explicitly is not another deployment", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["issue", "comment", "1670", "--hostname", "github.com", "--body", "hi"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      assert upstream_calls(context) == 3
+    end
+
+    test "a REST read with a query string is still filed under its resource", context do
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      assert upstream_calls(context) == 1
+
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      assert upstream_calls(context) == 2
+    end
+
+    test "a vanished body falls through instead of answering with nothing", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      [{_shape, body}] = cached_shapes(context)
+
+      # The entry's stamp survives its body — the window between a writer removing
+      # a body it could not commit and the reader that already passed the
+      # readability check.
+      File.rm!(body)
+
+      assert {output, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      assert output != ""
+      assert upstream_calls(context) == 2
+    end
+
     test "the merge gate still refuses with the store enabled", context do
       assert {output, 77} = run_cached_guard(context, ["pr", "merge", "1670", "--squash"])
 

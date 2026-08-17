@@ -161,18 +161,12 @@ def acquire(args):
         # Otherwise twelve followers would still consume the concurrency the
         # coalescing exists to give back.
         cache_key = getattr(args, "cache_key", None)
+        cache_claim = None
         if cache_key and not args.cache_ignore_claim:
-            claim = conn.execute(
+            cache_claim = conn.execute(
                 "SELECT expires_at_ms FROM cache_claims WHERE token_key = ? AND cache_key = ?",
                 (args.token_key, cache_key),
             ).fetchone()
-
-            if claim and claim[0] > now:
-                # Short so the follower notices the leader's answer promptly, and
-                # never longer than the claim itself can live.
-                conn.execute("COMMIT")
-                print(f"wait {jitter_wait(min(100, claim[0] - now))}")
-                return
 
         token_hold = 0 if args.ignore_token_cooldown else cooldown
         hold_until = max(token_hold, resource_hold[0] if resource_hold and resource_hold[0] else 0)
@@ -186,6 +180,19 @@ def acquire(args):
         if hold_until > now:
             conn.execute("COMMIT")
             print(f"wait {hold_until - now}")
+            return
+
+        # Checked AFTER the cooldown branch above, so a follower waiting behind
+        # another agent's identical fetch is never given the claim's short wait in
+        # place of the hold's long one. Answered the other way round, a fleet in a
+        # rate-limit backoff would re-enter this transaction every ~100 ms per
+        # follower — dozens of SQLite writes a second during exactly the incident
+        # the backoff exists to quieten.
+        if cache_claim and cache_claim[0] > now:
+            # Short so the follower notices the leader's answer promptly, and
+            # never longer than the claim itself can live.
+            conn.execute("COMMIT")
+            print(f"wait {jitter_wait(min(100, cache_claim[0] - now))}")
             return
 
         total = conn.execute("SELECT COUNT(*) FROM leases WHERE token_key = ?", (args.token_key,)).fetchone()[0]

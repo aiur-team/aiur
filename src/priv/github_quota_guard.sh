@@ -224,6 +224,14 @@ case "${1:-} ${2:-}" in
   "issue "*) endpoint_family=issues; direction=write ;;
   "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
   "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
+  # Commands that change repository state without touching an issue or a pull
+  # request. Left classified as reads they invalidated nothing, so
+  # `gh repo edit --default-branch` or a release could change what a stored
+  # answer says while every agent kept replaying the old one.
+  "repo edit"|"repo rename"|"repo archive"|"repo unarchive"|"repo delete"|\
+  "release create"|"release edit"|"release delete"|"release upload"|\
+  "secret set"|"secret delete"|"variable set"|"variable delete"|\
+  "gist create"|"gist edit"|"gist delete"|"cache delete") direction=write ;;
   "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none; admission_required=0 ;;
   "auth token") track=0; resource=none; admission_required=0 ;;
   "auth "*|"extension "*) track=0 ;;
@@ -759,8 +767,16 @@ case "$cache_root" in
   /*) ;;
   *) cache_root= ;;
 esac
+# Whether THIS call reads and writes entries. Kept separate from the store's
+# existence on purpose: the store is shared by every agent on the host, so a
+# process opting out of reading must still retire what it changes. Gating
+# invalidation on the same switch would let one agent's `--json`-free shell, one
+# operator export, or one test harness leave every OTHER agent serving a stale
+# answer for the rest of the window — the store failing open turned into the
+# store being wrong.
+cache_reads=1
 case "${AIUR_GITHUB_STATE_CACHE_ENABLED:-1}" in
-  0|false|FALSE|no|NO|off|OFF) cache_root= ;;
+  0|false|FALSE|no|NO|off|OFF) cache_reads=0 ;;
 esac
 
 # R10's strict-freshness bypass. A caller that must not be served stale — a
@@ -779,7 +795,7 @@ esac
 cache_ttl=${AIUR_GITHUB_STATE_CACHE_TTL_MS:-60000}
 case "$cache_ttl" in ''|*[!0-9]*) cache_ttl=60000 ;; esac
 if [ "$cache_ttl" -lt 1000 ]; then
-  cache_root=
+  cache_reads=0
   cache_ttl=0
 else
   cache_ttl=$((cache_ttl / 1000))
@@ -903,13 +919,30 @@ cache_read_url_identity() {
 
 if [ -n "$cache_root" ]; then
   # `--hostname` and `GH_HOST` move the request to another GitHub deployment
-  # whose numbering is unrelated. Nothing is cached for those.
+  # whose numbering is unrelated. Nothing is cached for those, and — because the
+  # entries of THIS host must not be retired by a write against a different one —
+  # nothing is invalidated either. A flag that names github.com explicitly is not
+  # a different deployment, so it is compared rather than merely detected: read as
+  # foreign it would have made such a write leave every other agent stale.
   cache_hostname_override=0
+  cache_hostname_expected=0
   for cache_arg in "$@"; do
+    if [ "$cache_hostname_expected" -eq 1 ]; then
+      cache_hostname_expected=0
+      case "$cache_arg" in
+        github.com) ;;
+        *) cache_hostname_override=1 ;;
+      esac
+      continue
+    fi
+
     case "$cache_arg" in
-      --hostname|--hostname=*) cache_hostname_override=1 ;;
+      --hostname) cache_hostname_expected=1 ;;
+      --hostname=github.com) ;;
+      --hostname=*) cache_hostname_override=1 ;;
     esac
   done
+  unset cache_hostname_expected
   case "${GH_HOST:-github.com}" in
     github.com) ;;
     *) cache_hostname_override=1 ;;
@@ -1031,7 +1064,7 @@ if [ -n "$cache_root" ]; then
   # check run completing never pass through this wrapper — so the freshness
   # window is the ONLY thing standing between the read and a wrong answer. These
   # field names are therefore refused outright rather than given a short window.
-  [ "$cache_volatile" -eq 0 ] || cache_root=
+  [ "$cache_volatile" -eq 0 ] || cache_reads=0
 
   case "$command_key" in
     "pr view"|"issue view")
@@ -1066,6 +1099,12 @@ if [ -n "$cache_root" ]; then
       if [ "$direction" = read ] && [ "$resource" = core ] && [ "$api_paginated" -eq 0 ] && [ "$cache_has_payload" -eq 0 ]; then
         cache_endpoint=$(api_command_endpoint "$@") || cache_endpoint=
         cache_endpoint=${cache_endpoint#/}
+        # The query string is part of the SHAPE, which every argument is hashed
+        # into anyway — it is not part of the resource's identity. Left on, a
+        # `?per_page=1` moved the entry out of its resource's directory and into
+        # a digest of the URL, where the resource's own writers cannot reach it.
+        cache_endpoint=${cache_endpoint%%\?*}
+        cache_endpoint=${cache_endpoint%%\#*}
         case "$cache_endpoint" in
           repos/*/*/*|repos/*/*)
             cache_api_rest=${cache_endpoint#repos/}
@@ -1218,7 +1257,7 @@ if [ -n "$cache_root" ] && [ -n "$cache_owner" ] && [ -n "$cache_repo_name" ]; t
   cache_repo_dir=$cache_root/v1/$cache_owner/$cache_repo_name
 fi
 
-if [ -n "$cache_repo_dir" ] && [ -n "$cache_kind" ] && [ -n "$cache_id" ]; then
+if [ "$cache_reads" -eq 1 ] && [ -n "$cache_repo_dir" ] && [ -n "$cache_kind" ] && [ -n "$cache_id" ]; then
   cache_shape=$(cache_material "$@" | cache_fingerprint) || cache_shape=
   if cache_valid_digest "$cache_shape"; then
     cache_entry_dir=$cache_repo_dir/$cache_kind/$cache_id
@@ -1434,9 +1473,16 @@ cache_prune() {
   return 0
 }
 
+# Answers with the stored bytes, or refuses. `cat` is checked because the entry
+# can go away between the readability test and the read — a concurrent writer
+# whose stamp failed removes its own body — and an unchecked `cat` would hand the
+# agent empty stdout with exit 0, which `out=$(gh pr view N --json body -q .body)`
+# reads as "the body is empty". A refusal here falls through to the real `gh`,
+# which is the same answer every other doubt in this file produces.
 cache_serve() {
+  cat "$cache_body" || return 1
   cache_record "$1"
-  cat "$cache_body"
+  return 0
 }
 
 # A second look, with the clock re-sampled. Between a caller's own lookup and the
@@ -1452,8 +1498,7 @@ cache_recheck() {
   cache_lookup
 }
 
-if cache_lookup; then
-  cache_serve hit
+if cache_lookup && cache_serve hit; then
   exit 0
 fi
 
@@ -1471,8 +1516,20 @@ fi
 # the leader's answer. The claim is bounded by its own TTL and by the waiter's
 # patience below, so a leader that dies costs one duplicate fetch and never a
 # stall.
+#
+# A caller demanding strict freshness takes no part in this. It cannot be
+# satisfied by the leader's answer — it refuses stored answers by definition — so
+# waiting behind the claim would spend the whole patience budget and then make
+# the call anyway. The one caller that must not be delayed would have been the
+# one delayed most.
+#
+# The key's members are all constrained: owner and repo pass `cache_valid_slug`
+# (`[A-Za-z0-9./_-]`, no `..`), the kind is a literal, the id is digits, `list`
+# or a hex digest, and the shape is a 64-character hex digest. That is what makes
+# the unquoted expansion into the broker's argument list below safe; relax
+# `cache_valid_slug` and this becomes argument injection.
 cache_claim_key=
-if [ -n "$cache_body" ] && [ -n "$cache_shape" ]; then
+if [ -n "$cache_body" ] && [ -n "$cache_shape" ] && [ "$cache_bypass" -eq 0 ]; then
   cache_claim_key=$cache_owner/$cache_repo_name/$cache_kind/$cache_id/$cache_shape
 fi
 
@@ -1514,8 +1571,7 @@ budget_acquire() {
     # agent's identical fetch — the answer may have arrived meanwhile. Looking
     # again is a stat and a `read`, so it is cheaper than any of the reasons the
     # loop is here.
-    if [ "$cache_claim_waited_ms" -gt 0 ] && cache_recheck; then
-      cache_serve coalesced
+    if [ "$cache_claim_waited_ms" -gt 0 ] && cache_recheck && cache_serve coalesced; then
       cache_served=1
       return 66
     fi
@@ -1547,8 +1603,7 @@ budget_acquire() {
           # reader's answer lands, and it is not covered by the claim: a caller
           # arriving after the leader released has no claim to wait behind and
           # would fetch a resource that is already in the store.
-          if [ -n "$cache_claim_key" ] && cache_recheck; then
-            cache_serve coalesced
+          if [ -n "$cache_claim_key" ] && cache_recheck && cache_serve coalesced; then
             cache_served=1
             budget_release
             return 66

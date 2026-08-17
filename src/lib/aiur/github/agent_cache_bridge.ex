@@ -49,7 +49,27 @@ defmodule Aiur.GitHub.AgentCacheBridge do
     {:ok, %{opts: Keyword.take(opts, [:state_dir])}}
   end
 
+  # A store write that moved only a conditional-request validator is not news
+  # about a resource: nobody's cached answer is wrong because a poll re-recorded
+  # an `ETag`. These endpoint identities publish on every sweep — the repo-wide
+  # comment streams alone do it twice a dispatch tick — and treating each as a
+  # change would retire every cached collection query in the repository several
+  # times a minute, which is the sharing this exists for, undone.
+  @validator_only [
+    :issue_comments,
+    :pr_issue_comments,
+    :repo_issue_comment_stream,
+    :repo_review_comment_stream,
+    :pull_request_reviews,
+    :labelled_pull_requests
+  ]
+
   @impl GenServer
+  def handle_info({:github_resource_changed, %{key: {type, _owner, _repo, _id}}}, state)
+      when type in @validator_only do
+    {:noreply, state}
+  end
+
   def handle_info({:github_resource_changed, %{key: key}}, state) do
     AgentCache.invalidate_key(key, state.opts)
     {:noreply, state}
