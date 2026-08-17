@@ -81,6 +81,8 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
+Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set.
+
+Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
