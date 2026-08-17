@@ -36,14 +36,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
       </div>
 
       <div class="units-table-wrap full-bleed-table-wrap">
-        <table class="units-table">
+        <table id="units-table" class="units-table" phx-hook="SortableTable" data-sort-table="units">
           <caption class="sr-only">Units catalog with execution facts, current evidence, and named actions</caption>
           <thead>
             <tr>
-              <th class="ut-col-id">ID</th>
-              <th class="ut-col-unit">Unit</th>
-              <th class="ut-col-ticket">Ticket</th>
-              <th class="ut-col-latest">Latest</th>
+              <th class="ut-col-id" data-sort-key="id" data-sort-type="number">ID</th>
+              <th class="ut-col-unit" data-sort-key="unit">Unit</th>
+              <th class="ut-col-ticket" data-sort-key="ticket">Ticket</th>
+              <th class="ut-col-latest" data-sort-key="latest" data-sort-type="number">Latest</th>
               <th class="ut-col-cmd">Command</th>
             </tr>
           </thead>
@@ -65,6 +65,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
             >
               <td
                 data-label="ID"
+                data-sort-value={id_number(row.identity)}
                 class="ut-id-cell ut-open"
                 phx-click="inspect-unit"
                 phx-value-unit={token}
@@ -73,7 +74,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <span class="ut-id-num mono num">{id_number(row.identity)}</span>
               </td>
 
-              <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Unit" data-sort-value={unit_sort_value(row)} class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
                   <span :if={present?(agent_label(row))} class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(row)}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
@@ -84,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </div>
               </td>
 
-              <td data-label="Ticket" class="ut-ticket-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Ticket" data-sort-value={row.title} class="ut-ticket-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-title">{known(row.title, "Title unknown")}</div>
                 <span :if={present?(row.build_lane)} class={["u-lane", lane_class(row.build_lane)]}>
                   <span class="u-lane-dot" aria-hidden="true"></span>{String.upcase(row.build_lane)}
@@ -94,9 +95,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 </span>
               </td>
 
-              <td data-label="Latest" class="ut-latest-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
+              <td data-label="Latest" data-sort-value={known_percent(row.progress)} class="ut-latest-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-latest-head">
-                  <span class="ut-latest-emoji" aria-hidden="true">{evidence_emoji(row)}</span>
+                  <span :if={evidence_emoji(row)} class="ut-latest-emoji" aria-hidden="true">{evidence_emoji(row)}</span>
                   <span class="ut-latest-text">{latest_text(row)}</span>
                 </div>
                 <span class={progress_track_class(row.progress)} aria-hidden="true">
@@ -365,14 +366,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp lane_class(_lane), do: nil
 
   defp evidence_emoji(%{latest_evidence: %{status: :known, source: %{kind: kind}}}), do: evidence_kind_emoji(kind)
-  defp evidence_emoji(_row), do: "•"
+  defp evidence_emoji(_row), do: nil
 
   defp evidence_kind_emoji(:commit), do: "🔨"
   defp evidence_kind_emoji(:pull_request), do: "🔀"
   defp evidence_kind_emoji(:branch), do: "🌿"
   defp evidence_kind_emoji(:log), do: "📋"
   defp evidence_kind_emoji(:queue), do: "⏳"
-  defp evidence_kind_emoji(_kind), do: "•"
+  defp evidence_kind_emoji(_kind), do: nil
+
+  defp unit_sort_value(row), do: Enum.join(Enum.reject([agent_label(row), model_label(row)], &is_nil/1), " ")
 
   defp latest_text(row), do: UnitsPresentation.latest_text(row)
 

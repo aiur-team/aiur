@@ -179,6 +179,7 @@ defmodule AiurWeb.DashboardLive do
     {:noreply,
      socket
      |> assign(:decision_filter, filter)
+     |> assign(:table_sort, normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign_units_selection(params)
      |> assign_decision_page(filter, params)
@@ -343,6 +344,11 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("toggle-fleet-filter", _params, socket), do: {:noreply, socket}
 
+  def handle_event("table-sort-changed", %{"sort" => sort}, socket),
+    do: {:noreply, assign(socket, :table_sort, normalize_table_sort(sort))}
+
+  def handle_event("table-sort-changed", _params, socket), do: {:noreply, socket}
+
   def handle_event("usage-drill-down", %{"dimension" => dimension}, socket) do
     {:noreply, open_usage_drill(socket, dimension)}
   end
@@ -357,28 +363,28 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("select-units-scope", %{"scope" => scope}, socket) do
     selection = UnitsPresenter.select_scope(socket.assigns.units_selection, scope)
-    {:noreply, push_patch(socket, to: units_path(selection))}
+    {:noreply, push_patch(socket, to: units_path(socket, selection))}
   end
 
   def handle_event("select-units-scope", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle-units-condition", %{"condition" => condition}, socket) do
     selection = UnitsPresenter.toggle_condition(socket.assigns.units_selection, condition)
-    {:noreply, push_patch(socket, to: units_path(selection))}
+    {:noreply, push_patch(socket, to: units_path(socket, selection))}
   end
 
   def handle_event("toggle-units-condition", _params, socket), do: {:noreply, socket}
 
   def handle_event("select-all-units-filters", _params, socket) do
-    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_all_filters()))}
+    {:noreply, push_patch(socket, to: units_path(socket, UnitsPresenter.select_all_filters()))}
   end
 
   def handle_event("select-no-units-filters", _params, socket) do
-    {:noreply, push_patch(socket, to: units_path(UnitsPresenter.select_no_filters()))}
+    {:noreply, push_patch(socket, to: units_path(socket, UnitsPresenter.select_no_filters()))}
   end
 
   def handle_event("reset-units-filters", _params, socket) do
-    {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
+    {:noreply, push_patch(socket, to: units_path(socket, UnitsURL.zero_result_reset()))}
   end
 
   def handle_event("inspect-unit", %{"unit" => token}, socket) when is_binary(token) do
@@ -887,7 +893,7 @@ defmodule AiurWeb.DashboardLive do
             now={@now}
           />
           <div class="rs-group-head units-group-head">
-            <span class="rs-group-title" id="units-agents-title">Agents</span>
+            <span class="rs-group-title" id="units-agents-title">Units</span>
             <span class="rs-group-count">{@units_count_label}</span>
           </div>
           <UnitsFilters.units_filters
@@ -1038,7 +1044,10 @@ defmodule AiurWeb.DashboardLive do
   defp decision_path(nil, filter, query), do: DecisionPath.inbox(filter, query)
   defp decision_path(decision_id, filter, query), do: DecisionPath.detail(decision_id, filter, query)
 
-  defp units_path(selection), do: "/?" <> UnitsURL.encode(selection)
+  defp units_path(socket, selection) do
+    params = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort])
+    "/?" <> URI.encode_query(params)
+  end
 
   # Nav badges surface live attention counts: active units and open Commands.
   # Only real, positive integers are emitted; anything unknown is omitted so the
@@ -1064,14 +1073,24 @@ defmodule AiurWeb.DashboardLive do
 
   defp maybe_canonicalize_units_url(socket, params) do
     selection = socket.assigns.units_selection
+    expected = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort]) |> Map.new()
 
     if socket.assigns.live_action == :index and map_size(params) > 0 and
-         params != Map.new(UnitsURL.params(selection)) do
-      push_patch(socket, to: units_path(selection), replace: true)
+         params != expected do
+      push_patch(socket, to: units_path(socket, selection), replace: true)
     else
       socket
     end
   end
+
+  defp maybe_put_table_sort(params, nil), do: params
+  defp maybe_put_table_sort(params, sort), do: params ++ [{"sort", sort}]
+
+  defp normalize_table_sort(sort) when is_binary(sort) do
+    if String.match?(sort, ~r/^[a-z0-9-]+:[a-z0-9-]+:(asc|desc)$/), do: sort
+  end
+
+  defp normalize_table_sort(_sort), do: nil
 
   defp assign_units_view(socket) do
     catalog = socket.assigns.payload |> Map.get(:units, %{})
@@ -1237,21 +1256,21 @@ defmodule AiurWeb.DashboardLive do
   defp blank_to_nil(value) when is_binary(value), do: if(String.trim(value) == "", do: nil, else: String.trim(value))
   defp blank_to_nil(_value), do: nil
 
-  # The Agents panel counts what the panel actually shows, so a filtered view
+  # The Units panel counts what the panel actually shows, so a filtered view
   # never claims a fleet size the table below it does not contain. A partial
   # catalog is qualified rather than rounded down to a confident number.
   defp units_count_label(view) do
     case Map.get(view, :count_status, :unavailable) do
-      :unavailable -> "agents unavailable"
-      :partial -> "at least #{agent_phrase(view)}"
-      _exact -> agent_phrase(view)
+      :unavailable -> "units unavailable"
+      :partial -> "at least #{unit_phrase(view)}"
+      _exact -> unit_phrase(view)
     end
   end
 
-  defp agent_phrase(view) do
+  defp unit_phrase(view) do
     case view |> Map.get(:rows, []) |> length() do
-      1 -> "1 agent"
-      count -> "#{count} agents"
+      1 -> "1 unit"
+      count -> "#{count} units"
     end
   end
 

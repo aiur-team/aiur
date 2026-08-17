@@ -597,6 +597,10 @@ textarea:focus-visible,
   overflow: hidden;
 }
 
+.bo-catalog-progress.is-unknown .bo-catalog-progress-track {
+  background: var(--line-strong);
+}
+
 .bo-catalog-progress-track > i {
   display: block;
   height: 100%;
@@ -643,10 +647,40 @@ textarea:focus-visible,
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--warning, #d08a2a);
-  border: 1px dashed currentColor;
+  color: var(--muted);
+  background: var(--line-strong);
   border-radius: 999px;
   padding: 0.05rem 0.45rem;
+}
+
+/* Shared, keyboard-operable table sorting. The hook owns aria-sort and the
+   URL state; CSS supplies the visible direction cue on every table surface. */
+th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+}
+
+th[data-sort-key]::after {
+  content: "↕";
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.75em;
+}
+
+th[data-sort-key][aria-sort="descending"]::after {
+  content: "↓";
+  color: var(--accent);
+}
+
+th[data-sort-key][aria-sort="ascending"]::after {
+  content: "↑";
+  color: var(--accent);
+}
+
+th[data-sort-key]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .bo-catalog-table tbody tr {
@@ -3578,8 +3612,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ut-pbar.is-unknown {
-  border: 1px dashed var(--muted);
-  background: transparent;
+  background: var(--line-strong);
 }
 
 .ut-latest-meta {
@@ -3737,6 +3770,7 @@ html[data-theme="light"] .toggle-icon .moon {
    embeds in that pane instead of drawing its own bordered box. */
 .rs-block.rs-summary-compact {
   padding: 0.85rem 0 0;
+  margin-bottom: 1.15rem;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -4081,16 +4115,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   white-space: nowrap;
 }
 
-/* A line with no measured value — an unavailable provider, or a secondary-limit
-   backoff — draws a hollow dashed track instead of a bar. A solid empty track
-   would be indistinguishable from a real 0%-consumed reading, which is exactly
-   the confusion the compressed row must not introduce. */
+/* Unknown values remain visibly inert without resembling a measured 0%. */
 .rs-meter-none {
   display: block;
   height: 0.34rem;
-  border: 1px dashed var(--line);
   border-radius: 999px;
-  background: none;
+  background: var(--line-strong);
+}
+
+.rs-meter.is-unknown {
+  background: var(--line-strong);
 }
 
 /* Narrow widths: the identity column stops being a fixed track, so the row
@@ -8711,8 +8745,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
 
 .sd-ag-foot.is-progress-unknown .sd-ag-bar {
-  border: 1px dashed rgba(255, 255, 255, 0.45);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.24);
 }
 
 /* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
@@ -8919,8 +8952,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress {
-  border: 1px dashed var(--muted);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .sd-strip-logs {
