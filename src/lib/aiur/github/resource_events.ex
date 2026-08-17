@@ -119,6 +119,8 @@ defmodule Aiur.GitHub.ResourceEvents do
 
   @doc "The topic for every resource of `type`, in any repository."
   @spec type_topic(ResourceStore.resource_type() | term()) :: String.t() | nil
+  def type_topic(nil), do: nil
+
   def type_topic(type) when is_atom(type), do: "#{@prefix}:#{type}"
 
   # Same reason `topic/1` answers `nil`: a hand-built key can carry a type no

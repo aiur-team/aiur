@@ -228,6 +228,35 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert ResourceStore.etag({:not_a_real_type, "owner", "repo", "1"}) == nil
     end
 
+    # `:webhook`, `:poll`, `:mutation` and `:fetch` are resolvable atoms because
+    # they name the `:source` field. That does not make them resource types: a
+    # checkpoint naming one in the type slot used to decode into a key no `key/4`
+    # can build and `encode_key/1` refuses on the way back out — an entry no
+    # reader can reach that disappears again at the next checkpoint.
+    test "a source atom in the type slot is not a resource type", %{path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "webhook|owner|repo|1" => %{
+              "etag" => ~s("smuggled"),
+              "recorded_at_ms" => System.system_time(:millisecond)
+            },
+            "issue_comments|owner|repo|81" => %{
+              "etag" => ~s("kept"),
+              "recorded_at_ms" => System.system_time(:millisecond)
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      assert ResourceStore.etag(ResourceStore.key(:issue_comments, "owner", "repo", 81)) == ~s("kept")
+      assert ResourceStore.size() == 1, "a source atom must not decode into a resource key"
+    end
+
     test "entries older than the retention window are not reloaded", %{path: path} do
       stale_ms = System.system_time(:millisecond) - 73 * 60 * 60 * 1000
 
@@ -490,6 +519,185 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert log =~ "processed: true with no version"
       assert ResourceStore.processed?(key, "v1"), "the earlier versioned mark must stand"
       refute ResourceStore.processed?(key, nil)
+    end
+  end
+
+  describe "a validator never outlives the body it validates" do
+    # `deposit_etag/3` refuses a validator for a refused body, but it only sees
+    # the deposit. The checkpoint is the other place the pair comes apart: an
+    # entry consistent in memory whose body the encoder cannot render used to be
+    # written as a validator alone, so the next boot sent `If-None-Match`, was
+    # answered `304`, and held nothing — a spent request that returns no data.
+    # Inserted straight into the table because the deposit gate now refuses this
+    # shape at the door; the checkpoint must refuse it too.
+    test "a body the checkpoint cannot render takes its validator with it", %{path: path} do
+      restart_store!(path)
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 620)
+      now = System.system_time(:millisecond)
+
+      :ets.insert(
+        ResourceStore.Table,
+        {key, %{etag: ~s("fresh"), data: %{id: 620}, fetched_at_ms: now, recorded_at_ms: now}}
+      )
+
+      log = ExUnit.CaptureLog.capture_log(fn -> assert :ok = ResourceStore.flush() end)
+      assert log =~ "cannot checkpoint the body"
+
+      restart_store!(path)
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.etag(key) == nil, "a validator with no body earns a 304 and no data"
+    end
+
+    # The same pair, produced the honest way: a body the store *can* hold has to
+    # survive the checkpoint, or the validator beside it is the bodyless kind
+    # again. A scalar is JSON that round-trips, so it is held rather than dropped.
+    test "a scalar body and its validator both survive a restart", %{path: path} do
+      restart_store!(path)
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 621)
+
+      assert :ok = ResourceStore.put_resource(key, "a scalar body", etag: ~s("fresh"))
+      assert :ok = ResourceStore.flush()
+
+      restart_store!(path)
+
+      assert ResourceStore.data(key) == "a scalar body"
+      assert ResourceStore.etag(key) == ~s("fresh")
+    end
+
+    # A body that comes back in a different shape than it went in is worse than
+    # no body: a consumer matching `%{id: id}` works until the next restart and
+    # then raises, with nothing to attribute it to. Refused at the door, out
+    # loud, and identically before and after a restart.
+    test "an atom-keyed body is refused rather than silently re-shaped", %{path: path} do
+      restart_store!(path)
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 622)
+      ResourceStore.put_resource(key, %{"kept" => true}, etag: ~s("old"))
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = ResourceStore.put_resource(key, %{id: 622, body: "hi"}, etag: ~s("new"))
+        end)
+
+      assert log =~ "JSON cannot round-trip"
+      assert ResourceStore.fetch(key) == :miss, "the refused body replaced the held one"
+      assert ResourceStore.etag(key) == ~s("old"), "a refused body refuses its validator too"
+
+      assert :ok = ResourceStore.flush()
+      restart_store!(path)
+
+      assert ResourceStore.data(key) == nil, "and the answer is the same after a restart as before it"
+    end
+
+    test "a struct body is refused for the same reason" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 623)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = ResourceStore.put_resource(key, %{"at" => DateTime.utc_now()}, etag: ~s("x"))
+      end)
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.etag(key) == nil
+    end
+  end
+
+  describe "a write never raises" do
+    # `ResourceEvents.type_topic/1` had only an `is_atom` clause, so a key built
+    # by hand with a string type raised `FunctionClauseError` out of the write —
+    # after the ETS insert had already landed. The entry was written and the
+    # caller died, which in a poll task kills the whole cycle. `with_table/2`'s
+    # `rescue ArgumentError` catches neither this nor the interpolation below.
+    test "a non-atom resource type is written and announced to nobody" do
+      key = {"issue_comment", "owner", "repo", "1"}
+
+      assert :ok = ResourceStore.put_etag(key, ~s("x"))
+      assert ResourceStore.etag(key) == ~s("x")
+    end
+
+    test "a non-binary owner or repo is written and announced to nobody" do
+      assert :ok = ResourceStore.put_resource({:issue_comment, %{}, "repo", "1"}, %{"a" => 1})
+      assert :ok = ResourceStore.put_resource({:issue_comment, "owner", 7, "1"}, %{"a" => 1})
+      assert :ok = ResourceStore.put_etag({:issue_comment, "owner", nil, "1"}, ~s("x"))
+    end
+
+    test "no read raises on a key nothing can address" do
+      key = {"issue_comment", %{}, 7, :one}
+
+      assert ResourceStore.etag(key) == nil
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.data(key) == nil
+      refute ResourceStore.processed?(key, "v1")
+      assert :ok = ResourceStore.drop_data(key)
+      assert :ok = ResourceStore.drop_etag(key)
+    end
+  end
+
+  describe "concurrent writers" do
+    # Two writers share a key as soon as one pipe deposits a body and another
+    # records a validator for the same resource, which is exactly what the
+    # mutation write-through and agent read-through paths introduce on
+    # `:pull_request` and `:issue`. A read-modify-write can then re-insert the
+    # entry without the body it never saw while keeping the newer validator —
+    # the bodyless pair every other path in this module refuses, produced by a
+    # race. The watcher looks for that pair continuously rather than at the end,
+    # because it is transient.
+    test "an interleaved validator write never leaves a validator with no body" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 8100)
+      me = self()
+
+      ResourceStore.put_resource(key, %{"n" => 0}, etag: "e0")
+
+      watcher =
+        spawn_link(fn ->
+          watch = fn watch ->
+            receive do
+              :stop -> send(me, :stopped)
+            after
+              0 ->
+                case :ets.lookup(ResourceStore.Table, key) do
+                  [{^key, entry}] ->
+                    if is_binary(Map.get(entry, :etag)) and is_nil(Map.get(entry, :data)) do
+                      send(me, {:bodyless, Map.take(entry, [:etag, :data])})
+                    else
+                      watch.(watch)
+                    end
+
+                  _other ->
+                    watch.(watch)
+                end
+            end
+          end
+
+          watch.(watch)
+        end)
+
+      1..8
+      |> Enum.map(fn writer ->
+        Task.async(fn ->
+          for n <- 1..2_000 do
+            if rem(writer, 2) == 0 do
+              ResourceStore.put_resource(key, %{"n" => n}, etag: "body-#{writer}-#{n}")
+            else
+              ResourceStore.put_etag(key, "etag-#{writer}-#{n}")
+            end
+          end
+        end)
+      end)
+      |> Enum.each(&Task.await(&1, 60_000))
+
+      send(watcher, :stop)
+
+      outcome =
+        receive do
+          {:bodyless, entry} -> {:bodyless, entry}
+          :stopped -> :never_bodyless
+        after
+          10_000 -> :timeout
+        end
+
+      assert outcome == :never_bodyless, "a concurrent write lost the body and kept the validator: #{inspect(outcome)}"
+      assert {:ok, %{data: data}} = ResourceStore.fetch(key)
+      assert is_map(data)
     end
   end
 

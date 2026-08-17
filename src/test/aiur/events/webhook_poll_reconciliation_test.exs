@@ -241,22 +241,131 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
     # Acceptance criterion 5, at the level that matters operationally: the
     # validator has to come back after the process holding it dies, or the first
     # sweep of every boot is a full-price read of every watched ticket.
-    test "the validator survives a restart of the store", %{store_path: store_path} do
+    test "the validator survives a restart of the store, and so does the answer", %{store_path: store_path} do
       # Point the store at a real file for this case: with no resolvable state
       # directory it runs in memory, which would make the restart trivially
       # pass nothing rather than prove the checkpoint round-trip.
       restart_store!(store_path)
+      :ok = Exchange.subscribe(@topic)
 
-      resource = ResourceStore.key_for_repo(:issue_comments, @repo, "42")
-      ResourceStore.put_etag(resource, ~s("survives"))
+      # A real full-price read is what mints the validator, so the checkpoint
+      # holds what the daemon actually had: the list *and* its validator. A case
+      # that only checks the validator came back cannot tell a working cache from
+      # one that revalidates its way to an empty answer forever.
+      {_calls, {:ok, %{count: 1}}} = sweep([comment(9008, "read before the restart")], etag: ~s("survives"))
+      assert %{comment: %{"id" => 9008}} = await_event(@topic)
+
       assert :ok = ResourceStore.flush()
       assert File.exists?(store_path)
 
       restart_store!(store_path)
 
-      {calls, _result} = sweep(:not_modified)
+      {calls, result} = sweep(:not_modified)
 
       assert [%{etag: ~s("survives")}] = Enum.map(calls, &Map.take(&1, [:etag]))
+      assert {:ok, %{errors: []}} = result
+
+      resource = ResourceStore.key_for_repo(:issue_comments, @repo, "42")
+
+      assert ResourceStore.data(resource) == [comment(9008, "read before the restart")],
+             "a validator whose body did not survive can only ever answer 304 and nothing"
+    end
+  end
+
+  # F1. The validator for the comment *list* is a single endpoint-level
+  # validator, so GitHub answering `304` to it suppresses every comment in the
+  # list at once and no per-comment reconciliation can see inside that answer.
+  # Recording it before publishing the comments it covers therefore had a
+  # routine loss, not an exotic one: `ResourceStore` starts before `Publisher`
+  # and the poller, so on SIGTERM the poller dies first while the store
+  # checkpoints last.
+  describe "a comment read but not yet published" do
+    test "is published before the endpoint validator is recorded" do
+      :ok = Exchange.subscribe(@topic)
+      resource = ResourceStore.key_for_repo(:issue_comments, @repo, "42")
+      :ok = ResourceStore.subscribe(resource)
+
+      {_calls, {:ok, %{count: 1}}} = sweep([comment(9600, "must be published first")])
+
+      order =
+        for _step <- 1..2 do
+          receive do
+            {:event, %{topic: @topic}} -> :comment_published
+            {:github_resource_changed, %{resource_type: :issue_comments}} -> :validator_recorded
+          after
+            2_000 -> :nothing
+          end
+        end
+
+      assert order == [:comment_published, :validator_recorded],
+             "the crash window between the two must contain no validator: #{inspect(order)}"
+    end
+
+    test "is recovered from the store when GitHub answers 304 after a restart", %{store_path: store_path} do
+      restart_store!(store_path)
+      :ok = Exchange.subscribe(@topic)
+
+      {_calls, {:ok, %{count: 1}}} = sweep([comment(9601, "the one that would get lost")], etag: ~s("v2"))
+      assert %{comment: %{"id" => 9601}} = await_event(@topic)
+
+      # The state a cycle that died between the read and the publish leaves
+      # behind: the list and its validator are stored, the comment itself is
+      # unmarked — `Publisher` marks only *after* a publish — and nobody ever saw
+      # it. The replay window goes too, because a restart empties it.
+      ResourceStore.forget(ResourceStore.key_for_repo(:issue_comment, @repo, 9601))
+      clear_replay_window()
+
+      assert :ok = ResourceStore.flush()
+      restart_store!(store_path)
+
+      # GitHub is right to answer 304: the list has not changed since the
+      # validator was minted. The store has to be able to answer anyway.
+      {calls, result} = sweep(:not_modified, etag: ~s("v2"))
+
+      assert [%{etag: ~s("v2")}] = Enum.map(calls, &Map.take(&1, [:etag]))
+      assert {:ok, %{count: 1}} = result
+
+      assert %{comment: %{"id" => 9601}} = await_event(@topic),
+             "a 304 must publish what a 200 would have, or the comment is lost for the whole retention window"
+    end
+
+    test "an unchanged 304 still publishes nothing once the comment is marked" do
+      :ok = Exchange.subscribe(@topic)
+
+      {_calls, {:ok, %{count: 1}}} = sweep([comment(9602, "seen once")], etag: ~s("v3"))
+      assert %{comment: %{"id" => 9602}} = await_event(@topic)
+      clear_replay_window()
+
+      for _cycle <- 1..3 do
+        assert {:ok, %{count: 0}} = elem(sweep(:not_modified, etag: ~s("v3")), 1)
+      end
+
+      refute_event(@topic)
+    end
+
+    # The other half of the store's validator/body contract. A durable validator
+    # with no body behind it can only ever earn another `304` and no data, and
+    # there is no smaller unit to reconcile, so the reader must forget it and
+    # read unconditionally rather than repeat the empty answer for three days.
+    test "a durable validator with no body is discarded after its first empty 304", %{store_path: store_path} do
+      restart_store!(store_path)
+      :ok = Exchange.subscribe(@topic)
+
+      resource = ResourceStore.key_for_repo(:issue_comments, @repo, "42")
+      ResourceStore.put_etag(resource, ~s("bodyless"))
+      assert :ok = ResourceStore.flush()
+      restart_store!(store_path)
+
+      {first_calls, {:ok, %{count: 0}}} = sweep(:not_modified, etag: ~s("bodyless"))
+      assert [%{etag: ~s("bodyless")}] = Enum.map(first_calls, &Map.take(&1, [:etag]))
+      assert ResourceStore.etag(resource) == nil, "an unusable validator must not be kept"
+
+      {second_calls, result} = sweep([comment(9603, "recovered by the unconditional read")])
+
+      assert [request] = second_calls
+      refute Map.has_key?(request, :etag), "the next read must be unconditional"
+      assert {:ok, %{count: 1}} = result
+      assert %{comment: %{"id" => 9603}} = await_event(@topic)
     end
   end
 
