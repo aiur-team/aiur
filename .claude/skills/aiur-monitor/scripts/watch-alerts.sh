@@ -54,14 +54,21 @@
 #     escalation as JSON on stdin; Codex falls back to AIUR_ALERT_NOTIFY_FALLBACK_COMMAND.
 #
 # Usage: watch-alerts.sh [path/to/config]
-#   Defaults to ./.aiur/config (current layout), falling back to ./.aiurconfig (legacy).
+#   Defaults to ./.aiur/config.
 set -euo pipefail
 
 config="${1:-}"
 if [ -z "$config" ]; then
-  if [ -f .aiur/config ]; then config=".aiur/config"
-  elif [ -f .aiurconfig ]; then config=".aiurconfig"
-  else config=".aiur/config"; fi
+  config=".aiur/config"
+fi
+if [[ "$(basename "$config")" == *.aiurconfig ]]; then
+  if [ "$(basename "$config")" = ".aiurconfig" ]; then
+    canonical="$(dirname "$config")/.aiur/config"
+  else
+    canonical="${config%.aiurconfig}.yaml"
+  fi
+  echo "$config is no longer supported; move it to $canonical. Keep relative prompt_file and hooks_file paths valid from the new config directory." >&2
+  exit 1
 fi
 poll="${AIUR_ALERT_POLL:-2}"
 max_iters="${AIUR_ALERT_WATCH_ITERS:-0}"

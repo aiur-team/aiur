@@ -122,7 +122,7 @@ To generate a key: Linear > Settings > Security & access > Personal API keys
 ## Prompt Template Errors
 
 The prompt template is the optional Markdown/Liquid file referenced by `prompt_file:`
-in `.aiurconfig`. These errors apply to that template file.
+in `.aiur/config`. These errors apply to that template file.
 
 ### Undefined Variable Error
 
@@ -211,7 +211,7 @@ CP949), or the issue data contains invalid bytes.
 brew install aiur-claude
 ```
 
-`.aiurconfig` configuration:
+`.aiur/config` configuration:
 
 ```yaml
 claude:
@@ -272,7 +272,7 @@ Check the log files when diagnosing issues:
 tail -f log/aiur.log
 
 # Custom log path
-aiur --logs-root /path/to/logs .aiurconfig
+aiur --logs-root /path/to/logs .aiur/config
 ```
 
 ## FAQ
@@ -296,7 +296,7 @@ Check the error messages in the logs. Common causes:
 The dashboard is enabled by specifying a port with the `--port` option:
 
 ```bash
-aiur --port 4000 .aiurconfig
+aiur --port 4000 .aiur/config
 ```
 
 Then access it at `http://127.0.0.1:4000`.

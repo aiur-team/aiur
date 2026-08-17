@@ -38,6 +38,17 @@ defmodule Aiur.ProviderMeters.EventsTest do
     assert_receive {:provider_meter_changed, %{provider_account_generation: "gen-b"}}
   end
 
+  test "an account-wide observation without a generation only reaches fan-out" do
+    :ok = Events.subscribe_observed()
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, "provider_meters:codex:app_server:")
+
+    snapshot = snapshot(nil)
+    :ok = Events.broadcast(snapshot)
+
+    assert_receive {:provider_meter_changed, ^snapshot}
+    refute_received {:provider_meter_changed, ^snapshot}
+  end
+
   test "a generation-scoped subscriber only sees its own generation" do
     :ok = Events.subscribe(:codex, :app_server, "gen-mine")
 

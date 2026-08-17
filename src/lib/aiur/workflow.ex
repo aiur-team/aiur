@@ -2,8 +2,7 @@ defmodule Aiur.Workflow do
   @moduledoc """
   Loads workflow configuration and the agent prompt from the aiur config file.
 
-  Config lives in a `.aiur/` folder (`.aiur/config`) with a backward-compatible
-  fallback to the legacy root `.aiurconfig`. The file is pure YAML. An optional
+  Config lives in a `.aiur/` folder (`.aiur/config`). The file is pure YAML. An optional
   `prompt_file:` key points at a markdown Liquid template (resolved relative to
   the config file's directory) that becomes the per-repo agent prompt. When
   `prompt_file:` is absent the prompt falls back to the built-in default template.
@@ -11,8 +10,6 @@ defmodule Aiur.Workflow do
 
   alias Aiur.WorkflowStore
 
-  # New layout: config lives at `.aiur/config`; legacy layout is the root
-  # `.aiurconfig` dotfile. Both are honored on read (discovery falls back).
   @aiur_dir ".aiur"
   @config_basename "config"
   @legacy_config_file_name ".aiurconfig"
@@ -23,13 +20,12 @@ defmodule Aiur.Workflow do
   end
 
   @doc """
-  Resolve the config path by precedence: repo-local `./.aiur/config`, else the
-  legacy repo-local `./.aiurconfig`, else the global `~/.aiur/config`, else the
-  legacy global `~/.aiurconfig`. When none exist, returns the repo-local
-  `./.aiur/config` (the new default) so the caller surfaces the "run aiur init"
-  not-found error pointing at the current layout. When a global config is used it
-  carries no repo — `Aiur.GitHub.Config.repo/0` auto-detects it from the cwd's
-  git remote.
+  Resolve the config path by precedence: repo-local `./.aiur/config`, then global
+  `~/.aiur/config`. A legacy `.aiurconfig` at either level is detected only to
+  raise an actionable error before a broader fallback can silently take over.
+  When no config exists, returns repo-local `./.aiur/config` so the caller points
+  at the canonical layout. A global config carries no repo —
+  `Aiur.GitHub.Config.repo/0` auto-detects it from the cwd's git remote.
   """
   @spec detect_run_folder_config() :: Path.t()
   def detect_run_folder_config do
@@ -65,9 +61,21 @@ defmodule Aiur.Workflow do
 
   @doc false
   @spec resolve_config_path([Path.t(), ...]) :: Path.t()
+  def resolve_config_path([repo_config, repo_legacy, global_config, global_legacy]) do
+    cond do
+      File.regular?(repo_config) -> repo_config
+      File.regular?(repo_legacy) -> raise_legacy_config!(repo_legacy)
+      File.regular?(global_config) -> global_config
+      File.regular?(global_legacy) -> raise_legacy_config!(global_legacy)
+      true -> repo_config
+    end
+  end
+
   def resolve_config_path([default | _] = candidates) do
     Enum.find(candidates, default, &File.regular?/1)
   end
+
+  defp raise_legacy_config!(legacy), do: raise(ArgumentError, legacy_config_error(legacy))
 
   @spec set_workflow_file_path(Path.t()) :: :ok
   def set_workflow_file_path(path) when is_binary(path) do
@@ -124,13 +132,35 @@ defmodule Aiur.Workflow do
 
   @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
   def load(path) when is_binary(path) do
-    case File.read(path) do
-      {:ok, content} ->
-        parse(content, path)
+    if legacy_config_path?(path) do
+      {:error, legacy_config_error(path)}
+    else
+      case File.read(path) do
+        {:ok, content} ->
+          parse(content, path)
 
-      {:error, reason} ->
-        {:error, {:missing_workflow_file, path, reason}}
+        {:error, reason} ->
+          {:error, {:missing_workflow_file, path, reason}}
+      end
     end
+  end
+
+  @doc false
+  @spec legacy_config_path?(Path.t()) :: boolean()
+  def legacy_config_path?(path), do: String.ends_with?(Path.basename(path), ".aiurconfig")
+
+  @doc false
+  @spec legacy_config_error(Path.t()) :: String.t()
+  def legacy_config_error(path) do
+    destination =
+      if Path.basename(path) == ".aiurconfig" do
+        Path.join([Path.dirname(path), ".aiur", "config"])
+      else
+        Path.rootname(path, ".aiurconfig") <> ".yaml"
+      end
+
+    "#{path} is no longer supported. Move it to #{destination}. " <>
+      "Keep relative prompt_file and hooks_file paths valid from the new config directory."
   end
 
   @doc false
@@ -146,7 +176,7 @@ defmodule Aiur.Workflow do
     end
   end
 
-  # `.aiurconfig` is pure YAML. An optional `prompt_file:` key points at a
+  # The config is pure YAML. An optional `prompt_file:` key points at a
   # sibling markdown template, resolved relative to the config file's directory.
   defp parse(content, path) do
     case yaml_to_map(content) do

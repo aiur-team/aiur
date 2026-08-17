@@ -37,7 +37,7 @@ defmodule Aiur.Opencode.ConfigTest do
       refute Config.prewarm_disabled?()
     end
 
-    test "reads overrides from .aiurconfig" do
+    test "reads overrides from config.yaml" do
       write_workflow_file!(Aiur.Workflow.workflow_file_path(),
         opencode_command: "/tmp/opencode",
         opencode_bridge_port: 5000,

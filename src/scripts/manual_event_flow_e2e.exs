@@ -8,7 +8,7 @@
 #
 # Run via:
 #
-#   cp .aiurconfig src/.aiurconfig  # if missing
+#   cp .aiur/config src/.aiur/config  # if missing
 #   mix run scripts/manual_event_flow_e2e.exs
 #
 # (cwd should be `src/` for the config file path to resolve.)

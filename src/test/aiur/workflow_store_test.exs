@@ -15,7 +15,7 @@ defmodule Aiur.WorkflowStoreTest do
     dir = Path.dirname(path)
     root_after_recovery = Path.join(dir, "workspaces-after-recovery")
 
-    staging = Path.join(dir, "v2.aiurconfig")
+    staging = Path.join(dir, "v2config.yaml")
     write_workflow_file!(staging, workspace_root: root_after_recovery)
 
     # `prewarm.base_build_file` is read by `Workflow.load/1` but is not part
@@ -120,7 +120,7 @@ defmodule Aiur.WorkflowStoreTest do
     ensure_workflow_store_running()
     :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
 
-    dying = spawn(fn -> receive do: (_message -> exit({:missing_workflow_file, "/nonexistent/.aiurconfig"})) end)
+    dying = spawn(fn -> receive do: (_message -> exit({:missing_workflow_file, "/nonexistent/config.yaml"})) end)
     true = Process.register(dying, WorkflowStore)
     on_exit(fn -> restore_real_store(dying) end)
 
