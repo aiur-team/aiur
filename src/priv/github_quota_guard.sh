@@ -771,12 +771,19 @@ case "${AIUR_GITHUB_STATE_CACHE_BYPASS:-0}" in
   1|true|TRUE|yes|YES|on|ON) cache_bypass=1 ;;
 esac
 
+# Seconds, because that is the resolution `date` gives without a subprocess per
+# comparison. A window below one second is not expressible and rounds to zero,
+# which still serves an entry written in the same second — so the setting is
+# documented in whole seconds and a sub-second value is treated as "off" here
+# rather than pretending to a precision the entry stamps do not carry.
 cache_ttl=${AIUR_GITHUB_STATE_CACHE_TTL_MS:-60000}
 case "$cache_ttl" in ''|*[!0-9]*) cache_ttl=60000 ;; esac
-cache_ttl=$((cache_ttl / 1000))
-cache_checks_ttl=${AIUR_GITHUB_STATE_CACHE_CHECKS_TTL_MS:-15000}
-case "$cache_checks_ttl" in ''|*[!0-9]*) cache_checks_ttl=15000 ;; esac
-cache_checks_ttl=$((cache_checks_ttl / 1000))
+if [ "$cache_ttl" -lt 1000 ]; then
+  cache_root=
+  cache_ttl=0
+else
+  cache_ttl=$((cache_ttl / 1000))
+fi
 cache_max_bytes=${AIUR_GITHUB_STATE_CACHE_MAX_BYTES:-1048576}
 case "$cache_max_bytes" in ''|*[!0-9]*) cache_max_bytes=1048576 ;; esac
 
@@ -827,7 +834,13 @@ cache_tty=0
 [ -t 1 ] && cache_tty=1
 
 cache_material() {
-  printf 'aiur-gh-cache/v1\n%s\n' "$cache_tty"
+  printf 'aiur-gh-cache/v2\n%s\n' "$cache_tty"
+  # The credential the answer was fetched with. Everything else the broker keeps
+  # — budgets, leases, cooldowns — is already keyed by this fingerprint, and a
+  # response body is more identity-dependent than any of them: a private
+  # repository one token cannot see, the `permissions` object, a collaborator
+  # list. Two identities sharing one store must not share one answer.
+  printf '%s\n' "${budget_key:-unkeyed}"
   printf '%s\n%s\n%s\n%s\n%s\n' "${NO_COLOR-}" "${CLICOLOR-}" "${CLICOLOR_FORCE-}" "${GH_FORCE_TTY-}" "${COLUMNS-}"
   printf '%s\n%s\n%s\n' "${GH_HOST-}" "${GH_REPO-}" "$#"
   for cache_arg in "$@"; do
@@ -945,6 +958,21 @@ if [ -n "$cache_root" ]; then
   unset cache_flag_repo cache_prior cache_arg cache_slug
 fi
 
+# The `--json` fields whose value is a verdict rather than a fact: CI state, and
+# whether a pull request can be merged. `gh pr checks` is excluded from the
+# cacheable commands below for the same reason — and would have been unsafe in a
+# second way, because it exits 1 for a failure and 8 for pending while only a
+# zero-status response is ever stored, so the only verdict it could ever replay
+# is "everything passed".
+cache_volatile_fields() {
+  case ",$1," in
+    *,statusCheckRollup,*|*,mergeable,*|*,mergeStateStatus,*|*,mergeCommit,*|\
+    *,reviewDecision,*|*,latestReviews,*|*,reviews,*|*,state,*|*,merged,*|*,mergedAt,*|\
+    *,closed,*|*,closedAt,*|*,headRefOid,*|*,commits,*) return 0 ;;
+  esac
+  return 1
+}
+
 # The output shapes this guard serves. Everything absent from this list — a
 # bare `gh pr view` with no number, `gh pr diff`, `gh api graphql`, every write
 # — falls through to the real `gh` untouched.
@@ -956,11 +984,20 @@ if [ -n "$cache_root" ]; then
   cache_has_json=0
   cache_has_web=0
   cache_has_payload=0
+  cache_volatile=0
   cache_options=1
   cache_expect_value=0
+  cache_json_expected=0
 
   for cache_arg in "$@"; do
     [ "$cache_options" -eq 1 ] || break
+
+    if [ "$cache_json_expected" -eq 1 ]; then
+      cache_json_expected=0
+      cache_expect_value=0
+      cache_volatile_fields "$cache_arg" && cache_volatile=1
+      continue
+    fi
 
     if [ "$cache_expect_value" -eq 1 ]; then
       cache_expect_value=0
@@ -973,19 +1010,31 @@ if [ -n "$cache_root" ]; then
       --assignee|-a|--author|-A|--search|-S|--state|-s|--base|-B|--head|-H|--milestone|-m|\
       --app|--mention|--cache|--header|--method|-X|--preview|-p)
         case "$cache_arg" in
-          --json) cache_has_json=1 ;;
+          --json) cache_has_json=1; cache_json_expected=1 ;;
         esac
         cache_expect_value=1
         ;;
-      --json=*) cache_has_json=1 ;;
+      --json=*)
+        cache_has_json=1
+        cache_volatile_fields "${cache_arg#--json=}" && cache_volatile=1
+        ;;
       --web|-w) cache_has_web=1 ;;
       -F|-f|--field|--raw-field|--input) cache_has_payload=1; cache_expect_value=1 ;;
       -F*|-f*|--field=*|--raw-field=*|--input=*|*=@*|-) cache_has_payload=1 ;;
     esac
   done
 
+  # R10. A merge decision and a CI verdict may not be served stale, ever, and
+  # neither may be repaired after the fact: an agent that reads "all green" for a
+  # commit CI has not seen, or "mergeable" for a branch that has moved, has
+  # already acted on it. Nothing invalidates these either — `git push` and a
+  # check run completing never pass through this wrapper — so the freshness
+  # window is the ONLY thing standing between the read and a wrong answer. These
+  # field names are therefore refused outright rather than given a short window.
+  [ "$cache_volatile" -eq 0 ] || cache_root=
+
   case "$command_key" in
-    "pr view"|"pr checks"|"issue view")
+    "pr view"|"issue view")
       if [ "$cache_has_json" -eq 1 ] && [ "$cache_has_web" -eq 0 ] && [ -n "$positional_three" ]; then
         if cache_numeric "$positional_three"; then
           cache_id=$positional_three
@@ -1071,15 +1120,9 @@ if [ -n "$cache_root" ]; then
       ;;
   esac
 
-  unset cache_has_json cache_has_web cache_has_payload cache_options cache_expect_value cache_arg
+  unset cache_has_json cache_has_web cache_has_payload cache_volatile cache_options cache_expect_value \
+    cache_json_expected cache_arg
 fi
-
-# `gh pr checks` is a CI verdict, which the plan names as a read that must never
-# be silently served stale. It keeps its own much shorter window; the strict
-# bypass above remains available for the merge decision itself.
-case "$command_key" in
-  "pr checks") cache_ttl=$cache_checks_ttl ;;
-esac
 
 # The number a write mutates. Pull requests and issues share one number space on
 # GitHub, so a comment posted through `gh issue comment 2073` changes what
@@ -1104,10 +1147,18 @@ if [ -n "$cache_root" ] && [ "$direction" = write ] && [ "${1:-}" = api ] && [ -
       cache_write_rest=${cache_write_rest#*/}
       cache_write_rest=${cache_write_rest#*/}
       cache_write_number=${cache_write_rest%%/*}
-      if cache_valid_slug "$cache_write_owner/$cache_write_repo" && cache_numeric "$cache_write_number"; then
+      if cache_valid_slug "$cache_write_owner/$cache_write_repo"; then
         cache_owner=$cache_write_owner
         cache_repo_name=$cache_write_repo
-        cache_write_id=$cache_write_number
+
+        if cache_numeric "$cache_write_number"; then
+          cache_write_id=$cache_write_number
+        else
+          # `issues/comments/<id>`, `pulls/comments/<id>`, `issues/events/<id>`:
+          # a subresource whose own id is not an issue or pull request number.
+          # The agent workpad is edited through exactly this shape.
+          cache_write_id=subresource
+        fi
       fi
       unset cache_write_rest cache_write_owner cache_write_repo cache_write_number
       ;;
@@ -1271,33 +1322,55 @@ cache_write_file() {
   return 1
 }
 
-# Marked with the moment the mutation STARTED, not the moment it finished. A
-# read that began before the write and lands in the store after it would
-# otherwise look newer than the change it predates.
+# Marked with the moment the mutation FINISHED, and entries are stamped with the
+# moment their read STARTED. Those two choices together are what make the marker
+# safe, and both are load-bearing:
+#
+#   * A read that began before the write completed is retired even if its response
+#     arrived afterwards, because its stamp predates the marker. Stamping the
+#     marker at the mutation's start instead would leave that read — which cannot
+#     contain the change — looking newer than the change, and an agent would be
+#     unable to see the comment it had just posted for the whole window.
+#   * The error runs one way only. A read that genuinely postdates the write is
+#     also retired when it began within the same second, which costs one
+#     re-fetch. Over-invalidation is the only acceptable direction here.
 cache_invalidate_writes() {
   [ -n "$cache_root" ] || return 0
   [ "$direction" = write ] || return 0
+
+  cache_finished_at=$(date -u +%s 2>/dev/null || printf '')
+  case "$cache_finished_at" in ''|*[!0-9]*) cache_finished_at=$cache_started_at ;; esac
+  case "$cache_finished_at" in ''|*[!0-9]*) return 0 ;; esac
 
   if [ -z "$cache_repo_dir" ]; then
     # A write whose repository could not be identified may have changed
     # anything, so nothing may be trusted. This is deliberately blunt: a rare
     # over-invalidation costs one re-fetch, while a missed one serves a stale
     # answer for the whole freshness window.
-    cache_write_file "$cache_root/v1/.invalidated" "$cache_started_at" || true
+    cache_write_file "$cache_root/v1/.invalidated" "$cache_finished_at" || true
+    unset cache_finished_at
     return 0
   fi
 
-  cache_write_file "$cache_repo_dir/.collections-invalidated" "$cache_started_at" || true
+  cache_write_file "$cache_repo_dir/.collections-invalidated" "$cache_finished_at" || true
 
   case "$cache_write_id" in
-    collection) ;;
-    ''|*[!0-9]*) cache_write_file "$cache_repo_dir/.invalidated" "$cache_started_at" || true ;;
+    # A write whose subject is a SUBRESOURCE — a comment id, a review id — names
+    # a number that is not an issue or pull request number, and the parent it
+    # belongs to is not derivable from it. Retiring the repository for it would
+    # be correct and ruinous: agents rewrite their workpad comment every few
+    # minutes, so every one of those edits would flush the whole store and the
+    # sharing this exists for would never happen. The collections marker written
+    # above is the honest scope for it.
+    collection|subresource) ;;
+    ''|*[!0-9]*) cache_write_file "$cache_repo_dir/.invalidated" "$cache_finished_at" || true ;;
     *)
-      cache_write_file "$cache_repo_dir/pr/$cache_write_id/.invalidated" "$cache_started_at" || true
-      cache_write_file "$cache_repo_dir/issue/$cache_write_id/.invalidated" "$cache_started_at" || true
+      cache_write_file "$cache_repo_dir/pr/$cache_write_id/.invalidated" "$cache_finished_at" || true
+      cache_write_file "$cache_repo_dir/issue/$cache_write_id/.invalidated" "$cache_finished_at" || true
       ;;
   esac
 
+  unset cache_finished_at
   return 0
 }
 
@@ -1405,9 +1478,14 @@ fi
 
 # How long a follower waits for the leader before deciding the leader is not
 # coming and fetching for itself. Bounded on purpose: a wait that could outlast
-# the call it replaces would turn a saving into a hang.
+# the call it replaces would turn a saving into a hang. Measured against the
+# CLOCK, not against the sleeps the broker advertised — each iteration also pays
+# a `python3` start and a SQLite write transaction, so counting only the
+# advertised sleep understated the real wait by more than a factor of two and the
+# documented bound would not have been the bound.
 cache_claim_wait_budget_ms=${AIUR_GITHUB_STATE_CACHE_WAIT_MS:-15000}
 case "$cache_claim_wait_budget_ms" in ''|*[!0-9]*) cache_claim_wait_budget_ms=15000 ;; esac
+cache_claim_wait_budget=$(( (cache_claim_wait_budget_ms + 999) / 1000 ))
 cache_claim_waited_ms=0
 cache_claim_overtake=0
 cache_served=0
@@ -1495,8 +1573,17 @@ budget_acquire() {
         # and answering for it, and a follower that waits forever on a dead
         # leader has been made worse off by the optimisation. Overtake the claim
         # and fetch; the cost is the one call this was trying to save.
-        if [ -n "$cache_claim_key" ] && [ "$cache_claim_waited_ms" -ge "$cache_claim_wait_budget_ms" ]; then
-          cache_claim_overtake=1
+        if [ -n "$cache_claim_key" ] && [ "$cache_claim_overtake" -eq 0 ]; then
+          cache_waited=$(date -u +%s 2>/dev/null || printf '')
+          case "$cache_waited" in
+            ''|*[!0-9]*) ;;
+            *)
+              if [ $((cache_waited - cache_started_at)) -ge "$cache_claim_wait_budget" ]; then
+                cache_claim_overtake=1
+              fi
+              ;;
+          esac
+          unset cache_waited
         fi
         unset budget_wait_ms
         ;;
@@ -2338,9 +2425,15 @@ probe_rate_limit() {
   original_family=$endpoint_family
   # The probe is a different request against a different resource. Claiming the
   # original read's shape for it would make every follower wait on an answer this
-  # call is never going to write.
+  # call is never going to write — and, worse, admission is re-entered here AFTER
+  # the real `gh` has already failed, so a cached body found during the probe
+  # would be printed onto the stdout of a call that is about to exit non-zero.
+  # `$(gh ... --json ...)` would read that as a successful answer. Both the claim
+  # and the ability to serve are withdrawn for the duration.
   original_claim_key=$cache_claim_key
+  original_cache_body=$cache_body
   cache_claim_key=
+  cache_body=
   immediate_cooldown=$(secondary_delay_ms "$error_file" "$output_file")
   budget_hold token "$immediate_cooldown"
   budget_release
@@ -2360,7 +2453,9 @@ probe_rate_limit() {
   admission_resource=$original_admission_resource
   endpoint_family=$original_family
   cache_claim_key=$original_claim_key
-  unset original_resource original_admission_resource original_family original_claim_key immediate_cooldown
+  cache_body=$original_cache_body
+  unset original_resource original_admission_resource original_family original_claim_key original_cache_body \
+    immediate_cooldown
 }
 
 rate_limited_response() {

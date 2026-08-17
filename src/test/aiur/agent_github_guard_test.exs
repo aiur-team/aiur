@@ -2128,6 +2128,14 @@ defmodule Aiur.AgentGitHubGuardTest do
       # claim that matters: a follower must be given the leader's answer, not an
       # approximation of it.
       assert results |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 1
+
+      # And they were replayed by the mechanism this test names. The wrapper
+      # records a waiting follower as `coalesced` and a plain later reader as
+      # `hit`, so without this the same call count would also be produced by
+      # readers that happened to be serialised into a queue and found a stored
+      # answer — caching, which is a different mechanism with a different bound.
+      assert cache_events(context, "coalesced") > 0
+      assert cache_events(context, "coalesced") + cache_events(context, "hit") == 12
     end
 
     test "simultaneous readers of different resources are not made to wait on each other", context do
@@ -2259,6 +2267,101 @@ defmodule Aiur.AgentGitHubGuardTest do
                Path.dirname(body)
     end
 
+    # The freshness window is the only thing standing between a kept answer and a
+    # wrong one for everything the daemon does not hear about, so it gets asserted
+    # rather than assumed. Without this an entry could be kept for a month and
+    # every other test in this block would still pass.
+    test "an answer is not served once its window has closed", context do
+      env = [AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000"]
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+      assert upstream_calls(context) == 1
+
+      # Past the window. Entry stamps are whole seconds, so the wait is two.
+      Process.sleep(2_100)
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+      assert upstream_calls(context) == 2
+    end
+
+    test "a window below the resolution of an entry stamp keeps nothing", context do
+      env = [AIUR_GITHUB_STATE_CACHE_TTL_MS: "500"]
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+
+      assert upstream_calls(context) == 2
+    end
+
+    # R10. These reads decide whether to merge and whether CI passed. They cannot
+    # be repaired after the fact and nothing invalidates them — a `git push` and a
+    # completing check run never pass through this wrapper — so they are refused
+    # outright rather than given a short window.
+    test "a CI verdict is never served from the store", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "checks", "1670", "--json", "name,state"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "checks", "1670", "--json", "name,state"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a merge decision is never served from the store", context do
+      for fields <- ["statusCheckRollup", "mergeable,mergeStateStatus", "body,state", "reviewDecision"] do
+        File.rm(context.calls)
+
+        assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", fields])
+        assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", fields])
+
+        assert upstream_calls(context) == 2, "#{fields} was served from the store"
+      end
+    end
+
+    test "a field set carrying no verdict is still shared", context do
+      # The exclusion must be the named fields, not `--json` in general.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body,title,author"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body,title,author"])
+
+      assert upstream_calls(context) == 1
+    end
+
+    test "two credentials never share one answer", context do
+      first = [AIUR_GITHUB_BUDGET_KEY: "c" <> String.duplicate("0", 63)]
+      second = [AIUR_GITHUB_BUDGET_KEY: "d" <> String.duplicate("0", 63)]
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      assert {_, 0} = run_cached_guard(context, args, broker_env(context) ++ first)
+      assert {_, 0} = run_cached_guard(context, args, broker_env(context) ++ second)
+
+      # A response body is identity-dependent — a private repository one token
+      # cannot see, a `permissions` object, a collaborator list.
+      assert upstream_calls(context) == 2
+    end
+
+    test "editing a comment does not flush the whole repository", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1671", "--json", "body"])
+      assert upstream_calls(context) == 2
+
+      # How an agent updates its workpad. The comment id is not a ticket number,
+      # so the resource it belongs to cannot be named — but agents do this every
+      # few minutes, and retiring the repository for it would flush the store
+      # continuously and the sharing would never happen.
+      assert {_, 0} =
+               run_cached_guard(context, [
+                 "api",
+                 "-X",
+                 "PATCH",
+                 "repos/owner/repo/issues/comments/99001",
+                 "-f",
+                 "body=updated"
+               ])
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1671", "--json", "body"])
+
+      assert upstream_calls(context) == 3
+    end
+
     test "the merge gate still refuses with the store enabled", context do
       assert {output, 77} = run_cached_guard(context, ["pr", "merge", "1670", "--squash"])
 
@@ -2335,6 +2438,22 @@ defmodule Aiur.AgentGitHubGuardTest do
       timeout: 120_000
     )
     |> Enum.map(fn {:ok, result} -> result end)
+  end
+
+  # Rows the wrapper wrote to its own effectiveness log, by outcome.
+  defp cache_events(context, outcome) do
+    [context.state_path, "github-quota", "agent-cache.tsv"]
+    |> Path.join()
+    |> File.read()
+    |> case do
+      {:ok, contents} ->
+        contents
+        |> String.split("\n", trim: true)
+        |> Enum.count(fn row -> row |> String.split("\t") |> Enum.at(2) == outcome end)
+
+      _missing ->
+        0
+    end
   end
 
   # Each stored answer as the broker names it: `owner/repo/kind/id/<shape>`.
