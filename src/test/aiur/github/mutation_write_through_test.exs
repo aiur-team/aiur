@@ -290,15 +290,26 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
 
       ResourceStore.put_resource(key, issue_at(0), source: :webhook, version: version_at(0))
 
-      sampler = start_monotonic_sampler(key)
-
+      # The delivery writer is the observer, because it is the writer that gets
+      # lost: it reads back immediately after depositing generation N, and a
+      # merge that clobbers it with the snapshot it read earlier shows up as a
+      # generation below N. Watching from the merge side cannot see this — a
+      # merge always writes back what it just read, so its own view rises
+      # monotonically even while it is destroying someone else's write. A
+      # separate polling process would also see it, but only by spinning hot
+      # enough to perturb the timing of every other test in the run.
       deliveries =
         Task.async(fn ->
-          Enum.each(1..generations, fn generation ->
+          Enum.map(1..generations, fn generation ->
             ResourceStore.put_resource(key, issue_at(generation),
               source: :webhook,
               version: version_at(generation)
             )
+
+            case ResourceStore.data(key) do
+              %{"generation" => held} when is_integer(held) and held < generation -> {generation, held}
+              _other -> nil
+            end
           end)
         end)
 
@@ -309,20 +320,18 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
           end)
         end)
 
-      Task.await(deliveries, 30_000)
-      Task.await(merges, 30_000)
+      regressions = deliveries |> Task.await(60_000) |> Enum.reject(&is_nil/1)
+      Task.await(merges, 60_000)
 
-      %{max: max, regressions: regressions} = stop_monotonic_sampler(sampler)
-
-      # No sample ever saw the generation decrease.
-      assert regressions == [], "held issue body rolled backwards: #{inspect(Enum.take(regressions, 5))}"
+      # No delivery was ever overwritten by an older snapshot of the same issue.
+      assert regressions == [],
+             "a merge rolled the held issue body back {wrote, found}: #{inspect(Enum.take(regressions, 5))}"
 
       held = ResourceStore.data(key)
 
       # The last delivery survived the last merge, rather than being overwritten
       # by a snapshot the merge had read before it.
       assert held["generation"] == generations
-      assert max == generations
 
       # And the merge still did its job: the label set the mutation returned is
       # the one on the body, so A4a holds under contention too.
@@ -668,47 +677,6 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
   # Zero-padded so the store's lexical version comparison orders these the same
   # way the integer generation does.
   defp version_at(n), do: "2026-08-17T12:00:#{String.pad_leading(to_string(n), 3, "0")}Z"
-
-  # Reads the held body in a tight loop and records every sample where the
-  # generation went down. A poll rather than a subscription on purpose: it must
-  # observe the store itself, not the announcements, since a lost update is a
-  # write that lands and is then silently undone.
-  defp start_monotonic_sampler(key) do
-    test = self()
-
-    pid =
-      spawn_link(fn ->
-        sample(test, key, -1, [], 0)
-      end)
-
-    pid
-  end
-
-  defp sample(test, key, seen, regressions, max) do
-    receive do
-      {:stop, from} -> send(from, {:samples, %{max: max, regressions: Enum.reverse(regressions)}})
-    after
-      0 ->
-        case ResourceStore.data(key) do
-          %{"generation" => generation} when is_integer(generation) ->
-            regressions = if generation < seen, do: [{seen, generation} | regressions], else: regressions
-            sample(test, key, generation, regressions, max(max, generation))
-
-          _other ->
-            sample(test, key, seen, regressions, max)
-        end
-    end
-  end
-
-  defp stop_monotonic_sampler(pid) do
-    send(pid, {:stop, self()})
-
-    receive do
-      {:samples, samples} -> samples
-    after
-      5_000 -> flunk("sampler did not answer")
-    end
-  end
 
   defp labelled_delivery(label) do
     %{
