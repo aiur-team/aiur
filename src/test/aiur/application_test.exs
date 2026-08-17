@@ -154,14 +154,36 @@ defmodule Aiur.ApplicationTest do
       assert length(headless) < length(interactive)
     end
 
-    test "the Executor listener starts only for an --executor (Executor-owned) run" do
-      plain = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: false))
-      refute Aiur.ExecutorListener in plain, "a non-Executor launch must not acquire a Command inbox"
-      refute Aiur.ExecutorWakeInbox in plain, "a non-Executor launch must not acquire a wake inbox"
+    test "Executor recording is armed on every run, with or without --executor" do
+      plain =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            executor_mode?: false,
+            recording?: true
+          )
+        )
 
-      executor = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: true))
-      assert Aiur.ExecutorListener in executor, "an --executor launch must start the Command inbox"
-      assert Aiur.ExecutorWakeInbox in executor, "an --executor launch must start the wake inbox"
+      assert Aiur.ExecutorListener in plain, "a run without --executor must still record its wake stream"
+      assert Aiur.ExecutorWakeInbox in plain, "a run without --executor must still record its wake stream"
+      assert Aiur.Executor.Claims in plain, "consumption is a claim, so the claim store is always present"
+
+      executor =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            executor_mode?: true,
+            recording?: true
+          )
+        )
+
+      assert Aiur.ExecutorListener in executor
+      assert Aiur.ExecutorWakeInbox in executor
+      assert Aiur.Executor.Claims in executor
     end
 
     test "headless run starts the dashboard by default without reviving panes" do

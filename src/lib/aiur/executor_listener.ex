@@ -56,7 +56,8 @@ defmodule Aiur.ExecutorListener do
       patterns: patterns,
       watermark: watermark,
       resubscribe_interval_ms: interval,
-      health: current_health
+      health: current_health,
+      inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox)
     }
 
     state =
@@ -142,7 +143,7 @@ defmodule Aiur.ExecutorListener do
   defp process_event(event, state) do
     if matching_fresh_event?(event, state) do
       try do
-        :ok = deliver(event)
+        :ok = deliver(event, state.inbox)
 
         if executor_topic?(event) do
           :ok = advance_watermark(event_id(event))
@@ -175,14 +176,14 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver(event) do
+  defp deliver(event, inbox) do
     if executor_topic?(event) do
       scrubbed = ExecutorEvents.scrub_untrusted_output(event)
       if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
       :ok
     else
       case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> ExecutorWakeInbox.enqueue(record)
+        {:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)
         :ignore -> :ok
       end
     end
