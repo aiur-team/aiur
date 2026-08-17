@@ -366,7 +366,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert html =~ ~s(<span class="rs-limit-label">Progress</span>)
+    assert html =~ ~s(<span class="rs-limit-meta">—</span>)
     assert html =~ ~s(class="rs-meter is-unknown")
+    assert html =~ ~s(role="progressbar")
+    assert html =~ ~s(aria-label="Progress unavailable")
+    refute html =~ "aria-valuenow"
     refute html =~ ~s(class="rs-meter is-unknown"><i)
     refute html =~ "Progress not computed yet"
     refute html =~ "0 of 2 members current"

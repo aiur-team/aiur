@@ -131,6 +131,9 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     assert html =~ ~s(tabindex="0")
     assert html =~ "Provider-reported estimate"
     assert html =~ "API-equivalent estimate"
+    assert html =~ ~s(data-sort-key="provider" data-sort-type="number")
+    assert html =~ ~s(data-sort-value="1.25")
+    assert html =~ ~s(data-sort-value="2.50")
     assert html =~ "1.25 USD"
     assert html =~ "2.50 USD"
   end

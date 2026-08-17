@@ -62,7 +62,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert state.readers.status.() == snapshot
     assert state.readers.status_facts.() == snapshot.statuses
 
-    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, [fleet_rows?: true]}
+    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, []}
     assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, [fleet_rows?: true]}
     refute_receive _message
   end

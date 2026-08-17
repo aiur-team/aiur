@@ -110,21 +110,21 @@ defmodule Aiur.CurrentRunProjections.State do
   end
 
   defp cached_status(read_fun, orchestrator) do
-    case read_cached_fleet(read_fun, orchestrator) do
+    case read_current_snapshot(read_fun, orchestrator, []) do
       {:ok, snapshot} -> snapshot
       :unavailable -> :unavailable
     end
   end
 
   defp cached_status_facts(read_fun, orchestrator) do
-    case read_cached_fleet(read_fun, orchestrator) do
+    case read_current_snapshot(read_fun, orchestrator, fleet_rows?: true) do
       {:ok, %{statuses: statuses}} when is_list(statuses) -> statuses
       _unavailable_or_incomplete -> :unavailable
     end
   end
 
-  defp read_cached_fleet(read_fun, orchestrator) do
-    case read_fun.(orchestrator, @cached_status_timeout_ms, fleet_rows?: true) do
+  defp read_current_snapshot(read_fun, orchestrator, opts) do
+    case read_fun.(orchestrator, @cached_status_timeout_ms, opts) do
       {:current, snapshot, _freshness} when is_map(snapshot) -> {:ok, snapshot}
       _stale_or_unavailable -> :unavailable
     end

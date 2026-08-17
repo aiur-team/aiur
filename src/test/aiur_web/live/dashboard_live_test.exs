@@ -3876,6 +3876,17 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_patch(view, "/?v=1")
     refute has_element?(view, ~s(button[phx-value-scope="unfinished"][aria-pressed="true"]))
     refute has_element?(view, ~s(button[phx-value-condition="finished"][aria-pressed="true"]))
+
+    render_hook(view, "table-sort-changed", %{"sort" => "units:latest:desc"})
+
+    view
+    |> element(~s(button[phx-value-condition="active"]))
+    |> render_click()
+
+    assert_patch(view, "/?v=1&conditions=active&sort=units%3Alatest%3Adesc")
+
+    render_patch(view, "/?v=1&sort=units%3Acommand%3Adesc")
+    assert_patch(view, "/?v=1")
   end
 
   test "keeps valid Units selection and stable typed row identity across catalog updates" do

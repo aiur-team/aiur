@@ -52,7 +52,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 a table of its own. --%>
           <tbody :if={@status == :unavailable}>
             <tr class="units-row units-empty-row">
-              <td class="units-empty-cell" colspan="5">No active agents</td>
+              <td class="units-empty-cell" colspan="5">No active units</td>
             </tr>
           </tbody>
           <tbody id="units-rows">

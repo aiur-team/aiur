@@ -188,11 +188,18 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-progress">
         <div class="rs-limit-top">
           <span class="rs-limit-label">Progress</span>
-          <span :if={@progress_label} class="rs-limit-meta">{@progress_label}</span>
+          <span class="rs-limit-meta">{@progress_label || "—"}</span>
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>
-        <div class={["rs-meter", is_nil(@run_percent) && "is-unknown"]}>
+        <div
+          class={["rs-meter", is_nil(@run_percent) && "is-unknown"]}
+          role="progressbar"
+          aria-label={if(is_integer(@run_percent), do: "Progress #{@run_percent}%", else: "Progress unavailable")}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={@run_percent}
+        >
           <i :if={is_integer(@run_percent)} class={meter_class(@run_percent)} style={"width:#{@run_percent}%"}></i>
         </div>
       </div>

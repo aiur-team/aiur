@@ -126,8 +126,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
           <thead>
             <tr>
               <th scope="col" data-sort-key="route">Route</th>
-              <th scope="col" data-sort-key="provider">Provider-reported estimate</th>
-              <th scope="col" data-sort-key="api">API-equivalent estimate</th>
+              <th scope="col" data-sort-key="provider" data-sort-type="number">Provider-reported estimate</th>
+              <th scope="col" data-sort-key="api" data-sort-type="number">API-equivalent estimate</th>
             </tr>
           </thead>
           <tbody>
@@ -136,8 +136,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
                 <span aria-hidden="true">{route.label}</span>
                 <span class="sr-only">{route.accessible_label}</span>
               </th>
-              <td data-sort-value={route.provider_reported_label}>{route.provider_reported_label}</td>
-              <td data-sort-value={route.api_equivalent_label}>{route.api_equivalent_label}</td>
+              <td data-sort-value={money_sort_value(route.provider_reported)}>{route.provider_reported_label}</td>
+              <td data-sort-value={money_sort_value(route.api_equivalent)}>{route.api_equivalent_label}</td>
             </tr>
           </tbody>
         </table>
@@ -145,4 +145,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
     </section>
     """
   end
+
+  defp money_sort_value([%{amount: amount}]) when is_binary(amount), do: amount
+  defp money_sort_value(_amounts), do: ""
 end

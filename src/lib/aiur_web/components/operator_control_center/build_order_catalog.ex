@@ -54,7 +54,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         <p>{@catalog_notice.message}</p>
       </div>
 
-      <table :if={@entries != []} id="build-orders-table" class="bo-catalog-table" phx-hook="SortableTable" data-sort-table="build-orders">
+      <table :if={@entries != []} id="build-orders-table" class="bo-catalog-table" phx-hook="SortableTable" data-sort-table="build-orders" data-sort-client-only>
         <thead>
           <tr>
             <th scope="col" data-sort-key="title">Title</th>

@@ -14,10 +14,33 @@
     return { table: parts[0], column: parts[1], direction: parts[2] };
   }
 
-  function urlState(table) {
+  function clearURLSort(url) {
+    url.searchParams.delete(PARAM);
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  function urlState(table, headers) {
     try {
-      var state = parseState(new URL(window.location.href).searchParams.get(PARAM));
-      return state && state.table === table ? state : null;
+      var url = new URL(window.location.href);
+      var raw = url.searchParams.get(PARAM);
+      var state = parseState(raw);
+      if (!raw) return null;
+
+      var tableExists = state && Array.from(document.querySelectorAll("[data-sort-table]")).some(function (candidate) {
+        return candidate.dataset.sortTable === state.table;
+      });
+      if (!state || !tableExists) {
+        clearURLSort(url);
+        return null;
+      }
+
+      if (state.table !== table) return null;
+      if (!(headers || []).some(function (header) { return header.dataset.sortKey === state.column; })) {
+        clearURLSort(url);
+        return null;
+      }
+
+      return state;
     } catch (_error) {
       return null;
     }
@@ -39,9 +62,12 @@
     });
   }
 
+  // A detail row is identified only by `data-sort-detail-for`, the same contract
+  // `detailRows` reads, so a new table cannot become sortable-by-accident by
+  // omitting a particular CSS class.
   function sortableBodyRows(body) {
     return Array.from(body.rows).filter(function (row) {
-      return !row.classList.contains("history-detail-row") && row.cells.length > 1;
+      return !row.dataset.sortDetailFor && row.cells.length > 1;
     });
   }
 
@@ -70,7 +96,7 @@
       this.onExternalChange = this.externalChange.bind(this);
       this.bindHeaders();
       this.captureRanks();
-      this.state = urlState(this.tableKey);
+      this.state = urlState(this.tableKey, this.headers);
       window.addEventListener(CHANGE_EVENT, this.onExternalChange);
       window.addEventListener("popstate", this.onExternalChange);
       this.applySort();
@@ -85,7 +111,7 @@
     updated: function () {
       this.bindHeaders();
       this.captureRanks(true);
-      this.state = urlState(this.tableKey);
+      this.state = urlState(this.tableKey, this.headers);
       this.applySort();
       var focused = this.focusedId && document.getElementById(this.focusedId);
       if (focused && this.el.contains(focused)) focused.focus();
@@ -102,6 +128,7 @@
       this.unbindHeaders();
       this.headers = Array.from(this.el.querySelectorAll("thead th[data-sort-key]"));
       this.headers.forEach(function (header) {
+        header.id = "sort-" + this.tableKey + "-" + header.dataset.sortKey;
         header.tabIndex = 0;
         header.title = "Sort by " + header.textContent.trim();
         header.addEventListener("click", this.onHeaderClick);
@@ -152,13 +179,13 @@
       url.searchParams.set(PARAM, value);
       window.history.replaceState(window.history.state, "", url);
       window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { sort: value } }));
-      this.pushEvent("table-sort-changed", { sort: value });
+      if (!this.el.hasAttribute("data-sort-client-only")) this.pushEvent("table-sort-changed", { sort: value });
     },
 
     externalChange: function (event) {
       var value = event.type === CHANGE_EVENT ? event.detail && event.detail.sort : new URL(window.location.href).searchParams.get(PARAM);
       var state = parseState(value);
-      this.state = state && state.table === this.tableKey ? state : null;
+      this.state = event.type === "popstate" ? urlState(this.tableKey, this.headers) : state && state.table === this.tableKey ? state : null;
       this.applySort();
     },
 
@@ -179,7 +206,6 @@
 
       Array.from(this.el.tBodies).forEach(function (body) {
         var rows = sortableBodyRows(body);
-        var details = detailRows(body);
         var records = rows.map(function (row) {
           return { row: row, rank: Number(row.dataset.sortRank), value: header ? cellValue(row, columnIndex) : "" };
         });
@@ -195,6 +221,7 @@
 
         if (rows.every(function (row, index) { return row === records[index].row; })) return;
 
+        var details = detailRows(body);
         var fragment = document.createDocumentFragment();
         records.forEach(function (record) {
           fragment.appendChild(record.row);

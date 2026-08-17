@@ -91,6 +91,14 @@ defmodule AiurWeb.DashboardLive do
   # answer from that point, so the card leaves the operator's queue.
   @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :expired, :deferred]
   @decision_events DecisionEvents.events()
+  @table_sort_columns %{
+    "units" => ~w(id unit ticket latest),
+    "fleet" => ~w(ticket state waiting latest elapsed commands),
+    "tickets" => ~w(id title labels),
+    "command-history" => ~w(command decision result),
+    "ticket-logs" => ~w(activity detail when),
+    "provider-routes" => ~w(route provider api)
+  }
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1087,7 +1095,14 @@ defmodule AiurWeb.DashboardLive do
   defp maybe_put_table_sort(params, sort), do: params ++ [{"sort", sort}]
 
   defp normalize_table_sort(sort) when is_binary(sort) do
-    if String.match?(sort, ~r/^[a-z0-9-]+:[a-z0-9-]+:(asc|desc)$/), do: sort
+    with [table, column, direction] <- String.split(sort, ":"),
+         true <- direction in ["asc", "desc"],
+         columns when is_list(columns) <- Map.get(@table_sort_columns, table),
+         true <- column in columns do
+      sort
+    else
+      _invalid -> nil
+    end
   end
 
   defp normalize_table_sort(_sort), do: nil
@@ -2453,9 +2468,14 @@ defmodule AiurWeb.DashboardLive do
     |> maybe_put_query(:ticket, params["ticket"])
     |> maybe_put_query(:search, params["search"])
     |> maybe_put_query(:cursor, params["cursor"])
+    |> maybe_put_query(:sort, normalize_table_sort(params["sort"]))
   end
 
-  defp decision_query(_filter, params), do: %{} |> maybe_put_query(:cursor, params["cursor"])
+  defp decision_query(_filter, params) do
+    %{}
+    |> maybe_put_query(:cursor, params["cursor"])
+    |> maybe_put_query(:sort, normalize_table_sort(params["sort"]))
+  end
 
   defp provider_query(filter, query) do
     query

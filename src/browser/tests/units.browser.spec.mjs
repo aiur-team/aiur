@@ -215,6 +215,10 @@ test('Units tables sort stably, persist in the URL, and keep unknown progress fl
   // fabricated zero that jumps ahead of measured progress.
   await expect.poll(identifiers).toEqual(['1110', '1111'])
 
+  await page.reload()
+  await expect(latestHeader).toHaveAttribute('aria-sort', 'descending')
+  await expect.poll(identifiers).toEqual(['1110', '1111'])
+
   await page.getByRole('button', { name: 'Update same Unit' }).click()
   await expect(latestHeader).toHaveAttribute('aria-sort', 'descending')
   await expect.poll(identifiers).toEqual(['1110', '1111'])

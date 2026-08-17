@@ -307,7 +307,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
               source in [:exchange, :issue_log] and is_struct(observed_at, DateTime) do
     [
       %LogEntry{
-        event_id: if(is_integer(event_id) and event_id > 0, do: event_id),
+        event_id: positive_integer(event_id),
         kind: kind,
         label: log_label(kind, label),
         source: source,
