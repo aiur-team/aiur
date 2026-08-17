@@ -3,20 +3,12 @@ import {
   type BucketId,
   KEY_FACE_CONTRACT,
   progressBarColor,
+  UNKNOWN_PROGRESS_COLOR,
 } from "./key-face-contract.js";
 
 export type { BucketId } from "./key-face-contract.js";
-export { progressBarColor };
+export { progressBarColor, UNKNOWN_PROGRESS_COLOR };
 export type Vendor = string;
-
-/**
- * The single indeterminate treatment on every Stream Deck surface.
- *
- * Unknown progress is a flat neutral grey rather than a patterned fill. It is
- * lighter than the empty track, while measured progress remains green, so an
- * absent reading cannot be mistaken for either 0% or a live value.
- */
-export const UNKNOWN_PROGRESS_COLOR = "rgba(255,255,255,0.22)";
 
 /**
  * What a key slot represents. The eight physical keys are reused across the

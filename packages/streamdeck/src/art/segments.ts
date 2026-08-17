@@ -19,7 +19,6 @@
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
 import { rowKindOfRole, type ChatKind, type DiffLine, type TranscriptRow } from "../channel.js";
-import { UNKNOWN_PROGRESS_COLOR } from "../keys.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import { encoderCenterX } from "../touchStrip/geometry.js";
 import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelRow } from "../touchStrip/providerPanel.js";
@@ -29,6 +28,7 @@ import {
   directionBadgeColor,
   KEY_FACE_CONTRACT,
   progressBarColor,
+  UNKNOWN_PROGRESS_COLOR,
   type BucketContract,
   type BucketId,
   type DirectionBadge,
