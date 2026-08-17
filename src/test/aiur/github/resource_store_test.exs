@@ -208,6 +208,32 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert ResourceStore.etag(key) == nil
       assert ResourceStore.change_validator(key) == ~s("v1"), "change detection survives, by name"
     end
+
+    # `drop_etag/1` exists for the reader that sent `If-None-Match` for a key the
+    # store holds no body for, was answered `304`, and got nothing. That reader's
+    # entry is *by definition* bodyless — so a `drop_etag/1` that decided whether
+    # to act by asking `etag/1`, which deliberately answers only when a body is
+    # held, was a no-op in the one state it is for, and the same empty `304`
+    # repeated every cycle for the whole retention window.
+    test "forgetting a validator works in the bodyless state it exists for" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8402)
+      ResourceStore.put_etag(key, ~s("v1"))
+
+      assert ResourceStore.change_validator(key) == ~s("v1")
+      assert ResourceStore.etag(key) == nil, "there is no body, so no reader of bodies is offered it"
+
+      assert :ok = ResourceStore.drop_etag(key)
+
+      assert ResourceStore.change_validator(key) == nil,
+             "a validator the caller was told had been forgotten must actually be gone"
+    end
+
+    test "forgetting a validator nothing holds creates no entry" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8403)
+
+      assert :ok = ResourceStore.drop_etag(key)
+      assert :ets.lookup(ResourceStore.Table, key) == []
+    end
   end
 
   describe "surviving restart" do
@@ -1023,59 +1049,93 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     #
     # Counting is the assertion, because it is exact: N atomic increments must
     # leave the counter at N. A lost update leaves it lower, always.
+    #
+    # The sampler **keeps watching after it sees a regression** and reports the
+    # sequence it observed at the end. An earlier version stopped recursing on the
+    # first sighting, so every failure surfaced as a bare 10-second
+    # `assert_receive` timeout and the two assertions that tell the two defects
+    # apart — a true lost update, where the final count is short, against a
+    # transient rollback, where it is not — never ran. A probe that detects a race
+    # but cannot describe it costs more time than it saves.
+    #
+    # The writers are also released from a barrier rather than merely started
+    # together: a read and its swap are microseconds apart, so `Task.async`'s own
+    # start-up skew is wide enough to miss the window entirely.
     test "concurrent merges lose nothing and the body never goes backwards" do
       key = ResourceStore.key(:issue, "owner", "repo", 8200)
-      writers = 4
-      per_writer = 150
+      writers = 8
+      per_writer = 200
       me = self()
 
       ResourceStore.put_resource(key, %{"gen" => 0, "state" => "open"}, version: "v0")
 
       sampler =
         spawn_link(fn ->
-          watch = fn watch, highest ->
+          watch = fn watch, highest, backwards ->
             receive do
-              :stop -> send(me, :sampled)
+              :stop -> send(me, {:sampled, Enum.reverse(backwards)})
             after
               0 ->
                 case :ets.lookup(ResourceStore.Table, key) do
                   [{^key, %{data: %{"gen" => gen}}}] when gen < highest ->
-                    send(me, {:regressed, highest, gen})
+                    watch.(watch, highest, record_backwards(backwards, {highest, gen}))
 
                   [{^key, %{data: %{"gen" => gen}}}] ->
-                    watch.(watch, gen)
+                    watch.(watch, gen, backwards)
 
                   _other ->
-                    watch.(watch, highest)
+                    watch.(watch, highest, backwards)
                 end
             end
           end
 
-          watch.(watch, 0)
+          watch.(watch, 0, [])
         end)
 
-      1..writers
-      |> Enum.map(fn _writer ->
-        Task.async(fn ->
-          for _step <- 1..per_writer do
-            ResourceStore.update_resource(
-              key,
-              fn held -> %{"gen" => Map.get(held || %{}, "gen", 0) + 1, "state" => "open"} end,
-              source: :mutation
-            )
-          end
+      barrier = :atomics.new(1, [])
+
+      tasks =
+        for _writer <- 1..writers do
+          Task.async(fn ->
+            spin = fn spin -> if :atomics.get(barrier, 1) == 0, do: spin.(spin), else: :ok end
+            spin.(spin)
+
+            for _step <- 1..per_writer do
+              ResourceStore.update_resource(
+                key,
+                fn held -> %{"gen" => Map.get(held || %{}, "gen", 0) + 1, "state" => "open"} end,
+                source: :mutation
+              )
+            end
+          end)
+        end
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          :atomics.put(barrier, 1, 1)
+          Enum.each(tasks, &Task.await(&1, 60_000))
         end)
-      end)
-      |> Enum.each(&Task.await(&1, 60_000))
 
       send(sampler, :stop)
 
-      assert_receive :sampled, 10_000
+      assert_receive {:sampled, backwards}, 10_000
 
-      refute_received {:regressed, _highest, _gen}
+      final = ResourceStore.data(key)
 
-      assert ResourceStore.data(key) == %{"gen" => writers * per_writer, "state" => "open"},
-             "every merge must survive; a lower count is a lost update"
+      assert backwards == [],
+             "the held body went backwards: #{inspect(backwards)} (as {highest_seen, then_observed}); final body #{inspect(final)}"
+
+      assert final == %{"gen" => writers * per_writer, "state" => "open"},
+             "every merge must survive; a lower count is a lost update. observed backwards steps: #{inspect(backwards)}"
+
+      # A write the compare-and-swap could not land must be abandoned, never
+      # forced: forcing it deposits a body derived from a read the table has long
+      # moved past, which is the rollback above with the swap bypassed. Asserted
+      # on the log because it is the only externally visible trace of the
+      # exhaustion path, and because the sampler can miss the single instant the
+      # forced write is observable.
+      refute log =~ "abandoned a contended write",
+             "the compare-and-swap ran out of budget under ordinary contention; it must resolve within it"
     end
 
     test "a merge sees the held body and nil when there is none" do
@@ -1388,4 +1448,12 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
     :ok
   end
+
+  # Bounded and de-duplicated: the rollback sampler spins, so one rollback is
+  # otherwise observed thousands of times and the report it produces is
+  # unreadable. Keeping the sequence is the point — the shape of the backwards
+  # steps is what names the mechanism.
+  defp record_backwards([pair | _rest] = backwards, pair), do: backwards
+  defp record_backwards(backwards, _pair) when length(backwards) >= 8, do: backwards
+  defp record_backwards(backwards, pair), do: [pair | backwards]
 end

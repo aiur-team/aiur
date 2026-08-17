@@ -657,6 +657,17 @@ defmodule Aiur.GitHub.ResourceStore do
   distributed lock: two daemons on one checkpoint file still resolve by
   last-writer-wins at checkpoint time.
 
+  ## What happens when the swap cannot win
+
+  The retry budget is generous and paced, and if it is ever spent the write is
+  **abandoned** — never forced. That direction is the guarantee, not a
+  concession: a body derived from a read the table has already moved past is the
+  rollback this function exists to prevent, and inserting it unconditionally at
+  the end of the budget reintroduced it in full, `"state"` included. Abandoning
+  costs a reader one full-price fetch, which is this module's documented
+  fail-open direction; it is logged as an error because reaching it means
+  contention far beyond anything real.
+
   ## Versioning a body you did not choose
 
   `:version` also accepts a **1-arity function**, applied to the merged body
@@ -840,13 +851,29 @@ defmodule Aiur.GitHub.ResourceStore do
   def drop_etag(nil), do: :ok
 
   def drop_etag(key) do
-    # Checked first so forgetting a validator nothing holds does not create an
-    # empty entry for the key.
-    if is_nil(etag(key)) do
-      :ok
-    else
-      update(key, fn entry -> Map.delete(entry, :etag) end)
-    end
+    # Decided *inside* the swap, on the raw `:etag` field, and both halves of that
+    # matter.
+    #
+    # Inside, because the check "is there a validator to forget" and the act of
+    # forgetting it used to be two operations with a whole read/write gap between
+    # them: a concurrent `put_etag/2` landing in the gap was answered `:ok` by a
+    # call that then dropped nothing, and a validator the caller was told had been
+    # forgotten stayed and repeated the same empty `304` every cycle. `:skip` is
+    # what lets the swap decline to write at all, so forgetting a validator
+    # nothing holds still does not create an empty entry for the key.
+    #
+    # On the raw field, because `etag/1` deliberately answers only when a body is
+    # held — so asking it here made this function a no-op in the one state it
+    # exists for. A reader answered `304` for a key the store holds *no* body for
+    # is the bodyless-validator case; that is precisely the validator that has to
+    # go.
+    update_reply(key, :ok, fn entry ->
+      if is_nil(Map.get(entry, :etag)) do
+        {:skip, :ok}
+      else
+        {Map.delete(entry, :etag), :ok}
+      end
+    end)
   end
 
   @doc """
@@ -1015,7 +1042,15 @@ defmodule Aiur.GitHub.ResourceStore do
 
     path = resolve_path(opts)
     loaded = load(path)
-    Enum.each(loaded, &:ets.insert(table, &1))
+
+    # `insert_new/2`, not `insert/2`. The table is `:named_table` and `:public`
+    # and every writer reaches it through `:ets.whereis/1`, so it is writable from
+    # the instant `:ets.new/2` returns — which is before this load finishes. A
+    # webhook delivery landing in that window deposits the *current* body, and a
+    # blind insert of the checkpoint would replace it with whatever was on disk up
+    # to 30 seconds before the restart. That is a body rollback at boot, arriving
+    # through the one write path that never had a compare-and-swap.
+    Enum.each(loaded, &:ets.insert_new(table, &1))
 
     if path, do: schedule(:checkpoint, checkpoint_interval(opts))
     schedule(:sweep, sweep_interval(opts))
@@ -1092,10 +1127,45 @@ defmodule Aiur.GitHub.ResourceStore do
   # while the entry is still byte-for-byte the one this call read, and
   # `:ets.insert_new/2` only creates while there is still nothing there. A racing
   # writer makes this one read again and re-apply `fun`, so both writes survive.
-  @update_attempts 50
+  #
+  # ## The retry budget is part of the guarantee, not a detail
+  #
+  # A bounded budget whose last resort is an unconditional insert is not a
+  # compare-and-swap: it is a compare-and-swap with a lost update wired into its
+  # exhaustion path. Measured on `:issue` with four writers doing 150 merges
+  # each, contention is real (about 1.7 failed swaps per successful one) and the
+  # losing writer is *not* independently unlucky — BEAM's reduction-based
+  # preemption phase-locks a writer that keeps being descheduled in the same
+  # window between its read and its swap, so runs of tens of consecutive
+  # failures happen where independence would predict none. Every one of those
+  # runs that reached the old budget of 50 blind-inserted a body derived from a
+  # read that was by then dozens of generations stale: the held `"gen"` counter
+  # went *backwards*, and the final count came out below the number of merges.
+  # That is the exact lost update this function exists to prevent, arriving
+  # through its own escape hatch. See #2128.
+  #
+  # So the budget still exists — an unbounded spin in a poll task is its own
+  # failure — but it is spent differently and it ends differently:
+  #
+  #   * the first `@update_spin_attempts` retries are immediate, which is all
+  #     ordinary contention ever needs;
+  #   * after that each retry yields the scheduler first, which breaks the
+  #     phase-lock by moving this process's reduction budget relative to its
+  #     competitors;
+  #   * after that each retry sleeps a randomised millisecond, which decorrelates
+  #     writers outright;
+  #   * and if even that budget runs out the write is **abandoned**, never
+  #     forced. Abandoning costs a reader one full-price fetch, which is this
+  #     module's documented fail-open direction. Forcing costs correctness: a
+  #     reader served `open` for a ticket Aiur has closed.
+  @update_spin_attempts 8
+  @update_yield_attempts 64
+  @update_backoff_attempts 128
+  @update_attempts @update_spin_attempts + @update_yield_attempts + @update_backoff_attempts
+
   defp update(key, fun) do
     with_table(:ok, fn table ->
-      {_reply, result} = update_cas(table, key, &{fun.(&1), :ok}, @update_attempts)
+      {_reply, result} = update_cas(table, key, &{fun.(&1), :ok}, :ok, @update_attempts)
       result
     end)
   end
@@ -1105,45 +1175,76 @@ defmodule Aiur.GitHub.ResourceStore do
   # without a second, racy read. `revalidate/3` is the reason it exists: whether a
   # `304` confirmed the held body or was superseded by a concurrent deposit is
   # only knowable at the instant of the compare-and-swap.
+  #
+  # `default` is also the answer when the write is abandoned under pathological
+  # contention, for the same reason it is the answer when no table exists: an
+  # abandoned write has decided nothing, so the caller must be told the
+  # fail-open thing rather than a decision that never happened.
   defp update_reply(key, default, fun) do
     with_table(default, fn table ->
-      {reply, _result} = update_cas(table, key, fun, @update_attempts)
+      {reply, _result} = update_cas(table, key, fun, default, @update_attempts)
       reply
     end)
   end
 
-  defp update_cas(table, key, fun, attempts_left) do
+  defp update_cas(table, key, fun, abandon_reply, attempts_left) do
     existing =
       case :ets.lookup(table, key) do
         [{^key, entry}] -> entry
         _other -> nil
       end
 
-    {entry, reply} = fun.(existing || %{})
-    entry = Map.put(entry, :recorded_at_ms, now_ms())
+    case fun.(existing || %{}) do
+      # `fun` decided, against the entry as it stands inside the swap, that there
+      # is nothing to write. Not a failed swap and not a dropped write — the
+      # decision *is* the outcome, so no entry is created and nothing is
+      # announced. Without this a caller that only conditionally writes has to
+      # make its decision outside the swap, which is check-then-act.
+      {:skip, reply} ->
+        {reply, :ok}
 
-    if swapped?(table, key, existing, entry) do
-      announce(key, existing || %{}, entry)
-      {reply, :ok}
-    else
-      retry_update(table, key, fun, attempts_left - 1, entry)
+      {entry, reply} ->
+        entry = Map.put(entry, :recorded_at_ms, now_ms())
+
+        if swapped?(table, key, existing, entry) do
+          announce(key, existing || %{}, entry)
+          {reply, :ok}
+        else
+          retry_update(table, key, fun, abandon_reply, attempts_left - 1)
+        end
     end
   end
 
-  # The retry budget exists only so a pathological live-lock cannot spin a poll
-  # task forever. Reaching it means writers are contending on one key far beyond
-  # anything real, and the last resort is the pre-CAS behaviour — a blind insert
-  # that may lose a concurrent field — which is still strictly better than
-  # dropping this write.
-  defp retry_update(table, key, _fun, 0, entry) do
-    Logger.warning("GitHub.ResourceStore gave up retrying a contended write for #{inspect(key)}; inserting unconditionally")
+  # Budget spent. The write is dropped rather than forced: `entry` was derived
+  # from a read the table has already moved past, so inserting it would roll the
+  # held body back to a state no writer intends — and `entry` is deliberately not
+  # touched here so that cannot be done by accident. A dropped store write costs
+  # one full-price read; a forced stale one costs correctness.
+  defp retry_update(_table, key, _fun, abandon_reply, attempts_left) when attempts_left <= 0 do
+    Logger.error(
+      "GitHub.ResourceStore abandoned a contended write for #{inspect(key)} after #{@update_attempts} attempts; " <>
+        "the newer held entry is kept and this write is dropped rather than rolling the body back"
+    )
 
-    :ets.insert(table, {key, entry})
-    announce(key, %{}, entry)
-    {:ok, :ok}
+    {abandon_reply, :ok}
   end
 
-  defp retry_update(table, key, fun, attempts_left, _entry), do: update_cas(table, key, fun, attempts_left)
+  defp retry_update(table, key, fun, abandon_reply, attempts_left) do
+    pace(attempts_left)
+    update_cas(table, key, fun, abandon_reply, attempts_left)
+  end
+
+  # Immediate while contention is ordinary, then progressively decorrelating. The
+  # yield is what breaks a reduction-phase lock-step; the randomised sleep is the
+  # backstop for a writer that is losing for a reason yielding cannot move.
+  defp pace(attempts_left) when attempts_left > @update_yield_attempts + @update_backoff_attempts, do: :ok
+
+  defp pace(attempts_left) when attempts_left > @update_backoff_attempts do
+    :erlang.yield()
+    :ok
+  end
+
+  defp pace(_attempts_left), do: Process.sleep(:rand.uniform(2))
 
   # `select_replace/2` matches on the whole stored object, so the guard pins the
   # entry this call actually read. `insert_new/2` covers the "was absent" case,
@@ -1347,19 +1448,22 @@ defmodule Aiur.GitHub.ResourceStore do
   defp within_suppression_bound?(at, nil), do: now_ms() - at <= @unversioned_suppression_ms
   defp within_suppression_bound?(at, _version), do: not expired?(at)
 
+  # Expiry and eviction are writes like any other, so neither is allowed to be a
+  # check-then-act. A `foldl` that collects keys and a later `:ets.delete/2` for
+  # each are two operations, and a writer depositing a fresh body in the gap has
+  # its entry deleted on the strength of a `recorded_at_ms` that is no longer
+  # there — the store then answers `:miss` for a resource it was just handed, and
+  # the next reader pays for it again. Both deletions are therefore conditional on
+  # the entry still being the one the decision was made about.
   defp sweep(table) do
     cutoff = now_ms() - @retention_ms
 
-    expired =
-      :ets.foldl(
-        fn {key, entry}, acc ->
-          if Map.get(entry, :recorded_at_ms, 0) < cutoff, do: [key | acc], else: acc
-        end,
-        [],
-        table
-      )
-
-    Enum.each(expired, &:ets.delete(table, &1))
+    # One atomic operation per object: the guard is re-evaluated against the entry
+    # as it stands at the instant of deletion, so an entry a writer refreshed in
+    # the meantime no longer matches and survives.
+    :ets.select_delete(table, [
+      {{:_, %{recorded_at_ms: :"$1"}}, [{:<, :"$1", cutoff}], [true]}
+    ])
 
     # A hard backstop far above real volume. Crossing it means the retention
     # window alone is not bounding the set, so drop the oldest rather than let
@@ -1373,7 +1477,9 @@ defmodule Aiur.GitHub.ResourceStore do
       |> :ets.tab2list()
       |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :recorded_at_ms, 0) end)
       |> Enum.take(overflow)
-      |> Enum.each(fn {key, _entry} -> :ets.delete(table, key) end)
+      # Pinned to the exact object that was sorted, so a concurrent write between
+      # the snapshot and the eviction spares the entry rather than losing it.
+      |> Enum.each(fn {key, entry} -> :ets.select_delete(table, [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [true]}]) end)
     end
 
     :ok
