@@ -143,6 +143,13 @@ defmodule Aiur.TestSupport do
         # issue 42 in the next, so each case starts from an empty store.
         GitHubResourceStore.reset()
 
+        # Same reasoning again. `Aiur.PollCadence` keeps the effective poll
+        # interval in :persistent_term, written by every Orchestrator poll cycle,
+        # and every freshness threshold in the tree derives from it. A case that
+        # drives a poll cycle would otherwise move the staleness windows for every
+        # later case in the VM, so each case starts from the configured cadence.
+        Aiur.PollCadence.forget_effective_interval_ms()
+
         File.mkdir_p!(workflow_root)
 
         Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))

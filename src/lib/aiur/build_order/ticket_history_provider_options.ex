@@ -12,9 +12,14 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
 
   # Ticket history is refreshed by the same tracker sweep as everything else, so
   # a window narrower than the cadence marks correct data stale. The configured
-  # `build_order.ticket_history_stale_after_ms` (and the 300s schema maximum)
-  # therefore act as a lower bound on operator intent, not as the final answer:
-  # the effective window is always at least two poll cycles wide.
+  # `build_order.ticket_history_stale_after_ms` therefore acts as a lower bound
+  # on operator intent, not as the final answer: the effective window is always
+  # at least two poll cycles wide.
+  #
+  # `@max_stale_after_ms` consequently bounds only what an operator may *type*,
+  # not the window that results. Nothing can narrow the window below the
+  # cadence, because a threshold under the cadence cannot be satisfied by a
+  # healthy system — there is no value of this setting that makes it meaningful.
   @stale_after_intervals 2
 
   @spec new(keyword()) :: map()

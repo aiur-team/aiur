@@ -66,28 +66,41 @@ defmodule Aiur.CadenceFreshnessTest do
       end
     end
 
-    test "a snapshot older than two effective cadences is still reported stale" do
-      for %{name: name, interval_ms: interval_ms} <- @cadences do
+    test "a snapshot past the ceiling is still reported stale" do
+      # Ages are literal, not read back from the implementation: a test that
+      # asks the code for its own ceiling passes against any ceiling at all,
+      # including one so wide staleness is never reported.
+      expected = [{5_000, 120_001}, {120_000, 480_001}, {1_200_000, 4_800_001}]
+
+      for {interval_ms, age_ms} <- expected do
         :ok = PollCadence.publish_effective_interval_ms(interval_ms)
         orchestrator = start_orchestrator()
-
-        ceiling_ms = SnapshotStore.stale_age_ceiling_ms()
-        publish_aged(orchestrator, ceiling_ms + 1_000)
+        publish_aged(orchestrator, age_ms)
 
         assert {:stale, _snapshot, metadata} = SnapshotStore.read(orchestrator, @read_timeout_ms),
-               "#{name}: a snapshot #{ceiling_ms + 1_000}ms old was reported current"
+               "cadence #{interval_ms}ms: a snapshot #{age_ms}ms old was reported current"
 
         assert metadata.reason == :snapshot_stalled
       end
     end
 
-    test "the ceiling is two effective cadences, floored at the pre-#2064 value" do
-      expected = [{5_000, 120_000}, {120_000, 240_000}, {1_200_000, 2_400_000}]
+    test "the ceiling is four effective cadences, floored at the pre-#2064 value" do
+      expected = [{5_000, 120_000}, {120_000, 480_000}, {1_200_000, 4_800_000}]
 
       for {interval_ms, ceiling_ms} <- expected do
         :ok = PollCadence.publish_effective_interval_ms(interval_ms)
 
         assert SnapshotStore.stale_age_ceiling_ms() == ceiling_ms
+      end
+    end
+
+    test "the hard ceiling stays above the adaptive window's cap" do
+      # If they resolved to the same number the ceiling would always fire first
+      # and the load-aware window would be dead code.
+      for %{interval_ms: interval_ms} <- @cadences do
+        :ok = PollCadence.publish_effective_interval_ms(interval_ms)
+
+        assert SnapshotStore.stale_age_ceiling_ms() > PollCadence.snapshot_tolerance_ms(60_000)
       end
     end
 
@@ -113,35 +126,54 @@ defmodule Aiur.CadenceFreshnessTest do
     test "a backlogged orchestrator does not flap stale inside one cadence" do
       # The reported symptom: at a 120s poll the fixed 15s tolerance held for
       # ~87% of every cycle, so a healthy fleet announced staleness continuously
-      # while the Orchestrator was merely busy.
-      :ok = PollCadence.publish_effective_interval_ms(120_000)
-      orchestrator = start_orchestrator()
-      backlog(orchestrator, 5)
-      publish_aged(orchestrator, 100_000)
+      # while the Orchestrator was merely busy. Asserted at every cadence, with
+      # a mailbox present so the backlog path is actually reachable.
+      expected = [
+        {5_000, 14_000, 16_000, 15_000},
+        {120_000, 200_000, 250_000, 240_000},
+        {1_200_000, 2_000_000, 2_500_000, 2_400_000}
+      ]
 
-      tolerance_ms = PollCadence.snapshot_tolerance_ms(@read_timeout_ms)
+      for {interval_ms, fresh_age_ms, stale_age_ms, window_ms} <- expected do
+        :ok = PollCadence.publish_effective_interval_ms(interval_ms)
+        orchestrator = start_orchestrator()
+        backlog(orchestrator, 5)
 
-      assert {:current, _snapshot, metadata} = SnapshotStore.read(orchestrator, tolerance_ms)
-      assert metadata.orchestrator_mailbox_depth == 5
-      assert metadata.freshness_window_ms == 240_000
+        tolerance_ms = PollCadence.snapshot_tolerance_ms(@read_timeout_ms)
+        assert tolerance_ms == window_ms
 
-      # ...and the backlog path still fires once the producer is genuinely
-      # behind its own cadence.
-      publish_aged(orchestrator, 300_000)
+        publish_aged(orchestrator, fresh_age_ms)
 
-      assert {:stale, _snapshot, stale_metadata} = SnapshotStore.read(orchestrator, tolerance_ms)
-      assert stale_metadata.reason in [:snapshot_timeout, :snapshot_stalled]
+        assert {:current, _snapshot, metadata} = SnapshotStore.read(orchestrator, tolerance_ms),
+               "cadence #{interval_ms}ms: a busy orchestrator flapped stale at #{fresh_age_ms}ms"
+
+        assert metadata.orchestrator_mailbox_depth == 5
+        assert metadata.freshness_window_ms == window_ms
+
+        # ...and the backlog path still fires once the producer is genuinely
+        # behind its own cadence.
+        publish_aged(orchestrator, stale_age_ms)
+
+        assert {:stale, _snapshot, stale_metadata} = SnapshotStore.read(orchestrator, tolerance_ms),
+               "cadence #{interval_ms}ms: a #{stale_age_ms}ms-old snapshot was reported current"
+
+        assert stale_metadata.reason in [:snapshot_timeout, :snapshot_stalled]
+      end
     end
 
     test "a reader that demands zero tolerance still gets it" do
       # Correctness-critical reads must be able to refuse any staleness at all;
-      # the cadence floor is a reader default, never an override.
+      # the cadence floor is a reader default, never an override. Driven through
+      # the same derivation the dashboard readers use, so a configured
+      # `snapshot_timeout_ms: 0` is proven to survive it rather than assumed to.
       :ok = PollCadence.publish_effective_interval_ms(1_200_000)
       orchestrator = start_orchestrator()
       backlog(orchestrator, 1)
       publish_aged(orchestrator, 5)
 
-      assert {:stale, _snapshot, metadata} = SnapshotStore.read(orchestrator, 0)
+      assert PollCadence.snapshot_tolerance_ms(0) == 0
+
+      assert {:stale, _snapshot, metadata} = SnapshotStore.read(orchestrator, PollCadence.snapshot_tolerance_ms(0))
       assert metadata.reason == :snapshot_timeout
     end
   end
@@ -165,13 +197,28 @@ defmodule Aiur.CadenceFreshnessTest do
     end
 
     test "a genuinely old fleet view is still dropped at every cadence" do
-      status = %{health: :healthy, freshness: %{status: :stale, age_seconds: 100_000}}
+      # One second past each window, not an implausibly large age: a 27-hour-old
+      # view would be rejected by almost any threshold, including a broken one.
+      expected = [{5_000, 301}, {120_000, 301}, {1_200_000, 2_401}]
 
-      for %{name: name, interval_ms: interval_ms} <- @cadences do
+      for {interval_ms, age_seconds} <- expected do
+        status = %{health: :healthy, freshness: %{status: :stale, age_seconds: age_seconds}}
         :ok = PollCadence.publish_effective_interval_ms(interval_ms)
 
         refute Sources.current_status?(Sources.normalize(%{status: status})),
-               "#{name}: a 100_000s-old fleet view was still admitted"
+               "cadence #{interval_ms}ms: a #{age_seconds}s-old fleet view was still admitted"
+      end
+    end
+
+    test "a fleet view one second inside the window is still admitted" do
+      expected = [{5_000, 299}, {120_000, 299}, {1_200_000, 2_399}]
+
+      for {interval_ms, age_seconds} <- expected do
+        status = %{health: :healthy, freshness: %{status: :stale, age_seconds: age_seconds}}
+        :ok = PollCadence.publish_effective_interval_ms(interval_ms)
+
+        assert Sources.current_status?(Sources.normalize(%{status: status})),
+               "cadence #{interval_ms}ms: a #{age_seconds}s-old fleet view was dropped"
       end
     end
 

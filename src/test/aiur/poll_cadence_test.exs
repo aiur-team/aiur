@@ -29,12 +29,24 @@ defmodule Aiur.PollCadenceTest do
       assert PollCadence.effective_interval_ms() == 1_200_000
     end
 
-    test "ignores a non-positive published value" do
+    test "a non-positive publish leaves the last real cadence in force" do
+      # A momentary "poll now" reschedule is not evidence the rhythm changed,
+      # so it must neither be stored nor reset the learned value.
+      :ok = PollCadence.publish_effective_interval_ms(120_000)
       :ok = PollCadence.publish_effective_interval_ms(0)
       :ok = PollCadence.publish_effective_interval_ms(nil)
+      :ok = PollCadence.publish_effective_interval_ms(-1)
 
-      assert PollCadence.effective_interval_ms(base_interval_ms: 30_000, webhook_widen_factor: 1.0, idle_widen_factor: 1.0) ==
-               30_000
+      assert PollCadence.effective_interval_ms() == 120_000
+    end
+
+    test "a remote poll interval cannot widen freshness without bound" do
+      # `X-Poll-Interval` reaches the published value uncapped, so a throttling
+      # server could otherwise decide how long Aiur calls its own data fresh.
+      :ok = PollCadence.publish_effective_interval_ms(86_400_000)
+
+      assert PollCadence.effective_interval_ms() == 3_600_000
+      assert PollCadence.stale_after_ms(4) == 14_400_000
     end
 
     test "falls back to the widest cadence the configuration permits" do
@@ -73,6 +85,16 @@ defmodule Aiur.PollCadenceTest do
 
       :ok = PollCadence.publish_effective_interval_ms(1_200_000)
       assert PollCadence.stale_after_ms(2, floor_ms: 120_000) == 2_400_000
+    end
+
+    test "an explicit zero floor means zero tolerance and is not widened" do
+      # A correctness-critical reader must be able to refuse any staleness. The
+      # cadence is a default for readers that have not stated one, never an
+      # override of a reader that has.
+      :ok = PollCadence.publish_effective_interval_ms(1_200_000)
+
+      assert PollCadence.stale_after_ms(2, floor_ms: 0) == 0
+      assert PollCadence.snapshot_tolerance_ms(0) == 0
     end
   end
 
