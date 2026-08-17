@@ -398,6 +398,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       capacity: Slots.max_concurrent_agent_status(state),
       capacity_hold: capacity_hold_payload(state, now_ms),
       dispatch_hold: dispatch_hold_payload(state, now_ms),
+      orphaned_agent_reap_count: state.orphaned_agent_reap_count,
       globally_paused: state.globally_paused == true,
       global_pause: %{
         globally_paused: state.globally_paused == true,

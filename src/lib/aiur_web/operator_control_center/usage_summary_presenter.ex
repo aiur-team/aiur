@@ -552,10 +552,10 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
     }
   end
 
-  defp retained_interval_label(:full), do: "Full retained interval"
-  defp retained_interval_label(:partial), do: "Partial retained interval"
-  defp retained_interval_label(:missing), do: "Retained interval unavailable"
-  defp retained_interval_label(_status), do: "Retained interval unknown"
+  defp retained_interval_label(:full), do: "Full period covered"
+  defp retained_interval_label(:partial), do: "Part of the period covered"
+  defp retained_interval_label(:missing), do: "Period coverage unavailable"
+  defp retained_interval_label(_status), do: "Period coverage unknown"
 
   # --- reconciliation ------------------------------------------------------
 
@@ -639,7 +639,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
 
   # --- announcement helpers ------------------------------------------------
 
-  defp scope_sentence(:stale, view), do: "#{view.scope.label} usage, stale last known-good values."
+  defp scope_sentence(:stale, view), do: "#{view.scope.label} usage, showing the values we last read."
   defp scope_sentence(_state, view), do: "#{view.scope.label} usage."
 
   defp tokens_sentence(%{any?: false}), do: "No tokens recorded."

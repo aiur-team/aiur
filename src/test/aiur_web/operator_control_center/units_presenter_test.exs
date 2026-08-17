@@ -75,7 +75,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert catalog.status == :ready
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
     assert view.counts.active == 1
-    refute UnitsPresenter.announcement(view) =~ "No units have been observed"
+    refute UnitsPresenter.announcement(view) =~ "No units in this run yet"
   end
 
   test "provider failure is named unavailable instead of becoming a healthy empty catalog" do
@@ -86,7 +86,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       )
 
     assert catalog.status == :unavailable
-    assert catalog.message == "current-run membership is unavailable"
+    assert catalog.message == "Fleet data is unavailable."
     assert catalog.snapshot.rows == []
     assert catalog.snapshot.health.membership == :unavailable
     assert catalog.snapshot.health.activity == :unavailable
@@ -95,7 +95,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert view.total_count == nil
     assert view.count_status == :unavailable
     assert Enum.all?(view.counts, fn {_name, count} -> is_nil(count) end)
-    assert UnitsPresenter.announcement(view) =~ "Units catalog unavailable"
+    assert UnitsPresenter.announcement(view) =~ "No live units"
     refute UnitsPresenter.announcement(view) =~ "0 of 0"
   end
 
@@ -114,7 +114,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
     assert view.count_status == :partial
     assert view.counts.active == 1
-    assert catalog.message == "current-run membership is unavailable"
+    assert catalog.message == "Fleet data is unavailable."
   end
 
   test "truncated membership qualifies every catalog count as a lower bound" do
@@ -153,7 +153,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert length(before.rows) == length(after_update.rows)
     refute before.revision == after_update.revision
     refute UnitsPresenter.announcement(before) == UnitsPresenter.announcement(after_update)
-    assert UnitsPresenter.announcement(after_update) =~ ~r/Catalog update [a-f0-9]{10}/
+    assert UnitsPresenter.announcement(after_update) =~ ~r/Update [a-f0-9]{10}/
   end
 
   test "unknown membership health never renders as a healthy empty catalog" do
@@ -164,7 +164,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       )
 
     assert catalog.status == :unavailable
-    assert catalog.message == "Units catalog is unavailable."
+    assert catalog.message == "Fleet data is unavailable."
     assert catalog.snapshot.health.membership == :unknown
   end
 
@@ -183,8 +183,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       )
 
     assert catalog.status == :stale
-    assert catalog.message =~ "last-known-good Units catalog"
-    assert catalog.message =~ "5m 42s old"
+    assert catalog.message =~ "Showing the units we last saw"
+    assert catalog.message =~ "5m 42s ago"
     refute catalog.message =~ "membership is healthy"
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
   end
@@ -236,7 +236,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert catalog.snapshot.rows == []
     assert catalog.status == :stale
-    assert catalog.message =~ "fleet snapshot refresh is degraded"
+    assert catalog.message =~ "Fleet updates are running behind"
   end
 
   # The window is exclusive at its boundary, and both surfaces agree there: the
@@ -322,7 +322,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       )
 
     assert catalog.status == :stale
-    assert catalog.message == "Showing the last-known-good Units catalog while the fleet snapshot is unavailable."
+    assert catalog.message == "Showing the units we last saw. Fleet data is unavailable."
     refute catalog.message =~ "healthy"
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
   end
@@ -343,8 +343,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert catalog.status == :stale
     assert catalog.snapshot.rows == []
-    assert catalog.message == "No last-known-good Units catalog is retained while the fleet snapshot is unavailable."
-    refute catalog.message =~ "Showing the last-known-good"
+    assert catalog.message == "No live units. Fleet data is unavailable."
+    refute catalog.message =~ "Showing the units we last saw"
   end
 
   test "a reconciling membership is stale without claiming membership is healthy" do
@@ -357,7 +357,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     catalog = UnitsPresenter.load(payload(alpha), membership_fun: reconciling, activity_fun: fn -> %{entries: []} end)
 
     assert catalog.status == :stale
-    assert catalog.message == "Showing the last-known-good Units catalog while current-run membership reconciles."
+    assert catalog.message == "Showing the units we last saw. Still counting units for this run."
     refute catalog.message =~ "healthy"
   end
 

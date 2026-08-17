@@ -115,7 +115,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `worker.ssh_hosts` | array | `[]` | SSH hosts available for remote execution. |
+| `worker.ssh_hosts` | array | `[]` | SSH hosts available for remote execution. Each server must allow `BASH_ENV`, `ENV`, `HOME`, and `ZDOTDIR` through OpenSSH `AcceptEnv`; Aiur neutralizes them before the account shell starts and fails closed if the server rejects them. |
 | `worker.max_concurrent_agents_per_host` | integer or nil | nil | Per-host concurrent-agent cap. |
 
 ## agent

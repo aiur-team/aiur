@@ -194,6 +194,7 @@ defmodule Aiur.Application do
       {Task.Supervisor, name: Aiur.TaskSupervisor},
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
+      Aiur.DecisionDispatchTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
