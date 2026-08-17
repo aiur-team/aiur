@@ -390,34 +390,61 @@ defmodule Aiur.AgentControlCLI do
     timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
     json? = Keyword.get(opts, :json, false)
     consumer_id = Claims.resolve_consumer_id(opts)
-
-    {role, holder} =
-      case Claims.claim(consumer_id) do
-        {:ok, _entry} ->
-          {:owner, nil}
-
-        {:error, {:held_by, owner}} ->
-          _ = Claims.observe(consumer_id)
-          {:observer, owner}
-
-        {:error, _reason} ->
-          {:observer, nil}
-      end
+    {role, holder} = executor_wait_role(consumer_id)
 
     announce_executor_peers(consumer_id, holder)
-    executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?)
+
+    # A quiet wait can outlast a lease, and an owner that silently expired
+    # mid-wait would be refused its own acknowledgement and re-read the same
+    # records forever. Renew from a helper process for as long as the wait runs.
+    renewer = start_lease_renewer(consumer_id)
+
+    try do
+      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?)
+    after
+      stop_lease_renewer(renewer)
+    end
+  end
+
+  defp executor_wait_role(consumer_id) do
+    case Claims.claim(consumer_id) do
+      {:ok, _entry} ->
+        {:owner, nil}
+
+      {:error, {:held_by, owner}} ->
+        _ = Claims.observe(consumer_id)
+        {:observer, owner}
+
+      {:error, reason} ->
+        control_error(
+          "aiur: could not claim the wake stream (#{format_reason(reason)}); reading as observer, " <>
+            "so the shared cursor will not advance"
+        )
+
+        {:observer, nil}
+    end
+  end
+
+  defp start_lease_renewer(consumer_id) do
+    interval = max(div(Claims.lease_ttl_ms(), 3), 1_000)
+    spawn_link(fn -> renew_lease_forever(consumer_id, interval) end)
+  end
+
+  defp renew_lease_forever(consumer_id, interval) do
+    Process.sleep(interval)
+    _ = Claims.renew(consumer_id)
+    renew_lease_forever(consumer_id, interval)
+  end
+
+  defp stop_lease_renewer(pid) do
+    Process.unlink(pid)
+    Process.exit(pid, :kill)
+    :ok
   end
 
   defp executor_wait_result({:ok, records}, consumer_id, role, json?) do
     print_executor_wakes(records, json?, role)
-
-    if role == :owner do
-      case ExecutorWakeInbox.acknowledge_as(consumer_id, records) do
-        :ok -> :ok
-        {:error, _reason} -> :ok
-      end
-    end
-
+    acknowledge_executor_wakes(records, consumer_id, role)
     exit_marker(0)
   end
 
@@ -426,6 +453,27 @@ defmodule Aiur.AgentControlCLI do
   defp executor_wait_result({:error, reason}, _consumer_id, _role, _json?) do
     control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
     exit_marker(1)
+  end
+
+  defp acknowledge_executor_wakes(_records, _consumer_id, :observer), do: :ok
+
+  defp acknowledge_executor_wakes(records, consumer_id, :owner) do
+    case ExecutorWakeInbox.acknowledge_as(consumer_id, records) do
+      :ok ->
+        :ok
+
+      # Never swallowed: an unacknowledged batch means the cursor did not move
+      # and these same records come back next wait, which reads as a working
+      # consumer looping. Say so instead.
+      {:error, {:not_owner, owner}} ->
+        control_error(
+          "aiur: these wakes were NOT acknowledged - the claim is now held by " <>
+            "#{(owner && owner["id"]) || "nobody"}, so the cursor did not advance and they will be delivered again"
+        )
+
+      {:error, reason} ->
+        control_error("aiur: these wakes were NOT acknowledged (#{format_reason(reason)}); the cursor did not advance")
+    end
   end
 
   # An agent that finds a peer tells the operator, unprompted, with the evidence
@@ -491,9 +539,16 @@ defmodule Aiur.AgentControlCLI do
   @spec executor_release(keyword()) :: :ok
   def executor_release(opts \\ []) do
     consumer_id = Claims.resolve_consumer_id(opts)
-    :ok = Claims.release(consumer_id)
-    IO.puts("RELEASED #{consumer_id}")
-    exit_marker(0)
+
+    case Claims.release(consumer_id) do
+      :ok ->
+        IO.puts("RELEASED #{consumer_id}")
+        exit_marker(0)
+
+      {:error, reason} ->
+        control_error("aiur: executor release failed (#{format_reason(reason)})")
+        exit_marker(1)
+    end
   end
 
   @doc """

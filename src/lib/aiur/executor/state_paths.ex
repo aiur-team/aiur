@@ -16,6 +16,7 @@ defmodule Aiur.Executor.StatePaths do
   """
 
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.RepoBase
 
   @legacy_names %{
@@ -87,10 +88,8 @@ defmodule Aiur.Executor.StatePaths do
   def claims_path, do: Path.join(dir(), "#{Paths.repo_name()}.executor.claims.json")
 
   @spec path_for(atom()) :: Path.t()
-  def path_for(key) when is_map_key(@legacy_names, key) do
-    ensure()
-    Path.join(dir(), "#{Paths.repo_name()}.#{Map.fetch!(@legacy_names, key)}")
-  end
+  def path_for(key) when is_map_key(@legacy_names, key),
+    do: Path.join(dir(), "#{Paths.repo_name()}.#{Map.fetch!(@legacy_names, key)}")
 
   @doc false
   @spec legacy_path(atom()) :: Path.t()
@@ -100,12 +99,28 @@ defmodule Aiur.Executor.StatePaths do
   defp resolve_dir do
     case repo_slug() do
       slug when is_binary(slug) and slug != "" -> RepoBase.executor_path("https://github.com/#{slug}.git")
-      _ -> Path.join([RepoBase.state_root(), "_unresolved", Paths.project_name(), "executor"])
+      _unresolved -> Path.join([RepoBase.state_root(), "_unresolved", Paths.project_name(), "executor"])
     end
   end
 
+  # `GitHubConfig.repo/0` can shell out to `git` when `tracker.github.repo` is
+  # unset, and this sits on append and replay paths. Resolve it once per node:
+  # one key, rewritten only when the answer actually changes, so a run cannot
+  # split its journal across two directories part-way through either.
   defp repo_slug do
-    Aiur.GitHub.Config.repo()
+    case :persistent_term.get({__MODULE__, :repo_slug}, :unresolved) do
+      :unresolved ->
+        slug = safe_repo_slug()
+        if is_binary(slug) and slug != "", do: :persistent_term.put({__MODULE__, :repo_slug}, slug)
+        slug
+
+      slug ->
+        slug
+    end
+  end
+
+  defp safe_repo_slug do
+    GitHubConfig.repo()
   rescue
     _error -> nil
   catch

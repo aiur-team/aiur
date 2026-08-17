@@ -55,6 +55,11 @@ if config_env() == :test do
   # Recording cases supervise their own pair against their own state directory.
   config :aiur, :executor_recording?, false
 
+  # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
+  # a real run. A case that touches it without TestSupport's per-test root would
+  # otherwise write to the developer's own machine-local state.
+  config :aiur, :executor_state_dir, Path.join(System.tmp_dir!(), "aiur-test-executor-state")
+
   # The shared app's Ad Hoc overlay poller must not reach GitHub across
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.

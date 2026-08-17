@@ -61,6 +61,7 @@ defmodule Aiur.TestSupport do
     :global_pause_store_path,
     :github_resource_store_path,
     :repo_base_root,
+    :executor_state_dir,
     :loadavg_source_override,
     :proc_stat_source_override
   ]
@@ -230,6 +231,12 @@ defmodule Aiur.TestSupport do
         Application.put_env(:aiur, :proc_stat_source_override, Aiur.TestSupport.quiet_proc_stat_source())
 
         Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))
+
+        # Durable Executor state (journal, wake ledger, cursor, subscriptions,
+        # claims) lives at a per-repository path that survives a restart. That
+        # is exactly what makes it leak across cases without a per-test root:
+        # one case's journal is another's replay input.
+        Application.put_env(:aiur, :executor_state_dir, Path.join([workflow_root, "executor-state"]))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Aiur.TestSupport.prepare_workflow_file_path!(workflow_root)

@@ -3,7 +3,7 @@ defmodule Aiur.Executor.Claims do
   Leased ownership of the Executor wake stream, plus the liveness evidence a
   roster needs.
 
-  Draining the wake inbox is destructive: `acknowledge/2` advances a shared
+  Draining the wake inbox is destructive: acknowledging advances a shared
   cursor, so two consumers that both acknowledge silently split the stream and
   neither can tell. Ownership makes that explicit.
 
@@ -22,17 +22,42 @@ defmodule Aiur.Executor.Claims do
   Nothing here inspects the environment to decide whether a caller "is an
   agent". Consumption is an explicit claim that auto-claims when nobody holds
   it, which is both simpler and correct in the cases a heuristic gets wrong.
+
+  ## Concurrency
+
+  The store is one JSON file at a per-repository path, so two Aiur daemons on
+  one host working the same repository share it. A plain read-modify-write would
+  let one daemon's stale read erase the other's fresh claim — and the loser
+  would then stop acknowledging while still reporting itself healthy, which is
+  precisely the undiagnosable split this module exists to prevent. Every
+  mutation therefore runs under an `O_EXCL` lockfile beside the store, with a
+  bounded wait and a stale-lock break, so read and write form one critical
+  section across processes as well as inside one VM.
+
+  Lease arithmetic is wall-clock: a file-shared lease has no other common time
+  base. A backward clock step extends live leases and a forward step expires
+  them early; both resolve on the next renew, and neither can produce two live
+  owners, because the takeover check itself runs under the lock.
   """
 
   use GenServer
 
+  require Logger
+
   alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
 
-  @default_lease_ttl_ms 120_000
+  # Longer than the default `executor-wait` timeout so a healthy owner blocked
+  # in a quiet wait never expires mid-wait. The CLI renews while it waits, but
+  # the TTL must not depend on that for correctness.
+  @default_lease_ttl_ms 600_000
   # Expired entries stay visible long enough for a roster to explain a takeover,
   # then stop accumulating.
   @retention_ms 86_400_000
+  @lock_timeout_ms 5_000
+  @lock_retry_ms 25
+  # A lockfile older than this belongs to a process that died holding it.
+  @lock_stale_after_seconds 60
 
   @type entry :: map()
 
@@ -74,19 +99,36 @@ defmodule Aiur.Executor.Claims do
   @spec revoke(String.t(), keyword()) :: {:ok, entry()} | {:error, :not_owner | :no_owner | term()}
   def revoke(id, opts \\ []) when is_binary(id), do: call({:revoke, id, opts})
 
-  @doc "Records that `id` acknowledged records up to `cursor`."
-  @spec record_acknowledgement(String.t(), non_neg_integer(), keyword()) :: {:ok, entry()} | {:error, term()}
+  @doc """
+  Records that `id` acknowledged records up to `cursor`.
+
+  Refuses unless `id` is still the live owner. The caller checked ownership
+  before draining; this is the point at which that check must still hold, and it
+  is made inside the same locked section that writes the evidence.
+  """
+  @spec record_acknowledgement(String.t(), non_neg_integer(), keyword()) ::
+          {:ok, entry()} | {:error, {:not_owner, entry() | nil} | term()}
   def record_acknowledgement(id, cursor, opts \\ []) when is_binary(id) and is_integer(cursor),
     do: call({:record_acknowledgement, id, cursor, opts})
 
-  @doc "Stores a roster observation so the next roster read can tell whether the cursor moved."
-  @spec record_observation(String.t(), map(), keyword()) :: {:ok, entry()} | {:error, term()}
-  def record_observation(id, observation, opts \\ []) when is_binary(id) and is_map(observation),
-    do: call({:record_observation, id, observation, opts})
+  @doc "Stores one roster observation for every consumer, in a single write."
+  @spec record_observations(map(), keyword()) :: :ok | {:error, term()}
+  def record_observations(observation, opts \\ []) when is_map(observation),
+    do: call({:record_observations, observation, opts})
 
   @doc "The live owner, if one holds the lease right now."
   @spec owner(keyword()) :: {:ok, entry()} | :none
-  def owner(opts \\ []), do: call({:owner, opts})
+  def owner(opts \\ []) do
+    now = Keyword.get(opts, :now) || DateTime.utc_now()
+
+    opts
+    |> entries()
+    |> Enum.find(&(&1["role"] == "owner" and live?(&1, now)))
+    |> case do
+      nil -> :none
+      entry -> {:ok, entry}
+    end
+  end
 
   @doc "Every recorded consumer, most recently renewed first."
   @spec entries(keyword()) :: [entry()]
@@ -120,7 +162,7 @@ defmodule Aiur.Executor.Claims do
   def live?(%{"lease_expires_at" => expires}, now) when is_binary(expires) do
     case DateTime.from_iso8601(expires) do
       {:ok, at, _offset} -> DateTime.compare(at, now) == :gt
-      _ -> false
+      _invalid -> false
     end
   end
 
@@ -130,145 +172,103 @@ defmodule Aiur.Executor.Claims do
 
   @impl true
   def init(opts) do
+    StatePaths.ensure()
     {:ok, %{path: Keyword.get(opts, :path)}}
   end
 
   @impl true
-  def handle_call({:owner, opts}, _from, state) do
-    now = now(opts)
-
-    reply =
-      state
-      |> read(opts)
-      |> Map.values()
-      |> Enum.find(&(&1["role"] == "owner" and live?(&1, now)))
-      |> case do
-        nil -> :none
-        entry -> {:ok, entry}
-      end
-
-    {:reply, reply, state}
-  end
-
   def handle_call({:entries, opts}, _from, state) do
     entries =
       state
-      |> read(opts)
+      |> path(opts)
+      |> read_at(opts)
       |> Map.values()
-      |> Enum.sort_by(& &1["last_renewed_at"], &>=/2)
+      |> Enum.sort_by(&renewed_at/1, {:desc, DateTime})
 
     {:reply, entries, state}
   end
 
   def handle_call({:claim, id, opts}, _from, state) do
-    now = now(opts)
-    consumers = read(state, opts)
-
-    case Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now) and &1["id"] != id)) do
-      nil ->
-        entry = touch(consumers, id, "owner", now, opts)
-        {:reply, write(state, opts, Map.put(consumers, id, entry), entry), state}
-
-      holder ->
-        {:reply, {:error, {:held_by, holder}}, state}
-    end
+    {:reply, mutate(state, opts, &do_claim(&1, id, opts)), state}
   end
 
   def handle_call({:observe, id, opts}, _from, state) do
-    now = now(opts)
-    consumers = read(state, opts)
-    entry = touch(consumers, id, "observer", now, opts)
-    {:reply, write(state, opts, Map.put(consumers, id, entry), entry), state}
+    {:reply, mutate(state, opts, &{:ok, touch(&1, id, "observer", now(opts), opts)}), state}
   end
 
   def handle_call({:renew, id, opts}, _from, state) do
-    now = now(opts)
-    consumers = read(state, opts)
-
-    case Map.fetch(consumers, id) do
-      {:ok, existing} ->
-        entry = touch(consumers, id, existing["role"], now, opts)
-        {:reply, write(state, opts, Map.put(consumers, id, entry), entry), state}
-
-      :error ->
-        {:reply, {:error, :unknown_consumer}, state}
-    end
+    {:reply, mutate(state, opts, &do_renew(&1, id, opts)), state}
   end
 
   def handle_call({:release, id, opts}, _from, state) do
-    consumers = read(state, opts)
-    {:reply, write(state, opts, Map.delete(consumers, id), :ok), state}
+    {:reply, unwrap_ok(mutate(state, opts, &{:replace, Map.delete(&1, id)})), state}
   end
 
   def handle_call({:revoke, id, opts}, _from, state) do
-    now = now(opts)
-    consumers = read(state, opts)
-    owner = Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now)))
-
-    cond do
-      is_nil(owner) ->
-        {:reply, {:error, :no_owner}, state}
-
-      owner["id"] != id ->
-        {:reply, {:error, :not_owner}, state}
-
-      true ->
-        revoked = owner |> Map.put("role", "revoked") |> Map.put("lease_expires_at", iso(now)) |> Map.put("revoked_at", iso(now))
-        {:reply, write(state, opts, Map.put(consumers, id, revoked), revoked), state}
-    end
+    {:reply, mutate(state, opts, &do_revoke(&1, id, opts)), state}
   end
 
   def handle_call({:record_acknowledgement, id, cursor, opts}, _from, state) do
+    {:reply, mutate(state, opts, &do_record_acknowledgement(&1, id, cursor, opts)), state}
+  end
+
+  def handle_call({:record_observations, observation, opts}, _from, state) do
+    {:reply, unwrap_ok(mutate(state, opts, &put_observation(&1, observation))), state}
+  end
+
+  ## ---- mutations, all executed under the store lock ----
+
+  defp do_claim(consumers, id, opts) do
     now = now(opts)
-    consumers = read(state, opts)
 
+    case Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now) and &1["id"] != id)) do
+      nil -> {:ok, touch(consumers, id, "owner", now, opts)}
+      holder -> {:error, {:held_by, holder}}
+    end
+  end
+
+  defp do_renew(consumers, id, opts) do
     case Map.fetch(consumers, id) do
-      {:ok, existing} ->
-        entry =
-          existing
-          |> Map.merge(%{
-            "last_acknowledged_at" => iso(now),
-            "acknowledged_count" => (existing["acknowledged_count"] || 0) + 1,
-            "cursor_at_last_ack" => cursor,
-            "last_renewed_at" => iso(now),
-            "lease_expires_at" => iso(DateTime.add(now, lease_ttl_ms(), :millisecond))
-          })
-
-        {:reply, write(state, opts, Map.put(consumers, id, entry), entry), state}
-
-      :error ->
-        {:reply, {:error, :unknown_consumer}, state}
+      {:ok, existing} -> {:ok, touch(consumers, id, existing["role"], now(opts), opts)}
+      :error -> {:error, :unknown_consumer}
     end
   end
 
-  def handle_call({:record_observation, id, observation, opts}, _from, state) do
-    consumers = read(state, opts)
+  defp do_revoke(consumers, id, opts) do
+    now = now(opts)
+    owner = Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now)))
 
-    case Map.fetch(consumers, id) do
-      {:ok, existing} ->
-        entry = Map.put(existing, "observation", observation)
-        {:reply, write(state, opts, Map.put(consumers, id, entry), entry), state}
-
-      :error ->
-        {:reply, {:error, :unknown_consumer}, state}
+    cond do
+      is_nil(owner) -> {:error, :no_owner}
+      owner["id"] != id -> {:error, :not_owner}
+      true -> {:ok, Map.merge(owner, %{"role" => "revoked", "lease_expires_at" => iso(now), "revoked_at" => iso(now)})}
     end
   end
 
-  ## ---- internals ----
+  # The ownership check lives here, inside the locked section, rather than in the
+  # caller. Checking before the drain and advancing after it left a window in
+  # which a revoke or an expiry could land between the two.
+  defp do_record_acknowledgement(consumers, id, cursor, opts) do
+    now = now(opts)
 
-  defp call(message) do
-    case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) -> GenServer.call(pid, message, 15_000)
-      _ -> handle_without_server(message)
+    case Enum.find(Map.values(consumers), &(&1["role"] == "owner" and live?(&1, now))) do
+      %{"id" => ^id} = existing -> {:ok, acknowledged(existing, cursor, now)}
+      other -> {:error, {:not_owner, other}}
     end
   end
 
-  # The claims store is a file, so a CLI path that runs before (or without) the
-  # supervised server still resolves correctly. The server only serializes
-  # concurrent writers inside one daemon.
-  defp handle_without_server(message) do
-    {:reply, reply, _state} = handle_call(message, nil, %{path: nil})
-    reply
+  defp acknowledged(existing, cursor, now) do
+    Map.merge(existing, %{
+      "last_acknowledged_at" => iso(now),
+      "acknowledged_count" => (existing["acknowledged_count"] || 0) + 1,
+      "cursor_at_last_ack" => cursor,
+      "last_renewed_at" => iso(now),
+      "lease_expires_at" => iso(DateTime.add(now, lease_ttl_ms(), :millisecond))
+    })
+  end
+
+  defp put_observation(consumers, observation) do
+    {:replace, Map.new(consumers, fn {id, entry} -> {id, Map.put(entry, "observation", observation)} end)}
   end
 
   defp touch(consumers, id, role, now, opts) do
@@ -293,20 +293,117 @@ defmodule Aiur.Executor.Claims do
     if existing["role"] == role and is_binary(existing["claimed_at"]), do: existing["claimed_at"], else: iso(now)
   end
 
-  defp read(state, opts) do
-    case JsonStore.read(path(state, opts), %{}) do
-      {:ok, %{"consumers" => %{} = consumers}} -> prune(consumers, now(opts))
-      _ -> %{}
+  ## ---- store access ----
+
+  defp call(message) do
+    case Process.whereis(__MODULE__) do
+      pid when is_pid(pid) -> GenServer.call(pid, message, 30_000)
+      _no_server -> handle_without_server(message)
     end
   end
 
-  defp write(state, opts, consumers, reply) do
-    JsonStore.write!(path(state, opts), %{"consumers" => prune(consumers, now(opts))})
+  # The claims store is a file, so a CLI path that runs before (or without) the
+  # supervised server still resolves correctly, and correctness across daemons
+  # rests on the lockfile rather than on this GenServer.
+  defp handle_without_server(message) do
+    {:reply, reply, _state} = handle_call(message, nil, %{path: nil})
+    reply
+  end
 
-    case reply do
-      :ok -> :ok
-      entry -> {:ok, entry}
+  # Read and write are one critical section. `update` returns `{:ok, entry}` to
+  # replace one entry, `{:replace, consumers}` to replace the whole map, or
+  # `{:error, reason}` to abort without writing.
+  defp mutate(state, opts, update) do
+    path = path(state, opts)
+
+    with_lock(path, fn ->
+      consumers = read_at(path, opts)
+
+      case update.(consumers) do
+        {:ok, %{"id" => id} = entry} -> write(path, opts, Map.put(consumers, id, entry), {:ok, entry})
+        {:replace, updated} -> write(path, opts, updated, {:ok, :ok})
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp unwrap_ok({:ok, :ok}), do: :ok
+  defp unwrap_ok(other), do: other
+
+  defp with_lock(path, fun), do: acquire_lock(path, fun, @lock_timeout_ms)
+
+  defp acquire_lock(path, fun, remaining_ms) do
+    lock = path <> ".lock"
+
+    case File.open(lock, [:write, :exclusive]) do
+      {:ok, device} ->
+        hold_lock(device, lock, fun)
+
+      {:error, :eexist} ->
+        retry_lock(path, fun, lock, remaining_ms)
+
+      {:error, reason} ->
+        # A store whose directory is unwritable cannot be arbitrated at all.
+        # Fail loudly rather than proceeding unlocked and losing a peer's claim.
+        {:error, {:executor_claims_lock_unavailable, lock, reason}}
     end
+  end
+
+  # `after` has no implicit-function form, so the explicit resource boundary is
+  # required to release this cross-process lease on every exit path.
+  defp hold_lock(device, lock, fun) do
+    # credo:disable-for-next-line Credo.Check.Readability.PreferImplicitTry
+    try do
+      fun.()
+    after
+      File.close(device)
+      File.rm(lock)
+    end
+  end
+
+  defp retry_lock(path, fun, lock, remaining_ms) when remaining_ms > 0 do
+    break_stale_lock(lock)
+    Process.sleep(@lock_retry_ms)
+    acquire_lock(path, fun, remaining_ms - @lock_retry_ms)
+  end
+
+  defp retry_lock(_path, _fun, lock, _remaining_ms), do: {:error, {:executor_claims_lock_timeout, lock}}
+
+  # A holder that died leaves the file behind forever. Break it only once it is
+  # older than any legitimate critical section could last.
+  defp break_stale_lock(lock) do
+    with {:ok, %File.Stat{mtime: mtime}} <- File.stat(lock, time: :posix),
+         true <- System.os_time(:second) - mtime > @lock_stale_after_seconds do
+      Logger.warning("aiur_executor_claims phase=stale_lock_broken path=#{lock}")
+      _ = File.rm(lock)
+    end
+
+    :ok
+  end
+
+  defp read_at(path, opts) do
+    case JsonStore.read(path, %{}) do
+      {:ok, %{"consumers" => %{} = consumers}} -> consumers |> valid_consumers() |> prune(now(opts))
+      _unusable -> %{}
+    end
+  end
+
+  # The file is shared between daemons and is plain JSON on disk, so a truncated,
+  # hand-edited, or older-format entry is a real possibility. Drop what cannot be
+  # interpreted rather than letting it raise inside a roster read.
+  defp valid_consumers(consumers) do
+    consumers |> Enum.filter(&valid_consumer?/1) |> Map.new()
+  end
+
+  defp valid_consumer?({id, %{"id" => id, "role" => role, "lease_expires_at" => expires, "last_renewed_at" => renewed}})
+       when is_binary(id) and is_binary(role) and is_binary(expires) and is_binary(renewed),
+       do: true
+
+  defp valid_consumer?(_entry), do: false
+
+  defp write(path, opts, consumers, reply) do
+    JsonStore.write!(path, %{"consumers" => prune(consumers, now(opts))})
+    reply
   rescue
     error -> {:error, {:executor_claims_unavailable, Exception.message(error)}}
   end
@@ -315,22 +412,20 @@ defmodule Aiur.Executor.Claims do
     floor = DateTime.add(now, -@retention_ms, :millisecond)
 
     consumers
-    |> Enum.filter(fn {_id, entry} -> retain?(entry, floor) end)
+    |> Enum.filter(fn {_id, entry} -> DateTime.compare(renewed_at(entry), floor) == :gt end)
     |> Map.new()
   end
 
-  defp retain?(%{"last_renewed_at" => at}, floor) when is_binary(at) do
+  defp renewed_at(%{"last_renewed_at" => at}) when is_binary(at) do
     case DateTime.from_iso8601(at) do
-      {:ok, renewed, _offset} -> DateTime.compare(renewed, floor) == :gt
-      _ -> false
+      {:ok, renewed, _offset} -> renewed
+      _invalid -> ~U[1970-01-01 00:00:00Z]
     end
   end
 
-  defp retain?(_entry, _floor), do: false
+  defp renewed_at(_entry), do: ~U[1970-01-01 00:00:00Z]
 
-  defp path(state, opts) do
-    Keyword.get(opts, :path) || state[:path] || StatePaths.claims_path()
-  end
+  defp path(state, opts), do: Keyword.get(opts, :path) || state[:path] || StatePaths.claims_path()
 
   defp now(opts), do: Keyword.get(opts, :now) || DateTime.utc_now()
   defp iso(datetime), do: DateTime.to_iso8601(datetime)
@@ -338,10 +433,8 @@ defmodule Aiur.Executor.Claims do
   defp env_id, do: System.get_env("AIUR_EXECUTOR_ID")
 
   defp hostname do
-    case :inet.gethostname() do
-      {:ok, name} -> List.to_string(name)
-      _ -> "unknown-host"
-    end
+    {:ok, name} = :inet.gethostname()
+    List.to_string(name)
   end
 
   defp os_pid, do: System.pid()
@@ -349,7 +442,7 @@ defmodule Aiur.Executor.Claims do
   defp instance_suffix do
     case System.get_env("AIUR_INSTANCE_KEY") do
       key when is_binary(key) and key != "" -> String.slice(key, 0, 12)
-      _ -> "default"
+      _unset -> "default"
     end
   end
 

@@ -1,9 +1,9 @@
 defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
-  alias Aiur.Executor.StatePaths
   alias Aiur.Decision
   alias Aiur.Events.Exchange
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
   alias Aiur.ExecutorListener

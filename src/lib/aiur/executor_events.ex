@@ -440,6 +440,8 @@ defmodule Aiur.ExecutorEvents do
   end
 
   defp append_event(event) do
+    StatePaths.ensure()
+
     with :ok <- DecisionLog.prepare(StatePaths.dir(), journal_path()) do
       DecisionLog.append(journal_path(), event)
     end
