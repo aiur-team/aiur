@@ -8,7 +8,16 @@ A topic-exchange event bus that lets Aiur agents on different tickets coordinate
 - A **payload** (free-form structured data)
 - A monotonic **id** (assigned by `Aiur.Events.IdGenerator`)
 
-Subscribers bind **patterns** (`ticket.42.#`, `*.*.branch.push`). The exchange fans out every published event to every subscriber whose pattern matches.
+Subscribers bind **patterns**, and the exchange fans out every published event
+to every subscriber whose pattern matches. Ticket agents may manually bind only
+patterns rooted at one literal ticket identifier, such as `ticket.42.#` or
+`ticket.42.branch.*`; broader bindings are available only to trusted internal
+consumers.
+
+An agent cannot manually subscribe to `executor.*` or `system.*`, start a
+pattern with a bare `*` or `#`, or wildcard the ticket identifier (for example,
+`ticket.*.branch.push`). These patterns span trusted control-plane or fleet-wide
+traffic and are refused before a binding is created.
 
 ## Why it exists
 
@@ -30,7 +39,7 @@ Agents working on dependent tickets used to coordinate through the Executor (PR 
 |--------|-------------------|
 | **GitHub firehose** | `branch.push`, `pr.opened`, `pr.merged`, `issue.commented`, `pr.review_comment`, etc. for any tracked issue |
 | **`git ls-remote`** | Low-latency `branch.push` override (faster than firehose) |
-| **Agents (you)** | `progress.*`, `decision.*`, `attention.*`, `blocked`, `unblocked`, `custom.*` via `emit_event` |
+| **Agents (you)** | `progress`, `progress.*`, `decision.*`, `attention.*`, `blocked`, `unblocked`, `custom.*` via `emit_event` |
 
 Blockers are tracked through GitHub's native issue-dependency API
 (`aiur_declare_blocker` / `aiur_unblock`); that API drives subscription wiring,

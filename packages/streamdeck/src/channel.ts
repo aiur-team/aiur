@@ -29,6 +29,8 @@
  * support.**
  */
 
+import { normalizeAiurDictation } from "./aiur-speech.js";
+
 export interface StreamDeckAgentState {
   readonly identifier: string;
   readonly status?: string;
@@ -393,7 +395,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       options.events.voice(
         typeof frame.session === "string" ? frame.session : "",
         frame.kind === "final" ? "final" : "partial",
-        typeof frame.text === "string" ? frame.text : "",
+        typeof frame.text === "string" ? normalizeAiurDictation(frame.text) : "",
       );
     }
     else if (event === "voice_error") {

@@ -23,7 +23,11 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     "Provider-reported",
     "Plan tier",
     "Drill down",
-    "Tokens"
+    "Tokens",
+    "OpenRouter",
+    "DeepSeek",
+    "Cost by provider route",
+    "routed through"
   ]
 
   defp snapshot(overrides \\ %{}) do
@@ -45,6 +49,9 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
         by_auth_mode: [contributor(:subscription, "USD", "2.50")],
         by_ticket: [contributor({"acme", "aiur", 42}, "USD", "2.50")],
         by_provider: [],
+        by_provider_route: [
+          contributor(%{provider: :openrouter, upstream_provider: "DeepSeek"}, "USD", "2.50")
+        ],
         by_model: [
           %{key: "claude-sonnet-4", tokens: %{input: 1000, cached_input: 200, output: 500}},
           %{key: "gpt-5.2-codex", tokens: %{input: 300, output: 100}}
@@ -108,6 +115,50 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     assert html =~ ">Reasoning<"
     # A live-region status remains for screen readers.
     assert html =~ ~s(aria-live="polite")
+  end
+
+  test "authorized panel renders route costs immediately after tokens by model" do
+    html = render(ready_view())
+
+    {models_at, _} = :binary.match(html, "Tokens by model")
+    {routes_at, _} = :binary.match(html, "Cost by provider route")
+
+    assert routes_at > models_at
+    assert html =~ "OpenRouter -&gt; DeepSeek"
+    assert html =~ "OpenRouter routed through DeepSeek"
+    assert html =~ ~s(aria-hidden="true")
+    assert html =~ "usage-provider-routes-wrap"
+    assert html =~ ~s(tabindex="0")
+    assert html =~ "Provider-reported estimate"
+    assert html =~ "API-equivalent estimate"
+    assert html =~ "1.25 USD"
+    assert html =~ "2.50 USD"
+  end
+
+  test "route rows show Unknown for absent monetary estimates" do
+    route = %{
+      key: %{provider: :openrouter, upstream_provider: nil},
+      tokens: %{input: 10},
+      provider_reported: %{},
+      api_equivalent: %{amount: %{}, coverage: %{known: 0, unknown: 1, reasons: [], status: :unknown}}
+    }
+
+    snap = snapshot(%{contributors: %{snapshot().contributors | by_provider_route: [route]}})
+    html = render(UsageSummaryPresenter.present(snap))
+
+    assert html =~ "OpenRouter -&gt; upstream unknown"
+    assert html =~ "OpenRouter routed through upstream provider unknown"
+    assert length(String.split(html, ">Unknown<")) == 3
+  end
+
+  test "a direct provider row omits the routing arrow" do
+    route = contributor(%{provider: :deepseek, upstream_provider: nil}, "USD", "1.00")
+    snap = snapshot(%{contributors: %{snapshot().contributors | by_provider_route: [route]}})
+    html = render(UsageSummaryPresenter.present(snap))
+
+    assert html =~ ">DeepSeek<"
+    refute html =~ "DeepSeek -&gt;"
+    refute html =~ "DeepSeek routed through"
   end
 
   test "a model with no additive tokens is omitted from the chart" do

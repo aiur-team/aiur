@@ -1,14 +1,22 @@
 # TUI
 
-The terminal UI (TUI) is the live agent-list board plus opencode chat panes opened into individual agent sessions.
+The terminal UI (TUI) is the live agent-list board plus chat panes opened into individual agent sessions.
 
 ![The aiur TUI: the agent-list board and a chat pane opened into a live agent session](/images/tui/aiur-tui.gif)
 
-The TUI is built on tmux with opencode serving the chat panes, so an Executor can chat with an agent directly in the same terminal where the fleet is visible. Send a message, watch the agent act on it, and interrupt it, all without leaving the board.
+An Executor can chat with an agent directly in the same terminal where the fleet is visible.
+
+| Capability | Result |
+| --- | --- |
+| Fleet board | Shows every active ticket in one terminal. |
+| Chat pane | Sends text to the selected live agent. |
+| Pause and interrupt | Controls work without leaving the board. |
+
+Send a message, watch the agent act on it, and interrupt it without leaving the board.
 
 ## The agent-list board
 
-The board shows one row per ticket. A row carries runtime, turn count, backend, pinned model, work state, and pause reason. A state circle prefixes each row so the operator can read the fleet at a glance:
+The board shows one prefixed row per ticket with runtime, turn count, backend, pinned model, work state, and pause reason:
 
 | Glyph | Meaning |
 | --- | --- |
@@ -45,10 +53,17 @@ Press `?` in the board for the on-screen keybind and state-circle help.
 
 ## Chat panes
 
-Pressing `enter` on a running agent opens its chat pane beside the board. From there an Executor types directly into the live session. Messages queue while the agent is mid-turn and are delivered after the current turn finishes. The opencode runtime and the agent transcript remain the source of truth; the pane is a live window onto it.
-
-Tickets cycle through a small number of conversation slots, so opening many agents reuses earlier slots rather than piling up panes. `max_vertical_panes` caps how many chat panes are visible at once.
+| Chat behavior | What happens |
+| --- | --- |
+| `enter` on running agent | Opens its live conversation beside the board. |
+| Message during a turn | Queues until the current turn finishes. |
+| `max_vertical_panes` | Caps visible chat panes. |
 
 ## Foreground vs. background
 
-The TUI exists only in a foreground run (`aiur` or `aiur --bg --interactive`). `aiur --bg` runs headless with no board or panes and keeps the dashboard and control commands for observation. That is the shape an agent Executor drives. `aiur --debug` additionally records each chat pane to `log/record/chat.<issue>.ansi` while the run is attached, which is the durable record of what a chat pane rendered.
+| Launch | Terminal behavior |
+| --- | --- |
+| `aiur` | Foreground board and chat panes. |
+| `aiur --bg --interactive` | Background daemon with attached TUI. |
+| `aiur --bg` | Headless; Dashboard and CLI remain available for an agent Executor. |
+| `aiur --debug` | Records attached panes at `log/record/chat.<issue>.ansi`. |

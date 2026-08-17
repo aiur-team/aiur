@@ -41,12 +41,17 @@ open_pr_created_at)`:
   so an already-open PR is never hidden by a freshly installed or restarted
   monitor).
 
-The alert includes actionable evidence: ticket/PR, elapsed age, last material
-push, current live-owner state, dispatch/restart count, PR base/merge
-freshness, and (for already-alerted tickets) current CI state when available.
-When a ticket becomes terminal or leaves the run scope, the active advisory is
-resolved and its convergence state is forgotten; a re-opened ticket starts a
-fresh episode.
+The alert carries actionable evidence.
+
+| Evidence | Detail |
+| --- | --- |
+| Identity | Ticket and PR. |
+| Age | Elapsed convergence age. |
+| Activity | Last material push, current live-owner state, and dispatch/restart count. |
+| PR health | Base and merge freshness. |
+| CI | Current state when available, for tickets already alerted. |
+
+A ticket that becomes terminal or leaves the run scope resolves its active advisory and forgets its convergence state; a re-opened ticket starts a fresh episode.
 
 ## tracker
 
@@ -80,37 +85,8 @@ fresh episode.
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
-
-### Choosing a poll interval
-
-Polling spends GitHub GraphQL points at a rate inversely proportional to the
-interval, and that spend is a fixed cost. It does not depend on how many agents
-are running. Against GitHub's 5,000 point/hour budget:
-
-| `interval_seconds` | Approximate poll spend | Worst-case wake latency |
-| --- | --- | --- |
-| 30 | ~5,800 points/hour | 30s |
-| 60 | ~2,900 points/hour | 60s |
-| 120 | ~1,450 points/hour | 2m |
-| 300 | ~580 points/hour | 5m |
-
-At 30 seconds the poll loop alone can exhaust the hourly budget before a single
-agent makes a request, which is why the default is 120. Tightening it below 60
-is only safe on a small fleet.
-
-The figures above are what each interval costs if it is actually applied. GitHub
-also sends an `X-Poll-Interval` header on the repo-events endpoint, 60 seconds
-by default, and Aiur treats it as a floor. The interval actually used is the
-wider of the two, so setting `interval_seconds` below 60 generally does not
-speed polling up, while setting it above 60 does slow polling down.
-
-Widening past 120 seconds is the flat part of the curve: each further step
-saves less quota than the last while the wake latency grows proportionally.
-Aiur's poll is state-based: it reads current issue labels and pull request
-state rather than replaying an event log. A longer interval therefore delays a
-wake but does not lose one. The exception is comment-driven wakes, where a comment
-posted and answered between two polls is not distinguishable from no comment.
 
 ## webhooks
 
@@ -121,33 +97,7 @@ posted and answered between two polls is not distinguishable from no comment.
 | `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
 | `webhooks.poll_widen_factor` | float | 2.0 | Multiplier applied to `polling.interval_seconds` for repos proven webhook-backed. Values below 1.0 are rejected. |
 
-### How widening interacts with polling
-
-Webhooks are the fast path; polling is not removed, it is demoted to a
-reconciliation sweep. The widen factor is what demotes it, and it applies to one
-repo at a time based on that repo's observed state:
-
-| Repo state | Interval used |
-| --- | --- |
-| Never configured for webhooks | `interval_seconds` |
-| Configured but has never delivered | `interval_seconds` |
-| Proven, has delivered at least once | `interval_seconds × poll_widen_factor` |
-| Proven, then silent past the threshold | `interval_seconds` |
-
-Only an observed, signature-verified delivery promotes a repo to the widened
-interval. Configuration alone never does, because configuration says a webhook is
-*expected* and only a delivery proves the App install, the secret, and the ingress
-all work.
-
-The last row is the safety property worth stating on its own: when deliveries
-stop, the silence sweep degrades that repo, the alert names it, and the next poll
-tick is computed at the tighter interval automatically. There is no operator
-action and no separate restore path. A fleet that goes blind polls at full rate
-while it is blind. A delivery arriving later restores webhook mode on its own.
-
-`X-Poll-Interval` and connectivity backoffs remain floors on top of all of this:
-the tick actually used is the widest of the widened interval, GitHub's floor, and
-any active backoff.
+See [GitHub polling and webhooks](/apis/github) for the setup story and runtime states.
 
 ## workspace
 
@@ -168,8 +118,8 @@ any active backoff.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`) — see [Routes in `agent.priority`](#routes-in-agent-priority). Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when an entry hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
-| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Whether dispatch routes away from a provider's peak-pricing window, falling through to the next `agent.priority` entry. `false` means ignore pricing windows entirely and use `agent.priority` exactly as written — it never changes how spend is *reported*. Shape only today; the behaviour lands with time-of-day routing. |
+| `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. Shape only today; time-of-day routing lands later. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -211,8 +161,8 @@ grammar `agent.routing` has always used:
 <backend>[:<model>[:<effort>]][+remote]
 ```
 
-- `claude` — the backend's own direct connection, exactly as before.
-- `openrouter:anthropic/claude-sonnet-5` — that model reached through OpenRouter.
+- `claude`: the backend's own direct connection, exactly as before.
+- `openrouter:anthropic/claude-sonnet-5`: that model reached through OpenRouter.
 
 A colon-free entry means what it has always meant, so **existing configs need
 no change**.
@@ -240,13 +190,12 @@ agent:
 **A model reachable two ways may appear twice, and the order is the fallback
 order.** Duplicate *routes* are rejected; duplicate backends are not.
 
-**Model names.** The canonical form is the provider's full slug, which is also
-the key cost reporting uses. A short family alias works too — `openrouter:claude`
-resolves to the newest `anthropic/claude-*` — and is widened to the concrete
-slug before the request is sent, so aliased calls are priced normally. An alias
-claimed by more than one vendor is rejected at config load rather than resolved
-by coin flip. Aggregator ids beginning with `~` are rejected: they are floating
-pointers whose target can change under a running fleet.
+| Model name | Behavior |
+| --- | --- |
+| Full provider slug | Canonical form and cost-reporting key. |
+| Short family alias | Resolves to the newest matching concrete slug before the request, so normal pricing applies. |
+| Alias claimed by multiple vendors | Rejected during config load. |
+| Aggregator ID beginning with `~` | Rejected because its target can change during a run. |
 
 **OpenRouter needs an explicit model.** It fronts a catalog rather than a
 product, so a bare `openrouter` entry is a config error.
@@ -283,8 +232,7 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### `agent.backend_configs.openrouter`
 
-Settings for the OpenRouter *transport*. Nothing here selects anything —
-selection lives entirely in `agent.priority`.
+These settings control the OpenRouter *transport*; selection lives entirely in `agent.priority`.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
@@ -295,53 +243,39 @@ selection lives entirely in `agent.priority`.
 
 #### Cost attribution
 
-Spend is priced by the **route**, never by whichever upstream ended up serving
-the request. A call through `openrouter:anthropic/claude-sonnet-5` prices
-against OpenRouter's rows for that slug even when the selected upstream was
-Anthropic, because OpenRouter is who bills it. Direct and via-OpenRouter routes
-to the same model are separate identities and may legitimately carry different
-rates.
+| Cost case | Attribution |
+| --- | --- |
+| `openrouter:anthropic/claude-sonnet-5` | Uses OpenRouter's price row because OpenRouter bills the request, even when Anthropic serves it upstream. |
+| Same model through direct and OpenRouter routes | Keeps separate identities and may carry different rates. |
 
-Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
-also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
-live in a sibling `.locks` directory that is excluded from turn-writable roots, preventing
-a sandbox from replacing a held slot. Gate coordination failures return status `125`
-without running Mix. Repair the reported metadata/lock directory, `flock`, or `python3`
-subreaper dependency and
-restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
-old fleet and confirm no old Mix verification is live, then clear only the reported legacy
-records. To disable build admission completely, set `agent.max_concurrent_builds: 0`, set
-`agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This explicit
-opt-out removes every build safeguard; it is never an automatic error fallback.
+Local Codex turns use Aiur's shared build admission.
+
+| Build-gate behavior | Detail |
+| --- | --- |
+| Admission failure | Mix does not run and the ticket reports status `125`. Repair the reported metadata or lock directory, `flock`, or `python3` dependency, then restart or re-dispatch the agent. |
+| `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the legacy records named in the message. |
+| Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
 ## Host-pressure fleet admission
 
-New fleet admissions are admitted against the total observed host pressure, not a
-hard-coded process count. Every signal is optional and fails open when disabled or
-unreadable (e.g. non-Linux hosts):
+Fleet admission uses total host pressure instead of a hard-coded process count, and disabled or unreadable signals fail open.
 
-- **CPU load** (`agent.max_load_average`) and the **adaptive AIMD envelope**
-  (`agent.target_load_average`, `agent.load_ramp_step`, `agent.load_cooldown_seconds`)
-  reduce and re-ramp effective capacity as the 1-minute load crosses its per-scheduler
-  targets. High load or runnable counts hold dispatch only when consecutive CPU
-  samples corroborate real contention; idle and niced CPU count as reclaimable.
-- **Run queue** (`agent.run_queue_threshold`) reacts instantly to `procs_running` spikes
-  that the lagging load average smooths out.
-- **Available memory** (`agent.min_free_memory_mb`), **file descriptors** (a 10% open-file
-  reserve), **concurrent build pressure** (`agent.max_concurrent_builds`), and
-  **configured provider limits** (when every dispatchable backend reports usage-limited)
-  each defer new dispatch while saturated.
-- **Recovery is automatic and bounded**: gates fail open the moment pressure clears, and
-  the AIMD envelope re-ramps within its cooldown window. There is no permanent cap reduction or
-  starvation.
+| Signal | Admission behavior |
+| --- | --- |
+| CPU load and adaptive AIMD envelope | `agent.max_load_average`, `agent.target_load_average`, `agent.load_ramp_step`, and `agent.load_cooldown_seconds` reduce and re-ramp capacity around per-scheduler targets. |
+| Run queue | `agent.run_queue_threshold` reacts to `procs_running` spikes before the one-minute load average catches up. |
+| CPU corroboration | High load or runnable counts hold dispatch only when consecutive CPU samples show less than 60% reclaimable capacity; idle and niced CPU count as reclaimable. |
+| Memory, file descriptors, build pressure, and provider limits | Defer new dispatch while their configured reserve or limit is exhausted. |
+| Recovery | Gates reopen when pressure clears, and AIMD re-ramps within its cooldown window. |
 
-While a hold is active the fleet surfaces the binding signal, pressure threshold,
-and corroborating reclaimable-CPU measurement. Idle dispatchable rows read
-`backing off`, the dashboard/status carry a `capacity_hold` block
-naming the measured signal and threshold, telemetry records `capacity_hold` /
-`capacity_resumed`, and a debounced `system.fleet.capacity.backoff` alert fires so an
-Executor can tell capacity backoff apart from an idle or broken fleet. This limits only
-**new** admissions. Running agents and agent-spawned sub-agents are never terminated.
+| Hold signal | Where it appears |
+| --- | --- |
+| Idle rows | `backing off` |
+| Dashboard and status | `capacity_hold` with the measured signal, threshold, and corroborating reclaimable-CPU measurement |
+| Telemetry | `capacity_hold` and `capacity_resumed` |
+| Alert feed | Debounced `system.fleet.capacity.backoff` |
+
+Holds limit only new admissions. Running agents and agent-spawned sub-agents continue.
 
 ## agent.claude
 
@@ -370,10 +304,9 @@ release models faster than that list is edited, so for OpenAI-compatible backend
 also asks the provider's own catalogue endpoint which models it currently serves, and
 caches the answer.
 
-Discovery **extends** the curated list; it never replaces it. Reasoning-effort
-vocabularies, capability flags, derived family aliases, presentation, and the models
-`aiur init` offers stay registry-owned, and where a discovered id collides with a
-curated one the curated metadata wins.
+Discovery **extends** the curated list without replacing registry-owned effort vocabularies,
+capabilities, family aliases, presentation, or `aiur init` choices, and curated metadata wins
+when an ID collides.
 
 | Backend | Endpoint | Credential | Returns |
 | --- | --- | --- | --- |
@@ -392,7 +325,7 @@ backend straight at it; it returns identifiers and display names, no pricing.
 | --- | --- |
 | Location | `model-catalog.json`, beside the active workflow config and `model-usage.json` |
 | TTL | 24 hours |
-| Refresh trigger | lazy and backgrounded — reading the usable model set (e.g. when an agent session starts) schedules a refresh only if the cache is older than the TTL |
+| Refresh trigger | Lazy and backgrounded; reading the usable model set schedules a refresh only when the cache is older than the TTL. |
 | Cold offline start | the discovered set is empty and aiur uses exactly the curated list, i.e. it behaves as it did before discovery existed |
 | Corrupt cache | treated as absent; falls back to the curated list |
 
@@ -408,22 +341,21 @@ verify is **accepted**, never rejected.
 Two classes of catalogue id are rejected at ingest, with the reason recorded in the
 cache under `rejected`:
 
-- **`reserved_routing_separator`** — an id containing `:`, such as
+- **`reserved_routing_separator`**: an id containing `:`, such as
   `moonshotai/kimi-k2.7-code:batch`. Aiur routing values are `backend:model:effort`, so
   `openrouter:moonshotai/kimi-k2.7-code:batch` would parse `batch` as a reasoning
   effort. Pin such a variant only if and when aiur gains a way to escape the separator.
-- **`unstable_identifier_prefix`** — an id starting with `~`, such as
+- **`unstable_identifier_prefix`**: an id starting with `~`, such as
   `~moonshotai/kimi-latest`, which OpenRouter uses for a non-canonical pointer rather
   than an addressable model.
 
 ### Pricing is advisory
 
-OpenRouter is the only catalogue that quotes prices. Aiur records those numbers in the
-cache and compares them to the curated price table, and stops there. Fetched prices are
-**never** written into the price table, and a curated row always wins. A disagreement
-larger than 5% logs a price-drift warning naming both numbers, which turns a stale
-curated row (the failure mode where output spend is under-reported) into something you
-can see — without letting a vendor feed silently rewrite what aiur reports having spent.
+| Pricing rule | Behavior |
+| --- | --- |
+| Fetched OpenRouter price | Recorded in the cache for comparison but never written into the curated price table. |
+| Curated row | Always wins attribution. |
+| Difference above 5% | Logs both numbers as price drift without letting vendor data rewrite reported spend. |
 
 A discovered model with **no** curated price row is usable but visibly unpriced: its
 usage reports unknown cost with an `unknown_price_model` coverage reason. It is never
@@ -488,18 +420,21 @@ agent:
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input: the device records dictation and streams the audio to Aiur, **Aiur** calls ElevenLabs speech-to-text with the credential below, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. This is the only place the credential is configured — the Stream Deck sidecar never holds it. The section may be omitted entirely; the defaults below apply.
+Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
+
+This optional section backs Stream Deck voice input, Dashboard dictation, and interactive spoken replies; omitting it uses the defaults below.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. Speech input needs Speech to Text permission; spoken replies also need Text to Speech permission. |
 | `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+| `elevenlabs.voice_id` | string or nil | nil | Stock or owned ElevenLabs voice used for Dashboard interactive conversation replies. Find the identifier in **My Voices**; Aiur does not clone or manage voices. |
 
 `ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
 
-The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable — `ELEVENLABS_API_KEY` included — from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
+The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
-Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/guide/executor-control-center#api-meters) for what each figure does and does not measure.
+Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
 
 ## observability
 
@@ -515,12 +450,6 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Bytes between retention-prune checks. |
 
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Writable dashboards, including the default loopback dashboard, require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`; a read-only loopback dashboard does not. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
-
-## GitHub webhook receiver
-
-`POST /api/v1/github/webhook` accepts GitHub webhook deliveries. It has no configuration keys and no bearer credential: every delivery is authenticated by the `X-Hub-Signature-256` HMAC-SHA256 digest GitHub computes over the raw request body, using the shared secret in `AIUR_GITHUB_WEBHOOK_SECRET`. Set that variable to the same secret configured on the GitHub webhook.
-
-The receiver fails closed. A delivery is rejected with `401` when the signature header is absent, malformed, or does not match, and when `AIUR_GITHUB_WEBHOOK_SECRET` is unset or blank. The unset case also raises a needs-attention `system.github_webhook.secret_missing` alert, because a misconfigured deployment must never accept unsigned deliveries. The legacy SHA-1 `X-Hub-Signature` header is ignored and is never accepted as a fallback. Deliveries larger than 25 MB, GitHub's own delivery ceiling, are refused.
 
 ## decisions
 

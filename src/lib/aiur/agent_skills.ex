@@ -4,9 +4,10 @@ defmodule Aiur.AgentSkills do
   workspace.
 
   The per-turn agent prompt (`shared-agent-instructions.md`) routes every agent
-  to the `using-aiur` operating manual and the `/aiur-agent` cross-ticket event
-  skill, while `/aiur-debug` is the shared diagnosis overlay available when a
-  run or ticket fails. Those skills ship in aiur's own tree under
+  to the `aiur-agent` operating manual — the single skill covering the ticket
+  workflow, the dev loop, and cross-ticket events — while `/aiur-debug` is the
+  shared diagnosis overlay available when a run or ticket fails. Those skills
+  ship in aiur's own tree under
   `.claude/skills/`, but an agent's workspace is a checkout of the *target*
   repo, which has no copy — so
   without this, agents on non-aiur repos full-disk `find /` for a skill the
@@ -39,7 +40,7 @@ defmodule Aiur.AgentSkills do
   # skills (aiur-build, aiur-run, aiur-monitor, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @aiur_issue_worker_skills ~w(using-aiur aiur-agent aiur-debug design-import)
+  @aiur_issue_worker_skills ~w(aiur-agent aiur-debug design-import)
 
   # The bundled source tree is the release build input. Backend workspace paths
   # are supplied by `CodingAgent.skill_install_locations/0` below.
@@ -67,7 +68,7 @@ defmodule Aiur.AgentSkills do
   ]
 
   # Every file under the bundled skills, read at compile time and keyed by its
-  # path relative to the skills root (e.g. "using-aiur/SKILL.md").
+  # path relative to the skills root (e.g. "aiur-agent/SKILL.md").
   bundled_paths =
     @issue_worker_skills
     |> Enum.flat_map(fn skill ->
@@ -316,7 +317,7 @@ defmodule Aiur.AgentSkills do
   end
 
   # The embedded files for `skill`, re-keyed by their path relative to the skill
-  # dir (e.g. "using-aiur/SKILL.md" -> "SKILL.md").
+  # dir (e.g. "aiur-agent/SKILL.md" -> "SKILL.md").
   defp skill_files(skill) do
     prefix = skill <> "/"
 

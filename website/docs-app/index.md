@@ -6,29 +6,38 @@ Coordinate coding agents via events.
 
 ## What Aiur is
 
-Aiur turns project work into isolated, autonomous implementation runs so teams manage work instead of supervising individual coding sessions. It watches a tracker for labeled work, starts an isolated run for each selected ticket, and produces proof of work such as CI status, PR review feedback, complexity analysis, and a walkthrough before landing an accepted PR.
+Aiur turns tracker work into isolated implementation runs.
+
+| Stage | Aiur does |
+| --- | --- |
+| Select | Watches labelled tracker tickets. |
+| Run | Starts one isolated agent run per dispatched ticket. |
+| Prove | Surfaces CI, review feedback, complexity, and walkthrough evidence. |
+| Finish | Returns an accepted PR for human-controlled landing. |
 
 ## Tracker-driven
 
-Trackers are pluggable adapters configured with `tracker.kind`. Aiur can use:
+Choose a tracker with `tracker.kind`.
 
-- A Linear board.
-- GitHub issues.
-- The in-memory tracker.
+| `tracker.kind` | Source |
+| --- | --- |
+| `linear` | Linear board. |
+| `github` | GitHub issues. |
+| `memory` | In-memory tracker. |
 
 On trackers that support labels, Aiur runs a label-based state machine.
 
 ## The label lifecycle
 
-With the default `agent` label prefix, a GitHub ticket follows this lifecycle:
-
-1. `agent:todo`: queued work.
-2. `agent:in-progress`: an isolated run is active.
-3. `agent:ci-wait`: implementation is complete and the central daemon is awaiting terminal PR CI without holding an agent turn or dispatch slot.
-4. `agent:human-review`: CI passed and the PR is ready for human review.
-5. `agent:rework`: CI or reviewer feedback requires another run, looping back through review.
-6. `agent:merging`: the accepted PR is being merged.
-7. `agent:done`: the work is complete.
+| Label | Meaning |
+| --- | --- |
+| `agent:todo` | Queued work. |
+| `agent:in-progress` | Isolated run active. |
+| `agent:ci-wait` | Code complete; waiting for terminal CI. |
+| `agent:human-review` | CI passed; PR ready for human review. |
+| `agent:rework` | CI or review requires another run. |
+| `agent:merging` | Accepted PR entering merge. |
+| `agent:done` | Work complete. |
 
 The terminal error and cancellation states are `agent:error` and `agent:cancelled` (also spelled `agent:canceled`). `agent:watch` labels a PR for monitoring; it is deliberately not a dispatch state. Agents keep the Agent Workpad current, move tickets to human review when the PR is ready, and never self-merge.
 
@@ -38,15 +47,17 @@ Each ticket carries a `complexity:1`–`complexity:5` label. That label routes t
 
 ## Backends
 
-Implementation backends plug in behind Aiur's app-server protocol. A `model:<backend>` label routes a ticket to a backend, and `model:remote` enables remote control.
+Choose an implementation backend with a `model:<backend>` label, and add `model:remote` to enable remote control.
 
-- `codex`
-- `claude` (headless)
-- `claude-repl` (the persistent interactive REPL that backs remote control)
-- `kimi`, `openrouter` (generic OpenAI-compatible instances, configurable by default)
-- `deepseek` (generic OpenAI-compatible instance; ships disabled and needs `agent.backend_configs.deepseek.enabled: true` to dispatch)
+| Backend | Notes |
+| --- | --- |
+| `codex` | Default Codex backend. |
+| `claude` | Headless Claude backend. |
+| `claude-repl` | Persistent interactive backend for remote control. |
+| `kimi`, `openrouter` | Configurable OpenAI-compatible instances. |
+| `deepseek` | OpenAI-compatible; requires explicit `enabled: true`. |
 
-Kimi, DeepSeek, and OpenRouter use the same OpenAI-compatible adapter, but are separate registered instances with provider credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that instance's default model. For example:
+Kimi, DeepSeek, and OpenRouter have separate credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that backend's default model. For example:
 
 ```yaml
 agent:
@@ -61,10 +72,15 @@ The registry reads `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_K
 
 ## Browse the docs
 
-- [Install and start Aiur](/guide/quick-start)
-- [Operate the Stream Deck](/guide/stream-deck)
-- [Configure your workflow](/reference/configuration)
-- [Run and control Aiur](/reference/cli)
-- [Understand state nodes and Build Orders](/concepts/state-and-build-orders)
-- [Understand the ticket lifecycle](/concepts/ticket-lifecycle)
-- [Choose and use agent skills](/skills)
+| Goal | Page |
+| --- | --- |
+| Install and start | [Quick start](/guide/quick-start) |
+| Stream Deck controls | [Operate the Stream Deck](/guide/stream-deck) |
+| Configure a workflow | [Configuration](/reference/configuration) |
+| Run and control Aiur | [CLI](/reference/cli) |
+| Understand the driver | [Executor](/concepts/executor) |
+| Read fleet work | [Units](/concepts/units) |
+| Resolve agent issues | [Commands](/concepts/commands) |
+| Follow large features | [Build Orders](/concepts/build-orders) |
+| Follow ticket state | [How a ticket flows](/concepts/ticket-lifecycle) |
+| Choose workflows | [Skills](/skills) |

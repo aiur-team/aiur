@@ -1,9 +1,12 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
+  # `use Aiur.TestSupport` expands to `use ExUnit.Case` without `async: true`,
+  # which is what the dependency-gating tests need: they inject AutoSubscriptions
+  # functions through node-global persistent_term and cannot race async cases.
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
-  alias Aiur.Orchestrator.{IssueSync, PushRouting, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
@@ -692,7 +695,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 500
   end
 
-  test "emits a debounced fleet starvation alert for ready work below unused capacity" do
+  test "emits a fleet starvation alert after one configured poll interval" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
 
@@ -701,27 +704,32 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    ready = for id <- 1..8, do: issue("ready-#{id}", "todo")
+    ready = [issue("ready-1", "todo")]
 
     state = %State{
-      max_concurrent_agents: 20,
-      effective_concurrent_agents: 20,
-      running: running_agents(3),
-      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+      poll_interval_ms: 5_000,
+      max_concurrent_agents: 16,
+      effective_concurrent_agents: 16,
+      running: running_agents(15),
+      dispatch_capacity_sample: %{load: 15.0, target: 1.0, schedulers: 16}
     }
 
     waiting = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 1_000)
     refute waiting.fleet_capacity_starvation.alert_active
     refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
 
-    alerted = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 61_000)
+    almost_due = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 5_999)
+    refute almost_due.fleet_capacity_starvation.alert_active
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+
+    alerted = IssueSync.sync_fleet_capacity_starved_alert(almost_due, ready, 6_000)
     assert alerted.fleet_capacity_starvation.alert_active
 
     assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
     assert event["needs_attention"] == true
-    assert event["reason"] =~ "Ready tickets=8, live agents=3"
-    assert event["reason"] =~ "load=0.7/16.0"
-    assert event["reason"] =~ "effective cap=20, configured cap=20"
+    assert event["reason"] =~ "Ready tickets=1, live agents=15"
+    assert event["reason"] =~ "load=15.0/16.0"
+    assert event["reason"] =~ "effective cap=16, configured cap=16"
     assert event["reason"] =~ "binding constraint=no binding constraint identified"
   end
 
@@ -1846,6 +1854,89 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_receive {:verified_ids, ids}
     assert length(ids) == 25
     assert map_size(result.last_polled_issues) == 250
+  end
+
+  describe "dependency transition event gating" do
+    test "does not enqueue dependency_added when the auto-subscribe fails" do
+      on_exit(fn -> AutoSubscriptions.set_add_subscription_fn(nil) end)
+
+      issue_id = "sync-gating-#{System.unique_integer([:positive])}"
+      blocker_id = "sync-blocker-#{System.unique_integer([:positive])}"
+      identifier = "its-everdred/aiur##{issue_id}"
+      blocker = %{id: blocker_id, identifier: blocker_id, state: "in-progress"}
+
+      previous_issue = %{issue(issue_id, "in-progress") | blocked_by: []}
+      current_issue = %{issue(issue_id, "in-progress") | blocked_by: [blocker]}
+      on_exit(fn -> SubscriptionStore.stop(identifier) end)
+
+      queue_store = AgentQueueStore.new()
+      state = %State{last_polled_issues: %{issue_id => previous_issue}, queue_store: queue_store}
+
+      # Force the subscribe step to fail: a dependency_added event must NOT be
+      # enqueued behind a subscription that did not land (that is what leaves
+      # a blockee never auto-resuming — the #1059 defect this gates).
+      AutoSubscriptions.set_add_subscription_fn(fn _id, _topic, _reason ->
+        {:error, :simulated_store_failure}
+      end)
+
+      result =
+        IssueSync.sync_polled_issue_state(
+          state,
+          [current_issue],
+          fn _ids -> {:ok, []} end,
+          fn _identity, _lifecycle -> :ok end,
+          MapSet.new(["done", "cancelled"]),
+          fn _status -> :ok end,
+          fn _identity, _pending? -> :ok end
+        )
+
+      dependency_items =
+        result.queue_store.items
+        |> Map.values()
+        |> Enum.filter(&(&1.event_type == :dependency_added))
+
+      assert dependency_items == []
+      assert result.queue_store == queue_store
+    end
+
+    test "does not enqueue dependency_removed when the auto-unsubscribe fails" do
+      on_exit(fn -> AutoSubscriptions.set_remove_subscription_fn(nil) end)
+
+      issue_id = "sync-gating-rem-#{System.unique_integer([:positive])}"
+      blocker_id = "sync-blocker-rem-#{System.unique_integer([:positive])}"
+      identifier = "its-everdred/aiur##{issue_id}"
+      blocker = %{id: blocker_id, identifier: blocker_id, state: "in-progress"}
+
+      previous_issue = %{issue(issue_id, "in-progress") | blocked_by: [blocker]}
+      current_issue = %{issue(issue_id, "in-progress") | blocked_by: []}
+      on_exit(fn -> SubscriptionStore.stop(identifier) end)
+
+      queue_store = AgentQueueStore.new()
+      state = %State{last_polled_issues: %{issue_id => previous_issue}, queue_store: queue_store}
+
+      AutoSubscriptions.set_remove_subscription_fn(fn _id, _topic, _reason ->
+        {:error, :simulated_remove_failure}
+      end)
+
+      result =
+        IssueSync.sync_polled_issue_state(
+          state,
+          [current_issue],
+          fn _ids -> {:ok, []} end,
+          fn _identity, _lifecycle -> :ok end,
+          MapSet.new(["done", "cancelled"]),
+          fn _status -> :ok end,
+          fn _identity, _pending? -> :ok end
+        )
+
+      dependency_items =
+        result.queue_store.items
+        |> Map.values()
+        |> Enum.filter(&(&1.event_type == :dependency_removed))
+
+      assert dependency_items == []
+      assert result.queue_store == queue_store
+    end
   end
 
   defp issue(id, state) do

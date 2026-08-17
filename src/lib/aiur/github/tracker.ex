@@ -32,6 +32,18 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues, do: client_module().fetch_candidate_issues()
 
+  @spec fetch_candidate_issues_conditional(map()) ::
+          {:ok, [term()], map()} | {:error, term()}
+  def fetch_candidate_issues_conditional(cache) when is_map(cache) do
+    client = client_module()
+
+    if Code.ensure_loaded?(client) and function_exported?(client, :fetch_candidate_issues_conditional, 1) do
+      client.fetch_candidate_issues_conditional(cache)
+    else
+      with {:ok, issues} <- client.fetch_candidate_issues(), do: {:ok, issues, cache}
+    end
+  end
+
   @spec auth_preflight() :: :ok | {:error, term()}
   def auth_preflight do
     client = client_module()

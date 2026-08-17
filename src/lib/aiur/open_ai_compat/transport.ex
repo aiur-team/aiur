@@ -2,6 +2,7 @@ defmodule Aiur.OpenAICompat.Transport do
   @moduledoc false
 
   alias Aiur.OpenAICompat.Concurrency
+  alias Aiur.UsageEnvelope
 
   @spec complete(map(), [map()], [map()]) :: {:ok, map()} | {:error, term()}
   def complete(config, messages, tools) do
@@ -84,12 +85,15 @@ defmodule Aiur.OpenAICompat.Transport do
   defp decode(%{transport: :chat_completions} = config, %{body: body}) when is_map(body) do
     with [choice | _] <- body["choices"],
          message when is_map(message) <- choice["message"] do
+      selected_endpoint = selected_endpoint(body)
+
       {:ok,
        %{
          id: body["id"],
-         model: billing_model(config, body),
-         upstream_model: selected_model(body),
-         provider: selected_provider(body) || body["provider"],
+         model: billing_model(config, body, selected_endpoint),
+         upstream_model: selected_model(selected_endpoint),
+         upstream_provider: upstream_provider(config, selected_endpoint),
+         provider: selected_provider(selected_endpoint) || body["provider"],
          message: message,
          text: message["content"],
          reasoning: message["reasoning_content"],
@@ -104,6 +108,7 @@ defmodule Aiur.OpenAICompat.Transport do
 
   defp decode(%{transport: :responses} = config, %{body: body}) when is_map(body) do
     output = List.wrap(body["output"])
+    selected_endpoint = selected_endpoint(body)
 
     message = Enum.find(output, &(&1["type"] == "message")) || %{}
     content = List.wrap(message["content"])
@@ -118,9 +123,10 @@ defmodule Aiur.OpenAICompat.Transport do
     {:ok,
      %{
        id: body["id"],
-       model: billing_model(config, body),
-       upstream_model: selected_model(body),
-       provider: selected_provider(body) || body["provider"],
+       model: billing_model(config, body, selected_endpoint),
+       upstream_model: selected_model(selected_endpoint),
+       upstream_provider: upstream_provider(config, selected_endpoint),
+       provider: selected_provider(selected_endpoint) || body["provider"],
        output: output,
        message: %{"role" => "assistant", "content" => text},
        text: text,
@@ -182,9 +188,9 @@ defmodule Aiur.OpenAICompat.Transport do
   # both of which are aggregator identities by construction.
   #
   # The upstream id is never discarded: it rides along as `:upstream_model`.
-  defp billing_model(config, body) do
+  defp billing_model(config, body, selected_endpoint) do
     Enum.find_value(
-      [aggregator_slug(selected_model(body)), presence(body["model"]), presence(Map.get(config, :model))],
+      [aggregator_slug(selected_model(selected_endpoint)), presence(body["model"]), presence(Map.get(config, :model))],
       & &1
     )
   end
@@ -195,25 +201,45 @@ defmodule Aiur.OpenAICompat.Transport do
   defp presence(value) when is_binary(value) and value != "", do: value
   defp presence(_value), do: nil
 
-  defp selected_model(body) do
-    case selected_endpoint(body) do
+  defp selected_model(endpoint) do
+    case endpoint do
       %{"model" => model} when is_binary(model) and model != "" -> model
       _ -> nil
     end
   end
 
-  defp selected_provider(body) do
-    case selected_endpoint(body) do
+  defp selected_provider(endpoint) do
+    case endpoint do
       %{"provider" => provider} when is_binary(provider) and provider != "" -> provider
       _ -> nil
     end
   end
 
+  defp upstream_provider(%{quirks: %{openrouter_metadata: true}}, selected_endpoint) do
+    selected_endpoint
+    |> selected_provider()
+    |> UsageEnvelope.ledger_safe_identifier()
+  end
+
+  defp upstream_provider(_config, _selected_endpoint), do: nil
+
   defp selected_endpoint(body) do
-    body
-    |> get_in(["openrouter_metadata", "endpoints", "available"])
-    |> List.wrap()
-    |> Enum.find(&(&1["selected"] == true))
+    case body do
+      %{"openrouter_metadata" => %{"endpoints" => %{"available" => available}}} when is_list(available) ->
+        available
+        |> Enum.reduce_while(nil, fn
+          %{"selected" => true} = endpoint, nil -> {:cont, endpoint}
+          %{"selected" => true}, _endpoint -> {:halt, :ambiguous}
+          _other, endpoint -> {:cont, endpoint}
+        end)
+        |> case do
+          %{} = endpoint -> endpoint
+          _missing_or_ambiguous -> nil
+        end
+
+      _missing_or_malformed ->
+        nil
+    end
   end
 
   defp safe_error(%{"error" => %{"message" => message}}) when is_binary(message) do

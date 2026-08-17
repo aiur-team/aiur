@@ -1,7 +1,7 @@
 defmodule Aiur.AgentSkillsTest do
   @moduledoc """
   Guards #689: a target-repo agent workspace has no copy of aiur's bundled
-  operating skills, so the per-turn prompt's "load the using-aiur skill"
+  operating skills, so the per-turn prompt's "load the aiur-agent skill"
   instruction sends agents full-disk-searching. `Aiur.AgentSkills.install/1`
   materializes the skills the prompt routes issue workers to.
   """
@@ -132,7 +132,7 @@ defmodule Aiur.AgentSkillsTest do
     File.ln_s!(external, Path.join([ws, ".claude", "skills"]))
 
     assert :ok = AgentSkills.install(ws)
-    refute File.exists?(Path.join([external, "using-aiur", "SKILL.md"]))
+    refute File.exists?(Path.join([external, "aiur-agent", "SKILL.md"]))
     refute File.exists?(Path.join(external, "compound-engineering.version"))
   end
 
@@ -147,7 +147,7 @@ defmodule Aiur.AgentSkillsTest do
 
     assert {_output, status} = System.cmd("bash", [script_path], stderr_to_stdout: true)
     assert status != 0
-    refute File.exists?(Path.join([external, "using-aiur", "SKILL.md"]))
+    refute File.exists?(Path.join([external, "aiur-agent", "SKILL.md"]))
     refute File.exists?(Path.join(external, "compound-engineering.version"))
   end
 
@@ -205,6 +205,9 @@ defmodule Aiur.AgentSkillsTest do
     for skill <- AgentSkills.issue_worker_skills() do
       assert File.exists?(Path.join([ws, ".fake", "skills", skill, "SKILL.md"]))
     end
+
+    assert File.read!(Path.join([ws, ".fake", "skills", "aiur-agent", "dictated-input.md"])) =~
+             "Voice-originated text may render **Aiur**"
   end
 
   test "keeps registry-declared skill paths out of workspace status", %{workspace: ws} do
@@ -214,7 +217,7 @@ defmodule Aiur.AgentSkillsTest do
 
     assert {output, 0} = System.cmd("git", ["-C", ws, "status", "--short"], stderr_to_stdout: true)
     assert String.trim(output) == ""
-    assert File.exists?(Path.join([ws, ".fake", "skills", "using-aiur", "SKILL.md"]))
+    assert File.exists?(Path.join([ws, ".fake", "skills", "aiur-agent", "SKILL.md"]))
   end
 
   test "does not write exclusions through an external gitdir", %{workspace: ws} do
@@ -229,7 +232,7 @@ defmodule Aiur.AgentSkillsTest do
 
     assert :ok = AgentSkills.install(ws)
     assert File.read!(exclude) == before
-    assert File.exists?(Path.join([ws, ".fake", "skills", "using-aiur", "SKILL.md"]))
+    assert File.exists?(Path.join([ws, ".fake", "skills", "aiur-agent", "SKILL.md"]))
   end
 
   test "remote install does not write exclusions through an external gitdir", %{workspace: ws} do
@@ -249,7 +252,7 @@ defmodule Aiur.AgentSkillsTest do
 
     assert {_output, 0} = System.cmd("bash", [script_path], stderr_to_stdout: true)
     assert File.read!(exclude) == before
-    assert File.exists?(Path.join([remote_workspace, ".fake", "skills", "using-aiur", "SKILL.md"]))
+    assert File.exists?(Path.join([remote_workspace, ".fake", "skills", "aiur-agent", "SKILL.md"]))
   end
 
   test "does not install operator-only skills into issue-worker workspaces", %{workspace: ws} do
@@ -265,19 +268,19 @@ defmodule Aiur.AgentSkillsTest do
     assert :ok = AgentSkills.install(ws)
     assert :ok = AgentSkills.install(ws)
 
-    assert File.dir?(Path.join([ws, ".claude", "skills", "using-aiur"]))
-    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(Path.join([ws, ".codex", "skills", "using-aiur"]))
+    assert File.dir?(Path.join([ws, ".claude", "skills", "aiur-agent"]))
+    assert {:ok, %File.Stat{type: :symlink}} = File.lstat(Path.join([ws, ".codex", "skills", "aiur-agent"]))
   end
 
   test "never clobbers a skill the target repo already ships", %{workspace: ws} do
-    own = Path.join([ws, ".claude", "skills", "using-aiur"])
+    own = Path.join([ws, ".claude", "skills", "aiur-agent"])
     File.mkdir_p!(own)
     File.write!(Path.join(own, "SKILL.md"), "REPO OWN COPY\n")
 
     assert :ok = AgentSkills.install(ws)
 
     assert File.read!(Path.join(own, "SKILL.md")) == "REPO OWN COPY\n",
-           "install overwrote the target repo's own using-aiur skill"
+           "install overwrote the target repo's own aiur-agent skill"
   end
 
   test "is best-effort: a failed file operation returns :ok without raising", %{workspace: ws} do
@@ -290,7 +293,7 @@ defmodule Aiur.AgentSkillsTest do
   end
 
   test "does not clobber or trip over a dangling Codex symlink", %{workspace: ws} do
-    link = Path.join([ws, ".codex", "skills", "using-aiur"])
+    link = Path.join([ws, ".codex", "skills", "aiur-agent"])
     File.mkdir_p!(Path.dirname(link))
     File.ln_s!("../../.claude/skills/nonexistent", link)
 
@@ -298,7 +301,7 @@ defmodule Aiur.AgentSkillsTest do
     # alone rather than failing the ln_s!; the Claude copy still installs.
     assert :ok = AgentSkills.install(ws)
     assert {:ok, "../../.claude/skills/nonexistent"} = File.read_link(link)
-    assert File.exists?(Path.join([ws, ".claude", "skills", "using-aiur", "SKILL.md"]))
+    assert File.exists?(Path.join([ws, ".claude", "skills", "aiur-agent", "SKILL.md"]))
   end
 
   test "leaves no temp staging dirs behind", %{workspace: ws} do

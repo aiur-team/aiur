@@ -52,6 +52,7 @@ defmodule Aiur.Alerts do
     {"human-review", :needs_input},
     {"input_required", :needs_input},
     {".paused", :stuck},
+    {"draft", :stuck},
     {"thrash", :stuck},
     {"retry_exhausted", :stuck},
     {"tokens_exhausted", :stuck},

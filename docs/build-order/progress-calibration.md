@@ -126,7 +126,7 @@ the dependency graph for this experiment; analysis follows merge completion
 without becoming a dispatch gate.
 
 The effective progress rubric is delivered from
-`src/prompts/shared-agent-instructions.md`; the `using-aiur` skill points agents
+`src/prompts/shared-agent-instructions.md`; the `aiur-agent` skill points agents
 to that per-turn prompt rather than duplicating the protocol. Any phase-level
 change must update that actual delivery source and its focused tests, then
 record the resulting commit or content hash as the next guidance-version

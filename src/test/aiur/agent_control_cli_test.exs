@@ -68,6 +68,10 @@ defmodule Aiur.AgentControlCLITest do
       remove_label: fn id, label ->
         send(parent, {:todo_remove_label, id, label})
         remove_result.(id, label)
+      end,
+      request_refresh: fn ->
+        send(parent, :todo_request_refresh)
+        %{queued: true}
       end
     }
   end
@@ -203,10 +207,28 @@ defmodule Aiur.AgentControlCLITest do
     Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
 
     :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
       %{
         state
         | running: %{},
           last_polled_issues: %{},
+          # Freeze the live poll for the duration of each case, the same way
+          # orchestrator_status_test does. These cases inject `running` and
+          # `last_polled_issues` directly; a background poll against the
+          # fixture's unreachable GitHub tracker would latch
+          # `candidate_snapshot_fresh?: false` on the shared Orchestrator,
+          # which blanks every injected idle row
+          # (`StatusReport.visible_polled_issues/1`), and would flip
+          # `snapshot_ready?`, publishing a fleet snapshot that later cases
+          # then read back as last-known-good.
+          tick_timer_ref: nil,
+          tick_token: make_ref(),
+          next_poll_due_at_ms: nil,
+          poll_check_in_progress: false,
+          poll_frozen: true,
+          candidate_snapshot_fresh?: true,
+          snapshot_ready?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
@@ -235,6 +257,14 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "todo/2" do
+    test "requests an immediate reconciliation after queueing work" do
+      issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
+
+      {_stdout, _stderr, 0} = capture_todo(["11"], deps: todo_deps(issues))
+
+      assert_receive :todo_request_refresh
+    end
+
     test "mutates the tracker and emits the control exit marker" do
       issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
 
@@ -521,6 +551,29 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "#88    running Issue "
     assert populated_output =~ "worker-alpha running Issue worker-alpha"
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "status surfaces an active idle polling backoff" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 590_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0}
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~ "POLL idle backoff active: interval=600s base=120s factor=5.0x next=590s"
   end
 
   test "status surfaces whether the Executor listener is currently listening", %{orchestrator: _pid} do
@@ -1978,7 +2031,13 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
-  test "idle resume reports non-resumable issues", %{orchestrator: pid} do
+  test "idle resume reports the non-resumable tracker state", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#48" ->
+      {:error, {:tracker_state_not_resumable, "done"}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
     issue = %Issue{id: "issue-48", identifier: "repo#48", state: "Done", title: "Closed"}
 
     :sys.replace_state(pid, fn state ->
@@ -1992,8 +2051,30 @@ defmodule Aiur.AgentControlCLITest do
         assert output =~ "__AIUR_CONTROL_EXIT__:1"
       end)
 
-    assert stderr =~ "aiur: failed to resume #48 (dispatch was declined (:terminal_state)"
-    assert stderr =~ "retry after the ticket state, labels, or tracker visibility becomes dispatchable"
+    assert stderr =~ "aiur: failed to resume #48 (tracker state done is not resumable)"
+  end
+
+  test "idle resume explains stale tracker cache rejections", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#49" ->
+      {:error, {:stale_tracker_state, {:tracker_state_not_resumable, "human-review"}, %{cached_state: "todo", tracker_state: "human-review", changed_fields: [:state]}}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    issue = %Issue{id: "issue-49", identifier: "repo#49", state: "todo", title: "Stale"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{}, last_polled_issues: %{"issue-49" => issue}}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.resume(["49"]) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~
+             "tracker cache was stale: cached=todo, tracker=human-review, changed=state; tracker state human-review is not resumable"
   end
 
   test "fallback display handles nil targets" do

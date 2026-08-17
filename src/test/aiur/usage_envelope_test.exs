@@ -120,6 +120,26 @@ defmodule Aiur.UsageEnvelopeTest do
                )
     end
 
+    test "accepts only ledger-safe upstream provider identifiers" do
+      assert {:ok, envelope} = UsageEnvelope.new(attributes(%{upstream_provider: "DeepSeek"}))
+      assert envelope.upstream_provider == "DeepSeek"
+
+      assert {:error, :invalid_upstream_provider} =
+               UsageEnvelope.new(attributes(%{upstream_provider: "Deep Seek"}))
+
+      assert {:error, :invalid_upstream_provider} =
+               UsageEnvelope.new(attributes(%{upstream_provider: "provider-secret"}))
+
+      assert {:error, :invalid_upstream_provider} =
+               UsageEnvelope.new(attributes(%{upstream_provider: "<script>alert(1)</script>"}))
+
+      assert {:error, :invalid_upstream_provider} =
+               UsageEnvelope.new(attributes(%{upstream_provider: "DeepSeek\e[31m"}))
+
+      assert {:error, :invalid_upstream_provider} =
+               UsageEnvelope.new(attributes(%{upstream_provider: String.duplicate("a", 257)}))
+    end
+
     test "rejects non-UTF-8 opaque values before JSON serialization" do
       invalid_utf8 = <<255>>
 

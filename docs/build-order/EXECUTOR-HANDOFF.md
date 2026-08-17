@@ -2743,7 +2743,7 @@ Terra; never dispatch Claude.
     and opened draft PR #1181 on current `main`. When the worker moved the
     issue to `agent:ci-wait`, the old daemon instead exposed `agent:error` even
     though the turn completed cleanly and CI started. Preserve this as
-    deferred recovery evidence: the checked-in `using-aiur` skill requires
+    deferred recovery evidence: the checked-in `aiur-agent` skill requires
     `agent:ci-wait`, but this dogfood workflow's `active_states` omits
     `ci-wait`. Manually shepherd #1181; do not expand the recovery gate to fix
     that lifecycle mismatch tonight.

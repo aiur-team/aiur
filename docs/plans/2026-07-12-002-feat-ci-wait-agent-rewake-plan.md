@@ -67,7 +67,7 @@ Agents currently spend live turns and dispatch capacity repeatedly checking thei
 - `src/lib/aiur/orchestrator/push_routing.ex` demonstrates deferred auto-resume when a released slot has already been filled.
 - `src/lib/aiur/orchestrator/reconciler.ex` is the revalidation boundary for tracker pause overlays, active states, CI wait, human review, and terminal state.
 - `src/lib/aiur/config/schema/agent.ex`, `src/lib/aiur/config.ex`, and `website/docs-app/reference/configuration.md` are the established config schema, accessor, validation, and reference surfaces.
-- `.claude/skills/using-aiur/dev-loop.md` is the operational source for draft PR, self-review, CI handoff, and human-review completion; `.aiur/prompt.md` routes ticket agents into that manual.
+- `.claude/skills/aiur-agent/dev-loop.md` is the operational source for draft PR, self-review, CI handoff, and human-review completion; `.aiur/prompt.md` routes ticket agents into that manual.
 
 ### Institutional Learnings
 
@@ -209,9 +209,9 @@ stateDiagram-v2
 **Dependencies:** U1, U2
 
 **Files:**
-- Modify: `.claude/skills/using-aiur/SKILL.md`
-- Modify: `.claude/skills/using-aiur/turn-workflow.md`
-- Modify: `.claude/skills/using-aiur/dev-loop.md`
+- Modify: `.claude/skills/aiur-agent/SKILL.md`
+- Modify: `.claude/skills/aiur-agent/turn-workflow.md`
+- Modify: `.claude/skills/aiur-agent/dev-loop.md`
 - Modify: `.claude/skills/aiur-monitor/SKILL.md`
 - Modify: `.aiur/prompt.md`
 - Modify: `.aiur/examples/prompt.md.example`
@@ -228,7 +228,7 @@ stateDiagram-v2
 - Add the config row and lifecycle state to website documentation while leaving init surfaces unchanged.
 
 **Patterns to follow:**
-- Existing no-review-polling turn boundary in `.claude/skills/using-aiur/dev-loop.md`.
+- Existing no-review-polling turn boundary in `.claude/skills/aiur-agent/dev-loop.md`.
 - Prompt-to-manual routing contract covered by `Aiur.AiurAgentSkillTest`.
 - Concise agent configuration table in `website/docs-app/reference/configuration.md`.
 
@@ -283,4 +283,4 @@ stateDiagram-v2
 - Timer pattern: `src/lib/aiur/orchestrator/retry_engine.ex`
 - CI lifecycle: `src/lib/aiur/orchestrator/ci_lifecycle.ex`
 - Event handoff: `src/lib/aiur/events/subscription_store.ex`
-- Agent workflow: `.claude/skills/using-aiur/dev-loop.md`
+- Agent workflow: `.claude/skills/aiur-agent/dev-loop.md`

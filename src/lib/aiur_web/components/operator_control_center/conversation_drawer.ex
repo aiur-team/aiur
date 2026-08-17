@@ -1,14 +1,15 @@
 defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   @moduledoc """
-  Read-only, accessible conversation drawer for the DASH-027 Units Chat
-  destination.
+  Accessible conversation drawer for the Units Chat destination.
 
   Renders a normalized `Presenter` view as a modal side drawer (wide screens) or
   full-width dialog (narrow screens). The component performs no I/O and holds no
   message/pause/capacity mutation handler: it is a pure projection of one pinned
   DASH-026 generation. Focus trap, Escape/close, focus return, scroll
   containment, auto-follow, and the jump-to-latest control are managed by the
-  `ConversationDrawer` client hook, which only manipulates scroll and focus.
+  `ConversationDrawer` client hook. Its voice controller keeps dictation in the
+  ordinary message textarea until the operator submits it, and runs explicit
+  push-to-talk turns in conversation mode.
   """
 
   use Phoenix.Component
@@ -73,7 +74,12 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
         </header>
 
         <div class="conversation-drawer-summary">
-          <p class="conversation-drawer-notice">{@view.participation_notice}</p>
+          <p class="conversation-drawer-notice">
+            {if(@composer_writable,
+              do: "Live conversation mirror. Messages you send here are delivered to this agent.",
+              else: @view.participation_notice
+            )}
+          </p>
           <ul class="conversation-drawer-states" aria-label="Conversation state">
             <li><span class="conversation-state-chip" data-state={@view.state}>{@view.state_label}</span></li>
             <li><span class="conversation-state-chip is-meta">Health: {@view.health_label}</span></li>
@@ -111,6 +117,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
                 :for={message <- @view.messages}
                 id={"#{@id}-message-#{message.id}"}
                 class={"conversation-message conversation-message-#{message.role}"}
+                data-message-complete={to_string(message.complete?)}
               >
                 <article>
                   <header class="conversation-message-header">
@@ -156,7 +163,13 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>
             <div><dt>Messages</dt><dd class="mono num">{@view.message_count}</dd></div>
           </dl>
-          <form :if={@composer_writable} class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
+          <form
+            :if={@composer_writable}
+            class="agent-chat-composer"
+            phx-change="composer-change"
+            phx-submit="send-operator-message"
+            data-voice-composer
+          >
             <p :if={error = @errors[@composer_key]} class="agent-chat-error">{error}</p>
             <textarea
               class="agent-chat-textarea"
@@ -165,10 +178,60 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
               placeholder="Message agent…"
               aria-label="Message agent"
               enterkeyhint="send"
+              data-voice-input
             >{@drafts[@composer_key] || ""}</textarea>
+            <div class="agent-voice-tools">
+              <div class="agent-voice-controls">
+                <button
+                  class="tool-btn agent-voice-button"
+                  type="button"
+                  aria-label="Dictate message"
+                  aria-pressed="false"
+                  title="Dictate into the message box"
+                  data-voice-mic
+                  data-conversation-focus="dictation"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z" />
+                    <path d="M5.5 10.5a6.5 6.5 0 0 0 13 0M12 17v4M8.5 21h7" />
+                  </svg>
+                </button>
+                <button
+                  class="tool-btn agent-voice-button"
+                  type="button"
+                  aria-label="Start interactive voice chat"
+                  aria-pressed="false"
+                  title="Talk to this agent and hear its reply"
+                  data-voice-conversation
+                  data-conversation-focus="conversation"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" />
+                    <path d="M2.5 19c.5-3.3 2.4-5 5.5-5s5 1.7 5.5 5M13.5 15c1-.8 2.1-1.2 3.5-1.2 2.6 0 4.1 1.4 4.5 4.2M12 6.5l2-1.2M13.5 9.5l2 .8" />
+                  </svg>
+                </button>
+                <label class="agent-voice-device-label">
+                  <span>Browser microphone</span>
+                  <select data-voice-device aria-label="Browser microphone">
+                    <option value="">Default microphone</option>
+                  </select>
+                </label>
+              </div>
+              <canvas
+                class="agent-voice-waveform"
+                width="360"
+                height="52"
+                aria-label="Microphone waveform"
+                role="img"
+                data-voice-waveform
+              ></canvas>
+              <p class="agent-voice-status" role="status" aria-live="polite" data-voice-status>
+                Press the microphone to dictate. Review the text, then press Send.
+              </p>
+            </div>
             <div class="agent-chat-actions">
               <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
-              <button class="btn" type="submit">Send</button>
+              <button class="btn" type="submit" data-voice-send>Send</button>
             </div>
           </form>
           <p :if={!@writable} class="agent-chat-readonly">Read-only dashboard — use the TUI to message or pause this agent.</p>
