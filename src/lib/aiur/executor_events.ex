@@ -18,10 +18,10 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Events.Publisher
   alias Aiur.Events.Sanitizer
   alias Aiur.Events.Topic
-  alias Aiur.JSONSafe
-  alias Aiur.JsonStore
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorWakeProjection
+  alias Aiur.JSONSafe
+  alias Aiur.JsonStore
 
   @default_topic "executor.#"
 

@@ -366,15 +366,8 @@ defmodule Aiur.AgentControlCLI do
     case ExecutorWakeInbox.wait(timeout_ms) do
       {:ok, records} ->
         print_executor_wakes(records, json?)
-
-        case ExecutorWakeInbox.acknowledge(records) do
-          :ok ->
-            exit_marker(0)
-
-          {:error, reason} ->
-            control_error("aiur: executor wake acknowledgement failed (#{format_reason(reason)})")
-            exit_marker(1)
-        end
+        :ok = ExecutorWakeInbox.acknowledge(records)
+        exit_marker(0)
 
       :timeout ->
         exit_marker(75)

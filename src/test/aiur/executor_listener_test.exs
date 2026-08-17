@@ -4,8 +4,8 @@ defmodule Aiur.ExecutorListenerTest do
   alias Aiur.Config.Paths
   alias Aiur.Decision
   alias Aiur.Events.Exchange
-  alias Aiur.ExecutorEvents
   alias Aiur.ExecutorBindings
+  alias Aiur.ExecutorEvents
   alias Aiur.ExecutorListener
   alias Aiur.ExecutorWakeInbox
   alias Aiur.JsonStore
