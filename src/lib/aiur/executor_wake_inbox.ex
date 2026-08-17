@@ -3,8 +3,9 @@ defmodule Aiur.ExecutorWakeInbox do
 
   use GenServer
 
-  alias Aiur.Config.Paths
   alias Aiur.DecisionLog
+  alias Aiur.Executor.Claims
+  alias Aiur.Executor.StatePaths
   alias Aiur.Fs
   alias Aiur.JsonStore
 
@@ -24,11 +25,32 @@ defmodule Aiur.ExecutorWakeInbox do
     GenServer.call(server, {:wait, timeout_ms}, timeout_ms + 5_000)
   end
 
+  @doc """
+  Advances the shared cursor past `records`.
+
+  Only the leased owner may do this. A non-owner is refused with
+  `{:error, {:not_owner, owner}}` so two consumers cannot silently split the
+  stream between them; a non-owner reads through `wait/2` or `pending/1`
+  instead, which never move the cursor.
+  """
   @spec acknowledge([map()], GenServer.server()) :: :ok
   def acknowledge(records, server \\ __MODULE__) when is_list(records), do: GenServer.call(server, {:acknowledge, records})
 
+  @spec acknowledge_as(String.t(), [map()], GenServer.server()) :: :ok | {:error, term()}
+  def acknowledge_as(consumer_id, records, server \\ __MODULE__) when is_binary(consumer_id) and is_list(records) do
+    case Claims.owner() do
+      {:ok, %{"id" => ^consumer_id}} -> acknowledge(records, server)
+      {:ok, owner} -> {:error, {:not_owner, owner}}
+      :none -> {:error, {:not_owner, nil}}
+    end
+  end
+
   @spec pending(GenServer.server()) :: [map()]
   def pending(server \\ __MODULE__), do: GenServer.call(server, :pending)
+
+  @doc "The shared cursor: the highest wake id an owner has acknowledged."
+  @spec cursor(GenServer.server()) :: non_neg_integer()
+  def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
 
   @impl true
   def init(opts) do
@@ -100,6 +122,8 @@ defmodule Aiur.ExecutorWakeInbox do
     trim_consumed(state)
     {:reply, :ok, state}
   end
+
+  def handle_call(:cursor, _from, state), do: {:reply, read_cursor(state.cursor_path), state}
 
   def handle_call(:pending, _from, state) do
     records =
@@ -315,6 +339,12 @@ defmodule Aiur.ExecutorWakeInbox do
     JsonStore.write!(path, %{"last_seen_wake_id" => id})
   end
 
+  # Recording is unconditional now, so an unattended run appends wake records
+  # that nobody will ever acknowledge. Dropping only consumed records left the
+  # ledger unbounded in exactly that case, which is the growth #1661 is about.
+  # The retained set is therefore capped at `max_records` outright: consumed
+  # records go first, then the oldest unread, so the bound holds with or without
+  # a consumer.
   defp trim_consumed(state) do
     cursor = read_cursor(state.cursor_path)
 
@@ -322,7 +352,7 @@ defmodule Aiur.ExecutorWakeInbox do
       unread = Enum.filter(records, &(&1["wake_id"] > cursor))
       consumed = Enum.filter(records, &(&1["wake_id"] <= cursor))
       consumed_limit = max(state.max_records - length(unread), 0)
-      retained = Enum.take(consumed, -consumed_limit) ++ unread
+      retained = Enum.take(consumed, -consumed_limit) ++ Enum.take(unread, -state.max_records)
 
       if length(retained) < length(records) do
         contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
@@ -333,7 +363,7 @@ defmodule Aiur.ExecutorWakeInbox do
     :ok
   end
 
-  defp journal_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.ndjson")
-  defp cursor_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.cursor.json")
-  defp pending_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.pending.json")
+  defp journal_path, do: StatePaths.wakes_path()
+  defp cursor_path, do: StatePaths.cursor_path()
+  defp pending_path, do: StatePaths.pending_path()
 end

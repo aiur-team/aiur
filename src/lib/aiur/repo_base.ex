@@ -53,6 +53,10 @@ defmodule Aiur.RepoBase do
   def base_path(repo_url) when is_binary(repo_url),
     do: Path.join(repo_path(repo_url), "latest")
 
+  @doc "Absolute root beneath which every per-repository state node lives."
+  @spec state_root() :: Path.t()
+  def state_root, do: base_root()
+
   @doc "Absolute path of the per-repository state node for `repo_url`."
   @spec repo_path(String.t()) :: Path.t()
   def repo_path(repo_url) when is_binary(repo_url),
