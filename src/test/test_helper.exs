@@ -27,8 +27,14 @@ System.put_env("AIUR_DASHBOARD_PASSWORD", "test-dashboard-secret")
 
 original_home = System.get_env("HOME")
 
+# `System.pid()` keeps this VM's HOME private. `System.unique_integer/1` is
+# node-scoped, so without the pid two concurrent `mix test` runs on one host can
+# share a HOME and then read and delete each other's `~/.aiur` state.
 test_home =
-  Path.join(System.tmp_dir!(), "aiur-test-home-#{System.unique_integer([:positive, :monotonic])}")
+  Path.join(
+    System.tmp_dir!(),
+    "aiur-test-home-#{System.pid()}-#{System.unique_integer([:positive, :monotonic])}"
+  )
 
 File.mkdir_p!(test_home)
 System.put_env("HOME", test_home)

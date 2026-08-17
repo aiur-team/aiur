@@ -169,10 +169,14 @@ defmodule Aiur.TestSupport do
             "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
           )
 
+        # `System.pid()` is what keeps this root private to *this* VM. Without it
+        # two `mix test` runs on one host pick the same `workflow-<integer>` name
+        # routinely and then write each other's `.aiur/config`, so a case reads a
+        # sibling VM's tracker settings. See `Aiur.TestSupport.tmp_root!/1`.
         workflow_root =
           Path.join(
             workflow_base,
-            "workflow-#{System.unique_integer([:positive])}"
+            "workflow-#{System.pid()}-#{System.unique_integer([:positive])}"
           )
 
         # Every application key this setup overrides, captured as-is so
