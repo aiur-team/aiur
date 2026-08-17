@@ -41,10 +41,19 @@ defmodule Aiur.ExecutorWakeInbox do
   @spec acknowledge_as(String.t(), [map()], GenServer.server()) :: :ok | {:error, term()}
   def acknowledge_as(consumer_id, records, server \\ __MODULE__) when is_binary(consumer_id) and is_list(records) do
     case Claims.owner() do
-      {:ok, %{"id" => ^consumer_id}} -> acknowledge(records, server)
+      {:ok, %{"id" => ^consumer_id}} -> acknowledge_as_owner(consumer_id, records, server)
       {:ok, owner} -> {:error, {:not_owner, owner}}
       :none -> {:error, {:not_owner, nil}}
     end
+  end
+
+  # The roster's whole value rests on `last_acknowledged_at` being written by the
+  # path that actually consumes. Recording it anywhere else would leave the real
+  # consumer looking permanently unknown while a stalled one looked the same.
+  defp acknowledge_as_owner(consumer_id, records, server) do
+    :ok = acknowledge(records, server)
+    _entry = Claims.record_acknowledgement(consumer_id, cursor(server))
+    :ok
   end
 
   @spec pending(GenServer.server()) :: [map()]

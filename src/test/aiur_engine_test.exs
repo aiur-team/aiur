@@ -1180,6 +1180,37 @@ cmd_executor_wait --timeout 2 --json|,
     assert bad =~ "executor-wait --timeout expects a positive integer"
   end
 
+  test "the takeover commands pass an explicit consumer id and nothing else" do
+    {wait, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }
+cmd_executor_wait --timeout 2 --as agent-b|,
+        []
+      )
+
+    assert wait =~ ~s|executor_wait(timeout_ms: 2000, json: false, as: "agent-b")|
+
+    {claim, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_claim --as agent-a|, [])
+    assert claim =~ ~s|executor_claim([as: "agent-a"])|
+
+    {release, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_release|, [])
+    assert release =~ "executor_release([])"
+
+    {revoke, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_revoke agent-a|, [])
+    assert revoke =~ ~s|executor_revoke("agent-a")|
+
+    {roster, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_roster --json|, [])
+    assert roster =~ "executor_roster(json: true)"
+
+    # A revoke must name the owner: the operator decides, so there is no
+    # "revoke whoever holds it" form.
+    {missing, 64} = run_sourced_engine("cmd_executor_revoke", [])
+    assert missing =~ "executor-revoke requires the current owner's consumer id"
+
+    {bad_id, 64} = run_sourced_engine("cmd_executor_claim --as 'not a/id'", [])
+    assert bad_id =~ "executor-claim --as expects"
+  end
+
   test "streaming control rpc preserves an unexpected crash marker" do
     marker = Path.join(System.tmp_dir!(), "aiur-stream-crash-#{System.unique_integer([:positive])}")
     File.write!(marker, "reason=boom\n")

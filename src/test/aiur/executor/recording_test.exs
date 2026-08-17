@@ -152,10 +152,16 @@ defmodule Aiur.Executor.RecordingTest do
     assert ExecutorWakeInbox.cursor(@inbox_name) == before
     assert length(ExecutorWakeInbox.pending(@inbox_name)) == 5
 
-    # The owner's acknowledge is the only one that moves it.
+    # The owner's acknowledge is the only one that moves it, and it is the path
+    # that writes the roster's consumption evidence.
     assert :ok = ExecutorWakeInbox.acknowledge_as("owner-a", records, @inbox_name)
     assert ExecutorWakeInbox.cursor(@inbox_name) > before
     assert ExecutorWakeInbox.pending(@inbox_name) == []
+
+    {:ok, owner_entry} = Claims.owner(claims)
+    assert is_binary(owner_entry["last_acknowledged_at"])
+    assert owner_entry["acknowledged_count"] == 1
+    assert owner_entry["cursor_at_last_ack"] == ExecutorWakeInbox.cursor(@inbox_name)
   end
 
   test "unattended recording stays bounded" do
