@@ -63,7 +63,59 @@ defmodule Aiur.ExecutorCommandCLITest do
         end)
 
       assert output =~ "outside what the Executor may answer directly"
-      assert output =~ "escalate it to the operator instead"
+      assert output =~ "executor-escalate"
+      assert output =~ "reversibility"
+    end
+
+    test "names the CLI flag for invalid answer fields" do
+      for {reason, expected} <- [
+            {{:idempotency_key, :missing}, "--idempotency-key"},
+            {{:actor_kind, :invalid}, "Executor attribution"},
+            {{:actor_id, :too_long}, "--executor-id"},
+            {{:option_id, :unknown}, "--option is invalid"},
+            {{:response, :ambiguous}, "exactly one of --option or --custom-response"},
+            {{:custom_response, :too_long}, "--custom-response"},
+            {{:future_field, :invalid}, "answer field future_field"}
+          ] do
+        output =
+          capture_io(:stderr, fn ->
+            assert ExecutorCommandCLI.answer(
+                     [
+                       decision_id: "decision:42",
+                       expected_version: 3,
+                       option_id: "yes",
+                       rationale: "Known answer",
+                       idempotency_key: "key"
+                     ],
+                     answer_fun: fn _, _, _, _ -> {:error, {:answer_invalid, reason}} end
+                   ) == 1
+          end)
+
+        assert output =~ expected
+      end
+    end
+
+    test "routes errors through an injected writer for control RPC callers" do
+      for reason <- [
+            {:stale_version, 3, 4},
+            {:conflict, {:stale_version, 3, 4}}
+          ] do
+        test_pid = self()
+
+        assert ExecutorCommandCLI.answer(
+                 [
+                   decision_id: "decision:42",
+                   expected_version: 3,
+                   option_id: "yes",
+                   rationale: "Known answer",
+                   idempotency_key: "key"
+                 ],
+                 answer_fun: fn _, _, _, _ -> {:error, reason} end,
+                 error_fun: &send(test_pid, {:error, &1})
+               ) == 1
+
+        assert_received {:error, "aiur: cannot answer Command: stale version 3; current version is 4"}
+      end
     end
 
     test "requires exactly one option or custom response" do
@@ -76,7 +128,7 @@ defmodule Aiur.ExecutorCommandCLITest do
             assert ExecutorCommandCLI.answer(required ++ choice, answer_fun: answer_fun) == 64
           end)
 
-        assert output =~ "exactly one of option_id or custom_response"
+        assert output =~ "exactly one of --option or --custom-response"
       end
     end
   end
@@ -136,6 +188,18 @@ defmodule Aiur.ExecutorCommandCLITest do
         end)
 
       assert output =~ "stale version"
+    end
+
+    test "routes escalation errors through an injected writer" do
+      test_pid = self()
+
+      assert ExecutorCommandCLI.escalate(
+               [decision_id: "decision:42", expected_version: 3, reason: "Needs operator review"],
+               escalate_fun: fn _, _, _ -> {:error, {:not_open, :resolved}} end,
+               error_fun: &send(test_pid, {:error, &1})
+             ) == 1
+
+      assert_received {:error, "aiur: cannot escalate Command because it is not open (:resolved)"}
     end
 
     test "reports a non-open Command as a command error" do

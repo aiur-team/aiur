@@ -493,7 +493,7 @@ defmodule Aiur.DecisionStoreTest do
       refute MapSet.member?(ids, "33")
     end
 
-    test "internal delivery alerts never gate dispatch", %{dir: dir} do
+    test "option-less legacy attentions never gate dispatch, but real blockers do", %{dir: dir} do
       pid = start_store!(dir)
       slug = "decision-delivery-act-1"
 
@@ -515,8 +515,23 @@ defmodule Aiur.DecisionStoreTest do
 
       assert delivery_alert.blocking
 
-      assert {:ok, %{status: :accepted, decision: _command}} =
+      # #1844: an option-less legacy attention does not gate dispatch either,
+      # even when the persisted record still says `blocking: true` — records
+      # written before attentions were filed unblocking are still in the store,
+      # and each one would otherwise hold the whole ticket's dispatch.
+      assert {:ok, %{status: :accepted, decision: attention}} =
                project_attention(pid, minimal_attention("Which owner should take this?"))
+
+      assert attention.blocking
+      assert attention.options == []
+
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert ids == MapSet.new()
+
+      # A real agent-filed blocking Command on the same ticket still gates it,
+      # so the exclusion is scoped to attentions rather than disarming the gate.
+      assert {:ok, %{decision: _blocker}} =
+               request(pid, %{"question" => "Drop the index?", "blocking" => true})
 
       assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
       assert MapSet.member?(ids, "979")
@@ -531,6 +546,92 @@ defmodule Aiur.DecisionStoreTest do
 
       GenServer.stop(pid)
       assert {:error, :store_unavailable} = DecisionStore.blocked_ticket_ids(pid)
+    end
+  end
+
+  describe "supersede-and-clear on answer (#1844)" do
+    test "answering a Command clears its open duplicates on the same ticket", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Should PR #1820 push its existing merge?"
+
+      assert {:ok, %{decision: primary}} =
+               request(pid, %{
+                 "question" => question,
+                 "blocking" => false,
+                 "options" => [
+                   %{"id" => "push_refresh", "label" => "Push the refresh"},
+                   %{"id" => "keep_unpushed", "label" => "Keep it unpushed"}
+                 ]
+               })
+
+      # The same question filed a second time as an option-less attention —
+      # the exact #1844 shape. `source_id` differs, so nothing dedups it today.
+      assert {:ok, %{status: :accepted, decision: duplicate}} =
+               project_attention(pid, %{
+                 "question" => "  SHOULD PR #1820 push its existing `merge`.  ",
+                 "blocking" => false,
+                 "kind" => "legacy_attention",
+                 "source_id" => "legacy_attention:push-question"
+               })
+
+      # A genuinely different question on the same ticket, and the same question
+      # on a different ticket. Neither may be swept up.
+      assert {:ok, %{decision: unrelated}} =
+               request(pid, %{"question" => "Should we drop the index?", "blocking" => false})
+
+      assert {:ok, %{decision: other_ticket}} =
+               request(pid, %{"question" => question, "blocking" => false}, ticket: %{@ticket | identifier: "5150"})
+
+      assert duplicate.decision_status == :open
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, primary.decision_id, %{
+                 "idempotency_key" => "answer-primary",
+                 "expected_version" => primary.version,
+                 "option_id" => "push_refresh"
+               })
+
+      assert {:ok, %Decision{decision_status: :dismissed} = cleared} =
+               DecisionStore.get(duplicate.decision_id, pid)
+
+      # The dismissal names the Command that answered it, so the audit trail
+      # explains why a record the operator never touched closed itself.
+      assert {:ok, audit} = DecisionStore.audit_history(cleared.decision_id, pid)
+
+      assert Enum.any?(audit, fn record ->
+               match?(%DecisionEvent{type: :decision_dismissed}, record) and
+                 record.data.actor.id == "superseded-by:#{primary.decision_id}"
+             end)
+
+      assert {:ok, %Decision{decision_status: :open}} = DecisionStore.get(unrelated.decision_id, pid)
+      assert {:ok, %Decision{decision_status: :open}} = DecisionStore.get(other_ticket.decision_id, pid)
+    end
+
+    test "an agent-filed blocking duplicate is never silently cleared", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Which owner should take this?"
+
+      assert {:ok, %{decision: primary}} =
+               request(pid, %{"question" => question, "blocking" => false})
+
+      # Blocking, agent-filed, no legacy attention: `unresolvable_block?/1`
+      # refuses dismissal because it would release nothing to the waiting agent.
+      # Superseding must respect that rather than route around it.
+      assert {:ok, %{decision: blocking_twin}} =
+               request(pid, %{"question" => question, "blocking" => true})
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, primary.decision_id, %{
+                 "idempotency_key" => "answer-owner",
+                 "expected_version" => primary.version,
+                 "custom_response" => "Platform owns it"
+               })
+
+      assert {:ok, %Decision{decision_status: :open}} =
+               DecisionStore.get(blocking_twin.decision_id, pid)
+
+      assert {:ok, ids} = DecisionStore.blocked_ticket_ids(pid)
+      assert MapSet.member?(ids, "979")
     end
   end
 
