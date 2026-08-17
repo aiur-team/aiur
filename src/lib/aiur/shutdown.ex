@@ -22,8 +22,8 @@ defmodule Aiur.Shutdown do
 
   require Logger
 
-  alias Aiur.Claude.{RemoteControl, ReplAgent}
   alias Aiur.{AlertLedger, Config}
+  alias Aiur.Claude.{RemoteControl, ReplAgent}
   alias Aiur.Fs
   alias Aiur.Opencode.SessionWriterRegistry
 

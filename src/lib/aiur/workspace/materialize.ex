@@ -48,9 +48,8 @@ defmodule Aiur.Workspace.Materialize do
 
   defp materialize(workspace, prepare) do
     prepare_and_filter = fn stage ->
-      with :ok <- prepare.(stage),
-           :ok <- remove_ignored_crash_dumps(stage) do
-        :ok
+      with :ok <- prepare.(stage) do
+        remove_ignored_crash_dumps(stage)
       end
     end
 
@@ -88,16 +87,18 @@ defmodule Aiur.Workspace.Materialize do
   defp remove_listed_crash_dumps(workspace, output) do
     output
     |> String.split(<<0>>, trim: true)
-    |> Enum.reduce_while(:ok, fn relative, :ok ->
-      if Path.basename(relative) == "erl_crash.dump" do
-        case File.rm(Path.join(workspace, relative)) do
-          :ok -> {:cont, :ok}
-          {:error, :enoent} -> {:cont, :ok}
-          {:error, reason} -> {:halt, {:error, {:remove_crash_dump, relative, reason}}}
-        end
-      else
-        {:halt, {:error, {:unexpected_crash_dump_path, relative}}}
+    |> Enum.reduce_while(:ok, fn relative, :ok -> remove_crash_dump(workspace, relative) end)
+  end
+
+  defp remove_crash_dump(workspace, relative) do
+    if Path.basename(relative) == "erl_crash.dump" do
+      case File.rm(Path.join(workspace, relative)) do
+        :ok -> {:cont, :ok}
+        {:error, :enoent} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:remove_crash_dump, relative, reason}}}
       end
-    end)
+    else
+      {:halt, {:error, {:unexpected_crash_dump_path, relative}}}
+    end
   end
 end
