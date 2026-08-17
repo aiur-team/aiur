@@ -134,6 +134,37 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
     assert graphql.direction == :shortfall
   end
 
+  # The margin *is* the definition of "the breakdown reconciles", and nothing
+  # pinned it: widening it from 5% to 90% left every case above green while
+  # turning `reconciled?` into a claim about nothing. These two bracket it — a
+  # gap of exactly the margin agrees, one point further does not.
+  test "a gap of exactly the margin still reconciles" do
+    quota = start_quota()
+
+    # 5000 - 4000 = 1000 spent, 950 attributed: a 50-point gap, exactly 5%.
+    observe(quota, "comment_poll_batch", 950, 4000)
+
+    graphql = Quota.snapshot(quota).reconciliation["graphql"]
+
+    assert graphql.margin == 0.05
+    assert graphql.attributed == 950
+    assert graphql.spend == 1000
+    assert graphql.reconciled?
+    assert graphql.direction == :agrees
+  end
+
+  test "a gap one point past the margin does not reconcile" do
+    quota = start_quota()
+
+    # One point further out: 51 of 1000 is 5.1%.
+    observe(quota, "comment_poll_batch", 949, 4000)
+
+    graphql = Quota.snapshot(quota).reconciliation["graphql"]
+
+    refute graphql.reconciled?
+    assert graphql.direction == :shortfall
+  end
+
   test "distinguishes a double count from unmeasured spend" do
     quota = start_quota()
 

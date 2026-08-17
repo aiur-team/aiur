@@ -84,13 +84,19 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"],
                request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
-               since: %{"42" => "2026-07-30T00:00:00Z"}
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
              )
 
-    # The poller reads `:missing` for both and takes the conditional REST path.
-    refute Map.has_key?(batch, :issue_comments)
-    refute Map.has_key?(batch, :pr_issue_comments)
+    # The poller reads `:missing` for every comment key and takes the conditional
+    # REST path. Asserting the exact key set rather than refuting two names is
+    # what makes this fail if any comment key comes back: a refute of a name the
+    # batch cannot emit passes against every implementation, including a broken
+    # one.
+    #
+    # The cursor window this call used to pass (`since:`) moved with the comment
+    # read itself: `Aiur.GitHub.Comments.comment_query/1` owns it now, and
+    # `Aiur.GitHub.CommentsTest` asserts it reaches the URL.
+    assert batch |> Map.keys() |> Enum.sort() == [:open_pull_request]
   end
 
   # The other half of the cost claim. A branch alias asks for up to five
@@ -297,9 +303,13 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
     assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
 
-    refute Map.has_key?(batch.open_pull_request, :kind)
-    refute Map.has_key?(batch.open_pull_request, :threads_included?)
-    refute Map.has_key?(batch.open_pull_request, :review_threads)
+    # The whole key set, not a list of three names. Naming the keys that must be
+    # absent only guards the ones somebody remembered: `:review_threads_page_info`
+    # is dropped by the same `Map.drop/2` and was not among them, so a leak of it
+    # was uncaught. An exact set fails on any key that starts or stops being
+    # stripped.
+    assert batch.open_pull_request |> Map.keys() |> Enum.sort() ==
+             ["base", "head", "head_committed_at", "number", "review_decision", "state"]
   end
 
   defp issue, do: %{}
