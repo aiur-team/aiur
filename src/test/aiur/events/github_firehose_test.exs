@@ -132,7 +132,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
     end
 
     test "PullRequestEvent ready_for_review publishes its own topic" do
-      :ok = Exchange.subscribe("ticket.7.pr.ready_for_review")
+      :ok = Exchange.subscribe("ticket.7.pr.#")
 
       stub = fn _ ->
         {:ok,
@@ -140,6 +140,20 @@ defmodule Aiur.Events.GithubFirehoseTest do
            status: 200,
            headers: [{"ETag", ~s("ready")}],
            body: [
+             %{
+               "id" => "opened-event",
+               "type" => "PullRequestEvent",
+               "actor" => %{"login" => "carol"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "action" => "opened",
+                 "pull_request" => %{
+                   "number" => 7,
+                   "draft" => true,
+                   "head" => %{"ref" => "aiur/7-readable", "sha" => String.duplicate("a", 40)}
+                 }
+               }
+             },
              %{
                "id" => "ready-event",
                "type" => "PullRequestEvent",
@@ -158,9 +172,11 @@ defmodule Aiur.Events.GithubFirehoseTest do
          }}
       end
 
-      assert {:ok, %{count: 1}} = GithubFirehose.poll(request_fun: stub)
+      assert {:ok, %{count: 2}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.7.pr.opened"}}, 500
       assert_receive {:event, %{topic: "ticket.7.pr.ready_for_review"}}, 500
       assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
+      refute_receive {:event, %{topic: "ticket.7.pr.opened"}}, 100
       refute_receive {:event, %{topic: "ticket.7.pr.ready_for_review"}}, 100
     end
 

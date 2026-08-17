@@ -5,9 +5,45 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
   alias Aiur.TrackerIdentity
+
+  test "executor-wait prints and acknowledges a pending wake" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    :ok =
+      ExecutorWakeInbox.enqueue(%{
+        "wake_id" => 1,
+        "event_id" => 1,
+        "topic" => "ticket.42.pr.opened",
+        "topic_class" => "ticket.pr.opened",
+        "ticket" => "42",
+        "count" => 1,
+        "first_seen_at" => now,
+        "last_seen_at" => now
+      })
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 500, json: true) end)
+
+    assert output =~ ~s("topic":"ticket.42.pr.opened")
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert ExecutorWakeInbox.pending() == []
+  end
+
+  test "executor-wait reports a quiet timeout without creating a cursor" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
+    cursor_path = Path.join(Aiur.Config.Paths.log_root_dir(), "#{Aiur.Config.Paths.repo_name()}.executor.wakes.cursor.json")
+
+    assert output =~ "__AIUR_CONTROL_EXIT__:75"
+    refute output =~ "WAKE"
+    refute File.exists?(cursor_path)
+  end
 
   defp capture_todo(ids, opts) do
     parent = self()

@@ -39,8 +39,12 @@ defmodule Aiur.ExecutorBindings do
 
   @spec allowlisted?(String.t()) :: boolean()
   def allowlisted?(pattern) when is_binary(pattern) do
-    Enum.any?(patterns(), &Topic.matches?(&1, pattern))
+    String.starts_with?(pattern, "executor.") or
+      pattern in patterns() or
+      (not wildcard_pattern?(pattern) and Enum.any?(patterns(), &Topic.matches?(&1, pattern)))
   end
+
+  defp wildcard_pattern?(pattern), do: pattern |> String.split(".") |> Enum.any?(&(&1 in ["*", "#"]))
 
   @spec reconcile() :: :ok | {:error, term()}
   def reconcile, do: ExecutorEvents.reconcile_subscriptions(@defaults)
