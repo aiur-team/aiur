@@ -108,6 +108,20 @@ When a path deposits the resource itself, that is written to disk alongside the 
 
 Every write that changes what a reader could see is announced, so anything watching that resource learns about it without asking GitHub. A change costs one API call at most, no matter how many things were watching.
 
+A webhook delivery is the cheapest writer of all: GitHub has already paid for the round trip and the delivery arrives before any sweep would have read the same object. So every delivery for a tracked repository deposits the state it carries, whether or not it also wakes an agent.
+
+| Delivery | What it deposits |
+| --- | --- |
+| Comment created or edited | The comment, and the issue it hangs off with its label set. |
+| Review submitted, edited or dismissed | The review, and the pull request. |
+| Review comment | The comment, and the pull request. |
+| Pull request | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
+| Issue labelled, closed or reopened | The issue and its label set. |
+| Check run | That check run. It says nothing about the other runs on the same head, so a reader asking about the head still reads. |
+| Comment deleted | Nothing. The held body is discarded instead, because serving a comment that no longer exists is worse than not holding one. |
+
+A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
+
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
 
 ## Optional webhook
