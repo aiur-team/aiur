@@ -659,7 +659,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec manual_resume_decision(term(), State.t()) ::
           :dispatch | {:skip, dispatch_decline_reason()}
   def manual_resume_decision(issue, %State{} = state) do
-    case dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set()) do
+    case dispatch_candidate_decision(
+           issue,
+           state,
+           active_state_set(),
+           terminal_state_set(),
+           state.blocked_ticket_ids
+         ) do
       :dispatch ->
         if State.active_running_count(state.running) < Slots.max_concurrent_agent_limit(state),
           do: :dispatch,

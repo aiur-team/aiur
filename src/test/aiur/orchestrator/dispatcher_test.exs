@@ -625,7 +625,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert {:ok, [^fresh], state} = Dispatcher.fetch_candidate_issues(state, fetch_fun: fetch_fun)
     assert state.ci_lifecycle.poll_cache.candidate_list_cache == %{etag: "v2"}
 
-    assert TrackerHealth.next_poll_delay_ms(state) == 5_000
+    # Revalidation is paced by the configured polling interval...
+    assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 1.0) == 5_000
+
+    # ...which an idle fleet then widens by `polling.idle_widen_factor` (5.0).
+    # Snapshot freshness is bounded by the effective interval, not the raw one.
+    assert TrackerHealth.next_poll_delay_ms(state) == 25_000
   end
 
   test "a failed GitHub candidate refresh hides stale idle labels but preserves recovery data" do
