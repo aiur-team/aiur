@@ -203,12 +203,15 @@ A stopped daemon is reported separately with the command needed to start it; a l
 
 ### Wake ledger bound and lease TTL
 
-The wake ledger is capped at 10,000 records. Consumed records are evicted first;
-past the cap the **oldest unread wakes are evicted too**, the shared cursor is
-advanced past them, and an `executor.wakes.overflow` alert names the count and id
-range. Those wakes are never delivered. In practice this only happens when a run
-records for a long time with no consumer, or with a stalled one — the roster's
-`stalled` state is the earlier warning.
+The wake ledger is capped at 10,000 records. Consumed records are evicted first.
+
+Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
+advanced past them and an `executor.wakes.overflow` alert names the count and id
+range; those wakes are never delivered.
+
+In practice that only happens when a run records for a long time with no
+consumer, or with a stalled one. The roster's `stalled` state is the earlier
+warning.
 
 A claim is a lease with a 10-minute TTL, renewed while `executor-wait` blocks and
 on every claim, acknowledgement, or roster touch. A consumer that stops renewing
