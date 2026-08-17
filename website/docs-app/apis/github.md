@@ -157,18 +157,23 @@ A verdict is refused rather than kept briefly because a push and a completing
 check run do not pass through the wrapper, so nothing could retire the answer
 before an agent acted on it.
 
-An answer is kept for 60 seconds. Editing a ticket or a pull request discards the
-kept answers for it at once, so an agent never reads back what it just replaced.
-So does anything the daemon learns about that resource — a webhook delivery, a
-comment Aiur posted itself — which is what makes a free delivery stop sixteen
-agents from paying to discover the same change.
+An answer is kept for 60 seconds.
 
-Agents that ask **at the same moment** are also one call, not many. Thirteen
-agents opening the same pull request in the same second cannot be helped by a
-kept answer, because none exists yet when they all look. One of them is admitted
-to fetch and the rest wait behind it, then read what it wrote. If the one that
-was admitted never answers, the others stop waiting and fetch — the cost is the
-single call the waiting was meant to save, never a stall.
+Editing a ticket or a pull request discards the kept answers for it at once, so
+an agent never reads back what it just replaced.
+
+So does anything the daemon learns about that resource — a webhook delivery, a
+comment Aiur posted itself. That is what lets a free delivery stop sixteen agents
+paying to discover the same change.
+
+Agents that ask **at the same moment** are also one call, not many.
+
+Thirteen agents opening the same pull request in the same second cannot be helped
+by a kept answer, because none exists yet when they all look. One is admitted to
+fetch and the rest wait behind it, then read what it wrote.
+
+If the admitted one never answers, the others stop waiting and fetch. The cost is
+the single call the waiting was meant to save, never a stall.
 
 Sharing is controlled by these settings:
 
@@ -180,14 +185,16 @@ Sharing is controlled by these settings:
 | `AIUR_GITHUB_STATE_CACHE_WAIT_MS` | How long an agent waits for another agent's identical call before making its own. |
 
 If the store is missing or unwritable, every call behaves as it did before.
-Sharing is between the agents on one host that use the same GitHub credential,
-which is the same boundary the shared request budget already draws — a second
-credential keeps its own answers, because a response can depend on who asked.
 
-A change made outside those agents — a merge from the web UI, an Executor's own
-`gh`, a label set by somebody else — is not seen by the wrapper. Aiur learns of
-it through the webhook or the next poll and retires the affected answers then, so
-the exposure is that gap, and it is why a verdict is never kept at all.
+Sharing is between the agents on one host that use the same GitHub credential —
+the same boundary the shared request budget draws. A second credential keeps its
+own answers, because a response can depend on who asked.
+
+A change made outside those agents — a merge from the web UI, a label set by
+somebody else — is not seen by the wrapper. Aiur learns of it through the webhook
+or the next poll and retires the affected answers then.
+
+That gap is the exposure, and it is why a verdict is never kept at all.
 
 ## Optional webhook
 
