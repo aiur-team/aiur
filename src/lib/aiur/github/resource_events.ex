@@ -239,7 +239,12 @@ defmodule Aiur.GitHub.ResourceEvents do
       owner: owner,
       repo: repo,
       id: id,
-      source: Map.get(entry, :source),
+      # The pipe that deposited the body, falling back to the pipe that marked
+      # the resource processed. Which pipe wrote is reported here and is
+      # deliberately *not* part of what counts as a change: two readers of one
+      # unchanged resource alternating `:fetch` and `:poll` must not wake every
+      # subscriber on every cycle.
+      source: Map.get(entry, :data_source) || Map.get(entry, :source),
       version: Map.get(entry, :version),
       etag: Map.get(entry, :etag),
       # Whether the store now holds something renderable. A validator without a

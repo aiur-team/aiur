@@ -214,7 +214,7 @@ defmodule Aiur.GitHub.Issues do
   defp revalidate_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-    etag = if retried_without_validator?, do: nil, else: servable_validator(key)
+    etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
 
     request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
@@ -375,22 +375,6 @@ defmodule Aiur.GitHub.Issues do
 
   # A validator is only worth sending alongside the body it validates.
   #
-  # `etag/1` reports a stored ETag whatever state the body is in; `fetch/1`
-  # enforces the retention window. Reading the validator raw therefore hands back
-  # an ETag for a body the store will refuse to serve — past retention, or after
-  # the body was dropped — which buys a guaranteed `304` carrying nothing, and
-  # then the recovery path spends a second, unconditional request. Two requests
-  # where one was needed is the exact waste this store exists to remove.
-  #
-  # `Aiur.GitHub.ResourceFetch.validator/1` makes the same judgement for the same
-  # reason; the two must not drift.
-  defp servable_validator(key) do
-    case ResourceStore.fetch(key) do
-      {:ok, %{etag: etag}} when is_binary(etag) and etag != "" -> etag
-      _other -> nil
-    end
-  end
-
   defp raw_repository(opts) do
     case Keyword.fetch(opts, :repository) do
       {:ok, {owner, repo}} ->
@@ -869,7 +853,7 @@ defmodule Aiur.GitHub.Issues do
   # Only reached when the poll's own cache had no validator, so borrowing the
   # store's is never a downgrade: without it the request is unconditional.
   defp store_validator(_store_key, true), do: nil
-  defp store_validator(store_key, false), do: servable_validator(store_key)
+  defp store_validator(store_key, false), do: ResourceStore.etag(store_key)
 
   # A `304` answered against a borrowed validator has no locally materialized
   # `Issue` to return, so normalize the shared body instead. Without this the

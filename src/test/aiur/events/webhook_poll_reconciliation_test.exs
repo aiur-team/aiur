@@ -343,11 +343,12 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
       refute_event(@topic)
     end
 
-    # The other half of the store's validator/body contract. A durable validator
-    # with no body behind it can only ever earn another `304` and no data, and
-    # there is no smaller unit to reconcile, so the reader must forget it and
-    # read unconditionally rather than repeat the empty answer for three days.
-    test "a durable validator with no body is discarded after its first empty 304", %{store_path: store_path} do
+    # The other half of the store's validator/body contract, now enforced by the
+    # store itself: `etag/1` does not offer a validator the store cannot serve a
+    # body for, so the sweep never spends the empty `304` at all. The comment is
+    # recovered by the *first* read rather than the second — one request instead
+    # of two.
+    test "a durable validator with no body is never sent, and the read recovers the comment", %{store_path: store_path} do
       restart_store!(store_path)
       :ok = Exchange.subscribe(@topic)
 
@@ -356,14 +357,13 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
       assert :ok = ResourceStore.flush()
       restart_store!(store_path)
 
-      {first_calls, {:ok, %{count: 0}}} = sweep(:not_modified, etag: ~s("bodyless"))
-      assert [%{etag: ~s("bodyless")}] = Enum.map(first_calls, &Map.take(&1, [:etag]))
-      assert ResourceStore.etag(resource) == nil, "an unusable validator must not be kept"
+      assert ResourceStore.change_validator(resource) == ~s("bodyless"),
+             "the validator is still recorded; it is simply not offered to a reader of bodies"
 
-      {second_calls, result} = sweep([comment(9603, "recovered by the unconditional read")])
+      {calls, result} = sweep([comment(9603, "recovered by the unconditional read")])
 
-      assert [request] = second_calls
-      refute Map.has_key?(request, :etag), "the next read must be unconditional"
+      assert [request] = calls
+      refute Map.has_key?(request, :etag), "a validator with no body behind it must not be spent"
       assert {:ok, %{count: 1}} = result
       assert %{comment: %{"id" => 9603}} = await_event(@topic)
     end

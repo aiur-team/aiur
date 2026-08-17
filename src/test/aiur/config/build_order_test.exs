@@ -23,8 +23,13 @@ defmodule Aiur.Config.BuildOrderTest do
   # A configuration that still carries them must keep loading — `cast/3` ignores
   # keys outside the permitted list — so an operator upgrading gets the new
   # behaviour rather than a daemon that will not boot.
+  # Asserted as "loading them changes nothing", not as "the struct lacks the
+  # field". `settings.build_order` is an Ecto struct with a closed field set, so
+  # `refute Map.has_key?(struct, :anything)` is statically true and would pass
+  # against a schema that had reinstated both keys under different names — or
+  # against one that honoured them.
   test "a configuration still setting the deleted viewer cadences still loads" do
-    assert {:ok, settings} =
+    assert {:ok, with_deleted} =
              Schema.parse(%{
                "build_order" => %{
                  "graph_selected_refresh_ms" => 15_000,
@@ -32,8 +37,10 @@ defmodule Aiur.Config.BuildOrderTest do
                }
              })
 
-    refute Map.has_key?(settings.build_order, :graph_selected_refresh_ms)
-    refute Map.has_key?(settings.build_order, :graph_demand_refresh_ms)
+    assert {:ok, without} = Schema.parse(%{})
+
+    assert with_deleted.build_order == without.build_order,
+           "the deleted viewer cadences must be inert; honouring one would let viewing buy GitHub reads again"
   end
 
   test "uses bounded projection and ticket-detail defaults for everything else" do
