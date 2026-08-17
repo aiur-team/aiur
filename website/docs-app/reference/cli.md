@@ -171,7 +171,11 @@ Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, an
 | `aiur executor-escalate DECISION-ID` | Hands a decision back to the human Executor instead of answering it. It requires `--expected-version` and `--reason`. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 | `aiur executor-escalate DECISION-ID --reason "Text"` | Required. It records why the supervising Executor declined to answer. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 
-Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly. If `executor-answer` says a field is outside Executor scope, use `aiur executor-escalate` with the same decision ID and current version. A stopped daemon is reported separately with the command needed to start it; a live but silent or unreachable daemon reports the attempted decision ID, expected version, and daemon endpoint so the same call can be diagnosed without guessing.
+Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly.
+
+If `executor-answer` says a field is outside Executor scope, use `aiur executor-escalate` with the same decision ID and current version.
+
+A stopped daemon is reported separately with the command needed to start it; a live but silent or unreachable daemon reports the attempted decision ID, expected version, and daemon endpoint so the same call can be diagnosed without guessing.
 
 | `aiur executor-listen` | Persists the requested subscription, then streams all persisted-pattern events after the saved cursor before live events as JSON lines. It intentionally does not use the ten-second one-shot RPC timeout. | `aiur executor-listen` |
 | `aiur executor-listen --topic 'executor.#'` | Adds that validated AMQP topic pattern before listening; the default is `executor.#`. Empty segments and malformed patterns are rejected. | `aiur executor-listen --topic 'executor.#'` |
@@ -193,6 +197,12 @@ Executor subscriptions are the Executor's half of the event system; see [Message
 Normal control commands use a bounded RPC. After ten seconds the launcher terminates its helper and descendants, exits 124, and reports the timeout. A crash marker distinguishes a known crashed daemon from a stopped one; run `aiur stop` to reap possible orphaned agents before restarting.
 
 An open **blocking** ask is also printed by plain `aiur status`; no extra flag is required. That keeps a durable request in the normal operating view instead of hiding it in a ledger that nobody reads.
+
+`--blocking` and `--filter blocking` mean *dispatch is held until you answer this*, which is also what the dispatch gate reads.
+
+An agent attention is a visibility signal rather than a gate — the agent keeps running after it opens one — so attentions are listed by `aiur commands` but are not counted as blocking.
+
+Answering a Command also dismisses every other unanswered Command — open or deferred — asking the same question on the same ticket, so a question filed more than once clears in one answer. A blocking Command an agent is genuinely waiting on is never swept up this way, because dismissing it would deliver nothing to that agent.
 
 ## Operational facts that change an incident response
 
