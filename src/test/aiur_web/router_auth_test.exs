@@ -26,7 +26,11 @@ defmodule AiurWeb.RouterAuthTest do
 
     on_exit(fn ->
       restore_application_env(AiurWeb.Endpoint, previous_endpoint)
-      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable)
+
+      if Process.whereis(AiurWeb.Endpoint) do
+        Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable)
+      end
+
       restore_env("AIUR_DASHBOARD_USERNAME", original_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", original_password)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_supervisor_token)
