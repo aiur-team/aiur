@@ -2,6 +2,8 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   use Aiur.TestSupport
 
   alias Aiur.GitHub.AuthPreflight
+  alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.Transport
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -246,7 +248,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       previous_quota = Application.get_env(:aiur, :github_quota_server)
       previous_budget = Application.get_env(:aiur, :github_budget_enabled?)
 
-      quota = start_supervised!({Aiur.GitHub.Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
+      quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
       Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
       Application.put_env(:aiur, :github_quota_server, quota)
       Application.put_env(:aiur, :github_budget_enabled?, false)
@@ -270,7 +272,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       end)
 
       assert {:ok, %{status: 401}} =
-               Aiur.GitHub.Transport.default_request_fun(%{
+               Transport.default_request_fun(%{
                  method: :get,
                  url: "https://api.github.com/repos/owner/repo/issues/1",
                  token: "revoked"

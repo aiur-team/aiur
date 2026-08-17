@@ -74,15 +74,21 @@ defmodule Aiur.GitHub.AuthPreflight do
       if memoized?(key) do
         :ok
       else
-        case run_full_preflight(owner, repo, token, opts) do
-          :ok ->
-            memoize(key)
-            :ok
-
-          {:error, _reason} = error ->
-            error
-        end
+        prove(key, owner, repo, token, opts)
       end
+    end
+  end
+
+  # Only a success is remembered. A failure stays uncached so a broken
+  # credential is re-checked on the very next cycle.
+  defp prove(key, owner, repo, token, opts) do
+    case run_full_preflight(owner, repo, token, opts) do
+      :ok ->
+        memoize(key)
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
