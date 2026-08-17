@@ -144,6 +144,7 @@ defmodule Aiur.Orchestrator.State do
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           merged_ticket_reconciliations: MapSet.t(),
           merged_ticket_reconciliation_failures: MapSet.t(),
+          orphaned_agent_reap_count: non_neg_integer(),
           control_lifecycle: ControlLifecycle.t(),
           # Consecutive poll ticks the prewarm gate has held dispatch for a
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
@@ -255,6 +256,7 @@ defmodule Aiur.Orchestrator.State do
     merged_ticket_reconciliation_failures: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
+    orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0
   ]
@@ -343,6 +345,7 @@ defmodule Aiur.Orchestrator.State do
           |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
           |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
           |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
+          |> maybe_put_runtime_value(:headless_process_group_id, info[:headless_process_group_id])
           |> maybe_put_runtime_value(:repl_rc_session_url, info[:session_url])
 
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}

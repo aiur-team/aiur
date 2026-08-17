@@ -86,6 +86,63 @@ defmodule Aiur.GitHub.ResourceStore do
   of its type anywhere. That is what lets a view re-render off somebody else's
   write instead of paying for a read of its own.
 
+  ## The validator/body contract — read this before adding a reader
+
+  A validator and a body are separable, and the separation is what makes a
+  `304` dangerous. Three states exist and each one binds the reader differently:
+
+    * **body + validator** — the normal state after `put_resource/3`. A `304`
+      means "what you hold is current": serve the held body and publish exactly
+      what a `200` would have. This is the only state in which a conditional
+      request is free *and* answers the question.
+    * **validator, no body** — legitimate and deliberately reachable.
+      `put_etag/2` records one, and `drop_data/1` removes a body while leaving
+      the validator in place on purpose. A reader in this state that sends
+      `If-None-Match` and is answered `304` has **spent a request and learned
+      nothing**, and no per-resource reconciliation can recover the missing
+      answer because the list-level validator suppressed the whole list.
+      **Therefore every reader must treat a `304` with no held body as
+      "re-read unconditionally": discard the validator and read again.**
+      `Aiur.Events.GithubCommentsPoller` does exactly that; a new reader that
+      does not is the way this store starts dropping data.
+    * **body, no validator** — a deposit whose writer had no ETag, or a
+      validator discarded by the rule above. Costs one full-price read. Always
+      safe.
+
+  A validator is never recorded for a body the store refused, at deposit time
+  *or* at checkpoint time. See `deposit_etag/3` and `encode_fields/2`.
+
+  ## Changing a held body: never fetch-then-put
+
+  A writer that reads the held body, changes part of it and puts it back must
+  use `update_resource/3`, which does all three inside one compare-and-swap.
+  The same thing written as `fetch/1` followed by `put_resource/3` loses writes
+  within the first handful of concurrent merges, because the window is a whole
+  round trip through the caller: a webhook delivery depositing the fresh object
+  in between is overwritten by the stale snapshot, `"state"` included. There is
+  no volume threshold below which this is safe.
+
+  ## Bodies must be JSON that round-trips unchanged
+
+  A checkpointed body has to come back the shape it went in. `Jason` does not
+  preserve atom map keys, atoms, tuples or structs, so a body containing any of
+  them would work in memory and come back differently after a restart — a
+  consumer matching `%{id: id}` would start raising with nothing to attribute it
+  to. `put_resource/3` therefore **refuses** such a body, loudly, and holds no
+  body at all rather than one that will change under the reader. GitHub REST
+  responses are string-keyed JSON, so nothing a pipe deposits is affected.
+
+  ## Who writes and who reads today
+
+  Deliberately recorded so a later unit does not assume more than exists.
+  Writers: `Aiur.Events.GithubCommentsPoller` deposits each watched target's
+  issue-comment and PR-conversation-comment *list* as a body with the endpoint's
+  validator, and `Aiur.Events.Publisher` marks individual comment resources
+  processed. Readers: the same poller serves its own `304` from the held list.
+  Everything else — an agent's `gh` wrapper, the dashboard, mutation
+  write-through — is still to be built on top of this, which is why the contract
+  above is written down rather than left to be inferred from the one caller.
+
   ## Two versions, deliberately kept apart
 
   `:version` is the version at which some pipe *processed* the resource, and it
@@ -231,7 +288,14 @@ defmodule Aiur.GitHub.ResourceStore do
     end
   end
 
-  @doc "Stores a validator for `key`. A `nil` or empty validator is discarded."
+  @doc """
+  Stores a validator for `key`. A `nil` or empty validator is discarded.
+
+  This leaves the entry in the "validator, no body" state described in the
+  moduledoc unless a body is already held. A caller that wants a later `304` to
+  be able to *answer* rather than only say "unchanged" deposits the body with
+  `put_resource/3` instead.
+  """
   @spec put_etag(key() | nil, String.t() | nil) :: :ok
   def put_etag(nil, _etag), do: :ok
   def put_etag(_key, etag) when not is_binary(etag) or etag == "", do: :ok
@@ -334,6 +398,11 @@ defmodule Aiur.GitHub.ResourceStore do
   already held, so a writer re-depositing an unchanged body does not wake every
   subscribed view for nothing.
 
+  A body the store will not hold — oversized, or a shape JSON cannot round-trip
+  unchanged — is refused outright and the entry keeps no body, so a reader
+  misses and falls back to fetching. A refused body also refuses the `:etag`
+  that came with it: see the moduledoc's validator/body contract.
+
   `:version` describes the body being deposited, so a deposit without one records
   "version unknown" rather than keeping the previous body's version. That is
   deliberate: an old version left attached to a new body would tell the next
@@ -346,14 +415,71 @@ defmodule Aiur.GitHub.ResourceStore do
   def put_resource(nil, _data, _opts), do: :ok
 
   def put_resource(key, data, opts) do
+    update_resource(key, fn _held -> data end, opts)
+  end
+
+  @doc """
+  Deposits a body derived from the one currently held, atomically.
+
+  This is the writer for anything shaped "read what is there, change part of it,
+  put it back" — merging labels into a held issue, folding a mutation's response
+  into a fuller object. `fun` receives the held body, or `nil` when the store
+  holds none, and its result is deposited exactly as `put_resource/3` would
+  deposit it. Options are `put_resource/3`'s.
+
+  ## The concurrency guarantee, stated plainly
+
+  A caller that does the same thing with `fetch/1` followed by `put_resource/3`
+  **loses writes**, and not rarely: two processes merging into one `:issue` key
+  regressed the held body within the first twenty writes. The read-modify-write
+  spans an entire round trip through the caller, so anything deposited in
+  between — a webhook delivery carrying the fresh object, another mutation's
+  response — is overwritten by the stale snapshot the loser read first. The
+  rolled-back fields include `"state"`, so a reader can be handed `open` for a
+  ticket Aiur has closed: a correctness failure on dispatch-relevant state, not
+  cosmetic staleness. Worse, a merge that deposits with no `:version` writes
+  `data_version: nil` in the same breath, so nothing marks the body as older
+  than what it replaced.
+
+  This function closes that window: the read, `fun`, and the write are one
+  compare-and-swap against the exact entry that was read (`:ets.select_replace/2`,
+  or `:ets.insert_new/2` when the entry is absent). A concurrent write makes this
+  call re-read and re-apply `fun`, so both writes survive and the held body never
+  goes backwards.
+
+  **`fun` must therefore be pure and cheap** — it can run more than once, and it
+  must not perform IO, spend an API call, or depend on anything but its
+  argument. It sees the held body only while it is still current; anything
+  needing the wider world happens before the call and is passed in.
+
+  The guarantee is scoped to this store's entry for one key. It is not a
+  distributed lock: two daemons on one checkpoint file still resolve by
+  last-writer-wins at checkpoint time.
+  """
+  @spec update_resource(key() | nil, (term() -> term()), keyword()) :: :ok
+  def update_resource(key, fun, opts \\ [])
+
+  def update_resource(nil, _fun, _opts), do: :ok
+
+  def update_resource(key, fun, opts) when is_function(fun, 1) do
     version = normalize_version(Keyword.get(opts, :version))
     source = Keyword.get(opts, :source, :mutation)
-    # An oversized resource is held as no resource at all rather than as a
-    # truncated one: a reader that misses falls back to fetching, and a reader
-    # handed half a body cannot tell that it did.
-    storable = if oversized?(data), do: nil, else: data
 
-    update(key, fn existing -> deposit(existing, storable, source, version, opts) end)
+    update(key, fn existing ->
+      storable = existing |> held_body() |> fun.() |> then(&storable_data(key, &1))
+      deposit(existing, storable, source, version, opts)
+    end)
+  end
+
+  # `fun` is handed what a reader would have been handed, which means an expired
+  # body is `nil` here for the same reason `fetch/1` declines it: merging into a
+  # body nothing has revalidated for three days would resurrect it under a fresh
+  # `fetched_at_ms`.
+  defp held_body(entry) do
+    case Map.get(entry, :data) do
+      nil -> nil
+      data -> if expired?(Map.get(entry, :fetched_at_ms) || 0), do: nil, else: data
+    end
   end
 
   @doc """
@@ -362,12 +488,40 @@ defmodule Aiur.GitHub.ResourceStore do
   The validator still answers "has this changed?" cheaply. It simply cannot
   answer "what is it?" — which is why `fetch/1` answers `:miss` afterwards and
   the caller decides whether it needs the data enough to pay for it.
+
+  This is the sanctioned "validator, no body" state, and it is only safe because
+  of the reader's half of the contract in the moduledoc: a `304` against a key
+  the store holds no body for must discard the validator and re-read
+  unconditionally. Dropping a body without that reader behaviour converts the
+  next conditional read into a spent request that returns nothing.
   """
   @spec drop_data(key() | nil) :: :ok
   def drop_data(nil), do: :ok
 
   def drop_data(key) do
     update(key, fn entry -> entry |> Map.delete(:data) |> Map.delete(:data_version) end)
+  end
+
+  @doc """
+  Removes the validator for `key`, leaving any held body in place.
+
+  The counterpart of `drop_data/1`, and the reader's half of the validator/body
+  contract in the moduledoc: a reader answered `304` for a key the store holds no
+  body for has spent a request for nothing, and must forget the validator so its
+  next read is unconditional. Keeping it would repeat the same empty answer every
+  cycle for the whole retention window.
+  """
+  @spec drop_etag(key() | nil) :: :ok
+  def drop_etag(nil), do: :ok
+
+  def drop_etag(key) do
+    # Checked first so forgetting a validator nothing holds does not create an
+    # empty entry for the key.
+    if is_nil(etag(key)) do
+      :ok
+    else
+      update(key, fn entry -> Map.delete(entry, :etag) end)
+    end
   end
 
   @doc """
@@ -591,25 +745,67 @@ defmodule Aiur.GitHub.ResourceStore do
   #
   # Writes land in ETS from the caller's own process rather than through the
   # GenServer, because the poll fan-out writes one entry per comment and a single
-  # mailbox would become the bottleneck this store exists to remove. The cost is
-  # that this read-modify-write is not atomic against a concurrent writer: two
-  # writers racing on one resource can leave the later one's view of `before`
-  # stale, so a change may be announced twice or described one write behind. Both
-  # outcomes cost a re-render; neither loses data or spends an API call, which is
-  # the direction every trade-off in this module takes.
+  # mailbox would become the bottleneck this store exists to remove.
+  #
+  # A plain read-modify-write would not be safe at that concurrency, and the
+  # danger is not the harmless one it looks like. Two writers share a key as soon
+  # as one pipe deposits a body and another records a validator for the same
+  # resource — `:pull_request` and `:issue` have exactly that pair of writers. A
+  # `put_etag/2` that read `existing` *before* a concurrent `put_resource/3`
+  # inserted the body would re-insert the entry without that body while keeping
+  # the newer validator: a lost write, and specifically the bodyless-validator
+  # pair this module refuses everywhere else, because the next reader then sends
+  # `If-None-Match`, is told `304`, and holds nothing.
+  #
+  # So the modify is a compare-and-swap. `:ets.select_replace/2` only replaces
+  # while the entry is still byte-for-byte the one this call read, and
+  # `:ets.insert_new/2` only creates while there is still nothing there. A racing
+  # writer makes this one read again and re-apply `fun`, so both writes survive.
+  @update_attempts 50
   defp update(key, fun) do
-    with_table(:ok, fn table ->
-      existing =
-        case :ets.lookup(table, key) do
-          [{^key, entry}] -> entry
-          _other -> %{}
-        end
+    with_table(:ok, fn table -> update_cas(table, key, fun, @update_attempts) end)
+  end
 
-      entry = existing |> fun.() |> Map.put(:recorded_at_ms, now_ms())
-      :ets.insert(table, {key, entry})
-      announce(key, existing, entry)
+  defp update_cas(table, key, fun, attempts_left) do
+    existing =
+      case :ets.lookup(table, key) do
+        [{^key, entry}] -> entry
+        _other -> nil
+      end
+
+    entry = (existing || %{}) |> fun.() |> Map.put(:recorded_at_ms, now_ms())
+
+    if swapped?(table, key, existing, entry) do
+      announce(key, existing || %{}, entry)
       :ok
-    end)
+    else
+      retry_update(table, key, fun, attempts_left - 1, entry)
+    end
+  end
+
+  # The retry budget exists only so a pathological live-lock cannot spin a poll
+  # task forever. Reaching it means writers are contending on one key far beyond
+  # anything real, and the last resort is the pre-CAS behaviour — a blind insert
+  # that may lose a concurrent field — which is still strictly better than
+  # dropping this write.
+  defp retry_update(table, key, _fun, 0, entry) do
+    Logger.warning("GitHub.ResourceStore gave up retrying a contended write for #{inspect(key)}; inserting unconditionally")
+
+    :ets.insert(table, {key, entry})
+    announce(key, %{}, entry)
+    :ok
+  end
+
+  defp retry_update(table, key, fun, attempts_left, _entry), do: update_cas(table, key, fun, attempts_left)
+
+  # `select_replace/2` matches on the whole stored object, so the guard pins the
+  # entry this call actually read. `insert_new/2` covers the "was absent" case,
+  # which `select_replace/2` cannot express.
+  defp swapped?(table, key, nil, entry), do: :ets.insert_new(table, {key, entry})
+
+  defp swapped?(table, key, existing, entry) do
+    match_spec = [{{key, :"$1"}, [{:==, :"$1", {:const, existing}}], [{:const, {key, entry}}]}]
+    :ets.select_replace(table, match_spec) == 1
   end
 
   # A write that leaves the entry's observable content unchanged is silent. Only
@@ -675,6 +871,56 @@ defmodule Aiur.GitHub.ResourceStore do
   defp deposit_etag(entry, _data, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
 
   defp deposit_etag(entry, _data, _etag), do: entry
+
+  # What the store will hold as a body, decided once, at deposit time, against
+  # exactly what the checkpoint can write back unchanged.
+  #
+  # A body that survives a restart in a *different shape* than it went in is
+  # worse than no body: a consumer matching `%{id: id}` would work all day and
+  # raise after the next restart, with nothing to attribute it to. GitHub REST
+  # bodies are string-keyed JSON, so nothing legitimate is refused here — but
+  # `put_resource/3` is a public writer and the units building on this store
+  # deposit arbitrary bodies, so the refusal is explicit and loud rather than a
+  # comment promising it cannot happen.
+  #
+  # Refused: an oversized body (paid for on every checkpoint) and a body JSON
+  # cannot round-trip identically — an atom-keyed map, an atom, a tuple, a
+  # struct, a pid. Refusing yields `nil`, so `deposit_etag/3` also declines the
+  # validator and the next reader gets an unconditional `200` with a real body
+  # instead of a `304` and nothing.
+  defp storable_data(_key, nil), do: nil
+
+  defp storable_data(key, data) do
+    cond do
+      not json_round_trips?(data) ->
+        Logger.error(
+          "GitHub.ResourceStore refused a body for #{inspect(key)} that JSON cannot round-trip unchanged; " <>
+            "deposit string-keyed JSON data or the entry would change shape across a restart"
+        )
+
+        nil
+
+      oversized?(data) ->
+        Logger.debug("GitHub.ResourceStore refused an oversized body for #{inspect(key)}")
+        nil
+
+      true ->
+        data
+    end
+  end
+
+  # Only these shapes come back from `Jason.decode/1` identical to what went in.
+  # A map is admitted solely when every key is a string, because that is the one
+  # difference the checkpoint cannot preserve and cannot detect afterwards.
+  defp json_round_trips?(data) when is_binary(data) or is_number(data) or is_boolean(data) or is_nil(data), do: true
+  defp json_round_trips?(data) when is_list(data), do: Enum.all?(data, &json_round_trips?/1)
+  defp json_round_trips?(%_struct{}), do: false
+
+  defp json_round_trips?(data) when is_map(data) do
+    Enum.all?(data, fn {key, value} -> is_binary(key) and json_round_trips?(value) end)
+  end
+
+  defp json_round_trips?(_data), do: false
 
   # Measured as the JSON the checkpoint would have to write, for two reasons: it
   # is the size that actually costs something, and a body JSON cannot encode —
@@ -784,35 +1030,67 @@ defmodule Aiur.GitHub.ResourceStore do
         acc
 
       encoded ->
-        Map.put(acc, encoded, %{
-          "etag" => Map.get(entry, :etag),
-          "processed_at_ms" => Map.get(entry, :processed_at_ms),
-          "version" => Map.get(entry, :version),
-          "source" => entry |> Map.get(:source) |> encode_atom(),
-          "recorded_at_ms" => Map.get(entry, :recorded_at_ms),
-          # The body is checkpointed too. Without it a restart keeps the
-          # validators but loses every answer, and the first reader after a
-          # restart pays full price for state the daemon already had — which is
-          # the cost this store exists to remove.
-          "data" => encode_data(Map.get(entry, :data)),
-          "data_version" => Map.get(entry, :data_version),
-          "fetched_at_ms" => Map.get(entry, :fetched_at_ms)
-        })
+        Map.put(acc, encoded, encode_fields(key, entry))
     end
+  end
+
+  # The same invariant `deposit_etag/3` enforces at deposit time, enforced again
+  # here, because this is the other place the pair can come apart: an entry can
+  # be consistent in memory and still be checkpointed as a validator whose body
+  # the encoder dropped. The next boot then holds a validator with nothing behind
+  # it, sends `If-None-Match`, is answered `304`, and has no data — a spent
+  # request that returns nothing, which is the exact failure this store exists to
+  # remove. Dropping the validator instead costs one full-price read.
+  #
+  # Loud for the same reason a bad key is loud: unlike a refused deposit, this
+  # loss happens with no caller present to see it.
+  defp encode_fields(key, entry) do
+    encoded_data = entry |> Map.get(:data) |> encode_data()
+
+    etag =
+      if is_nil(encoded_data) and not is_nil(Map.get(entry, :data)) do
+        Logger.error(
+          "GitHub.ResourceStore cannot checkpoint the body for #{inspect(key)}; " <>
+            "dropping its validator too rather than persisting a validator with no body"
+        )
+
+        nil
+      else
+        Map.get(entry, :etag)
+      end
+
+    %{
+      "etag" => etag,
+      "processed_at_ms" => Map.get(entry, :processed_at_ms),
+      "version" => Map.get(entry, :version),
+      "source" => entry |> Map.get(:source) |> encode_atom(),
+      "recorded_at_ms" => Map.get(entry, :recorded_at_ms),
+      # The body is checkpointed too. Without it a restart keeps the validators
+      # but loses every answer, and the first reader after a restart pays full
+      # price for state the daemon already had — which is the cost this store
+      # exists to remove.
+      "data" => encoded_data,
+      "data_version" => Map.get(entry, :data_version),
+      "fetched_at_ms" => Map.get(entry, :fetched_at_ms)
+    }
   end
 
   defp encode_atom(nil), do: nil
   defp encode_atom(value) when is_atom(value), do: Atom.to_string(value)
   defp encode_atom(_value), do: nil
 
-  # Only JSON-shaped bodies round-trip, which is every GitHub response. Anything
-  # else is dropped rather than checkpointed as something `decode_data/1` would
-  # hand back in a different shape than it went in.
-  defp encode_data(data) when is_map(data) or is_list(data), do: data
-  defp encode_data(_data), do: nil
+  # Only a body JSON hands back unchanged is checkpointed. `storable_data/2`
+  # already refused anything else at deposit time, so this is the second gate on
+  # the same invariant rather than a different rule — and it is the gate that
+  # catches a body written into the table by some future path that skipped the
+  # deposit checks.
+  defp encode_data(data) do
+    if json_round_trips?(data), do: data, else: nil
+  end
 
-  defp decode_data(data) when is_map(data) or is_list(data), do: data
-  defp decode_data(_data), do: nil
+  defp decode_data(data) do
+    if json_round_trips?(data), do: data, else: nil
+  end
 
   # `|` cannot appear in a repo owner, name, or GitHub node id, so it is a safe
   # separator for a flat JSON object key.
@@ -864,7 +1142,13 @@ defmodule Aiur.GitHub.ResourceStore do
   defp decode_key(encoded) when is_binary(encoded) do
     case String.split(encoded, "|") do
       [type, owner, repo, id] when type != "" and owner != "" and repo != "" and id != "" ->
-        case safe_atom(type) do
+        # Resolved against `@resource_types` alone, never against the wider set
+        # `safe_atom/1` admits for the `:source` field: a checkpoint naming
+        # `webhook` in the type slot would otherwise decode into a key no
+        # `key/4` can build, which `encode_key/1` then refuses on the way back
+        # out — an entry that exists only until the next checkpoint and cannot be
+        # reached by any reader.
+        case resource_type_atom(type) do
           nil -> nil
           atom -> {atom, owner, repo, id}
         end
@@ -880,8 +1164,10 @@ defmodule Aiur.GitHub.ResourceStore do
   # already defines, so an unknown one is a stale or tampered record to drop
   # rather than a new atom to create.
   defp safe_atom(value) do
-    Enum.find(@resource_types, &(Atom.to_string(&1) == value)) || known_source_atom(value)
+    resource_type_atom(value) || known_source_atom(value)
   end
+
+  defp resource_type_atom(value), do: Enum.find(@resource_types, &(Atom.to_string(&1) == value))
 
   defp known_source_atom("webhook"), do: :webhook
   defp known_source_atom("poll"), do: :poll

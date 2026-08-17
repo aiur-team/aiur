@@ -3,7 +3,7 @@ defmodule Aiur.Shell do
   Single canonical POSIX single-quote shell escaping.
 
   This is the ONLY shell-escape implementation in the codebase. Every
-  Elixir call site that splices a value into a `sh`/`bash -lc` command
+  Elixir call site that splices a value into a `sh`/`bash -c` command
   string must use `escape/1`, or `escape/2` with `fast_path: true` when
   human-readable output is wanted for values that are already shell-safe.
 

@@ -183,7 +183,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
        when is_binary(owner) and is_binary(repository) and is_binary(identifier),
        do: "#{owner}/#{repository} ##{identifier}"
 
-  defp identity_label(_identity), do: "Typed identity unavailable"
+  defp identity_label(_identity), do: "Unknown ticket"
 
   defp state_label(:live), do: "Live"
   defp state_label(:ended), do: "Ended"
@@ -208,7 +208,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
     do: "A newer worker generation replaced this unit. This conversation has ended; reopen the action to view the current worker."
 
   defp state_detail(:out_of_scope),
-    do: "This unit is no longer in the current catalog scope. This conversation has ended."
+    do: "This unit is no longer in the current run. This conversation has ended."
 
   defp state_detail(_state), do: "The conversation state is unknown."
 
@@ -224,7 +224,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
     do: "Older messages are truncated. #{count} earlier #{message_word(count)} not shown."
 
   defp truncation_note(%{truncated?: true}),
-    do: "Older messages are truncated to the newest bounded window."
+    do: "Older messages are not shown; only the newest are kept."
 
   defp truncation_note(_snapshot), do: nil
 

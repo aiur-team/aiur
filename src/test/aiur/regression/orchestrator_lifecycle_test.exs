@@ -207,22 +207,43 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert MapSet.member?(next.claimed, identifier)
     end
 
+    # An over-threshold load average alone is not enough: the gate corroborates
+    # it against a measured `/proc/stat` window, so the state carries the
+    # previous snapshot a polling orchestrator would already have and the source
+    # advances almost entirely in non-idle time (#2089).
     test "trusted comment rework dispatch respects the load admission gate" do
       identifier = "7412-load-hold"
       schedulers = System.schedulers_online()
       previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+      previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
 
       Application.put_env(:aiur, :loadavg_source_override, fn ->
         {:ok, "#{schedulers * 2.0} 1.0 1.0 1/1 1"}
       end)
 
-      on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        {:ok, "cpu  1100 100 0 710 0 0 0 0 0 0\nprocs_running 20\n"}
+      end)
+
+      on_exit(fn ->
+        restore_app_env(:loadavg_source_override, previous_loadavg)
+        restore_app_env(:proc_stat_source_override, previous_proc_stat)
+      end)
 
       isolated_subscription_store(identifier)
       memory_tracker!([review_issue(identifier)])
 
+      state =
+        base_state(
+          load_envelope_state: %{
+            last_decrease_ms: nil,
+            cpu_snapshot: %{total: 1_000, idle: 700, nice: 100, runnable: 20},
+            bootstrap_complete?: true
+          }
+        )
+
       assert {:noreply, next} =
-               Orchestrator.handle_info({:event, comment_event(identifier, "issue.commented")}, base_state())
+               Orchestrator.handle_info({:event, comment_event(identifier, "issue.commented")}, state)
 
       assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
       refute MapSet.member?(next.claimed, identifier)

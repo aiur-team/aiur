@@ -52,6 +52,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     issue = %{id: 1, identifier: "test:1", title: "demo"}
 
     assert {:ok, session} = ClaudeAgent.start_session(workspace)
+    assert session.metadata.agent_process_group_id == String.to_integer(session.metadata.provider_pid)
     assert {:ok, result} = ClaudeAgent.run_turn(session, "do the thing", issue)
     assert result.result == :turn_completed
     ClaudeAgent.stop_session(session)

@@ -145,7 +145,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
     view = Presenter.present(row(), snapshot(%{state: :live}), :out_of_scope)
 
     assert view.state == :out_of_scope
-    assert view.state_detail =~ "no longer in the current catalog scope"
+    assert view.state_detail =~ "no longer in the current run"
     refute view.live?
   end
 
@@ -168,6 +168,6 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.PresenterTest do
 
   test "missing typed identity is labelled unavailable, not blank" do
     view = Presenter.present(row(%{identity: nil}), snapshot())
-    assert view.heading.identity_label == "Typed identity unavailable"
+    assert view.heading.identity_label == "Unknown ticket"
   end
 end
