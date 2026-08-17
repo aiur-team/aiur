@@ -223,7 +223,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
   test "partial agent-skill installation is not a non-Git completion proof" do
     workspace = Path.join(System.tmp_dir!(), "prov_partial_skills_#{System.unique_integer([:positive])}")
-    skill = Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"])
+    skill = Path.join([workspace, ".claude", "skills", "aiur-agent", "SKILL.md"])
     notes = Path.join(workspace, "notes.txt")
     File.mkdir_p!(Path.dirname(skill))
     File.write!(skill, "partial bootstrap\\n")

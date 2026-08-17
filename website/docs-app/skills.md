@@ -10,16 +10,17 @@ Aiur skills are grouped by where they run.
 
 ## Agent-workspace skills
 
-These four Aiur skills and the complete pinned Compound Engineering set are installed into every ticket workspace, for both Claude and Codex agents.
+These three Aiur skills and the complete pinned Compound Engineering set are installed into every ticket workspace, for both Claude and Codex agents.
 
 `Aiur.AgentSkills.install/1` writes them into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` by relative symlink, so neither backend depends on a machine-local plugin cache.
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
-| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn | Agent labels, phases, Workpad, alerts, complexity, development, and PR handoff. |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before event or blocker work | [Message Bus](/concepts/message-bus), subscriptions, dependencies, and attentions. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn | Agent labels, phases, Workpad, alerts, complexity, development, PR handoff, and [Message Bus](/concepts/message-bus) events. |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | Run, daemon, agent, or workspace failure | Correlated evidence and safe recovery order. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Large frontend design import | Disk-first import without overflowing agent context. |
+
+Executor skills are excluded: an issue worker has no reason to run Aiur itself.
 
 ## Executor skills
 
@@ -81,3 +82,5 @@ scripts/update-compound-engineering-skills X.Y.Z "$update_dir/compound-engineeri
 Choose the release ref whose `.claude-plugin/plugin.json` reports `X.Y.Z`; the refresh script rejects a mismatch.
 
 Review the upstream release notes and the resulting skill diff, then run the AgentSkills tests before committing. The script replaces only previously managed CE skill paths, refreshes the license, version, and manifest files, and recreates the Claude-to-Codex links.
+
+The complexity routing rules that pick which CE skill to run live in [complexity-routing.md](../../.claude/skills/aiur-agent/complexity-routing.md).

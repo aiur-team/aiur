@@ -13,6 +13,8 @@
 
 `aiur-run` arms `aiur-meta` **before dispatching** and repeats it hourly.
 
+The timer keeps the audit from being lost during a busy merge queue.
+
 | Check | What it catches |
 | --- | --- |
 | Units, Commands, Build Orders, Analytics | Confident but incorrect operator projections and stalled work. |
@@ -20,6 +22,8 @@
 | Host load | Capacity pressure against the configured admission gate. |
 | PR backlog | Review, conflict, and merge-queue snags. |
 | Bottleneck choice | The single largest current wall-clock constraint. |
+
+The check records what an operator can actually see and treats an empty or timed-out surface as a finding.
 
 After each check, inspect its durable follow-up with `aiur findings`.
 
@@ -77,4 +81,4 @@ A restart that cannot read persisted global-pause state starts paused rather tha
 | `r` key | Promotes the selected compatible agent. |
 | Chat pane | Sends Executor text into the live session. |
 
-Remote control is opt-in and local-only in v1.
+Remote control is opt-in per agent and local-only in v1.

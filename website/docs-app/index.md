@@ -17,6 +17,8 @@ Aiur turns tracker work into isolated implementation runs.
 
 ## Tracker-driven
 
+Choose a tracker with `tracker.kind`.
+
 | `tracker.kind` | Source |
 | --- | --- |
 | `linear` | Linear board. |
@@ -31,7 +33,7 @@ On trackers that support labels, Aiur runs a label-based state machine.
 | --- | --- |
 | `agent:todo` | Queued work. |
 | `agent:in-progress` | Isolated run active. |
-| `agent:ci-wait` | Code complete; central daemon waiting for terminal CI. |
+| `agent:ci-wait` | Code complete; waiting for terminal CI. |
 | `agent:human-review` | CI passed; PR ready for human review. |
 | `agent:rework` | CI or review requires another run. |
 | `agent:merging` | Accepted PR entering merge. |
@@ -45,17 +47,17 @@ Each ticket carries a `complexity:1`–`complexity:5` label. That label routes t
 
 ## Backends
 
-Implementation backends plug in behind Aiur's app-server protocol; a `model:<backend>` label routes a ticket, and `model:remote` enables remote control.
+Choose an implementation backend with a `model:<backend>` label, and add `model:remote` to enable remote control.
 
 | Backend | Notes |
 | --- | --- |
-| `codex` | Codex app-server backend. |
+| `codex` | Default Codex backend. |
 | `claude` | Headless Claude backend. |
 | `claude-repl` | Persistent interactive backend for remote control. |
 | `kimi`, `openrouter` | Configurable OpenAI-compatible instances. |
 | `deepseek` | OpenAI-compatible; requires explicit `enabled: true`. |
 
-Kimi, DeepSeek, and OpenRouter use the same OpenAI-compatible adapter, but are separate registered instances with provider credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that instance's default model. For example:
+Kimi, DeepSeek, and OpenRouter have separate credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that backend's default model. For example:
 
 ```yaml
 agent:

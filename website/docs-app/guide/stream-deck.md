@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) for the browser emulator, or install the physical Stream Deck + sidecar.
+Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -73,9 +73,11 @@ A bar that drops to an empty track and back is a bug; report it.
 | Slot order | Column-major: 1/2, then 3/4, then 5/6, then 7/8. |
 | Paging | Moves by columns so each pair stays together. |
 
+The order is the same in the browser emulator and on the physical deck.
+
 ## Physical sidecar status
 
-The supported transport deployment is Arch Linux on x64 glibc 2.28+.
+The Linux x64 archive installs the sidecar, a systemd **user** service, and the udev rule required to access the device.
 
 | Requirement | Value |
 | --- | --- |
@@ -84,7 +86,9 @@ The supported transport deployment is Arch Linux on x64 glibc 2.28+.
 | Device access | Installed udev rule and `users` fallback ACL |
 | Unsupported | Alpine/musl, ARM, and glibc older than 2.28 |
 
-The service connects to the authenticated Phoenix channel, routes physical key controls through AgentChat, and watches hotplug and suspend.
+The supported deployment is Arch Linux on x64 glibc 2.28+.
+
+The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, suspend, or a dashboard disconnect, and keeps the keys and touch strip current with the live fleet.
 
 | Setting | Where |
 | --- | --- |
@@ -93,16 +97,13 @@ The service connects to the authenticated Phoenix channel, routes physical key c
 | `AIUR_DASHBOARD_PASSWORD` | `~/.config/aiur/streamdeck.env` |
 | `STREAMDECK_BRIGHTNESS` | Sidecar environment |
 
-The password mints the channel token and never enters the WebSocket URL; a short-lived token is renewed after channel disconnects.
+The password mints the channel token and never enters the WebSocket URL.
 
-| Operator resource | Purpose |
-| --- | --- |
-| [Direct-HID runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) | Install, device access, pairing, and recovery. |
-| [Hardware evidence #1358](https://github.com/aiur-team/aiur/issues/1358) | Terminal end-to-end proof for the physical surface. |
+The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/main/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
 
 ## Voice input
 
-Voice input transcribes held dictation and sends the text through the same agent-message path as the Dashboard composer.
+Voice input captures speech from a microphone attached to the sidecar machine, transcribes it to English text, and sends that text to the selected agent as an operator message.
 
 ### The keys
 
@@ -209,7 +210,7 @@ This is the one part of Aiur that sends operator data to a third party.
 | 3 | Aiur opens the ElevenLabs connection with the key from its own configuration and streams the audio on. |
 | 4 | ElevenLabs returns text and Aiur pushes it back to the deck. |
 | 5 | The sidecar corrects unambiguous mishearings of the coined name before display or delivery. |
-| 6 | The finished message reaches the agent through the ordinary AgentChat path. |
+| 6 | The finished message reaches the agent through the ordinary agent-message path. |
 
 | Heard as | Result |
 | --- | --- |
@@ -230,7 +231,12 @@ This is the one part of Aiur that sends operator data to a third party.
 
 | Rule | Why |
 | --- | --- |
-| Configured only in Aiur's own configuration | There is no sidecar environment file for it; the sidecar is given no way to hold it. |
-| Scrubbed from coding-agent environments | The agent-environment scrubbing strips every `*_API_KEY` variable, so an agent cannot read it. |
-| Sent in a request header, never a URL | URLs are what end up in error messages and logs. |
-| Never logged or attached to a failure reason | A connection failure is reported generically, because the underlying error can embed the request that carries the header. |
+| Configured only in Aiur's own configuration | No sidecar environment file carries it; the sidecar is given no way to hold it. |
+| Scrubbed from coding-agent environments | Every `*_API_KEY` variable is removed, so an agent cannot read it. |
+| Never logged or attached to a failure reason | A connection failure is reported generically instead. |
+
+### Supported microphones
+
+PipeWire and PulseAudio microphones are supported, including ALSA, USB, and Bluetooth devices. Output-monitor sources are not offered as microphones.
+
+Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.

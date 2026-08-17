@@ -98,6 +98,18 @@ defmodule Aiur.Orchestrator.SlotsTest do
                draining?: true
              } = Slots.max_concurrent_agent_status(state)
     end
+
+    test "does not report queued demand from a stale tracker snapshot" do
+      issue = %Issue{id: "stale", identifier: "stale", title: "Stale", state: "todo"}
+
+      state = %State{
+        candidate_snapshot_fresh?: false,
+        last_polled_issues: %{issue.id => issue},
+        max_concurrent_agents: 2
+      }
+
+      refute Slots.max_concurrent_agent_status(state).queued_demand?
+    end
   end
 
   describe "worker host slots" do

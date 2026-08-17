@@ -248,12 +248,12 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 | `openrouter:anthropic/claude-sonnet-5` | Uses OpenRouter's price row because OpenRouter bills the request, even when Anthropic serves it upstream. |
 | Same model through direct and OpenRouter routes | Keeps separate identities and may carry different rates. |
 
+Local Codex turns use Aiur's shared build admission.
+
 | Build-gate behavior | Detail |
 | --- | --- |
-| Writable roots | Local Codex `workspaceWrite` turns preserve configured, workspace, and Git roots and add the shared build-gate metadata directory. |
-| Lock safety | Host-prepared lock inodes live in a sibling `.locks` directory outside turn-writable roots. |
-| Coordination failure | Returns status `125` without running Mix. Repair the named directory, `flock`, or `python3` subreaper dependency, then redispatch. |
-| `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the reported legacy records. |
+| Admission failure | Mix does not run and the ticket reports status `125`. Repair the reported metadata or lock directory, `flock`, or `python3` dependency, then restart or re-dispatch the agent. |
+| `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the legacy records named in the message. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
 ## Host-pressure fleet admission
