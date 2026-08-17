@@ -1426,6 +1426,28 @@ defmodule ScriptsAiurdevTest do
       assert out =~ "ENGINE_ARGS: status"
     end
 
+    test "github-cost from another checkout reads the daemon instead of being refused" do
+      # `github-cost` reads the meter the daemon already keeps and builds
+      # nothing, so it belongs on the read-only side of the divergence guard.
+      # Listing it in one command table and not the other would refuse a
+      # read-only report from any checkout but the shim's own.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["github-cost", "--budget", "graphql"],
+          [{"AIUR_REPO_ROOT", nil}, {"TMUX", nil}],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: github-cost --budget graphql"
+    end
+
     test "a dev flag before a control command does not make it look like a run" do
       # The shim consumes --debug before dispatch, so the command the engine
       # sees is `status` -- classifying on the raw first argument would refuse a

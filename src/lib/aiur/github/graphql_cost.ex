@@ -36,6 +36,17 @@ defmodule Aiur.GitHub.GraphQLCost do
     * anything whose top-level selection set cannot be located is returned
       unchanged.
 
+  Two remaining imprecisions are accuracy losses, not corruption, and both show
+  up in the ranking as `estimated?: true` rather than as a wrong number:
+
+    * a document that selects `rateLimit` anywhere — including inside a nested
+      selection or an argument value — is treated as already priced and left
+      alone;
+    * a document declaring several operations is instrumented on the first one
+      only, so a request naming a later operation is billed at the assumed
+      price. No such document exists in this tree; the transport sends no
+      `operationName`, so a multi-operation document could not resolve at all.
+
   A declined document costs accuracy in the ranking, which `:cost_source`
   already reports. A mangled document costs a working request, so every
   ambiguity resolves toward declining.
@@ -68,7 +79,10 @@ defmodule Aiur.GitHub.GraphQLCost do
   """
   @spec instrument(term()) :: term()
   def instrument(query) when is_binary(query) do
-    if String.contains?(query, "rateLimit") do
+    # Word-bounded, so a field merely *named* like `rateLimitStatus` does not
+    # make the document look already-priced and drop it out of the ranking.
+    # A document that really does select `rateLimit` is left exactly as written.
+    if Regex.match?(~r/\brateLimit\b/, query) do
       query
     else
       inject(query)
@@ -77,10 +91,16 @@ defmodule Aiur.GitHub.GraphQLCost do
 
   def instrument(query), do: query
 
+  # `scan/1` counts bytes, so the split must count bytes too. `String.split_at/2`
+  # counts graphemes, and every multi-byte character before the brace — an em
+  # dash in a comment, an accent in a search string, an emoji — would move the
+  # split earlier and splice the selection into the middle of a field name,
+  # turning a working query into a 400.
   defp inject(query) do
     case scan(query) do
       {:ok, offset} ->
-        {head, tail} = String.split_at(query, offset)
+        head = binary_part(query, 0, offset)
+        tail = binary_part(query, offset, byte_size(query) - offset)
         head <> "\n  " <> @selection <> tail
 
       :decline ->
@@ -141,14 +161,17 @@ defmodule Aiur.GitHub.GraphQLCost do
   defp selection_offset(<<"\"\"\"", rest::binary>>, index, parens, :normal),
     do: selection_offset(rest, index + 3, parens, :block_string)
 
+  defp selection_offset(<<"\\\"\"\"", rest::binary>>, index, parens, :block_string),
+    do: selection_offset(rest, index + 4, parens, :block_string)
+
   defp selection_offset(<<"\"\"\"", rest::binary>>, index, parens, :block_string),
     do: selection_offset(rest, index + 3, parens, :normal)
 
   defp selection_offset(<<char::utf8, rest::binary>>, index, parens, :block_string),
     do: selection_offset(rest, index + byte_size(<<char::utf8>>), parens, :block_string)
 
-  defp selection_offset(<<?\\, _escaped::utf8, rest::binary>>, index, parens, :string),
-    do: selection_offset(rest, index + 2, parens, :string)
+  defp selection_offset(<<?\\, escaped::utf8, rest::binary>>, index, parens, :string),
+    do: selection_offset(rest, index + 1 + byte_size(<<escaped::utf8>>), parens, :string)
 
   defp selection_offset(<<?", rest::binary>>, index, parens, :string),
     do: selection_offset(rest, index + 1, parens, :normal)
@@ -213,14 +236,18 @@ defmodule Aiur.GitHub.GraphQLCost do
   path that forgets to declare itself lands in a named bucket rather than in
   `unattributed` — an unnamed bucket is indistinguishable from an unmeasured
   one, and the whole point of this unit is telling those apart.
+
+  A GraphQL request is never billed to a `rest:` row, even when its document is
+  anonymous. The transport dimension is part of what the row is read for, so
+  mislabelling it is worse than admitting the operation is unnamed.
   """
   @spec derive(term()) :: String.t()
   def derive(%{caller: caller}) when is_atom(caller) and not is_nil(caller), do: Atom.to_string(caller)
   def derive(%{caller: caller}) when is_binary(caller) and caller != "", do: caller
 
-  def derive(%{body: %{"query" => query}} = request) when is_binary(query) do
+  def derive(%{body: %{"query" => query}}) when is_binary(query) do
     case operation_name(query) do
-      nil -> route_shape(request)
+      nil -> "graphql:anonymous"
       name -> "graphql:" <> name
     end
   end
@@ -230,7 +257,12 @@ defmodule Aiur.GitHub.GraphQLCost do
   @doc "The operation name a GraphQL document declares, or `nil`."
   @spec operation_name(term()) :: String.t() | nil
   def operation_name(query) when is_binary(query) do
-    case Regex.run(~r/^\s*(?:query|mutation|subscription)\s+([_A-Za-z][_0-9A-Za-z]*)/, query) do
+    # Leading comments are stripped first: the anchor cannot skip them, and a
+    # document whose name is hidden behind a `#` line would otherwise rank as
+    # anonymous.
+    stripped = strip_leading_trivia(query)
+
+    case Regex.run(~r/^(?:query|mutation|subscription)\s+([_A-Za-z][_0-9A-Za-z]*)/, stripped) do
       [_match, name] -> name
       _anonymous -> nil
     end

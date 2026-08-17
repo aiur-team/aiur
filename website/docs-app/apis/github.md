@@ -56,8 +56,8 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
-| Core | REST requests | The Units meter or `aiur units`. |
-| GraphQL | Query points | The Units meter or `aiur units`. |
+| Core | REST requests | The Units meter, `aiur units`, or `aiur github-cost --budget core`. |
+| GraphQL | Query points | The Units meter, `aiur units`, or `aiur github-cost`. |
 | Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
 
@@ -66,6 +66,31 @@ instance — bill GitHub's 60/hour unauthenticated per-IP allowance rather than
 the authenticated core budget, so they are metered in their own window. An
 exhausted anonymous allowance holds further anonymous reads but never gates
 agent dispatch.
+
+### Where the budget went
+
+The meters above say how much is left. `aiur github-cost` says which code path
+spent it, ranked by points and by points per hour, for one budget at a time.
+
+| Column | What it means |
+| --- | --- |
+| `CALLER` | The code path that issued the call, not the ticket it was issued for. A batch query naming 33 tickets is one poller, so it is one row. |
+| `POINTS` | What the calls cost the budget in the current window. |
+| `POINTS/HR` | The rate the caller is running at, extrapolated from the elapsed part of the window rather than a whole hour. `unknown` when too little of the window has elapsed to extrapolate from. |
+| `SOURCE` | `reported` when GitHub priced the call itself through a `rateLimit { cost }` selection in the query, `estimated` when it did not and the call is counted at one point. GraphQL queries are instrumented automatically; mutations and REST calls are counted per request. |
+
+Below the ranking, one reconciliation line per budget compares the sum of the
+rows against `limit - remaining` on the credential's own window:
+
+| Line | What to do |
+| --- | --- |
+| `reconciles` | The ranking accounts for the window's spend. |
+| `N points unattributed (spend outside this process)` | Expected. Anything else using the same credential — a shell `gh` call, another Aiur instance — is spend this process never saw. It bounds how much of the window the ranking explains. |
+| `DOES NOT reconcile — attributed more than was spent` | A double count in the accounting. Points cannot be spent twice, so this is a defect worth reporting. |
+| `not measurable` | No window has been observed yet. Not the same as zero spend. |
+
+The command reads the meter the daemon already keeps and issues no GitHub
+request of its own, so checking it is free.
 
 ## Optional webhook
 

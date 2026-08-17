@@ -128,6 +128,49 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
     assert graphql.spend == 1000
     assert graphql.delta == -980
     refute graphql.reconciled?
+
+    # A shortfall is unmeasured spend, not a defect. An excess would be a double
+    # count, and collapsing the two loses the only one worth alarming on.
+    assert graphql.direction == :shortfall
+  end
+
+  test "distinguishes a double count from unmeasured spend" do
+    quota = start_quota()
+
+    # Two responses that each report 300 points against a window claiming only
+    # 100 were spent: points cannot be billed twice, so this is an accounting bug.
+    observe(quota, "comment_poll_batch", 300, 4950)
+    observe(quota, "comment_poll_batch", 300, 4900)
+
+    graphql = Quota.snapshot(quota).reconciliation["graphql"]
+
+    assert graphql.attributed == 600
+    assert graphql.spend == 100
+    assert graphql.direction == :excess
+    refute graphql.reconciled?
+  end
+
+  test "declines a per-hour rate it has too little window to extrapolate from" do
+    # One second into a window, one point extrapolates to 3,600/hour. That figure
+    # is printed against the 5,000/hour ceiling, so an artefact there would rank a
+    # trivial call above the real leader.
+    # The window opened an hour before its reset, so this clock sits one second in.
+    quota = start_quota(clock: fn -> DateTime.add(@reset, -3599, :second) end)
+
+    observe(quota, "bot_identity", 1, 4999)
+
+    [caller] = graphql_callers(Quota.snapshot(quota))
+
+    assert caller.points == 1
+    assert caller.points_per_hour == nil
+  end
+
+  test "never carries the request token into the snapshot" do
+    quota = start_quota()
+
+    observe(quota, "comment_poll_batch", 10, 4990)
+
+    refute inspect(Quota.snapshot(quota)) =~ "secret"
   end
 
   test "an unobserved budget reports no reconciliation rather than a zero" do

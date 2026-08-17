@@ -1041,10 +1041,22 @@ defmodule AiurEngineTest do
     assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql"])|
   end
 
+  test "github-cost passes an output format through as an atom" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --format records|,
+        []
+      )
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql", format: :records])|
+  end
+
   test "github-cost rejects malformed launcher arguments before an RPC" do
     for {argv, message} <- [
           {~s|--budget points|, "github-cost --budget accepts graphql, core or all"},
           {~s|--budget|, "github-cost --budget requires a value"},
+          {~s|--format wide|, "github-cost --format accepts auto, table or records"},
+          {~s|--format|, "github-cost --format requires a value"},
           {~s|--unknown|, "github-cost received an unknown option"},
           {~s|extra|, "github-cost does not accept positional arguments"}
         ] do

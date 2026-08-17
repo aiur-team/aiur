@@ -461,7 +461,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
-       aiur github-cost [--budget graphql|core|all] [--json]  rank GitHub API spend by call site
+       aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -2517,13 +2517,15 @@ cmd_analytics() {
 # `used` figure printed beside it. Read-only; it reads the meter the daemon
 # already keeps and issues no GitHub request of its own.
 cmd_github_cost() {
-  local budget="graphql" json=0 arg
+  local budget="graphql" format="" json=0 arg
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --budget) [ "$#" -gt 1 ] || { echo "aiur: github-cost --budget requires a value" >&2; exit 64; }; shift; budget="$1" ;;
       --budget=*) budget="${arg#--budget=}" ;;
+      --format) [ "$#" -gt 1 ] || { echo "aiur: github-cost --format requires a value" >&2; exit 64; }; shift; format="$1" ;;
+      --format=*) format="${arg#--format=}" ;;
       --json) json=1 ;;
       -*) echo "aiur: github-cost received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: github-cost does not accept positional arguments" >&2; exit 64 ;;
@@ -2532,8 +2534,12 @@ cmd_github_cost() {
   done
 
   case "$budget" in graphql|core|all) ;; *) echo "aiur: github-cost --budget accepts graphql, core or all" >&2; exit 64 ;; esac
+  case "$format" in ""|auto|table|records) ;; *) echo "aiur: github-cost --format accepts auto, table or records" >&2; exit 64 ;; esac
 
+  # Both values are whitelisted above, so neither reaches the control RPC as
+  # anything other than one of the literals named here.
   local opts="budget: \"$budget\""
+  [ -z "$format" ] || opts="$opts, format: :$format"
   [ "$json" -eq 1 ] && opts="$opts, json: true"
 
   run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"

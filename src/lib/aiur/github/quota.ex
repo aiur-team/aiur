@@ -62,6 +62,9 @@ defmodule Aiur.GitHub.Quota do
   # the credential outside this process, so a shortfall is expected; the margin
   # is what turns "roughly agrees" into a testable claim.
   @reconciliation_margin 0.05
+  # The shortest window slice a per-hour rate may be extrapolated from. One
+  # second of evidence multiplied by 3,600 is not a rate, it is an artefact.
+  @min_rate_sample_seconds 60
 
   # GitHub does not always say how long a secondary limit lasts. Its own
   # guidance is to wait at least a minute, and the ceiling keeps a hostile or
@@ -594,26 +597,19 @@ defmodule Aiur.GitHub.Quota do
     |> Enum.sort_by(&{-&1.cost, -&1.total, &1.consumer})
   end
 
-  @doc """
-  Points per hour by call site, ranked, for one budget's live window.
-
-  This is the answer to "where does the budget go", and it is deliberately a
-  different question from `summarize_attribution/1`'s "which ticket is
-  expensive". A batch query names 33 tickets and belongs to one poller; ranking
-  it by ticket splits its cost 33 ways and hides it under the noise floor.
-
-  The rate is extrapolated from the elapsed part of the window, not the whole
-  hour, so a caller measured 6 minutes into a window reports the per-hour rate
-  it is *running at* rather than a tenth of it. That is the figure that compares
-  against the 5,000/hour ceiling, which is the only comparison anyone makes
-  here: the daemon's measured ~250 points/minute is only alarming once it is
-  stated as ~15,000/hour against 5,000.
-  """
-  @spec rank_callers([map()], %{optional(String.t()) => map()}, DateTime.t()) :: [map()]
-  def rank_callers(observations, windows, now) do
-    summarize_callers(observations, windows, now)
-  end
-
+  # Points per hour by call site, ranked, for one budget's live window.
+  #
+  # This is the answer to "where does the budget go", and it is deliberately a
+  # different question from `summarize_attribution/1`'s "which ticket is
+  # expensive". A batch query names 33 tickets and belongs to one poller; ranking
+  # it by ticket splits its cost 33 ways and hides it under the noise floor.
+  #
+  # The rate is extrapolated from the elapsed part of the window, not the whole
+  # hour, so a caller measured 6 minutes into a window reports the per-hour rate
+  # it is *running at* rather than a tenth of it. That is the figure that compares
+  # against the 5,000/hour ceiling, which is the only comparison anyone makes
+  # here: the daemon's measured ~250 points/minute is only alarming once it is
+  # stated as ~15,000/hour against 5,000.
   defp summarize_callers(observations, windows, now) do
     observations
     |> Enum.group_by(&{observation_resource(&1), Map.get(&1, :caller) || @unattributed})
@@ -643,10 +639,14 @@ defmodule Aiur.GitHub.Quota do
   # where the number matters most.
   defp elapsed_seconds(windows, resource, now) do
     start = window_start(windows, resource, now)
-    now |> DateTime.diff(start, :second) |> max(1) |> min(@quota_window_seconds)
+    now |> DateTime.diff(start, :second) |> max(0) |> min(@quota_window_seconds)
   end
 
-  defp per_hour(points, elapsed) when is_integer(points) and is_integer(elapsed) and elapsed > 0,
+  # Below the minimum sample the rate is unknown rather than enormous. One point
+  # observed one second into a fresh window extrapolates to 3,600/hour, which
+  # would rank a trivial call above the real leader and be printed against the
+  # 5,000 ceiling as if it meant something.
+  defp per_hour(points, elapsed) when is_integer(points) and is_integer(elapsed) and elapsed >= @min_rate_sample_seconds,
     do: Float.round(points * 3600 / elapsed, 1)
 
   defp per_hour(_points, _elapsed), do: nil
@@ -660,10 +660,20 @@ defmodule Aiur.GitHub.Quota do
   is the sum of every row in the ranking. `reconciled?` is the claim that the
   two agree closely enough to act on.
 
-  A shortfall is the normal failure and is not hidden: calls made on the same
-  credential by anything outside this process are real spend Aiur never saw. An
-  *excess* is a bug — double counting — and is reported as such rather than
-  clamped away.
+  The two ways it can fail are not the same fact, so `direction` separates them:
+
+    * `:shortfall` — Aiur attributed less than the window spent. This is the
+      normal, expected case: calls made on the same credential by anything
+      outside this process are real spend Aiur never saw. It bounds how much of
+      the ranking is the whole story; it is not a defect.
+    * `:excess` — Aiur attributed more than the window spent. Points cannot be
+      counted twice, so this is a bug in the accounting and is the only case
+      worth alarming on.
+    * `:agrees` — inside the margin.
+
+  Collapsing both into one boolean would print an alarm during normal operation,
+  and an operator who learns to ignore the alarm cannot see the double count
+  when it happens. `reconciled?` is kept for the inside-the-margin claim.
   """
   @spec reconciliation(map()) :: %{optional(String.t()) => map()}
   def reconciliation(%{resources: resources}) when is_map(resources) do
@@ -678,6 +688,7 @@ defmodule Aiur.GitHub.Quota do
          delta: delta(attributed, spend),
          margin: @reconciliation_margin,
          reconciled?: reconciled?(attributed, spend),
+         direction: direction(attributed, spend),
          estimated?: Map.get(figures, :estimated?, false)
        }}
     end)
@@ -695,6 +706,16 @@ defmodule Aiur.GitHub.Quota do
 
   defp reconciled?(attributed, 0) when is_integer(attributed), do: attributed == 0
   defp reconciled?(_attributed, _spend), do: nil
+
+  defp direction(attributed, spend) when is_integer(attributed) and is_integer(spend) do
+    cond do
+      reconciled?(attributed, spend) -> :agrees
+      attributed < spend -> :shortfall
+      true -> :excess
+    end
+  end
+
+  defp direction(_attributed, _spend), do: nil
 
   # What the ranking above is worth — stated per budget, never combined.
   #

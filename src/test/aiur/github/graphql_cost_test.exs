@@ -34,6 +34,38 @@ defmodule Aiur.GitHub.GraphQLCostTest do
       assert GraphQLCost.instrument(query) == query
     end
 
+    test "a field merely named like rateLimit does not count as already priced" do
+      query = "query A { repository { rateLimitStatus { id } } }"
+
+      instrumented = GraphQLCost.instrument(query)
+
+      # A substring check would decline here and leave the query billed at one
+      # assumed point, which is the understatement the ranking exists to remove.
+      assert top_level_selection?(instrumented, "rateLimit")
+      assert instrumented =~ "rateLimitStatus"
+    end
+
+    test "places the selection by bytes, so a multi-byte character cannot shift it" do
+      # `selection_offset/4` counts bytes. Splitting by graphemes would move the
+      # cut earlier by (bytes - graphemes) and splice the selection into the
+      # middle of the first field name — a working query turned into a 400.
+      for query <- [
+            ~s|query A($q: String = "repo:o/r é ü") { search { id } }|,
+            ~s|query A($q: String = "🎉🎉") { viewer { login } }|,
+            ~s|query A($q: String = "éé") { viewer { login } }|,
+            "# a leading comment — with an em dash\nquery A { viewer { login } }",
+            ~s|{ search(query: "日本語テキスト") { id } }|
+          ] do
+        instrumented = GraphQLCost.instrument(query)
+
+        assert top_level_selection?(instrumented, "rateLimit")
+
+        # Nothing of the original document may be lost or reordered: removing the
+        # injected selection must give back exactly what was passed in.
+        assert String.replace(instrumented, "\n  " <> GraphQLCost.selection(), "") == query
+      end
+    end
+
     test "declines mutations, because rateLimit is a field on Query" do
       mutation = """
       mutation AiurResolve($threadId: ID!) {
@@ -80,10 +112,13 @@ defmodule Aiur.GitHub.GraphQLCostTest do
       end
     end
 
-    test "leaves brace balance unchanged" do
+    test "adds exactly one balanced selection set" do
       query = "query A($x: Int) { a { b { c } } }"
 
-      assert braces(GraphQLCost.instrument(query)) == braces(query) + 1
+      instrumented = GraphQLCost.instrument(query)
+
+      assert open_braces(instrumented) == open_braces(query) + 1
+      assert close_braces(instrumented) == close_braces(query) + 1
     end
   end
 
@@ -176,12 +211,19 @@ defmodule Aiur.GitHub.GraphQLCostTest do
 
   describe "caller coverage" do
     test "every GraphQL call site in the tree declares a caller" do
-      undeclared =
+      sources =
         @lib_root
         |> Path.join("**/*.ex")
         |> Path.wildcard()
         |> Enum.reject(&String.ends_with?(&1, "github/transport.ex"))
-        |> Enum.flat_map(&undeclared_call_sites/1)
+
+      # An empty scan and a fully-declared tree both produce `[]`, so the guard
+      # asserts it still finds the call sites first. Without this, renaming the
+      # transport function silently retires the check while leaving it green.
+      found = Enum.reduce(sources, 0, &(&2 + call_site_count(&1)))
+      assert found >= 10, "the call-site scan found only #{found} sites; the guard has stopped matching"
+
+      undeclared = Enum.flat_map(sources, &undeclared_call_sites/1)
 
       # A call site that does not declare itself is billed to the operation
       # name, which is better than `unattributed` but is not a promise. This
@@ -220,10 +262,16 @@ defmodule Aiur.GitHub.GraphQLCostTest do
     end
   end
 
+  defp call_site_count(path) do
+    path |> File.read!() |> then(&Regex.scan(call_site_pattern(), &1)) |> length()
+  end
+
+  defp call_site_pattern, do: ~r/Transport\.github_graphql(?:_response)?\(/
+
   defp undeclared_call_sites(path) do
     source = File.read!(path)
 
-    ~r/Transport\.github_graphql(?:_response)?\(/
+    call_site_pattern()
     |> Regex.scan(source, return: :index)
     |> Enum.map(fn [{start, _length} | _] -> {start, call_text(source, start)} end)
     |> Enum.reject(fn {_start, text} -> String.contains?(text, "caller:") end)
@@ -276,6 +324,9 @@ defmodule Aiur.GitHub.GraphQLCostTest do
     |> then(fn {chunks, depth, current} -> [{current, depth} | chunks] end)
   end
 
-  defp braces(document) when is_binary(document),
+  defp open_braces(document) when is_binary(document),
     do: document |> String.graphemes() |> Enum.count(&(&1 == "{"))
+
+  defp close_braces(document) when is_binary(document),
+    do: document |> String.graphemes() |> Enum.count(&(&1 == "}"))
 end

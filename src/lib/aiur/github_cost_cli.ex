@@ -76,7 +76,7 @@ defmodule Aiur.GitHubCostCLI do
 
   defp envelope(snapshot, budget, opts) do
     callers = callers_for(snapshot, budget)
-    windows = Map.get(snapshot, :windows, %{})
+    windows = snapshot |> Map.get(:windows, %{}) |> for_budget(budget)
 
     JSONSafe.normalize(%{
       schema_version: 1,
@@ -89,15 +89,31 @@ defmodule Aiur.GitHubCostCLI do
       data: %{
         callers: Enum.map(callers, &present_caller(&1, callers)),
         windows: Map.new(windows, fn {resource, window} -> {resource, present_window(window)} end),
-        reconciliation: Map.get(snapshot, :reconciliation, %{})
+        reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget)
       }
     })
   end
 
-  defp callers_for(snapshot, "all"), do: Map.get(snapshot, :callers, [])
+  # `--budget graphql` must not print the core window or the core reconciliation
+  # beside it. The two budgets are billed separately on separate windows, and one
+  # view showing both invites reading them as one figure.
+  defp for_budget(collection, "all"), do: collection
+  defp for_budget(collection, budget) when is_map(collection), do: Map.take(collection, [budget])
+  defp for_budget(collection, _budget), do: collection
+
+  # Points first, because the whole point of the unit is that a request-count
+  # ranking cannot see the query that drains the budget. Within one budget the
+  # order is Quota's; across budgets the rows are grouped so two windows are
+  # never summed into one ranking.
+  defp callers_for(snapshot, "all") do
+    snapshot |> Map.get(:callers, []) |> Enum.sort_by(&{&1.resource, -&1.points, -&1.calls, &1.caller})
+  end
 
   defp callers_for(snapshot, budget) do
-    snapshot |> Map.get(:callers, []) |> Enum.filter(&(&1.resource == budget))
+    snapshot
+    |> Map.get(:callers, [])
+    |> Enum.filter(&(&1.resource == budget))
+    |> Enum.sort_by(&{-&1.points, -&1.calls, &1.caller})
   end
 
   # Share is of the *attributed* total for that budget, and is labelled as such
@@ -188,21 +204,24 @@ defmodule Aiur.GitHubCostCLI do
   defp print_reconciliation(_reconciliation), do: :ok
 
   defp reconciliation_line(%{"attributed" => attributed, "spend" => spend} = figures) do
-    verdict =
-      case figures["reconciled?"] do
-        true -> "reconciles"
-        false -> "DOES NOT reconcile"
-        _unknown -> "not measurable"
-      end
-
-    delta = figures["delta"]
-    margin = figures["margin"]
-
     "#{value(attributed)} attributed vs #{value(spend)} spent " <>
-      "(delta #{value(delta)}, margin #{percent(margin)}) — #{verdict}"
+      "(delta #{value(figures["delta"])}, margin #{percent(figures["margin"])}) — #{verdict(figures)}"
   end
 
   defp reconciliation_line(_figures), do: "not measurable"
+
+  # A shortfall is the expected state and is reported as a measurement gap, not
+  # as an alarm — spend on this credential from outside the process is real and
+  # invisible here. `DOES NOT reconcile` is reserved for an excess, which cannot
+  # happen without double counting, so it stays worth reading.
+  defp verdict(%{"direction" => "agrees"}), do: "reconciles"
+
+  defp verdict(%{"direction" => "shortfall", "delta" => delta}) when is_integer(delta),
+    do: "#{abs(delta)} points unattributed (spend outside this process)"
+
+  defp verdict(%{"direction" => "shortfall"}), do: "some spend unattributed"
+  defp verdict(%{"direction" => "excess"}), do: "DOES NOT reconcile — attributed more than was spent"
+  defp verdict(_figures), do: "not measurable"
 
   defp resolve_format(:table), do: :table
   defp resolve_format(:records), do: :records
