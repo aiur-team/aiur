@@ -1,0 +1,449 @@
+defmodule AiurWeb.GithubCacheLiveTest do
+  @moduledoc """
+  U9's acceptance criteria, asserted rather than described.
+
+  The page's central claim is that looking at the cache costs nothing. Every
+  test that could be written as "the page renders X" is instead written as
+  "and the rate-limit reading did not move", because a debug page that quietly
+  fetched would still render correctly and would still be wrong.
+  """
+
+  use Aiur.TestSupport
+
+  import Phoenix.ConnTest, except: [build_conn: 0]
+  import Phoenix.LiveViewTest
+
+  alias Aiur.GithubCacheSourceSupport, as: Source
+  alias Aiur.GitHub.CacheInspector.Events
+  alias Aiur.GitHub.Quota
+  alias AiurWeb.Endpoint
+
+  @endpoint Endpoint
+  @reset ~U[2030-01-01 12:00:00Z]
+
+  setup context do
+    previous_endpoint = Application.get_env(:aiur, Endpoint)
+    previous_quota = Application.get_env(:aiur, :github_quota_server)
+
+    endpoint_config =
+      :aiur
+      |> Application.get_env(Endpoint, [])
+      |> Keyword.merge(
+        server: false,
+        secret_key_base: String.duplicate("s", 64),
+        dashboard_writable: false,
+        dashboard_auth_required: false
+      )
+      |> Keyword.merge(awaiting_commands_config(context))
+
+    Application.put_env(:aiur, Endpoint, endpoint_config)
+    start_supervised!({Endpoint, []})
+
+    on_exit(fn ->
+      Source.uninstall()
+      restore_application_env(Endpoint, previous_endpoint)
+      restore_application_env(:github_quota_server, previous_quota)
+    end)
+
+    :ok
+  end
+
+  describe "viewing costs nothing" do
+    test "opening, patching and holding the page leaves the rate-limit reading untouched" do
+      Source.install(entries(12))
+      quota = install_quota()
+
+      before = reading(quota)
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache")
+
+      # Every interaction the page offers, in one sitting: enter a group, search,
+      # filter both ways, re-sort, open an entry, come back.
+      render_patch(view, "/github-cache/issue_comment")
+      render_change(view, "search", %{"q" => "1999"})
+      view |> element(~s([data-role="freshness-filter"][phx-value-freshness="stale"])) |> render_click()
+      view |> element(~s([data-role="writer-filter"][phx-value-writer="webhook"])) |> render_click()
+      view |> element(~s([data-role="sort-control"][phx-value-sort="writes"])) |> render_click()
+      render_patch(view, "/github-cache/issue_comment/issue_comment:owner:repo:1")
+      render_patch(view, "/github-cache")
+
+      # Holding it open: a store change arrives and the page re-renders.
+      send(view.pid, {:github_resource_written, %{key: {:issue_comment, "owner", "repo", "1"}}})
+      _held = render(view)
+
+      assert reading(quota) == before
+    end
+
+    test "the headline tile reads zero fetches caused by viewing" do
+      Source.install(entries(3))
+      install_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      tile = html |> Floki.parse_document!() |> Floki.find(~s([data-role="view-fetches"]))
+
+      assert Floki.attribute(tile, "data-value") == ["0"]
+      assert Floki.text(tile) =~ "Fetches caused by viewing"
+    end
+
+    test "filtering and sorting never read the store" do
+      Source.install(entries(40))
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
+      settled = Source.reads()
+
+      render_change(view, "search", %{"q" => "owner"})
+      view |> element(~s([data-role="writer-filter"][phx-value-writer="webhook"])) |> render_click()
+      view |> element(~s([data-role="sort-control"][phx-value-sort="identity"])) |> render_click()
+
+      # Client-side over loaded state. A filter that re-read would make typing in
+      # a search box cost budget by a longer route.
+      assert Source.reads() == settled
+    end
+
+    test "the page offers no control that could cause a fetch" do
+      Source.install(entries(5))
+
+      # Loaded with a filter applied so the clear control is on the page too —
+      # every control the page can ever show is present at once.
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment?writer=webhook")
+      document = Floki.parse_document!(html)
+
+      # Interactive elements only. The prose says "no invalidate, no refresh",
+      # and asserting over raw text would match the sentence promising their
+      # absence, which is not the same as their absence.
+      handlers =
+        document
+        |> Floki.find("#github-cache-page [phx-click]")
+        |> Floki.attribute("phx-click")
+        |> Enum.uniq()
+        |> Enum.sort()
+
+      assert handlers == ["clear-filters", "filter-freshness", "filter-writer", "sort"]
+
+      forms = document |> Floki.find("#github-cache-page form") |> Floki.attribute("phx-change")
+      assert Enum.uniq(forms) == ["search"]
+    end
+
+    test "the read path cannot reach a GitHub client at all" do
+      code =
+        "../../../lib/aiur_web/live/github_cache_live.ex"
+        |> Path.expand(__DIR__)
+        |> File.read!()
+        |> strip_prose()
+
+      # Structural, not behavioural. "We are careful not to fetch" decays; "there
+      # is nothing here that could" does not. Prose is stripped first so a
+      # comment explaining why the transport is absent does not read as its
+      # presence.
+      for forbidden <- ["GitHub.Client", "GitHub.Transport", "GitHub.Comments", "GitHub.Issues", "System.cmd", "Req."] do
+        refute code =~ forbidden
+      end
+    end
+  end
+
+  describe "writes are visible arriving" do
+    test "a webhook delivery appears and its row is highlighted, with no API call" do
+      Source.install(entries(3))
+      quota = install_quota()
+      before = reading(quota)
+
+      {:ok, view, html} = live(build_conn(), "/github-cache/issue_comment")
+      assert changed_rows(html) == []
+
+      Source.install(entries(4, source: :webhook))
+      Events.broadcast(%{key: {:issue_comment, "owner", "repo", "4"}, source: :webhook})
+
+      assert changed_rows(render(view)) == ["issue_comment:owner:repo:4"]
+      assert reading(quota) == before
+    end
+
+    test "an agent mutation write-through appears the same way" do
+      Source.install(entries(2))
+      quota = install_quota()
+      before = reading(quota)
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
+
+      Source.install(entries(3, source: :mutation))
+      Events.broadcast(%{key: {:issue_comment, "owner", "repo", "3"}, source: :mutation})
+
+      html = render(view)
+
+      assert html =~ "issue_comment:owner:repo:3"
+      assert changed_rows(html) == ["issue_comment:owner:repo:3"]
+      assert reading(quota) == before
+    end
+
+    test "an unreadable change event still refreshes rather than freezing the page" do
+      Source.install(entries(1))
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
+
+      Source.install(entries(2))
+      send(view.pid, {:github_resource_written, :not_a_key_shape})
+
+      # "No events" and "nothing changed" look identical on screen, so an event
+      # this page cannot parse must still cause a re-read rather than a silence.
+      assert render(view) =~ "issue_comment:owner:repo:2"
+    end
+  end
+
+  describe "three layers" do
+    test "the map groups by type and shows freshness without reading text" do
+      Source.install(entries(3) ++ entries(2, resource_type: :pull_request))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      cells = html |> Floki.parse_document!() |> Floki.find(~s([data-role="map-cell"]))
+
+      assert length(cells) == 2
+      assert "issue_comment" in Floki.attribute(cells, "data-resource-type")
+      assert "pull_request" in Floki.attribute(cells, "data-resource-type")
+
+      # Colour and size come from data attributes and inline custom properties,
+      # so a stale region is visible before any label is read.
+      assert cells |> Floki.attribute("data-worst") |> Enum.all?(&(&1 != ""))
+      assert cells |> Floki.attribute("style") |> Enum.all?(&(&1 =~ "--ghc-weight"))
+    end
+
+    test "every layer transition works in both directions" do
+      Source.install(entries(3))
+
+      {:ok, view, html} = live(build_conn(), "/github-cache")
+      assert html =~ ~s(data-role="map-layer")
+
+      html = view |> element(~s(a[data-role="map-cell"])) |> render_click()
+      assert html =~ ~s(data-role="group-layer")
+
+      html = view |> element(~s(tr[data-role="entry-row"] a), "issue_comment:owner:repo:1") |> render_click()
+      assert html =~ ~s(data-role="entry-layer")
+
+      assert render_patch(view, "/github-cache/issue_comment") =~ ~s(data-role="group-layer")
+      assert render_patch(view, "/github-cache") =~ ~s(data-role="map-layer")
+    end
+
+    test "a deep-linked entry URL resolves on its own" do
+      Source.install(entries(3))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment/issue_comment:owner:repo:2")
+
+      document = Floki.parse_document!(html)
+
+      assert document |> Floki.find(~s([data-role="field-key"])) |> Floki.text() == "issue_comment:owner:repo:2"
+      assert document |> Floki.find(~s([data-role="field-etag"])) |> Floki.text() =~ "etag-2"
+      assert document |> Floki.find(~s([data-role="payload"])) |> Floki.text() =~ "body-2"
+    end
+
+    test "a deep link to something the cache does not hold says so without fetching" do
+      Source.install(entries(1))
+      quota = install_quota()
+      before = reading(quota)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment/issue_comment:owner:repo:9999")
+
+      assert html =~ "Nothing is cached under"
+      assert reading(quota) == before
+    end
+
+    test "filters are URL-addressable so a filtered view can be pasted as evidence" do
+      Source.install(entries(6, source: :webhook))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment?writer=webhook&sort=writes")
+
+      document = Floki.parse_document!(html)
+
+      assert document
+             |> Floki.find(~s([data-role="writer-filter"][phx-value-writer="webhook"]))
+             |> Floki.attribute("data-active") == ["true"]
+
+      assert document |> Floki.find(~s([data-role="active-filters"])) |> Floki.text() =~ "writer: webhook"
+    end
+
+    test "the active filter set is visible and clears in one click" do
+      Source.install(entries(6))
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment?writer=webhook&q=1")
+
+      assert render(view) =~ ~s(data-role="active-filters")
+
+      html = view |> element(~s([data-role="clear-filters"])) |> render_click()
+
+      refute html =~ ~s(data-role="active-filters")
+    end
+  end
+
+  describe "honesty about what is shown" do
+    test "with more than a thousand entries it states how many were elided" do
+      Source.install(entries(1_200))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment")
+
+      elided = html |> Floki.parse_document!() |> Floki.find(~s([data-role="elided"])) |> Floki.text()
+
+      # Never silently a subset: an operator who scrolls to the bottom of a
+      # truncated list would otherwise conclude the cache does not hold
+      # something it does hold.
+      assert elided =~ "700 entries were not loaded"
+      assert elided =~ "at most 500"
+    end
+
+    test "no store at all says so rather than rendering a zero" do
+      # The store lands with U1. Until then — and whenever it is cold — the page
+      # must say there is nothing to read, because "no store" and "an empty
+      # store" are different facts and only one of them is a problem.
+      Source.uninstall()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html =~ "No cache store is running yet"
+      assert html =~ "not the same as nothing having happened"
+    end
+
+    test "a running but empty store says the cache is empty, not that it is missing" do
+      Source.install([])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html =~ "The cache holds no entries yet"
+      refute html =~ "No cache store is running yet"
+    end
+
+    test "no secret material renders, even when the cache holds some" do
+      token = "ghp_" <> String.duplicate("A", 36)
+
+      Source.install([
+        %{
+          key: {:issue_comment, "owner", "repo", "1"},
+          etag: "etag-1",
+          version: "2026-08-17T00:00:00Z",
+          source: :webhook,
+          fetched_at: DateTime.utc_now(),
+          payload: %{
+            "body" => "here is my token #{token} please do not print it",
+            "authorization" => "Bearer #{token}",
+            "installation" => %{"token" => token},
+            "nested" => [%{"client_secret" => token}]
+          }
+        }
+      ])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment/issue_comment:owner:repo:1")
+
+      refute html =~ token
+      refute html =~ "ghp_AAAA"
+      assert html =~ "REDACTED"
+    end
+  end
+
+  describe "authentication" do
+    test "the page sits behind dashboard auth like every other page" do
+      Source.install(entries(1))
+
+      response = get(Phoenix.ConnTest.build_conn(), "/github-cache")
+
+      assert response.status == 401
+    end
+
+    test "unconfigured dashboard credentials refuse the route with their cause" do
+      Source.install(entries(1))
+      username = System.get_env("AIUR_DASHBOARD_USERNAME")
+      password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+      System.delete_env("AIUR_DASHBOARD_USERNAME")
+      System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+      on_exit(fn ->
+        restore_env("AIUR_DASHBOARD_USERNAME", username)
+        restore_env("AIUR_DASHBOARD_PASSWORD", password)
+      end)
+
+      response = get(Phoenix.ConnTest.build_conn(), "/github-cache")
+
+      assert response.status == 503
+      assert response.resp_body =~ "Dashboard authentication is not configured"
+    end
+  end
+
+  defp entries(count, opts \\ []) do
+    resource_type = Keyword.get(opts, :resource_type, :issue_comment)
+    source = Keyword.get(opts, :source, :webhook)
+    now = DateTime.utc_now()
+
+    for index <- 1..count do
+      %{
+        key: {resource_type, "owner", "repo", Integer.to_string(index)},
+        etag: "etag-#{index}",
+        version: "v#{index}",
+        source: source,
+        writes: index,
+        fetched_at: DateTime.add(now, -index, :second),
+        payload: %{"id" => index, "body" => "body-#{index}"}
+      }
+    end
+  end
+
+  # A private meter, installed on the same seam `Transport` uses, seeded with
+  # one observation so the window has a real `used` figure to compare against.
+  defp install_quota do
+    quota =
+      start_supervised!(
+        {Quota, name: nil, clock: fn -> DateTime.add(@reset, -1800, :second) end, hold_dir: nil},
+        id: {:quota, System.unique_integer([:positive])}
+      )
+
+    Quota.observe(quota, %{method: :get, url: "https://api.github.com/repos/o/r", token: "t"}, window_response())
+    _settle = Quota.snapshot(quota)
+
+    Application.put_env(:aiur, :github_quota_server, quota)
+    quota
+  end
+
+  defp reading(quota) do
+    snapshot = Quota.snapshot(quota)
+
+    Map.new(snapshot.windows, fn {resource, window} -> {resource, window.used} end)
+  end
+
+  defp window_response do
+    {:ok,
+     %{
+       status: 200,
+       headers: [
+         {"x-ratelimit-resource", "core"},
+         {"x-ratelimit-limit", "5000"},
+         {"x-ratelimit-remaining", "4999"},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+       ],
+       body: %{}
+     }}
+  end
+
+  defp awaiting_commands_config(context) do
+    [decision_store: Aiur.TestSupport.AwaitingCommands.start(Map.get(context, :awaiting_counts, %{}))]
+  end
+
+  defp changed_rows(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find(~s(tr[data-role="entry-row"].ghc-row-changed))
+    |> Floki.attribute("data-identity")
+  end
+
+  # Drops `#` comments and `@moduledoc`/`@doc` heredocs so a structural check
+  # reads the code and not the prose about the code.
+  defp strip_prose(source) do
+    source
+    |> String.replace(~r/@(?:module)?doc\s+"""(?:.|\n)*?"""/, "")
+    |> String.split("\n")
+    |> Enum.map(&Regex.replace(~r/#.*$/, &1, ""))
+    |> Enum.join("\n")
+  end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp build_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+  end
+end
