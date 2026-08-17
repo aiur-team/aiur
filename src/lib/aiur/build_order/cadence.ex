@@ -52,12 +52,21 @@ defmodule Aiur.BuildOrder.Cadence do
       every poll buy the expensive query — the exact regression #1766 exists to
       prevent, and one the schema rejects outright.
 
-    * `ticket_detail_freshness_ms` — **a quarter of an effective poll interval.** Not a
-      cadence at all: nothing fires on it. It is the staleness a ticket-detail
-      reader will accept from `Aiur.GitHub.ResourceStore` before revalidating,
-      and it is the one read here that is REST and therefore conditional — an
-      unchanged refresh is a `304` and costs no primary rate limit, and a ticket
-      the orchestrator's per-issue poll already fetched costs nothing at all.
+    * `ticket_detail_freshness_ms` — **a quarter of the base poll interval**, and
+      the one value here that is deliberately *not* taken from the effective
+      one. It is not a cadence at all: nothing fires on it. It is the staleness
+      the Build Order ticket-detail drawer will accept from
+      `Aiur.GitHub.ResourceStore` before revalidating — a display budget, not a
+      safety budget, and no orchestrator or agent decision reads it. It is also
+      the one read here that is REST and therefore conditional: an unchanged
+      refresh is a `304` and costs no primary rate limit, and a ticket the
+      orchestrator's per-issue poll already fetched costs nothing at all.
+
+      It stays on the base interval because `TicketDetailCoordinator` reads it
+      once, in `init/1`, and never re-derives it. Taken from the effective
+      interval it would freeze at whatever the cadence was at boot — the widest
+      the configuration permits, since nothing has been published yet — and
+      would never narrow when the fleet picked up work.
 
   ## What is still not revalidatable
 
@@ -121,10 +130,27 @@ defmodule Aiur.BuildOrder.Cadence do
   This is what production reads. It differs from `derive/1` on the configured
   interval by exactly the widening factors the dispatcher applied — at the
   shipped defaults, a factor of 5 while the fleet is idle.
+
+  Before the dispatcher has published anything — which is every boot, since
+  `:persistent_term` does not survive a VM restart, and `GraphProjection` starts
+  ahead of the `Orchestrator` — this falls back to the **base** interval rather
+  than to `PollCadence`'s own widest-configured answer. That fallback is
+  deliberately the widest because its usual callers are staleness thresholds,
+  where calling fresh data stale is the dangerous direction. A cadence has the
+  opposite asymmetry: too wide delays discovering a root that appeared. Booting
+  at the base is therefore never worse than the behaviour this replaced, and the
+  first published cycle widens it.
   """
   @spec effective(keyword()) :: t()
   def effective(opts \\ []) do
-    opts |> PollCadence.effective_interval_ms() |> derive_ms()
+    opts |> effective_interval_ms() |> derive_ms()
+  end
+
+  defp effective_interval_ms(opts) do
+    case Keyword.get(opts, :effective_interval_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _unset -> PollCadence.published_effective_interval_ms() || PollCadence.base_interval_ms(opts)
+    end
   end
 
   @doc """
@@ -162,22 +188,35 @@ defmodule Aiur.BuildOrder.Cadence do
   Resolves one cadence against the interval the tracker is actually keeping,
   preferring an explicit setting over the derived default.
 
-  This is the form production calls; `resolve/3` is for callers that already
-  hold a specific interval and want no ambient reads.
+  Callers reading more than one key should call `effective/1` once and pass the
+  result to `prefer_configured/3` instead, so the derivation is not repeated.
   """
   @spec resolve_effective(atom(), integer() | nil, keyword()) :: pos_integer()
-  def resolve_effective(key, configured, opts \\ [])
-
-  def resolve_effective(_key, configured, _opts) when is_integer(configured) and configured > 0 do
-    configured
-  end
-
-  def resolve_effective(key, _configured, opts) do
-    opts |> effective() |> Map.fetch!(key)
+  def resolve_effective(key, configured, opts \\ []) do
+    prefer_configured(configured, effective(opts), key)
   end
 
   @doc """
+  An explicit setting when there is one, otherwise `key` from an already-derived
+  cadence map.
+
+  A stored zero or negative is not a deliberate setting but a broken one, and
+  honouring it would mean a refresh loop with no interval.
+  """
+  @spec prefer_configured(integer() | nil, t(), atom()) :: pos_integer()
+  def prefer_configured(configured, _derived, _key) when is_integer(configured) and configured > 0 do
+    configured
+  end
+
+  def prefer_configured(_configured, derived, key), do: Map.fetch!(derived, key)
+
+  @doc """
   Resolves one cadence against an explicitly supplied poll interval in seconds.
+
+  For the one caller that must not read the ambient cadence:
+  `TicketDetailCoordinator` reads its options once at boot and never re-derives
+  them, so a value taken from the effective interval would freeze at whatever
+  the cadence happened to be when the daemon started.
   """
   @spec resolve(atom(), integer() | nil, pos_integer() | any()) :: pos_integer()
   def resolve(key, configured, poll_interval_seconds)

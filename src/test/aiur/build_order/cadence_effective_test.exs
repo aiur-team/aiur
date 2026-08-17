@@ -17,11 +17,11 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   @idle_interval_ms 600_000
 
   setup do
-    previous = :persistent_term.get({Aiur.PollCadence, :effective_interval_ms}, :unset)
+    previous = PollCadence.published_effective_interval_ms()
 
     on_exit(fn ->
       case previous do
-        :unset -> PollCadence.forget_effective_interval_ms()
+        nil -> PollCadence.forget_effective_interval_ms()
         value -> PollCadence.publish_effective_interval_ms(value)
       end
     end)
@@ -97,16 +97,46 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
       assert requests_per_hour(Cadence.effective().graph_catalog_refresh_ms) == 30
     end
 
-    # Cold start: before the dispatcher has ever scheduled a tick, `PollCadence`
-    # answers with the widest cadence the configuration permits. That is
-    # deliberately never tighter than the base, so booting cannot cost more than
-    # it did.
-    test "before the dispatcher has published anything the cadence is never tighter than the base" do
+    # Cold start. `:persistent_term` does not survive a VM restart and
+    # `GraphProjection` starts ahead of the `Orchestrator`, so this is every
+    # boot, not an edge case. `PollCadence`'s own fallback is the *widest*
+    # cadence the configuration permits — right for a staleness threshold, wrong
+    # for something that fires, because too wide delays discovering a root that
+    # appeared. So a cadence boots at the base and widens on the first published
+    # cycle.
+    test "before the dispatcher has published anything the cadence is the base, not the widest" do
       PollCadence.forget_effective_interval_ms()
 
       base = Cadence.derive_ms(PollCadence.base_interval_ms())
 
-      assert Cadence.effective().graph_catalog_refresh_ms >= base.graph_catalog_refresh_ms
+      assert Cadence.effective().graph_catalog_refresh_ms == base.graph_catalog_refresh_ms
+      assert Cadence.effective().graph_catalog_refresh_ms < PollCadence.widest_configured_interval_ms()
+    end
+  end
+
+  # The blocking half of the change: one of these three keys must NOT follow the
+  # effective interval, because its only reader freezes it at boot.
+  describe "ticket_detail_freshness_ms stays on the base interval" do
+    test "it does not move when the fleet goes idle" do
+      PollCadence.publish_effective_interval_ms(@base_interval_ms)
+      busy = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+
+      PollCadence.publish_effective_interval_ms(@idle_interval_ms)
+      idle = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+
+      assert idle == busy
+    end
+
+    # `TicketDetailCoordinator` reads this once, in `init/1`. On the boot path
+    # nothing has published, and `PollCadence`'s widest fallback would derive
+    # 300000 — the ceiling — and freeze there for the daemon's whole life.
+    test "the boot path derives the base value, not the 300000 ceiling" do
+      PollCadence.forget_effective_interval_ms()
+
+      freshness = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+
+      assert freshness == Cadence.derive_ms(PollCadence.base_interval_ms()).ticket_detail_freshness_ms
+      refute freshness == 300_000
     end
   end
 
@@ -124,16 +154,14 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
       assert busy_options[:catalog_refresh_ms] == @base_interval_ms
     end
 
-    test "the ticket-detail freshness window follows it too" do
+    test "the labelled catalog option follows it too" do
       PollCadence.publish_effective_interval_ms(@idle_interval_ms)
 
-      idle = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
+      assert Aiur.Config.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 3_000_000
 
       PollCadence.publish_effective_interval_ms(@base_interval_ms)
 
-      busy = Aiur.Config.build_order_ticket_detail_coordinator_options()[:freshness_ms]
-
-      assert idle > busy
+      assert Aiur.Config.build_order_graph_projection_options()[:catalog_labels_refresh_ms] == 600_000
     end
   end
 
@@ -169,26 +197,45 @@ defmodule Aiur.BuildOrder.CadenceEffectiveTest do
   describe "the configuration reference's idle column" do
     @doc_path Path.expand("../../../../website/docs-app/reference/configuration.md", __DIR__)
 
-    test "documents the values derived at a 600s effective interval" do
-      reference = File.read!(@doc_path)
-      PollCadence.publish_effective_interval_ms(@idle_interval_ms)
-      derived = Cadence.effective()
+    # Both idle columns. The second is the default webhook-backed case, where
+    # `webhooks.poll_widen_factor` doubles the interval again to 1200s — the
+    # figure `aiur status` prints, and the one the labelled read's 3600000
+    # ceiling actually binds at.
+    @webhook_idle_interval_ms 1_200_000
 
-      for {key, field} <- [
-            {"graph_catalog_refresh_ms", :graph_catalog_refresh_ms},
-            {"graph_catalog_labels_refresh_ms", :graph_catalog_labels_refresh_ms},
-            {"ticket_detail_freshness_ms", :ticket_detail_freshness_ms}
-          ] do
-        assert documented_idle(reference, key) == Map.fetch!(derived, field)
+    test "documents the values derived at 600s and at 1200s effective" do
+      reference = File.read!(@doc_path)
+
+      for {column, interval_ms} <- [{:polling, @idle_interval_ms}, {:webhook, @webhook_idle_interval_ms}] do
+        PollCadence.publish_effective_interval_ms(interval_ms)
+        derived = Cadence.effective()
+
+        for key <- [:graph_catalog_refresh_ms, :graph_catalog_labels_refresh_ms] do
+          assert documented(reference, key, column) == Map.fetch!(derived, key)
+        end
       end
     end
 
-    defp documented_idle(reference, key) do
-      regex = ~r/^\| `#{Regex.escape(key)}` \| [^|]+ \| \d+ \| (?<value>\d+) \|/m
+    # `ticket_detail_freshness_ms` is documented as the same number in all three
+    # columns, because it deliberately does not follow the effective interval.
+    test "documents ticket_detail_freshness_ms as not moving" do
+      reference = File.read!(@doc_path)
+      # The table is stated "at a 120s base interval", which is the shipped
+      # default rather than whatever this test VM's config happens to carry.
+      base = Cadence.derive(120).ticket_detail_freshness_ms
+
+      for column <- [:busy, :polling, :webhook] do
+        assert documented(reference, :ticket_detail_freshness_ms, column) == base
+      end
+    end
+
+    defp documented(reference, key, column) do
+      skipped = %{busy: 0, polling: 1, webhook: 2}[column]
+      regex = ~r/^\| `#{Regex.escape(to_string(key))}` \| [^|]+ \|#{String.duplicate(" \\d+ \\|", skipped)} (?<value>\d+) \|/m
 
       case Regex.scan(regex, reference, capture: :all_names) do
         [[value]] -> String.to_integer(value)
-        other -> flunk("the reference documents #{length(other)} idle values for #{key}")
+        other -> flunk("the reference documents #{length(other)} #{column} values for #{key}")
       end
     end
   end

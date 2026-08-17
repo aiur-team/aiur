@@ -40,7 +40,10 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
     # running at the base interval would show ~120_000 here.
     remaining = Process.read_timer(entry.timer)
     assert is_integer(remaining)
-    assert remaining > 500_000
+    # Tight enough that a projection still running at the 120s base interval, or
+    # at any other multiple of it, fails. `read_timer` counts down in real time,
+    # so the last millisecond or two is not pinned.
+    assert remaining > @idle_refresh_ms - 1_000
     assert remaining <= @idle_refresh_ms
   end
 
