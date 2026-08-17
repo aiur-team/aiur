@@ -535,11 +535,19 @@ selected cadence repeated for as long as the page stayed open.
 No value makes that correct, because it makes API cost track how many people are
 looking rather than what has changed. They were removed rather than retuned.
 
-A selected root is now read when a writer asks for it — a webhook delivery, an
-agent mutation, or the daemon's own catalog reconciliation — or when something
-calls `Aiur.BuildOrder.GraphProjection.refresh/2` because it genuinely needs the
-data. Opening the Build Order page, selecting a root, and holding it open consume
-zero GitHub reads.
+A selected root is now read by the daemon's own catalog reconciliation, and by
+nothing else. Each catalog poll carries a per-root change marker — the root's
+identity, member count and update time, plus a digest of its members' states — and
+a watched root whose marker moved is re-read once, as is a watched root that has
+never been read.
+
+Opening the Build Order page, selecting a root, and holding it open consume zero
+GitHub reads.
+
+`Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
+It exists so that removing the viewer cadence does not also remove an operator's
+ability to demand a read, but **nothing calls it yet** — an operator-facing
+refresh control is its intended consumer.
 
 A configuration that still sets either key keeps loading unchanged: unknown keys
 are ignored rather than rejected, so an upgrade gets the new behaviour instead of

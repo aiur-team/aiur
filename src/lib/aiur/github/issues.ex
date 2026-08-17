@@ -214,7 +214,7 @@ defmodule Aiur.GitHub.Issues do
   defp revalidate_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-    etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
+    etag = if retried_without_validator?, do: nil, else: servable_validator(key)
 
     request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
@@ -251,7 +251,7 @@ defmodule Aiur.GitHub.Issues do
 
   defp handle_raw_issue_response({:ok, %{status: 200}}, _context), do: {:error, :invalid_github_issue_response}
 
-  defp handle_raw_issue_response({:ok, %{status: 304}}, context) do
+  defp handle_raw_issue_response({:ok, %{status: 304} = response}, context) do
     serve_not_modified_raw_issue(
       context.issue_number,
       context.owner,
@@ -259,7 +259,8 @@ defmodule Aiur.GitHub.Issues do
       context.token,
       context.key,
       context.opts,
-      context.retried_without_validator?
+      context.retried_without_validator?,
+      Transport.header(Map.get(response, :headers, []), "etag") || context.etag
     )
   end
 
@@ -278,14 +279,13 @@ defmodule Aiur.GitHub.Issues do
   # `304` is answered from the held body regardless of the caller's freshness
   # window: GitHub has just certified that the body is current, so its age is no
   # longer evidence of anything.
-  defp serve_not_modified_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
+  defp serve_not_modified_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?, retained_etag) do
     case ResourceStore.data(key) do
       body when is_map(body) ->
-        # GitHub has just certified this body as current, so re-deposit it: the
-        # entry's `fetched_at_ms` is what the *next* reader's freshness window is
-        # measured against, and leaving it at the original fetch would make the
-        # read we just proved free have to be made again immediately.
-        put_issue_resource(key, body, ResourceStore.etag(key), :fetch)
+        # A `304` may rotate the validator, and the new one is what the next
+        # conditional request has to send. Retaining it is the only write this
+        # path makes — see `retain_validator/2` for why the body is left alone.
+        retain_validator(key, retained_etag)
         {:ok, body, :not_modified}
 
       _missing when not retried_without_validator? ->
@@ -314,12 +314,55 @@ defmodule Aiur.GitHub.Issues do
   # as having acted on it, and marking it handled here would suppress the wake
   # that the resource's genuine change is supposed to cause.
   defp put_issue_resource(key, body, etag, source) do
-    ResourceStore.put_resource(key, body,
-      source: source,
-      version: issue_version(body),
-      etag: etag
-    )
+    version = issue_version(body)
+
+    if regression?(key, version) do
+      # A webhook delivery carrying a newer object beat this read. Writing anyway
+      # would not merely hold an older body: `put_resource/3` stamps
+      # `fetched_at_ms` with now, so the older body would be described as freshly
+      # fetched and a reader asking for something no older than a window would be
+      # handed state from before the change.
+      :ok
+    else
+      ResourceStore.put_resource(key, body, source: source, version: version, etag: etag)
+    end
   end
+
+  # Refuses a strictly older version, and writes on equal or missing ones.
+  #
+  # Both markers are GitHub's own ISO-8601 timestamps, which sort lexically.
+  # Equal versions still write because a body can legitimately differ under an
+  # unchanged marker, and a missing marker on either side is not evidence that
+  # anything went backwards. Same rule and same reasoning as
+  # `Aiur.Events.GithubWebhook.Deposit.regression?/2` — the two must not drift.
+  defp regression?(key, version) do
+    case ResourceStore.fetch(key) do
+      {:ok, %{version: held}} when is_binary(held) and is_binary(version) -> version < held
+      _other -> false
+    end
+  end
+
+  # What a `304` is allowed to write back, and — more importantly — what it is not.
+  #
+  # It is tempting to re-deposit the validated body so the entry's `fetched_at_ms`
+  # moves and the next reader inside its window is served for nothing. That was
+  # tried and is wrong, and the reason is worth keeping: the body is read, then
+  # written, and a webhook delivery landing between the two makes the write
+  # incoherent. `put_resource/3` and `update_resource/3` both take the version as
+  # a fixed option while the body comes from the entry, so whichever one wins,
+  # the pair can disagree — a body carrying one `updated_at` filed under another.
+  # A concurrency test caught exactly that (`shared_resource_store_test.exs`), and
+  # an entry whose body and version describe different objects is worse than a
+  # stale clock: every later version comparison is then made against a marker that
+  # never belonged to the body it is attached to.
+  #
+  # So the clock does not move, and the only thing written back is the validator,
+  # through the store's own narrow `put_etag/2`. What that costs is one extra
+  # conditional request the next time a reader's window has passed — and a
+  # conditional request that answers `304` costs **no primary rate limit**, which
+  # is the whole reason this path exists. The optimisation was saving a free
+  # request at the price of a corruptible entry.
+  defp retain_validator(key, etag), do: ResourceStore.put_etag(key, etag)
 
   # Both call sites have already matched `body` as a map, so there is deliberately
   # no non-map clause: dialyzer proves it unreachable.
@@ -327,6 +370,24 @@ defmodule Aiur.GitHub.Issues do
     case Map.get(body, "updated_at") do
       version when is_binary(version) and version != "" -> version
       _absent -> nil
+    end
+  end
+
+  # A validator is only worth sending alongside the body it validates.
+  #
+  # `etag/1` reports a stored ETag whatever state the body is in; `fetch/1`
+  # enforces the retention window. Reading the validator raw therefore hands back
+  # an ETag for a body the store will refuse to serve — past retention, or after
+  # the body was dropped — which buys a guaranteed `304` carrying nothing, and
+  # then the recovery path spends a second, unconditional request. Two requests
+  # where one was needed is the exact waste this store exists to remove.
+  #
+  # `Aiur.GitHub.ResourceFetch.validator/1` makes the same judgement for the same
+  # reason; the two must not drift.
+  defp servable_validator(key) do
+    case ResourceStore.fetch(key) do
+      {:ok, %{etag: etag}} when is_binary(etag) and etag != "" -> etag
+      _other -> nil
     end
   end
 
@@ -800,18 +861,15 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp refresh_stored_issue(ctx, issue_id, retained_etag) do
-    store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
-
-    case ResourceStore.data(store_key) do
-      body when is_map(body) -> put_issue_resource(store_key, body, retained_etag, :poll)
-      _missing -> :ok
-    end
+    ctx.owner
+    |> then(&ResourceStore.key(:issue, &1, ctx.repo, issue_id))
+    |> retain_validator(retained_etag)
   end
 
   # Only reached when the poll's own cache had no validator, so borrowing the
   # store's is never a downgrade: without it the request is unconditional.
   defp store_validator(_store_key, true), do: nil
-  defp store_validator(store_key, false), do: ResourceStore.etag(store_key)
+  defp store_validator(store_key, false), do: servable_validator(store_key)
 
   # A `304` answered against a borrowed validator has no locally materialized
   # `Issue` to return, so normalize the shared body instead. Without this the
