@@ -2109,6 +2109,101 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert Enum.any?(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1))
     end
 
+    # -------------------------------------------------------------------------
+    # Coalescing. A stored answer only removes the reads that come AFTER one; it
+    # can do nothing about the reads that arrive together, which all miss and all
+    # pay. These are therefore run genuinely concurrently — a sequential version
+    # of the same assertion would pass on caching alone and prove nothing about
+    # the mechanism under test.
+    # -------------------------------------------------------------------------
+
+    test "thirteen simultaneous readers of one pull request produce one upstream call", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+      results = concurrent_reads(context, args, 13)
+
+      assert Enum.all?(results, &match?({_output, 0}, &1))
+      assert upstream_calls(context) == 1
+
+      # One call means twelve of these were replayed, so byte equality is the
+      # claim that matters: a follower must be given the leader's answer, not an
+      # approximation of it.
+      assert results |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 1
+    end
+
+    test "simultaneous readers of different resources are not made to wait on each other", context do
+      # The claim is per resource shape. Two agents reading two pull requests are
+      # not duplicates and must both be admitted.
+      results =
+        [["pr", "view", "1670", "--json", "body"], ["pr", "view", "1671", "--json", "body"]]
+        |> Task.async_stream(&run_cached_guard(context, &1, broker_env(context) ++ [FAKE_GH_SLEEP: "1"]),
+          max_concurrency: 2,
+          timeout: 60_000
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.all?(results, &match?({_output, 0}, &1))
+      assert upstream_calls(context) == 2
+    end
+
+    test "a leader that never answers costs one duplicate call, never a stall", context do
+      # A claim taken by a process that dies before writing anything. The follower
+      # waits out its patience and then fetches for itself, which is the pre-store
+      # behaviour rather than a hang.
+      key = broker_token_key()
+      broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+      database = Path.join(cache_state_dir(context), "budget.sqlite3")
+      File.mkdir_p!(cache_state_dir(context))
+
+      assert {_output, 0} =
+               run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], AIUR_GITHUB_STATE_CACHE_WAIT_MS: "300")
+
+      # A claim on the exact shape the read below computes, held by a lease
+      # nothing will ever release.
+      [{shape, _entry}] = cached_shapes(context)
+
+      {_output, 0} =
+        System.cmd("python3", [
+          broker,
+          "acquire",
+          "--db",
+          database,
+          "--token-key",
+          key,
+          "--resource",
+          "core",
+          "--consumer-key",
+          "abandoned",
+          "--endpoint-family",
+          "pulls",
+          "--max-inflight",
+          "4",
+          "--max-inflight-per-endpoint",
+          "2",
+          "--requests-per-minute",
+          "120",
+          "--stagger-ms",
+          "0",
+          "--lease-ttl-ms",
+          "600000",
+          "--cache-key",
+          shape,
+          "--cache-claim-ttl-ms",
+          "600000"
+        ])
+
+      # Retire the answer so the follower cannot simply be served the entry.
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+
+      assert {_output, 0} =
+               run_cached_guard(
+                 context,
+                 ["pr", "view", "1670", "--json", "body"],
+                 broker_env(context) ++ [AIUR_GITHUB_STATE_CACHE_WAIT_MS: "300"]
+               )
+
+      assert upstream_calls(context) == 2
+    end
+
     test "the merge gate still refuses with the store enabled", context do
       assert {output, 77} = run_cached_guard(context, ["pr", "merge", "1670", "--squash"])
 
@@ -2131,15 +2226,75 @@ defmodule Aiur.AgentGitHubGuardTest do
   defp run_cached_guard(context, args, extra_env \\ [], opts \\ []) do
     directory = Keyword.get(opts, :cd, context.workspace)
 
-    env =
-      [
-        {"AIUR_GITHUB_BUDGET_ROOT", cache_state_dir(context)},
-        {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
-        {"AIUR_GITHUB_REPO", "owner/repo"},
-        {"PWD", directory}
-      ] ++ Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+    base = [
+      {"AIUR_GITHUB_BUDGET_ROOT", cache_state_dir(context)},
+      {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
+      {"AIUR_GITHUB_REPO", "owner/repo"},
+      {"PWD", directory}
+    ]
+
+    # Merged by name rather than appended, so a test enabling the broker replaces
+    # the default instead of relying on which duplicate the port layer keeps.
+    overrides = Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+    env = Enum.reject(base, fn {name, _value} -> List.keymember?(overrides, name, 0) end) ++ overrides
 
     System.cmd(context.wrapper, args, env: guard_env(context) ++ env, cd: directory, stderr_to_stdout: true)
+  end
+
+  # The shared admission broker, which is what makes one fetcher out of many
+  # simultaneous identical readers. Every other cache test runs without it,
+  # because caching must work whether or not the broker is available.
+  defp broker_token_key, do: "b" <> String.duplicate("0", 63)
+
+  defp broker_env(context) do
+    [
+      AIUR_GITHUB_BUDGET_ENABLED: "1",
+      AIUR_GITHUB_BUDGET_KEY: broker_token_key(),
+      AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+    ]
+  end
+
+  # `FAKE_GH_SLEEP` holds the leader's call open long enough that every follower
+  # is genuinely in flight while it runs. Without an overlap there is no
+  # coalescing to observe, only caching.
+  defp concurrent_reads(context, args, count) do
+    env =
+      broker_env(context) ++
+        [
+          FAKE_GH_SLEEP: "1",
+          # Concurrency limits deliberately raised past the reader count and the
+          # stagger removed. Left at their defaults the in-flight ceiling would
+          # serialise most of these readers, and the later ones would be answered
+          # by the stored entry — so the test would pass on caching alone and say
+          # nothing about coalescing. With every reader admissible at once, the
+          # only thing that can hold the count at one is the claim.
+          AIUR_GITHUB_MAX_INFLIGHT: Integer.to_string(count + 1),
+          AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT: Integer.to_string(count + 1),
+          AIUR_GITHUB_REQUESTS_PER_MINUTE: "600",
+          AIUR_GITHUB_STAGGER_MS: "0"
+        ]
+
+    1..count
+    |> Task.async_stream(fn _index -> run_cached_guard(context, args, env) end,
+      max_concurrency: count,
+      timeout: 120_000
+    )
+    |> Enum.map(fn {:ok, result} -> result end)
+  end
+
+  # Each stored answer as the broker names it: `owner/repo/kind/id/<shape>`.
+  defp cached_shapes(context) do
+    [cache_state_dir(context), "state-cache/v1/**/*.body"]
+    |> Path.join()
+    |> Path.wildcard()
+    |> Enum.map(fn body ->
+      key =
+        body
+        |> Path.relative_to(Path.join(cache_state_dir(context), "state-cache/v1"))
+        |> String.replace_suffix(".body", "")
+
+      {key, body}
+    end)
   end
 
   defp upstream_calls(context), do: line_count(context.calls)

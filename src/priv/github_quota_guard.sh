@@ -1101,6 +1101,11 @@ if [ -n "$cache_root" ]; then
   esac
 fi
 
+# `cache_now` is what freshness is measured against. It starts equal to the
+# process's start and is re-sampled only by a coalesced follower, which is the
+# one caller for whom "now" has genuinely moved since it started.
+cache_now=${cache_started_at:-0}
+
 if [ -n "$cache_root" ] && [ -n "$cache_owner" ] && [ -n "$cache_repo_name" ]; then
   cache_repo_dir=$cache_root/v1/$cache_owner/$cache_repo_name
 fi
@@ -1172,8 +1177,13 @@ cache_lookup() {
 
   # A clock that moved backwards, or an entry stamped in the future, is not
   # something to reason about — treat it as a miss and re-fetch.
-  [ "$cache_fetched_at" -le "$cache_started_at" ] || return 1
-  [ $((cache_started_at - cache_fetched_at)) -le "$cache_ttl" ] || return 1
+  #
+  # Compared against `$cache_now` rather than this process's start, because a
+  # coalesced follower looks again after waiting: measured from its start, an
+  # entry the leader wrote one second later reads as stamped in the future and is
+  # refused, which is precisely the duplicate fetch the wait existed to avoid.
+  [ "$cache_fetched_at" -le "$cache_now" ] || return 1
+  [ $((cache_now - cache_fetched_at)) -le "$cache_ttl" ] || return 1
 
   cache_invalidated_at=0
   cache_marker_at "$cache_root/v1/.invalidated"
@@ -1294,13 +1304,56 @@ cache_prune() {
   return 0
 }
 
-if cache_lookup; then
-  cache_record hit
+cache_serve() {
+  cache_record "$1"
   cat "$cache_body"
+}
+
+# A second look, with the clock re-sampled. Between a caller's own lookup and the
+# moment it is admitted to spend, another agent's identical fetch can land — so
+# every point where this call is about to reach GitHub asks once more first. One
+# `date` and a handful of stats against a network round trip.
+cache_recheck() {
+  [ -n "$cache_body" ] || return 1
+
+  cache_now=$(date -u +%s 2>/dev/null || printf '%s' "$cache_started_at")
+  case "$cache_now" in ''|*[!0-9]*) cache_now=$cache_started_at ;; esac
+
+  cache_lookup
+}
+
+if cache_lookup; then
+  cache_serve hit
   exit 0
 fi
 
 [ -z "$cache_body" ] || cache_record miss
+
+# COALESCING (#2073 U6). A hit above costs no `python3` and no network, so the
+# store already removes the second and later reads of a resource. It cannot
+# remove the SIMULTANEOUS ones: thirteen agents that all look before any of them
+# has answered all miss, and all thirteen pay. Nothing in a lookup can fix that,
+# because at lookup time there is nothing to find.
+#
+# So the miss path names the shape it is about to fetch, and the broker — the one
+# place every agent on the host already meets under a transaction — admits one
+# fetcher per shape and tells the rest to wait. They wait, look again, and find
+# the leader's answer. The claim is bounded by its own TTL and by the waiter's
+# patience below, so a leader that dies costs one duplicate fetch and never a
+# stall.
+cache_claim_key=
+if [ -n "$cache_body" ] && [ -n "$cache_shape" ]; then
+  cache_claim_key=$cache_owner/$cache_repo_name/$cache_kind/$cache_id/$cache_shape
+fi
+
+# How long a follower waits for the leader before deciding the leader is not
+# coming and fetching for itself. Bounded on purpose: a wait that could outlast
+# the call it replaces would turn a saving into a hang.
+cache_claim_wait_budget_ms=${AIUR_GITHUB_STATE_CACHE_WAIT_MS:-15000}
+case "$cache_claim_wait_budget_ms" in ''|*[!0-9]*) cache_claim_wait_budget_ms=15000 ;; esac
+cache_claim_waited_ms=0
+cache_claim_overtake=0
+cache_served=0
 
 budget_command() {
   python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
@@ -1322,10 +1375,25 @@ budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
   while :; do
+    # Whatever this loop last waited for — a hold, a full lease table, another
+    # agent's identical fetch — the answer may have arrived meanwhile. Looking
+    # again is a stat and a `read`, so it is cheaper than any of the reasons the
+    # loop is here.
+    if [ "$cache_claim_waited_ms" -gt 0 ] && cache_recheck; then
+      cache_serve coalesced
+      cache_served=1
+      return 66
+    fi
+
     budget_ignore_flag=
     [ "$budget_ignore_token_cooldown" -eq 1 ] && budget_ignore_flag=--ignore-token-cooldown
+    budget_cache_flags=
+    if [ -n "$cache_claim_key" ]; then
+      budget_cache_flags="--cache-key $cache_claim_key --cache-claim-ttl-ms $budget_lease_ttl_ms"
+      [ "$cache_claim_overtake" -eq 1 ] && budget_cache_flags="$budget_cache_flags --cache-ignore-claim"
+    fi
     if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --endpoint-family "$endpoint_family" \
-      $budget_ignore_flag \
+      $budget_ignore_flag $budget_cache_flags \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
@@ -1333,20 +1401,47 @@ budget_acquire() {
       printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
       return 75
     fi
-    unset budget_ignore_flag
+    unset budget_ignore_flag budget_cache_flags
 
     case "$budget_result" in
       "granted "*)
         budget_lease=${budget_result#granted }
-        if valid_budget_lease "$budget_lease"; then return 0; fi
+        if valid_budget_lease "$budget_lease"; then
+          # Admitted, and therefore about to spend. The window between this
+          # call's own lookup and this grant is exactly where a simultaneous
+          # reader's answer lands, and it is not covered by the claim: a caller
+          # arriving after the leader released has no claim to wait behind and
+          # would fetch a resource that is already in the store.
+          if [ -n "$cache_claim_key" ] && cache_recheck; then
+            cache_serve coalesced
+            cache_served=1
+            budget_release
+            return 66
+          fi
+
+          return 0
+        fi
         printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
         return 75
         ;;
       "wait "*)
-        if ! budget_sleep_ms "${budget_result#wait }"; then
+        budget_wait_ms=${budget_result#wait }
+        if ! budget_sleep_ms "$budget_wait_ms"; then
           printf '%s\n' 'aiur: GitHub budget broker returned an invalid or unusable wait response' >&2
           return 75
         fi
+        case "$budget_wait_ms" in
+          ''|*[!0-9]*) ;;
+          *) cache_claim_waited_ms=$((cache_claim_waited_ms + budget_wait_ms)) ;;
+        esac
+        # Patience spent. The leader may have died between claiming the resource
+        # and answering for it, and a follower that waits forever on a dead
+        # leader has been made worse off by the optimisation. Overtake the claim
+        # and fetch; the cost is the one call this was trying to save.
+        if [ -n "$cache_claim_key" ] && [ "$cache_claim_waited_ms" -ge "$cache_claim_wait_budget_ms" ]; then
+          cache_claim_overtake=1
+        fi
+        unset budget_wait_ms
         ;;
       *)
         printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
@@ -2034,8 +2129,18 @@ if [ "$admission_required" -eq 1 ]; then
     run_budgeted_paginated_api "$@"
     exit $?
   fi
-  budget_acquire || exit $?
-  budget_start_renewal
+  budget_acquire
+  budget_admission=$?
+  if [ "$budget_admission" -eq 0 ]; then
+    budget_start_renewal
+  elif [ "$cache_served" -eq 1 ]; then
+    # Another agent's identical fetch answered this one while it waited. The
+    # answer is already on stdout and no request was made.
+    exit 0
+  else
+    exit "$budget_admission"
+  fi
+  unset budget_admission
 fi
 
 if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
@@ -2174,6 +2279,11 @@ probe_rate_limit() {
   original_resource=$resource
   original_admission_resource=$admission_resource
   original_family=$endpoint_family
+  # The probe is a different request against a different resource. Claiming the
+  # original read's shape for it would make every follower wait on an answer this
+  # call is never going to write.
+  original_claim_key=$cache_claim_key
+  cache_claim_key=
   immediate_cooldown=$(secondary_delay_ms "$error_file" "$output_file")
   budget_hold token "$immediate_cooldown"
   budget_release
@@ -2192,7 +2302,8 @@ probe_rate_limit() {
   resource=$original_resource
   admission_resource=$original_admission_resource
   endpoint_family=$original_family
-  unset original_resource original_admission_resource original_family immediate_cooldown
+  cache_claim_key=$original_claim_key
+  unset original_resource original_admission_resource original_family original_claim_key immediate_cooldown
 }
 
 rate_limited_response() {
