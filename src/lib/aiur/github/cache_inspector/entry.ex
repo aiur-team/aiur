@@ -60,7 +60,10 @@ defmodule Aiur.GitHub.CacheInspector.Entry do
     :writer,
     :age_ms,
     :freshness,
-    :payload,
+    # The unredacted body, kept only so `payload/1` can redact the one entry
+    # that is actually rendered. Nothing outside this module may read it — every
+    # value that reaches a template goes through the redactor first.
+    :raw_data,
     body?: false,
     validator?: false,
     bodyless?: false
@@ -103,6 +106,7 @@ defmodule Aiur.GitHub.CacheInspector.Entry do
     body? = body?(raw)
 
     %__MODULE__{
+      raw_data: if(body?, do: Map.get(raw, :data)),
       identity: identity(resource_type, owner, repo, id),
       resource_type: resource_type,
       owner: owner,
@@ -120,10 +124,22 @@ defmodule Aiur.GitHub.CacheInspector.Entry do
       source: Map.get(raw, :source),
       writer: writer(Map.get(raw, :source)),
       age_ms: age_ms,
-      freshness: freshness(age_ms, thresholds),
-      payload: if(body?, do: Redactor.redact(Map.get(raw, :data)), else: nil)
+      freshness: freshness(body?, age_ms, thresholds)
     }
   end
+
+  @doc """
+  The redacted body for one entry, or `nil` when it holds none.
+
+  Redaction happens here rather than in `new/3` because `new/3` runs for every
+  entry on every re-render and a store write re-renders every open viewer, while
+  at most one body is ever on screen. Walking hundreds of deep JSON documents to
+  render one of them would make an inspector left open cost real CPU — a
+  different currency from GitHub calls, but the same broken promise.
+  """
+  @spec payload(t()) :: term()
+  def payload(%__MODULE__{raw_data: nil}), do: nil
+  def payload(%__MODULE__{raw_data: data}), do: Redactor.redact(data)
 
   @doc """
   The URL-safe identity of an entry, so a deep link resolves after a restart.
@@ -196,17 +212,19 @@ defmodule Aiur.GitHub.CacheInspector.Entry do
   defp age(%DateTime{} = fetched_at, now), do: now |> DateTime.diff(fetched_at, :millisecond) |> max(0)
   defp age(_fetched_at, _now), do: nil
 
-  # An entry the store never recorded a fetch time for is unknown rather than
-  # expired. Calling it expired would be a guess dressed as a fact, and calling
-  # it fresh would be the exact lie this page exists to prevent.
-  #
-  # Note this is not the same as bodyless: `drop_data/1` keeps `fetched_at_ms`,
-  # so a bodyless entry usually still has an age. That age describes the body it
-  # no longer holds, which is why `body?` and not freshness is what decides
-  # whether the page presents an entry as servable.
-  defp freshness(nil, _thresholds), do: :unknown
+  # An entry holding no body has no freshness, whatever its timestamps say.
+  # `drop_data/1` keeps `fetched_at_ms` along with the validator, so a bodyless
+  # entry usually still carries a real age — but that age belongs to a body the
+  # store no longer holds, and labelling it `:fresh` would put the single most
+  # misleading word this page can print next to the state it exists to warn
+  # about. The age is still shown, as history; the freshness is `:unknown`.
+  defp freshness(false, _age_ms, _thresholds), do: :unknown
 
-  defp freshness(age_ms, %{stale_after_ms: stale, expired_after_ms: expired}) do
+  # An entry the store never recorded a fetch time for is unknown rather than
+  # expired. Calling it expired would be a guess dressed as a fact.
+  defp freshness(_body?, nil, _thresholds), do: :unknown
+
+  defp freshness(_body?, age_ms, %{stale_after_ms: stale, expired_after_ms: expired}) do
     cond do
       age_ms >= expired -> :expired
       age_ms >= stale -> :stale

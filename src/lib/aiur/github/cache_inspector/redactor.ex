@@ -81,10 +81,13 @@ defmodule Aiur.GitHub.CacheInspector.Redactor do
       else: walked
   end
 
+  # Scrubbed first, then truncated. Truncating first can cut a credential in
+  # half, and half a token no longer matches the pattern that would have
+  # replaced it — so the bound would be what published the secret.
   defp walk(value, _depth) when is_binary(value) do
     value
-    |> String.slice(0, @max_string)
     |> scrub()
+    |> String.slice(0, @max_string)
   end
 
   defp walk(value, _depth) when is_number(value) or is_boolean(value) or is_nil(value), do: value

@@ -197,9 +197,14 @@ defmodule AiurWeb.GithubCacheLive do
 
   @impl true
   def render(assigns) do
+    matched = matching_entries(assigns)
+
     assigns =
       assigns
-      |> assign(:visible, visible_entries(assigns))
+      |> assign(:visible, Enum.take(matched, assigns.projection.limit))
+      |> assign(:matched, length(matched))
+      |> assign(:group_elided, max(length(matched) - assigns.projection.limit, 0))
+      |> assign(:group_total, group_total(assigns))
       |> assign(:active_filters, active_filters(assigns))
       |> assign(:entry, CacheInspector.find(assigns.projection, assigns.entry_identity))
 
@@ -243,6 +248,9 @@ defmodule AiurWeb.GithubCacheLive do
           :if={@projection.available? and not is_nil(@group) and is_nil(@entry_identity)}
           group={@group}
           visible={@visible}
+          matched={@matched}
+          group_total={@group_total}
+          group_elided={@group_elided}
           projection={@projection}
           search={@search}
           freshness={@freshness}
@@ -365,9 +373,15 @@ defmodule AiurWeb.GithubCacheLive do
       />
 
       <p class="ghc-count" data-role="result-count">
-        Showing {length(@visible)} of {@projection.total} cached entries.
-        <span :if={@projection.elided > 0} class="ghc-elided" data-role="elided">
-          {@projection.elided} entries were not loaded — the page renders at most {@projection.limit}.
+        Showing {length(@visible)} of {@matched} matching {@group} entries, out of
+        {@group_total} this type holds and {@projection.total} in the whole cache.
+        <span :if={@group_elided > 0} class="ghc-elided" data-role="elided">
+          {@group_elided} matching entries were not drawn — this page renders at most
+          {@projection.limit} rows per resource type.
+        </span>
+        <span :if={@projection.elided > 0} class="ghc-elided" data-role="ceiling-elided">
+          {@projection.elided} entries were not classified at all — the inspector reads at most
+          {@projection.ceiling} of them per pass.
         </span>
       </p>
 
@@ -405,7 +419,8 @@ defmodule AiurWeb.GithubCacheLive do
       </table>
 
       <p :if={@visible == []} class="ghc-empty" data-role="no-matches">
-        No cached entry matches these filters. Clearing them shows everything the cache holds.
+        No cached entry of this type matches these filters. Clearing them shows the
+        {@group_total} entries the cache holds for it.
       </p>
     </div>
     """
@@ -559,7 +574,13 @@ defmodule AiurWeb.GithubCacheLive do
 
   # Filtering and sorting happen here, over the projection already loaded. No
   # branch of this function can reach the store.
-  defp visible_entries(%{projection: projection, group: group} = assigns) when not is_nil(group) do
+  #
+  # The row cap is applied per resource type rather than across the store. One
+  # global slice of a list ordered by type name gives an alphabetically-late
+  # type zero rows while its map tile still advertises a full count — and the
+  # empty group page then says "no cached entry matches these filters", which
+  # would be false.
+  defp matching_entries(%{projection: projection, group: group} = assigns) when not is_nil(group) do
     projection.entries
     |> Enum.filter(&(to_string(&1.resource_type) == group))
     |> filter_search(assigns.search)
@@ -569,7 +590,13 @@ defmodule AiurWeb.GithubCacheLive do
     |> sort_entries(assigns.sort)
   end
 
-  defp visible_entries(_assigns), do: []
+  defp matching_entries(_assigns), do: []
+
+  defp group_total(%{projection: projection, group: group}) when not is_nil(group) do
+    Enum.count(projection.entries, &(to_string(&1.resource_type) == group))
+  end
+
+  defp group_total(_assigns), do: 0
 
   defp filter_search(entries, query) when is_binary(query) and query != "" do
     needle = String.downcase(String.trim(query))
@@ -615,7 +642,10 @@ defmodule AiurWeb.GithubCacheLive do
         "sort" => to_string(socket.assigns.sort)
       }
       |> Map.merge(changes)
-      |> Enum.reject(fn {_key, value} -> value in [nil, "", "age"] end)
+      # Only `sort` has a default worth omitting from the URL. Rejecting the
+      # literal `"age"` across every key — as this once did — silently threw
+      # away a search for the word "age".
+      |> Enum.reject(fn {key, value} -> value in [nil, ""] or (key == "sort" and value == "age") end)
       |> Map.new()
 
     push_patch(socket, to: group_path(socket.assigns.group, query))
@@ -683,13 +713,20 @@ defmodule AiurWeb.GithubCacheLive do
     "#{value(Map.get(window, :remaining))} / #{value(Map.get(window, :limit))}"
   end
 
+  # Redaction happens here, for the one entry on screen, rather than for every
+  # entry on every re-render. See `Aiur.GitHub.CacheInspector.Entry.payload/1`.
   defp payload_text(%{bodyless?: true}),
     do: "No body is cached for this entry — only a validator. A reader must fetch unconditionally."
 
-  defp payload_text(%{payload: nil}), do: "No body is cached for this entry."
-  defp payload_text(%{payload: payload}) when is_binary(payload), do: payload
+  defp payload_text(entry) do
+    case CacheInspector.Entry.payload(entry) do
+      nil -> "No body is cached for this entry."
+      payload when is_binary(payload) -> payload
+      payload -> encode(payload)
+    end
+  end
 
-  defp payload_text(%{payload: payload}) do
+  defp encode(payload) do
     case Jason.encode(payload, pretty: true) do
       {:ok, encoded} -> encoded
       _unencodable -> inspect(payload, pretty: true, limit: 200)

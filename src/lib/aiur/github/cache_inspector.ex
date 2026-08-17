@@ -42,7 +42,15 @@ defmodule Aiur.GitHub.CacheInspector do
 
   alias Aiur.GitHub.CacheInspector.{Entry, ResourceStoreSource}
 
+  # How many rows one group page draws before it says it stopped.
   @default_limit 500
+
+  # A hard ceiling on how many entries are classified at all. The store's own
+  # backstop is 100,000 entries; building a struct for every one of them on
+  # every re-render would make an open inspector expensive in exactly the way
+  # this page promises not to be. Whatever is dropped here is counted and said
+  # out loud rather than quietly missing.
+  @projection_ceiling 5_000
   # Freshness is expressed against how long an entry may be trusted, not against
   # a number chosen when polling was five seconds apart. `stale` is the point
   # past which a consumer should say it is reading history; `expired` is the
@@ -50,15 +58,30 @@ defmodule Aiur.GitHub.CacheInspector do
   @default_stale_after_ms 5 * 60 * 1000
   @default_expired_after_ms 72 * 60 * 60 * 1000
 
-  # The store's own writer vocabulary, in the order the page offers it.
-  @writers [:mutation, :webhook, :fetch, :poll]
+  # The store's own writer vocabulary, in the order the page offers it, plus the
+  # bucket an unrecognised source lands in. `:other` is offered as a filter and
+  # not only as a count: it is the bucket a writer nobody has taught this page
+  # about shows up in, so being unable to click it is being unable to see the
+  # entries most worth looking at.
+  @writers [:mutation, :webhook, :fetch, :poll, :other]
   @freshness [:fresh, :stale, :expired, :unknown]
 
-  # A GitHub call whose declared call site is a view. Nothing in this tree
-  # declares one, which is the point: the figure below is a measurement over
-  # whatever the quota meter actually observed, so a view path that started
-  # fetching would appear here rather than be contradicted by a hard-coded zero.
-  @view_caller_prefixes ["view:", "dashboard:", "live:"]
+  # What a GitHub call made from a view would be named.
+  #
+  # This started as a prefix list — `"view:"`, `"dashboard:"` — and that was a
+  # hard-coded zero wearing a measurement's clothes. Every real call site in
+  # this tree declares a bare snake_case caller (`:comment_poll_batch`,
+  # `:bot_identity`), nothing enforces a prefix, and a LiveView that started
+  # fetching would declare `caller: :github_cache_live` and land outside the
+  # filter. The tile would still read zero at the exact moment it was wrong,
+  # which is worse than having no tile.
+  #
+  # So the match is on the shape a view's caller actually takes in this
+  # codebase: anything naming a LiveView, a dashboard surface, or a page. It is
+  # a heuristic and it is stated as one — the enforcing proof is the call-count
+  # test at the transport seam, which cannot be fooled by a naming convention
+  # because it counts requests rather than believing labels.
+  @view_caller_patterns ["view", "dashboard", "page", "live"]
 
   @doc "The canonical writer buckets, in the order the page offers them."
   @spec writers() :: [atom()]
@@ -80,25 +103,24 @@ defmodule Aiur.GitHub.CacheInspector do
     source = Keyword.get(opts, :source, configured_source())
     now = Keyword.get(opts, :now, DateTime.utc_now())
     limit = Keyword.get(opts, :limit, @default_limit)
+    ceiling = Keyword.get(opts, :ceiling, @projection_ceiling)
 
     case read(source) do
       {:ok, raw} ->
-        entries =
-          raw
-          |> Enum.map(&Entry.new(&1, now, thresholds(opts)))
-          |> Enum.sort_by(&sort_key/1)
-
-        kept = Enum.take(entries, limit)
+        all = Enum.sort_by(Enum.map(raw, &Entry.new(&1, now, thresholds(opts))), &sort_key/1)
+        entries = Enum.take(all, ceiling)
 
         %{
           available?: true,
-          entries: kept,
-          total: length(entries),
-          bodyless: Enum.count(entries, & &1.bodyless?),
-          with_body: Enum.count(entries, & &1.body?),
-          elided: max(length(entries) - length(kept), 0),
+          entries: entries,
+          total: length(all),
+          projected: length(entries),
+          bodyless: Enum.count(all, & &1.bodyless?),
+          with_body: Enum.count(all, & &1.body?),
+          elided: max(length(all) - length(entries), 0),
           limit: limit,
-          groups: groups(entries, kept),
+          ceiling: ceiling,
+          groups: groups(entries, limit),
           captured_at: now
         }
 
@@ -107,17 +129,26 @@ defmodule Aiur.GitHub.CacheInspector do
           available?: false,
           entries: [],
           total: 0,
+          projected: 0,
           bodyless: 0,
           with_body: 0,
           elided: 0,
           limit: limit,
+          ceiling: ceiling,
           groups: [],
           captured_at: now
         }
     end
   end
 
-  @doc "One entry by its stable identity, or `nil`. Never fetches on a miss."
+  @doc """
+  One entry by its stable identity, or `nil`. Never fetches on a miss.
+
+  Searches everything the projection holds, not the slice a group page happens
+  to be rendering. A deep link that resolved to "nothing is cached under this"
+  because the entry fell outside a render cap would be an affirmative false
+  statement on the one page whose premise is honesty about what it is showing.
+  """
   @spec find(map(), String.t()) :: map() | nil
   def find(%{entries: entries}, identity) when is_binary(identity),
     do: Enum.find(entries, &(&1.identity == identity))
@@ -164,15 +195,15 @@ defmodule Aiur.GitHub.CacheInspector do
   def writes_by_writer(%{entries: entries}) do
     counts = Enum.frequencies_by(entries, & &1.writer)
 
-    Enum.map(@writers ++ [:other], &{&1, Map.get(counts, &1, 0)})
+    Enum.map(@writers, &{&1, Map.get(counts, &1, 0)})
   end
 
-  def writes_by_writer(_projection), do: Enum.map(@writers ++ [:other], &{&1, 0})
+  def writes_by_writer(_projection), do: Enum.map(@writers, &{&1, 0})
 
   defp view_caller?(observation) do
-    caller = observation |> Map.get(:caller) |> to_string()
+    caller = observation |> Map.get(:caller) |> to_string() |> String.downcase()
 
-    Enum.any?(@view_caller_prefixes, &String.starts_with?(caller, &1))
+    Enum.any?(@view_caller_patterns, &String.contains?(caller, &1))
   end
 
   defp calls(observation) do
@@ -213,14 +244,17 @@ defmodule Aiur.GitHub.CacheInspector do
     }
   end
 
-  # Stalest first inside a type, so the region that needs attention is the one
-  # that survives truncation. Truncating the *interesting* end would make the
-  # elision notice actively misleading.
-  defp sort_key(entry), do: {to_string(entry.resource_type), -(entry.age_ms || 0), entry.identity}
+  # Ordering decides what survives truncation, so the states that need
+  # attention are put first: an entry holding a validator and no body, then the
+  # stalest. An earlier version sorted on `-(age_ms || 0)`, which sent every
+  # entry with no recorded fetch time to the *end* of its type — so a bodyless
+  # entry, the exact state this page exists to surface, was the first thing
+  # elided while the comment above it claimed the opposite.
+  defp sort_key(entry) do
+    {to_string(entry.resource_type), if(entry.bodyless?, do: 0, else: 1), -(entry.age_ms || 0), entry.identity}
+  end
 
-  defp groups(all, kept) do
-    shown = Enum.frequencies_by(kept, & &1.resource_type)
-
+  defp groups(all, limit) do
     all
     |> Enum.group_by(& &1.resource_type)
     |> Enum.map(fn {resource_type, entries} ->
@@ -230,7 +264,11 @@ defmodule Aiur.GitHub.CacheInspector do
         resource_type: resource_type,
         label: label(resource_type),
         count: length(entries),
-        shown: Map.get(shown, resource_type, 0),
+        # Truncation is per type, not across the whole store. Taking one global
+        # slice of a list sorted by type name would give an alphabetically-late
+        # type zero rows while its tile still advertised a full count.
+        shown: min(length(entries), limit),
+        elided: max(length(entries) - limit, 0),
         bodyless: Enum.count(entries, & &1.bodyless?),
         freshness: Map.new(@freshness, &{&1, Map.get(counts, &1, 0)}),
         # The tile's colour. A region is as stale as its worst entry, because a

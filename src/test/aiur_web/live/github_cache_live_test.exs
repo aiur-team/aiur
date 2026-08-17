@@ -13,9 +13,10 @@ defmodule AiurWeb.GithubCacheLiveTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
-  alias Aiur.GithubCacheSourceSupport, as: Source
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.GithubCacheSourceSupport, as: Source
+  alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -139,6 +140,24 @@ defmodule AiurWeb.GithubCacheLiveTest do
       # presence.
       for forbidden <- ["GitHub.Client", "GitHub.Transport", "GitHub.Comments", "GitHub.Issues", "System.cmd", "Req."] do
         refute code =~ forbidden
+      end
+    end
+
+    test "no module on the read path can reach a GitHub client" do
+      # Scanning only the LiveView would miss a transport introduced one module
+      # down, in the projection or the source — which is where a "just fetch it
+      # on a miss" would actually be written.
+      root = Path.expand("../../../lib/aiur/github", __DIR__)
+
+      files =
+        ["cache_inspector.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
+
+      for relative <- files do
+        code = root |> Path.join(relative) |> File.read!() |> strip_prose()
+
+        for forbidden <- ["GitHub.Client", "GitHub.Transport", "GitHub.Comments", "GitHub.Issues", "System.cmd", "Req."] do
+          refute code =~ forbidden, "#{relative} can reach #{forbidden}"
+        end
       end
     end
   end
@@ -308,8 +327,31 @@ defmodule AiurWeb.GithubCacheLiveTest do
       # Never silently a subset: an operator who scrolls to the bottom of a
       # truncated list would otherwise conclude the cache does not hold
       # something it does hold.
-      assert elided =~ "700 entries were not loaded"
-      assert elided =~ "at most 500"
+      assert elided =~ "700 matching entries were not drawn"
+      assert elided =~ "at most\n      500 rows per resource type"
+    end
+
+    test "a deep link to an entry past the row cap resolves instead of denying it" do
+      # The row cap is a rendering budget, not a claim about what the cache
+      # holds. `find/2` searching only the drawn rows made the entry page print
+      # "the cache simply does not hold this resource" about a resource the
+      # cache definitely held — an affirmative false statement on the one page
+      # whose premise is honesty about what it shows.
+      Source.install(entries(1_200))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment/issue_comment:owner:repo:1200")
+
+      refute html =~ "Nothing is cached under"
+      assert html =~ ~s(data-role="field-key")
+    end
+
+    test "a group whose rows are all past the cap never claims nothing matches" do
+      Source.install(entries(1_200))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment")
+
+      refute html =~ ~s(data-role="no-matches")
+      assert html =~ ~s(data-role="entry-row")
     end
 
     test "no store at all says so rather than rendering a zero" do
@@ -518,7 +560,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
   end
 
   defp awaiting_commands_config(context) do
-    [decision_store: Aiur.TestSupport.AwaitingCommands.start(Map.get(context, :awaiting_counts, %{}))]
+    [decision_store: AwaitingCommands.start(Map.get(context, :awaiting_counts, %{}))]
   end
 
   defp changed_rows(html) do
@@ -534,8 +576,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
     source
     |> String.replace(~r/@(?:module)?doc\s+"""(?:.|\n)*?"""/, "")
     |> String.split("\n")
-    |> Enum.map(&Regex.replace(~r/#.*$/, &1, ""))
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &Regex.replace(~r/#.*$/, &1, ""))
   end
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)

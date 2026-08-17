@@ -49,8 +49,10 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
+  alias Aiur.GitHub.CacheInspector.ResourceStoreSource
   alias Aiur.GitHub.Issues
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -66,7 +68,7 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
         dashboard_auth_required: false,
-        decision_store: Aiur.TestSupport.AwaitingCommands.start(%{})
+        decision_store: AwaitingCommands.start(%{})
       )
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
@@ -105,6 +107,12 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       # Cold on purpose. A cold cache is the state in which a page that reads
       # through to GitHub on a miss would actually fetch, so it is the state
       # worth measuring — a warm store could hide the fault behind its own hits.
+      #
+      # `size/0` answers 0 for "no store running" as well as "running and
+      # empty", so the source is asked separately. Otherwise a suite that had
+      # somehow lost the store would report this test as proving something about
+      # a cold cache when it proved nothing at all.
+      assert ResourceStoreSource.available?(), "no store is running, so this is not a cold-store measurement"
       assert ResourceStore.size() == 0
 
       assert {:ok, _view, html} = live(build_conn(), "/github-cache")
@@ -131,6 +139,13 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       view |> element(~s([data-role="clear-filters"])) |> render_click()
 
       assert render_patch(view, "/github-cache/issue_comment/issue_comment:owner:repo:9001") =~ "entry-layer"
+
+      # The bodyless entry seeded through the real `drop_data/1`, so the state
+      # this page exists to surface is inside the measured window rather than
+      # only asserted about elsewhere.
+      bodyless = render_patch(view, "/github-cache/issue_comment/issue_comment:owner:repo:9003")
+      assert bodyless =~ "bodyless-warning"
+      assert bodyless =~ "304 with no data"
 
       # A deep link to something the cache does not hold. This is the exact
       # place a "just fetch it on a miss" would be tempting, so it is the exact

@@ -57,9 +57,15 @@ Each page renders a durable concept whose detail lives in Concepts.
 
 Aiur reads GitHub state through one shared store. Webhook deliveries, Aiur's own mutations, need-driven fetches, and the safety sweep all write to it, and every consumer reads it before spending a token. `/github-cache` shows what that store currently holds.
 
-The page is strictly view-only. There is no refresh, no invalidate, no eviction and no fetch-now, because the store's central rule is that looking at cached state never costs a GitHub call — an inspector that could trigger a fetch would break the property it exists to demonstrate. Its headline tile, **Fetches caused by viewing**, therefore reads `0`, and prints the total number of calls the quota meter attributed beside it so the zero can be read as a measurement rather than a reassurance.
+The page is strictly view-only. There is no refresh, no invalidate, no eviction and no fetch-now.
 
-It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without the page polling anything.
+That is the store's own rule applied to its inspector: looking at cached state never costs a GitHub call, so a page that could trigger a fetch would break the property it exists to demonstrate.
+
+Its headline tile, **Fetches caused by viewing**, therefore reads `0`. Beside it the page prints how many calls the quota meter attributed in total, so the zero reads as a measurement rather than a reassurance.
+
+It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
+
+Three layers, each addressable and each reachable from the one above:
 
 | Layer | Route | Shows |
 | --- | --- | --- |
@@ -71,11 +77,13 @@ Filters are carried in the query string, so a filtered view such as `/github-cac
 
 ### Read "validator only, no body" carefully
 
-An entry can hold an ETag and no cached body. That is a legitimate state — dropping a body deliberately keeps the validator, which still answers "has this changed?" cheaply. It is **not** a cache hit: a consumer that sends that ETag is answered `304` with no data, so it spends a call and learns nothing, and must re-read unconditionally instead.
+An entry can hold an ETag and no cached body. That is a legitimate state: dropping a body deliberately keeps the validator, which still answers "has this changed?" cheaply.
 
-The page shows those entries distinctly rather than rendering them as cached — their own count in the headline strip, their own filter, a marked row, and a `none — validator only` body cell. When a read you expected to be free still cost something, this is the first place to look.
+It is **not** a cache hit. A consumer that sends that ETag is answered `304` with no data, so it spends a call and learns nothing. It has to re-read unconditionally instead.
 
-Cached bodies are redacted on the way out and collapsed by default, and a large store is truncated with the number of elided entries stated rather than silently showing a subset.
+The page shows those entries distinctly rather than as cached: their own count in the headline strip, their own filter, a marked row, and a `none — validator only` body cell. When a read you expected to be free still cost something, look here first.
+
+Cached bodies are redacted on the way out and collapsed by default. A large store is truncated per resource type, with the number of undrawn entries stated rather than a subset shown as if it were everything.
 
 ## Writable controls
 

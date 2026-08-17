@@ -107,17 +107,63 @@ defmodule Aiur.GitHub.CacheInspectorTest do
       assert writer_for(nil) == :other
     end
 
-    test "reports how many entries were elided rather than showing a subset" do
+    test "reports the row cap per resource type, not as one global slice" do
       projection = CacheInspector.project(source: FixedSource, now: @now, limit: 2)
 
-      assert length(projection.entries) == 2
-      assert projection.total == 4
-      assert projection.elided == 2
-      assert projection.limit == 2
+      # The cap is a rendering budget per group, so every group keeps rows. A
+      # single global `Enum.take` over a list ordered by type name gave the
+      # alphabetically-late type zero rows while its map tile still advertised
+      # a full count — and its group page then claimed nothing matched.
+      assert [comments, pulls] = projection.groups
+      assert comments.resource_type == :issue_comment
+      assert comments.count == 3 and comments.shown == 2 and comments.elided == 1
+      assert pulls.count == 1 and pulls.shown == 1 and pulls.elided == 0
 
-      # Truncation keeps the stalest, so the region that needs attention is the
-      # one that survives it.
+      # Nothing was dropped from the projection itself at this size.
+      assert projection.total == 4
+      assert projection.projected == 4
+      assert projection.elided == 0
+      assert projection.limit == 2
+    end
+
+    test "states how many entries it did not classify at all" do
+      projection = CacheInspector.project(source: FixedSource, now: @now, ceiling: 2)
+
+      assert projection.total == 4
+      assert projection.projected == 2
+      assert projection.elided == 2
+      assert projection.ceiling == 2
+    end
+
+    test "truncation keeps the states that need attention" do
+      projection = CacheInspector.project(source: FixedSource, now: @now, ceiling: 2)
+
+      # Stalest first within a type, so what survives is what an operator would
+      # have opened the page to find rather than whatever sorted first.
       assert Enum.any?(projection.entries, &(&1.freshness == :expired))
+    end
+
+    test "a bodyless entry outranks an aged one for the last remaining slot" do
+      defmodule MixedSource do
+        @behaviour Aiur.GitHub.CacheInspector.Source
+        @impl true
+        def available?, do: true
+
+        @impl true
+        def entries do
+          [
+            %{key: {:issue, "o", "r", "old"}, source: :poll, data?: true, data: %{}, fetched_at_ms: 1},
+            %{key: {:issue, "o", "r", "none"}, source: :poll, etag: "W/\"x\"", data?: false}
+          ]
+        end
+      end
+
+      # An earlier sort used `-(age_ms || 0)`, which sent every entry with no
+      # recorded fetch time to the end of its type — so the bodyless entry, the
+      # exact state this page exists to surface, was elided first.
+      projection = CacheInspector.project(source: MixedSource, now: @now, ceiling: 1)
+
+      assert [%{id: "none", bodyless?: true}] = projection.entries
     end
 
     test "an unavailable store is a state, not an error" do
@@ -208,7 +254,10 @@ defmodule Aiur.GitHub.CacheInspectorTest do
     test "renders no payload, because there is none to render" do
       projection = CacheInspector.project(source: BodylessSource, now: @now)
 
-      assert CacheInspector.find(projection, "issue_comment:o:r:1").payload == nil
+      assert projection |> CacheInspector.find("issue_comment:o:r:1") |> Entry.payload() == nil
+
+      # And the entry that does hold one still renders it, redacted.
+      assert projection |> CacheInspector.find("issue_comment:o:r:2") |> Entry.payload() == %{"id" => "2"}
     end
 
     test "a body that is falsy is still a body" do
@@ -253,6 +302,28 @@ defmodule Aiur.GitHub.CacheInspectorTest do
       refute dropped_entry.body?
       assert dropped_entry.validator? and dropped_entry.etag == "W/\"b\""
     end
+
+    test "a dropped body reads as unknown freshness, not as fresh" do
+      # `drop_data/1` keeps `fetched_at_ms` along with the validator, so a
+      # bodyless entry still carries a real age. Every hand-built fixture in
+      # this suite fakes `fetched_at_ms: nil`, which is not what the store
+      # produces — so this goes through the real call. Labelling that entry
+      # `:fresh` would put the most misleading word available next to the state
+      # the page exists to warn about.
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 4244)
+      :ok = ResourceStore.put_resource(key, %{"body" => "here"}, source: :poll, version: "v1", etag: "W/\"c\"")
+      :ok = ResourceStore.drop_data(key)
+
+      entry =
+        CacheInspector.project(source: ResourceStoreSource, limit: 100_000)
+        |> CacheInspector.find("issue_comment:owner:repo:4244")
+
+      assert entry.bodyless?
+      assert entry.freshness == :unknown
+      # The age survives, because it is still a true fact about the body that
+      # was dropped — it is just not a claim about what the store can serve.
+      assert is_integer(entry.age_ms)
+    end
   end
 
   describe "find/2" do
@@ -274,6 +345,21 @@ defmodule Aiur.GitHub.CacheInspectorTest do
       }
 
       assert CacheInspector.view_fetches(snapshot) == 3
+    end
+
+    test "catches a caller named the way a LiveView in this tree would name itself" do
+      # The regression this tile exists to catch is a dashboard page that starts
+      # fetching. Such a page would declare a caller in this codebase's own
+      # style — a bare snake_case atom naming the module — not a `view:` prefix
+      # invented for this filter. An earlier version matched the prefix only,
+      # so it would have read zero at the exact moment it was wrong.
+      for caller <- [:github_cache_live, :dashboard_live, "AiurWeb.AnalyticsLive", :units_page] do
+        assert CacheInspector.view_fetches(%{callers: [%{caller: caller, calls: 7}]}) == 7,
+               "a fetch declared by #{inspect(caller)} would not have been noticed"
+      end
+
+      # And the poller, which is not a view, still does not count against it.
+      assert CacheInspector.view_fetches(%{callers: [%{caller: :comment_poll_batch, calls: 40}]}) == 0
     end
 
     test "reads zero when nothing views and fetches, which is the steady state" do
