@@ -63,6 +63,25 @@ test("happy path: writes package.json with correct os/cpu and files", () => {
   expect(existsSync(path.join(outDir, "NOTICE"))).toBe(true);
 });
 
+test("package.json carries the repository url sigstore provenance is validated against", () => {
+  cleanupTargets.push("linux-x64");
+  const result = run(["--release", releaseDir, "--target", "linux-x64", "--version", "1.2.3"]);
+  expect(result.status).toBe(0);
+
+  const pkg = JSON.parse(readFileSync(path.join(result.stdout.trim(), "package.json"), "utf8"));
+
+  // Publishing under OIDC trusted publishing attaches a provenance attestation
+  // naming the source repo. npm rejects the upload with 422 unless
+  // repository.url agrees with it, and an absent field reads as "". Asserting
+  // the exact string matters: a merely-present url that disagrees fails the
+  // same way, and the failure only shows up against the live registry.
+  expect(pkg.repository).toEqual({
+    type: "git",
+    url: "git+https://github.com/aiur-team/aiur.git",
+  });
+  expect(pkg.homepage).toBe("https://github.com/aiur-team/aiur");
+});
+
 test("unknown target errors clearly and writes nothing", () => {
   const result = run(["--release", releaseDir, "--target", "freebsd-x64", "--version", "1.0.0"]);
   expect(result.status).not.toBe(0);
