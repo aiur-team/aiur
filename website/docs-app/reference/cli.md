@@ -207,6 +207,20 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
 
+### Wake ledger bound and lease TTL
+
+The wake ledger is capped at 10,000 records. Consumed records are evicted first;
+past the cap the **oldest unread wakes are evicted too**, the shared cursor is
+advanced past them, and an `executor.wakes.overflow` alert names the count and id
+range. Those wakes are never delivered. In practice this only happens when a run
+records for a long time with no consumer, or with a stalled one — the roster's
+`stalled` state is the earlier warning.
+
+A claim is a lease with a 10-minute TTL, renewed while `executor-wait` blocks and
+on every claim, acknowledgement, or roster touch. A consumer that stops renewing
+is reported `expired` after the TTL lapses, and a successor may take over with no
+operator action.
+
 ### Executor roster states
 
 `aiur executor-roster` derives state from evidence, never from presence. A

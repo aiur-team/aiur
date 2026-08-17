@@ -1,9 +1,9 @@
 defmodule Aiur.ExecutorEventsTest do
   use Aiur.TestSupport
 
-  alias Aiur.Config.Paths
   alias Aiur.Decision
   alias Aiur.Events.Exchange
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorEvents
   alias Aiur.JsonStore
 
@@ -49,7 +49,7 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:ok, first_id, _} = ExecutorEvents.publish("executor.notify.first", %{message: "first"})
     assert {:ok, second_id, _} = ExecutorEvents.publish("executor.notify.second", %{message: "second"})
 
-    cursor_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.subscriptions.json")
+    cursor_path = StatePaths.subscriptions_path()
     JsonStore.write!(cursor_path, %{"subscribed_to" => ["executor.#"], "last_seen_event_id" => first_id})
 
     assert ExecutorEvents.last_seen_event_id() == first_id
@@ -311,7 +311,7 @@ defmodule Aiur.ExecutorEventsTest do
   end
 
   test "fails replay closed when the executor journal has interior corruption" do
-    journal_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.events.ndjson")
+    journal_path = StatePaths.journal_path()
 
     File.mkdir_p!(Path.dirname(journal_path))
 

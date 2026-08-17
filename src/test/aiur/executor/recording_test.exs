@@ -1,7 +1,7 @@
 defmodule Aiur.Executor.RecordingTest do
   use Aiur.TestSupport
 
-  alias Aiur.Events.Exchange
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Executor.{Claims, StatePaths}
   alias Aiur.{ExecutorListener, ExecutorWakeInbox}
 
@@ -120,7 +120,7 @@ defmodule Aiur.Executor.RecordingTest do
 
     # The owner acknowledges the first four, then dies without acknowledging six.
     {acknowledged, unacknowledged} = Enum.split(Enum.sort_by(all, & &1["wake_id"]), 4)
-    :ok = ExecutorWakeInbox.acknowledge(acknowledged, @inbox_name)
+    :ok = ExecutorWakeInbox.acknowledge_as("owner-a", acknowledged, @inbox_name)
     :ok = Claims.release("owner-a", claims)
 
     # Takeover resumes from the durable cursor.
@@ -197,7 +197,7 @@ defmodule Aiur.Executor.RecordingTest do
   end
 
   defp publish(topic, payload) do
-    Aiur.Events.Publisher.publish(topic, payload, source: :internal)
+    Publisher.publish(topic, payload, source: :internal)
   end
 
   defp record(id, ticket) do
