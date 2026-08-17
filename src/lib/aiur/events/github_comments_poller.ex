@@ -207,18 +207,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
             {count, newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
-            case unchanged_list(resource, provenance) do
-              {:ok, comments} ->
-                count = publish_issue_comments(target, comments, repo)
-                remember_list(resource, comments, next_etag)
-                {count, nil, :ok, next_etag}
-
-              :nothing_to_recover ->
-                {0, nil, :ok, next_etag}
-
-              :unusable_validator ->
-                {0, nil, :ok, forget_validator(resource)}
-            end
+            unchanged_issue_comments(target, resource, provenance, next_etag, repo)
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
@@ -265,6 +254,36 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp remember_list(_resource, _comments, etag), do: etag
+
+  defp unchanged_issue_comments(target, resource, provenance, next_etag, repo) do
+    case unchanged_list(resource, provenance) do
+      {:ok, comments} ->
+        count = publish_issue_comments(target, comments, repo)
+        remember_list(resource, comments, next_etag)
+        {count, nil, :ok, next_etag}
+
+      :nothing_to_recover ->
+        {0, nil, :ok, next_etag}
+
+      :unusable_validator ->
+        {0, nil, :ok, forget_validator(resource)}
+    end
+  end
+
+  defp unchanged_pr_issue_comments(target, pr_number, resource, {provenance, next_etag}, repo, review_context) do
+    case unchanged_list(resource, provenance) do
+      {:ok, comments} ->
+        count = publish_pr_issue_comments(target, pr_number, comments, repo, review_context)
+        remember_list(resource, comments, next_etag)
+        {count, nil, :ok, next_etag}
+
+      :nothing_to_recover ->
+        {0, nil, :ok, next_etag}
+
+      :unusable_validator ->
+        {0, nil, :ok, forget_validator(resource)}
+    end
+  end
 
   # What a `304` is worth, decided by what the store holds and where the
   # validator came from.
@@ -397,18 +416,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
             {count, newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
-            case unchanged_list(resource, provenance) do
-              {:ok, comments} ->
-                count = publish_pr_issue_comments(target, pr_number, comments, repo, review_context)
-                remember_list(resource, comments, next_etag)
-                {count, nil, :ok, next_etag}
-
-              :nothing_to_recover ->
-                {0, nil, :ok, next_etag}
-
-              :unusable_validator ->
-                {0, nil, :ok, forget_validator(resource)}
-            end
+            unchanged_pr_issue_comments(target, pr_number, resource, {provenance, next_etag}, repo, review_context)
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
