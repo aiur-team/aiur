@@ -79,8 +79,7 @@ available to your agent and ask it to "run aiur":
 | [`aiur-intro`](.claude/skills/aiur-intro/SKILL.md) | What Aiur is, install, first run, and choosing your mode |
 | [`aiur-run`](.claude/skills/aiur-run/SKILL.md) | Your agent launches and operates a run end to end as its Executor |
 | [`aiur-monitor`](.claude/skills/aiur-monitor/SKILL.md) | Status board and alert feed for a live run; does not launch |
-| [`using-aiur`](.claude/skills/using-aiur/SKILL.md) | The operating manual for an Aiur agent working a ticket |
-| [`aiur-agent`](.claude/skills/aiur-agent/SKILL.md) | Cross-ticket events: emit, subscribe, blockers, attentions |
+| [`aiur-agent`](.claude/skills/aiur-agent/SKILL.md) | The operating manual for an Aiur agent working a ticket: the label lifecycle, dev loop, complexity routing, and cross-ticket events |
 
 Once `aiur-intro` is available to your agent, ask *"what is aiur?"* or *"how do I install aiur?"*
 and it will walk you through setup and ask which mode you want.

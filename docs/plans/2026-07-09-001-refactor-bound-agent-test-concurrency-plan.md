@@ -37,7 +37,7 @@ Enforce a four-scheduler cap on every Mix VM launched by an agent. ExUnit derive
 
 - `.aiur/prompt.md` is the repository-specific template injected into issue-worker prompts.
 - `src/test/aiur/aiur_agent_skill_test.exs` already guards the local pre-PR workflow language in that template.
-- `.claude/skills/using-aiur/dev-loop.md` is the operating manual that the template directs agents to follow.
+- `.claude/skills/aiur-agent/dev-loop.md` is the operating manual that the template directs agents to follow.
 - `Aiur.AgentEnvironment` supplies the local Port and remote SSH environments inherited by agent-launched Mix processes.
 - `agent.mix_scheduler_cap` and the `AIUR_AGENT_MIX_SCHEDULERS` launcher convention already exist; this plan activates them with a default and propagation path.
 
@@ -53,7 +53,7 @@ Enforce a four-scheduler cap on every Mix VM launched by an agent. ExUnit derive
 
 **Files:**
 - Modify: `.aiur/prompt.md`
-- Modify: `.claude/skills/using-aiur/dev-loop.md`
+- Modify: `.claude/skills/aiur-agent/dev-loop.md`
 
 **Approach:**
 - Add the `--max-cases 4` requirement immediately after the existing affected-tests-only policy in both live workflow sources, retaining each source's scoped verification language.

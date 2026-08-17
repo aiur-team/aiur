@@ -21,7 +21,7 @@ The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/
 [`.claude/skills/aiur-monitor`](.claude/skills/aiur-monitor/SKILL.md) (status and alert
 feed). [`.claude/skills/aiur-intro`](.claude/skills/aiur-intro/SKILL.md) answers "what is
 Aiur / how do I install it" and routes a new user to a mode.
-[`.claude/skills/using-aiur`](.claude/skills/using-aiur/SKILL.md) is the manual for an
+[`.claude/skills/aiur-agent`](.claude/skills/aiur-agent/SKILL.md) is the manual for an
 agent working a ticket *inside* a run — a different job from operating one.
 
 If you are evaluating Aiur rather than working in it, read the operating modes before

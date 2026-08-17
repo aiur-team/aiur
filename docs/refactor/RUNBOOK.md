@@ -40,7 +40,7 @@ companion docs. This runbook is how to *operate*; those are what to *build*.
   keep it that way.
 - **Commits (yours and every executor's): 3–7 word imperative messages.
   Never mention the tools, models, or "generated with" in commit messages or
-  PR descriptions.** (Also repo convention — `.claude/skills/using-aiur/dev-loop.md`.)
+  PR descriptions.** (Also repo convention — `.claude/skills/aiur-agent/dev-loop.md`.)
 - **You own the merges.** Executors never self-merge. You own PR readiness,
   green builds, conflict resolution, at-merge checks, and phase-exit.
 

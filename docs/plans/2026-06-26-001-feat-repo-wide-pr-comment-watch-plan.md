@@ -48,7 +48,7 @@ The architectural obstacle, surfaced by research: aiur derives a comment's ownin
 2. **PR-number identity, parallel to `aiur/<id>`.** Watched/commanded PRs are keyed by PR number for both the comment topic (`ticket.<pr#>.pr.review_comment`) and the running-entry identifier. The `aiur/<id>` branch-derivation paths are left intact for legacy agent PRs and **bypassed** (not modified) for watched PRs by passing the PR object through (`open_pull_requests_by_target` already exists in the poller).
 3. **Reuse the battle-tested cores, don't rebuild.** `Client.reply_to_review_thread/3` (read-after-write verify), the `GithubCommentsPoller` per-target `since`-map + `all_comment_targets_failed?` isolation, and the `author_trusted?` CODEOWNERS gate (`Sanitizer.stamp_author_trust/2` ∪ `bot_account`/`trusted_accounts`) are reused as-is.
 4. **Extend the poller's target set; do not add a third poller.** Mirror `human_review_comment_poll_targets/2` (`orchestrator.ex:1350`) with a watch-target source; ride the existing `GithubCommentsPoller`.
-5. **Respond-vs-code is a judgment call taught in the skill, not a code classifier.** Most comments want a reply, not code. The differentiation lives in the `using-aiur` skill text (extending the existing "PR review feedback loop" section), not a heuristic in Elixir.
+5. **Respond-vs-code is a judgment call taught in the skill, not a code classifier.** Most comments want a reply, not code. The differentiation lives in the `aiur-agent` skill text (extending the existing "PR review feedback loop" section), not a heuristic in Elixir.
 6. **No auto-resolve.** Reply and resolve are separate `client.ex` operations; the watched-PR path wires only the reply (read-after-write) path, never `resolve_review_thread`.
 
 ---
@@ -219,10 +219,10 @@ Trust gate (`author_trusted?`, `sanitizer.ex:102`) is applied at event time for 
 **Dependencies:** U4.
 
 **Files:**
-- `.claude/skills/using-aiur/turn-workflow.md` — extend `## PR review feedback loop` (`:35-56`), which already differentiates change-request vs reply-only and mandates `aiur_reply_review_thread` (read-after-write) + no auto-resolve.
-- `.claude/skills/using-aiur/conventions.md` — the trusted-author gate already lives here (`:1-22`); cross-reference.
+- `.claude/skills/aiur-agent/turn-workflow.md` — extend `## PR review feedback loop` (`:35-56`), which already differentiates change-request vs reply-only and mandates `aiur_reply_review_thread` (read-after-write) + no auto-resolve.
+- `.claude/skills/aiur-agent/conventions.md` — the trusted-author gate already lives here (`:1-22`); cross-reference.
 - `src/prompts/shared-agent-instructions.md` — a short PR-anchored-mode pointer (always visible) if the workflow section is insufficient.
-- `src/test/aiur/aiur_agent_skill_test.exs` — skill-content assertions (the `.codex/skills/using-aiur` symlink carries the same text to codex).
+- `src/test/aiur/aiur_agent_skill_test.exs` — skill-content assertions (the `.codex/skills/aiur-agent` symlink carries the same text to codex).
 
 **Approach:** Add to the existing section: (a) "Most comments just want a response — a question, a clarification, a discussion. Reply on the thread. Only write/push code when a change is clearly intended." (b) PR-anchored mode: "For a watched/commanded PR you are already on the PR's branch — push commits there, reply on the threads, do NOT open a new PR, do NOT resolve threads unless explicitly told."
 

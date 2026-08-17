@@ -151,7 +151,6 @@ defmodule Aiur.AiurDebugSkillTest do
     for link <- [
           "../aiur-run/SKILL.md",
           "../aiur-monitor/SKILL.md",
-          "../using-aiur/SKILL.md",
           "../aiur-agent/SKILL.md",
           "../../../AGENTS.md#manual-testing--the-only-definition",
           "../../../src/docs/logging.md"
