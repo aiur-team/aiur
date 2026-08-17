@@ -54,6 +54,14 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
 
+Dashboard and Build Order state is not on this cadence. It rides on webhook
+deliveries and on whatever another consumer already paid to fetch, so opening or
+holding a page open costs nothing. One slow sweep
+(`polling.view_state_sweep_seconds`, default 900) reconciles it, and its only
+purpose is recovering a delivery that was lost — measured at 9 of 100 during a
+daemon restart, none of which GitHub retried. Shortening it does not make a page
+fresher; a delivery that arrives is already immediate and free.
+
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
 | First startup sweep | Always immediate. |

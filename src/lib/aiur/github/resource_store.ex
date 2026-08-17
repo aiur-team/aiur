@@ -43,6 +43,14 @@ defmodule Aiur.GitHub.ResourceStore do
   the thing the window exists for — a delivery GitHub retries up to three days
   later — so the version is recorded instead.
 
+  Suppression is nevertheless **bounded**, and the bound depends on whether a
+  version stands behind the mark. A versioned mark is released by the resource
+  changing, so the clock does not have to release it and it may hold for the full
+  retention window. A mark with no version can only ever be released by the
+  clock, so it holds for `unversioned_suppression_ms/0` instead — otherwise one
+  mapping mistake hides a resource for three days with nothing to attribute it
+  to. See `@unversioned_suppression_ms`.
+
   ## Suppress and recover are not in tension once the key is identity
 
   The sweep must not re-process what the webhook already delivered, and it must
@@ -111,6 +119,24 @@ defmodule Aiur.GitHub.ResourceStore do
   @checkpoint_interval_ms 30 * 1000
   @filename "github_resources.json"
   @max_entries 100_000
+
+  # The bound on suppression that has no version behind it.
+  #
+  # A *versioned* mark is safe to hold for the whole retention window because a
+  # genuine change moves the version and unsuppresses the resource immediately —
+  # time is not what releases it. A mark with **no** version cannot be released
+  # that way at all: it suppresses on identity alone, so nothing the resource
+  # does will ever unsuppress it and its only bound is the clock. Leaving that at
+  # 72 hours means one mapping mistake — a writer that cannot read a version,
+  # a resource shape whose marker moved — hides the resource for three days,
+  # across restarts, with no error and nothing to attribute it to.
+  #
+  # 30 minutes is far longer than any duplicate-delivery burst (GitHub's
+  # immediate retries are seconds apart) and short enough that a mistake costs
+  # one delayed wake rather than a lost one. The failure this trades into is a
+  # duplicate publish, which the publisher's own dedup window already absorbs,
+  # and which every other trade-off in this module also chooses over a drop.
+  @unversioned_suppression_ms 30 * 60 * 1000
 
   # A single GitHub issue, pull request or comment body is a few kilobytes and
   # GitHub itself caps an issue body at 64 KiB, so nothing legitimate here comes
@@ -258,12 +284,22 @@ defmodule Aiur.GitHub.ResourceStore do
   def processed?(key, version) do
     case lookup(key) do
       %{processed_at_ms: at} = entry when is_integer(at) ->
-        not expired?(at) and Map.get(entry, :version) == normalize_version(version)
+        marked = Map.get(entry, :version)
+        marked == normalize_version(version) and within_suppression_bound?(at, marked)
 
       _other ->
         false
     end
   end
+
+  @doc """
+  How long a mark suppresses when no version stands behind it.
+
+  Public so the bound is assertable rather than a number buried in a private
+  clause. See `@unversioned_suppression_ms`.
+  """
+  @spec unversioned_suppression_ms() :: pos_integer()
+  def unversioned_suppression_ms, do: @unversioned_suppression_ms
 
   @doc """
   Marks `key` processed by `source` (`:webhook` or `:poll`) at `version`.
@@ -681,6 +717,11 @@ defmodule Aiur.GitHub.ResourceStore do
   # Only ever reached with an integer: `processed?/1` guards on `is_integer/1`
   # before asking, so a second catch-all clause here would be unreachable.
   defp expired?(at) when is_integer(at), do: now_ms() - at > @retention_ms
+
+  # A versioned mark rides the retention window; an identity-only mark rides the
+  # much tighter bound, because nothing but the clock can ever release it.
+  defp within_suppression_bound?(at, nil), do: now_ms() - at <= @unversioned_suppression_ms
+  defp within_suppression_bound?(at, _version), do: not expired?(at)
 
   defp sweep(table) do
     cutoff = now_ms() - @retention_ms

@@ -504,6 +504,17 @@ defmodule Aiur.Config do
     settings!().polling.interval_seconds
   end
 
+  @doc """
+  How often the single view-state reconciliation sweep runs.
+
+  A recovery bound for lost webhook deliveries, not a freshness knob. See
+  `Aiur.GitHub.ViewStateSweep`.
+  """
+  @spec view_state_sweep_seconds() :: pos_integer()
+  def view_state_sweep_seconds do
+    settings!().polling.view_state_sweep_seconds
+  end
+
   @spec events_block_state_debounce_seconds() :: non_neg_integer()
   def events_block_state_debounce_seconds do
     settings!().events.block_state_debounce_seconds

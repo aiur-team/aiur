@@ -8,7 +8,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   planning provider only fetches `build-order`-labelled roots and their graph
   members, so these issues never appear there.
 
-  This poller periodically lists `build-lane:adhoc` issues (including closed
+  This source lists `build-lane:adhoc` issues (including closed
   ones, so merged/deferred/duplicate tickets stay visible), normalizes them to
   a compact snapshot, and broadcasts changes. It keeps the last successful
   snapshot as last-known-good and reports a named stale/unavailable status on
@@ -16,6 +16,9 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
   The overlay is rendered separately and never contributes to the core
   completion denominator, complexity total, critical path, or feature ETA.
+
+  It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
+  cadence and asks this source to reconcile.
   """
 
   use GenServer
@@ -28,7 +31,6 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
   @topic "build_order:adhoc:changed"
   @label "build-lane:adhoc"
-  @default_interval :timer.seconds(60)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -64,7 +66,6 @@ defmodule Aiur.BuildOrder.AdHocSource do
     state = %{
       snapshot: %Snapshot{},
       inflight: nil,
-      interval: Keyword.get(opts, :poll_interval, @default_interval),
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
@@ -89,7 +90,9 @@ defmodule Aiur.BuildOrder.AdHocSource do
   def handle_cast(:refresh, state), do: {:noreply, ensure_fetch(state)}
 
   @impl true
-  def handle_info(:poll, state), do: {:noreply, state |> ensure_fetch() |> schedule_next()}
+  # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
+  # asks this source to reconcile.
+  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state)}
 
   def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -107,11 +110,6 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp ensure_fetch(state) do
     task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> fetch(state) end)
     %{state | inflight: task.ref}
-  end
-
-  defp schedule_next(state) do
-    Process.send_after(self(), :poll, state.interval)
-    state
   end
 
   @spec fetch(map()) :: {:ok, [Snapshot.member()]} | {:error, term()}

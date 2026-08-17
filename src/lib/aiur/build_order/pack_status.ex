@@ -20,6 +20,9 @@ defmodule Aiur.BuildOrder.PackStatus do
   completion fact is strictly better than silently reverting a merged ticket
   to 0%. When demand exceeds one cycle's budget, later cycles rotate the first
   repository and member chunk so later demand also receives capacity.
+
+  It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
+  cadence and asks this source to reconcile.
   """
 
   use GenServer
@@ -30,7 +33,6 @@ defmodule Aiur.BuildOrder.PackStatus do
   alias Aiur.Fs
   alias Aiur.GitHub.{Config, Transport}
 
-  @default_interval :timer.minutes(5)
   @chunk_size 50
   @topic "build-order-pack-status:changed"
 
@@ -68,7 +70,6 @@ defmodule Aiur.BuildOrder.PackStatus do
 
     state = %{
       inflight: nil,
-      interval: Keyword.get(opts, :poll_interval, @default_interval),
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
@@ -100,7 +101,9 @@ defmodule Aiur.BuildOrder.PackStatus do
   def handle_cast(:refresh, state), do: {:noreply, ensure_reconcile(state)}
 
   @impl true
-  def handle_info(:poll, state), do: {:noreply, state |> ensure_reconcile() |> schedule_next()}
+  # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
+  # asks this source to reconcile.
+  def handle_info(:poll, state), do: {:noreply, ensure_reconcile(state)}
 
   def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -118,11 +121,6 @@ defmodule Aiur.BuildOrder.PackStatus do
   defp ensure_reconcile(state) do
     task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> reconcile(state) end)
     %{state | inflight: task.ref}
-  end
-
-  defp schedule_next(state) do
-    Process.send_after(self(), :poll, state.interval)
-    state
   end
 
   defp record_result(state, result) do
