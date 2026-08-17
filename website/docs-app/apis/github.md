@@ -68,7 +68,14 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 | --- | --- | --- |
 | Core | REST requests | The Units meter or `aiur units`. |
 | GraphQL | Query points | The Units meter or `aiur units`. |
+| Anonymous core | REST requests made without a token | A `core:anonymous` row, present only once an anonymous read has been observed. |
 | Secondary limit | Temporary abuse-control backoff | A separate Units row while the backoff is active. |
+
+Anonymous reads — a public `CODEOWNERS` fetch when no token is configured, for
+instance — bill GitHub's 60/hour unauthenticated per-IP allowance rather than
+the authenticated core budget, so they are metered in their own window. An
+exhausted anonymous allowance holds further anonymous reads but never gates
+agent dispatch.
 
 ## Comments arriving twice
 
