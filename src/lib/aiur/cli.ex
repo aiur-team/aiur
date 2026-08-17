@@ -358,6 +358,7 @@ defmodule Aiur.CLI do
   defp start_with_config(expanded_path, deps, opts) do
     if deps.file_regular?.(expanded_path) do
       :ok = deps.set_workflow_file_path.(expanded_path)
+      IO.puts(:stderr, "__AIUR_CONFIG_PATH__:#{expanded_path}")
 
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->

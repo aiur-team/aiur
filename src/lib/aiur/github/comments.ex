@@ -115,10 +115,10 @@ defmodule Aiur.GitHub.Comments do
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_issue_comments(issue_number, opts \\ []) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token() do
+         {:ok, token} <- Transport.require_token(),
+         context when is_map(context) <- Codeowners.repo_ownership(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
-      context = Codeowners.repo_ownership(opts)
 
       case Transport.fetch_json_list(request_fun, token, url) do
         {:ok, comments} ->

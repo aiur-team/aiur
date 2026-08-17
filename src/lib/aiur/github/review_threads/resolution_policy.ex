@@ -103,20 +103,41 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
            }
          )}
 
-      review_thread_authoritative_comment?(thread, agent_classification_opts(bot_account, opts)) ->
+      true ->
+        verify_review_thread_authority(
+          thread,
+          latest,
+          thread_id,
+          agent_classification_opts(bot_account, opts)
+        )
+    end
+  end
+
+  defp verify_review_thread_authority(thread, latest, thread_id, opts) do
+    case review_thread_authority(thread, opts) do
+      {:ok, true} ->
         {:ok,
          %{
            "review_thread_id" => thread_id,
            "latest_comment" => ReviewThreads.normalize_verified_thread_comment(latest)
          }}
 
-      true ->
+      {:ok, false} ->
         {:error,
          {:review_thread_resolution_not_authorized,
           %{
             review_thread_id: thread_id,
             path: Map.get(thread, "path"),
             required_boundary: "Only resolve review threads whose latest non-agent reviewer comment is authoritative for the thread path according to CODEOWNERS."
+          }}}
+
+      {:error, reason} ->
+        {:error,
+         {:review_thread_resolution_ownership_unavailable,
+          %{
+            review_thread_id: thread_id,
+            path: Map.get(thread, "path"),
+            reason: reason
           }}}
     end
   end
@@ -141,27 +162,40 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
 
   @spec review_thread_authoritative_comment?(map(), keyword()) :: boolean()
   def review_thread_authoritative_comment?(thread, opts) when is_map(thread) do
-    context =
+    review_thread_authority(thread, opts) == {:ok, true}
+  end
+
+  defp review_thread_authority(thread, opts) do
+    reviewer_comment =
       thread
-      |> normalize_thread_for_comment_context()
-      |> ReviewThreads.thread_ownership_context(opts)
+      |> ReviewThreads.thread_comments()
+      |> Enum.reverse()
+      |> Enum.find(fn comment ->
+        author = get_in(comment, ["author", "login"])
+        not agent_login?(author, opts)
+      end)
 
-    thread
-    |> ReviewThreads.thread_comments()
-    |> Enum.reverse()
-    |> Enum.find(fn comment ->
-      author = get_in(comment, ["author", "login"])
-      not agent_login?(author, opts)
-    end)
-    |> case do
-      nil ->
-        false
+    if reviewer_comment do
+      context =
+        thread
+        |> normalize_thread_for_comment_context()
+        |> ReviewThreads.thread_ownership_context(opts)
 
-      reviewer_comment ->
-        reviewer_comment
-        |> get_in(["author", "login"])
-        |> Codeowners.authoritative?(context)
+      authoritative_reviewer_comment(reviewer_comment, context)
+    else
+      {:ok, false}
     end
+  end
+
+  defp authoritative_reviewer_comment(_reviewer_comment, {:error, reason}), do: {:error, reason}
+
+  defp authoritative_reviewer_comment(reviewer_comment, context) do
+    authoritative =
+      reviewer_comment
+      |> get_in(["author", "login"])
+      |> Codeowners.authoritative?(context)
+
+    {:ok, authoritative == true}
   end
 
   @spec normalize_thread_for_comment_context(map()) :: map()

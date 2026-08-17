@@ -97,6 +97,16 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     }
   end
 
+  def payload({:review_thread_resolution_ownership_unavailable, detail}) do
+    %{
+      "error" => %{
+        "message" => "GitHub review thread resolution paused because CODEOWNER authority could not be determined.",
+        "reason" => "review_thread_resolution_ownership_unavailable",
+        "detail" => Response.jsonable(detail)
+      }
+    }
+  end
+
   def payload({:github_graphql_errors, errors}) do
     %{
       "error" => %{
