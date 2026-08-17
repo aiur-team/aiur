@@ -56,6 +56,7 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
 
   for (const issue of metricColumns) issues.push(issue)
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
+  for (const errorState of snapshot.errorStates || []) issues.push({ kind: 'error-state', detail: errorState })
   for (const emptyState of snapshot.emptyStates) {
     // A settled Units empty-state can be legitimate only when the run itself
     // confirms that it has no active agents. With no external count, retain it
@@ -73,6 +74,9 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
   }
   if (snapshot.navigationError) issues.push({ kind: 'navigation', detail: snapshot.navigationError })
   if (snapshot.hasNAInMetric) issues.push({ kind: 'metric-na', detail: 'N/A appears in a numeric metric position' })
+  if (!snapshot.primaryContent && !confirmedIdleUnits(name, snapshot, expectedActiveAgents)) {
+    issues.push({ kind: 'primary-content-missing', detail: `${pageLabel(name)} primary content was not found after LiveView settle` })
+  }
 
   if (expectedCapacity) {
     for (const observed of snapshot.capacityReadings) {
@@ -97,9 +101,11 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
       title: snapshot.title,
       chars: snapshot.chars,
       liveViewConnected: snapshot.liveViewConnected,
+      primaryContent: snapshot.primaryContent,
       rows: snapshot.tables.reduce((count, table) => count + table.rows.length, 0),
       tables: snapshot.tables.length,
       staleBanners: snapshot.staleBanners,
+      errorStates: snapshot.errorStates || [],
       capacityReadings: snapshot.capacityReadings
     }
   }
@@ -159,15 +165,24 @@ function suppressedCount(page) {
 }
 
 function tableMetricIssues(table) {
-  if (table.rows.length < 2) return []
+  const memberIndex = table.headers.findIndex((header) => /^\s*(tickets?|members?)\s*$/i.test(header))
 
   return table.headers.flatMap((header, index) => {
     if (!isMetricHeader(header)) return []
-    const values = table.rows.map((row) => normalizeCell(row[index])).filter(Boolean)
-    if (values.length !== table.rows.length) return []
+    const values = table.rows.map((row) => normalizeCell(row[index]))
+    const missingRows = values
+      .map((value, rowIndex) => ({ value, rowIndex }))
+      .filter(({ value }) => isMissingMetric(value))
 
-    if (values.every(isMissingMetric)) {
-      return [{ kind: 'metric-column-missing', detail: `${header} is ${values[0]} for all ${values.length} rows` }]
+    if (missingRows.length === values.length && values.length > 0) {
+      const missingValue = values.every((value) => value === values[0]) ? displayMetric(values[0]) : 'missing'
+      return [{ kind: 'metric-column-missing', detail: `${header} is ${missingValue} for all ${values.length} rows` }]
+    }
+
+    const missingMajority = missingRows.length > values.length / 2
+    const missingOnPopulatedRow = missingRows.some(({ rowIndex }) => rowHasMembers(table.rows[rowIndex], memberIndex))
+    if (missingRows.length > 0 && (missingMajority || missingOnPopulatedRow)) {
+      return [{ kind: 'metric-column-missing', detail: `${header} is missing for ${missingRows.length} of ${values.length} rows` }]
     }
 
     if (values.length >= 3 && new Set(values).size === 1) {
@@ -183,7 +198,33 @@ function isMetricHeader(header) {
 }
 
 function isMissingMetric(value) {
-  return value === '—' || value === '–' || value === '-' || value === 'N/A'
+  return value === '' || value === '—' || value === '–' || value === '-' || value === 'N/A'
+}
+
+function displayMetric(value) {
+  return value === '' ? 'blank' : value
+}
+
+function rowHasMembers(row, memberIndex) {
+  if (memberIndex < 0) return false
+
+  const count = Number.parseInt(normalizeCell(row[memberIndex]).replaceAll(',', ''), 10)
+  return Number.isInteger(count) && count > 0
+}
+
+function confirmedIdleUnits(name, snapshot, expectedActiveAgents) {
+  return name === 'units' &&
+    expectedActiveAgents === 0 &&
+    snapshot.emptyStates.some((state) => /no units have been observed|no active agents|no live units/i.test(state))
+}
+
+function pageLabel(name) {
+  return {
+    units: 'Units',
+    commands: 'Commands',
+    'build-orders': 'Build Order',
+    analytics: 'Analytics'
+  }[name] || name
 }
 
 function normalizeCell(value) {
@@ -229,8 +270,8 @@ function loadChromium() {
   return require('@playwright/test').chromium
 }
 
-async function inspectPage(page) {
-  return page.evaluate(() => {
+export async function inspectPage(page, name) {
+  return page.evaluate((pageName) => {
     const text = document.body ? document.body.innerText : ''
     const visible = (element) => {
       const style = window.getComputedStyle(element)
@@ -254,7 +295,17 @@ async function inspectPage(page) {
     const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state:not(.filtered-empty)'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /no build orders|no run telemetry|no units have been observed|no active agents|loading units/i.test(value))
+      .filter((value) => /no build orders|no run telemetry|no units have been observed|no active agents|no live units|loading units/i.test(value))
+    const errorStates = Array.from(document.querySelectorAll('[role="alert"], .bo-state-card, .an-empty, .error-card, .empty-state, .readonly-banner'))
+      .filter(visible)
+      .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
+      .filter((value) => /\bunavailable\b|\bstructurally invalid\b|\berror\b|\bfailed\b|could not|unable to/i.test(value))
+    const primaryContentSelector = {
+      units: '#units-rows .units-row',
+      commands: '.decision-inbox',
+      'build-orders': '.bo-catalog-table, .bo-selected-summary',
+      analytics: '#analytics-page .an-kpis'
+    }[pageName]
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
 
@@ -263,13 +314,15 @@ async function inspectPage(page) {
       text,
       chars: text.length,
       liveViewConnected: Boolean(document.querySelector('[data-phx-main], [data-phx-session]')),
+      primaryContent: Boolean(primaryContentSelector && document.querySelector(primaryContentSelector)),
       tables,
       staleBanners,
       emptyStates,
+      errorStates,
       kpis,
       hasNAInMetric
     }
-  })
+  }, name)
 }
 
 async function main() {
@@ -326,13 +379,15 @@ async function main() {
         navigationError = String(error).slice(0, 300)
       }
 
-      const snapshot = await inspectPage(page).catch((error) => ({
+      const snapshot = await inspectPage(page, name).catch((error) => ({
         title: null,
         chars: 0,
         liveViewConnected: false,
+        primaryContent: false,
         tables: [],
         staleBanners: [],
         emptyStates: [],
+        errorStates: [],
         kpis: [],
         capacityReadings: [],
         hasNAInMetric: false,
