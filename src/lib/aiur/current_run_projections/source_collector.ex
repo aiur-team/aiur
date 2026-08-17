@@ -44,9 +44,6 @@ defmodule Aiur.CurrentRunProjections.SourceCollector do
     }
   end
 
-  @spec add_waiter(t(), GenServer.from()) :: t()
-  def add_waiter(refresh, waiter), do: Map.update!(refresh, :waiters, &[waiter | &1])
-
   @spec put_result(t(), atom(), term()) :: t()
   def put_result(refresh, key, result) do
     %{refresh | results: Map.put(refresh.results, key, result), tasks: Map.delete(refresh.tasks, key)}

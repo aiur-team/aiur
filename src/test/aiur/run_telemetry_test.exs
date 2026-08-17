@@ -6,33 +6,23 @@ defmodule Aiur.RunTelemetryTest do
   alias Aiur.Workflow
 
   setup do
-    original_log_file = Application.get_env(:aiur, :log_file)
-
     root = Path.join(System.tmp_dir!(), "aiur-run-telemetry-#{System.unique_integer([:positive])}")
-    log_file = Path.join(root, "log/aiur.log")
-    Application.put_env(:aiur, :log_file, log_file)
-
-    on_exit(fn ->
-      File.rm_rf!(root)
-
-      case original_log_file do
-        nil -> Application.delete_env(:aiur, :log_file)
-        value -> Application.put_env(:aiur, :log_file, value)
-      end
-    end)
+    on_exit(fn -> File.rm_rf!(root) end)
 
     %{root: root}
   end
 
   test "telemetry_file/0 lives beside the daemon log", %{root: root} do
-    assert RunTelemetry.telemetry_file() == Path.join(root, "log/telemetry.ndjson")
+    with_log_file(Path.join(root, "log/aiur.log"), fn ->
+      assert RunTelemetry.telemetry_file() == Path.join(root, "log/telemetry.ndjson")
+    end)
   end
 
   test "telemetry_file/0 falls back to the default daemon log" do
-    Application.delete_env(:aiur, :log_file)
-
-    assert RunTelemetry.telemetry_file() ==
-             Path.join(Path.dirname(Aiur.LogFile.default_log_file()), "telemetry.ndjson")
+    with_log_file(nil, fn ->
+      assert RunTelemetry.telemetry_file() ==
+               Path.join(Path.dirname(Aiur.LogFile.default_log_file()), "telemetry.ndjson")
+    end)
   end
 
   test "boot state initializes lazily and invalid facade inputs remain no-ops" do
@@ -83,10 +73,32 @@ defmodule Aiur.RunTelemetryTest do
   defp restore_persistent_term(key, :unset), do: :persistent_term.erase(key)
   defp restore_persistent_term(key, value), do: :persistent_term.put(key, value)
 
+  defp with_log_file(log_file, fun) do
+    original_log_file = Application.get_env(:aiur, :log_file)
+
+    if is_nil(log_file) do
+      Application.delete_env(:aiur, :log_file)
+    else
+      Application.put_env(:aiur, :log_file, log_file)
+    end
+
+    try do
+      fun.()
+    after
+      if is_nil(original_log_file) do
+        Application.delete_env(:aiur, :log_file)
+      else
+        Application.put_env(:aiur, :log_file, original_log_file)
+      end
+    end
+  end
+
   test "record/2 is fail-open with no file when the writer is not started", %{root: root} do
-    assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
-    assert :ok = RunTelemetry.record_batch([{:resource, %{actor: "_daemon"}}])
-    refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
+    with_log_file(Path.join(root, "log/aiur.log"), fn ->
+      assert :ok = RunTelemetry.record(:lifecycle, %{event: :dispatch})
+      assert :ok = RunTelemetry.record_batch([{:resource, %{actor: "_daemon"}}])
+      refute File.exists?(Path.join(root, "log/telemetry.ndjson"))
+    end)
   end
 
   test "record/2 remains fail-open when the writer is absent" do
