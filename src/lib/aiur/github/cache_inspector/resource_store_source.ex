@@ -27,13 +27,22 @@ defmodule Aiur.GitHub.CacheInspector.ResourceStoreSource do
 
   @behaviour Aiur.GitHub.CacheInspector.Source
 
-  @table Module.concat([Aiur.GitHub.ResourceStore, Table])
+  alias Aiur.GitHub.ResourceStore
 
+  @table Module.concat([ResourceStore, Table])
+
+  # Deferred to the store rather than re-derived here. It answers from the same
+  # table every read and write funnels through, and keeping one implementation
+  # of "is there a store" means the page and the writers cannot disagree about
+  # it. It is still not a `GenServer.call`, so the read path stays unable to
+  # block and unable to fetch.
   @impl true
   def available? do
-    :ets.whereis(@table) != :undefined
+    ResourceStore.running?()
   rescue
     _unavailable -> false
+  catch
+    :exit, _reason -> false
   end
 
   @impl true
