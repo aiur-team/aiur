@@ -9,7 +9,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   converted to "read the store" a guaranteed fetch.
 
   The assertions here are on **call counts** and on stored content, never on
-  latency and never on a percentage.
+  latency and never on a percentage. Two different counters, deliberately:
+  `read_through/1` counts the fetches a consumer would have had to pay for,
+  which is what A3 is about; `sweep/1` counts the requests the comment poller
+  actually sends through a recording `request_fun`, which is what A6 is about.
   """
 
   use Aiur.TestSupport
@@ -89,9 +92,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     # deposit stopped happening, the zero-call assertions above would read one
     # here instead, which is the shape of the failure they exist to catch.
     test "a resource with no delivery costs the consumer one call" do
-      {calls, _body} = read_through(ResourceStore.key_for_repo(:issue_comment, @repo, 9103))
+      {calls, body} = read_through(ResourceStore.key_for_repo(:issue_comment, @repo, 9103))
 
       assert calls == 1
+      assert body == :fetched_from_github
     end
   end
 
@@ -216,6 +220,127 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert :miss = ResourceStore.fetch(key)
     end
+
+    test "deleting a comment keeps the issue the same delivery carried" do
+      # The action belongs to the comment. Letting it reach the issue would throw
+      # away a cached issue body using a delivery that is holding a current one.
+      GithubWebhook.handle_delivery(
+        "issue_comment",
+        %{issue_comment_delivery(9207) | "action" => "deleted"},
+        repo: @repo
+      )
+
+      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9207))
+      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+      assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+    end
+
+    test "a deleted issue takes its label set with it" do
+      GithubWebhook.handle_delivery("issues", issues_delivery("labeled"), repo: @repo, reconcile_fun: fn _ -> :ok end)
+      assert {:ok, _entry} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+
+      GithubWebhook.handle_delivery("issues", issues_delivery("deleted"), repo: @repo, reconcile_fun: fn _ -> :ok end)
+
+      # An issue body nothing holds beside a label set something does would be an
+      # entry that contradicts itself.
+      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+    end
+
+    test "a dismissed review is deposited without claiming an unchanged version" do
+      GithubWebhook.handle_delivery("pull_request_review", review_delivery(9208), repo: @repo)
+
+      dismissed =
+        9208
+        |> review_delivery()
+        |> Map.put("action", "dismissed")
+        |> put_in(["review", "state"], "dismissed")
+
+      GithubWebhook.handle_delivery("pull_request_review", dismissed, repo: @repo)
+
+      # `submitted_at` does not move on a dismissal and a REST review has no
+      # `updated_at`, so filing the changed body under the submission marker
+      # would tell the next reader nothing had changed.
+      assert {:ok, %{data: %{"state" => "DISMISSED"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review, @repo, 9208))
+    end
+
+    test "a body the store cannot hold is a miss, not a half-stored resource" do
+      # The store refuses a body past its size cap. A delivery is the one writer
+      # that cannot be retried, so the refusal must leave a clean miss the reader
+      # can act on rather than a truncated body it cannot detect.
+      huge = String.duplicate("x", 300 * 1024)
+
+      GithubWebhook.handle_delivery(
+        "issue_comment",
+        put_in(issue_comment_delivery(9209), ["comment", "body"], huge),
+        repo: @repo
+      )
+
+      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9209))
+      # The issue rode along on the same delivery and is well within the cap.
+      assert {:ok, _entry} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+    end
+
+    test "a malformed or unsupported delivery deposits nothing and does not raise" do
+      assert %{status: :dropped} =
+               GithubWebhook.handle_delivery("issue_comment", %{"repository" => %{"full_name" => @repo}}, repo: @repo)
+
+      assert %{status: :error} =
+               GithubWebhook.handle_delivery(
+                 "issue_comment",
+                 %{"repository" => %{"full_name" => @repo}, "action" => "created"},
+                 repo: @repo
+               )
+
+      assert %{status: :dropped} =
+               GithubWebhook.handle_delivery("deployment_status", %{"repository" => %{"full_name" => @repo}}, repo: @repo)
+
+      assert ResourceStore.size() == 0
+    end
+  end
+
+  describe "ordering — a delayed delivery cannot walk a resource backwards" do
+    test "an older snapshot of the same issue is refused" do
+      # Two deliveries carry the issue: a label change, then a comment delivery
+      # that was delayed and is still holding the pre-change label set.
+      GithubWebhook.handle_delivery(
+        "issues",
+        put_in(issues_delivery("labeled"), ["issue", "updated_at"], "2026-06-24T13:00:00Z"),
+        repo: @repo,
+        reconcile_fun: fn _ -> :ok end
+      )
+
+      stale =
+        9801
+        |> issue_comment_delivery()
+        |> put_in(["issue", "updated_at"], "2026-06-24T09:00:00Z")
+        |> put_in(["issue", "labels"], [%{"name" => "agent:ci-wait"}])
+
+      GithubWebhook.handle_delivery("issue_comment", stale, repo: @repo)
+
+      # The newer state stands, and is still described by its own version.
+      assert {:ok, %{data: [%{"name" => "agent:in-progress"}], version: "2026-06-24T13:00:00Z"}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+
+      # The comment the delayed delivery was actually about is still deposited:
+      # nothing older was held for it.
+      assert {:ok, %{data: %{"id" => 9801}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9801))
+    end
+
+    test "an equal version still writes, because the body may have changed under it" do
+      GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(9802, "first"), repo: @repo)
+
+      same_version =
+        9802
+        |> issue_comment_delivery("second")
+        |> Map.put("action", "edited")
+
+      GithubWebhook.handle_delivery("issue_comment", same_version, repo: @repo)
+
+      assert {:ok, %{data: %{"body" => "second"}}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_comment, @repo, 9802))
+    end
   end
 
   describe "R5 — the deposit publishes the change" do
@@ -309,6 +434,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
   end
 
+  # KTD4, guarded rather than introduced here: the sweep this exercises is the
+  # existing comment poller, and these cases assert the deposit did not change
+  # what it recovers. They would pass against an implementation that deposited
+  # nothing, which is the point — that is the behavior the deposit must preserve.
   describe "A6 — a lost delivery is still recovered by the sweep" do
     test "a comment whose delivery never arrived is published by the sweep, which still reads" do
       :ok = Exchange.subscribe(@topic)
@@ -364,6 +493,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       refute ResourceStore.processed?(key, "2026-06-24T12:00:00Z")
     end
 
+    # Guards the surrounding filter, not the deposit: a deposit that started
+    # marking resources processed would still leave this passing, which is why
+    # the `refute processed?` assertion above is the one that pins the invariant.
     test "the self-loop stays filtered on redelivery of the same comment" do
       :ok = Exchange.subscribe(@topic)
       delivery = issue_comment_delivery(9702, "posted by the fleet", @bot)
@@ -377,19 +509,22 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
   # -- helpers ---------------------------------------------------------------
 
-  # The read-through a consumer performs: consult the store, and pay for a fetch
-  # only on a miss. Returns {upstream call count, body}.
+  # The read-through a consumer performs: consult the store, and call the fetcher
+  # only on a miss. The fetcher stands in for the upstream read — every
+  # invocation of it is one request the consumer had to pay for — so the count it
+  # returns is the number of upstream calls serving this resource cost.
   defp read_through(key) do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
+    fetcher = fn ->
+      Agent.update(counter, &(&1 + 1))
+      :fetched_from_github
+    end
+
     body =
       case ResourceStore.fetch(key) do
-        {:ok, %{data: data}} ->
-          data
-
-        :miss ->
-          Agent.update(counter, &(&1 + 1))
-          nil
+        {:ok, %{data: data}} -> data
+        :miss -> fetcher.()
       end
 
     calls = Agent.get(counter, & &1)

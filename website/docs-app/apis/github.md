@@ -112,13 +112,14 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 
 | Delivery | What it deposits |
 | --- | --- |
-| Comment created or edited | The comment, and the issue it hangs off with its label set. |
+| Any comment activity | The issue or pull request the comment hangs off, with its label set. |
+| Comment created or edited | That comment as well. |
 | Review submitted, edited or dismissed | The review, and the pull request. |
-| Review comment | The comment, and the pull request. |
-| Pull request | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
-| Issue labelled, closed or reopened | The issue and its label set. |
+| Pull request, any action | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
+| Issue, any action | The issue and its label set, whether or not the action is one Aiur reacts to. |
 | Check run | That check run. It says nothing about the other runs on the same head, so a reader asking about the head still reads. |
-| Comment deleted | Nothing. The held body is discarded instead, because serving a comment that no longer exists is worse than not holding one. |
+| A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
+| A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 

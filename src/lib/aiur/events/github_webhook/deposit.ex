@@ -55,6 +55,21 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   A `deleted` action drops the held body rather than depositing one, because
   serving a body for an object that no longer exists is worse than a miss.
+
+  ## Ordering
+
+  GitHub does not order deliveries, and a delivery carries more than the object
+  it is about — an `issue_comment` also carries the whole issue and its label
+  set. Deposits are therefore last-writer-wins with one guard: a body whose
+  version is strictly older than the version already held is refused, so a
+  delayed delivery cannot walk a resource backwards and then stamp it as freshly
+  fetched. Equal or unknown versions still write, because a body can legitimately
+  change under an unchanged marker and the later arrival is the better answer.
+
+  One field is knowingly shared: the entry's `:source` is written both by a
+  deposit ("who supplied the body I hold") and by `mark_processed/3` ("who
+  handled it"), so on a resource the two pipes both touched it reports the last
+  writer of either kind. Suppression does not read it; it is provenance only.
   """
 
   require Logger
@@ -62,7 +77,13 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.GitHub.ResourceStore
 
-  @type deposit :: {ResourceStore.resource_type(), term(), term(), String.t() | nil}
+  @typedoc """
+  One unit of work this module produces from a delivery: either a body to
+  deposit under an identity, or an identity whose held body must go.
+  """
+  @type work ::
+          {ResourceStore.resource_type(), term(), term(), String.t() | nil}
+          | {:drop, ResourceStore.resource_type(), term()}
 
   @doc """
   Deposits every body `payload` carries, and returns the keys written.
@@ -85,6 +106,13 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     error ->
       Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} error=#{Exception.message(error)}")
       []
+  catch
+    kind, reason ->
+      # The caller absorbs a throw or exit as `%{status: :error}` for the whole
+      # delivery. A cache write is never worth that, so it is caught here too.
+      Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} reason=#{inspect({kind, reason})}")
+
+      []
   end
 
   def deposit(_event_type, _payload, _repo), do: []
@@ -100,7 +128,11 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     issue = Map.get(payload, "issue")
     action = Map.get(payload, "action")
 
-    comment_deposits(:issue_comment, action, comment) ++ issue_deposits(action, issue)
+    # The issue rides along on its own terms. The action belongs to the
+    # *comment*, so it must not reach the issue: deleting a comment would
+    # otherwise discard the cached issue body, using a delivery that is carrying
+    # a complete and current one.
+    comment_deposits(:issue_comment, action, comment) ++ carried_issue_deposits(issue)
   end
 
   defp bodies("pull_request_review_comment", payload) do
@@ -150,16 +182,35 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # is already held.
   defp comment_deposits(_type, _action, _comment), do: []
 
-  defp review_deposits(action, review) when is_map(review) and action in ["submitted", "edited", "dismissed"] do
+  defp review_deposits("submitted", review) when is_map(review) do
     [{:pr_review, Map.get(review, "id"), Normalizer.review_shape(review), version(review)}]
+  end
+
+  # An edit or a dismissal changes the review — its body, or its `state` to
+  # `DISMISSED` — while `submitted_at` stays exactly where it was, and a REST
+  # review carries no `updated_at`. Deposited as "version unknown" rather than
+  # under the submission marker, because a changed body filed under an unchanged
+  # version tells the next reader something false.
+  defp review_deposits(action, review) when is_map(review) and action in ["edited", "dismissed"] do
+    [{:pr_review, Map.get(review, "id"), Normalizer.review_shape(review), nil}]
   end
 
   defp review_deposits(_action, _review), do: []
 
   defp issue_deposits(_action, issue) when not is_map(issue), do: []
-  defp issue_deposits("deleted", issue), do: [{:drop, :issue, Map.get(issue, "number")}]
 
-  defp issue_deposits(_action, issue) do
+  # A deleted issue takes its label set with it. Leaving the labels behind would
+  # hold a set for a body nothing holds — an entry that contradicts itself.
+  defp issue_deposits("deleted", issue) do
+    number = Map.get(issue, "number")
+    [{:drop, :issue, number}, {:drop, :issue_labels, number}]
+  end
+
+  defp issue_deposits(_action, issue), do: carried_issue_deposits(issue)
+
+  defp carried_issue_deposits(issue) when not is_map(issue), do: []
+
+  defp carried_issue_deposits(issue) do
     number = Map.get(issue, "number")
     issue_version = version(issue)
 
@@ -190,10 +241,36 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         []
 
       key ->
-        # No `:etag`: a delivery carries no validator, and the store refuses a
-        # new validator that arrives without the body it validates anyway.
-        ResourceStore.put_resource(key, body, source: :webhook, version: version)
-        confirm(key)
+        if regression?(key, version) do
+          []
+        else
+          # No `:etag`: a delivery carries no validator, and the store refuses a
+          # new validator that arrives without the body it validates anyway.
+          ResourceStore.put_resource(key, body, source: :webhook, version: version)
+          confirm(key)
+        end
+    end
+  end
+
+  # GitHub does not order deliveries, and a single delivery carries more than the
+  # object it is about: an `issue_comment` also carries the whole issue and its
+  # label set. So a delayed comment delivery can arrive holding a *pre-change*
+  # snapshot of an issue a later delivery already deposited correctly.
+  #
+  # `put_resource/3` is an unconditional overwrite that stamps `fetched_at_ms`
+  # with now, so accepting that write would not merely hold an older body — it
+  # would describe it as freshly fetched, and a consumer asking for a body no
+  # older than some window would be handed a body from before the change.
+  #
+  # Both markers are GitHub's own ISO-8601 timestamps, which sort lexically, so
+  # a strictly older version is refused. Equal versions still write: the body may
+  # legitimately differ under an unchanged marker (a dismissed review), and the
+  # newer arrival is the better answer. A missing marker on either side is not a
+  # judgement that anything went backwards, so it writes.
+  defp regression?(key, version) do
+    case ResourceStore.fetch(key) do
+      {:ok, %{version: held}} when is_binary(held) and is_binary(version) -> version < held
+      _other -> false
     end
   end
 
@@ -235,17 +312,20 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp version(_resource), do: nil
 
-  # A check run has no `updated_at`. `completed_at` moves when the run finishes
-  # and `started_at` is all a still-running one has.
+  # A check run has no `updated_at`. `completed_at` moves when the run finishes,
+  # which is the only transition that changes what the run *says*. A run that has
+  # not finished is deposited as "version unknown" rather than under
+  # `started_at`, which does not move across `queued` → `in_progress`.
   defp check_run_version(run) do
     case Map.get(run, "completed_at") do
       completed when is_binary(completed) and completed != "" -> completed
-      _other -> if is_binary(Map.get(run, "started_at")), do: Map.get(run, "started_at")
+      _other -> nil
     end
   end
 
-  # Writes land in the store's ETS table from this process, so a store that is
-  # not running would accept every write into nothing and then be reported as a
-  # refusal by `confirm/1`. Answered once per delivery instead.
-  defp store_running?, do: not is_nil(Process.whereis(ResourceStore))
+  # A store that is not running accepts every write into nothing and would then
+  # be reported as a refusal by `confirm/1` for every body in the delivery.
+  # Answered once per delivery instead — through the store's own view, which is
+  # the table the writes land in.
+  defp store_running?, do: ResourceStore.running?()
 end
