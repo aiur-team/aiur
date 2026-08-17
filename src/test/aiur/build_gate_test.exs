@@ -195,12 +195,28 @@ defmodule Aiur.BuildGateTest do
   end
 
   test "a non-Bash mise wrapper holds only one slot for its nested Mix command", context do
+    for strategy <- ["auto", "pid"] do
+      assert {output, 0} =
+               context
+               |> with_command_wrappers!()
+               |> Map.put(:lease_strategy, strategy)
+               |> then(&run_sh("mise exec -- mix test", &1))
+
+      assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
+    end
+
+    assert File.read!(context.log_path) == "test\ntest\n"
+  end
+
+  test "an unlimited gate admits a nested mise command only once", context do
     assert {output, 0} =
              context
              |> with_command_wrappers!()
+             |> Map.put(:slots, 0)
              |> then(&run_sh("mise exec -- mix test", &1))
 
-    assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
+    assert length(Regex.scan(~r/aiur_build_gate queued/, output)) == 1
+    assert length(Regex.scan(~r/aiur_build_gate completed/, output)) == 1
     assert File.read!(context.log_path) == "test\n"
   end
 
@@ -210,13 +226,194 @@ defmodule Aiur.BuildGateTest do
     for {command, phase} <- [
           {"mix compile", "compile"},
           {"mix test", "test"},
+          {"mix do compile + test", "compile"},
+          {"mix do format + test", "test"},
+          {"mix do --app demo compile --list, test", "compile"},
           {"mise exec -- mix compile", "compile"},
-          {"mise x -- mix test", "test"}
+          {"mise x -- mix test", "test"},
+          {"mise exec -- #{Path.join(context.bin_dir, "mix")} test", "test"},
+          {"mise exec -c 'mix test'", "test"}
         ] do
       assert {output, 0} = run_sh(command, guarded_context)
       assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
-      assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() == phase
+
+      assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() =~
+               phase
     end
+  end
+
+  test "compound non-build Mix commands remain ungated", context do
+    context = with_command_wrappers!(context)
+
+    assert {output, 0} = run_sh("mix do format + help", context)
+    refute output =~ "aiur_build_gate"
+
+    assert {argument_output, 0} = run_sh("mix do help compile", context)
+    refute argument_output =~ "aiur_build_gate"
+    assert File.read!(context.log_path) == "do format + help\ndo help compile\n"
+  end
+
+  test "real mise command strings acquire one lease for the whole Mix build", context do
+    real_mise = real_executable_behind_wrapper!("mise")
+    real_bin = Path.join(context.gate_dir, "real-mise-bin")
+    File.mkdir_p!(real_bin)
+    File.cp!(Path.join(context.bin_dir, "mix"), Path.join(real_bin, "mix"))
+
+    guarded_context =
+      context
+      |> with_command_wrappers!()
+      |> Map.merge(%{
+        bin_dir: real_bin,
+        system_path: Path.dirname(real_mise) <> ":/usr/bin:/bin",
+        extra_env: [{"MISE_CONFIG_FILE", "/dev/null"}],
+        lease_strategy: "pid"
+      })
+
+    fake_mix = Path.join(real_bin, "mix")
+    capture_path = Path.join(context.gate_dir, "real-mise.output")
+
+    for command <- [
+          "mise exec -C / -c '#{fake_mix} test'",
+          "mise x -C / --command '#{fake_mix} do compile + test'"
+        ] do
+      assert {_shell_output, 0} =
+               run_sh("#{command} > '#{capture_path}' 2>&1", guarded_context)
+
+      output = File.read!(capture_path)
+      assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
+    end
+
+    assert File.read!(context.log_path) == "test\ndo compile + test\n"
+  end
+
+  test "ambiguous mise command strings fail closed instead of bypassing admission", context do
+    guarded_context = with_command_wrappers!(context)
+
+    for command <- [
+          "mise exec -c 'printf ready && mix test'",
+          "mise exec -c 'mix test' extra",
+          "mise exec -c 'mix test' -- mix compile"
+        ] do
+      assert {output, 125} = run_sh(command, guarded_context)
+      assert output =~ "gate_error reason=ambiguous_command"
+    end
+
+    refute File.exists?(context.log_path)
+  end
+
+  test "unsupported mise prefixes before Mix fail closed", context do
+    fake_mix = Path.join(context.bin_dir, "mix")
+
+    for command <- [
+          "mise exec -- env DEMO=1 #{fake_mix} test",
+          "mise exec env DEMO=1 mix test",
+          "mise exec -c 'env DEMO=1 #{fake_mix} test'"
+        ] do
+      assert {output, 125} = run_sh(command, with_command_wrappers!(context))
+      assert output =~ "gate_error reason=ambiguous_command"
+    end
+
+    refute File.exists?(context.log_path)
+  end
+
+  test "mise command strings with expansion fail closed before hidden Mix can run", context do
+    guarded_context =
+      Map.put(context, :extra_env, [{"HIDDEN_MIX", Path.join(context.bin_dir, "mix")}])
+
+    assert {output, 125} =
+             run_sh("mise exec -c '$HIDDEN_MIX test'", with_command_wrappers!(guarded_context))
+
+    assert output =~ "gate_error reason=ambiguous_command"
+    refute File.exists?(context.log_path)
+  end
+
+  test "errexit preserves non-build Mix elixir and mise commands", context do
+    assert {output, 0} =
+             run_bash(
+               "set -e; mix format; mise exec -- mix format; elixir -e ':ok'; printf survived",
+               context
+             )
+
+    assert output =~ "survived"
+    refute output =~ "aiur_build_gate acquired"
+    assert File.read!(context.log_path) == "format\nformat\n"
+  end
+
+  test "simple non-build mise command strings remain ungated", context do
+    assert {output, 0} = run_bash("mise exec -c 'printf ready'", context)
+    assert output =~ "ready"
+    refute output =~ "aiur_build_gate"
+    refute File.exists?(context.log_path)
+
+    assert {argument_output, 0} =
+             run_sh("mise exec -- printf '%s' mix", with_command_wrappers!(context))
+
+    assert argument_output =~ "mix"
+    refute argument_output =~ "aiur_build_gate"
+  end
+
+  test "malformed compound Mix grammar fails closed", context do
+    guarded_context = with_command_wrappers!(context)
+
+    for command <- ["mix do", "mix do compile +", "mix do --app compile"] do
+      assert {output, 125} = run_sh(command, guarded_context)
+      assert output =~ "gate_error reason=ambiguous_command"
+    end
+
+    refute File.exists?(context.log_path)
+  end
+
+  test "wrapper aliases resolve past themselves without recursion", context do
+    guarded_context = with_command_wrappers!(context)
+    alias_bin = Path.join(context.gate_dir, "alias-bin")
+    File.mkdir_p!(alias_bin)
+    File.ln_s!(Path.join(guarded_context.wrapper_bin, "mix"), Path.join(alias_bin, "mix"))
+
+    aliased_context =
+      Map.merge(guarded_context, %{
+        bin_dir: alias_bin,
+        system_path: context.bin_dir <> ":" <> System.get_env("PATH", "")
+      })
+
+    assert {output, 0} = run_sh("mix test", aliased_context)
+    assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
+
+    assert {absolute_output, 0} =
+             run_sh("#{guarded_context.wrapper_bin}/mix compile", aliased_context)
+
+    assert length(Regex.scan(~r/aiur_build_gate acquired/, absolute_output)) == 1
+    assert File.read!(context.log_path) == "test\ncompile\n"
+  end
+
+  test "mismatched inherited lease tokens reacquire instead of bypassing", context do
+    stale_path = Path.join(context.gate_dir, "stale-lease")
+    File.write!(stale_path, "version=2\ntoken=current\n")
+
+    guarded_context =
+      context
+      |> with_command_wrappers!()
+      |> Map.put(:extra_env, [
+        {"AIUR_BUILD_GATE_LEASE_PATH", stale_path},
+        {"AIUR_BUILD_GATE_LEASE_TOKEN", "stale"}
+      ])
+
+    assert {output, 0} = run_sh("mix test", guarded_context)
+    assert output =~ "aiur_build_gate acquired"
+    assert File.read!(context.log_path) == "test\n"
+  end
+
+  test "invalid inherited lease metadata fails closed", context do
+    guarded_context =
+      context
+      |> with_command_wrappers!()
+      |> Map.put(:extra_env, [
+        {"AIUR_BUILD_GATE_LEASE_PATH", Path.join(context.gate_dir, "nested/lease")},
+        {"AIUR_BUILD_GATE_LEASE_TOKEN", "token"}
+      ])
+
+    assert {output, 125} = run_sh("mix test", guarded_context)
+    assert output =~ "gate_error reason=lease_marker_invalid"
+    refute File.exists?(context.log_path)
   end
 
   test "the Bash hook resolves the real Mix command behind the installed wrapper", context do
@@ -277,22 +474,31 @@ defmodule Aiur.BuildGateTest do
     guarded_context =
       context
       |> with_command_wrappers!()
-      |> Map.put(:bin_dir, elixir_bin)
+      |> Map.merge(%{
+        bin_dir: elixir_bin,
+        system_path: system_path_without_build_wrapper()
+      })
 
-    for phase <- ~w(compile test) do
-      assert {gated_output, 0} = run_sh("elixir -S mix #{phase}", guarded_context)
+    for {command, phase} <- [
+          {"elixir -S mix compile", "compile"},
+          {"elixir -S mix test", "test"},
+          {"elixir -S mix do test + format", "do test + format"}
+        ] do
+      assert {gated_output, 0} = run_sh(command, guarded_context)
       assert gated_output =~ "aiur_build_gate acquired slot=1"
+      assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() == phase
     end
 
     assert {ungated_output, 0} = run_sh("elixir -S mix format", guarded_context)
     refute ungated_output =~ "aiur_build_gate acquired"
-    assert File.read!(context.log_path) == "compile\ntest\nformat\n"
+    assert File.read!(context.log_path) == "compile\ntest\ndo test + format\nformat\n"
   end
 
   test "elixir data arguments that resemble Mix commands do not enter the gate", context do
     context =
       context
       |> with_command_wrappers!()
+      |> Map.put(:system_path, system_path_without_build_wrapper())
       |> Map.put(:bash_env, Path.join(context.gate_dir, "missing-hook"))
 
     assert {"ok\n", 0} = run_sh(~s|elixir -e 'IO.puts("ok")' -- -S mix test|, context)
@@ -617,6 +823,30 @@ defmodule Aiur.BuildGateTest do
              )
 
     assert File.read!(context.log_path) == "compile\n"
+  end
+
+  test "a PID-fallback descendant cannot reuse a released parent lease", context do
+    release_descendant_on_exit(context)
+    descendant_gate_log = Path.join(context.gate_dir, "descendant-gate.log")
+
+    descendant_context =
+      Map.merge(context, %{
+        descendant_release_barrier: true,
+        descendant_command: "mix compile",
+        descendant_gate_log: descendant_gate_log,
+        lease_strategy: "pid",
+        started_path: ""
+      })
+
+    assert {_output, 0} = run_bash("mix test", descendant_context)
+    wait_for_file!(context.descendant_path)
+    File.touch!(context.descendant_release_path)
+    wait_for_file!(context.descendant_path <> ".done")
+
+    descendant_output = descendant_gate_log |> File.read!() |> String.replace(<<0>>, "")
+    assert descendant_output =~ "aiur_build_gate acquired"
+    assert descendant_output =~ "command=compile"
+    assert File.read!(context.log_path) == "test\ncompile\n"
   end
 
   test "automatic strategy fails closed when platform detection fails", context do
@@ -1414,6 +1644,41 @@ defmodule Aiur.BuildGateTest do
     System.cmd("bash", ["-c", command], env: build_gate_env(context), stderr_to_stdout: true)
   end
 
+  defp real_executable_behind_wrapper!(command) do
+    wrapper = Path.join(System.get_env("AIUR_BUILD_GATE_BIN", ""), command)
+    wrapper_stat = File.stat(wrapper)
+
+    System.get_env("PATH", "")
+    |> String.split(":", trim: true)
+    |> Enum.map(&Path.join(&1, command))
+    |> Enum.find(fn candidate ->
+      case {File.stat(candidate), wrapper_stat} do
+        {{:ok, %{type: :regular} = candidate_stat}, {:ok, wrapper_stat}} ->
+          {candidate_stat.major_device, candidate_stat.inode} !=
+            {wrapper_stat.major_device, wrapper_stat.inode}
+
+        {{:ok, %{type: :regular}}, _} ->
+          candidate != wrapper
+
+        _ ->
+          false
+      end
+    end)
+    |> case do
+      nil -> flunk("#{command} is required behind the installed build-gate wrapper")
+      executable -> executable
+    end
+  end
+
+  defp system_path_without_build_wrapper do
+    wrapper_bin = System.get_env("AIUR_BUILD_GATE_BIN", "")
+
+    System.get_env("PATH", "")
+    |> String.split(":", trim: true)
+    |> Enum.reject(&(&1 == wrapper_bin))
+    |> Enum.join(":")
+  end
+
   defp run_sh(command, context) do
     System.cmd("sh", ["-c", command], env: build_gate_env(context), stderr_to_stdout: true)
   end
@@ -1452,6 +1717,8 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_DESCENDANT", Map.get(context, :descendant_path, "")},
       {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
+      {"FAKE_MIX_DESCENDANT_COMMAND", Map.get(context, :descendant_command, "")},
+      {"FAKE_MIX_DESCENDANT_GATE_LOG", Map.get(context, :descendant_gate_log, "")},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
       {"FAKE_MIX_SLEEP", Integer.to_string(Map.get(context, :sleep_seconds, 0))},
       {"FAKE_MIX_EXIT_STATUS", Integer.to_string(Map.get(context, :mix_exit_status, 0))},
@@ -1468,10 +1735,12 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_TEST_MV_COUNT", Path.join(gate_dir, "mv-count")},
       {"AIUR_BUILD_GATE_LEASE_STRATEGY", Map.get(context, :lease_strategy, "auto")},
       {"AIUR_BUILD_GATE_BIN", Map.get(context, :wrapper_bin, "")},
+      {"AIUR_BUILD_GATE_LEASE_PATH", ""},
+      {"AIUR_BUILD_GATE_LEASE_TOKEN", ""},
       {"PATH", path}
     ]
 
-    env
+    env ++ Map.get(context, :extra_env, [])
   end
 
   defp start_gated_port(command, context) do
@@ -1558,13 +1827,22 @@ defmodule Aiur.BuildGateTest do
 
   defp assert_process_gone!(pid, attempts \\ 200)
 
-  defp assert_process_gone!(_pid, 0), do: flunk("process remained alive after bounded cleanup")
+  defp assert_process_gone!(pid, 0) do
+    {process, _status} =
+      System.cmd("ps", ["-o", "pid=,ppid=,pgid=,stat=,args=", "-p", Integer.to_string(pid)], stderr_to_stdout: true)
+
+    flunk("process remained alive after bounded cleanup: #{String.trim(process)}")
+  end
 
   defp assert_process_gone!(pid, attempts) do
-    case System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true) do
-      {_output, 0} ->
-        Process.sleep(10)
-        assert_process_gone!(pid, attempts - 1)
+    case System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(pid)], stderr_to_stdout: true) do
+      {state, 0} ->
+        if String.trim_leading(state) |> String.starts_with?("Z") do
+          :ok
+        else
+          Process.sleep(10)
+          assert_process_gone!(pid, attempts - 1)
+        end
 
       {_output, _status} ->
         :ok
@@ -1672,6 +1950,10 @@ defmodule Aiur.BuildGateTest do
         else
           sleep "$FAKE_MIX_DESCENDANT_SLEEP"
         fi
+        if [[ -n ${FAKE_MIX_DESCENDANT_COMMAND:-} ]]; then
+          FAKE_MIX_DESCENDANT_RELEASE= FAKE_MIX_DESCENDANT_COMMAND= \
+            bash -c "$FAKE_MIX_DESCENDANT_COMMAND" > "$FAKE_MIX_DESCENDANT_GATE_LOG" 2>&1
+        fi
         printf 'done\\n' > "${FAKE_MIX_DESCENDANT}.done"
       ) </dev/null >/dev/null 2>&1 &
       update_concurrency -1
@@ -1751,9 +2033,24 @@ defmodule Aiur.BuildGateTest do
   defp write_fake_mise!(path) do
     File.write!(path, """
     #!/usr/bin/env bash
-    if [[ $1 =~ ^(exec|x)$ && $2 == -- ]]; then
-      shift 2
-      exec "$@"
+    if [[ $1 =~ ^(exec|x)$ ]]; then
+      shift
+      while (($#)); do
+        case $1 in
+          --)
+            shift
+            exec "$@"
+            ;;
+          -c|--command)
+            shift
+            exec bash -c "$1"
+            ;;
+          --command=*)
+            exec bash -c "${1#--command=}"
+            ;;
+          *) shift ;;
+        esac
+      done
     fi
     exit 64
     """)
