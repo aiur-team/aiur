@@ -2554,6 +2554,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       |> Application.get_env(AiurWeb.Endpoint, [])
       |> Keyword.merge(
         server: false,
+        dashboard_auth_required: true,
         # Stays read-only by default so incidental key presses in other specs
         # cannot mutate the shared fixture fleet. The operator-flow spec opts its
         # own fixture server in through `/streamdeck-control/writable`.

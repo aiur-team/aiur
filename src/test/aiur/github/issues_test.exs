@@ -712,15 +712,21 @@ defmodule Aiur.GitHub.IssuesTest do
         "updated_at" => "2026-01-02T00:00:00Z"
       }
 
-      request_fun = fn request ->
-        case Agent.get_and_update(request_count, &{&1, &1 + 1}) do
-          0 ->
-            refute Map.has_key?(request, :etag)
-            {:ok, %{status: 200, headers: [{"etag", ~s("issue-42-v1")}], body: gh_issue}}
+      request_fun = fn %{url: url} = request ->
+        cond do
+          String.ends_with?(url, "/issues/42") ->
+            case Agent.get_and_update(request_count, &{&1, &1 + 1}) do
+              0 ->
+                refute Map.has_key?(request, :etag)
+                {:ok, %{status: 200, headers: [{"etag", ~s("issue-42-v1")}], body: gh_issue}}
 
-          1 ->
-            assert request.etag == ~s("issue-42-v1")
-            {:ok, %{status: 304, headers: [], body: ""}}
+              1 ->
+                assert request.etag == ~s("issue-42-v1")
+                {:ok, %{status: 304, headers: [], body: ""}}
+            end
+
+          String.ends_with?(url, "/issues/42/timeline?per_page=100") ->
+            {:ok, %{status: 200, headers: [], body: []}}
         end
       end
 
