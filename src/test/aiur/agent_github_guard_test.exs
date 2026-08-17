@@ -396,6 +396,69 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(Path.join(context.state_path, "github-quota/graphql-hold"))
   end
 
+  # Production keeps the agent hold dir under the workspace and the shared one
+  # under the repo state path; the rest of this suite collapses them onto the
+  # same directory, which hid the fact that a hold an agent discovered first
+  # never reached anyone else. Reads consult both dirs, so writes publish to both.
+  test "a rate-limit failure publishes the hold to both the agent and the shared repo dir", context do
+    reset = System.os_time(:second) + 3600
+    agent_quota_dir = Path.join(context.workspace, ".aiur-runtime/github-quota")
+    shared_quota_dir = Path.join(context.state_path, "github-quota")
+    File.mkdir_p!(agent_quota_dir)
+
+    assert {_output, 1} =
+             run_guard(context, ["api", "repos/owner/repo/issues"],
+               AIUR_AGENT_QUOTA_STATE_PATH: agent_quota_dir,
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "HTTP 403: API rate limit exceeded",
+               FAKE_RATE_LIMIT: "0 #{reset} 5000 #{reset}"
+             )
+
+    assert agent_quota_dir != shared_quota_dir
+
+    # The discovering agent's own copy...
+    assert File.read!(Path.join(agent_quota_dir, "core-hold")) == "#{reset}\n"
+    # ...and the copy every other agent and the daemon actually read.
+    assert File.read!(Path.join(shared_quota_dir, "core-hold")) == "#{reset}\n"
+  end
+
+  # Holds land via temp+rename so a concurrent reader never samples a truncated
+  # file and lets a call out during an exhausted window. A leftover temp file
+  # would mean the rename never happened.
+  test "hold writes leave no temporary files behind", context do
+    reset = System.os_time(:second) + 3600
+    agent_quota_dir = Path.join(context.workspace, ".aiur-runtime/github-quota")
+    File.mkdir_p!(agent_quota_dir)
+
+    assert {_output, 1} =
+             run_guard(context, ["api", "repos/owner/repo/issues"],
+               AIUR_AGENT_QUOTA_STATE_PATH: agent_quota_dir,
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "HTTP 403: API rate limit exceeded",
+               FAKE_RATE_LIMIT: "0 #{reset} 5000 #{reset}"
+             )
+
+    for dir <- [agent_quota_dir, Path.join(context.state_path, "github-quota")] do
+      refute Enum.any?(File.ls!(dir), &String.contains?(&1, ".tmp."))
+    end
+  end
+
+  # `gh run watch` is an allowlisted read whose progress arrives on stderr, so
+  # the guard passes stderr through as it is written instead of replaying a
+  # buffered copy after exit. `tee` ends that pipeline, so this also pins that
+  # the real exit status still reaches the caller and that stderr is not
+  # emitted twice.
+  test "a streamed call surfaces stderr once and preserves the real exit status", context do
+    assert {output, 1} =
+             run_guard(context, ["pr", "view", "1670"],
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "boom from gh"
+             )
+
+    assert output =~ "boom from gh"
+    assert length(String.split(output, "boom from gh")) == 2
+  end
+
   # The field failure: `gh` refused with a rate-limit error while both primary
   # windows still read healthy. Without a secondary hold the guard recorded
   # nothing and the next call went straight back out.
@@ -1614,6 +1677,21 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert {output, 78} = run_guard(context, arguments)
       assert output =~ "use `gh issue create --label ...`"
       refute File.exists?(context.calls)
+    end
+  end
+
+  # The #1793 arm matched `issues?*` with `?` as a glob wildcard, so it claimed
+  # every issue subresource as well as the collection. An agent updating its own
+  # workpad comment was refused and told to run `gh issue create`.
+  test "editing an issue or its comments is not mistaken for issue creation", context do
+    for arguments <- [
+          ["api", "repos/owner/repo/issues/comments/5260269359", "-X", "PATCH", "-f", "body=workpad"],
+          ["api", "repos/owner/repo/issues/1670", "-X", "PATCH", "-f", "state=closed"],
+          ["api", "repos/owner/repo/issues/1670/labels", "-X", "POST", "-f", "labels[]=agent:done"],
+          ["api", "repos/owner/repo/issues/1670/comments", "-X", "POST", "-f", "body=hi"]
+        ] do
+      assert {output, 0} = run_guard(context, arguments)
+      refute output =~ "gh issue create"
     end
   end
 

@@ -630,13 +630,18 @@ defmodule Aiur.Codeowners do
   defp path_suffix(nil), do: ""
   defp path_suffix(path), do: " matching #{path}"
 
+  # Anonymous reads still spend a GitHub budget — the 60/hr unauthenticated IP
+  # allowance — so they go through `Transport` like every other call rather than
+  # straight to `Req`. They are tagged `anonymous: true` so `Quota` meters them
+  # against their own window instead of polluting the authenticated one.
   defp default_request_fun(%{method: :get, url: url, token: token}) do
-    if is_binary(token) and token != "" do
-      Transport.default_request_fun(%{method: :get, url: url, token: token})
-    else
-      Req.get(url, headers: github_headers(nil), connect_options: [timeout: 30_000])
-    end
-  end
+    request = %{method: :get, url: url, token: token}
 
-  defp github_headers(nil), do: [{"Accept", "application/vnd.github+json"}]
+    request =
+      if is_binary(token) and token != "",
+        do: request,
+        else: Map.put(request, :anonymous, true)
+
+    Transport.default_request_fun(request)
+  end
 end

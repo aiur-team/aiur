@@ -564,6 +564,47 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Quota.dispatch_status(quota) == :available
   end
 
+  # An anonymous read spends the 60/hr unauthenticated IP allowance. GitHub
+  # still labels the response `core`, so keying off the header alone would let a
+  # `limit: 60` window overwrite the authenticated one and hold the whole fleet.
+  test "meters anonymous reads in their own window instead of the authenticated core one" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 3750))
+    Quota.observe(quota, anonymous_request("/repos/owner/repo/contents/CODEOWNERS"), response("core", 60, 2))
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.windows["core"].limit == 5000
+    assert snapshot.windows["core"].remaining == 3750
+
+    assert snapshot.windows["core:anonymous"].limit == 60
+    assert snapshot.windows["core:anonymous"].remaining == 2
+  end
+
+  test "an exhausted anonymous allowance does not hold authenticated dispatch" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 5000))
+    Quota.observe(quota, anonymous_request("/repos/owner/repo/contents/CODEOWNERS"), response("core", 60, 0))
+
+    assert Quota.dispatch_status(quota) == :available
+    assert Quota.preflight(quota, request(:get, "/repos/owner/repo/issues/1670")) == :ok
+  end
+
+  test "holds a further anonymous read once the anonymous allowance is exhausted" do
+    quota = start_quota()
+
+    Quota.observe(quota, anonymous_request("/repos/owner/repo/contents/CODEOWNERS"), response("core", 60, 0))
+
+    assert {:hold, hold} = Quota.preflight(quota, anonymous_request("/repos/owner/repo/contents/CODEOWNERS"))
+    assert hold.resource == "core:anonymous"
+  end
+
+  defp anonymous_request(path) do
+    %{method: :get, url: "https://api.github.com#{path}", token: nil, anonymous: true}
+  end
+
   defp start_quota(opts \\ []) do
     start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
   end
