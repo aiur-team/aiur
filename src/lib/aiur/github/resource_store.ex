@@ -734,9 +734,14 @@ defmodule Aiur.GitHub.ResourceStore do
           {existing, :miss}
 
         ^confirmed_data ->
+          # One rule, one helper, both callers: a validator may only sit beside
+          # the body it describes. Here the body is by definition unchanged —
+          # that is what this clause matched on — so the validator this `304`
+          # confirmed is installed. A deposit reaches the same helper from the
+          # other direction and discards a held validator when the body moved.
           {existing
            |> Map.put(:fetched_at_ms, now_ms())
-           |> deposit_etag(confirmed_data, etag), :confirmed}
+           |> deposit_etag(confirmed_data, confirmed_data, etag), :confirmed}
 
         _newer ->
           {existing, :superseded}

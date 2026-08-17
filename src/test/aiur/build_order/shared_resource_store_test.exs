@@ -218,9 +218,11 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       assert issue_count(recorder) == 2
     end
 
-    # A restart keeps validators and drops bodies. A `304` then has nothing to
-    # serve, and the only correct recovery is the unconditional request the
-    # caller would have made anyway — never an error surfaced to the page.
+    # A restart keeps validators and drops bodies. The recovery is the
+    # unconditional request the caller would have made anyway — never an error
+    # surfaced to the page — and it now costs one request rather than two: the
+    # store does not offer a validator it cannot serve a body for, so the
+    # spent-and-empty `304` never happens. See `ResourceStore.etag/1`.
     test "a 304 with no stored body recovers by re-asking rather than failing" do
       recorder = start_recorder()
 
@@ -241,7 +243,9 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       ResourceStore.drop_data(ResourceStore.key(:issue, "owner", "repo", "7"))
 
       assert {:ok, %{"number" => 7}, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
-      assert count(recorder) == 3
+
+      assert count(recorder) == 2,
+             "the read recovers unconditionally without first spending a 304 that can return nothing"
     end
   end
 
