@@ -262,6 +262,12 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     # while silently throwing away two days of held bodies. These two bracket it
     # — one entry an hour inside the window and one an hour outside — so the
     # constant can only change by failing a test.
+    #
+    # Every fixture here carries a `version`. Only a versioned mark earns the
+    # full retention window: an unversioned one suppresses on identity alone and
+    # is deliberately cut short by `unversioned_suppression_ms/0`, so a fixture
+    # without one expires after 30 minutes and says nothing whatsoever about
+    # `@retention_ms`.
     test "the retention window keeps an entry an hour inside it", %{path: path} do
       inside_ms = System.system_time(:millisecond) - (72 * 60 * 60 * 1000 - 60 * 60 * 1000)
 
@@ -272,7 +278,8 @@ defmodule Aiur.GitHub.ResourceStoreTest do
           "entries" => %{
             "issue_comment|owner|repo|5160" => %{
               "processed_at_ms" => inside_ms,
-              "recorded_at_ms" => inside_ms
+              "recorded_at_ms" => inside_ms,
+              "version" => "2026-08-14T00:00:00Z"
             }
           }
         })
@@ -280,7 +287,10 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       restart_store!(path)
 
-      assert ResourceStore.processed?(ResourceStore.key(:issue_comment, "owner", "repo", 5160)),
+      assert ResourceStore.processed?(
+               ResourceStore.key(:issue_comment, "owner", "repo", 5160),
+               "2026-08-14T00:00:00Z"
+             ),
              "an entry inside the 72h retention window must survive a restart"
     end
 
@@ -294,7 +304,8 @@ defmodule Aiur.GitHub.ResourceStoreTest do
           "entries" => %{
             "issue_comment|owner|repo|5161" => %{
               "processed_at_ms" => outside_ms,
-              "recorded_at_ms" => outside_ms
+              "recorded_at_ms" => outside_ms,
+              "version" => "2026-08-14T00:00:00Z"
             }
           }
         })
@@ -302,9 +313,17 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       restart_store!(path)
 
-      refute ResourceStore.processed?(ResourceStore.key(:issue_comment, "owner", "repo", 5161))
+      refute ResourceStore.processed?(
+               ResourceStore.key(:issue_comment, "owner", "repo", 5161),
+               "2026-08-14T00:00:00Z"
+             )
     end
 
+    # Carries a version for the same reason as the two above. Without one this
+    # refute became unfailable the moment the suppression bound landed: an
+    # unversioned mark cannot be `processed?` past 30 minutes whatever the
+    # retention window is, so no change to `@retention_ms` could ever turn it
+    # red.
     test "entries older than the retention window are not reloaded", %{path: path} do
       stale_ms = System.system_time(:millisecond) - 73 * 60 * 60 * 1000
 
@@ -315,7 +334,8 @@ defmodule Aiur.GitHub.ResourceStoreTest do
           "entries" => %{
             "issue_comment|owner|repo|5152" => %{
               "processed_at_ms" => stale_ms,
-              "recorded_at_ms" => stale_ms
+              "recorded_at_ms" => stale_ms,
+              "version" => "2026-08-14T00:00:00Z"
             }
           }
         })
@@ -323,7 +343,10 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       restart_store!(path)
 
-      refute ResourceStore.processed?(ResourceStore.key(:issue_comment, "owner", "repo", 5152))
+      refute ResourceStore.processed?(
+               ResourceStore.key(:issue_comment, "owner", "repo", 5152),
+               "2026-08-14T00:00:00Z"
+             )
     end
   end
 
@@ -1068,6 +1091,39 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert [_kept] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "2"})
     end
 
+    # The bound an unversioned mark suppresses for. `view_state_sweep_test.exs`
+    # asserts the behaviour at this boundary, but computes its offsets from
+    # `unversioned_suppression_ms/0` — so it moves with the constant and cannot
+    # fail when the value changes. It also range-asserts 5 minutes to 2 hours,
+    # which leaves a 24x span free. These use literals, so the value itself is
+    # pinned rather than merely bounded.
+    test "an unversioned mark suppresses just inside the bound" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 6101)
+      ResourceStore.mark_processed(key, :poll)
+      age_mark!(key, 30 * 60 * 1000 - 60 * 1000)
+
+      assert ResourceStore.processed?(key)
+    end
+
+    test "an unversioned mark has stopped suppressing just outside the bound" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 6102)
+      ResourceStore.mark_processed(key, :poll)
+      age_mark!(key, 30 * 60 * 1000 + 60 * 1000)
+
+      refute ResourceStore.processed?(key)
+    end
+
+    # A versioned mark is the contrast that makes the case above mean something:
+    # same age, same key shape, and it still suppresses, because a version is
+    # what earns the full retention window.
+    test "a versioned mark outlives the unversioned bound" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 6103)
+      ResourceStore.mark_processed(key, :poll, "2026-08-17T00:00:00Z")
+      age_mark!(key, 30 * 60 * 1000 + 60 * 1000)
+
+      assert ResourceStore.processed?(key, "2026-08-17T00:00:00Z")
+    end
+
     # The sweep cadence has no observable consequence inside a test's lifetime,
     # so it is asserted where it is set: the timer the sweep re-arms for itself.
     test "the sweep re-arms on its five-minute cadence" do
@@ -1086,6 +1142,14 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       :erlang.trace(store, false, [:call])
     end
+  end
+
+  # Backdates a suppression mark's own timestamp, leaving the entry otherwise
+  # untouched, so the ageing path under test is the real one.
+  defp age_mark!(key, by_ms) do
+    [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+    :ets.insert(ResourceStore.Table, {key, Map.update!(entry, :processed_at_ms, &(&1 - by_ms))})
+    :ok
   end
 
   defp stop_store! do
