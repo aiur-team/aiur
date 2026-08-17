@@ -208,7 +208,17 @@ defmodule Aiur.Events.GithubFirehoseTest do
       end
 
       assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
-      refute_receive {:event, %{topic: "ticket.7." <> _}}, 100
+
+      # Scoped to `ticket.7.pr.` rather than all of `ticket.7.`, which is the
+      # subscription. A `PullRequestEvent` can only ever become `ticket.<id>.pr.*`
+      # (`github_firehose.ex` `pr_topic/3`), so this is the full strength of the
+      # claim — while refuting the whole namespace also asserted that no *other*
+      # part of Aiur emits anything about ticket 7 for the duration, which is not
+      # this test's business and is not true: the exchange is global, and
+      # `orchestrator/comment_wake_test.exs` publishes
+      # `ticket.7.merge.unauthorized_merger` from an async case whose work can
+      # still be in flight when this one subscribes.
+      refute_receive {:event, %{topic: "ticket.7.pr." <> _}}, 100
     end
 
     test "startup reconciliation persists a pre-boot non-ticket merge from a later bounded page" do

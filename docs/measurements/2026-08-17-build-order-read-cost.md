@@ -100,26 +100,34 @@ cost, not payload sizes.
 
 ## Hourly cost, one catalog and one selected root
 
-Requests first, because requests are what the budget is actually spent on, then
-the same rows priced at their measured cost.
+Derived from the code rather than from the query list, because an earlier version
+of this table was not and got it wrong. The labelled catalog read is **not a
+separate request**: `catalog_labels_due?/2` sets `member_labels?` on the one
+scheduled catalog poll (`graph_projection.ex`), so a labelled read *replaces* that
+cycle's cheap read rather than adding to it. Counting it as its own row
+double-counted six requests an hour in both columns.
+
+So one catalog poll per `catalog_refresh_ms`, of which one per
+`catalog_labels_refresh_ms` is the expensive variant:
+
+| | Before (catalog 60s, labels 600s, selected 15s) | After (catalog 120s, labels 600s, no selected cadence) |
+| --- | --- | --- |
+| catalog polls | 60/h | 30/h |
+| — of which labelled | 6 | 6 |
+| — of which cheap | 54 | 24 |
+| selected root | 240/h | **no timer** |
+| **scheduled requests/hour** | **300** | **30** |
 
 | | Before | After |
 | --- | --- | --- |
-| catalog, cheap | 60 requests/h | 30 requests/h |
-| catalog, labelled | 6 requests/h | 6 requests/h |
-| selected root | 240 requests/h | **no timer** |
-| **scheduled requests/hour** | **306** | **36** |
-
-| | Before | After |
-| --- | --- | --- |
-| catalog, cheap | 60/h × 1 = 60 | 30/h × 1 = 30 |
-| catalog, labelled | 6/h × 26 = 156 | 6/h × 26 = 156 |
-| selected root | 240/h × 3 = 720 | **no timer** — 3 points/page per writer or explicit refresh |
-| **total on a timer** | **~936 points/hour** | **186 points/hour** |
+| catalog, cheap | 54 × 1 = 54 | 24 × 1 = 24 |
+| catalog, labelled | 6 × 26 = 156 | 6 × 26 = 156 |
+| selected root | 240 × 3 = 720 | **no timer** — 3 points/page per writer or explicit refresh |
+| **total on a timer** | **930 points/hour** | **180 points/hour** |
 
 The request row is the one to read. Per *viewed* graph the demand cadence alone
-was 12 requests/minute at its 5s floor, and the selected cadence another 4 at 15s;
-both are now zero.
+was 12 requests/minute at its 5s floor — 720/hour at 3 points, ~2,160 points/hour
+— and the selected cadence another 4/minute at 15s. Both are now zero.
 
 Cadences before: catalog 60s, labels 600s, selected 15s. After: the two catalog
 cadences derive from the 120s tracker poll interval — catalog 120s, labels 600s —
@@ -130,10 +138,19 @@ A selected root's 3 points/page is now bought by exactly two things, and neither
 depends on a viewer:
 
 - **The catalog reconciliation says the root moved.** Each catalog read carries a
-  per-root change marker — `{identity, member_count, updated_at}`, the same
-  triple `Catalog.carry_forward_counts/2` matches on — and a watched root whose
-  marker differs from the one recorded at its last successful read is re-read
-  once. A root that sits still is not re-read, however long anyone watches it.
+  per-root change marker: `{identity, member_count, updated_at}` **plus a digest
+  of the members' lifecycle states**. A watched root whose marker differs from the
+  one recorded when its last read was *dispatched* is re-read once. A root that
+  sits still is not re-read, however long anyone watches it.
+
+  The member digest is the load-bearing part and it is free — the catalog query
+  already asks every member for `state`/`stateReason`. Without it the marker is
+  built only from the root issue, and **GitHub does not bump a parent issue's
+  `updatedAt` when a sub-issue closes**, nor does closing change `member_count`.
+  A member finishing — the change the page most exists to show — would leave the
+  marker byte-identical and the graph would never be re-read at all. That is a
+  worse regression than the cadence this replaces, and it is pinned by a test
+  that fails against the root-only marker.
 - **A watched root has never been read.** Bought once, on the catalog's cycle
   rather than on the viewer's, subject to the same failure backoff, and never
   again once it succeeds.
@@ -165,10 +182,10 @@ timer that survives, existing to recover exactly this class of missed change.
 Until that lands, an operator sees a relabelled member after the next change to
 the root itself.
 
-Build Order's timed GraphQL spend is now **186 points/hour**, about **3.1
-points/minute**, all of it catalog reconciliation — 30 cheap catalog reads at 1
-point and 6 labelled reads at 26. Everything else it spends is caused by a change
-or an explicit request. No headline percentage is claimed for the improvement;
+Build Order's timed GraphQL spend is now **180 points/hour**, about **3
+points/minute**, across **30 requests/hour** — all of it catalog reconciliation:
+24 cheap polls at 1 point and 6 labelled polls at 26. Everything else it spends is
+caused by a change or an explicit request. No headline percentage is claimed for the improvement;
 what remains unconditional is named below rather than averaged away.
 
 ## What this does not show
@@ -177,7 +194,7 @@ what remains unconditional is named below rather than averaged away.
 strongest candidate for the measured ~250 points/minute and asked for
 confirmation rather than assumption; the measurement does not confirm it.
 
-At the old cadences Build Order cost ~936 points/hour, which is **~15.6
+At the old cadences Build Order cost 930 points/hour, which is **~15.5
 points/minute** — roughly **6%** of the observed ~250/minute. The remaining ~94%
 is elsewhere and is still unattributed. #2084 is the ticket that attributes it.
 
@@ -195,9 +212,15 @@ Two caveats in Build Order's favour, both worth keeping in view:
 
 Named rather than folded into a percentage:
 
+- A member being **relabelled** still does not move the change marker: the catalog
+  read that produces it deliberately omits the per-member `labels` connection
+  because that variant costs 26 points against 1 (#1766). A close is caught; a
+  lane or phase change is not, until something else moves the root. That gap
+  belongs to the plan's slow safety sweep (U7, R9).
+
 - `AiurBuildOrderCatalog` — GraphQL, revalidation impossible. Controlled by
-  cadence only: 30 cheap reads (1 point) and 6 labelled reads (26 points) per
-  hour at a 120s poll interval, 186 points/hour together.
+  cadence only: 30 polls/hour at a 120s poll interval, of which 6 buy the
+  labelled variant — 24 × 1 + 6 × 26 = 180 points/hour.
 - `AiurBuildOrderSelectedRoot`, `AiurLinkedPullRequests` — GraphQL, revalidation
   equally impossible, and now on no cadence at all. Their cost is 3 points/page
   and 1 point respectively, paid per writer or explicit refresh, so it is bounded

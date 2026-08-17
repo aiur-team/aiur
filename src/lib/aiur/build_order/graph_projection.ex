@@ -595,8 +595,23 @@ defmodule Aiur.BuildOrder.GraphProjection do
       is_nil(entry) ->
         {state, []}
 
+      # A read is already running. Whether that satisfies this request depends on
+      # *which world it is reading*, so the two cases are separated rather than
+      # both being dropped.
+      #
+      # Same marker: the inflight read was dispatched against the catalog
+      # observation this request is about, so it will answer it. Coalesce — this
+      # is what makes ten simultaneous callers produce one read.
+      #
+      # Different marker: the inflight read was dispatched against an older
+      # catalog and cannot answer this request, so dropping it is a lost update —
+      # the read lands, stamps its own (older) marker, and nothing is left to
+      # notice the newer one. Queue it; `admit_pending/1` starts it as soon as the
+      # inflight read finishes.
       entry.inflight ->
-        {state, []}
+        if inflight_satisfies?(entry.inflight, state, scope),
+          do: {state, []},
+          else: {%{state | pending: MapSet.put(state.pending, scope)}, []}
 
       not active_scope?(state, scope) ->
         {state, []}
@@ -629,6 +644,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
           scope: scope,
           attempt: attempt,
           member_labels?: member_labels?,
+          # The catalog marker in force when this read was *dispatched*, not when
+          # it lands. Stamping the completion-time marker is a lost update: a read
+          # dispatched against F1 can complete after a catalog cycle has published
+          # F2, and stamping F2 onto F1-era data marks the root current at a state
+          # it has never held — after which nothing ever re-reads it.
+          catalog_fingerprint: requested_fingerprint(state, scope),
           authority_generation: state.authority_generation,
           configuration_generation: state.active_configuration_generation
         }
@@ -715,7 +736,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
       |> record_catalog_labels_read(scope, inflight)
 
     state = schedule_after_completion(state, scope, state |> scope_interval(scope))
-    state = record_selected_fingerprint(state, scope)
+    state = record_selected_fingerprint(state, scope, inflight)
     events = [{:generation, snapshot_for_entry(scope_entry(state, scope), state)}]
 
     {state, follow_up} = request_changed_selected_roots(state, scope)
@@ -776,19 +797,26 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp catalog_fingerprint(_state, _identity), do: nil
 
-  # Stamped from the catalog held *now*, at the moment the root's own read
-  # succeeded. That is what makes the next comparison meaningful: it records
-  # which catalog observation this graph corresponds to.
-  defp record_selected_fingerprint(state, {:selected, identity}) do
+  # Stamped from the marker captured when the read was dispatched, carried on the
+  # inflight record. It records which catalog observation this graph actually
+  # corresponds to, which is the only claim the data supports.
+  defp record_selected_fingerprint(state, {:selected, identity}, inflight) do
     key = Policy.root_key(identity)
 
-    case catalog_fingerprint(state, identity) do
+    case Map.get(inflight, :catalog_fingerprint) do
       nil -> %{state | selected_fingerprints: Map.delete(state.selected_fingerprints, key)}
       fingerprint -> %{state | selected_fingerprints: Map.put(state.selected_fingerprints, key, fingerprint)}
     end
   end
 
-  defp record_selected_fingerprint(state, _scope), do: state
+  defp record_selected_fingerprint(state, _scope, _inflight), do: state
+
+  defp requested_fingerprint(state, {:selected, identity}), do: catalog_fingerprint(state, identity)
+  defp requested_fingerprint(_state, _scope), do: nil
+
+  defp inflight_satisfies?(inflight, state, scope) do
+    Map.get(inflight, :catalog_fingerprint) == requested_fingerprint(state, scope)
+  end
 
   # An unlabelled catalog poll cannot resolve epic/wave counts, so it inherits
   # the previous generation's — but only for roots `Catalog.carry_forward_counts/2`
@@ -890,9 +918,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # expensive read in Build Order, repeating because of who was looking rather
   # than because anything had changed.
   #
-  # What refreshes a selected root now is a writer: the daemon's own catalog
-  # reconciliation, a store write from a webhook or an agent mutation, or an
-  # explicit `refresh/2`. None of those depend on a viewer.
+  # What refreshes a selected root now is the daemon's own catalog reconciliation,
+  # via the per-root change marker, plus an explicit `refresh/2`. Neither depends
+  # on a viewer. A webhook or mutation write to `Aiur.GitHub.ResourceStore` does
+  # *not* reach here — the store holds issues, not graphs — so it is not claimed.
   defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state
 
   defp schedule_from_success(state, scope) do
