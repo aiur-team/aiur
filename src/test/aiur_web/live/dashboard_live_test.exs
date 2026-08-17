@@ -748,7 +748,7 @@ defmodule AiurWeb.DashboardLiveTest do
     payload = Presenter.state_payload(orchestrator_name, 1_000)
     html = render_payload(payload)
 
-    assert html =~ "No active agents"
+    assert html =~ "No active units"
     refute html =~ "MT-900"
     refute html =~ "Idle review"
   end
@@ -4656,7 +4656,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, _view, html} = live(build_conn(), "/")
 
-    assert html =~ "No active agents"
+    assert html =~ "No active units"
     refute html =~ "Observed and selected-scope counts unavailable"
     assert html =~ "Count unavailable"
     assert html =~ ~s(aria-label="Count unavailable")

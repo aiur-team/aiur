@@ -11,6 +11,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
   alias Aiur.CurrentRunProjections.{Checkpoint, Projector, SourceAdapter, State}
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
@@ -89,7 +90,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     true = Process.register(probe, orchestrator)
 
     on_exit(fn ->
-      Aiur.Orchestrator.SnapshotStore.forget(orchestrator)
+      SnapshotStore.forget(orchestrator)
       if Process.alive?(probe), do: Process.exit(probe, :kill)
     end)
 
