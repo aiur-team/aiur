@@ -25,11 +25,19 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @publish_gap_history 4
   @stale_window_margin 2
 
-  # Floors, not thresholds. Both windows below are `@stale_window_margin`
-  # effective poll intervals wide (`Aiur.PollCadence`); these floors only keep
-  # behaviour identical at the tight cadences that predate #2064, where two
-  # cycles is a handful of seconds. See `stale_window_ceiling_ms/0` and
-  # `stale_age_ceiling_ms/0`.
+  # Two tiers, and they must stay two. The adaptive window absorbs a producer
+  # publishing more slowly than usual; the hard ceiling is the point past which
+  # no excuse counts. If they resolved to the same number the ceiling would
+  # always fire first and the adaptive mechanism would be dead code — so the
+  # ceiling is deliberately twice the window's cap, exactly the 60s:120s ratio
+  # the original constants expressed.
+  @stale_window_intervals 2
+  @stale_age_ceiling_intervals 4
+
+  # Floors, not thresholds. Both windows below are cadence-derived
+  # (`Aiur.PollCadence`); these floors only keep behaviour identical at the
+  # tight cadences that predate #2064, where a cycle is a handful of seconds.
+  # See `stale_window_ceiling_ms/0` and `stale_age_ceiling_ms/0`.
   @stale_window_ceiling_floor_ms 60_000
 
   # Age decides staleness; a backlogged mailbox only corroborates it. An
@@ -39,18 +47,18 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   # read model exists to prevent. Past this ceiling the view is stale whatever
   # the mailbox says.
   #
-  # The ceiling is `@stale_window_margin` *effective* poll intervals: an idle
-  # Orchestrator only writes new snapshot input on a poll tick, so two missed
-  # ticks is the earliest moment "we should have heard by now" is true. The
-  # previous constant justified itself as "four times the 30s default poll
-  # cadence" — no 30s cadence has ever existed in this repo, and the real
-  # default is 120s, widening to 1200s under idle plus webhook backoff. Deriving
-  # it removes both the wrong number and the need to re-tune on the next
-  # cadence change.
+  # The ceiling is `@stale_age_ceiling_intervals` *effective* poll intervals. An
+  # idle Orchestrator only writes new snapshot input on a poll tick, so the
+  # earliest honest "we should have heard by now" is a small multiple of that
+  # tick — and it must sit above the adaptive window's cap, or that window can
+  # never do its job. The previous constant justified itself as "four times the
+  # 30s default poll cadence"; no 30s cadence has ever existed in this repo, and
+  # the real default is 120s, widening to 1200s under idle plus webhook backoff.
+  # The multiple of four survives; the imaginary cadence it multiplied does not.
   #
-  # The floor keeps the pre-#2064 behaviour intact: at `interval_seconds: 5` two
-  # cycles is 10s, so without it a 5s deployment would start flagging snapshots
-  # stale twelve times sooner than it does today.
+  # The floor keeps the pre-#2064 behaviour intact: at `interval_seconds: 5`
+  # four cycles is 20s, so without it a 5s deployment would start flagging
+  # snapshots stale six times sooner than it does today.
   @stale_age_ceiling_floor_ms 120_000
 
   # Two distinct degraded states must never collapse into one operator-facing
@@ -433,12 +441,12 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         ceiling_ms
 
       _unset_or_invalid ->
-        PollCadence.stale_after_ms(@stale_window_margin, floor_ms: @stale_age_ceiling_floor_ms)
+        PollCadence.stale_after_ms(@stale_age_ceiling_intervals, floor_ms: @stale_age_ceiling_floor_ms)
     end
   end
 
   defp stale_window_ceiling_ms do
-    PollCadence.stale_after_ms(@stale_window_margin, floor_ms: @stale_window_ceiling_floor_ms)
+    PollCadence.stale_after_ms(@stale_window_intervals, floor_ms: @stale_window_ceiling_floor_ms)
   end
 
   # The caller's tolerance is honoured exactly: `read/3` never widens a window

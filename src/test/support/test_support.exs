@@ -112,6 +112,7 @@ defmodule Aiur.TestSupport do
       alias Aiur.Issue
       alias Aiur.Linear.Client
       alias Aiur.Orchestrator
+      alias Aiur.PollCadence
       alias Aiur.PromptBuilder
       alias Aiur.StatusDashboard
       alias Aiur.Tracker
@@ -177,6 +178,13 @@ defmodule Aiur.TestSupport do
         # one case would let a later case's poll cycle skip a preflight it
         # expects to observe.
         GitHubAuthPreflight.invalidate(:test_setup)
+
+        # And again. `Aiur.PollCadence` keeps the effective poll
+        # interval in :persistent_term, written by every Orchestrator poll cycle,
+        # and every freshness threshold in the tree derives from it. A case that
+        # drives a poll cycle would otherwise move the staleness windows for every
+        # later case in the VM, so each case starts from the configured cadence.
+        PollCadence.forget_effective_interval_ms()
 
         File.mkdir_p!(workflow_root)
 
