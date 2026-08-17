@@ -132,7 +132,7 @@ defmodule Aiur.AgentSkillsTest do
     File.ln_s!(external, Path.join([ws, ".claude", "skills"]))
 
     assert :ok = AgentSkills.install(ws)
-    refute File.exists?(Path.join([external, "using-aiur", "SKILL.md"]))
+    refute File.exists?(Path.join([external, "aiur-agent", "SKILL.md"]))
     refute File.exists?(Path.join(external, "compound-engineering.version"))
   end
 
@@ -147,7 +147,7 @@ defmodule Aiur.AgentSkillsTest do
 
     assert {_output, status} = System.cmd("bash", [script_path], stderr_to_stdout: true)
     assert status != 0
-    refute File.exists?(Path.join([external, "using-aiur", "SKILL.md"]))
+    refute File.exists?(Path.join([external, "aiur-agent", "SKILL.md"]))
     refute File.exists?(Path.join(external, "compound-engineering.version"))
   end
 
@@ -206,7 +206,7 @@ defmodule Aiur.AgentSkillsTest do
       assert File.exists?(Path.join([ws, ".fake", "skills", skill, "SKILL.md"]))
     end
 
-    assert File.read!(Path.join([ws, ".fake", "skills", "using-aiur", "dictated-input.md"])) =~
+    assert File.read!(Path.join([ws, ".fake", "skills", "aiur-agent", "dictated-input.md"])) =~
              "Voice-originated text may render **Aiur**"
   end
 

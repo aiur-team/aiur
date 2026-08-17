@@ -26,6 +26,7 @@ defmodule Aiur.AiurAgentSkillTest do
     emit-and-subscribe.md
     attention-and-resolve.md
     stub-then-fetch.md
+    dictated-input.md
   )
   @codex_exposed_aiur_skills ~w(aiur-agent aiur-build aiur-debug aiur-intro aiur-monitor aiur-run design-import)
   # `aiur-meta` is an Executor meta-check driven by `aiur-run`'s timer. It audits
@@ -64,13 +65,13 @@ defmodule Aiur.AiurAgentSkillTest do
   end
 
   test "dictation guidance has one source shared by issue workers and Executors" do
-    worker_skill = File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/SKILL.md"))
+    worker_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/SKILL.md"))
     executor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
-    guidance_path = Path.join(@repo_root, ".claude/skills/using-aiur/dictated-input.md")
+    guidance_path = Path.join(@repo_root, ".claude/skills/aiur-agent/dictated-input.md")
     guidance = File.read!(guidance_path)
 
     assert worker_skill =~ "dictated-input.md"
-    assert executor_skill =~ "../using-aiur/dictated-input.md"
+    assert executor_skill =~ "../aiur-agent/dictated-input.md"
     assert guidance =~ "Voice-originated text may render **Aiur**"
     assert guidance =~ "`A, your`"
     assert guidance =~ "never silently rewriting a real word or acronym"
