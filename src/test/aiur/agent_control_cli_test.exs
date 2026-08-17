@@ -634,8 +634,11 @@ defmodule Aiur.AgentControlCLITest do
     assert degraded =~ "LISTENER degraded (#{length(defaults) - 1}/#{length(defaults)} bindings; MISSING: executor.#)"
 
     Application.put_env(:aiur, :executor_listener_alive_fun, fn -> [] end)
+    # Recording is armed on every run now, so absence is no longer a mode the
+    # operator could have chosen — it is a fault, and the line has to say so.
     absent = capture_io(fn -> AgentControlCLI.status() end)
-    assert absent =~ "LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)"
+    assert absent =~ "LISTENER absent (FAULT:"
+    assert absent =~ "are not being recorded"
   end
 
   test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
