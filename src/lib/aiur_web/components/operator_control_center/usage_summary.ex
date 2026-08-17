@@ -122,22 +122,22 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
         aria-label="Cost by provider route"
         tabindex="0"
       >
-        <table class="usage-summary-table usage-provider-routes-table">
+        <table id="provider-routes-table" class="usage-summary-table usage-provider-routes-table" phx-hook="SortableTable" data-sort-table="provider-routes">
           <thead>
             <tr>
-              <th scope="col">Route</th>
-              <th scope="col">Provider-reported estimate</th>
-              <th scope="col">API-equivalent estimate</th>
+              <th scope="col" data-sort-key="route">Route</th>
+              <th scope="col" data-sort-key="provider">Provider-reported estimate</th>
+              <th scope="col" data-sort-key="api">API-equivalent estimate</th>
             </tr>
           </thead>
           <tbody>
             <tr :for={route <- @view.routes.entries}>
-              <th scope="row">
+              <th scope="row" data-sort-value={route.label}>
                 <span aria-hidden="true">{route.label}</span>
                 <span class="sr-only">{route.accessible_label}</span>
               </th>
-              <td>{route.provider_reported_label}</td>
-              <td>{route.api_equivalent_label}</td>
+              <td data-sort-value={route.provider_reported_label}>{route.provider_reported_label}</td>
+              <td data-sort-value={route.api_equivalent_label}>{route.api_equivalent_label}</td>
             </tr>
           </tbody>
         </table>

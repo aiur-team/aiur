@@ -54,29 +54,29 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         <p>{@catalog_notice.message}</p>
       </div>
 
-      <table :if={@entries != []} class="bo-catalog-table">
+      <table :if={@entries != []} id="build-orders-table" class="bo-catalog-table" phx-hook="SortableTable" data-sort-table="build-orders">
         <thead>
           <tr>
-            <th scope="col">Title</th>
-            <th scope="col" class="bo-catalog-progress-head">Progress</th>
-            <th scope="col" class="bo-catalog-num">Tickets</th>
-            <th scope="col" class="bo-catalog-num">Epics</th>
-            <th scope="col" class="bo-catalog-num">Waves</th>
+            <th scope="col" data-sort-key="title">Title</th>
+            <th scope="col" data-sort-key="progress" data-sort-type="number" class="bo-catalog-progress-head">Progress</th>
+            <th scope="col" data-sort-key="tickets" data-sort-type="number" class="bo-catalog-num">Tickets</th>
+            <th scope="col" data-sort-key="epics" data-sort-type="number" class="bo-catalog-num">Epics</th>
+            <th scope="col" data-sort-key="waves" data-sort-type="number" class="bo-catalog-num">Waves</th>
           </tr>
         </thead>
         <tbody>
           <tr :for={entry <- @entries} class={if(entry.completed?, do: "bo-catalog-completed", else: "bo-catalog-active")}>
-            <td>
+            <td data-sort-value={entry.title}>
               <span class="bo-catalog-icon" aria-label={catalog_icon_label(entry.icon)}>{catalog_icon(entry.icon)}</span>
               <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="bo-catalog-link">{entry.title}</.link>
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
             </td>
-            <td class="bo-catalog-progress-cell">
+            <td class="bo-catalog-progress-cell" data-sort-value={entry_progress_percent(entry)}>
               <.catalog_progress entry={entry} />
             </td>
-            <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
-            <td class="bo-catalog-num mono num"><.catalog_count count={entry.epic_count} label="Epics" /></td>
-            <td class="bo-catalog-num mono num"><.catalog_count count={entry.phase_count} label="Waves" /></td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.member_count}>{count_display(entry.member_count)}</td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.epic_count}><.catalog_count count={entry.epic_count} label="Epics" /></td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.phase_count}><.catalog_count count={entry.phase_count} label="Waves" /></td>
           </tr>
         </tbody>
       </table>
@@ -123,18 +123,29 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       <span class="bo-catalog-progress-label mono num">{@progress.label}</span>
       <span :if={@progress.coverage} class="bo-catalog-progress-coverage mono num">{@progress.coverage}</span>
     </div>
-    <span
-      :if={is_nil(@progress.percent)}
-      class={if(@progress.state == :unresolved, do: "bo-catalog-progress-unresolved", else: "bo-catalog-invalid")}
+    <div
+      :if={is_nil(@progress.percent) and @progress.state == :unresolved}
+      class="bo-catalog-progress is-unknown"
       data-progress-state={@progress.state}
       role="img"
       aria-label={@progress.aria_label}
       title={@progress.title}
     >
-      {@progress.label}
-    </span>
+      <span class="bo-catalog-progress-track"></span>
+      <span class="bo-catalog-progress-label mono num">{@progress.label}</span>
+    </div>
+    <span
+      :if={is_nil(@progress.percent) and @progress.state != :unresolved}
+      class="bo-catalog-invalid"
+      data-progress-state={@progress.state}
+      role="img"
+      aria-label={@progress.aria_label}
+      title={@progress.title}
+    >{@progress.label}</span>
     """
   end
+
+  defp entry_progress_percent(entry), do: entry |> ProgressRenderer.html() |> Map.get(:percent)
 
   attr(:count, :any, required: true)
   attr(:label, :string, required: true)

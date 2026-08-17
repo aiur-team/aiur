@@ -165,6 +165,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:run_state, run_state)
       |> assign(:run_ready?, run_state in [:ready, :stale])
       |> assign(:remaining, remaining)
+      |> assign(:run_percent, run_percent(assigns.run))
       |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))
 
     ~H"""
@@ -186,11 +187,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-progress">
         <div class="rs-limit-top">
           <span class="rs-limit-label">Progress</span>
-          <span class="rs-limit-meta">{progress_label(@run)}</span>
+          <span :if={progress_label(@run)} class="rs-limit-meta">{progress_label(@run)}</span>
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>
-        <div class="rs-meter"><i class={meter_class(run_percent(@run))} style={"width:#{run_percent(@run)}%"}></i></div>
+        <div class={["rs-meter", is_nil(@run_percent) && "is-unknown"]}>
+          <i :if={is_integer(@run_percent)} class={meter_class(@run_percent)} style={"width:#{@run_percent}%"}></i>
+        </div>
       </div>
     </section>
     """
@@ -631,37 +634,23 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp progress_meta(_state, _run), do: "N/A"
 
   defp progress_label(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent),
-    do: "#{percent}% complete"
+    do: "#{percent}%"
 
-  defp progress_label(%{
-         progress: %{
-           kind: :partial,
-           display_percent_label: percent,
-           current_members_label: members,
-           fact_status_label: status
-         }
-       }),
-       do: "#{percent} · #{members} · #{status}"
+  defp progress_label(%{progress: %{kind: :partial, display_percent_label: percent}}),
+    do: percent
 
   defp progress_label(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent),
-    do: "At least #{percent}% complete"
+    do: "At least #{percent}%"
 
-  defp progress_label(%{
-         progress: %{
-           kind: :pending,
-           progress_status_label: progress,
-           current_members_label: members,
-           fact_status_label: status
-         }
-       }),
-       do: "#{progress} · #{members} · #{status}"
+  defp progress_label(%{progress: %{kind: :pending}}),
+    do: nil
 
-  defp progress_label(_run), do: "Progress not computed yet"
+  defp progress_label(_run), do: nil
 
   defp run_percent(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :partial, percent: percent}}) when is_integer(percent), do: percent
-  defp run_percent(_run), do: 0
+  defp run_percent(_run), do: nil
 
   defp eta_label(true, %{eta: %{reason: :zero_eligible_weight}}), do: nil
   defp eta_label(true, %{eta: %{reason: :unhealthy_weight_facts}}), do: nil

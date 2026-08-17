@@ -55,13 +55,13 @@ defmodule AiurWeb.OperatorControlCenter.History do
       <div :if={@provider_health == :ok and @loaded == 0} class="empty-state compact">No Command actions have been recorded.</div>
 
       <div :if={@loaded > 0} class="history-table-wrap">
-        <table class="history-table" aria-label="Command history">
+        <table id="command-history-table" class="history-table" aria-label="Command history" phx-hook="SortableTable" data-sort-table="command-history">
           <thead>
             <tr>
-              <th scope="col">Command</th>
-              <th scope="col">Decision</th>
-              <th scope="col">Result</th>
-              <th scope="col">Raised</th>
+              <th scope="col" data-sort-key="command">Command</th>
+              <th scope="col" data-sort-key="decision">Decision</th>
+              <th scope="col" data-sort-key="result">Result</th>
+              <th scope="col" data-sort-key="raised">Raised</th>
             </tr>
           </thead>
           <tbody id="command-history-rows">
@@ -121,7 +121,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
       data-severity={severity(@decision)}
       phx-click={@toggle}
     >
-      <td class="history-command">
+      <td class="history-command" data-sort-value={@decision.question}>
         <%!-- The whole row is clickable, but the accordion control is a real
               button: it is what carries the accessible name and aria-expanded,
               and it is what Enter and Space activate. The row click is a mouse
@@ -142,14 +142,14 @@ defmodule AiurWeb.OperatorControlCenter.History do
           <span class="history-question">{@decision.question}</span>
         </button>
       </td>
-      <td class="history-decision">{decision_choice(@decision) || "—"}</td>
-      <td>
+      <td class="history-decision" data-sort-value={decision_choice(@decision)}>{decision_choice(@decision) || "—"}</td>
+      <td data-sort-value={decision_status(@decision)}>
         <div class="history-result">
           <span class={["chip", tone(@decision)]}>{decision_status(@decision)}</span>
           <span :if={answer_actor_label(@decision)} class={answer_actor_class(@decision)}>{answer_actor_label(@decision)}</span>
         </div>
       </td>
-      <td class="history-when mono">
+      <td class="history-when mono" data-sort-value={@decision.created_at}>
         {raised_at(@decision.created_at)}
         <span class="expand-chevron" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
