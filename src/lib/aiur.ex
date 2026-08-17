@@ -41,6 +41,7 @@ defmodule Aiur.Application do
     :ok = log_route_credentials(settings)
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
+    Aiur.Shutdown.record_alert_ledger_path()
     install_signal_handlers()
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()

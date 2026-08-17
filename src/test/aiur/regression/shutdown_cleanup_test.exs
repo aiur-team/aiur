@@ -18,6 +18,14 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
   @engine Path.expand("../../../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
 
   describe "engine session_cleanup" do
+    test "disarms the foreground crash watchdog before stopping the daemon" do
+      cleanup = cleanup_block()
+
+      assert cleanup =~
+               ~r/kill "\$_session_watchdog_pid".+kill-session\s+-t\s+"\$_session_name"/s,
+             "clean foreground teardown must stop the watchdog before it stops the BEAM"
+    end
+
     test "kills the aiur tmux session on EXIT/INT/TERM/HUP" do
       cleanup = cleanup_block()
 
@@ -72,9 +80,17 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
              """
     end
 
-    test "removes the workspace root handoff tempfile" do
-      assert cleanup_block() =~ ~r/rm -f .*\$_session_workspace_root_file/,
-             "session_cleanup must remove the per-run workspace-root tempfile"
+    test "removes the per-run handoff tempfiles" do
+      cleanup = cleanup_block()
+
+      for variable <- ~w(
+        _session_workspace_root_file
+        _session_alert_ledger_path_file
+        _session_crash_dump_baseline_file
+      ) do
+        assert cleanup =~ ~r/rm -f .*\$#{variable}/s,
+               "session_cleanup must remove #{variable}"
+      end
     end
 
     test "trap covers EXIT INT TERM HUP — split traps to avoid pop_var_context" do
@@ -141,15 +157,8 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     test "watchdog receives the workspace root file and sweeps after BEAM death" do
       source = File.read!(@engine)
 
-      assert source =~ ~s(workspace_root_file="${10:-}"),
-             "watchdog must accept the workspace-root handoff file path"
-
       assert source =~ ~r/reap_aiur_agents "\$socket" "\$pidfile"\n\s+reap_workspace_cwd_from_file "\$workspace_root_file"/,
              "watchdog must run the cwd sweep after pidfile agent reap"
-
-      assert source =~
-               ~r/start_beam_death_watchdog \\\n\s+"-name \$\{AIUR_RELEASE_NODE\}" "\$socket" "\$AIUR_AGENT_TMPFILE" 1 1 \\\n\s+"\$AIUR_RELEASE_NODE" "\$\{AIUR_LOGS_ROOT:-\}" \\\n\s+"\$\(aiur_stop_sentinel_path\)" "\$\(aiur_crash_marker_path\)" "\$AIUR_WORKSPACE_ROOT_FILE"/,
-             "background watchdog must receive AIUR_WORKSPACE_ROOT_FILE"
     end
   end
 

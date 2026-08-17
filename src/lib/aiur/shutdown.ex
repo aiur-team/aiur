@@ -23,7 +23,7 @@ defmodule Aiur.Shutdown do
   require Logger
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
-  alias Aiur.Config
+  alias Aiur.{AlertLedger, Config}
   alias Aiur.Fs
   alias Aiur.Opencode.SessionWriterRegistry
 
@@ -51,6 +51,22 @@ defmodule Aiur.Shutdown do
   end
 
   @doc """
+  Record the canonical project-scoped alert ledger for the launcher watchdog.
+
+  The watchdog outlives the BEAM and cannot safely reconstruct tracker-derived
+  project identity after a crash, so the running application hands off the
+  already-resolved path atomically.
+  """
+  @spec record_alert_ledger_path() :: :ok
+  def record_alert_ledger_path do
+    record_path_handoff("AIUR_ALERT_LEDGER_PATH_FILE", AlertLedger.path(), "record_alert_ledger_path")
+  catch
+    kind, reason ->
+      Logger.warning("aiur_shutdown phase=record_alert_ledger_path caught=#{inspect({kind, reason})}")
+      :ok
+  end
+
+  @doc """
   Record the configured workspace root for the launcher-side shutdown backstop.
 
   The bash engine cannot safely re-derive full Aiur config after the BEAM exits,
@@ -61,14 +77,19 @@ defmodule Aiur.Shutdown do
   """
   @spec record_workspace_root() :: :ok
   def record_workspace_root do
-    case System.get_env("AIUR_WORKSPACE_ROOT_FILE") do
-      path when is_binary(path) and path != "" ->
-        case Fs.atomic_write(path, Config.workspace_root()) do
-          :ok ->
-            :ok
+    record_path_handoff("AIUR_WORKSPACE_ROOT_FILE", Config.workspace_root(), "record_workspace_root")
+  catch
+    kind, reason ->
+      Logger.warning("aiur_shutdown phase=record_workspace_root caught=#{inspect({kind, reason})}")
+      :ok
+  end
 
-          {:error, reason} ->
-            Logger.warning("aiur_shutdown phase=record_workspace_root error=#{inspect(reason)}")
+  defp record_path_handoff(env_name, value, phase) do
+    case System.get_env(env_name) do
+      path when is_binary(path) and path != "" ->
+        case Fs.atomic_write(path, value) do
+          :ok -> :ok
+          {:error, reason} -> Logger.warning("aiur_shutdown phase=#{phase} error=#{inspect(reason)}")
         end
 
         :ok
@@ -76,10 +97,6 @@ defmodule Aiur.Shutdown do
       _ ->
         :ok
     end
-  catch
-    kind, reason ->
-      Logger.warning("aiur_shutdown phase=record_workspace_root caught=#{inspect({kind, reason})}")
-      :ok
   end
 
   # Kill the whole agent tree the backends reparented to init — coding agents,
