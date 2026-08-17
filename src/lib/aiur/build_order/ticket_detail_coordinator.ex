@@ -1,18 +1,37 @@
-defmodule Aiur.BuildOrder.TicketDetailCache do
+defmodule Aiur.BuildOrder.TicketDetailCoordinator do
   @moduledoc """
-  Supervised, bounded cache for configured-repository ticket detail.
+  Supervised coordinator for configured-repository ticket detail reads.
 
-  The cache is deliberately in-memory. After restart, a ticket remains
-  unavailable until a newly requested, complete detail read succeeds.
+  This was `TicketDetailCache`, and the rename is the point of the change rather
+  than decoration. Aiur had grown five independent GitHub caches, one per reader,
+  and each new reader reached for the nearest one and then grew a sixth. A module
+  called a cache invites that. This one is not one any more:
+
+    * **GitHub responses are not held here.** The issue body lives in
+      `Aiur.GitHub.ResourceStore`, keyed by the issue's identity, so the tracker's
+      dispatch poll and this page share one entry instead of fetching the same
+      URL into two. Deciding whether to spend an upstream read is the store's job.
+    * **What is held here is derived and local**: the sanitized `Snapshot` each
+      subscriber last rendered, who is subscribed, which refresh is inflight, and
+      which configuration generation it belongs to. None of that is re-fetchable
+      from GitHub, because none of it came from GitHub.
+
+  The freshness setting reaches both layers, and means the same thing in each: it
+  is one requirement, applied once to whether a re-render is needed and once to
+  whether an upstream read is. Two numbers here would be two policies.
+
+  Snapshots are deliberately in-memory. After restart a ticket stays unavailable
+  until a fresh read succeeds — but that read is now usually a `304`, or no
+  request at all, because the store's validators outlive the restart.
   """
 
   use GenServer
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.BuildOrder.TicketDetail.{Failure, State}
-  alias Aiur.BuildOrder.TicketDetailCache.{Configuration, Options, Policy, TaskLifecycle}
+  alias Aiur.BuildOrder.TicketDetailCoordinator.{Configuration, Options, Policy, TaskLifecycle}
 
-  @reset_topic "build_order:ticket_detail_cache:reset"
+  @reset_topic "build_order:ticket_detail_coordinator:reset"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -196,7 +215,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache do
 
   defp broadcast_reset(state) do
     if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, reset_topic(), {:ticket_detail_cache_reset, state.reset_epoch})
+      Phoenix.PubSub.broadcast(Aiur.PubSub, reset_topic(), {:ticket_detail_coordinator_reset, state.reset_epoch})
     end
   end
 end

@@ -5,7 +5,17 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{CycleFetchCache, DependenciesApi, DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
+
+  alias Aiur.GitHub.{
+    CycleFetchCache,
+    DependenciesApi,
+    DispatchAuthorization,
+    Errors,
+    Labels,
+    ResourceStore,
+    StatePolicy,
+    Transport
+  }
 
   @max_issue_response_bytes 65_536
 
@@ -103,6 +113,206 @@ defmodule Aiur.GitHub.Issues do
       end
     end
   end
+
+  @doc """
+  Fetches one issue through `Aiur.GitHub.ResourceStore`.
+
+  Same endpoint and same body as `fetch_issue_raw/2` — `GET
+  /repos/{owner}/{repo}/issues/{number}` — but addressed by the issue's identity
+  rather than by the caller, so every reader of that issue meets in one entry.
+  That is the point: the orchestrator's per-issue reconciliation poll, the Build
+  Order ticket-detail pane and the dashboard's ticket panel were each reading
+  this exact URL on their own schedule into their own cache.
+
+  The answer says which of three costs was paid, because "we had it" and "we
+  revalidated it for free" are different claims and only one of them can be
+  asserted by counting requests:
+
+    * `:fresh` — **no request was made.** The store held the body.
+    * `:not_modified` — one conditional request returned `304`. A `304` does not
+      count against GitHub's primary REST rate limit, so this costs quota
+      nothing; it is not free of latency.
+    * `:fetched` — one full `200`. Quota was spent.
+
+  ## Stating the staleness you tolerate
+
+  `:freshness_ms` is how a caller says what it can accept, and there is
+  deliberately no default beyond zero. A caller that states nothing gets a
+  conditional request, not an arbitrarily old body: the store records
+  `fetched_at_ms` per entry precisely so the *reader* decides, and inventing a
+  global window here would be the silent guess the store exists to remove. A
+  conditional request is the safe default because an unchanged issue answers
+  `304`, which costs no primary rate limit.
+
+  Pass `revalidate: true` to skip the no-request path outright, which is what an
+  operator-initiated refresh wants: it is the cheapest way to turn "probably
+  unchanged" into "provably unchanged".
+
+  ## The rule this function obeys
+
+  > Ask `fetch/1` before spending a request. Never treat a `304` as data.
+
+  A stored validator does **not** imply a servable entry — the sweep keeps ETags
+  purely to detect change, and a `304` carries no body. So the decision to serve
+  is made by the held body alone, never by the presence of an ETag.
+
+  ## Failing open
+
+  A body can be absent while its validator survives — after a restart, or after
+  the store's own bound evicted it — so a `304` can arrive with nothing to serve.
+  That is not an error and must not surface as one: the read retries once without
+  the validator, which is exactly the unconditional request the caller would have
+  made anyway. Every other store fault degrades the same way, to
+  `fetch_issue_raw/2`'s behaviour.
+  """
+  @spec fetch_issue_raw_conditional(integer() | String.t(), keyword()) ::
+          {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
+  def fetch_issue_raw_conditional(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- raw_repository(opts),
+         {:ok, token} <- Transport.require_token(opts) do
+      key = ResourceStore.key(:issue, owner, repo, to_string(issue_number))
+
+      case stored_issue(key, opts) do
+        body when is_map(body) ->
+          {:ok, body, :fresh}
+
+        nil ->
+          revalidate_raw_issue(issue_number, owner, repo, token, key, opts, false)
+      end
+    end
+  end
+
+  # An explicit revalidation deliberately ignores a held body: the caller is
+  # asking to be *sure*, and the conditional request that answers that is free
+  # when nothing changed.
+  defp stored_issue(key, opts) do
+    if Keyword.get(opts, :revalidate, false) do
+      nil
+    else
+      servable_within(ResourceStore.fetch(key), Keyword.get(opts, :freshness_ms))
+    end
+  end
+
+  # The store hands back when the body was recorded; the caller says how old it
+  # will accept. Comparing them here — rather than trusting whichever number the
+  # store happens to prefer — is what lets two readers of the same issue with
+  # different tolerances share one entry without either being served something it
+  # said it could not use.
+  defp servable_within({:ok, %{data: body, fetched_at_ms: fetched_at_ms}}, freshness_ms)
+       when is_map(body) and is_integer(fetched_at_ms) and is_integer(freshness_ms) and freshness_ms > 0 do
+    if System.system_time(:millisecond) - fetched_at_ms <= freshness_ms, do: body, else: nil
+  end
+
+  defp servable_within(_answer, _freshness_ms), do: nil
+
+  defp revalidate_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
+    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
+    etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
+
+    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    context = %{
+      issue_number: issue_number,
+      owner: owner,
+      repo: repo,
+      token: token,
+      key: key,
+      opts: opts,
+      etag: etag,
+      retried_without_validator?: retried_without_validator?
+    }
+
+    request |> request_fun.() |> handle_raw_issue_response(context)
+  end
+
+  defp handle_raw_issue_response({:ok, %{private: %{aiur_response_too_large: true}, status: status} = response}, _context)
+       when status != 200 do
+    {:error, Errors.github_status_error(response)}
+  end
+
+  defp handle_raw_issue_response({:ok, %{private: %{aiur_response_too_large: true}}}, _context) do
+    {:error, :github_issue_response_too_large}
+  end
+
+  defp handle_raw_issue_response({:ok, %{status: 200, body: body} = response}, context) when is_map(body) do
+    retained = Transport.header(Map.get(response, :headers, []), "etag") || context.etag
+
+    put_issue_resource(context.key, body, retained, :fetch)
+    {:ok, body, :fetched}
+  end
+
+  defp handle_raw_issue_response({:ok, %{status: 200}}, _context), do: {:error, :invalid_github_issue_response}
+
+  defp handle_raw_issue_response({:ok, %{status: 304}}, context) do
+    serve_not_modified_raw_issue(
+      context.issue_number,
+      context.owner,
+      context.repo,
+      context.token,
+      context.key,
+      context.opts,
+      context.retried_without_validator?
+    )
+  end
+
+  defp handle_raw_issue_response({:ok, %{status: _status} = response}, _context) do
+    {:error, Errors.github_status_error(response)}
+  end
+
+  defp handle_raw_issue_response({:error, reason}, _context), do: {:error, Errors.classify_error({:error, reason})}
+
+  # A `304` proves the stored body is still current, which is only useful if the
+  # body is still there. When it is not — a restart dropped it, or the store's
+  # own bound evicted it — re-asking without the validator is the correct
+  # recovery and costs one ordinary request. Reporting an error instead would turn
+  # a cache miss into a page failure.
+  #
+  # `304` is answered from the held body regardless of the caller's freshness
+  # window: GitHub has just certified that the body is current, so its age is no
+  # longer evidence of anything.
+  defp serve_not_modified_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
+    case ResourceStore.data(key) do
+      body when is_map(body) ->
+        {:ok, body, :not_modified}
+
+      _missing when not retried_without_validator? ->
+        ResourceStore.drop_data(key)
+        revalidate_raw_issue(issue_number, owner, repo, token, key, opts, true)
+
+      _missing ->
+        {:error, :github_issue_not_modified_without_cached_value}
+    end
+  end
+
+  # One deposit shape for both readers of this endpoint, so the poll path and the
+  # detail path cannot disagree about what an issue entry contains.
+  #
+  # `:version` is the issue's own `updated_at`. It is what lets a later webhook
+  # delivery for the same issue tell "this is the change I already hold" from
+  # "this is a newer one", and the store refuses to publish a change event for a
+  # body it already has — so re-depositing an unchanged issue wakes nobody.
+  #
+  # `:processed` is deliberately never passed: fetching an issue is not the same
+  # as having acted on it, and marking it handled here would suppress the wake
+  # that the resource's genuine change is supposed to cause.
+  defp put_issue_resource(key, body, etag, source) do
+    ResourceStore.put_resource(key, body,
+      source: source,
+      version: issue_version(body),
+      etag: etag
+    )
+  end
+
+  defp issue_version(body) when is_map(body) do
+    case Map.get(body, "updated_at") do
+      version when is_binary(version) and version != "" -> version
+      _absent -> nil
+    end
+  end
+
+  defp issue_version(_body), do: nil
 
   defp raw_repository(opts) do
     case Keyword.fetch(opts, :repository) do
@@ -485,10 +695,24 @@ defmodule Aiur.GitHub.Issues do
   defp fetch_conditional_issue(ctx, issue_id, issues, cache, retried_without_cache?) do
     url = "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues/#{issue_id}"
     cached_entry = Map.get(cache, issue_id, %{})
-    etag = Map.get(cached_entry, :etag)
+    store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
+
+    # The poll's own cache still wins when it has an entry, so the existing
+    # behaviour is unchanged for the steady state. The store is consulted only
+    # where the poll had nothing and would otherwise have spent a full read —
+    # which is the case where some other reader of this same issue, typically the
+    # Build Order page, has already paid for it.
+    etag = Map.get(cached_entry, :etag) || store_validator(store_key, retried_without_cache?)
 
     case conditional_get(ctx, url, etag) do
       {:ok, body, retained_etag, _response} when is_map(body) ->
+        # Publish the raw body, not the normalized `Issue`. Other readers of this
+        # issue want different projections of it — the detail pane wants the
+        # description and assignees the dispatch struct throws away — so the
+        # shared entry has to be the response, with normalization left to each
+        # reader.
+        put_issue_resource(store_key, body, retained_etag, :poll)
+
         issue =
           body
           |> normalize_issue(ctx.owner, ctx.repo, ctx.prefix, retained_etag)
@@ -531,7 +755,7 @@ defmodule Aiur.GitHub.Issues do
          retained_etag,
          retried_without_cache?
        ) do
-    case Map.get(cached_entry, :issue) do
+    case materialized_issue(ctx, issue_id, cached_entry, retained_etag) do
       %Issue{} = issue ->
         issue =
           authorize_issue(
@@ -543,7 +767,7 @@ defmodule Aiur.GitHub.Issues do
             ctx.prefix
           )
 
-        entry = %{cached_entry | etag: retained_etag, issue: issue}
+        entry = %{etag: retained_etag, issue: issue}
         {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
 
       _missing_materialized_issue when not retried_without_cache? ->
@@ -551,6 +775,31 @@ defmodule Aiur.GitHub.Issues do
 
       _missing_materialized_issue ->
         {:halt, {:error, :github_issue_not_modified_without_cached_value, cache}}
+    end
+  end
+
+  # Only reached when the poll's own cache had no validator, so borrowing the
+  # store's is never a downgrade: without it the request is unconditional.
+  defp store_validator(_store_key, true), do: nil
+  defp store_validator(store_key, false), do: ResourceStore.etag(store_key)
+
+  # A `304` answered against a borrowed validator has no locally materialized
+  # `Issue` to return, so normalize the shared body instead. Without this the
+  # poll would fall through to a second, unconditional request for bytes the
+  # store was already holding — the trap where sharing a validator without the
+  # body makes things worse rather than better.
+  defp materialized_issue(ctx, issue_id, cached_entry, retained_etag) do
+    case Map.get(cached_entry, :issue) do
+      %Issue{} = issue ->
+        issue
+
+      _missing ->
+        store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
+
+        case ResourceStore.data(store_key) do
+          body when is_map(body) -> normalize_issue(body, ctx.owner, ctx.repo, ctx.prefix, retained_etag)
+          _missing -> nil
+        end
     end
   end
 

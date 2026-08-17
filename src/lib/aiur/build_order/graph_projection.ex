@@ -36,8 +36,34 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @spec selected(GenServer.server(), TrackerIdentity.t()) :: {:ok, Snapshot.t()} | {:error, Failure.t()}
   def selected(server \\ __MODULE__, identity), do: GenServer.call(server, {:selected, identity})
 
+  @doc """
+  Registers that the caller is watching `identity`, and returns what is held.
+
+  This costs nothing upstream. It retains the root's entry and enrols the caller
+  for broadcasts; it never decides that a read is due. Selecting a root, opening
+  the page and holding it open are all this call, so all three are free.
+
+  A caller that genuinely cannot proceed on what is held wants `refresh/2`.
+  """
   @spec demand(GenServer.server(), TrackerIdentity.t()) :: {:ok, Snapshot.t()} | {:error, Failure.t()}
   def demand(server \\ __MODULE__, identity), do: GenServer.call(server, {:demand, identity})
+
+  @doc """
+  Buys a fresh read of one selected root, because a caller needs one.
+
+  The deliberate counterpart to `demand/2`: this is the only way a selected root
+  is read on someone's behalf, and it exists so that removing the viewer cadence
+  does not also remove the operator's ability to say "read this now". It is a
+  need, stated explicitly by a caller, rather than a cadence inferred from the
+  fact that a page is open.
+
+  Asynchronous, and coalesced against any read already inflight for the root, so
+  ten callers asking at once still produce one upstream read.
+  """
+  @spec refresh(GenServer.server(), TrackerIdentity.t()) :: :ok
+  def refresh(server \\ __MODULE__, identity) do
+    GenServer.cast(server, {:refresh_selected, identity})
+  end
 
   @spec release(GenServer.server(), TrackerIdentity.t()) :: :ok | {:error, Failure.t()}
   def release(server \\ __MODULE__, identity), do: GenServer.call(server, {:release, identity})
@@ -99,9 +125,17 @@ defmodule Aiur.BuildOrder.GraphProjection do
       {:ok, identity} ->
         case ensure_selected_entry(state, identity) do
           {:ok, state, capacity_events} ->
+            # Registering demand is bookkeeping, not a request. It records that
+            # this pid is watching the root — so the entry is retained and future
+            # writes are broadcast to it — and it deliberately buys nothing.
+            #
+            # This call used to be the page's fetch trigger: selecting a root
+            # asked whether `graph_demand_refresh_ms` had elapsed and, on a cold
+            # entry, scheduled a read immediately. That made opening the page an
+            # upstream cost, and holding it open a recurring one. Both are gone;
+            # see `refresh/2` for the path that does spend.
             {state, identity} = add_demand(state, identity, pid)
-            {state, refresh_events} = maybe_refresh_demanded(state, identity)
-            events = events ++ capacity_events ++ refresh_events
+            events = events ++ capacity_events
             broadcast_all(state, events)
             {:reply, {:ok, selected_snapshot(state, identity)}, state}
 
@@ -156,6 +190,26 @@ defmodule Aiur.BuildOrder.GraphProjection do
   def handle_cast(:refresh_catalog, state) do
     {state, events} = reconcile(state)
     {state, refresh_events} = request_scope(state, :catalog)
+    broadcast_all(state, events ++ refresh_events)
+    {:noreply, state}
+  end
+
+  # The stated-need path. Unlike the cadence it replaces, it reads only a root
+  # somebody is actually holding: an unknown root is not created here, because
+  # creating one would let a caller buy a read for a root nothing is watching.
+  # `request_scope/2` already declines when a read is inflight, so concurrent
+  # callers coalesce onto one.
+  def handle_cast({:refresh_selected, identity}, state) do
+    {state, events} = reconcile(state)
+
+    {state, refresh_events} =
+      with {:ok, identity} <- authorize_root(state, identity),
+           %{scope: scope} <- Map.get(state.selected, Policy.root_key(identity)) do
+        request_scope(state, scope)
+      else
+        _not_held -> {state, []}
+      end
+
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
   end
@@ -512,22 +566,6 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  defp maybe_refresh_demanded(state, identity) do
-    entry = Map.fetch!(state.selected, Policy.root_key(identity))
-
-    if demand_refresh_due?(entry, state) do
-      request_scope(state, entry.scope)
-    else
-      {schedule_active_scope(state, entry.scope), []}
-    end
-  end
-
-  defp demand_refresh_due?(%{inflight: inflight}, _state) when not is_nil(inflight), do: false
-
-  defp demand_refresh_due?(entry, state) do
-    Policy.due?(entry, now_ms(state), state.policy.demand_refresh_ms) and retry_due?(entry, state)
-  end
-
   defp retry_due?(%{health: %{next_retry_at: nil}}, _state), do: true
 
   defp retry_due?(%{health: %{next_retry_at: next_retry_at}}, state),
@@ -760,9 +798,16 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp schedule_after_completion(state, :catalog, delay), do: schedule_scope(state, :catalog, delay)
 
-  defp schedule_after_completion(state, {:selected, _identity} = scope, delay) do
-    if active_scope?(state, scope), do: schedule_scope(state, scope, delay), else: state
-  end
+  # A selected root never schedules its successor. Completing a read used to
+  # queue the next one `graph_selected_refresh_ms` later for as long as anyone
+  # was watching, which made an open page a permanent meter — the single most
+  # expensive read in Build Order, repeating because of who was looking rather
+  # than because anything had changed.
+  #
+  # What refreshes a selected root now is a writer: the daemon's own catalog
+  # reconciliation, a store write from a webhook or an agent mutation, or an
+  # explicit `refresh/2`. None of those depend on a viewer.
+  defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state
 
   defp schedule_from_success(state, scope) do
     entry = scope_entry(state, scope)
@@ -812,12 +857,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
     |> Map.put(:next_timer_token, token + 1)
   end
 
+  # Only the catalog is rescheduled across a configuration change. Selected roots
+  # are not on a cadence at all any more, so there is nothing to restore for
+  # them; re-arming a timer here would quietly reintroduce the viewer-driven
+  # refresh that `schedule_after_completion/3` removes.
   defp reschedule_active_scopes(state) do
-    state = state |> cancel_all_timers() |> schedule_active_scope(:catalog)
-
-    Enum.reduce(state.selected, state, fn {_key, entry}, state ->
-      if MapSet.size(entry.demanders) > 0, do: schedule_active_scope(state, entry.scope), else: state
-    end)
+    state |> cancel_all_timers() |> schedule_active_scope(:catalog)
   end
 
   defp active_scope?(_state, :catalog), do: true
@@ -830,7 +875,15 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   defp scope_interval(state, :catalog), do: state.policy.catalog_refresh_ms
-  defp scope_interval(state, {:selected, _identity}), do: state.policy.selected_refresh_ms
+
+  # A selected root has no refresh interval of its own any more. What remains for
+  # it are the two things an interval was still being read for — the base of the
+  # failure backoff, and the window after which a snapshot is shown as ageing —
+  # and for both the honest number is the catalog cadence: the catalog
+  # reconciliation is the daemon-owned writer that would next notice this root
+  # changing, so it is the real bound on how stale the root can be without
+  # anyone finding out.
+  defp scope_interval(state, {:selected, _identity}), do: state.policy.catalog_refresh_ms
 
   defp scope_entry(state, :catalog), do: state.catalog
 
@@ -854,15 +907,20 @@ defmodule Aiur.BuildOrder.GraphProjection do
     )
   end
 
+  # The window after which a selected root is *displayed* as ageing. It is not a
+  # refresh trigger — nothing reads this to decide whether to spend — it only
+  # decides what the page tells the operator about the age of what it is showing.
+  defp selected_staleness_ms(state), do: state.policy.catalog_refresh_ms
+
   defp selected_snapshot(state, identity) do
     case Map.get(state.selected, Policy.root_key(identity)) do
       nil ->
         identity
         |> then(&Policy.unavailable_entry({:selected, &1}, now_ms(state)))
-        |> Policy.snapshot(state.active_repository, state.authority_epoch, now_ms(state), state.policy.selected_refresh_ms)
+        |> Policy.snapshot(state.active_repository, state.authority_epoch, now_ms(state), selected_staleness_ms(state))
 
       entry ->
-        Policy.snapshot(entry, state.active_repository, state.authority_epoch, now_ms(state), state.policy.selected_refresh_ms)
+        Policy.snapshot(entry, state.active_repository, state.authority_epoch, now_ms(state), selected_staleness_ms(state))
     end
   end
 
