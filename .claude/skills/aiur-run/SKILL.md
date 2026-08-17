@@ -105,12 +105,11 @@ From the repository root:
    needs an explicit clean checkpoint; ordinary local launches rebuild stale
    sources, and installed `aiur` has no shim-only `build` command.
 
-Preflight also covers the Executor wake path: because `--executor` is what arms
-the daemon listener, an Executor launch that forgets it is a silent omission.
-The launch section below makes the flag required and adds the `status`
-verification step; treat `LISTENER absent (no Executor wake path; Commands and
-PR events will not wake the Executor)` on your post-launch `status` as a failed
-launch, not a warning.
+Preflight also covers the Executor wake path. The listener is armed on **every**
+run now, with or without `--executor`, so `LISTENER absent` no longer means "no
+Executor was intended" — it always means the recording path is broken and this
+run is losing its wake stream. Treat `LISTENER absent` on your post-launch
+`status` as a failed launch, not a warning, whatever flags you used.
 
 Do not use `--test` or `--test3` for a real run. Those are destructive sandbox
 harnesses. Do not run from nested tmux.
@@ -125,11 +124,11 @@ in consumer repositories. Equivalent background forms are:
 "$AIUR_CMD" --bg --executor --debug --max-agents <n>
 ```
 
-`--executor` is required for every Executor-owned run: it launches the run
-**and** arms the daemon-resident Command listener in one command, so the
-listener is not a separate step to forget. An ordinary non-Executor launch
-omits it and therefore has no Command inbox — that is deliberate. If you are
-acting as the Executor, launch with `--executor`; there is no valid Executor
+`--executor` is required for every Executor-owned run, but what it now declares
+is **authority**, not recording. Every run records the wake stream and every run
+arms the listener; `--executor` is what raises created and deferred Commands as
+needs-attention alerts, and it is what marks this run as the principal. If you
+are acting as the Executor, launch with `--executor`; there is no valid Executor
 launch without it.
 
 Include `--debug` only when authorized. It controls evidence capture and never
@@ -140,10 +139,17 @@ options.
 Verify `status` immediately after launch. A healthy launch reports
 `LISTENER present (24 bindings: executor.#, ...)`; a partial binding set reports
 `LISTENER degraded (N/24 bindings; MISSING: ...)`; and no live bindings reports
-`LISTENER absent (no Executor wake path; Commands and PR events will not wake
-the Executor)`. Treat degraded or absent as a launch failure and fix it before
-dispatching work; a run that dispatches agents but cannot hear their handoffs
+`LISTENER absent (FAULT: ...)`. Treat degraded or absent as a launch failure and
+fix it before dispatching work; a run that dispatches agents but cannot hear their handoffs
 is worse than one that refuses to start.
+
+Run `aiur executor-roster` at the same point. Another executor may legitimately
+be listening — the operator may want more than one — so a healthy peer is
+information, not an error. Report any peer to the operator with its evidence
+(`last_renewed_at`, `last_acknowledged_at`, `pending_count`, whether the cursor
+moved), and say plainly when one is `stalled` or `expired`. Recommend; do not
+revoke a live peer's claim yourself. `aiur executor-revoke <id>` is the
+operator's decision.
 
 **Say so to the human.** At the first status report after launch, state one
 line confirming the subscription, for example: "Listening for Executor events
