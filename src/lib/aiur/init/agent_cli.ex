@@ -18,7 +18,7 @@ defmodule Aiur.Init.AgentCli do
 
   # 1.1.0 isn't on npm yet; name the git fallback so the hint actually resolves.
   @upgrade_hint "upgrade it with: npm install -g aiur-claude@#{@min_claude_version} " <>
-                  "(or npm install -g github:its-everdred/claude-app-server until " <>
+                  "(or npm install -g github:aiur-team/aiur-claude until " <>
                   "#{@min_claude_version} is published)"
 
   @spec check_agent_clis(Aiur.Init.io(), Aiur.Init.deps(), [String.t()]) :: :ok
