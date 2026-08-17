@@ -62,6 +62,10 @@ defmodule Aiur.PollCadence do
   # configuration cannot be read at all.
   @fallback_interval_ms 120_000
 
+  # An idle Orchestrator only writes new snapshot input on a poll tick, so two
+  # missed ticks is the earliest moment "we should have heard by now" is true.
+  @snapshot_tolerance_intervals 2
+
   @doc """
   Records the interval the dispatcher actually scheduled.
 
@@ -138,6 +142,21 @@ defmodule Aiur.PollCadence do
     floor_ms = positive_integer(Keyword.get(opts, :floor_ms)) || 1
 
     max(derived, floor_ms)
+  end
+
+  @doc """
+  The staleness a dashboard reader tolerates before a fleet view is presented
+  as last-known-good rather than current.
+
+  `floor_ms` is the configured `snapshot_timeout_ms` (default 15s). It stays a
+  floor rather than the answer: at the 120s poll a fixed 15s tolerance held for
+  roughly 87% of every cycle, so a healthy fleet announced staleness
+  continuously. Deriving it means the notice appears when the producer is
+  actually behind its own rhythm, and nowhere else.
+  """
+  @spec snapshot_tolerance_ms(pos_integer()) :: pos_integer()
+  def snapshot_tolerance_ms(floor_ms \\ 15_000) do
+    stale_after_ms(@snapshot_tolerance_intervals, floor_ms: floor_ms)
   end
 
   @doc """

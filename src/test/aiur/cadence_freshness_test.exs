@@ -99,37 +99,50 @@ defmodule Aiur.CadenceFreshnessTest do
     end
   end
 
-  describe "SnapshotStore freshness window" do
-    test "the backlog window widens with the cadence instead of staying at the read timeout" do
+  describe "dashboard reader tolerance" do
+    test "widens with the cadence instead of staying at the configured 15s" do
       expected = [{5_000, @read_timeout_ms}, {120_000, 240_000}, {1_200_000, 2_400_000}]
 
-      for {interval_ms, window_ms} <- expected do
+      for {interval_ms, tolerance_ms} <- expected do
         :ok = PollCadence.publish_effective_interval_ms(interval_ms)
-        orchestrator = start_orchestrator()
-        publish_aged(orchestrator, 1_000)
 
-        assert {:current, _snapshot, metadata} = SnapshotStore.read(orchestrator, @read_timeout_ms)
-        assert metadata.freshness_window_ms == window_ms
+        assert PollCadence.snapshot_tolerance_ms(@read_timeout_ms) == tolerance_ms
       end
     end
 
     test "a backlogged orchestrator does not flap stale inside one cadence" do
-      # The reported symptom: at a 120s poll the 15s read timeout held ~87% of
-      # every cycle, so a healthy fleet announced staleness continuously.
+      # The reported symptom: at a 120s poll the fixed 15s tolerance held for
+      # ~87% of every cycle, so a healthy fleet announced staleness continuously
+      # while the Orchestrator was merely busy.
       :ok = PollCadence.publish_effective_interval_ms(120_000)
       orchestrator = start_orchestrator()
       backlog(orchestrator, 5)
       publish_aged(orchestrator, 100_000)
 
-      assert {:current, _snapshot, metadata} = SnapshotStore.read(orchestrator, @read_timeout_ms)
+      tolerance_ms = PollCadence.snapshot_tolerance_ms(@read_timeout_ms)
+
+      assert {:current, _snapshot, metadata} = SnapshotStore.read(orchestrator, tolerance_ms)
       assert metadata.orchestrator_mailbox_depth == 5
+      assert metadata.freshness_window_ms == 240_000
 
       # ...and the backlog path still fires once the producer is genuinely
       # behind its own cadence.
       publish_aged(orchestrator, 300_000)
 
-      assert {:stale, _snapshot, stale_metadata} = SnapshotStore.read(orchestrator, @read_timeout_ms)
+      assert {:stale, _snapshot, stale_metadata} = SnapshotStore.read(orchestrator, tolerance_ms)
       assert stale_metadata.reason in [:snapshot_timeout, :snapshot_stalled]
+    end
+
+    test "a reader that demands zero tolerance still gets it" do
+      # Correctness-critical reads must be able to refuse any staleness at all;
+      # the cadence floor is a reader default, never an override.
+      :ok = PollCadence.publish_effective_interval_ms(1_200_000)
+      orchestrator = start_orchestrator()
+      backlog(orchestrator, 1)
+      publish_aged(orchestrator, 5)
+
+      assert {:stale, _snapshot, metadata} = SnapshotStore.read(orchestrator, 0)
+      assert metadata.reason == :snapshot_timeout
     end
   end
 

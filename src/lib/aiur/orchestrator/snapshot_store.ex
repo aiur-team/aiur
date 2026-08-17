@@ -441,34 +441,33 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     PollCadence.stale_after_ms(@stale_window_margin, floor_ms: @stale_window_ceiling_floor_ms)
   end
 
-  # The window is the widest of three claims about when we should have heard:
-  # the caller's read timeout, the cadence the Orchestrator is actually
-  # scheduled on, and the cadence it has recently been observed publishing at.
+  # The caller's tolerance is honoured exactly: `read/3` never widens a window
+  # the caller asked to be narrow. Deriving the tolerance from the cadence is
+  # the *caller's* job — see `AiurWeb.OperatorControlCenter.PayloadLoader` and
+  # the other dashboard readers, which pass
+  # `PollCadence.snapshot_tolerance_ms/1` rather than a fixed 15s. A reader that
+  # genuinely wants zero tolerance (a correctness-critical read) must still be
+  # able to ask for it.
   #
-  # The cadence term is what fixes the reported flap. Before it, a store with no
-  # gap history fell back to the 15s read timeout, so at a 120s poll every
-  # snapshot spent ~87% of each cycle "stale" while nothing was wrong. The
-  # observed-gap term stays capped so a single long pause cannot widen the
-  # window indefinitely.
+  # The observed-gap term widens on top of that, capped so one long pause cannot
+  # widen the window indefinitely. The cap itself is cadence-derived, because a
+  # fixed 60s cap clamped the adaptive window to half the 120s cadence and so
+  # disabled the very mechanism meant to absorb a slower producer.
   defp effective_window(timeout, gaps) when is_list(gaps) do
-    observed_ms =
-      case median(gaps) do
-        median_ms when is_integer(median_ms) and median_ms > 0 ->
-          min(median_ms * @stale_window_margin, stale_window_ceiling_ms())
+    case median(gaps) do
+      nil ->
+        timeout
 
-        _no_history ->
-          0
-      end
+      median_ms when is_integer(median_ms) and median_ms > 0 ->
+        capped = min(median_ms * @stale_window_margin, stale_window_ceiling_ms())
+        max(timeout, capped)
 
-    timeout
-    |> max_window(PollCadence.stale_after_ms(@stale_window_margin))
-    |> max_window(observed_ms)
+      _ ->
+        timeout
+    end
   end
 
   defp effective_window(timeout, _gaps), do: timeout
-
-  defp max_window(timeout, candidate) when is_integer(timeout) and is_integer(candidate), do: max(timeout, candidate)
-  defp max_window(timeout, _candidate), do: timeout
 
   defp median([]), do: nil
 
