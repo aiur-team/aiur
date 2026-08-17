@@ -233,7 +233,11 @@ defmodule Aiur.GitHub.CacheInspectorTest do
       :ok = ResourceStore.put_resource(dropped, %{"body" => "gone"}, source: :poll, version: "v2", etag: "W/\"b\"")
       :ok = ResourceStore.drop_data(dropped)
 
-      projection = CacheInspector.project(source: ResourceStoreSource)
+      # The store is global and other cases in this suite write to it, so the
+      # limit is raised rather than left at the page's default: a truncated
+      # projection would fail this for a reason that has nothing to do with what
+      # it is asserting.
+      projection = CacheInspector.project(source: ResourceStoreSource, limit: 100_000)
 
       held_entry = CacheInspector.find(projection, "issue_comment:owner:repo:4242")
       dropped_entry = CacheInspector.find(projection, "issue_comment:owner:repo:4243")
@@ -347,6 +351,21 @@ defmodule Aiur.GitHub.CacheInspectorTest do
   end
 
   describe "the default source" do
+    test "is used even when nothing has loaded its module yet" do
+      # `function_exported?/3` answers false for a module that is only not
+      # loaded yet. Deciding availability on it alone made the page render "no
+      # cache store is running" over a store that was running and full — the
+      # worst failure this page has, because it looks like a working page
+      # reporting bad news rather than a broken one.
+      :code.purge(ResourceStoreSource)
+      :code.delete(ResourceStoreSource)
+
+      key = ResourceStore.key(:issue, "owner", "repo", 8888)
+      :ok = ResourceStore.put_resource(key, %{"number" => 8888}, source: :webhook, version: "v1")
+
+      assert CacheInspector.project(source: ResourceStoreSource, limit: 100_000).available?
+    end
+
     test "reads the store's own record shape, field for field" do
       key = ResourceStore.key(:pull_request, "owner", "repo", 7777)
       :ok = ResourceStore.put_resource(key, %{"number" => 7777}, source: :mutation, version: "v9", etag: "W/\"z\"")

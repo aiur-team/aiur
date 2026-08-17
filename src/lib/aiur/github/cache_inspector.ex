@@ -194,7 +194,14 @@ defmodule Aiur.GitHub.CacheInspector do
     :exit, _reason -> :unavailable
   end
 
-  defp source_available?(source), do: function_exported?(source, :available?, 0) and source.available?()
+  # `function_exported?/3` answers `false` for a module that is merely not
+  # loaded yet, which under lazy loading makes a perfectly good source look
+  # unavailable and renders the page's "no cache store is running" state over a
+  # store that is running. Loading it first is the difference between asking
+  # "can this source answer?" and asking "has anything happened to mention it?".
+  defp source_available?(source) do
+    Code.ensure_loaded?(source) and function_exported?(source, :available?, 0) and source.available?()
+  end
 
   defp configured_source,
     do: Application.get_env(:aiur, :github_cache_inspector_source, ResourceStoreSource)

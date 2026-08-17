@@ -313,10 +313,21 @@ defmodule AiurWeb.GithubCacheLiveTest do
     end
 
     test "no store at all says so rather than rendering a zero" do
-      # The store lands with U1. Until then — and whenever it is cold — the page
-      # must say there is nothing to read, because "no store" and "an empty
-      # store" are different facts and only one of them is a problem.
-      Source.uninstall()
+      # A daemon whose store failed to start, or a CLI process that never
+      # started one. The page must say there is nothing to read, because "no
+      # store" and "an empty store" are different facts and only one of them is
+      # a problem — rendering the second as the first would tell an operator
+      # their cache is empty when it is really their inspector that is blind.
+      defmodule NoStoreSource do
+        @behaviour Aiur.GitHub.CacheInspector.Source
+        @impl true
+        def available?, do: false
+        @impl true
+        def entries, do: []
+      end
+
+      Application.put_env(:aiur, :github_cache_inspector_source, NoStoreSource)
+      on_exit(fn -> Application.delete_env(:aiur, :github_cache_inspector_source) end)
 
       {:ok, _view, html} = live(build_conn(), "/github-cache")
 
