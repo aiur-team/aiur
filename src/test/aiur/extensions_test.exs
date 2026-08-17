@@ -1,7 +1,7 @@
 defmodule Aiur.ExtensionsTest do
   use Aiur.TestSupport
 
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
   alias Aiur.Linear.Tracker, as: LinearTracker
@@ -1730,6 +1730,19 @@ defmodule Aiur.ExtensionsTest do
       "capacity_hold",
       "dispatch_hold"
     ])
+  end
+
+  # Dashboard routes are behind the FinancialDataAccess plug, which challenges
+  # any request once credentials are configured (regardless of `dashboard_auth_required`).
+  # test_helper configures credentials globally, so every extension-test request to a
+  # dashboard route must present them. Tests that exercise the missing-configuration
+  # path build an unauthenticated conn explicitly.
+  defp build_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header(
+      "authorization",
+      "Basic " <> Base.encode64("operator:test-dashboard-secret")
+    )
   end
 
   defp wait_for_bound_port do
