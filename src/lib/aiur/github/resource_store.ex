@@ -331,8 +331,9 @@ defmodule Aiur.GitHub.ResourceStore do
 
   defp now_ms, do: System.system_time(:millisecond)
 
+  # Only ever reached with an integer: `processed?/1` guards on `is_integer/1`
+  # before asking, so a second catch-all clause here would be unreachable.
   defp expired?(at) when is_integer(at), do: now_ms() - at > @retention_ms
-  defp expired?(_at), do: true
 
   defp sweep(table) do
     cutoff = now_ms() - @retention_ms

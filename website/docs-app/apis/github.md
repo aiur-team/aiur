@@ -12,7 +12,9 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 | CI | Terminal checks while a ticket is in `agent:ci-wait` | Returns passed work for human review and failed work for repair. |
 | Repository events | Default-branch pushes and opened or merged pull requests | Refreshes work whose base or review state changed. |
 
-Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed. Where a webhook is installed and proven, the comment sweep becomes a reconciliation pass rather than a second source: it still reads everything, but a comment a delivery already handled is not published again, so an agent is woken once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
+Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
+
+Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 
 ## Who Aiur trusts
 
@@ -28,7 +30,11 @@ Poll spend still scales inversely with the interval, so `polling.interval_second
 
 Comments are read over conditional REST with `If-None-Match`. An unchanged comment list answers `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. The validators are kept on disk, so a daemon restart does not force a full-price re-read.
 
-GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the one pull request that resolved. Measured against the live API with `rateLimit { cost }`, ten targets cost **11 points** where the previous shape cost **114** — the old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten.
+GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
+
+The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
+
+Spend scales with target count, not with comment volume.
 
 | `interval_seconds` | Approximate GraphQL spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -37,7 +43,7 @@ GraphQL is now used only to resolve which pull request belongs to a ticket, and 
 | 120 | ~330 points/hour | 2m |
 | 300 | ~130 points/hour | 5m |
 
-Figures are for a ten-target fleet and scale with target count, not with comment volume. A busy repository raises REST request counts rather than GraphQL points, and most of those requests are `304`s.
+Figures are for a ten-target fleet. A busy repository raises REST request counts rather than GraphQL points, and most of those requests are `304`s.
 
 GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoint, and Aiur uses the wider of the two.
 
@@ -66,9 +72,11 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## Comments arriving twice
 
-A comment can reach Aiur down two paths: a webhook delivery, which is free and arrives first, and the comment sweep, which reads it back from the API. Both must exist. Deliveries are genuinely lost — measured here, 9 of 100 returned `502` during a daemon restart, GitHub retried none, and none arrived later — so a sweep that skipped webhook-backed repositories would silently drop those comments.
+A comment can reach Aiur down two paths: a webhook delivery, which is free and arrives first, and the comment sweep, which reads it back from the API.
 
-Aiur therefore records each comment it has processed by its identity, and both paths write to the same record. The consequences:
+Both must exist. Deliveries are genuinely lost — measured here, 9 of 100 returned `502` during a daemon restart, GitHub retried none, and none arrived later. A sweep that skipped webhook-backed repositories would drop those comments silently.
+
+Aiur therefore records each comment it has processed by its identity, and both paths write to the same record.
 
 | Situation | What happens |
 | --- | --- |

@@ -101,8 +101,15 @@ defmodule Aiur.Events.Publisher do
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
-    actor = Keyword.get(opts, :actor)
+    case rejection(topic, payload, opts) do
+      nil -> do_publish(topic, payload, opts)
+      rejection -> rejection
+    end
+  end
 
+  # The gates, in the order they are cheapest to answer and most decisive.
+  # `nil` means nothing rejected the event and it should be published.
+  defp rejection(topic, payload, opts) do
     cond do
       durable_decision_topic?(topic) ->
         {:error, :decision_requires_durable_publish}
@@ -110,7 +117,7 @@ defmodule Aiur.Events.Publisher do
       executor_topic_from_github?(topic, payload, opts) ->
         {:error, :executor_namespace_rejects_github_source}
 
-      filtered_bot_self_loop?(topic, actor) ->
+      filtered_bot_self_loop?(topic, Keyword.get(opts, :actor)) ->
         :filtered
 
       not Keyword.get(opts, :bypass_contamination, false) and
@@ -130,21 +137,24 @@ defmodule Aiur.Events.Publisher do
         :deduped
 
       true ->
-        id = IdGenerator.next_id()
-
-        event = event_with_observation(topic, payload, id, opts)
-
-        subscribers = Exchange.publish(topic, event)
-        record_emit_marker(topic, event, opts)
-        # Recorded *after* the publish, never before. A crash in between then
-        # leaves the resource unmarked, so the next reconciliation sweep
-        # republishes it — a duplicate the window above still absorbs. Marking
-        # first would make the same crash suppress the event permanently,
-        # because this store is the sweep's own source of suppression.
-        mark_resource_processed(opts)
-        DebugLog.broadcast(:publish, topic, id: id, body: payload)
-        {:ok, id, subscribers}
+        nil
     end
+  end
+
+  defp do_publish(topic, payload, opts) do
+    id = IdGenerator.next_id()
+    event = event_with_observation(topic, payload, id, opts)
+
+    subscribers = Exchange.publish(topic, event)
+    record_emit_marker(topic, event, opts)
+    # Recorded *after* the publish, never before. A crash in between then
+    # leaves the resource unmarked, so the next reconciliation sweep
+    # republishes it — a duplicate the window above still absorbs. Marking
+    # first would make the same crash suppress the event permanently,
+    # because this store is the sweep's own source of suppression.
+    mark_resource_processed(opts)
+    DebugLog.broadcast(:publish, topic, id: id, body: payload)
+    {:ok, id, subscribers}
   end
 
   defp resource_processed?(opts), do: opts |> Keyword.get(:resource) |> ResourceStore.processed?()

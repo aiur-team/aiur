@@ -95,6 +95,7 @@ defmodule Aiur.TestSupport do
       alias Aiur.Codex.Config, as: CodexConfig
       alias Aiur.Events.Publisher, as: EventsPublisher
       alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+      alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
@@ -140,7 +141,7 @@ defmodule Aiur.TestSupport do
         # sweep that re-reads the same comment. In a suite that means comment id
         # 1 on issue 42 in one case would silently suppress comment id 1 on
         # issue 42 in the next, so each case starts from an empty store.
-        Aiur.GitHub.ResourceStore.reset()
+        GitHubResourceStore.reset()
 
         File.mkdir_p!(workflow_root)
 
