@@ -270,7 +270,7 @@ defmodule Aiur.GitHub.IssueDependencies do
       variables = Map.merge(%{"owner" => owner, "repo" => repo}, cursor_variables)
 
       request_fun
-      |> Transport.github_graphql(token, blocking_query(nodes), variables)
+      |> Transport.github_graphql(token, blocking_query(nodes), variables, caller: :issue_dependencies)
       |> continue_blocking_graph_pages(nodes, edges, opts)
     end
   end

@@ -29,6 +29,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub
   alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Quota
 
@@ -532,16 +533,42 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
+  @doc """
+  Issues a GraphQL request and returns the decoded body beside the raw response.
+
+  Two things happen here that no call site has to remember.
+
+  The query is passed through `Aiur.GitHub.GraphQLCost.instrument/1`, which adds
+  a `rateLimit { cost }` selection where the document does not already carry
+  one. That selection resolves on the `Query` root the request was already
+  paying for, so it adds no request and no point — and without it the response
+  reports only the balance left, never what this call spent. Every GraphQL path
+  but the Build Order graph was consequently being counted at one point.
+
+  The request is stamped with `opts[:caller]`, the call site to bill. It is
+  declared rather than inferred because the batch queries make inference wrong:
+  `CommentPollBatch` names 33 tickets in one document and belongs to none of
+  them. A call site that declares nothing falls back to the operation name.
+  """
   @spec github_graphql_response(function(), String.t(), String.t(), map(), keyword()) ::
           {:ok, map(), map()} | {:error, term(), map() | nil}
   def github_graphql_response(request_fun, token, query, variables, opts \\ []) do
-    body = %{"query" => query, "variables" => variables}
+    body = %{"query" => GraphQLCost.instrument(query), "variables" => variables}
 
     request =
       %{method: :post, url: @graphql_url, token: token, body: body}
       |> maybe_put_max_response_bytes(opts)
+      |> maybe_put_caller(opts)
 
     validate_graphql_response(request_fun.(request))
+  end
+
+  defp maybe_put_caller(request, opts) do
+    case Keyword.get(opts, :caller) do
+      caller when is_atom(caller) and not is_nil(caller) -> Map.put(request, :caller, Atom.to_string(caller))
+      caller when is_binary(caller) and caller != "" -> Map.put(request, :caller, caller)
+      _undeclared -> request
+    end
   end
 
   defp maybe_put_max_response_bytes(request, opts) do
