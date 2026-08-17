@@ -73,7 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   def project(_catalog, selection) do
-    project(%{status: :unavailable, message: "Units catalog is unavailable.", snapshot: %{rows: []}}, selection)
+    project(%{status: :unavailable, message: "Fleet data is unavailable.", snapshot: %{rows: []}}, selection)
   end
 
   @spec select_scope(UnitsPolicy.selection() | term(), atom() | String.t()) :: UnitsPolicy.selection()
@@ -139,16 +139,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     summary =
       case Map.get(view, :status, :loading) do
         :loading -> "Loading Units."
-        :unavailable -> "Units catalog unavailable."
-        :empty -> "No units have been observed in this run."
-        :stale -> "Showing #{count_phrase(visible, total, view)} from stale catalog data."
+        :unavailable -> "No live units."
+        :empty -> "No units in this run yet."
+        :stale -> "Showing #{count_phrase(visible, total, view)} from the last update."
         _status -> "Showing #{count_phrase(visible, total, view)}."
       end
 
-    summary <> " Catalog update #{revision}."
+    summary <> " Update #{revision}."
   end
 
-  def announcement(_view), do: "Units catalog unavailable. Catalog update unknown."
+  def announcement(_view), do: "No live units. Update unknown."
 
   defp valid_membership?(%{members: members}) when is_list(members), do: true
   defp valid_membership?(_membership), do: false
@@ -171,7 +171,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     %{
       generation: nil,
       health: {:unavailable, :membership_provider_unavailable},
-      health_message: "current-run membership is unavailable",
+      health_message: "Fleet data is unavailable.",
       freshness: %{status: :unavailable},
       members: [],
       truncated?: false
@@ -330,7 +330,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   defp catalog_message(:ready, _membership, _snapshot), do: nil
-  defp catalog_message(:empty, _membership, _snapshot), do: "No units have been observed in this run."
+  defp catalog_message(:empty, _membership, _snapshot), do: "No units in this run yet."
 
   # Never quote a healthy membership as the reason for a stale catalog: the
   # cause is whichever source is actually degraded.
@@ -338,7 +338,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     do: membership_fault(membership) || stale_source_message(snapshot)
 
   defp catalog_message(:unavailable, membership, _snapshot),
-    do: membership_fault(membership) || "Units catalog is unavailable."
+    do: membership_fault(membership) || "Fleet data is unavailable."
 
   defp membership_fault(membership) do
     case Map.get(membership, :health) do
@@ -352,26 +352,26 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
     cond do
       fleet_health(snapshot) not in [:healthy, :available] ->
-        "#{lead} while the fleet snapshot is unavailable."
+        "#{lead} Fleet data is unavailable."
 
       fleet_freshness_degraded?(snapshot) ->
-        "#{lead} while fleet snapshot refresh is degraded." <> fleet_age_phrase(snapshot)
+        "#{lead} Fleet updates are running behind." <> fleet_age_phrase(snapshot)
 
       true ->
-        "#{lead} while current-run membership reconciles."
+        "#{lead} Still counting units for this run."
     end
   end
 
-  # "Showing the last-known-good catalog" is only true when something is
-  # retained to show. With no rows the same sentence over an empty table is the
+  # "Showing the units we last saw" is only true when something is still held to
+  # show. With no rows the same sentence over an empty table is the
   # confident-wrong-claim shape this module exists to remove.
-  defp stale_lead(%{rows: []}), do: "No last-known-good Units catalog is retained"
-  defp stale_lead(_snapshot), do: "Showing the last-known-good Units catalog"
+  defp stale_lead(%{rows: []}), do: "No live units."
+  defp stale_lead(_snapshot), do: "Showing the units we last saw."
 
   defp fleet_age_phrase(snapshot) do
     case fleet_age_seconds(snapshot) do
       nil -> ""
-      age_seconds -> " Fleet view is #{UnitsPresentation.age_label(age_seconds)} old."
+      age_seconds -> " Last updated #{UnitsPresentation.age_label(age_seconds)} ago."
     end
   end
 

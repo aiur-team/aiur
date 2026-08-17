@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
   alias Aiur.{AgentQueue, AgentQueueStore, CodingAgent, Issue, TrackerIdentity}
   alias Aiur.AgentRunner.SessionLifecycle
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, Slots, SnapshotStore, State}
   alias Aiur.Workspace.Ownership
@@ -263,6 +264,58 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
   end
 
+  describe "orphaned shell reaping" do
+    test "reaps a tracked headless shell tree when its runner exits" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.ORPHAN-1.agent.orphan_reaped")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      bash = System.find_executable("bash") || flunk("bash executable unavailable")
+      port = Port.open({:spawn_executable, String.to_charlist(bash)}, [:binary, args: [~c"-c", ~c"sleep 600 & wait"]])
+      assert {:os_pid, shell_pid} = :erlang.port_info(port, :os_pid)
+      child_pid = wait_for_child_process(shell_pid)
+
+      on_exit(fn ->
+        RemoteControl.graceful_kill_tree(shell_pid)
+
+        try do
+          Port.close(port)
+        rescue
+          ArgumentError -> :ok
+        end
+      end)
+
+      issue_id = "issue-orphan-#{System.unique_integer([:positive])}"
+      ref = make_ref()
+
+      state = %State{
+        running: %{
+          issue_id => %{
+            ref: ref,
+            identifier: "ORPHAN-1",
+            started_at: DateTime.utc_now(),
+            retry_attempt: 0,
+            headless_os_pid: shell_pid,
+            headless_process_group_id: nil
+          }
+        },
+        claimed: MapSet.new([issue_id])
+      }
+
+      assert {:noreply, after_down} = RetryEngine.handle_agent_down(state, ref, :killed)
+      assert after_down.orphaned_agent_reap_count == 1
+      refute RemoteControl.process_alive?(shell_pid)
+      refute RemoteControl.process_alive?(child_pid)
+      assert_receive {:event, %{topic: "ticket.ORPHAN-1.agent.orphan_reaped"} = event}, 500
+      assert event["needs_attention"] == true
+      assert event["message"] =~ "orphaned_agent_reap_count=1"
+    end
+  end
+
   defp tracker_identity(identifier) do
     %TrackerIdentity{
       version: 1,
@@ -274,6 +327,27 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       identifier: identifier,
       reason: nil
     }
+  end
+
+  defp wait_for_child_process(parent_pid, attempts \\ 20)
+
+  defp wait_for_child_process(_parent_pid, 0), do: flunk("headless shell did not spawn its child")
+
+  defp wait_for_child_process(parent_pid, attempts) do
+    case System.find_executable("pgrep") do
+      nil ->
+        flunk("pgrep executable unavailable")
+
+      pgrep ->
+        case System.cmd(pgrep, ["-P", Integer.to_string(parent_pid)], stderr_to_stdout: true) do
+          {output, 0} ->
+            output |> String.trim() |> String.to_integer()
+
+          _ ->
+            Process.sleep(25)
+            wait_for_child_process(parent_pid, attempts - 1)
+        end
+    end
   end
 
   describe "complete_issue/2" do

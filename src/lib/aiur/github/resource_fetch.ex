@@ -67,7 +67,11 @@ defmodule Aiur.GitHub.ResourceFetch do
 
   @type freshness :: :strict | :any | {:max_age_ms, pos_integer()}
 
-  @type outcome :: :store | :revalidated | :fetched
+  # `:superseded` is a revalidation that lost a race with a concurrent writer:
+  # the request was spent, nothing was written, and the caller received the newer
+  # body. It is reported rather than folded into `:revalidated` so a consumer can
+  # tell "GitHub confirmed what I held" from "somebody else already had better".
+  @type outcome :: :store | :revalidated | :superseded | :fetched
 
   @type meta :: %{
           outcome: outcome(),
@@ -247,35 +251,78 @@ defmodule Aiur.GitHub.ResourceFetch do
         # broadcast a change to every subscriber of a resource that did not
         # change. The held one just proved itself by earning this `304`.
         validator = entry.etag || etag
-        now = System.system_time(:millisecond)
 
-        ResourceStore.put_resource(key, entry.data,
-          source: entry.source || Keyword.get(opts, :source, :fetch),
-          version: entry.version,
-          etag: validator
-        )
+        # Read-then-write is what this must not be. `ResourceStore.revalidate/3`
+        # makes the whole decision inside one compare-and-swap, so a webhook body
+        # that lands between the `fetch/1` above and the write below is never
+        # rolled back — and, when that happens, nothing is written at all and the
+        # caller is handed the newer body instead of the one it was holding.
+        case ResourceStore.revalidate(key, entry.data, validator) do
+          :confirmed ->
+            {:ok, entry.data,
+             %{
+               outcome: :revalidated,
+               version: entry.version,
+               fetched_at_ms: System.system_time(:millisecond),
+               etag: validator,
+               spent?: false
+             }}
 
+          :superseded ->
+            superseded(key, entry, validator)
+
+          :miss ->
+            bodyless_304(key, fetcher, opts)
+        end
+
+      :miss ->
+        bodyless_304(key, fetcher, opts)
+    end
+  end
+
+  # A concurrent writer — since #2106, most often the webhook pipe — deposited a
+  # newer body while this conditional read was in flight. Nothing was written.
+  # The newer body is handed back rather than this caller's: it is at least as
+  # current as the one a `304` just confirmed, and returning the older one would
+  # make the answer worse than doing nothing.
+  defp superseded(key, entry, validator) do
+    case ResourceStore.fetch(key) do
+      {:ok, newer} ->
+        {:ok, newer.data,
+         %{
+           outcome: :superseded,
+           version: newer.version,
+           fetched_at_ms: newer.fetched_at_ms,
+           etag: newer.etag,
+           spent?: false
+         }}
+
+      # Vanished between the swap and this read — a drop or an eviction. The
+      # caller still holds the body a `304` just confirmed, so answer with it
+      # rather than spend another request.
+      :miss ->
         {:ok, entry.data,
          %{
            outcome: :revalidated,
            version: entry.version,
-           fetched_at_ms: now,
+           fetched_at_ms: entry.fetched_at_ms,
            etag: validator,
            spent?: false
          }}
-
-      :miss ->
-        # A `304` with nothing to serve is the one failure this module must not
-        # pass on as an answer: the request was spent and produced no data. It
-        # means the fetcher carried a validator from somewhere other than the
-        # store, so retry once unconditionally rather than return an empty read.
-        Logger.warning(
-          "GitHub.ResourceFetch got 304 with no held body for #{inspect(key)}; retrying unconditionally " <>
-            "reason=#{inspect(Keyword.get(opts, :reason))}"
-        )
-
-        retry_unconditionally(key, fetcher, opts)
     end
+  end
+
+  # A `304` with nothing to serve is the one failure this module must not pass on
+  # as an answer: the request was spent and produced no data. It means the
+  # fetcher carried a validator from somewhere other than the store, so retry
+  # once unconditionally rather than return an empty read.
+  defp bodyless_304(key, fetcher, opts) do
+    Logger.warning(
+      "GitHub.ResourceFetch got 304 with no held body for #{inspect(key)}; retrying unconditionally " <>
+        "reason=#{inspect(Keyword.get(opts, :reason))}"
+    )
+
+    retry_unconditionally(key, fetcher, opts)
   end
 
   defp retry_unconditionally(key, fetcher, opts) do

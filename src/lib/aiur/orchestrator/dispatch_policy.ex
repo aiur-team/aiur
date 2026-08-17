@@ -128,7 +128,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # Pure load-threshold check (#465), kept separate for compatibility and unit
   # testing. The authoritative admission reason additionally corroborates an
   # exceeded threshold with short-window CPU headroom so low-priority runnable
-  # processes cannot hold the fleet by themselves.
+  # processes — and a load average that no longer reflects current CPU
+  # contention — cannot hold the fleet by themselves.
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   def load_gate(_load, nil, _schedulers), do: :dispatch
   def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
@@ -137,13 +138,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
 
   @doc false
+  # `cpu_headroom` is required rather than defaulted: an uncorroborated caller
+  # can never produce a hold, so a defaulted arity would silently read as "the
+  # load gate is off" (#2089).
   @spec load_admission_reason(
           number() | :unavailable,
           number() | nil,
           pos_integer(),
           SystemCpu.headroom() | :unavailable
         ) :: :dispatch | {:hold, admission_reason()}
-  def load_admission_reason(load, threshold, schedulers, cpu_headroom \\ :unavailable) do
+  def load_admission_reason(load, threshold, schedulers, cpu_headroom) do
     load
     |> load_gate(threshold, schedulers)
     |> corroborated_admission_reason(:load, load, scaled_threshold(threshold, schedulers), cpu_headroom)
@@ -243,10 +247,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def github_quota_gate({:hold, %{resource: resource}}) when resource in ["core", "graphql"], do: :hold
   def github_quota_gate(_status), do: :dispatch
 
+  # The corroboration keys are optional but no longer incidental: a `load` or
+  # `run_queue` hold cannot be produced without them (#2089), so the type has to
+  # admit them or dialyzer intersects the inferred 5-key hold with a closed
+  # 3-key spec, finds nothing, and declares every load/run-queue hold dead.
   @type admission_reason :: %{
-          signal: :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
-          measured: term(),
-          threshold: term()
+          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
+          :measured => term(),
+          :threshold => term(),
+          optional(:reclaimable_cpu_percent) => number(),
+          optional(:reclaimable_cpu_threshold) => number()
         }
 
   @doc """
@@ -541,8 +551,21 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            reclaimable_cpu_threshold: @reclaimable_cpu_threshold
          }}
 
+      # An unmeasured corroboration is not a measurement of contention (#2089).
+      # `SystemCpu.headroom/2` needs two `/proc/stat` reads, so the first
+      # admission decision of a `State`'s life — the ramp-from-zero decision —
+      # has no window to compare against and returns `:unavailable`. Holding on
+      # that used to reinstate exactly the false positive this corroboration was
+      # added to remove (#1610): the raw 1-minute load average, which this fleet
+      # routinely inflates with niced `mix` builds and I/O wait, withheld new
+      # dispatch with no CPU evidence behind it. Every neighbouring probe
+      # (`SystemLoad`, `SystemCpu`, `memory_gate/2`, `build_gate/1`) degrades
+      # open when its sample is missing; this one now agrees. A hold therefore
+      # always carries a measured `reclaimable_cpu_percent`, and the next poll
+      # cycle — which does have a window — is what holds a genuinely saturated
+      # host.
       :unavailable ->
-        {:hold, %{signal: signal, measured: measured, threshold: threshold}}
+        :dispatch
     end
   end
 

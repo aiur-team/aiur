@@ -104,7 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       stale = ProviderHealth.new(9, :stale, false, observed_at: @now, last_success_at: @now)
       html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)], health: stale))
 
-      assert html =~ "Plan distribution is stale"
+      assert html =~ "Plan distribution is not live"
       refute html =~ "bo-breakdown-table"
     end
   end

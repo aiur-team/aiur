@@ -43,14 +43,42 @@ defmodule Aiur.TestSupport do
   # holds — asks, findings, claims, ticket state — is durable. Without a
   # per-test root a case reads records written by a module that ran earlier in
   # the same partition.
+  #
+  # `:loadavg_source_override` / `:proc_stat_source_override` are the host-CPU
+  # equivalent of `:build_gate_dir_override`: without them every dispatch
+  # decision a case makes reads the real `/proc/loadavg` and `/proc/stat` of a
+  # box that is also running the rest of the fleet, so a routing assertion
+  # passes or fails on ambient load rather than on the code under test (#2089).
+  # A case that deliberately exercises an admission gate overrides both keys
+  # itself; teardown puts the deterministic baseline back.
   @isolated_app_env_keys [
     :workflow_file_path,
     :log_file,
     :build_gate_dir_override,
     :global_pause_store_path,
     :github_resource_store_path,
-    :repo_base_root
+    :repo_base_root,
+    :loadavg_source_override,
+    :proc_stat_source_override
   ]
+
+  # A quiet host: no load pressure, and a `/proc/stat` whose counters advance on
+  # every read so `SystemCpu.headroom/2` measures a real window (90% idle) for
+  # any consecutive pair instead of degrading to `:unavailable`.
+  @quiet_loadavg "0.00 0.00 0.00 1/1 1\n"
+
+  @doc false
+  @spec quiet_loadavg_source() :: (-> {:ok, String.t()})
+  def quiet_loadavg_source, do: fn -> {:ok, @quiet_loadavg} end
+
+  @doc false
+  @spec quiet_proc_stat_source() :: (-> {:ok, String.t()})
+  def quiet_proc_stat_source do
+    fn ->
+      tick = System.unique_integer([:monotonic, :positive])
+      {:ok, "cpu  #{100 * tick} 0 0 #{900 * tick} 0 0 0 0 0 0\nprocs_running 1\n"}
+    end
+  end
 
   @doc "The `:aiur` application keys isolated per TestSupport case."
   @spec isolated_app_env_keys() :: [atom()]
@@ -151,6 +179,12 @@ defmodule Aiur.TestSupport do
         Aiur.PollCadence.forget_effective_interval_ms()
 
         File.mkdir_p!(workflow_root)
+
+        # Pin the host-pressure probes to a quiet host so admission decisions are
+        # a function of the test's own state, not of what else is running on the
+        # box (#2089).
+        Application.put_env(:aiur, :loadavg_source_override, Aiur.TestSupport.quiet_loadavg_source())
+        Application.put_env(:aiur, :proc_stat_source_override, Aiur.TestSupport.quiet_proc_stat_source())
 
         Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))

@@ -48,9 +48,9 @@ defmodule AiurWeb.OperatorControlCenter.History do
         <p class="recent-subtitle" id="decision-history-title">Command history</p>
         <span class="history-count mono">{count_label(@loaded, @total)}</span>
       </div>
-      <div :if={@provider_health == :unavailable} class="empty-state compact">History provider is currently unavailable.</div>
+      <div :if={@provider_health == :unavailable} class="empty-state compact">Command history is unavailable right now.</div>
       <div :if={@provider_health == :degraded} class="empty-state compact">
-        Command history is degraded; showing the last validated prefix.
+        Showing a partial Command history.
       </div>
       <div :if={@provider_health == :ok and @loaded == 0} class="empty-state compact">No Command actions have been recorded.</div>
 

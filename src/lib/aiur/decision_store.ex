@@ -39,6 +39,7 @@ defmodule Aiur.DecisionStore do
     Decision,
     DecisionAnswer,
     DecisionDispatch,
+    DecisionDispatchTasks,
     DecisionEnrichment,
     DecisionEvent,
     DecisionLog,
@@ -64,6 +65,7 @@ defmodule Aiur.DecisionStore do
   @default_legacy_question_version_limit 25
   @default_dispatch_delay_ms 0
   @default_reconcile_delay_ms 250
+  @decision_dispatch_monitor_retry_ms 25
   @default_retry_delays_ms [250, 1_000, 5_000]
   # Code-enforced ceiling on what the Executor may answer without the operator.
   # Kept as explicit allowlists so an unknown or missing value fails closed.
@@ -413,27 +415,34 @@ defmodule Aiur.DecisionStore do
     revision_resolver =
       Keyword.get(opts, :revision_follow_up_resolver, &DecisionRevisionDispatch.resolve_follow_up/2)
 
-    Map.merge(state, %{
-      dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
-      dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
-      reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
-      retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
-      dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
-      revision_follow_up_projector: revision_projector,
-      revision_follow_up_resolver: revision_resolver,
-      event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
-      executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
-      executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
-      executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),
-      executor_request_reconciler: Keyword.get(opts, :executor_request_reconciler, &ExecutorEvents.ensure_requested/1),
-      dispatching: MapSet.new(),
-      retry_counts: %{},
-      projecting_revision_follow_ups: MapSet.new(),
-      resolving_revision_follow_ups: MapSet.new(),
-      append_retry_counts: %{},
-      lifecycle_append_failures: MapSet.new(),
-      dispatching_decisions: MapSet.new()
-    })
+    state =
+      Map.merge(state, %{
+        dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
+        decision_dispatch_tasks: Keyword.get(opts, :decision_dispatch_tasks, DecisionDispatchTasks),
+        decision_dispatch_monitor_pid: nil,
+        decision_dispatch_monitor_ref: nil,
+        decision_dispatch_monitor_timer: nil,
+        decision_dispatch_monitor_reconcile?: false,
+        dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
+        reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
+        retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
+        dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
+        revision_follow_up_projector: revision_projector,
+        revision_follow_up_resolver: revision_resolver,
+        event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
+        executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
+        executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
+        executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),
+        executor_request_reconciler: Keyword.get(opts, :executor_request_reconciler, &ExecutorEvents.ensure_requested/1),
+        dispatching: %{},
+        retry_counts: %{},
+        projecting_revision_follow_ups: MapSet.new(),
+        resolving_revision_follow_ups: MapSet.new(),
+        append_retry_counts: %{},
+        lifecycle_append_failures: MapSet.new()
+      })
+
+    monitor_decision_dispatch_tasks(state)
   end
 
   @impl true
@@ -2587,27 +2596,63 @@ defmodule Aiur.DecisionStore do
     {:noreply, next_state}
   end
 
-  def handle_info({:dispatch_action, fence, retry_failed?}, state) do
-    {:noreply, maybe_start_dispatch(state, fence, retry_failed?)}
+  def handle_info({:dispatch_action, fence, retry_failed?} = message, state) do
+    {:noreply,
+     with_decision_dispatch_monitor(state, message, fn monitored_state ->
+       maybe_start_dispatch(monitored_state, fence, retry_failed?)
+     end)}
   end
 
-  def handle_info({:reconcile_queue_action, fence}, state) do
-    {:noreply, maybe_start_dispatch(state, fence, false, :reconcile_queue)}
+  def handle_info({:reconcile_queue_action, fence} = message, state) do
+    {:noreply,
+     with_decision_dispatch_monitor(state, message, fn monitored_state ->
+       maybe_start_dispatch(monitored_state, fence, false, :reconcile_queue)
+     end)}
   end
 
-  def handle_info({:reconcile_lifecycle_append, fence, action_id}, state) do
-    {:noreply, maybe_reconcile_lifecycle_append(state, fence, action_id)}
+  def handle_info({:reconcile_lifecycle_append, fence, action_id} = message, state) do
+    {:noreply,
+     with_decision_dispatch_monitor(state, message, fn monitored_state ->
+       maybe_reconcile_lifecycle_append(monitored_state, fence, action_id)
+     end)}
   end
 
-  def handle_info({:dispatch_result, decision_id, action_id, attempt_id, result}, state) do
-    state = %{
+  def handle_info(
+        {:dispatch_result, %{decision_id: decision_id, action_id: action_id, attempt_id: attempt_id} = correlation, result},
+        state
+      ) do
+    case take_matching_dispatch(state, correlation) do
+      {:ok, state} ->
+        state = settle_dispatch(state, decision_id, action_id, attempt_id, result)
+        {:noreply, maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
+
+      :stale ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info(
+        {:DOWN, ref, :process, pid, _reason},
+        %{decision_dispatch_monitor_ref: ref, decision_dispatch_monitor_pid: pid} = state
+      ) do
+    interrupted = Map.values(state.dispatching)
+
+    state =
       state
-      | dispatching: MapSet.delete(state.dispatching, action_id),
-        dispatching_decisions: MapSet.delete(state.dispatching_decisions, decision_id)
-    }
+      |> Map.merge(%{
+        dispatching: %{},
+        decision_dispatch_monitor_pid: nil,
+        decision_dispatch_monitor_ref: nil,
+        decision_dispatch_monitor_reconcile?: true
+      })
+      |> fail_interrupted_dispatches(interrupted, :decision_dispatch_coordinator_exit)
+      |> schedule_decision_dispatch_monitor()
 
-    state = settle_dispatch(state, decision_id, action_id, attempt_id, result)
-    {:noreply, maybe_schedule_superseding_dispatch(state, decision_id, action_id)}
+    {:noreply, state}
+  end
+
+  def handle_info(:monitor_decision_dispatch_tasks, state) do
+    {:noreply, monitor_decision_dispatch_tasks(%{state | decision_dispatch_monitor_timer: nil})}
   end
 
   def handle_info({:project_revision_follow_up, decision_id, action_id}, state) do
@@ -2771,7 +2816,7 @@ defmodule Aiur.DecisionStore do
       not dispatchable?(decision, retry_failed?) ->
         state
 
-      is_nil(active_answer) or MapSet.member?(state.dispatching, active_answer.action_id) ->
+      is_nil(active_answer) or dispatch_active?(state, active_answer.action_id) ->
         state
 
       true ->
@@ -2790,7 +2835,7 @@ defmodule Aiur.DecisionStore do
       not queue_reconcilable?(decision) ->
         state
 
-      is_nil(active_answer) or MapSet.member?(state.dispatching, active_answer.action_id) ->
+      is_nil(active_answer) or dispatch_active?(state, active_answer.action_id) ->
         state
 
       true ->
@@ -2877,32 +2922,149 @@ defmodule Aiur.DecisionStore do
 
   defp maybe_start_dispatch(state, %{decision_id: decision_id} = fence, retry_failed?, mode \\ :normal) do
     with true <- state.writable?,
+         true <- decision_dispatch_monitor_live?(state),
          {:ok, decision} <- fetch_decision(state, decision_id),
          true <- dispatch_fence_current?(fence, decision, mode),
          %DecisionAnswer{} = answer <- Decision.active_answer(decision),
-         false <- MapSet.member?(state.dispatching_decisions, decision_id),
-         false <- MapSet.member?(state.dispatching, answer.action_id),
+         false <- decision_dispatch_active?(state, decision_id),
+         false <- dispatch_active?(state, answer.action_id),
          true <- dispatch_allowed?(decision, retry_failed?, mode) do
       attempt_id = next_attempt_id(decision)
       dispatch_decision = decision_for_dispatch(state, decision)
       store = self()
       dispatcher = state.dispatcher
 
-      task = fn ->
-        result = safe_dispatch(dispatcher, dispatch_decision, store, attempt_id, retry_failed?)
-        send(store, {:dispatch_result, decision.decision_id, answer.action_id, attempt_id, result})
+      correlation = %{
+        decision_id: decision.decision_id,
+        action_id: answer.action_id,
+        attempt_id: attempt_id
+      }
+
+      operation = fn ->
+        safe_dispatch(dispatcher, dispatch_decision, store, attempt_id, retry_failed?)
       end
 
-      {:ok, _pid} = Task.start(task)
+      callback = fn terminal_correlation, result ->
+        send(store, {:dispatch_result, terminal_correlation, result})
+      end
 
-      %{
-        state
-        | dispatching: MapSet.put(state.dispatching, answer.action_id),
-          dispatching_decisions: MapSet.put(state.dispatching_decisions, decision_id)
-      }
+      case DecisionDispatchTasks.enqueue(
+             decision.ticket.identifier,
+             correlation,
+             operation,
+             callback,
+             state.decision_dispatch_tasks,
+             owner: store
+           ) do
+        :pending ->
+          put_dispatch(state, correlation)
+
+        {:error, reason} ->
+          state
+          |> settle_dispatch_failure(decision, answer.action_id, attempt_id, reason)
+          |> maybe_schedule_superseding_dispatch(decision_id, answer.action_id)
+      end
     else
       _other -> state
     end
+  end
+
+  defp put_dispatch(state, %{action_id: action_id} = correlation) do
+    %{state | dispatching: Map.put(state.dispatching, action_id, correlation)}
+  end
+
+  defp dispatch_active?(state, action_id), do: Map.has_key?(state.dispatching, action_id)
+
+  defp decision_dispatch_active?(state, decision_id) do
+    Enum.any?(state.dispatching, fn {_action_id, correlation} ->
+      correlation.decision_id == decision_id
+    end)
+  end
+
+  defp take_matching_dispatch(state, %{action_id: action_id} = correlation) do
+    case Map.get(state.dispatching, action_id) do
+      ^correlation -> {:ok, %{state | dispatching: Map.delete(state.dispatching, action_id)}}
+      _other -> :stale
+    end
+  end
+
+  defp fail_interrupted_dispatches(state, correlations, reason) do
+    Enum.reduce(correlations, state, fn correlation, state_acc ->
+      %{decision_id: decision_id, action_id: action_id, attempt_id: attempt_id} = correlation
+
+      state_acc =
+        case fetch_decision(state_acc, decision_id) do
+          {:ok, decision} -> settle_dispatch_failure(state_acc, decision, action_id, attempt_id, reason)
+          {:error, _reason} -> state_acc
+        end
+
+      maybe_schedule_superseding_dispatch(state_acc, decision_id, action_id)
+    end)
+  end
+
+  defp monitor_decision_dispatch_tasks(%{decision_dispatch_monitor_ref: ref} = state)
+       when is_reference(ref),
+       do: state
+
+  defp monitor_decision_dispatch_tasks(state) do
+    case decision_dispatch_tasks_pid(state.decision_dispatch_tasks) do
+      pid when is_pid(pid) ->
+        recovering? = state.decision_dispatch_monitor_reconcile?
+
+        state = %{
+          state
+          | decision_dispatch_monitor_pid: pid,
+            decision_dispatch_monitor_ref: Process.monitor(pid),
+            decision_dispatch_monitor_timer: nil,
+            decision_dispatch_monitor_reconcile?: false
+        }
+
+        if recovering? and state.writable? do
+          schedule_dispatch_work(state, {:reconcile_dispatches, dispatch_fences(state)}, 0)
+        end
+
+        state
+
+      nil ->
+        state
+        |> Map.put(:decision_dispatch_monitor_reconcile?, true)
+        |> schedule_decision_dispatch_monitor()
+    end
+  end
+
+  defp decision_dispatch_monitor_live?(%{
+         decision_dispatch_monitor_pid: pid,
+         decision_dispatch_monitor_ref: ref
+       }) do
+    is_pid(pid) and is_reference(ref) and Process.alive?(pid)
+  end
+
+  defp with_decision_dispatch_monitor(state, message, dispatch) do
+    state = monitor_decision_dispatch_tasks(state)
+
+    if decision_dispatch_monitor_live?(state) do
+      dispatch.(state)
+    else
+      schedule_dispatch_work(state, message, @decision_dispatch_monitor_retry_ms)
+      state
+    end
+  end
+
+  defp decision_dispatch_tasks_pid(server) do
+    GenServer.whereis(server)
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
+
+  defp schedule_decision_dispatch_monitor(%{decision_dispatch_monitor_timer: timer} = state)
+       when is_reference(timer),
+       do: state
+
+  defp schedule_decision_dispatch_monitor(state) do
+    timer = Process.send_after(self(), :monitor_decision_dispatch_tasks, @decision_dispatch_monitor_retry_ms)
+    %{state | decision_dispatch_monitor_timer: timer}
   end
 
   defp safe_dispatch(dispatcher, decision, store, attempt_id, retry_failed?) do
@@ -3288,6 +3450,17 @@ defmodule Aiur.DecisionStore do
   defp dispatch_failure_class(:no_running_agent), do: "target_agent_unavailable"
   defp dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   defp dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
+  defp dispatch_failure_class(:decision_dispatch_overloaded), do: "decision_dispatch_overloaded"
+  defp dispatch_failure_class(:decision_dispatch_unavailable), do: "decision_dispatch_unavailable"
+  defp dispatch_failure_class(:decision_dispatch_timeout), do: "decision_dispatch_timeout"
+  defp dispatch_failure_class(:decision_dispatch_coordinator_exit), do: "decision_dispatch_coordinator_exit"
+
+  defp dispatch_failure_class({:decision_dispatch_task_exit, _reason}),
+    do: "decision_dispatch_task_exit"
+
+  defp dispatch_failure_class({:decision_dispatch_task_start_failed, _reason}),
+    do: "decision_dispatch_task_start_failed"
+
   defp dispatch_failure_class({:target_revalidation_failed, _reason}), do: "target_revalidation_failed"
   defp dispatch_failure_class(_reason), do: "dispatch_rejected"
 
@@ -3353,7 +3526,7 @@ defmodule Aiur.DecisionStore do
          %DecisionAnswer{action_id: ^action_id} <- Decision.active_answer(decision),
          :ok <- require_answerable(decision),
          true <- retryable_dispatch?(state, decision, action_id) do
-      if MapSet.member?(state.dispatching, action_id) do
+      if dispatch_active?(state, action_id) do
         {:ok, :already_dispatching}
       else
         {:ok, decision}
