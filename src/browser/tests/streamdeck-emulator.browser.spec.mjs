@@ -71,25 +71,13 @@ test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) =>
   // Start at a mid-range value so we have room to increase.
   const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
 
-  // Drag a wide clockwise arc that accumulates well over 8° (press threshold)
-  // and sweeps enough angle to guarantee an increase, even from a high initial.
-  await anchor(knob)
-  const box = await knob.boundingBox()
-  const cx = box.x + box.width / 2
-  const cy = box.y + box.height / 2
-
-  // Start directly above centre and sweep clockwise (right then down).
-  await page.mouse.move(cx, cy - 30)
-  await page.mouse.down()
-  await page.mouse.move(cx + 20, cy - 20)
-  await page.mouse.move(cx + 30, cy)
-  await page.mouse.move(cx + 20, cy + 20)
-  await page.mouse.move(cx, cy + 30)
-  await page.mouse.up()
+  // Sweep 54° clockwise: 54 / 2.7 = exactly 20 value units. The movement is
+  // also safely above the 8° press threshold, so this pins both interaction
+  // constants through the real browser gesture path.
+  await dragDialThroughAngles(page, knob, [-90, -36])
 
   const newValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
-  // A sustained clockwise drag must increase the value, not merely match it.
-  expect(newValue).toBeGreaterThan(initialValue)
+  expect(newValue - initialValue).toBe(20)
 })
 
 test('installation modal renders its steps and closes by backdrop or Escape at mobile size', async ({ browser }) => {
