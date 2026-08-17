@@ -43,6 +43,12 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       restore_env("GITHUB_TOKEN", prev_token)
       Publisher.set_tracked_fn(fn _ -> true end)
       clear_dedup()
+      Application.delete_env(:aiur, :github_resource_store_path)
+
+      if is_nil(Process.whereis(ResourceStore)) do
+        Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+      end
+
       ResourceStore.reset()
 
       for pattern <- Exchange.bindings_for(self()) do
@@ -166,6 +172,24 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       # restart, so membership is the deposit's precondition, not a detail.
       assert :check_run in ResourceStore.resource_types()
       assert ResourceStore.key_for_repo(:check_run, @repo, 5502) != nil
+    end
+
+    @tag :tmp_dir
+    test "a deposited check run survives a restart of the store", %{tmp_dir: tmp_dir} do
+      # The failure the closed set exists to prevent is not a rejected write, it
+      # is a body that writes and reads perfectly all day and then vanishes at
+      # the next restart with no error. Only a real checkpoint round trip can
+      # tell those apart, so this one uses a file.
+      path = Path.join(tmp_dir, "github_resources.json")
+      restart_store!(path)
+
+      GithubWebhook.handle_delivery("check_run", check_run_delivery(5503), repo: @repo, reconcile_fun: fn _ -> :ok end)
+      assert :ok = ResourceStore.flush()
+
+      restart_store!(path)
+
+      assert {:ok, %{data: %{"id" => 5503}, source: :webhook}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:check_run, @repo, 5503))
     end
 
     test "a delivery for an untracked repository deposits nothing" do
@@ -515,6 +539,25 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     after
       200 -> :ok
     end
+  end
+
+  # Restarts the store against a real checkpoint file: with no resolvable state
+  # directory it runs in memory, which would make a restart trivially pass
+  # nothing rather than prove the round trip.
+  defp restart_store!(path) do
+    pid = Process.whereis(ResourceStore)
+    ref = Process.monitor(pid)
+    Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    after
+      5_000 -> flunk("ResourceStore did not stop")
+    end
+
+    Application.put_env(:aiur, :github_resource_store_path, path)
+    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+    :ok
   end
 
   defp clear_dedup do
