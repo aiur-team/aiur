@@ -49,7 +49,7 @@ defmodule Aiur.ExecutorListener do
           topic: String.t(),
           subscribed?: boolean(),
           watermark: non_neg_integer() | nil,
-          resubscribe_interval_ms: pos_integer()
+          resubscribe_interval_ms: pos_integer() | :infinity
         }
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -87,12 +87,11 @@ defmodule Aiur.ExecutorListener do
     watermark = read_watermark()
     subscribed? = subscribe_or_arm(topic)
 
-    if subscribed? do
-      replay_and_deliver(topic, watermark)
-    end
+    state = %{topic: topic, subscribed?: subscribed?, watermark: watermark, resubscribe_interval_ms: interval}
+    state = if subscribed?, do: replay_and_deliver(state), else: state
 
     schedule_resubscribe(interval)
-    {:ok, %{topic: topic, subscribed?: subscribed?, watermark: watermark, resubscribe_interval_ms: interval}}
+    {:ok, state}
   end
 
   @impl true
@@ -112,8 +111,7 @@ defmodule Aiur.ExecutorListener do
       else
         case subscribe_or_arm(topic) do
           true ->
-            replay_and_deliver(topic, read_watermark())
-            %{state | subscribed?: true}
+            replay_and_deliver(%{state | subscribed?: true, watermark: read_watermark()})
 
           false ->
             %{state | subscribed?: false}
@@ -185,13 +183,14 @@ defmodule Aiur.ExecutorListener do
     :exit, _reason -> :ok
   end
 
-  defp replay_and_deliver(topic, watermark) do
+  defp replay_and_deliver(%{topic: topic, watermark: watermark} = state) do
     case ExecutorEvents.replay([topic], watermark) do
       {:ok, events} ->
-        Enum.each(events, &process_event(&1, %{topic: topic, subscribed?: true, watermark: watermark, resubscribe_interval_ms: 0}))
+        Enum.reduce(events, state, &process_event/2)
 
       {:error, reason} ->
         Logger.error("aiur_executor_listener phase=replay_failed reason=#{inspect(reason)}")
+        state
     end
   end
 
@@ -279,6 +278,8 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp truncate(_text, _max), do: ""
+
+  defp schedule_resubscribe(:infinity), do: :ok
 
   defp schedule_resubscribe(interval) when is_integer(interval) and interval > 0 do
     Process.send_after(self(), :resubscribe, interval)

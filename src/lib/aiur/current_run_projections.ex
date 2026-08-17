@@ -66,19 +66,15 @@ defmodule Aiur.CurrentRunProjections do
     do: {:reply, state.outcome_snapshot, state}
 
   def handle_call(:refresh, from, %{checkpoint_write: write} = state) when is_map(write) do
-    {:noreply, %{state | refresh_again?: true, queued_waiters: [from | state.queued_waiters]}}
+    {:noreply, queue_waiter(state, from)}
   end
 
   def handle_call(:refresh, from, %{refresh: nil} = state) do
     {:noreply, Refresh.start(%{state | refresh_pending?: false}, :full, [from])}
   end
 
-  def handle_call(:refresh, from, %{refresh: %{mode: :full} = refresh} = state) do
-    {:noreply, %{state | refresh: SourceCollector.add_waiter(refresh, from)}}
-  end
-
-  def handle_call(:refresh, from, %{refresh: %{mode: :clock}} = state) do
-    {:noreply, %{state | refresh_again?: true, queued_waiters: [from | state.queued_waiters]}}
+  def handle_call(:refresh, from, %{refresh: refresh} = state) when is_map(refresh) do
+    {:noreply, queue_waiter(state, from)}
   end
 
   @impl true
@@ -154,6 +150,8 @@ defmodule Aiur.CurrentRunProjections do
     if is_map(state.refresh), do: SourceCollector.finish(state.refresh)
     CheckpointPersistence.stop(state.checkpoint_write)
   end
+
+  defp queue_waiter(state, from), do: %{state | queued_waiters: [from | state.queued_waiters]}
 
   defp subscribe(opts) do
     opts

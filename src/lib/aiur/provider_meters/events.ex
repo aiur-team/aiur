@@ -10,13 +10,14 @@ defmodule Aiur.ProviderMeters.Events do
   @fanout_topic "provider_meters:observed"
 
   @spec topic(atom(), atom(), String.t()) :: String.t()
-  def topic(provider, backend, generation), do: "provider_meters:#{provider}:#{backend}:#{generation}"
+  def topic(provider, backend, generation) when is_binary(generation) and generation != "",
+    do: "provider_meters:#{provider}:#{backend}:#{generation}"
 
   @spec fanout_topic() :: String.t()
   def fanout_topic, do: @fanout_topic
 
   @spec subscribe(atom(), atom(), String.t()) :: :ok | {:error, :subscription_unavailable}
-  def subscribe(provider, backend, generation) do
+  def subscribe(provider, backend, generation) when is_binary(generation) and generation != "" do
     subscribe_topic(topic(provider, backend, generation))
   end
 
@@ -40,15 +41,21 @@ defmodule Aiur.ProviderMeters.Events do
     case Process.whereis(@pubsub) do
       pid when is_pid(pid) ->
         message = {:provider_meter_changed, snapshot}
-        generation_topic = topic(snapshot.provider, snapshot.backend, snapshot.provider_account_generation)
 
-        publish(from, generation_topic, message)
+        publish_generation(from, snapshot, message)
         publish(from, @fanout_topic, message)
 
       _ ->
         :ok
     end
   end
+
+  defp publish_generation(from, %{provider_account_generation: generation} = snapshot, message)
+       when is_binary(generation) and generation != "" do
+    publish(from, topic(snapshot.provider, snapshot.backend, generation), message)
+  end
+
+  defp publish_generation(_from, _snapshot, _message), do: :ok
 
   defp publish(nil, topic, message), do: Phoenix.PubSub.broadcast(@pubsub, topic, message)
   defp publish(from, topic, message), do: Phoenix.PubSub.broadcast_from(@pubsub, from, topic, message)
