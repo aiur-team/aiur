@@ -4,21 +4,18 @@ title: Skills
 
 # Skills
 
-Aiur ships Agent Skills in this repository under `.claude/skills/`, mirrored to `.codex/skills/` by relative symlink. They split into two families by **where they run**, not by where they are stored:
+Aiur ships Agent Skills under `.claude/skills/` and makes them available to Codex under `.codex/skills/`. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
 - **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
 
-The split is defined in code, not by convention. `@issue_worker_skills` in [`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex) combines Aiur's worker skills with the pinned Compound Engineering manifest, and [`aiur_agent_skill_test.exs`](../../src/test/aiur/aiur_agent_skill_test.exs) cross-checks both sets so they cannot drift.
-
 ## Agent-workspace skills
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` writes these four Aiur skills and the complete pinned Compound Engineering set into `<workspace>/.claude/skills/`, then mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set without depending on a machine-local plugin cache.
+These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`. A Claude workspace and a Codex workspace get the same set, and neither depends on a machine-local plugin cache.
 
 | Skill | Loaded when | What it covers |
 | --- | --- | --- |
-| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer. | The `agent:*` label lifecycle, the brainstorm, plan, work, and review flow, the Agent Workpad, milestone alerts, complexity routing, and the development loop. |
-| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before emitting, subscribing to, or reacting to any event. | The [Message Bus](/concepts/coordination): `emit_event`, `aiur_subscribe`, blocker declaration, and attention open and close. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer. | The operating manual for an Aiur agent working a ticket: the `agent:*` label lifecycle, the brainstorm→plan→work→review flow, the Agent Workpad, milestone alerts, complexity routing, the dev loop, and cross-ticket events (`emit_event`, subscriptions, blockers, attentions). |
 | [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | When a run, daemon, agent, or workspace misbehaves. | An Aiur-specific context overlay for correlating evidence and ordering safe recovery. |
 | [design-import](../../.claude/skills/design-import/SKILL.md) | Before frontend work that involves a design artifact. | Importing large design payloads without overflowing inline tool-result limits. |
 
@@ -69,3 +66,5 @@ scripts/update-compound-engineering-skills X.Y.Z "$update_dir/compound-engineeri
 ```
 
 Choose the release ref whose `.claude-plugin/plugin.json` reports `X.Y.Z`; the refresh script rejects a mismatch. Review the upstream release notes and the resulting skill diff, then run the AgentSkills tests before committing. The script replaces only previously managed CE skill paths, refreshes the license/version/manifest files, and recreates the Claude-to-Codex links.
+
+The complexity routing rules that pick which CE skill to run live in [complexity-routing.md](../../.claude/skills/aiur-agent/complexity-routing.md).

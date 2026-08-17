@@ -329,6 +329,19 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       labels: ["agent:in-progress", "agent:paused"]
     }
 
+    # The queued resume path re-reads the tracker before it judges
+    # dispatchability, so the authoritative read has to see this issue.
+    previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    on_exit(fn ->
+      if is_nil(previous_memory_issues) do
+        Application.delete_env(:aiur, :memory_tracker_issues)
+      else
+        Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+      end
+    end)
+
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
 
     state =

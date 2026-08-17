@@ -113,7 +113,7 @@ defmodule Aiur.Workspace.RefreshTest do
 
     refute File.exists?(Path.join([workspace, ".aiur-runtime", "bin"]))
     refute File.exists?(Path.join([workspace, ".aiur-runtime", "tmp"]))
-    refute File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur"]))
+    refute File.exists?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
 
     probe_bin = Path.join(test_root, "probe-bin")
     File.mkdir_p!(probe_bin)

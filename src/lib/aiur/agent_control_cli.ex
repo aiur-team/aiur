@@ -2407,6 +2407,32 @@ defmodule Aiur.AgentControlCLI do
   defp result_verb(result),
     do: Map.fetch!(%{resumed: "resumed", started: "started", reactivated: "reactivated"}, result)
 
+  defp format_reason({:stale_tracker_state, reason, details}) do
+    changed_context =
+      case Map.get(details, :changed_fields, []) do
+        [] -> ""
+        fields -> ", changed=#{Enum.join(fields, ",")}"
+      end
+
+    paused_context =
+      if Map.get(details, :cached_paused) != Map.get(details, :tracker_paused) do
+        ", cached_paused=#{details.cached_paused}, tracker_paused=#{details.tracker_paused}"
+      else
+        ""
+      end
+
+    "tracker cache was stale: cached=#{details.cached_state}, tracker=#{details.tracker_state}#{changed_context}#{paused_context}; #{format_reason(reason)}"
+  end
+
+  defp format_reason({:tracker_state_not_resumable, state}),
+    do: "tracker state #{state} is not resumable"
+
+  defp format_reason({:tracker_refresh_failed, reason}),
+    do: "tracker refresh failed: #{format_reason(reason)}"
+
+  defp format_reason({:state_concurrency_limit_reached, state}),
+    do: "state concurrency limit reached for #{state}"
+
   # Keep the real fault visible instead of collapsing it to a cause the CLI
   # has not established (#1634).
   defp format_reason({:orchestrator_call_failed, reason}),
@@ -2490,6 +2516,21 @@ defmodule Aiur.AgentControlCLI do
         orchestrator_unavailable: "orchestrator unavailable",
         timeout: "orchestrator timed out",
         unknown_issue: "unknown issue",
+        tracker_issue_not_found: "tracker issue not found",
+        invalid_tracker_issue: "tracker returned an invalid issue",
+        contradictory_tracker_state_labels: "tracker returned contradictory state labels",
+        not_routable_to_worker: "ticket is not routable to a worker",
+        dispatch_not_authorized: "tracker label provenance does not authorize dispatch",
+        pause_override_still_present: "tracker pause override is still present",
+        waiting_for_dependencies: "ticket is waiting for dependencies",
+        already_claimed: "ticket is already claimed for dispatch",
+        auto_resume_pending: "ticket already has a scheduled automatic resume",
+        workspace_ownership_waiting: "ticket is waiting for workspace ownership recovery",
+        no_worker_capacity: "no worker capacity",
+        dispatch_retry_scheduled: "dispatch failed and a retry was scheduled",
+        all_model_backends_limited: "all configured model backends are usage-limited",
+        thrash_circuit_open: "dispatch restart circuit is open",
+        dispatch_not_started: "dispatch did not start; inspect the ticket attention feed",
         lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",
         dispatch_failed: "dispatch failed"
       },

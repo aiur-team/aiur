@@ -14,4 +14,4 @@ Verified against code:
 Ticket implications:
 - Pre-ticket A (Phase 1): RepoBase base-branch config support + set tracker.base_branch v2 + CI push branches += v2. Verification: workspace clone/fetch/reset target v2; notify fires on v2 push.
 - Operator setup step (00-overview): create v2 from main before opening any issues; set tracker.base_branch in the refactor run's .aiur/config.
-- GitHub PR creation: executor dev-loop opens PRs with base v2 — check where `gh pr create` base is set (dev-loop skill / push skill) → ticket boilerplate states `--base v2`; verify default-branch assumption in .codex/skills/push and using-aiur/dev-loop.md at U10 authoring time.
+- GitHub PR creation: executor dev-loop opens PRs with base v2 — check where `gh pr create` base is set (dev-loop skill / push skill) → ticket boilerplate states `--base v2`; verify default-branch assumption in .codex/skills/push and aiur-agent/dev-loop.md at U10 authoring time.

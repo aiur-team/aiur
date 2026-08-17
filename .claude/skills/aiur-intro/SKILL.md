@@ -7,7 +7,7 @@ description: "Explain what Aiur is and get a new user running it, in whichever m
 
 This skill is for someone meeting Aiur for the first time — evaluating it, installing
 it, or deciding how to run it. It is not the in-run manual: an agent working a ticket
-*inside* an Aiur run wants `using-aiur` instead.
+*inside* an Aiur run wants the `aiur-agent` skill instead.
 
 ## 1. Lead with the operating model
 
@@ -138,6 +138,5 @@ not soften it, and do not present it without the bound — either one misleads.
 |--------------|--------------|
 | You to launch and own a run | **`aiur-run`** skill |
 | Status of a live run, "what's stuck" | **`aiur-monitor`** skill |
-| To operate a ticket inside a run (agent-side) | **`using-aiur`** skill |
-| Cross-ticket events, blockers, attentions | **`aiur-agent`** skill |
+| To operate a ticket inside a run (agent-side) | **`aiur-agent`** skill — ticket lifecycle, dev loop, and cross-ticket events |
 | Config options, adapters, command reference | [`src/README.md`](../../../src/README.md) |
