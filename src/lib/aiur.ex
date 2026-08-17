@@ -213,6 +213,10 @@ defmodule Aiur.Application do
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
       Aiur.GitHub.ResourceStore,
+      # Carries store changes into the agents' `gh` answer store, so a fact
+      # learned for free retires the paid reads of the same resource. Starts
+      # after the store because it subscribes to it.
+      Aiur.GitHub.AgentCacheBridge,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       # Per-repo delivery mode. Starts before anything that polls or receives

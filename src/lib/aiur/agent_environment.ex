@@ -232,6 +232,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+        # The repository the agent was dispatched against, so the `gh` guard can
+        # file a cached response under a resource identity (#2073 U6). `gh`
+        # resolves the repo from the working directory, so the guard only trusts
+        # this while the agent is inside the workspace below — a clone of some
+        # other repository must not have its answers filed under this one.
+        {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
@@ -355,6 +361,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
+      remote_repo_slug_export() <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
@@ -450,6 +457,27 @@ defmodule Aiur.AgentEnvironment do
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
+
+  # `false` unsets the variable for the child, which is what a non-GitHub
+  # tracker or an unconfigured repo should produce: the guard then resolves no
+  # resource identity and caches nothing, rather than filing responses under a
+  # placeholder slug that no other agent would ever ask for.
+  # Remote workers keep their own budget root under their own home, so they get
+  # their own state cache shared with the other agents on that host — the same
+  # sharing boundary the budget broker already draws.
+  defp remote_repo_slug_export do
+    case configured_repo_slug() do
+      false -> "unset AIUR_GITHUB_REPO\n"
+      slug -> "export AIUR_GITHUB_REPO=#{Aiur.Shell.escape(List.to_string(slug))}\n"
+    end
+  end
+
+  defp configured_repo_slug do
+    case GitHubConfig.repo() do
+      repo when is_binary(repo) -> if repo =~ ~r{\A[\w.-]+/[\w.-]+\z}, do: String.to_charlist(repo), else: false
+      _other -> false
+    end
+  end
 
   defp sidecar_paths(opts) do
     root = repo_url(opts) |> RepoBase.repo_path()

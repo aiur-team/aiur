@@ -197,6 +197,13 @@ defmodule Aiur.GitHub.ResourceStore do
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
+    # The two repo-wide comment streams. `Aiur.Orchestrator.CommandScan` used to
+    # keep their validators under its own call-site names, so its cached state
+    # was private to that one caller and died with the orchestrator's memory. The
+    # streams are a property of the repository, not of the scan, so they are
+    # named here and shared like everything else.
+    :repo_issue_comment_stream,
+    :repo_review_comment_stream,
     :pull_request,
     :pull_request_reviews,
     :labelled_pull_requests,

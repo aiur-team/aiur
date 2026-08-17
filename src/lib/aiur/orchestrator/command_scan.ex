@@ -2,6 +2,21 @@ defmodule Aiur.Orchestrator.CommandScan do
   @moduledoc """
   Repo-wide one-off PR command scan (/aiur, @bot) with cursor-based deduplication.
   All functions execute inside the orchestrator GenServer process.
+
+  ## The validators are the repository's, not this scan's
+
+  Both streams this module reads — `pulls/comments` and `issues/comments` for the
+  whole repository — are conditional requests, and their `ETag`s used to live in
+  `state.github_comment_etags` under the call-site names `:command_scan_review`
+  and `:command_scan_issue`. Two things followed from that key. Nothing else could
+  use the validator this scan had already earned, and a restart threw it away, so
+  the first scan of every boot re-read both streams in full.
+
+  They are now recorded in `Aiur.GitHub.ResourceStore` against the repository's
+  own identity, which is what a validator actually belongs to. The in-memory map
+  still wins while it has an entry — it is the newest thing this daemon knows —
+  and the store answers for the cycle after a restart, exactly as
+  `Aiur.Events.GithubCommentsPoller` already does for per-issue streams.
   """
 
   require Logger
@@ -9,9 +24,15 @@ defmodule Aiur.Orchestrator.CommandScan do
   alias Aiur.Config
   alias Aiur.Events.{GithubKeys, PrCommandScanner, Publisher, Sanitizer}
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.State
 
   @command_scan_pull_requests_per_poll 25
+
+  # The stream's own endpoint path is its identity. Two shapes of the same
+  # repository, so the type alone would not distinguish them.
+  @review_comment_stream "pulls/comments"
+  @issue_comment_stream "issues/comments"
 
   @spec scan_pr_commands(State.t(), keyword()) :: State.t()
   def scan_pr_commands(%State{} = state, opts \\ []) do
@@ -35,10 +56,20 @@ defmodule Aiur.Orchestrator.CommandScan do
   defp do_scan_pr_commands(%State{} = state, opts) do
     since = command_scan_since(state, opts)
     etags = state.github_comment_etags
+    repo = command_scan_repo(opts)
     fetch_opts = Keyword.put(opts, :since, since)
 
-    {review_comments, review_etag} = command_scan_review_comments(Keyword.put(fetch_opts, :etag, Map.get(etags, :command_scan_review)))
-    {issue_comments, issue_etag} = command_scan_issue_comments(Keyword.put(fetch_opts, :etag, Map.get(etags, :command_scan_issue)))
+    review_resource = ResourceStore.key_for_repo(:repo_review_comment_stream, repo, @review_comment_stream)
+    issue_resource = ResourceStore.key_for_repo(:repo_issue_comment_stream, repo, @issue_comment_stream)
+
+    review_etag_in = durable_etag(review_resource, Map.get(etags, :command_scan_review))
+    issue_etag_in = durable_etag(issue_resource, Map.get(etags, :command_scan_issue))
+
+    {review_comments, review_etag} = command_scan_review_comments(Keyword.put(fetch_opts, :etag, review_etag_in))
+    {issue_comments, issue_etag} = command_scan_issue_comments(Keyword.put(fetch_opts, :etag, issue_etag_in))
+
+    remember_etag(review_resource, review_etag)
+    remember_etag(issue_resource, issue_etag)
 
     pr_comments =
       (review_comments ++ issue_comments)
@@ -50,7 +81,7 @@ defmodule Aiur.Orchestrator.CommandScan do
     # the cursor stall and re-scan the command next cycle.
     newest = command_scan_newest_datetime(pr_comments)
 
-    publish_command_hits(pr_comments, command_scan_repo(opts), command_scan_limit(opts))
+    publish_command_hits(pr_comments, repo, command_scan_limit(opts))
 
     %{
       state
@@ -119,6 +150,19 @@ defmodule Aiur.Orchestrator.CommandScan do
         Logger.warning("scan_pr_commands issue-comment stream returned unexpected value: #{inspect(other)}")
         {[], Keyword.get(fetch_opts, :etag)}
     end
+  end
+
+  # The cycle's own map wins when it has an entry; the store answers only when it
+  # does not, which after a restart is both streams. Mirrors
+  # `Aiur.Events.GithubCommentsPoller.durable_etag/2` deliberately — one rule for
+  # every conditional read, so a reader cannot be surprised by which pipe warmed
+  # its validator.
+  defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: etag
+  defp durable_etag(resource, _etag), do: ResourceStore.etag(resource)
+
+  defp remember_etag(resource, etag) do
+    ResourceStore.put_etag(resource, etag)
+    etag
   end
 
   # Stamp event-time trust (author_trusted? from the canonical CODEOWNERS U
