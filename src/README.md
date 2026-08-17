@@ -666,6 +666,16 @@ path parameter and is never browser-cacheable.
   environment before agent support is installed. This keeps `after_create` and
   `before_run` warm-up builds under the fleet cap as well as builds started during
   agent turns.
+  Admission recognizes direct `mix compile` / `mix test`, `mix do` compounds separated
+  by `+` or the legacy comma grammar, `elixir -S mix`, and `mise exec` / `mise x`
+  commands passed after `--` or as a simple `-c` / `--command` string. A compound holds
+  one lease for its whole invocation; nested wrappers reuse it only while its token is
+  live. Malformed compounds and shell command strings that could hide Mix fail with
+  status `125` instead of running ambiguously.
+  The gate is cooperative: it covers Aiur's installed PATH entrypoints and Bash
+  functions, including aliases of those wrappers, but a command that deliberately
+  invokes a separate real executable by absolute, relative, or symlinked path never
+  enters those entrypoints and cannot be intercepted.
   Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
   directory to `writableRoots` without replacing configured, workspace, or writable Git
   roots. Persistent lock inodes live in the host-prepared sibling

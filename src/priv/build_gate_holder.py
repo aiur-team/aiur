@@ -47,7 +47,15 @@ def main() -> int:
         write_reserved_regular(started_path, "started\n")
         wait_until_ready(ready_path, "ready\n", parent_pid_int, handshake_deadline)
 
-        process = subprocess.Popen(command, close_fds=True, start_new_session=True)
+        command_environment = os.environ.copy()
+        command_environment["AIUR_BUILD_GATE_LEASE_PATH"] = owner_path
+        command_environment["AIUR_BUILD_GATE_LEASE_TOKEN"] = token
+        process = subprocess.Popen(
+            command,
+            close_fds=True,
+            start_new_session=True,
+            env=command_environment,
+        )
         write_reserved_regular(command_pid_path, f"{process.pid}\n")
 
         wait_until_ready(command_ready_path, "ready\n", parent_pid_int, handshake_deadline)
