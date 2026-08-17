@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   classification without mutating GitHub state.
   """
 
-  alias Aiur.GitHub.{BotIdentity, PullRequests, ReviewThreads, StatePolicy, Transport}
+  alias Aiur.GitHub.{BotIdentity, PullRequests, ResourceFetch, ResourceStore, ReviewThreads, StatePolicy, Transport}
 
   @spec verify_human_review_ready(String.t() | integer(), keyword()) :: :ok | {:error, term()}
   def verify_human_review_ready(issue_number, opts \\ []) do
@@ -39,10 +39,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
   @doc false
   @spec verify_issue_review_threads_clear(map()) :: :ok | {:error, term()}
   def verify_issue_review_threads_clear(context) do
-    case PullRequests.fetch_open_pull_request_for_branch(context.issue_number,
-           request_fun: context.request_fun,
-           token: context.token
-         ) do
+    case open_pull_request(context) do
       {:ok, %{"number" => pr_number}} when is_integer(pr_number) ->
         with {:ok, agent_login} <-
                BotIdentity.bot_account(context.opts, context.request_fun, context.token) do
@@ -97,17 +94,60 @@ defmodule Aiur.GitHub.HumanReviewGate do
     end
   end
 
+  # R10: this is a **merge decision**. Both reads below declare
+  # `ResourceFetch.decision()`, which is the strict tolerance — the store is not
+  # consulted for the answer and upstream is contacted every time. They go
+  # through `ResourceFetch` anyway rather than around it, because a decision path
+  # with its own private fetch is exactly how a cache ends up bypassed by
+  # accident later: the declaration has to live where the decision is made. The
+  # answer is still deposited, so a tolerant view rides on the spend the decision
+  # had to make.
+  defp open_pull_request(context) do
+    key = ResourceStore.key_for_repo(:branch_pull_request, repo_full_name(), context.issue_number)
+
+    fetcher = fn _opts ->
+      case PullRequests.fetch_open_pull_request_for_branch(context.issue_number,
+             request_fun: context.request_fun,
+             token: context.token
+           ) do
+        {:ok, pr} -> {:ok, pr}
+        {:error, _reason} = error -> error
+      end
+    end
+
+    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "merge decision: review threads") do
+      {:ok, pr, _meta} -> {:ok, pr}
+      {:error, _reason} = error -> error
+    end
+  end
+
   # Mirrors GitHub's own `reviewDecision`: each reviewer's latest non-COMMENTED
   # submission is their standing verdict, and the pull request is approved only
   # when at least one reviewer approves and none is still requesting changes. An
   # unreadable /reviews response fails closed to the pre-existing error.
   defp approved?(context, pr_number) do
-    case PullRequests.fetch_pull_request_reviews(pr_number,
-           request_fun: context.request_fun,
-           token: context.token
-         ) do
-      {:ok, reviews} when is_list(reviews) -> approved_decision?(standing_verdicts(reviews))
+    key = ResourceStore.key_for_repo(:pull_request_reviews, repo_full_name(), pr_number)
+
+    fetcher = fn _opts ->
+      PullRequests.fetch_pull_request_reviews(pr_number,
+        request_fun: context.request_fun,
+        token: context.token
+      )
+    end
+
+    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "merge decision: approval state") do
+      {:ok, reviews, _meta} when is_list(reviews) -> approved_decision?(standing_verdicts(reviews))
       _other -> false
+    end
+  end
+
+  # An unresolvable repository identity means no store key, which `ResourceFetch`
+  # already treats as the storeless path — the read still happens, exactly as it
+  # did before.
+  defp repo_full_name do
+    case Transport.parse_repo() do
+      {:ok, {owner, repo}} -> "#{owner}/#{repo}"
+      _other -> nil
     end
   end
 
