@@ -142,7 +142,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
           <span class="history-question">{@decision.question}</span>
         </button>
       </td>
-      <td class="history-decision" data-sort-value={decision_choice(@decision)}>{decision_choice(@decision) || "—"}</td>
+      <td class="history-decision" data-sort-value={decision_choice(@decision) || ""}>{decision_choice(@decision) || "—"}</td>
       <td data-sort-value={decision_status(@decision)}>
         <div class="history-result">
           <span class={["chip", tone(@decision)]}>{decision_status(@decision)}</span>
@@ -158,7 +158,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
         </span>
       </td>
     </tr>
-    <tr :if={@expanded} id={@detail_id} class="history-detail-row">
+    <tr :if={@expanded} id={@detail_id} class="history-detail-row" data-sort-detail-for={@id}>
       <td colspan="4">
         <%!-- The panel needs its own heading: a table row carries no heading
               level, so without this the detail's own h4 blocks would skip one,

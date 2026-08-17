@@ -18,7 +18,8 @@ const inheritedRuntimeNames = [
   'MISE_TRUSTED_CONFIG_PATHS',
   'MISE_CACHE_DIR',
   'MISE_CONFIG_ROOT',
-  'MISE_DATA_DIR'
+  'MISE_DATA_DIR',
+  'AIUR_REAL_GIT'
 ]
 
 function fixtureEnvironment(environment = process.env) {

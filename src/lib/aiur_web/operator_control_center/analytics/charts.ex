@@ -93,7 +93,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     ceiling_y = r2(yf.(ceiling))
 
     ceiling_mark =
-      ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{ceiling_y}" y2="#{ceiling_y}" stroke="var(--blocking)" stroke-width="1" stroke-dasharray="4 3" opacity="0.7"/>| <>
+      ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{ceiling_y}" y2="#{ceiling_y}" stroke="var(--blocking)" stroke-width="1" opacity="0.7"/>| <>
         text(@w - mr, ceiling_y - 5, "machine ceiling #{round(ceiling)}%", anchor: "end", fill: "var(--blocking)")
 
     inner =
@@ -127,7 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       ~s|<path d="#{poly(band_top ++ band_bot)}" fill="var(--blocking)" fill-opacity="0.07"/>| <>
         ~s|<path d="#{step_area(pts, mt + ph)}" fill="var(--accent)" fill-opacity="0.16"/>| <>
         ~s|<path d="#{step_line(pts)}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>| <>
-        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2" stroke-dasharray="5 3"/>| <>
+        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{cap_y}" y2="#{cap_y}" stroke="var(--attention)" stroke-width="1.2"/>| <>
         text(ml + 2, cap_y - 4, "cap #{cap}", fill: "var(--attention)") <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
         now_marker(t0, t1, now_ms(window), xf, mt, mt + ph)
@@ -152,7 +152,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     inner =
       ~s|<path d="#{area(pts, mt + ph)}" fill="var(--good)" fill-opacity="0.14"/>| <>
         ~s|<path d="#{line(pts)}" fill="none" stroke="var(--good)" stroke-width="1.8"/>| <>
-        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{host_y}" y2="#{host_y}" stroke="var(--blocking)" stroke-width="1" stroke-dasharray="4 3" opacity="0.8"/>| <>
+        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{host_y}" y2="#{host_y}" stroke="var(--blocking)" stroke-width="1" opacity="0.8"/>| <>
         text(@w - mr, host_y + 12, "host #{fmt_bytes(host)}", anchor: "end", fill: "var(--blocking)") <>
         y_grid(vmax, yf, ml, @w - mr, &fmt_bytes/1) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph, axis_origin(window)) <>
@@ -259,7 +259,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     scope_y = r2(yf.(total))
 
     inner =
-      ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{scope_y}" y2="#{scope_y}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="5 3" opacity="0.6"/>| <>
+      ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{scope_y}" y2="#{scope_y}" stroke="var(--muted)" stroke-width="1" opacity="0.6"/>| <>
         text(@w - mr, scope_y - 5, "scope #{total}", anchor: "end", fill: "var(--muted)") <>
         ~s|<path d="#{step_area(pts, mt + ph)}" fill="var(--good)" fill-opacity="0.15"/>| <>
         ~s|<path d="#{step_line(pts)}" fill="none" stroke="var(--good)" stroke-width="2"/>| <>
@@ -500,7 +500,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp now_marker(t0, t1, now_ms, xf, y0, y1) when now_ms >= t0 and now_ms <= t1 do
     x = r2(xf.(now_ms))
 
-    ~s|<line class="an-now-marker" x1="#{x}" x2="#{x}" y1="#{y0}" y2="#{y1}" stroke="var(--attention)" stroke-width="1" stroke-dasharray="3 3"/><text x="#{x}" y="#{y0 + 9}" text-anchor="middle" fill="var(--attention)" font-size="9" font-family="var(--an-mono, monospace)">now</text>|
+    ~s|<line class="an-now-marker" x1="#{x}" x2="#{x}" y1="#{y0}" y2="#{y1}" stroke="var(--attention)" stroke-width="1"/><text x="#{x}" y="#{y0 + 9}" text-anchor="middle" fill="var(--attention)" font-size="9" font-family="var(--an-mono, monospace)">now</text>|
   end
 
   defp now_marker(_t0, _t1, _now_ms, _xf, _y0, _y1), do: ""
