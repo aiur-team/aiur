@@ -50,6 +50,14 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   defp ok_response(_request),
     do: {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
 
+  # An ordinary, non-preflight tracker request carrying the proven credential.
+  defp request do
+    %{method: :get, url: "https://api.github.com/repos/owner/repo/issues", token: "preflight-token"}
+  end
+
+  defp unauthorized,
+    do: {:ok, %{status: 401, headers: [], body: %{"message" => "Bad credentials"}}}
+
   defp put_or_delete(key, nil), do: Application.delete_env(:aiur, key)
   defp put_or_delete(key, value), do: Application.put_env(:aiur, key, value)
 
@@ -169,7 +177,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
       # Mid-run, an ordinary (non-preflight) GitHub call comes back 401 — this
       # is what `Aiur.GitHub.Transport` reports for every request it issues.
-      AuthPreflight.note_response(%{method: :get, url: "https://api.github.com/repos/owner/repo/issues"}, {:ok, %{status: 401, headers: [], body: %{"message" => "Bad credentials"}}})
+      AuthPreflight.note_response(request(), unauthorized())
 
       refute AuthPreflight.memoized_identity()
 
@@ -193,20 +201,57 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       refute inspect(diagnostic) =~ "preflight-token"
     end
 
-    test "a non-rate-limited 403 drops the memo, a rate-limited one does not" do
+    # No 403 invalidates. A rate-limit 403 is a quota problem and a permission
+    # 403 is a scope problem; in both cases the preflight itself still returns
+    # `:ok`, so dropping the memo would erase, re-prove and erase forever —
+    # three requests a cycle, permanently, and never converging.
+    test "no 403 drops the memo, because re-proving one would never converge" do
       opts = [request_fun: &ok_response/1, gh_auth_status_fun: fn -> {:ok, :not_installed} end]
 
       assert :ok = AuthPreflight.ensure_preflight(opts)
       assert AuthPreflight.memoized_identity()
 
-      # A 403 carrying rate-limit headers is a quota problem, not an auth one.
-      # Invalidating on it would buy three more requests per cycle at exactly
-      # the moment the budget is exhausted.
-      AuthPreflight.note_response(%{method: :get, url: "https://api.github.com/x"}, {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}], body: %{"message" => "API rate limit exceeded"}}})
+      for body <- [%{"message" => "API rate limit exceeded"}, %{"message" => "Resource not accessible by integration"}] do
+        AuthPreflight.note_response(request(), {:ok, %{status: 403, headers: [], body: body}})
+        assert AuthPreflight.memoized_identity()
+      end
+    end
+
+    # The App JWT that mints installation tokens is not the tracker credential.
+    # A 401 on it says nothing about the one that was proven.
+    test "a 401 carrying a different credential leaves the memo alone" do
+      opts = [request_fun: &ok_response/1, gh_auth_status_fun: fn -> {:ok, :not_installed} end]
+
+      assert :ok = AuthPreflight.ensure_preflight(opts)
+
+      AuthPreflight.note_response(Map.put(request(), :token, "some-other-credential"), unauthorized())
 
       assert AuthPreflight.memoized_identity()
 
-      AuthPreflight.note_response(%{method: :get, url: "https://api.github.com/x"}, {:ok, %{status: 403, headers: [], body: %{"message" => "Resource not accessible"}}})
+      AuthPreflight.note_response(Map.put(request(), :token, "preflight-token"), unauthorized())
+
+      refute AuthPreflight.memoized_identity()
+    end
+
+    # The window the invalidation epoch exists to close: the memo is empty while
+    # the three checks are in flight, so a 401 arriving then finds nothing to
+    # erase. Without the epoch, the `:ok` that was true when it was issued would
+    # re-bless a credential that has since died, and nothing would notice until
+    # the next real 401.
+    test "a revocation during the check is not overwritten by the result of that check" do
+      revoke_midflight = fn request ->
+        if String.ends_with?(request.url, "/issues?state=open&per_page=1") do
+          AuthPreflight.note_response(request(), unauthorized())
+        end
+
+        ok_response(request)
+      end
+
+      assert :ok =
+               AuthPreflight.ensure_preflight(
+                 request_fun: revoke_midflight,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end
+               )
 
       refute AuthPreflight.memoized_identity()
     end
@@ -275,7 +320,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
                Transport.default_request_fun(%{
                  method: :get,
                  url: "https://api.github.com/repos/owner/repo/issues/1",
-                 token: "revoked"
+                 token: "preflight-token"
                })
 
       refute AuthPreflight.memoized_identity()

@@ -436,9 +436,14 @@ defmodule Aiur.GitHub.Transport do
   # Every real GitHub response passes here, which makes it the one place that
   # can tell the auth preflight memo its answer went stale. See
   # `Aiur.GitHub.AuthPreflight.note_response/2`.
+  #
+  # Quota accounting goes first and owns the return value. It gates the whole
+  # fleet, so it must not be able to be skipped by a defect in an advisory
+  # cache hint that was bolted on after it.
   defp quota_observe(quota, request, result) do
+    observed = Quota.observe(quota, request, result)
     AuthPreflight.note_response(request, result)
-    Quota.observe(quota, request, result)
+    observed
   end
 
   defp held_response(hold) do

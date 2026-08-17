@@ -66,10 +66,12 @@ defmodule Aiur.GitHub.Tracker do
   def ensure_auth_preflight do
     client = client_module()
 
-    if Code.ensure_loaded?(client) and function_exported?(client, :ensure_preflight, 0) do
-      client.ensure_preflight()
-    else
-      auth_preflight()
+    loaded? = Code.ensure_loaded?(client)
+
+    cond do
+      loaded? and function_exported?(client, :ensure_preflight, 0) -> client.ensure_preflight()
+      loaded? and function_exported?(client, :ensure_preflight, 1) -> client.ensure_preflight([])
+      true -> auth_preflight()
     end
   end
 

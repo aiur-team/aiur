@@ -123,6 +123,7 @@ defmodule Aiur.TestSupport do
       alias Aiur.Codex.Config, as: CodexConfig
       alias Aiur.Events.Publisher, as: EventsPublisher
       alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+      alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
       alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
       alias Aiur.Linear.Config, as: LinearConfig
 
@@ -170,6 +171,12 @@ defmodule Aiur.TestSupport do
         # 1 on issue 42 in one case would silently suppress comment id 1 on
         # issue 42 in the next, so each case starts from an empty store.
         GitHubResourceStore.reset()
+
+        # Same reasoning again. `Aiur.GitHub.AuthPreflight` remembers the
+        # credential it proved, in `:persistent_term`, so a success recorded by
+        # one case would let a later case's poll cycle skip a preflight it
+        # expects to observe.
+        GitHubAuthPreflight.invalidate(:test_setup)
 
         File.mkdir_p!(workflow_root)
 

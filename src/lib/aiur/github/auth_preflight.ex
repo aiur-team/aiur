@@ -24,14 +24,17 @@ defmodule Aiur.GitHub.AuthPreflight do
      `AppTokenRefresher` installation token, or a `github.repo` change all
      produce a different key, so the next call misses and re-runs the full
      check. Nothing has to remember to invalidate on rotation.
-  2. **Any GitHub call that comes back unauthenticated clears it.**
+  2. **A `401` on the proven credential clears it.**
      `Aiur.GitHub.Transport` reports every non-preflight response to
-     `note_response/2`; a `401`, or a `403` that is not a rate-limit response,
-     drops the entry. The next cycle therefore pays for the full three-request
-     check and produces the ordinary `:github_auth_preflight_failed`
-     diagnostic rather than letting a raw `401` surface downstream.
+     `note_response/2`. The next cycle therefore pays for the full
+     three-request check and produces the ordinary
+     `:github_auth_preflight_failed` diagnostic rather than letting a raw `401`
+     surface downstream. See `note_response/2` for why `403` is deliberately
+     not evidence.
   3. **`invalidate/1` clears it outright**, for anything else that decides the
-     answer is suspect.
+     answer is suspect. It bumps an invalidation epoch *unconditionally*, which
+     is what closes the window where a revocation arrives while a check is
+     mid-flight and the memo is legitimately empty — see `prove/5`.
 
   Note that (1) covers config reloads without a hook: the owner, repo and token
   are re-read from config on every `ensure_preflight/1` call and folded into the
@@ -49,12 +52,17 @@ defmodule Aiur.GitHub.AuthPreflight do
   require Logger
 
   @memo_key {__MODULE__, :proven_identity}
+  @epoch_key {__MODULE__, :invalidation_epoch}
 
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
-      run_full_preflight(owner, repo, token, opts)
+      # The diagnostic form still spends three requests every time, but a
+      # success is evidence like any other: recording it means the poll cycle
+      # that follows boot or workspace creation does not immediately re-prove
+      # what was just proven.
+      prove(identity_key(owner, repo, token), owner, repo, token, opts)
     end
   end
 
@@ -79,12 +87,18 @@ defmodule Aiur.GitHub.AuthPreflight do
     end
   end
 
-  # Only a success is remembered. A failure stays uncached so a broken
-  # credential is re-checked on the very next cycle.
+  # Only a success is remembered, and only if nothing invalidated while the
+  # three requests were in flight. Without the epoch check there is a real
+  # window: the memo is empty during the check, so a `401` arriving mid-flight
+  # finds nothing to erase, and the `:ok` that was true when it was issued then
+  # re-blesses a credential that has since died. A failure is never memoized,
+  # so a broken credential is re-checked on the very next cycle.
   defp prove(key, owner, repo, token, opts) do
+    observed_epoch = epoch()
+
     case run_full_preflight(owner, repo, token, opts) do
       :ok ->
-        memoize(key)
+        if epoch() == observed_epoch, do: memoize(key)
         :ok
 
       {:error, _reason} = error ->
@@ -98,6 +112,12 @@ defmodule Aiur.GitHub.AuthPreflight do
   """
   @spec invalidate(atom()) :: :ok
   def invalidate(reason \\ :manual) do
+    # The epoch bump is unconditional and comes first. Guarding it on "is
+    # anything memoized right now" would lose exactly the signal that matters:
+    # an invalidation arriving while a preflight is mid-flight, when the memo
+    # is legitimately empty.
+    bump_epoch()
+
     if memoized_identity() do
       Logger.debug("GitHub auth preflight memo invalidated (#{inspect(reason)})")
       :persistent_term.erase(@memo_key)
@@ -107,32 +127,64 @@ defmodule Aiur.GitHub.AuthPreflight do
   end
 
   @doc """
-  Observes a GitHub response and invalidates the memo when it looks like the
-  credential stopped working.
+  Observes a GitHub response and invalidates the memo when the credential it
+  was issued with stopped working.
 
-  Called by `Aiur.GitHub.Transport` for every request it issues. Preflight
-  requests report their own result and are ignored here. A `403` that carries
-  rate-limit headers is a quota problem, not an auth problem, and is ignored
-  too — otherwise an exhausted budget would buy three more requests per cycle.
+  Called by `Aiur.GitHub.Transport` for every request it issues. Three things
+  are deliberately *not* treated as evidence:
+
+    * **A preflight's own response.** It reports its own result.
+    * **Anything other than `401`.** A `403` is either a rate limit or a
+      missing permission, and in both cases the preflight itself would still
+      return `:ok` — so invalidating on one produces an endless
+      erase/re-prove/erase loop that costs three requests per cycle forever and
+      never converges. Revocation, expiry and a suspended App installation all
+      surface as `401`.
+    * **A `401` from some other credential.** The App JWT used to mint
+      installation tokens is not the tracker token; a `401` on it says nothing
+      about the one that was proven. A request with no token is treated as
+      unknown and does invalidate, which fails safe.
   """
   @spec note_response(map(), term()) :: :ok
   def note_response(%{preflight?: true}, _result), do: :ok
 
-  def note_response(_request, {:ok, %{status: 401}}), do: invalidate(:unauthorized)
-
-  def note_response(_request, {:ok, %{status: 403} = response}) do
-    if Errors.rate_limited_response?(response, :unknown) do
-      :ok
-    else
-      invalidate(:forbidden)
-    end
+  def note_response(request, {:ok, %{status: 401}}) do
+    if same_credential?(request), do: invalidate(:unauthorized), else: :ok
   end
 
   def note_response(_request, _result), do: :ok
 
+  defp same_credential?(request) do
+    case {Map.get(request, :token), memoized_identity()} do
+      {token, {_owner, _repo, digest}} when is_binary(token) -> :crypto.hash(:sha256, token) == digest
+      _unknown -> true
+    end
+  end
+
   @doc false
   @spec memoized_identity() :: term() | nil
   def memoized_identity, do: :persistent_term.get(@memo_key, nil)
+
+  # A counter rather than another `:persistent_term`: invalidation can be
+  # frequent under a failing credential, and every `:persistent_term` write
+  # scans each process heap in the VM.
+  defp epoch, do: :counters.get(epoch_ref(), 1)
+  defp bump_epoch, do: :counters.add(epoch_ref(), 1, 1)
+
+  # Lazily seeded. Two processes racing the very first call could each build a
+  # counter, and the loser's bump would be dropped — but the first call happens
+  # at boot, before any preflight is in flight, so there is nothing to drop.
+  defp epoch_ref do
+    case :persistent_term.get(@epoch_key, nil) do
+      nil ->
+        ref = :counters.new(1, [:atomics])
+        :persistent_term.put(@epoch_key, ref)
+        :persistent_term.get(@epoch_key)
+
+      ref ->
+        ref
+    end
+  end
 
   defp run_full_preflight(owner, repo, token, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
