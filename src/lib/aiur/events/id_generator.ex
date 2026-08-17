@@ -46,6 +46,7 @@ defmodule Aiur.Events.IdGenerator do
   require Logger
 
   alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
 
   @default_batch_size 50
@@ -247,22 +248,30 @@ defmodule Aiur.Events.IdGenerator do
     # Best-effort: walk per-issue log files and the Executor journal for the
     # largest event ID ever emitted. Issue logs use `[event:*] id=<int>`;
     # executor events are newline-delimited JSON with an `id` field.
+    #
+    # The Executor journal no longer lives in the boot log directory: it is
+    # durable per-repository state that outlives this boot, which makes it the
+    # one file here that can hold an id higher than anything this boot wrote.
+    # Missing it would let a fresh counter re-issue ids the journal already
+    # records, so it is scanned explicitly rather than by directory listing.
     log_dir = Paths.log_root_dir()
 
+    scan_log_directory_for_max_id(log_dir)
+    |> max(scan_file_for_max_id(StatePaths.journal_path()))
+  rescue
+    _ -> 0
+  end
+
+  defp scan_log_directory_for_max_id(log_dir) do
     case File.ls(log_dir) do
       {:ok, entries} ->
         entries
-        |> Enum.filter(&(String.ends_with?(&1, ".log") or &1 == "#{Paths.repo_name()}.executor.events.ndjson"))
-        |> Enum.reduce(0, fn entry, acc ->
-          path = Path.join(log_dir, entry)
-          max(acc, scan_file_for_max_id(path))
-        end)
+        |> Enum.filter(&String.ends_with?(&1, ".log"))
+        |> Enum.reduce(0, fn entry, acc -> max(acc, scan_file_for_max_id(Path.join(log_dir, entry))) end)
 
-      _ ->
+      _unreadable ->
         0
     end
-  rescue
-    _ -> 0
   end
 
   defp scan_file_for_max_id(path) do
