@@ -197,17 +197,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
       :missing ->
         resource = ResourceStore.key_for_repo(:issue_comments, repo, target)
-        etag = durable_etag(resource, etag)
+        {etag, provenance} = request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(target, request_opts) do
           {:ok, comments, next_etag} ->
-            remember_etag(resource, next_etag)
-            {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, next_etag}
+            count = publish_issue_comments(target, comments, repo)
+            remember_list(resource, comments, next_etag)
+            {count, newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
-            remember_etag(resource, next_etag)
-            {0, nil, :ok, next_etag}
+            unchanged_issue_comments(target, resource, provenance, next_etag, repo)
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
@@ -222,12 +222,100 @@ defmodule Aiur.Events.GithubCommentsPoller do
   # never seen, which after a restart is every target: without it the first
   # sweep of every boot re-reads every watched ticket's whole comment list at
   # full price, and restarts here are routine rather than rare.
-  defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: etag
-  defp durable_etag(resource, _etag), do: ResourceStore.etag(resource)
+  #
+  # Where the validator came from is returned with it, because it decides what a
+  # `304` against it is allowed to mean. A `:cycle` validator was minted by a
+  # `200` this daemon already published, so "unchanged" is the truth and there is
+  # nothing to recover. A `:store` validator may have outlived the publish it was
+  # recorded beside, so "unchanged" alone is not enough — see `unchanged_list/2`.
+  defp request_etag(_resource, etag) when is_binary(etag) and etag != "", do: {etag, :cycle}
+  defp request_etag(resource, _etag), do: {ResourceStore.etag(resource), :store}
 
-  defp remember_etag(resource, etag) do
-    ResourceStore.put_etag(resource, etag)
+  # The list *and* its validator, deposited together and only after the comments
+  # in it were published.
+  #
+  # A validator on its own is not safe to hold here. It is an endpoint-level
+  # validator, so GitHub answering `304` to it suppresses the whole list at once
+  # and no per-comment reconciliation can see inside that answer. Recording one
+  # before publishing therefore had a routine loss: `ResourceStore` starts before
+  # `Publisher` and this poller, so on SIGTERM the poller dies first while the
+  # store checkpoints last, and a comment read but not yet published came back to
+  # a validator GitHub was right to answer `304` to and a store holding nothing.
+  # No exception was needed for that.
+  #
+  # Depositing the body closes it from the other side: the next `304` is served
+  # from the store and publishes exactly what a `200` would have, so a cycle that
+  # dies between the read and the publish loses nothing, and the recovery costs
+  # no request. Publishing first as well means the crash window contains no
+  # validator at all, and the sweep after it is unconditional.
+  defp remember_list(resource, comments, etag) when is_list(comments) do
+    ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
     etag
+  end
+
+  defp remember_list(_resource, _comments, etag), do: etag
+
+  defp unchanged_issue_comments(target, resource, provenance, next_etag, repo) do
+    case unchanged_list(resource, provenance) do
+      {:ok, comments} ->
+        count = publish_issue_comments(target, comments, repo)
+        remember_list(resource, comments, next_etag)
+        {count, nil, :ok, next_etag}
+
+      :nothing_to_recover ->
+        {0, nil, :ok, next_etag}
+
+      :unusable_validator ->
+        {0, nil, :ok, forget_validator(resource)}
+    end
+  end
+
+  defp unchanged_pr_issue_comments(target, pr_number, resource, {provenance, next_etag}, repo, review_context) do
+    case unchanged_list(resource, provenance) do
+      {:ok, comments} ->
+        count = publish_pr_issue_comments(target, pr_number, comments, repo, review_context)
+        remember_list(resource, comments, next_etag)
+        {count, nil, :ok, next_etag}
+
+      :nothing_to_recover ->
+        {0, nil, :ok, next_etag}
+
+      :unusable_validator ->
+        {0, nil, :ok, forget_validator(resource)}
+    end
+  end
+
+  # What a `304` is worth, decided by what the store holds and where the
+  # validator came from.
+  #
+  #   * the list itself — republish it. Every comment in it is either already
+  #     marked processed, and suppressed for free, or was never published, and
+  #     is recovered. That is what makes a `304` produce the same events a `200`
+  #     would have.
+  #   * no list, but the validator is this daemon's own from an earlier cycle —
+  #     nothing to recover: the `200` that minted it was published first. Keep
+  #     the validator, because dropping it would make every steady-state cycle a
+  #     full-price read, which is the cost this whole path exists to remove.
+  #   * no list, and the validator came out of the store — it may have outlived
+  #     the publish it was recorded beside, and it is an *endpoint* validator, so
+  #     GitHub's `304` suppressed the entire list and no per-comment
+  #     reconciliation can see inside it. Unusable.
+  defp unchanged_list(resource, provenance) do
+    case ResourceStore.fetch(resource) do
+      {:ok, %{data: comments}} when is_list(comments) -> {:ok, comments}
+      _other when provenance == :cycle -> :nothing_to_recover
+      _other -> :unusable_validator
+    end
+  end
+
+  # A `304` against a durable validator with no body behind it spent a request
+  # and learned nothing recoverable. So the validator goes, here and in the
+  # cycle's own map, and the next sweep reads unconditionally. That is the
+  # reader's half of the store's validator/body contract; see
+  # `Aiur.GitHub.ResourceStore`.
+  defp forget_validator(resource) do
+    ResourceStore.drop_etag(resource)
+    nil
   end
 
   defp publish_issue_comments(target, comments, repo) do
@@ -318,17 +406,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
       :missing ->
         resource = ResourceStore.key_for_repo(:pr_issue_comments, repo, pr_number)
-        etag = durable_etag(resource, etag)
+        {etag, provenance} = request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(pr_number, request_opts) do
           {:ok, comments, next_etag} ->
-            remember_etag(resource, next_etag)
-            {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, next_etag}
+            count = publish_pr_issue_comments(target, pr_number, comments, repo, review_context)
+            remember_list(resource, comments, next_etag)
+            {count, newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
-            remember_etag(resource, next_etag)
-            {0, nil, :ok, next_etag}
+            unchanged_pr_issue_comments(target, pr_number, resource, {provenance, next_etag}, repo, review_context)
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")

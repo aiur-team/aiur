@@ -118,8 +118,17 @@ defmodule Aiur.GitHub.ResourceEvents do
   def topic(_key), do: nil
 
   @doc "The topic for every resource of `type`, in any repository."
-  @spec type_topic(ResourceStore.resource_type()) :: String.t() | nil
+  @spec type_topic(ResourceStore.resource_type() | term()) :: String.t() | nil
+  def type_topic(nil), do: nil
+
   def type_topic(type) when is_atom(type), do: "#{@prefix}:#{type}"
+
+  # Same reason `topic/1` answers `nil`: a hand-built key can carry a type no
+  # topic can be made from, and the store calls this from inside a write. Without
+  # this clause that write raises `FunctionClauseError` *after* the entry has
+  # already landed in ETS, so the caller — a poll task — dies holding a written
+  # entry it never announced.
+  def type_topic(_type), do: nil
 
   @doc "The topic for every resource of `type` within one repository."
   @spec type_topic(ResourceStore.resource_type(), String.t()) :: String.t() | nil
@@ -152,6 +161,8 @@ defmodule Aiur.GitHub.ResourceEvents do
   def subscribe(type) when is_atom(type) do
     if known_type?(type), do: do_subscribe(type_topic(type)), else: unknown_type(type)
   end
+
+  def subscribe(other), do: unknown_type(other)
 
   @doc "Subscribes the caller to one resource type within one `\"owner/repo\"`."
   @spec subscribe(ResourceStore.resource_type(), String.t() | nil) :: :ok
@@ -196,6 +207,8 @@ defmodule Aiur.GitHub.ResourceEvents do
 
   def unsubscribe(type) when is_atom(type), do: do_unsubscribe(type_topic(type))
 
+  def unsubscribe(_other), do: :ok
+
   @doc "Reverses `subscribe/2`."
   @spec unsubscribe(ResourceStore.resource_type(), String.t() | nil) :: :ok
   def unsubscribe(type, full_name) when is_atom(type), do: do_unsubscribe(type_topic(type, full_name))
@@ -212,7 +225,14 @@ defmodule Aiur.GitHub.ResourceEvents do
   @spec publish(ResourceStore.key() | nil, map()) :: :ok
   def publish(nil, _entry), do: :ok
 
-  def publish({type, owner, repo, id} = key, entry) when is_map(entry) do
+  # Guarded on every member, not only on `entry`. `type_topic/2` interpolates
+  # `owner` and `repo`, so a hand-built key holding anything without a
+  # `String.Chars` implementation used to raise `Protocol.UndefinedError` from
+  # here — before any broadcast, so the module's own rescue never saw it, and
+  # after the ETS insert, so the entry was written and the writer died. A key
+  # that cannot be addressed is announced to nobody instead.
+  def publish({type, owner, repo, id} = key, entry)
+      when is_map(entry) and is_atom(type) and is_binary(owner) and is_binary(repo) and is_binary(id) do
     change = %{
       key: key,
       resource_type: type,
