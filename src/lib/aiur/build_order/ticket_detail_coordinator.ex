@@ -2,8 +2,9 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
   @moduledoc """
   Supervised coordinator for configured-repository ticket detail reads.
 
-  This was `TicketDetailCache`, and the rename is the point of the change rather
-  than decoration. Aiur had grown five independent GitHub caches, one per reader,
+  This replaces Build Order's own private ticket-detail cache, and the rename is
+  the point of the change rather than decoration. Aiur had grown five
+  independent GitHub caches, one per reader,
   and each new reader reached for the nearest one and then grew a sixth. A module
   called a cache invites that. This one is not one any more:
 
