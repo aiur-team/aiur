@@ -43,7 +43,14 @@ defmodule Aiur.Executor.StatePaths do
     end
   end
 
-  @doc "Creates the state directory and imports any legacy per-boot files exactly once."
+  @doc """
+  Creates the state directory and imports any legacy per-boot files.
+
+  Idempotent and cheap: the import is skipped as soon as the destination exists,
+  so repeated path lookups cost a `mkdir_p` and a handful of stats. This is the
+  "records are set up automatically on first use" step — there is no operator
+  provisioning command to forget.
+  """
   @spec ensure() :: :ok
   def ensure do
     root = dir()

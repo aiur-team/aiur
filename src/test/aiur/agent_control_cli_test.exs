@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
-  alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
@@ -39,7 +39,7 @@ defmodule Aiur.AgentControlCLITest do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
     output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
-    cursor_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.cursor.json")
+    cursor_path = StatePaths.cursor_path()
 
     assert output =~ "__AIUR_CONTROL_EXIT__:75"
     refute output =~ "WAKE"

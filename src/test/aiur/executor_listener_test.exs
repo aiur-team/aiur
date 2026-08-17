@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorListenerTest do
   use Aiur.TestSupport
 
-  alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.Decision
   alias Aiur.Events.Exchange
   alias Aiur.ExecutorBindings
@@ -18,7 +18,13 @@ defmodule Aiur.ExecutorListenerTest do
     # fresh process over the same watermark.
     previous_health_alert_fun = Application.get_env(:aiur, :executor_listener_health_alert_fun)
 
+    # Command alerts are now bound to an Executor-owned run: recording is
+    # unconditional, but asking a human to answer something is not (#2099).
+    Application.put_env(:aiur, :executor_command_alerts?, true)
+
     on_exit(fn ->
+      Application.delete_env(:aiur, :executor_command_alerts?)
+
       if previous_health_alert_fun do
         Application.put_env(:aiur, :executor_listener_health_alert_fun, previous_health_alert_fun)
       else
@@ -55,9 +61,7 @@ defmodule Aiur.ExecutorListenerTest do
     }
   end
 
-  defp watermark_path do
-    Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.listener.watermark.json")
-  end
+  defp watermark_path, do: StatePaths.watermark_path()
 
   defp watermark do
     case JsonStore.read(watermark_path()) do

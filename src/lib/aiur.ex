@@ -161,6 +161,12 @@ defmodule Aiur.Application do
     _executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
 
+    # Always true for a real run. The unit-test singleton turns it off so the
+    # shared app process does not hold a VM-wide inbox and listener that every
+    # case would then contend on; cases that exercise recording supervise their
+    # own pair against their own isolated state directory.
+    recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
+
     cli_children =
       if interactive_cli? do
         [
@@ -295,8 +301,8 @@ defmodule Aiur.Application do
       # block. `Claims` starts first: it arbitrates who may advance the shared
       # cursor the inbox owns.
       Aiur.Executor.Claims,
-      Aiur.ExecutorWakeInbox,
-      Aiur.ExecutorListener,
+      if(recording?, do: Aiur.ExecutorWakeInbox),
+      if(recording?, do: Aiur.ExecutorListener),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),

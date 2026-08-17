@@ -49,6 +49,12 @@ if config_env() == :test do
   # default, but this singleton must not poll across sequential test boundaries.
   config :aiur, :orchestrator_initial_poll?, false
 
+  # Executor recording is unconditional in a real run. The shared test app must
+  # not hold the singleton wake inbox and listener, or every case would contend
+  # on one VM-wide ledger written before per-test path isolation is applied.
+  # Recording cases supervise their own pair against their own state directory.
+  config :aiur, :executor_recording?, false
+
   # The shared app's Ad Hoc overlay poller must not reach GitHub across
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
