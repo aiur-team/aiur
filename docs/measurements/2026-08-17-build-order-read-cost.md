@@ -7,6 +7,24 @@ the reported `cost` recorded. Observed consumption was **not** used to infer
 per-query price — the daemon fleet shares the token, so observed numbers are
 noisy and cannot be attributed to one caller.
 
+## Reproduction
+
+Re-measured independently on 2026-08-17 against the same repository, by issuing
+`Aiur.BuildOrder.GitHubGraph.Queries.catalog/1` and `.selected/0` verbatim — the
+shipped query text, which already selects `rateLimit { cost }` — and reading the
+cost GitHub reported:
+
+```
+catalog cheap 25/page:        cost=1
+catalog labelled 25/page:     cost=26
+selected root #1084 100/page: cost=3
+```
+
+Every figure below reproduces. The "no validator" claim reproduces too: a
+`POST https://api.github.com/graphql` returned `HTTP/2 200` with
+`x-ratelimit-resource: graphql` and **no** `ETag`, `Last-Modified` or
+`Cache-Control` header.
+
 ## Per-query price
 
 | Read | Protocol | Measured cost | Revalidation |
@@ -100,6 +118,29 @@ Named rather than folded into a percentage:
 - `GET /repos/{owner}/{repo}/issues?labels=build-lane:adhoc&state=all&per_page=100`
   — the Build Order ad-hoc epic poll, REST, every 60s. Conditional support is
   possible and not done here.
+
+## Why graph bodies are not deposited in the shared store
+
+The ticket-detail read is, because it is REST and the store's whole value there
+is a validator plus a body two readers can share. A graph snapshot is not, and
+the reasons are worth writing down rather than leaving as an omission:
+
+1. **There is nothing to revalidate.** No GraphQL response carries a validator
+   (verified above), so a stored graph entry could never turn a read into a
+   `304`. The store cannot make a graph read cheaper; only cadence can, which is
+   what this change does.
+2. **`GraphProjection` is already the single owner.** It is one supervised
+   process holding one entry per scope, and `request_scope/2` declines while a
+   read is inflight — so two consumers demanding the same root already produce
+   one upstream read within a boot. Depositing the same snapshot in a second
+   place would add a second copy, not remove a fetch.
+3. **A graph snapshot cannot survive the store's checkpoint.** The store persists
+   as JSON and hands back whatever it decoded. A `SelectedRoot` is a nest of
+   structs, so it would either be dropped on the way in or come back as
+   string-keyed maps that no reader can use — and a body that cannot be encoded
+   risks the checkpoint that every *other* resource type depends on.
+
+So the graph's answer to "viewing never fetches" is cadence removal, not caching.
 
 ## What did become free
 

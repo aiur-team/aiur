@@ -508,42 +508,57 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Age after which ticket history is stale. |
 | `build_order.graph_catalog_refresh_ms` | integer | derived (1× poll interval) | Catalog refresh cadence. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
-| `build_order.graph_selected_refresh_ms` | integer | derived (1× poll interval) | Selected Build Order refresh cadence. |
-| `build_order.graph_demand_refresh_ms` | integer | derived (⅛ poll interval, min 5000) | Demand-driven selected-graph refresh cadence. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
 
+### Two removed keys
+
+`build_order.graph_selected_refresh_ms` and `build_order.graph_demand_refresh_ms`
+no longer exist. They were the two settings by which *viewing* bought GitHub
+reads: the demand cadence fired when an operator selected a root, and the
+selected cadence repeated for as long as the page stayed open. No value makes
+that correct, because it makes API cost track how many people are looking rather
+than what has changed, so they were removed rather than retuned.
+
+A selected root is now read when a writer asks for it — a webhook delivery, an
+agent mutation, or the daemon's own catalog reconciliation — or when something
+calls `Aiur.BuildOrder.GraphProjection.refresh/2` because it genuinely needs the
+data. Opening the Build Order page, selecting a root, and holding it open consume
+zero GitHub reads.
+
+A configuration that still sets either key keeps loading unchanged: unknown keys
+are ignored rather than rejected, so an upgrade gets the new behaviour instead of
+a boot failure.
+
 ### Derived Build Order cadences
 
-Five of these keys have no fixed default. They are derived from
+Three of these keys have no fixed default. They are derived from
 `polling.interval_seconds`, and setting any of them explicitly overrides the
 derivation.
 
 Build Order displays state that the tracker produces, so it cannot be fresher
 than the tracker's own cycle — refreshing faster only re-reads a graph that
-cannot have moved. The previous fixed defaults of `15000` and `5000` were chosen
-when the tracker polled every 5 seconds, and did not move when the tracker
-changed to 120 seconds.
+cannot have moved. The previous fixed defaults were chosen when the tracker
+polled every 5 seconds, and did not move when the tracker changed to 120 seconds.
+Deriving them is what stops that recurring.
 
 | Key | Derivation | At a 120s poll interval |
 | --- | --- | --- |
 | `graph_catalog_refresh_ms` | 1× poll interval | 120000 |
 | `graph_catalog_labels_refresh_ms` | 5× poll interval, floor 600000, never below `graph_catalog_refresh_ms` | 600000 |
-| `graph_selected_refresh_ms` | 1× poll interval | 120000 |
-| `graph_demand_refresh_ms` | ⅛ poll interval, floor 5000, never above `graph_selected_refresh_ms` | 15000 |
 | `ticket_detail_freshness_ms` | ¼ poll interval, floor 5000 | 30000 |
 
 `graph_catalog_labels_refresh_ms` covers the 26-point catalog variant, so it is
-the slowest of the five, and it can never fall below the catalog cadence it rides
-on — a labels read that outran the catalog poll would make every poll buy the
-expensive query.
+the slowest of the three, and it can never fall below the catalog cadence it
+rides on — a labels read that outran the catalog poll would make every poll buy
+the expensive query.
 
-`graph_demand_refresh_ms` is a debounce on an operator clicking a root rather
-than a background cadence, so it is bounded below by human responsiveness.
-`ticket_detail_freshness_ms` is allowed to be tighter than the graph around it
-because it is the only one of the four backed by a REST read, and so the only
-one whose refresh can be a free `304` instead of a paid query.
+`ticket_detail_freshness_ms` is not a cadence: nothing fires on it. It is the
+staleness a ticket-detail reader accepts from the shared store before
+revalidating, and it is allowed to be tighter than the graph cadences because it
+is the only one of the three backed by a REST read — so the only one whose
+refresh can be a free `304` rather than a paid query.
 
 ### What these cadences cost
 

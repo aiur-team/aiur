@@ -128,14 +128,15 @@ alerts:
 # Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.
 # Restarting Aiur clears their snapshots; consumers receive unavailable state until a new read succeeds.
 # build_order:
-#   # These five default to values derived from polling.interval_seconds, because
+#   # These three default to values derived from polling.interval_seconds, because
 #   # Build Order cannot be fresher than the tracker cycle that feeds it. Set one
 #   # only to override that. At a 120s poll interval the derived values are shown.
+#   # graph_selected_refresh_ms and graph_demand_refresh_ms no longer exist: they
+#   # were how viewing bought GitHub reads. A selected root is read when a writer
+#   # or an explicit refresh asks for it, so holding the page open costs nothing.
 #   ticket_detail_freshness_ms: 30000       # 1..300000; reuse a healthy detail during this window
 #   graph_catalog_refresh_ms: 120000        # daemon-owned root-catalog reconciliation interval
 #   graph_catalog_labels_refresh_ms: 600000 # slower cadence for the costlier read that resolves epic/wave counts
-#   graph_selected_refresh_ms: 120000       # refresh interval while a selected root has demand
-#   graph_demand_refresh_ms: 15000          # selection/reconnect threshold; must not exceed selected refresh
 #   graph_refresh_timeout_ms: 30000         # bounded provider task timeout
 #   graph_max_selected_roots: 32            # in-memory retained LKG roots; lost on daemon restart
 #   graph_max_inflight: 4                    # provider refreshes shared by all connected consumers
