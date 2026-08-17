@@ -50,7 +50,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --port 4000` | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
-| `aiur --version` | Prints the release version without contacting or claiming a running daemon. | `aiur --version` |
+| `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
 | Launch choice | Behavior |
 | --- | --- |
@@ -58,6 +58,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
 | Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
+
+When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.
 
 ## Inspect and operate a running daemon
 
