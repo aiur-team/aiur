@@ -196,9 +196,14 @@ defmodule Aiur.GitHub.CacheInspector.Entry do
   defp age(%DateTime{} = fetched_at, now), do: now |> DateTime.diff(fetched_at, :millisecond) |> max(0)
   defp age(_fetched_at, _now), do: nil
 
-  # An entry with no body has no `fetched_at`, so its freshness is unknown
-  # rather than expired. Calling it expired would be a guess dressed as a fact,
-  # and calling it fresh would be the exact lie this page exists to prevent.
+  # An entry the store never recorded a fetch time for is unknown rather than
+  # expired. Calling it expired would be a guess dressed as a fact, and calling
+  # it fresh would be the exact lie this page exists to prevent.
+  #
+  # Note this is not the same as bodyless: `drop_data/1` keeps `fetched_at_ms`,
+  # so a bodyless entry usually still has an age. That age describes the body it
+  # no longer holds, which is why `body?` and not freshness is what decides
+  # whether the page presents an entry as servable.
   defp freshness(nil, _thresholds), do: :unknown
 
   defp freshness(age_ms, %{stale_after_ms: stale, expired_after_ms: expired}) do

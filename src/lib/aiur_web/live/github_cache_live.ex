@@ -521,7 +521,8 @@ defmodule AiurWeb.GithubCacheLive do
           <strong>Validator held, body absent.</strong>
           This entry cannot answer a reader. Sending its ETag returns a 304 with no data, so a
           consumer that treats it as a hit spends a call and gets nothing — it has to re-read
-          unconditionally instead.
+          unconditionally instead. The fetch time below is when the body it no longer holds was
+          recorded, so read the age as history rather than as freshness.
         </p>
 
         <dl>
