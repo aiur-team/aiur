@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   """
 
   require Logger
-  alias Aiur.GitHub.{BotIdentity, Errors, ReviewThreads, Transport}
+  alias Aiur.GitHub.{BotIdentity, Errors, ReviewThreads, Transport, WriteThrough}
 
   @reply_review_thread_mutation """
   mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
@@ -56,6 +56,12 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
     case add_review_thread_reply(request_fun, token, thread_id, body) do
       {:ok, mutation_body} ->
         Logger.info("GitHub review thread reply mutation response: #{inspect(mutation_body)}")
+
+        # The mutation selects the reply's `databaseId`, which is the same id
+        # the `pull_request_review_comment` delivery carries — so depositing it
+        # here is what makes Aiur's own reply arrive in the store before its
+        # webhook does, and stops that webhook waking anyone for it.
+        WriteThrough.pr_review_comment(replied_comment(mutation_body))
 
         build_review_thread_retry_context(
           request_fun,
@@ -159,6 +165,14 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
       mutation_body: mutation_body
     }
   end
+
+  # Matched rather than dug out with `get_in/2`, which raises on an unexpected
+  # intermediate shape — a mutation that already succeeded must never be
+  # reported as failed because its response did not look the way we guessed.
+  defp replied_comment(%{"data" => %{"addPullRequestReviewThreadReply" => %{"comment" => %{} = comment}}}),
+    do: comment
+
+  defp replied_comment(_mutation_body), do: nil
 
   @spec add_review_thread_reply(function(), String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}

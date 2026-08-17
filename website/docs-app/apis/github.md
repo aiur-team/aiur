@@ -211,6 +211,32 @@ or the next poll and retires the affected answers then.
 
 That gap is the exposure, and it is why a verdict is never kept at all.
 
+## Changes Aiur makes itself
+
+There is a third path, and it is the cheapest one: a change Aiur makes.
+
+Aiur posts comments, applies and removes labels, closes tickets, repairs pull request bases, declares dependencies, and replies to and resolves review threads. GitHub's answer to each of those requests already contains the new state, and Aiur keeps it.
+
+The round trip was required by the write, so learning its result costs nothing extra. No later read is spent discovering a change Aiur made.
+
+Two consequences:
+
+| Situation | What happens |
+| --- | --- |
+| A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
+| The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment or its own review reply. |
+| A label or a close is delivered | It reconciles state rather than waking anybody, so an orchestrator label write cannot wake the agent that state belongs to. |
+
+Suppression here is per resource **and per version**, as above. A later edit of that same comment moves its `updated_at`, so it wakes the agent normally.
+
+Where GitHub's answer cannot name a version — the label endpoints return the label array and nothing else — Aiur keeps the state but suppresses nothing. The resource's next genuine change is never swallowed.
+
+Such a write still records the marker of the snapshot it was applied to, rather than recording nothing. That is what keeps "a delayed delivery carrying older state is refused" true afterwards: staleness is judged against the marker on the record, so a record left unmarked would accept every late delivery instead of refusing the old ones.
+
+A label write also corrects the labels on the issue Aiur already holds, and does so as one indivisible step. Reading the issue, changing it, and writing it back as separate steps would let a delivery that landed in between be overwritten by the older copy — including its `open` or `closed` state.
+
+A write that fails records nothing.
+
 ## Optional webhook
 
 The webhook shortens reaction time for repository events while polling continues as a reconciliation path.
