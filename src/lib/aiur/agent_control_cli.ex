@@ -296,12 +296,12 @@ defmodule Aiur.AgentControlCLI do
 
   @spec executor_answer(keyword()) :: :ok
   def executor_answer(opts) when is_list(opts) do
-    guarded("executor-answer", fn -> ExecutorCommandCLI.answer(opts) |> exit_marker() end)
+    guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
   end
 
   @spec executor_escalate(keyword()) :: :ok
   def executor_escalate(opts) when is_list(opts) do
-    guarded("executor-escalate", fn -> ExecutorCommandCLI.escalate(opts) |> exit_marker() end)
+    guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)
   end
 
   @spec units(keyword()) :: :ok

@@ -249,6 +249,65 @@ defmodule Aiur.Regression.EngineControlTest do
       refute out =~ "no running aiur node"
     end
 
+    test "silent executor failures name the attempted decision, version, and endpoint" do
+      for command <- ["executor-answer", "executor-escalate"] do
+        rel = fake_release()
+        state = tmp_state()
+        File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\necho \"__AIUR_CONTROL_EXIT__:1\"\n")
+        File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+        on_exit(fn ->
+          File.rm_rf(rel)
+          File.rm_rf(state)
+        end)
+
+        {out, 0} =
+          run_control_rpc_captured(
+            "Aiur.AgentControlCLI.executor_answer([])",
+            [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}],
+            "AIUR_CONTROL_COMMAND='#{command}'\nAIUR_CONTROL_ATTEMPT_CONTEXT='decision ID decision:42 with expected version 3'"
+          )
+
+        assert out =~ "CODE=1"
+        assert out =~ "STDOUT_BYTES=0"
+        assert out =~ "STDERR_LINES=1"
+        assert out =~ "decision ID decision:42"
+        assert out =~ "expected version 3"
+        assert out =~ "daemon endpoint aiur-engctl-"
+        assert out =~ "Outcome is unknown"
+      end
+    end
+
+    test "timed out executor failures preserve the attempted decision, version, and endpoint" do
+      rel = fake_release()
+      state = tmp_state()
+      File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\nsleep 10\n")
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured(
+          "Aiur.AgentControlCLI.executor_answer([])",
+          [
+            {"AIUR_RELEASE_DIR", rel},
+            {"AIUR_BG_STATE_DIR", state},
+            {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "1"}
+          ],
+          ~s|AIUR_CONTROL_COMMAND='executor-answer'\nAIUR_CONTROL_ATTEMPT_CONTEXT='decision ID decision:42 with expected version 3'|
+        )
+
+      assert out =~ "CODE=124"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "timed out after 1s"
+      assert out =~ "decision ID decision:42"
+      assert out =~ "expected version 3"
+      assert out =~ "daemon endpoint aiur-engctl-"
+    end
+
     test "a forwarded application error is printed without exposing its protocol marker" do
       rel = fake_release()
       state = tmp_state()
@@ -278,6 +337,50 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "aiur: status query timed out after 5s; outcome is unknown"
       refute out =~ "__AIUR_CONTROL_ERROR__"
       refute out =~ "__AIUR_CONTROL_EXIT__"
+    end
+
+    test "executor application errors cross the real guarded RPC marker seam" do
+      rel = fake_release()
+      state = tmp_state()
+
+      File.write!(Path.join([rel, "bin", "aiur"]), """
+      #!/usr/bin/env bash
+      set -euo pipefail
+      cd "$AIUR_SOURCE_ROOT"
+      exec mise exec -- mix run --no-start -e "${@: -1}" 2>/dev/null
+      """)
+
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      expression = """
+      Aiur.AgentControlCLI.executor_answer(decision_id: "decision:42", expected_version: 3, option_id: "yes", rationale: "why", idempotency_key: "key")
+      Aiur.AgentControlCLI.executor_escalate(decision_id: "decision:42", expected_version: 3, reason: "operator judgment required")
+      """
+
+      {out, 0} =
+        run_control_rpc_captured(
+          expression,
+          [
+            {"AIUR_RELEASE_DIR", rel},
+            {"AIUR_BG_STATE_DIR", state},
+            {"AIUR_SOURCE_ROOT", Path.expand("../../..", __DIR__)},
+            {"MIX_ENV", "test"}
+          ],
+          ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='executor command'|
+        )
+
+      assert out =~ "CODE=1"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=2"
+      assert out =~ "aiur: failed to answer Command ({:store_unavailable,"
+      assert out =~ "aiur: failed to escalate Command ({:store_unavailable,"
+      refute out =~ "returned no diagnostic output"
+      refute out =~ "__AIUR_CONTROL_ERROR__"
     end
 
     test "a missing marker is an error" do
