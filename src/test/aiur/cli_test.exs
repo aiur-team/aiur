@@ -538,7 +538,7 @@ defmodule Aiur.CLITest do
         assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", "config.yaml"], configured_deps(8))
       end)
 
-    marker = "__AIUR_CONFIG_PATH__:#{Path.expand(".aiurconfig")}\n"
+    marker = "__AIUR_CONFIG_PATH__:#{Path.expand("config.yaml")}\n"
     assert stderr == marker <> marker
   end
 
@@ -547,7 +547,7 @@ defmodule Aiur.CLITest do
 
     stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, "config.yaml"], configured_deps(8)) end)
 
-    assert stderr == "__AIUR_CONFIG_PATH__:#{Path.expand(".aiurconfig")}\n"
+    assert stderr == "__AIUR_CONFIG_PATH__:#{Path.expand("config.yaml")}\n"
   end
 
   test "--max-agents rejects a non-positive value" do
