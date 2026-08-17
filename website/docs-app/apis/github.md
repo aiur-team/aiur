@@ -109,6 +109,31 @@ When a path deposits the resource itself, that is written to disk alongside the 
 Every write that changes what a reader could see is announced, so anything watching that resource learns about it without asking GitHub. A change costs one API call at most, no matter how many things were watching.
 
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+## Shared agent reads
+
+Agents run `gh` through a wrapper that keeps the answers. When one agent reads a
+pull request, the next agent asking the same question is served the first
+agent's answer instead of making its own call. The answer is the exact output
+the first call produced, replayed byte for byte.
+
+| Read | Shared |
+| --- | --- |
+| `gh pr view`, `gh issue view`, `gh pr checks` with `--json` and a number | Yes |
+| `gh pr list`, `gh issue list` with `--json` | Yes |
+| `gh api` GET of a repository endpoint | Yes |
+| Anything else — no `--json`, `gh pr diff`, `gh api graphql`, every write | No; the call goes to GitHub as before |
+
+An answer is kept for 60 seconds, and 15 seconds for `gh pr checks` because it
+reports CI. Editing a ticket or a pull request discards the kept answers for it
+at once, so an agent never reads back what it just replaced.
+
+| Setting | Effect |
+| --- | --- |
+| `AIUR_GITHUB_STATE_CACHE_ENABLED=0` | Turns sharing off; every call goes to GitHub. |
+| `AIUR_GITHUB_STATE_CACHE_BYPASS=1` | Makes one call ignore kept answers, for a decision that must not be stale. |
+| `AIUR_GITHUB_STATE_CACHE_TTL_MS` | How long an answer is kept, in milliseconds. |
+
+If the store is missing or unwritable, every call behaves as it did before.
 
 ## Optional webhook
 

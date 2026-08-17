@@ -3,6 +3,7 @@ defmodule Aiur.AgentGitHubGuardTest do
   @moduletag :tmp_dir
 
   alias Aiur.AgentGitHubGuard
+  alias Aiur.GitHub.AgentCache
   alias Aiur.GitHub.Budget
 
   setup %{tmp_dir: root} do
@@ -1929,6 +1930,225 @@ defmodule Aiur.AgentGitHubGuardTest do
              AgentGitHubGuard.install(context.workspace)
 
     refute File.exists?(Path.join(external, "bin/gh"))
+  end
+
+  # ---------------------------------------------------------------------------
+  # Shared GitHub state cache (#2073 U6)
+  #
+  # Sixteen agents asking about one pull request used to take sixteen leases and
+  # pay sixteen times, because the broker rations spending but stores no answers.
+  # These assert call COUNTS and BYTE EQUALITY, never latency or similarity: the
+  # failure this design has to rule out is a cached response whose shape differs
+  # subtly from the live one, which corrupts agent input without ever erroring.
+  # ---------------------------------------------------------------------------
+
+  describe "agent reads through the shared state cache" do
+    test "two agents reading the same pull request produce one upstream call", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      assert upstream_calls(context) == 1
+    end
+
+    test "a cached read is byte-identical to the uncached one", context do
+      # A body carrying every byte a re-serialiser would quietly normalise: a
+      # CR, a trailing space, and no final newline.
+      output = ~S(line one <b> &\r\ntrailing space \nno-trailing-newline)
+      # The fake `gh` short-circuits on a formatter flag before it reaches the
+      # shared call log, so this shape is counted through its own log instead.
+      formatted = Path.join(context.workspace, "formatted-calls")
+      env = [FAKE_GH_FORMAT_OUTPUT: output, FAKE_GH_FORMAT_ARGS: formatted]
+
+      assert {uncached, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body", "-q", ".body"], env)
+      assert line_count(formatted) == 1
+
+      assert {cached, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body", "-q", ".body"], env)
+      assert line_count(formatted) == 1
+
+      assert cached == uncached
+      assert cached =~ "no-trailing-newline"
+      refute String.ends_with?(cached, "\n")
+    end
+
+    test "different output shapes never share an entry", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body,title"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a read whose output is a human table is not cached", context do
+      # No `--json`: `gh` prints a terminal-width table with relative
+      # timestamps, which is neither stable between two agents nor meaningful to
+      # replay an hour later.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "an unrecognised invocation falls through unchanged", context do
+      assert {first, 0} = run_cached_guard(context, ["pr", "diff", "1670"])
+      assert {second, 0} = run_cached_guard(context, ["pr", "diff", "1670"])
+
+      assert first == second
+      assert upstream_calls(context) == 2
+    end
+
+    test "a GraphQL query is never served from the store", context do
+      # Its identity is an arbitrary document rather than a resource, so no
+      # writer could ever invalidate the entry.
+      assert {_, 0} = run_cached_guard(context, ["api", "graphql", "-f", "query=query{viewer{login}}"])
+      assert {_, 0} = run_cached_guard(context, ["api", "graphql", "-f", "query=query{viewer{login}}"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a resource number outside the third position is not guessed at", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "--json", "body", "1670"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "--json", "body", "1670"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a missing store leaves every call behaving exactly as today", context do
+      env = [AIUR_GITHUB_STATE_CACHE_ROOT: Path.join(context.workspace, "nonexistent/store")]
+
+      assert {first, 0} = run_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+      assert {second, 0} = run_guard(context, ["pr", "view", "1670", "--json", "body"], env)
+
+      assert first == second
+      assert upstream_calls(context) == 2
+    end
+
+    test "the kill switch disables the store outright", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], AIUR_GITHUB_STATE_CACHE_ENABLED: "0")
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], AIUR_GITHUB_STATE_CACHE_ENABLED: "0")
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a caller demanding strict freshness always spends", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], AIUR_GITHUB_STATE_CACHE_BYPASS: "1")
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a failed read is never stored", context do
+      assert {_, 1} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], FAKE_GH_FAIL: "1")
+      assert {_, 1} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], FAKE_GH_FAIL: "1")
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a mutation retires the resource it changed", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["issue", "comment", "1670", "--body", "hi"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      # Pull requests and issues share GitHub's number space, so a comment
+      # posted through `gh issue comment` changes what `gh pr view` answers.
+      assert upstream_calls(context) == 3
+    end
+
+    test "a mutation elsewhere leaves an unrelated entry alone", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["issue", "comment", "1671", "--body", "hi"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "a daemon writer retires every cached shape of a resource", context do
+      # The interlock with the free pipes: a webhook delivery or a mutation
+      # write-through marks the resource, and the agent's next read pays.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 1
+
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 2
+    end
+
+    test "the repository is not guessed at from outside the workspace", context do
+      outside = Path.join(context.workspace, "..") |> Path.expand() |> Path.join("elsewhere")
+      File.mkdir_p!(outside)
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], [], cd: outside)
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], [], cd: outside)
+
+      assert upstream_calls(context) == 2
+    end
+
+    test "an explicit --repo is authoritative anywhere", context do
+      outside = Path.join(context.workspace, "..") |> Path.expand() |> Path.join("elsewhere-repo")
+      File.mkdir_p!(outside)
+      args = ["pr", "view", "1670", "-R", "other/thing", "--json", "body"]
+
+      assert {_, 0} = run_cached_guard(context, args, [], cd: outside)
+      assert {_, 0} = run_cached_guard(context, args, [], cd: outside)
+
+      assert upstream_calls(context) == 1
+    end
+
+    test "hits and misses are recorded for cost attribution", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+
+      rows =
+        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.split(&1, "\t"))
+
+      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670"], &1))
+      assert Enum.any?(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1))
+      assert Enum.any?(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1))
+    end
+
+    test "the merge gate still refuses with the store enabled", context do
+      assert {output, 77} = run_cached_guard(context, ["pr", "merge", "1670", "--squash"])
+
+      assert output =~ "agents cannot approve or merge pull requests"
+      refute File.exists?(context.calls)
+    end
+
+    test "the dispatch-disposition gate still refuses with the store enabled", context do
+      assert {output, 78} = run_cached_guard(context, ["issue", "create", "--title", "t", "--body", "b"])
+
+      assert output =~ "no dispatch disposition"
+      refute File.exists?(context.calls)
+    end
+  end
+
+  defp cache_state_dir(context), do: Path.join(context.workspace, "budget-state")
+
+  # The workspace anchor requires the process to actually be inside the
+  # workspace, and a shell derives `$PWD` at startup, so both are supplied.
+  defp run_cached_guard(context, args, extra_env \\ [], opts \\ []) do
+    directory = Keyword.get(opts, :cd, context.workspace)
+
+    env =
+      [
+        {"AIUR_GITHUB_BUDGET_ROOT", cache_state_dir(context)},
+        {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
+        {"AIUR_GITHUB_REPO", "owner/repo"},
+        {"PWD", directory}
+      ] ++ Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+
+    System.cmd(context.wrapper, args, env: guard_env(context) ++ env, cd: directory, stderr_to_stdout: true)
+  end
+
+  defp upstream_calls(context), do: line_count(context.calls)
+
+  defp line_count(path) do
+    case File.read(path) do
+      {:ok, contents} -> contents |> String.split("\n", trim: true) |> length()
+      _missing -> 0
+    end
   end
 
   defp run_guard(context, args, extra_env \\ []) do
