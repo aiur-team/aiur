@@ -1,0 +1,14 @@
+{
+  "backends": {
+    "codex": {
+      "limited_observed_at": "2026-08-17T22:12:06.491668Z",
+      "observed_at": "2026-08-17T22:12:06.491668Z",
+      "weekly": {
+        "limit": 100,
+        "reset_at": 1787235121,
+        "reset_estimated": false,
+        "used": 100
+      }
+    }
+  }
+}
