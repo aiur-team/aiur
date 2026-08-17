@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   alias Aiur.Orchestrator.{Slots, State}
 
   @cpu_headroom_ramp_max 3
+  @reclaimable_cpu_threshold 60.0
   @fd_headroom_percent 10
 
   # States in which, by definition, there is no agent work: the PR is sitting in
@@ -48,17 +49,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def read_load(_hard_threshold, _target), do: :unavailable
 
   @doc false
-  # Reads the host CPU snapshot when the adaptive envelope or the run-queue gate
-  # is enabled, so explicit-disable configs never touch /proc/stat.
+  # Reads the host CPU snapshot when load admission, the adaptive envelope, or
+  # the run-queue gate is enabled, so explicit-disable configs never touch
+  # /proc/stat.
   @spec read_cpu(number() | nil, number() | nil) :: SystemCpu.snapshot() | :unavailable
-  def read_cpu(target, run_queue_threshold \\ nil)
+  def read_cpu(target, run_queue_threshold \\ nil), do: read_cpu(target, run_queue_threshold, nil)
 
-  def read_cpu(target, run_queue_threshold)
+  @spec read_cpu(number() | nil, number() | nil, number() | nil) :: SystemCpu.snapshot() | :unavailable
+  def read_cpu(target, run_queue_threshold, hard_threshold)
       when (is_number(target) and target > 0) or
-             (is_number(run_queue_threshold) and run_queue_threshold > 0),
+             (is_number(run_queue_threshold) and run_queue_threshold > 0) or
+             (is_number(hard_threshold) and hard_threshold > 0),
       do: SystemCpu.snapshot()
 
-  def read_cpu(_target, _run_queue_threshold), do: :unavailable
+  def read_cpu(_target, _run_queue_threshold, _hard_threshold), do: :unavailable
 
   @doc false
   # Reads MemAvailable only while memory admission is enabled. Keeping this
@@ -121,10 +125,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def prewarm_gate(true, _warming), do: :hold
 
   @doc false
-  # Pure CPU load gate (#465), kept separate so it can be unit-tested without the
-  # orchestrator GenServer. Holds new dispatch only when the 1-min load average
-  # strictly exceeds `threshold` per scheduler; fails open (dispatch) when the
-  # gate is disabled (nil/<=0 threshold) or the load is unavailable (non-Linux).
+  # Pure load-threshold check (#465), kept separate for compatibility and unit
+  # testing. The authoritative admission reason additionally corroborates an
+  # exceeded threshold with short-window CPU headroom so low-priority runnable
+  # processes cannot hold the fleet by themselves.
   @spec load_gate(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | :hold
   def load_gate(_load, nil, _schedulers), do: :dispatch
   def load_gate(_load, threshold, _schedulers) when threshold <= 0, do: :dispatch
@@ -133,13 +137,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
 
   @doc false
-  @spec load_admission_reason(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | {:hold, admission_reason()}
-  def load_admission_reason(load, threshold, schedulers) do
-    if load_gate(load, threshold, schedulers) == :hold do
-      {:hold, %{signal: :load, measured: load, threshold: threshold * schedulers}}
-    else
-      :dispatch
-    end
+  @spec load_admission_reason(
+          number() | :unavailable,
+          number() | nil,
+          pos_integer(),
+          SystemCpu.headroom() | :unavailable
+        ) :: :dispatch | {:hold, admission_reason()}
+  def load_admission_reason(load, threshold, schedulers, cpu_headroom \\ :unavailable) do
+    load
+    |> load_gate(threshold, schedulers)
+    |> corroborated_admission_reason(:load, load, scaled_threshold(threshold, schedulers), cpu_headroom)
   end
 
   @doc false
@@ -177,18 +184,28 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def fd_headroom_percent, do: @fd_headroom_percent
 
   @doc false
-  # Instantaneous run-queue gate: holds new dispatch while the number of runnable
-  # processes (`procs_running`) strictly exceeds `threshold` per scheduler. This
-  # is the fast complement to the 1-minute load average in `load_gate/3`: it
-  # reacts to short CPU bursts the lagging load average smooths out. Fails open
-  # (dispatch) when the gate is disabled (nil/<=0 threshold) or the sample is
-  # unavailable (non-Linux / unreadable /proc/stat).
+  # Pure instantaneous run-queue threshold check. The authoritative admission
+  # reason corroborates it with the same CPU headroom used by the load gate, so
+  # niced runnable processes do not masquerade as normal-priority contention.
   @spec run_queue_gate(integer() | :unavailable, pos_integer(), number() | nil) :: :dispatch | :hold
   def run_queue_gate(_runnable, _schedulers, nil), do: :dispatch
   def run_queue_gate(_runnable, _schedulers, threshold) when not is_number(threshold) or threshold <= 0, do: :dispatch
   def run_queue_gate(:unavailable, _schedulers, _threshold), do: :dispatch
   def run_queue_gate(runnable, schedulers, threshold) when runnable > threshold * schedulers, do: :hold
   def run_queue_gate(_runnable, _schedulers, _threshold), do: :dispatch
+
+  @doc false
+  @spec run_queue_admission_reason(
+          integer() | :unavailable,
+          pos_integer(),
+          number() | nil,
+          SystemCpu.headroom() | :unavailable
+        ) :: :dispatch | {:hold, admission_reason()}
+  def run_queue_admission_reason(runnable, schedulers, threshold, cpu_headroom) do
+    runnable
+    |> run_queue_gate(schedulers, threshold)
+    |> corroborated_admission_reason(:run_queue, runnable, scaled_threshold(threshold, schedulers), cpu_headroom)
+  end
 
   @doc false
   # Concurrent-build-pressure gate: holds new dispatch while every agent-launched
@@ -271,21 +288,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp workload_admission_gate(%{
-         runnable: runnable,
-         run_queue_threshold: run_queue_threshold,
-         schedulers: schedulers,
-         load: load,
-         load_threshold: load_threshold,
-         build_status: build_status,
-         provider_backends: provider_backends,
-         queued_demand?: queued_demand?
-       }) do
-    load_hold = load_admission_reason(load, load_threshold, schedulers)
+  defp workload_admission_gate(
+         %{
+           runnable: runnable,
+           run_queue_threshold: run_queue_threshold,
+           schedulers: schedulers,
+           load: load,
+           load_threshold: load_threshold,
+           build_status: build_status,
+           provider_backends: provider_backends,
+           queued_demand?: queued_demand?
+         } = probes
+       ) do
+    cpu_headroom = Map.get(probes, :cpu_headroom, :unavailable)
+    run_queue_hold = run_queue_admission_reason(runnable, schedulers, run_queue_threshold, cpu_headroom)
+    load_hold = load_admission_reason(load, load_threshold, schedulers, cpu_headroom)
 
     cond do
-      run_queue_gate(runnable, schedulers, run_queue_threshold) == :hold ->
-        {:hold, %{signal: :run_queue, measured: runnable, threshold: run_queue_threshold * schedulers}}
+      run_queue_hold != :dispatch ->
+        run_queue_hold
 
       load_hold != :dispatch ->
         load_hold
@@ -414,7 +435,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          %{schedulers: schedulers} = options
        ) do
     cond do
-      cold_start_seed?(last_decrease_ms, load, schedulers, options) ->
+      cold_start_seed?(last_decrease_ms, options) ->
         next =
           seed_cold_start(
             effective,
@@ -426,7 +447,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
         {next, last_decrease_ms, true}
 
-      fast_recovery?(last_decrease_ms, schedulers, options) ->
+      fast_recovery?(last_decrease_ms, options) ->
         {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
         {next, next_decrease_ms, options.bootstrap_complete?}
 
@@ -438,15 +459,14 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp cold_start_seed?(last_decrease_ms, load, schedulers, options) do
+  defp cold_start_seed?(last_decrease_ms, options) do
     not options.bootstrap_complete? and is_nil(last_decrease_ms) and
-      load <= options.target * schedulers and options.queued_work? and
-      clear_cpu_headroom?(options.cpu_headroom, schedulers)
+      options.queued_work? and clear_cpu_headroom?(options.cpu_headroom)
   end
 
-  defp fast_recovery?(last_decrease_ms, schedulers, options) do
+  defp fast_recovery?(last_decrease_ms, options) do
     is_integer(last_decrease_ms) and options.queued_work? and
-      clear_cpu_headroom?(options.cpu_headroom, schedulers)
+      clear_cpu_headroom?(options.cpu_headroom)
   end
 
   defp adjust_load_envelope_without_headroom(
@@ -480,21 +500,56 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp next_decrease_time(_effective, _reduced, last_decrease_ms, _now_ms), do: last_decrease_ms
 
-  defp clear_cpu_headroom?(%{idle_percent: idle_percent, runnable: runnable}, schedulers)
-       when idle_percent >= 60.0 and runnable < schedulers,
-       do: true
+  defp clear_cpu_headroom?(headroom) when is_map(headroom) do
+    case reclaimable_cpu_percent(headroom) do
+      reclaimable when is_number(reclaimable) -> reclaimable >= @reclaimable_cpu_threshold
+      :unavailable -> false
+    end
+  end
 
-  defp clear_cpu_headroom?(_headroom, _schedulers), do: false
+  defp clear_cpu_headroom?(_headroom), do: false
 
-  defp seed_cold_start(effective, %{idle_percent: idle_percent}, schedulers, used_slots, static_limit) do
-    idle_slots = max(floor(idle_percent * schedulers / 100), 1)
-    max(effective, min(used_slots + idle_slots, static_limit))
+  defp seed_cold_start(effective, headroom, schedulers, used_slots, static_limit) do
+    reclaimable_slots = max(floor(reclaimable_cpu_percent(headroom) * schedulers / 100), 1)
+    max(effective, min(used_slots + reclaimable_slots, static_limit))
   end
 
   defp fast_ramp(effective, last_decrease_ms, static_limit) do
     next = min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
     {next, if(next == static_limit, do: nil, else: last_decrease_ms)}
   end
+
+  defp reclaimable_cpu_percent(%{reclaimable_percent: percent}) when is_number(percent), do: percent
+  defp reclaimable_cpu_percent(%{idle_percent: percent}) when is_number(percent), do: percent
+  defp reclaimable_cpu_percent(_headroom), do: :unavailable
+
+  defp corroborated_admission_reason(:dispatch, _signal, _measured, _threshold, _cpu_headroom),
+    do: :dispatch
+
+  defp corroborated_admission_reason(:hold, signal, measured, threshold, cpu_headroom) do
+    case reclaimable_cpu_percent(cpu_headroom) do
+      reclaimable when is_number(reclaimable) and reclaimable >= @reclaimable_cpu_threshold ->
+        :dispatch
+
+      reclaimable when is_number(reclaimable) ->
+        {:hold,
+         %{
+           signal: signal,
+           measured: measured,
+           threshold: threshold,
+           reclaimable_cpu_percent: reclaimable,
+           reclaimable_cpu_threshold: @reclaimable_cpu_threshold
+         }}
+
+      :unavailable ->
+        {:hold, %{signal: signal, measured: measured, threshold: threshold}}
+    end
+  end
+
+  defp scaled_threshold(threshold, schedulers) when is_number(threshold),
+    do: threshold * schedulers
+
+  defp scaled_threshold(_threshold, _schedulers), do: nil
 
   defp next_cpu_snapshot(_previous, %{total: _total, idle: _idle, runnable: _runnable} = current),
     do: current

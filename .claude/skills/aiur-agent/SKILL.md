@@ -9,7 +9,7 @@ This skill is how an Aiur agent runs a ticket end to end. The per-turn prompt
 carries only your ticket + workspace context and a pointer here; everything
 about *how* to operate — the ticket workflow, the dev loop, complexity routing,
 conventions, and cross-ticket events — lives in the reference docs below. Read
-the one that matches what you're doing; you don't need all nine every turn.
+the one that matches what you're doing; you don't need all ten every turn.
 
 ## When to use what
 
@@ -24,6 +24,10 @@ the one that matches what you're doing; you don't need all nine every turn.
 | Emit an event or subscribe to a topic pattern | `emit-and-subscribe.md` |
 | Open / close an Executor attention | `attention-and-resolve.md` |
 | Unblock yourself temporarily with a stub | `stub-then-fetch.md` |
+| Interpret a voice-originated ticket or operator message | `dictated-input.md` |
+
+Before interpreting a voice-originated ticket or operator message, read the
+shared [dictated-input note](dictated-input.md).
 
 ## The shortest version
 
@@ -53,11 +57,16 @@ the one that matches what you're doing; you don't need all nine every turn.
   `ticket.<id>.agent.<name>` against the allowlist in `event-taxonomy.md`.
   `aiur_declare_blocker(N)` auto-subscribes you to a useful subset of
   `ticket.N.*`; `blocked` / `unblocked` are single-attempt, fire-and-forget
-  readiness signals.
+  readiness signals. A manual `aiur_subscribe` pattern must begin with
+  `ticket.<literal-id>.` — `executor.*`, `system.*`, bare wildcards, and
+  wildcard ticket ids are refused before the binding is created.
 - **Ask a bounded operator question with a Decision:** emit `decision.requested`
   with structured `options` and a recommendation before any attention or pause.
   A question phrased as “A or B?” must produce clickable A/B options;
   `attention.*` and `pause.request` are not substitutes.
+- **Write a Command for a cold reader:** assume the operator has zero ticket
+  context. Lead with the question, explain each option's consequence, name every
+  referent, and state what happens without an answer.
 
 ## What stays in the per-turn prompt (not here)
 

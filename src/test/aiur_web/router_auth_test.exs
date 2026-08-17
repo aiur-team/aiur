@@ -4,7 +4,7 @@ defmodule AiurWeb.RouterAuthTest do
   import Plug.Conn
   import Plug.Test
 
-  alias AiurWeb.Router
+  alias AiurWeb.{CommandsRedirectController, Router}
 
   @supervisor_token String.duplicate("s", 32)
 
@@ -110,6 +110,29 @@ defmodule AiurWeb.RouterAuthTest do
       |> Router.call(Router.init([]))
 
     assert conn.status == 404
+  end
+
+  test "legacy Commands URLs redirect permanently and preserve detail paths and queries" do
+    System.delete_env("AIUR_DASHBOARD_USERNAME")
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    inbox = redirect_request("/decisions?filter=blocking")
+    detail = redirect_request("/decisions/dec%20%2Fsafe?ticket=42")
+
+    assert inbox.status == 301
+    assert get_resp_header(inbox, "location") == ["/commands?filter=blocking"]
+    assert detail.status == 301
+    assert get_resp_header(detail, "location") == ["/commands/dec%20%2Fsafe?ticket=42"]
+  end
+
+  test "legacy Commands redirects remain behind dashboard authentication" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    conn = Router.call(conn(:get, "/decisions"), Router.init([]))
+
+    assert conn.status == 401
+    assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
   test "Decision reads require bearer auth, bypass dashboard Basic Auth, and stay read-only available" do
@@ -275,6 +298,8 @@ defmodule AiurWeb.RouterAuthTest do
     |> put_req_header("authorization", "Bearer #{@supervisor_token}")
     |> Router.call(Router.init([]))
   end
+
+  defp redirect_request(path), do: CommandsRedirectController.legacy(conn(:get, path), %{})
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)

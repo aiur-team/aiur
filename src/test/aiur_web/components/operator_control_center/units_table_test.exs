@@ -34,7 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ ~s(phx-click="read-conversation")
     # Verbose per-row Commands / GitHub / Agent-log actions moved into the inspect modal.
     refute html =~ "Inspect ticket"
-    refute html =~ ~s(href="/decisions?ticket=1110")
+    refute html =~ ~s(href="/commands?ticket=1110")
     refute html =~ ">Agent log</button>"
     # The standalone read-agent-log row action is gone: the chat modal now
     # carries the agent log beneath the conversation.
@@ -81,6 +81,30 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "example.com"
     refute html =~ "/private/workspace"
     refute html =~ "Agent log"
+    assert html =~ ~s(class="ut-pbar is-unknown")
+    refute html =~ ~s(class="ut-progress-fill")
+  end
+
+  test "marks measured zero, completion, and stale progress without semantic recoloring" do
+    plain = row() |> update_in([:reasons], &%{&1 | blocking: nil, alert: nil}) |> put_in([:progress, :freshness], :current)
+    zero = render(view([put_in(plain, [:progress, :percent], 0)]))
+    complete = render(view([put_in(plain, [:progress, :percent], 100)]))
+    stale = render(view([put_in(plain, [:progress, :freshness], :stale)]))
+
+    blocked_complete =
+      row()
+      |> put_in([:progress, :percent], 100)
+      |> put_in([:progress, :freshness], :current)
+      |> put_in([:reasons, :blocking], :dependency)
+      |> then(&render(view([&1])))
+
+    assert zero =~ ~s(class="ut-progress-fill")
+    assert zero =~ "width:0%"
+    refute zero =~ "is-unknown"
+    assert complete =~ ~s(class="ut-progress-fill is-complete")
+    assert stale =~ ~s(class="ut-progress-fill is-stale")
+    assert blocked_complete =~ ~s(class="ut-progress-fill is-complete")
+    refute blocked_complete =~ ~s(class="ut-progress-fill is-complete is-blocked")
   end
 
   test "resolves string-backed registry families and backends" do

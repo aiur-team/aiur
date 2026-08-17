@@ -186,6 +186,7 @@ defmodule Aiur.AgentControlCLI do
     end
 
     print_capacity_status(Map.get(snapshot, :capacity))
+    print_polling_status(Map.get(snapshot, :polling))
 
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
@@ -194,6 +195,26 @@ defmodule Aiur.AgentControlCLI do
     print_blocking_asks(opts)
     exit_marker(supervision_exit_code)
   end
+
+  defp print_polling_status(%{
+         checking?: false,
+         idle_backoff: %{active?: true, factor: factor},
+         effective_interval_ms: effective_ms,
+         poll_interval_ms: base_ms,
+         next_poll_in_ms: next_ms
+       }) do
+    IO.puts(
+      "POLL idle backoff active: interval=#{poll_seconds(effective_ms)}s " <>
+        "base=#{poll_seconds(base_ms)}s factor=#{factor}x next=#{poll_seconds(next_ms)}s"
+    )
+  end
+
+  defp print_polling_status(_polling), do: :ok
+
+  defp poll_seconds(milliseconds) when is_integer(milliseconds) and milliseconds >= 0,
+    do: div(milliseconds, 1_000)
+
+  defp poll_seconds(_milliseconds), do: 0
 
   # Concise one-line-per-agent activity summary — the built-in, headless
   # equivalent of the dashboard / `aiur-status` log-tailing skill. Pulls the
@@ -387,6 +408,7 @@ defmodule Aiur.AgentControlCLI do
                 |> normalize_todo_ids()
                 |> queue_todo_issues(config, deps)
                 |> maybe_clear_other_todos(only?, config, deps)
+                |> maybe_request_todo_refresh(deps)
 
               {:error, reason} ->
                 IO.puts(:stderr, "aiur: unable to queue tickets (#{format_reason(reason)})")
@@ -593,6 +615,14 @@ defmodule Aiur.AgentControlCLI do
     Map.merge(%{queued: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
   end
 
+  defp maybe_request_todo_refresh(%{queued: queued, cleared: cleared} = result, deps)
+       when queued > 0 or cleared > 0 do
+    _ = deps.request_refresh.()
+    result
+  end
+
+  defp maybe_request_todo_refresh(result, _deps), do: result
+
   defp todo_runtime_deps do
     %{
       ensure_started: &ensure_todo_runtime_started/0,
@@ -600,7 +630,8 @@ defmodule Aiur.AgentControlCLI do
       fetch_issue: fn issue_id -> GitHubTracker.fetch_issue_states_by_ids([issue_id]) end,
       fetch_active: &GitHubTracker.fetch_issues_by_states/1,
       add_label: &GitHubTracker.add_label/2,
-      remove_label: &GitHubTracker.remove_label/2
+      remove_label: &GitHubTracker.remove_label/2,
+      request_refresh: &Orchestrator.request_refresh/0
     }
   end
 
@@ -1282,11 +1313,78 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
+  defp capacity_binding_label(
+         {:admission,
+          %{
+            signal: :load,
+            measured: load,
+            threshold: threshold,
+            reclaimable_cpu_percent: reclaimable,
+            reclaimable_cpu_threshold: reclaimable_threshold
+          }}
+       ),
+       do:
+         "load+cpu contention, load=#{load} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
   defp capacity_binding_label({:admission, %{signal: :load, measured: load, threshold: threshold}}),
     do: "load, load=#{load} threshold=#{threshold}"
 
+  defp capacity_binding_label(
+         {:admission,
+          %{
+            signal: :run_queue,
+            measured: runnable,
+            threshold: threshold,
+            reclaimable_cpu_percent: reclaimable,
+            reclaimable_cpu_threshold: reclaimable_threshold
+          }}
+       ),
+       do:
+         "run_queue+cpu contention, runnable=#{runnable} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
+  defp capacity_binding_label({:admission, %{signal: :run_queue, measured: runnable, threshold: threshold}}),
+    do: "run_queue, runnable=#{runnable} threshold=#{threshold}"
+
+  defp capacity_binding_label({:admission, %{signal: :github_quota, measured: measured}}) do
+    case github_quota_measurement(measured) do
+      {:current, detail} -> "github_quota, #{detail}"
+      {:stale, detail} -> "github_quota stale, #{detail}"
+      :unavailable -> "github_quota, measurement unavailable"
+    end
+  end
+
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, _detail}), do: "none"
+
+  defp github_quota_measurement(%{resource: resource, remaining: remaining, limit: limit, observed_at: observed_at}) do
+    if stale_github_quota_measurement?(observed_at) do
+      {:stale, "last_resource=#{resource} last_remaining=#{remaining}/#{limit} last_measured_at=#{format_observed_at(observed_at)}"}
+    else
+      {:current, "resource=#{resource} remaining=#{remaining}/#{limit} measured_at=#{format_observed_at(observed_at)}"}
+    end
+  end
+
+  defp github_quota_measurement(_measured), do: :unavailable
+
+  # The authority probes once a minute. Two missed intervals make a retained
+  # capacity verdict historical evidence, not a claim about the live quota.
+  defp stale_github_quota_measurement?(%DateTime{} = observed_at),
+    do: DateTime.diff(DateTime.utc_now(), observed_at, :second) > 120
+
+  defp stale_github_quota_measurement?(observed_at) when is_binary(observed_at) do
+    case DateTime.from_iso8601(observed_at) do
+      {:ok, parsed, _offset} -> stale_github_quota_measurement?(parsed)
+      _invalid -> true
+    end
+  end
+
+  defp stale_github_quota_measurement?(_observed_at), do: true
+
+  defp format_observed_at(%DateTime{} = observed_at), do: DateTime.to_iso8601(observed_at)
+  defp format_observed_at(observed_at) when is_binary(observed_at), do: observed_at
+  defp format_observed_at(_observed_at), do: "unknown"
 
   # `capacity_hold` is the daemon's own persisted admission decision — the only
   # source allowed to name an admission signal as the fleet's binding
@@ -1307,14 +1405,17 @@ defmodule Aiur.AgentControlCLI do
   # precisely when the box is loaded). It is explicitly not a fleet decision:
   # the daemon may run on another host, with another config, and may not be
   # holding at all. So the line says "local host sample" and, when the local
-  # reading is over the local threshold, predicts a possible hold rather than
-  # asserting one.
+  # reading is over the local threshold, explains that the daemon still needs a
+  # short-window CPU sample before it can identify real contention.
   defp print_load_status(%{load: load, load_threshold: threshold, schedulers: schedulers})
        when is_number(load) and is_number(threshold) and is_integer(schedulers) and schedulers > 0 do
     suffix =
       case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
-        {:hold, _reason} -> " (local host sample; over local threshold, dispatch may be held)"
-        :dispatch -> " (local host sample)"
+        {:hold, _reason} ->
+          " (local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+
+        :dispatch ->
+          " (local host sample)"
       end
 
     IO.puts("LOAD #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")

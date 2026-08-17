@@ -151,9 +151,9 @@ defmodule Aiur.Config.Schema.Agent do
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
     field(:ci_wait_rewake_minutes, :integer, default: 5)
-    # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
-    # Enabled by default so high-concurrency runs have protection without
-    # extra Executor knowledge; explicit YAML null disables it.
+    # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
+    # load is corroborated with short-window reclaimable CPU before holding.
+    # Explicit YAML null disables it.
     field(:max_load_average, :float, default: 1.5)
     # Per-scheduler 1-min load target for the adaptive concurrency envelope.
     # It ramps capacity while below target and backs off before the separate

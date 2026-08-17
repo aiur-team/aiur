@@ -183,7 +183,7 @@ defmodule Aiur.Init.TemplatesTest do
     test "opting in fills the whole section from the shared renderer" do
       rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
 
-      assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}}} =
+      assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng", "voice_id" => nil}}} =
                YamlElixir.read_from_string(rendered)
 
       assert rendered ==
@@ -202,7 +202,7 @@ defmodule Aiur.Init.TemplatesTest do
       refute rendered =~ "{{ELEVENLABS_SECTION}}"
 
       assert {:ok, config} = YamlElixir.read_from_string(rendered)
-      assert %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}} = config
+      assert %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng", "voice_id" => nil}} = config
     end
 
     # Regression: a declined question used to leave an `elevenlabs:` header (with

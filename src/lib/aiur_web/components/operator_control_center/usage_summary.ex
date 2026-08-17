@@ -6,8 +6,9 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
   A denied connection renders only the value-free locked panel; no token,
   monetary, tier, coverage, or generation fact is ever emitted for it. When
   authorized, the panel renders a tokens-by-model chart (which models consumed
-  how many tokens, as additive input/output dimensions) rather than the former
-  verbose token/cost tables, and offers bounded, server-paged drill-down.
+  how many tokens, as additive input/output dimensions) followed by a compact
+  cost-by-provider-route table. It does not restore the former generic
+  drill-down UI.
   """
 
   use Phoenix.Component
@@ -74,6 +75,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
       <div :if={@state in [:ready, :partial, :stale]} class="usage-summary-body">
         <div class="usage-summary-grid">
           {models_chart_panel(assigns)}
+          {provider_routes_panel(assigns)}
         </div>
       </div>
     </section>
@@ -99,6 +101,46 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
           <div class="usage-token-line an-chart">{Phoenix.HTML.raw(Charts.model_tokens_timeline(@view.models))}</div>
           <div class="usage-token-bars an-chart">{Phoenix.HTML.raw(Charts.token_destination(@view.tokens))}</div>
         </div>
+      </div>
+    </section>
+    """
+  end
+
+  # --- cost by provider route ---------------------------------------------
+
+  defp provider_routes_panel(assigns) do
+    ~H"""
+    <section class="usage-summary-panel" aria-labelledby="usage-provider-routes-title">
+      <h3 id="usage-provider-routes-title">Cost by provider route</h3>
+
+      <p :if={not @view.routes.any?} class="usage-summary-note">No provider routes recorded.</p>
+
+      <div
+        :if={@view.routes.any?}
+        class="usage-provider-routes-wrap"
+        role="region"
+        aria-label="Cost by provider route"
+        tabindex="0"
+      >
+        <table class="usage-summary-table usage-provider-routes-table">
+          <thead>
+            <tr>
+              <th scope="col">Route</th>
+              <th scope="col">Provider-reported estimate</th>
+              <th scope="col">API-equivalent estimate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={route <- @view.routes.entries}>
+              <th scope="row">
+                <span aria-hidden="true">{route.label}</span>
+                <span class="sr-only">{route.accessible_label}</span>
+              </th>
+              <td>{route.provider_reported_label}</td>
+              <td>{route.api_equivalent_label}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
     """

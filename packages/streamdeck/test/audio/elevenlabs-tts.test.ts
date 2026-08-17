@@ -77,6 +77,18 @@ describe("createElevenLabsTTSProvider", () => {
     expect(JSON.parse(rec.calls[0].init.body)).toEqual({ text: "hi", model_id: ELEVENLABS_TTS_MODEL });
   });
 
+  it("sends the phonetic spelling of Aiur without altering real words", async () => {
+    const rec = recordingFetch({});
+    const provider = createElevenLabsTTSProvider({ apiKey: "k", fetch: rec.fetch });
+
+    await collect(provider.synthesizeStream({ requestId: "r", text: "Aiur has a higher IR priority", voiceId: "v1" }));
+
+    expect(JSON.parse(rec.calls[0].init.body)).toEqual({
+      text: "eye-ur has a higher IR priority",
+      model_id: ELEVENLABS_TTS_MODEL,
+    });
+  });
+
   it("honours baseUrl, model, and outputFormat overrides plus per-request overrides", async () => {
     const rec = recordingFetch({});
     const provider = createElevenLabsTTSProvider({

@@ -54,12 +54,11 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
-
     # The batch carries the merge-queue recovery observation derived from the
     # same node, without any extra read.
     assert %{
              "merge_queue" => %{
-               draft?: false,
+               draft?: true,
                review_decision: "APPROVED",
                mergeable: "MERGEABLE",
                merge_state_status: "BLOCKED",
@@ -218,7 +217,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       "headRefName" => "aiur/42-ci-batch",
       "headRefOid" => "head-77",
       "baseRefName" => "develop",
-      "isDraft" => false,
+      "isDraft" => true,
       "reviewDecision" => "APPROVED",
       "mergeable" => "MERGEABLE",
       "mergeStateStatus" => "BLOCKED",
