@@ -10,7 +10,6 @@ defmodule Aiur.ExecutorEvents do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Config.Paths
   alias Aiur.Decision
   alias Aiur.DecisionLog
   alias Aiur.Events.Exchange
@@ -18,6 +17,7 @@ defmodule Aiur.ExecutorEvents do
   alias Aiur.Events.Publisher
   alias Aiur.Events.Sanitizer
   alias Aiur.Events.Topic
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorWakeProjection
   alias Aiur.JSONSafe
@@ -440,7 +440,7 @@ defmodule Aiur.ExecutorEvents do
   end
 
   defp append_event(event) do
-    with :ok <- DecisionLog.prepare(Paths.log_root_dir(), journal_path()) do
+    with :ok <- DecisionLog.prepare(StatePaths.dir(), journal_path()) do
       DecisionLog.append(journal_path(), event)
     end
   end
@@ -514,6 +514,6 @@ defmodule Aiur.ExecutorEvents do
     _error -> :ok
   end
 
-  defp journal_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.events.ndjson")
-  defp subscription_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.subscriptions.json")
+  defp journal_path, do: StatePaths.journal_path()
+  defp subscription_path, do: StatePaths.subscriptions_path()
 end
