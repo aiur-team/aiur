@@ -187,43 +187,57 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       assert second.etag == "\"v1\""
     end
 
-    # A `304` is GitHub certifying the held body as current, so it has to move the
-    # entry's freshness clock. Without that the read just proved free would have to
-    # be made again immediately, and the "revalidate then serve" path would be a
-    # request per read forever.
-    test "a 304 makes the held body fresh again for the next reader" do
+    # A `304` deliberately does **not** make the held body fresh again.
+    #
+    # Re-depositing the body to move its clock is a read-then-write whose two
+    # halves can be split by a concurrent delivery, and the store takes the
+    # version as a fixed option while the body comes from the entry — so the pair
+    # can end up describing different objects. The concurrency test below is what
+    # ruled that out. What is written back is the validator alone, so the entry
+    # stays coherent and the next read past its window costs one more conditional
+    # request, which answers `304` and spends no primary rate limit.
+    test "a 304 retains the validator without restamping the body" do
+      key = ResourceStore.key(:issue, "owner", "repo", "7")
       recorder = start_recorder()
 
       request_fun =
         recording_fun(recorder, fn request ->
           case Map.get(request, :etag) do
             nil -> {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: issue_body(7)}}
-            "\"v1\"" -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}}
+            "\"v1\"" -> {:ok, %{status: 304, headers: [{"etag", "\"v2\""}]}}
           end
         end)
 
       base = [repository: @repository, request_fun: request_fun]
-
-      # Paid once. The window below is then deliberately shorter than the age this
-      # body has reached, so only the `304` moving the clock can make it servable.
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, base)
-      Process.sleep(30)
+      assert {:ok, deposited} = ResourceStore.fetch(key)
 
+      Process.sleep(5)
       assert {:ok, _body, :not_modified} = Issues.fetch_issue_raw_conditional(7, base ++ [revalidate: true])
-      assert issue_count(recorder) == 2
 
-      assert {:ok, %{"number" => 7}, :fresh} =
-               Issues.fetch_issue_raw_conditional(7, base ++ [freshness_ms: 20])
+      # The newer validator is kept, and nothing else about the entry moved.
+      assert {:ok, refreshed} = ResourceStore.fetch(key)
+      assert refreshed.etag == "\"v2\""
+      assert refreshed.data == deposited.data
+      assert refreshed.version == deposited.version
 
-      assert issue_count(recorder) == 2
+      # `fetched_at_ms` is the assertion that actually pins this. Everything above
+      # also holds for a re-deposit of an identical body; only an untouched clock
+      # proves the body was not written back at all, which is the property that
+      # makes the entry uncorruptible by a concurrent delivery.
+      assert refreshed.fetched_at_ms == deposited.fetched_at_ms
     end
 
-    # A restart keeps validators and drops bodies. The recovery is the
-    # unconditional request the caller would have made anyway — never an error
-    # surfaced to the page — and it now costs one request rather than two: the
-    # store does not offer a validator it cannot serve a body for, so the
-    # spent-and-empty `304` never happens. See `ResourceStore.etag/1`.
-    test "a 304 with no stored body recovers by re-asking rather than failing" do
+    # A restart keeps validators and drops bodies, and a validator without a body
+    # is worse than useless: it buys a guaranteed `304` that carries nothing, and
+    # then the recovery spends a second, unconditional request. Two requests where
+    # one was needed is the precise waste this store exists to remove.
+    #
+    # So the validator is offered only alongside a body the store will actually
+    # serve. This asserts the request count *and* that the surviving request
+    # carried no validator, because the count alone would also pass if the read
+    # had failed outright.
+    test "a body-less validator is not sent, so the recovery costs one request" do
       recorder = start_recorder()
 
       request_fun =
@@ -244,8 +258,139 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
 
       assert {:ok, %{"number" => 7}, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
 
-      assert count(recorder) == 2,
-             "the read recovers unconditionally without first spending a 304 that can return nothing"
+      # Two, not three: the dropped body took its validator out of circulation, so
+      # the recovery read went straight to an unconditional `200` instead of
+      # spending a `304` first to learn nothing.
+      assert [first, recovery] = issue_requests(recorder)
+      refute Map.has_key?(first, :etag)
+      refute Map.has_key?(recovery, :etag)
+    end
+  end
+
+  # A read and a webhook delivery race for the same key. The read's round trip is
+  # long, so "I fetched it" is routinely older news than "it just changed", and a
+  # write that ignores that does not merely hold a stale body — it stamps
+  # `fetched_at_ms` with now, so the stale body is described as freshly fetched
+  # and a reader asking for something recent is handed state from before the
+  # change.
+  describe "a newer body is never overwritten by an older read" do
+    test "a full read older than the held version is refused" do
+      key = ResourceStore.key(:issue, "owner", "repo", "7")
+
+      # A delivery lands first, carrying the newer object.
+      newer = Map.put(issue_body(7), "updated_at", "2026-01-09T00:00:00Z")
+      ResourceStore.put_resource(key, newer, source: :webhook, version: "2026-01-09T00:00:00Z")
+
+      # A read that was already in flight returns the older object.
+      recorder = start_recorder()
+      older = Map.put(issue_body(7), "updated_at", "2026-01-02T00:00:00Z")
+
+      request_fun =
+        recording_fun(recorder, fn _request ->
+          {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: older}}
+        end)
+
+      assert {:ok, _body, :fetched} =
+               Issues.fetch_issue_raw_conditional(7,
+                 repository: @repository,
+                 request_fun: request_fun,
+                 revalidate: true
+               )
+
+      # The caller still gets what it fetched — refusing the deposit is not
+      # refusing the read — but the store keeps the newer object.
+      assert {:ok, %{data: held, version: "2026-01-09T00:00:00Z"}} = ResourceStore.fetch(key)
+      assert held == newer
+    end
+
+    # The `304` path is a read-then-write pair, so it has the same hazard with a
+    # narrower window: it re-deposits the body it just read in order to move the
+    # freshness clock. A delivery landing in between must survive.
+    test "refreshing a validated body does not clobber a newer one" do
+      key = ResourceStore.key(:issue, "owner", "repo", "7")
+      older = Map.put(issue_body(7), "updated_at", "2026-01-02T00:00:00Z")
+      newer = Map.put(issue_body(7), "updated_at", "2026-01-09T00:00:00Z")
+
+      recorder = start_recorder()
+
+      request_fun =
+        recording_fun(recorder, fn request ->
+          case Map.get(request, :etag) do
+            nil -> {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: older}}
+            "\"v1\"" -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}}
+          end
+        end)
+
+      base = [repository: @repository, request_fun: request_fun]
+      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, base)
+
+      # The delivery lands between the read and its revalidation, carrying the
+      # validator the held body was fetched under. That is what keeps this case
+      # about the `304` path: a delivery that deposits a *different* body with no
+      # validator of its own discards the held one — a validator may never sit
+      # beside a body it does not describe — and the revalidation would then be an
+      # unconditional read rather than the read-then-write pair under test.
+      ResourceStore.put_resource(key, newer,
+        source: :webhook,
+        version: "2026-01-09T00:00:00Z",
+        etag: "\"v1\""
+      )
+
+      assert {:ok, _body, :not_modified} =
+               Issues.fetch_issue_raw_conditional(7, base ++ [revalidate: true])
+
+      assert {:ok, %{data: held, version: "2026-01-09T00:00:00Z"}} = ResourceStore.fetch(key)
+      assert held == newer
+    end
+
+    # The two tests above can only observe the outcome, not the window: the body a
+    # `304` re-deposits is read microseconds earlier, so a single-threaded test
+    # cannot get between the read and the write. This one does it the only way that
+    # actually proves anything — concurrently, the way the store's own authors
+    # demonstrated that `fetch/1` + `put_resource/3` "regressed the held body
+    # within the first twenty writes".
+    #
+    # The invariant is not "the newest write wins" — that is a race by
+    # construction. It is that the entry is never *incoherent*: the held body's
+    # own `updated_at` must always be the held `version`, and the version must
+    # never go backwards. A clobber breaks exactly that pairing, by stamping one
+    # writer's version onto another writer's body.
+    test "concurrent deliveries and clock refreshes never leave a mismatched entry" do
+      key = ResourceStore.key(:issue, "owner", "repo", "7")
+      versions = Enum.map(1..40, &"2026-01-01T00:00:#{String.pad_leading(to_string(&1), 2, "0")}Z")
+
+      body_for = fn version ->
+        Map.merge(issue_body(7), %{"updated_at" => version, "title" => version})
+      end
+
+      [seed | _rest] = versions
+      ResourceStore.put_resource(key, body_for.(seed), source: :webhook, version: seed, etag: "\"v1\"")
+
+      request_fun = fn _request -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}} end
+      opts = [repository: @repository, request_fun: request_fun, revalidate: true]
+
+      deliveries =
+        for version <- versions do
+          Task.async(fn ->
+            ResourceStore.put_resource(key, body_for.(version), source: :webhook, version: version)
+          end)
+        end
+
+      refreshes = for _ <- 1..40, do: Task.async(fn -> Issues.fetch_issue_raw_conditional(7, opts) end)
+
+      Task.await_many(deliveries ++ refreshes, 10_000)
+
+      assert {:ok, %{data: held, version: version}} = ResourceStore.fetch(key)
+
+      # The body and the version it is filed under must describe the same object.
+      assert held["updated_at"] == version
+      assert held["title"] == version
+
+      # The winner is deliberately not asserted: forty deliveries racing each other
+      # have no defined order, so "the newest wins" would be a flake dressed as a
+      # guarantee. What is guaranteed is that the entry holds *some* object that
+      # was really deposited, whole.
+      assert version in versions
     end
   end
 

@@ -89,6 +89,7 @@ polling:
   # Tracker re-check cadence and fleet-capacity starvation alert debounce.
   interval_seconds: {{POLLING}}
   idle_widen_factor: 5.0                 # multiply the interval while no agents are active; operator/webhook wakes remain immediate
+  view_state_sweep_seconds: 900          # the single view-state reconciliation sweep; recovers lost webhook deliveries, not a freshness knob
 max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 

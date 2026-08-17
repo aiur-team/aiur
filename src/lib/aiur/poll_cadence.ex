@@ -66,6 +66,21 @@ defmodule Aiur.PollCadence do
   # missed ticks is the earliest moment "we should have heard by now" is true.
   @snapshot_tolerance_intervals 2
 
+  # Deliberately absolute, and the one threshold here that must be.
+  #
+  # The published interval composes GitHub's `X-Poll-Interval`, which
+  # `TrackerHealth.note_github_poll_interval/3` stores verbatim and no code
+  # caps. A remote server could therefore name any cadence and, through this
+  # module, decide how long Aiur calls its own data fresh — so throttling us
+  # would also be how staleness stops being reported, at the moment it matters
+  # most.
+  #
+  # An hour is a wall-clock statement, not a cadence one: past an hour the
+  # operator needs to be told the fleet view is old whatever the poller
+  # believes. At the shipped 1200s effective interval this is inert; it binds
+  # only when something upstream asks us to poll less than once an hour.
+  @max_effective_interval_ms 3_600_000
+
   @doc """
   Records the interval the dispatcher actually scheduled.
 
@@ -83,6 +98,10 @@ defmodule Aiur.PollCadence do
     :ok
   end
 
+  # A schedule that is not a positive interval — an immediate reschedule after
+  # an operator wake, say — leaves the last real cadence in force rather than
+  # erasing it. A momentary "poll now" is not evidence the rhythm changed, and
+  # dropping to the cold-start fallback would move every threshold for one tick.
   def publish_effective_interval_ms(_interval_ms), do: :ok
 
   @doc false
@@ -93,14 +112,19 @@ defmodule Aiur.PollCadence do
   end
 
   @doc """
-  The cadence actually in force, including idle and webhook widening.
+  The cadence actually in force, including idle and webhook widening, bounded by
+  `@max_effective_interval_ms` so a remote `X-Poll-Interval` cannot decide how
+  long Aiur calls its own data fresh.
   """
   @spec effective_interval_ms(keyword()) :: pos_integer()
   def effective_interval_ms(opts \\ []) do
-    with nil <- positive_integer(Keyword.get(opts, :effective_interval_ms)),
-         nil <- positive_integer(:persistent_term.get(@effective_key, nil)) do
-      widest_configured_interval_ms(opts)
-    end
+    interval_ms =
+      with nil <- positive_integer(Keyword.get(opts, :effective_interval_ms)),
+           nil <- positive_integer(:persistent_term.get(@effective_key, nil)) do
+        widest_configured_interval_ms(opts)
+      end
+
+    min(interval_ms, @max_effective_interval_ms)
   end
 
   @doc """
@@ -135,13 +159,22 @@ defmodule Aiur.PollCadence do
 
   `multiple` is how many effective cycles may pass before the data is late.
   Pass `floor_ms:` to keep an existing absolute behaviour at tight cadences.
-  """
-  @spec stale_after_ms(number(), keyword()) :: pos_integer()
-  def stale_after_ms(multiple, opts \\ []) when is_number(multiple) and multiple > 0 do
-    derived = opts |> effective_interval_ms() |> Kernel.*(multiple) |> round()
-    floor_ms = positive_integer(Keyword.get(opts, :floor_ms)) || 1
 
-    max(derived, floor_ms)
+  An explicit `floor_ms: 0` means **zero tolerance** and is returned as-is: a
+  correctness-critical reader that wants no staleness at all must be able to say
+  so, and quietly widening it to a cycle would be the worst possible way to
+  ignore that. Only an absent or invalid floor falls back to `1`.
+  """
+  @spec stale_after_ms(number(), keyword()) :: non_neg_integer()
+  def stale_after_ms(multiple, opts \\ []) when is_number(multiple) and multiple > 0 do
+    case Keyword.get(opts, :floor_ms) do
+      0 ->
+        0
+
+      floor_ms ->
+        derived = opts |> effective_interval_ms() |> Kernel.*(multiple) |> round()
+        max(derived, positive_integer(floor_ms) || 1)
+    end
   end
 
   @doc """
@@ -153,8 +186,11 @@ defmodule Aiur.PollCadence do
   roughly 87% of every cycle, so a healthy fleet announced staleness
   continuously. Deriving it means the notice appears when the producer is
   actually behind its own rhythm, and nowhere else.
+
+  `snapshot_tolerance_ms(0)` is honoured as zero, so an endpoint configured with
+  `snapshot_timeout_ms: 0` still gets the zero-tolerance read it asked for.
   """
-  @spec snapshot_tolerance_ms(pos_integer()) :: pos_integer()
+  @spec snapshot_tolerance_ms(non_neg_integer()) :: non_neg_integer()
   def snapshot_tolerance_ms(floor_ms \\ 15_000) do
     stale_after_ms(@snapshot_tolerance_intervals, floor_ms: floor_ms)
   end
@@ -164,7 +200,7 @@ defmodule Aiur.PollCadence do
   never becomes zero.
   """
   @spec stale_after_seconds(number(), keyword()) :: pos_integer()
-  def stale_after_seconds(multiple, opts \\ []) do
+  def stale_after_seconds(multiple, opts \\ []) when is_number(multiple) and multiple > 0 do
     multiple |> stale_after_ms(opts) |> Kernel./(1_000) |> Float.ceil() |> trunc() |> max(1)
   end
 
@@ -179,22 +215,22 @@ defmodule Aiur.PollCadence do
   end
 
   defp webhook_widen_factor(opts) do
-    case Keyword.fetch(opts, :webhook_widen_factor) do
-      {:ok, factor} -> IntervalPolicy.widen_factor(widen_factor: factor)
-      :error -> IntervalPolicy.widen_factor([])
-    end
+    opts
+    |> Keyword.get_lazy(:webhook_widen_factor, fn -> configured_factor(:webhooks, :poll_widen_factor) end)
+    |> then(&IntervalPolicy.widen_factor(widen_factor: &1))
   end
 
   defp idle_widen_factor(opts) do
-    factor =
-      Keyword.get_lazy(opts, :idle_widen_factor, fn ->
-        case Config.settings() do
-          {:ok, %{polling: %{idle_widen_factor: factor}}} -> factor
-          _unavailable -> 1.0
-        end
-      end)
+    opts
+    |> Keyword.get_lazy(:idle_widen_factor, fn -> configured_factor(:polling, :idle_widen_factor) end)
+    |> then(&IntervalPolicy.widen_factor(widen_factor: &1))
+  end
 
-    IntervalPolicy.widen_factor(widen_factor: factor)
+  defp configured_factor(section, key) do
+    case Config.settings() do
+      {:ok, settings} -> settings |> Map.get(section, %{}) |> Map.get(key) || 1.0
+      _unavailable -> 1.0
+    end
   end
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
