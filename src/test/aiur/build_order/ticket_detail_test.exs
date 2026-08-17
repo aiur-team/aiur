@@ -3,6 +3,16 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
 
   alias Aiur.{BuildOrder.TicketDetail, TrackerIdentity}
   alias Aiur.BuildOrder.TicketDetail.{Destinations, Failure, PullRequestDestination, Snapshot}
+  alias Aiur.GitHub.ResourceStore
+
+  # `Aiur.GitHub.ResourceStore` is global by design — the whole point is that a
+  # resource fetched by one reader satisfies every other — so without this a body
+  # stored for issue 42 by one case is served to the next case instead of its own
+  # stub, and the stub it injected is never called.
+  setup do
+    ResourceStore.reset()
+    :ok
+  end
 
   @configured {"owner", "repo"}
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -843,9 +853,17 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
 
   defp fetch(identity, opts) do
     opts =
-      Keyword.put_new(opts, :relationship_reader, fn _identity, _repository ->
+      opts
+      |> Keyword.put_new(:relationship_reader, fn _identity, _repository ->
         {:ok, %{nodes: [], truncated?: false}}
       end)
+      # These cases are about how one response body normalizes, and several of
+      # them stub a different body for the *same* issue in the same test. Reads
+      # now resolve against the shared store first, so without this the second
+      # stub is never reached and the case silently asserts against the first
+      # body. `revalidate: true` is the caller saying "actually read it", which
+      # is what a normalization test means.
+      |> Keyword.put_new(:revalidate, true)
 
     TicketDetail.fetch(identity, opts)
   end
