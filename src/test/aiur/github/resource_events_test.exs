@@ -229,22 +229,28 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       assert ResourceStore.data(key) == %{"body" => "second"}
     end
 
-    # `observable/1` names six members and the suite only isolated `:data`, so
-    # dropping any of the other five was an uncaught mutation. These two isolate
-    # the members that no other case moves on their own: everything except the
-    # one member under test is byte-identical across the two writes, so the
-    # publish can only be attributed to that member.
-    test "a source-only change publishes" do
+    # `observable/1` names several members and the suite only isolated `:data`,
+    # so dropping any of the others was an uncaught mutation. These isolate the
+    # members no other case moves on its own: everything except the one member
+    # under test is byte-identical across the two writes, so the publish can
+    # only be attributed to that member.
+    #
+    # `:source` is deliberately *not* pinned here. Which pipe wrote an otherwise
+    # identical body is a change nobody can see, and publishing on it is the
+    # broadcast storm #2073's review named — so it is being removed from the
+    # observable set on purpose, and a test asserting it still publishes would
+    # be a guard against a fix.
+    test "an etag-only change publishes" do
       key = key(22)
-      opts = [etag: "W/\"same\"", version: "v1"]
+      opts = [source: :fetch, version: "v1"]
 
-      ResourceStore.put_resource(key, %{"body" => "same"}, [source: :poll] ++ opts)
+      ResourceStore.put_resource(key, %{"body" => "same"}, [etag: "W/\"first\""] ++ opts)
       :ok = ResourceEvents.subscribe(key)
 
-      ResourceStore.put_resource(key, %{"body" => "same"}, [source: :webhook] ++ opts)
+      ResourceStore.put_resource(key, %{"body" => "same"}, [etag: "W/\"second\""] ++ opts)
 
       assert_receive {:github_resource_changed, change}
-      assert change.source == :webhook
+      assert change.etag == "W/\"second\""
       assert change.data_version == "v1"
     end
 
