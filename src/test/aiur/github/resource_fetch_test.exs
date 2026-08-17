@@ -47,6 +47,38 @@ defmodule Aiur.GitHub.ResourceFetchTest do
       assert count(calls) == 0
     end
 
+    # `fresh_enough?/2` had no boundary coverage at all: every case sat far
+    # inside or far outside the window, so widening or narrowing the comparison
+    # changed nothing a test could see. These two bracket it to a second. The
+    # inside case is a second short of the tolerance rather than exactly on it,
+    # because the entry keeps ageing between the write and the read and an
+    # exact-boundary assertion would be decided by scheduler jitter.
+    test "a body just inside the declared tolerance is served" do
+      key = key(41)
+      ResourceStore.put_resource(key, %{"id" => 41}, source: :webhook)
+      age_body!(key, 59_000)
+
+      {recorder, calls} = recorder({:ok, %{"id" => :upstream}})
+
+      assert {:ok, %{"id" => 41}, %{outcome: :store, spent?: false}} =
+               ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
+
+      assert count(calls) == 0
+    end
+
+    test "a body one millisecond past the declared tolerance is not served" do
+      key = key(42)
+      ResourceStore.put_resource(key, %{"id" => 42}, source: :webhook)
+      age_body!(key, 60_001)
+
+      {recorder, calls} = recorder({:ok, %{"id" => :upstream}})
+
+      assert {:ok, %{"id" => :upstream}, %{outcome: :fetched, spent?: true}} =
+               ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
+
+      assert count(calls) == 1
+    end
+
     test "a view tolerating any age never spends, however old the body is" do
       key = key(4)
       ResourceStore.put_resource(key, %{"id" => 4}, source: :webhook)

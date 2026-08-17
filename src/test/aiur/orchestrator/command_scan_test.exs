@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.CommandScanTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
   alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{CommandScan, State}
 
@@ -125,11 +126,50 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(base_state(), opts)
 
-      assert ResourceStore.etag(ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")) ==
+      assert ResourceStore.change_validator(ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")) ==
                "review-etag-1"
 
-      assert ResourceStore.etag(ResourceStore.key_for_repo(:repo_issue_comment_stream, "owner/repo", "issues/comments")) ==
+      assert ResourceStore.change_validator(ResourceStore.key_for_repo(:repo_issue_comment_stream, "owner/repo", "issues/comments")) ==
                "issue-etag-1"
+    end
+
+    # These are durable *endpoint* validators: a `304` against one suppresses
+    # the whole stream, so recording one before the commands it covers were
+    # published would let a cycle that died in between hide a command for the
+    # store's full retention window. The publish has to have happened before the
+    # validator exists.
+    test "the stream validator is recorded only after the commands are published" do
+      review_stream = ResourceStore.key_for_repo(:repo_review_comment_stream, "owner/repo", "pulls/comments")
+
+      :ok = Exchange.subscribe("ticket.77.pr.review_comment")
+      :ok = ResourceStore.subscribe(review_stream)
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts ->
+          {:ok, [review_comment(4001, "2024-01-02T00:00:00Z")], "review-etag-1"}
+        end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, [], "issue-etag-1"} end
+      ]
+
+      CommandScan.scan_pr_commands(
+        %{base_state() | github_command_scan_since: "2024-01-01T00:00:00Z"},
+        opts
+      )
+
+      order =
+        for _step <- 1..2 do
+          receive do
+            {:event, %{topic: "ticket.77.pr.review_comment"}} -> :command_published
+            {:github_resource_changed, %{resource_type: :repo_review_comment_stream}} -> :validator_recorded
+          after
+            2_000 -> :nothing
+          end
+        end
+
+      assert order == [:command_published, :validator_recorded],
+             "a crash between the two would hide the command behind a 304 for the whole retention window: #{inspect(order)}"
+
+      assert ResourceStore.change_validator(review_stream) == "review-etag-1"
     end
 
     test "a restart revalidates from the store instead of re-reading both streams in full" do

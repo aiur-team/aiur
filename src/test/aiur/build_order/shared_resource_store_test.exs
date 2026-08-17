@@ -324,8 +324,17 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       base = [repository: @repository, request_fun: request_fun]
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, base)
 
-      # The delivery lands between the read and its revalidation.
-      ResourceStore.put_resource(key, newer, source: :webhook, version: "2026-01-09T00:00:00Z")
+      # The delivery lands between the read and its revalidation, carrying the
+      # validator the held body was fetched under. That is what keeps this case
+      # about the `304` path: a delivery that deposits a *different* body with no
+      # validator of its own discards the held one — a validator may never sit
+      # beside a body it does not describe — and the revalidation would then be an
+      # unconditional read rather than the read-then-write pair under test.
+      ResourceStore.put_resource(key, newer,
+        source: :webhook,
+        version: "2026-01-09T00:00:00Z",
+        etag: "\"v1\""
+      )
 
       assert {:ok, _body, :not_modified} =
                Issues.fetch_issue_raw_conditional(7, base ++ [revalidate: true])
@@ -443,6 +452,11 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
   end
 
   describe "failing open" do
+    # R11: store unavailable means behave exactly as before the store existed.
+    # The store is genuinely stopped, not merely emptied — `reset/0` leaves the
+    # ETS table and the owning process alive, so it proves a cache miss and says
+    # nothing about a store that is down. Those are different code paths:
+    # `with_table/2`'s `:undefined` branch is only reached when the table is gone.
     test "with no store running the read is unconditional, exactly as before" do
       recorder = start_recorder()
       request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
@@ -450,7 +464,32 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
 
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
 
-      # Simulate the store being unavailable by clearing everything it knows.
+      # Held now, so a second read inside the window would normally cost nothing.
+      # Everything below is therefore attributable to the store being gone.
+      assert count(recorder) == 1
+
+      stop_store!()
+
+      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
+      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
+
+      # Every read pays, and none of them raises into the caller: degrade, never
+      # fail. A conditional request is impossible too — there is no validator to
+      # send, so this must be the unconditional pre-store shape.
+      assert count(recorder) == 3
+      assert Enum.all?(requests(recorder), &(not Map.has_key?(&1, :etag)))
+    end
+
+    # A cache miss is not a stopped store, and the case above no longer proves
+    # both. This is the miss, kept separately so neither can stand in for the
+    # other.
+    test "an empty store misses and fetches without a validator" do
+      recorder = start_recorder()
+      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
+      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms]
+
+      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
+
       ResourceStore.reset()
 
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
@@ -459,6 +498,35 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
   end
 
   # -- helpers ---------------------------------------------------------------
+
+  # Actually terminates the supervised store and waits for it to be down, so the
+  # ETS table is gone and `ResourceStore.with_table/2` takes its storeless
+  # branch. `reset/0` cannot do this: it empties a table that is still there.
+  defp stop_store! do
+    on_exit(fn ->
+      case Process.whereis(ResourceStore) do
+        nil -> Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+        _pid -> :ok
+      end
+
+      ResourceStore.reset()
+    end)
+
+    case Process.whereis(ResourceStore) do
+      nil ->
+        :ok
+
+      pid ->
+        ref = Process.monitor(pid)
+        Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+        after
+          5_000 -> flunk("ResourceStore did not stop")
+        end
+    end
+  end
 
   defp issue_body(number) do
     %{
