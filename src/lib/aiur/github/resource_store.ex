@@ -99,18 +99,67 @@ defmodule Aiur.GitHub.ResourceStore do
       `put_etag/2` records one, and `drop_data/1` removes a body while leaving
       the validator in place on purpose. A reader in this state that sends
       `If-None-Match` and is answered `304` has **spent a request and learned
-      nothing**, and no per-resource reconciliation can recover the missing
-      answer because the list-level validator suppressed the whole list.
-      **Therefore every reader must treat a `304` with no held body as
-      "re-read unconditionally": discard the validator and read again.**
-      `Aiur.Events.GithubCommentsPoller` does exactly that; a new reader that
-      does not is the way this store starts dropping data.
-    * **body, no validator** — a deposit whose writer had no ETag, or a
-      validator discarded by the rule above. Costs one full-price read. Always
-      safe.
+      nothing**, and has to read again unconditionally: two requests where one
+      was needed. **So the store does not offer this validator to a reader of
+      bodies at all.** `etag/1` answers exactly when `fetch/1` answers, and a
+      reader that genuinely only wants change detection asks
+      `change_validator/1` by name and accepts that a `304` hands it nothing.
+      That is enforcement rather than instruction, because the raw accessor was
+      an invitation and two call sites took it.
+    * **body, no validator** — a deposit whose writer had no ETag for a body
+      that changed, or a validator the entry lost for the reason above. Costs
+      one full-price read. Always safe.
 
-  A validator is never recorded for a body the store refused, at deposit time
-  *or* at checkpoint time. See `deposit_etag/3` and `encode_fields/2`.
+  Two rules keep those states honest, both enforced rather than documented:
+
+    * **A validator is never recorded for a body the store refused**, at deposit
+      time *or* at checkpoint time. See `deposit_etag/4` and `encode_fields/2`.
+    * **A validator never outlives the body it describes.** A deposit that
+      supplies no validator keeps the held one only while the body is unchanged;
+      a *different* body discards it, because a validator that describes
+      something the store no longer holds guarantees every later conditional
+      read misses — the entry could never earn a `304` again. A webhook delivery
+      is exactly that case: a fresh body and no validator of any kind.
+
+  ## A refusal never destroys what is already held
+
+  "I cannot hold what you sent" and "what you are holding is wrong" are
+  different statements. An oversized or unencodable arrival is refused and the
+  entry keeps its existing body, its version and its `fetched_at_ms` — throwing
+  a good body away would make the next reader buy it again, and would leave the
+  old validator beside no body at all.
+
+  ## Versioning a read-modify-write: `:version` must be a function
+
+  For `update_resource/3` on any resource whose ordering matters, pass
+  `:version` as a **1-arity function of the merged body**, never a fixed string:
+
+      ResourceStore.update_resource(key, &Map.put(&1, "labels", labels),
+        version: fn body -> body["updated_at"] end
+      )
+
+  A static version is *structurally* wrong there, not merely risky. The caller
+  computes it before the call, from a body a concurrent writer may have replaced
+  by the time the merge re-runs inside the compare-and-swap — so a retry stamps
+  the losing read's marker onto the winning read's content. Nothing raises. The
+  body is simply labelled older than it is, and the next genuinely stale
+  delivery is accepted against that wrong marker: the rollback the
+  compare-and-swap exists to prevent, displaced one step into the metadata. The
+  correct version cannot be known until the merge has run, and the merge only
+  runs inside the swap, so the version has to be derived there too.
+
+  ## A body with no version disarms the staleness guards downstream
+
+  Worse than a missing marker is a `nil` one, and it is worth stating because
+  the failure is silent at every level.
+  `Aiur.Events.GitHubWebhook.Deposit.regression?/2` refuses an out-of-order
+  delivery only when it has a binary marker on **both** sides, so a single
+  version-less deposit does not weaken that guard for the resource — it switches
+  it off, and every later late delivery lands. Deposit a version for anything a
+  second pipe also writes. The store warns when a body is stored without one for
+  an identity where ordering decides correctness (`@order_sensitive_types`),
+  for the same reason an unlisted resource type is loud: the alternative is
+  discovering it two units later, by accident.
 
   ## Changing a held body: never fetch-then-put
 
@@ -132,16 +181,29 @@ defmodule Aiur.GitHub.ResourceStore do
   body at all rather than one that will change under the reader. GitHub REST
   responses are string-keyed JSON, so nothing a pipe deposits is affected.
 
+  ## Which pipe wrote is not a change
+
+  `:source` records the pipe that last marked a resource processed and
+  `:data_source` the pipe that deposited the body; they are separate fields
+  because one deposit and one mark used to overwrite each other's answer.
+  Neither is part of what counts as a change. Two readers of the same unchanged
+  resource — the ticket-detail path writing `:fetch` and the poll writing
+  `:poll` — would otherwise alternate that field on every cycle and wake every
+  subscriber of a resource that did not move. A subscriber that wants to know
+  who paid reads it off the change event.
+
   ## Who writes and who reads today
 
   Deliberately recorded so a later unit does not assume more than exists.
   Writers: `Aiur.Events.GithubCommentsPoller` deposits each watched target's
-  issue-comment and PR-conversation-comment *list* as a body with the endpoint's
-  validator, and `Aiur.Events.Publisher` marks individual comment resources
-  processed. Readers: the same poller serves its own `304` from the held list.
-  Everything else — an agent's `gh` wrapper, the dashboard, mutation
-  write-through — is still to be built on top of this, which is why the contract
-  above is written down rather than left to be inferred from the one caller.
+  comment *lists* as bodies with the endpoint's validator,
+  `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels and pull
+  requests, `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation
+  write-through merges its own responses, and `Aiur.Events.Publisher` marks
+  individual comment resources processed. Readers: the poller serves its own
+  `304` from the held list, `Aiur.GitHub.Issues` and the dashboard read bodies,
+  and `Aiur.Orchestrator.CommandScan` is the one change-detection-only reader —
+  it keeps no body and uses `change_validator/1` deliberately.
 
   ## Two versions, deliberately kept apart
 
@@ -213,6 +275,13 @@ defmodule Aiur.GitHub.ResourceStore do
     :branch_pull_request
   ]
 
+  # The identities where a body's *order* decides correctness: a whole mutable
+  # resource that arrives from more than one pipe, where a late delivery can roll
+  # state back. These are the ones a version-less deposit quietly disarms, so
+  # they are the ones the store says something about. An endpoint list carries no
+  # marker of its own and is not ordered against anything.
+  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :check_run]
+
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}
   @type entry :: %{
@@ -222,6 +291,11 @@ defmodule Aiur.GitHub.ResourceStore do
           fetched_at_ms: integer() | nil,
           etag: String.t() | nil
         }
+
+  # The stored entry keeps two `source` facts apart: `:source` is the pipe that
+  # last marked the resource processed, `:data_source` is the pipe that
+  # deposited the body. They used to be one field, so a deposit and a mark
+  # overwrote each other's answer.
 
   @doc "Every resource identity this store recognises."
   @spec resource_types() :: [resource_type()]
@@ -284,14 +358,60 @@ defmodule Aiur.GitHub.ResourceStore do
 
   def key_for_repo(_resource_type, _full_name, _id), do: nil
 
-  @doc "The stored validator for `key`, or `nil` when there is none."
+  @doc """
+  The validator to send when the point of the request is to **get the body** —
+  answered only when the store can also serve that body.
+
+  A validator handed out without its body is not a saving, it is an extra
+  request: the reader spends one on `If-None-Match`, is told `304`, holds
+  nothing, and has to read again unconditionally. Two requests where one was
+  needed, which is the precise waste this store exists to remove. So this
+  function answers exactly when `fetch/1` answers — same entry, same retention
+  window — and a caller physically cannot take the validator without the body
+  being there.
+
+  That is deliberately narrower than "is there an ETag recorded". A reader that
+  genuinely only needs to know *whether* something changed, and has no use for
+  the body, asks `change_validator/1` and takes on the obligation described
+  there.
+  """
   @spec etag(key() | nil) :: String.t() | nil
   def etag(nil), do: nil
 
   def etag(key) do
-    case lookup(key) do
-      %{etag: etag} when is_binary(etag) and etag != "" -> etag
+    case fetch(key) do
+      {:ok, %{etag: etag}} when is_binary(etag) and etag != "" -> etag
       _other -> nil
+    end
+  end
+
+  @doc """
+  The recorded validator, whether or not a body is held. **Read the obligation
+  before using this.**
+
+  There is one honest use: a reader that wants to know whether a resource
+  changed and has no use for its body — the oversized resource the store refuses
+  to hold, where a `304` means "nothing to do" and costs nothing, and a `200`
+  means "go and deal with it". For that reader this is a saving.
+
+  For every other reader it is a trap, which is why `etag/1` does not answer
+  here: a `304` against this validator returns no data, and the read has to be
+  made again unconditionally. If you would be unhappy to be told "unchanged" and
+  handed nothing, you want `etag/1`.
+
+  Retention still applies: a validator on an entry past the window answers `nil`,
+  because the thing it once described is gone.
+  """
+  @spec change_validator(key() | nil) :: String.t() | nil
+  def change_validator(nil), do: nil
+
+  def change_validator(key) do
+    case lookup(key) do
+      %{etag: etag} = entry when is_binary(etag) and etag != "" ->
+        if expired?(Map.get(entry, :recorded_at_ms) || 0), do: nil, else: etag
+
+      _other ->
+        nil
     end
   end
 
@@ -498,9 +618,41 @@ defmodule Aiur.GitHub.ResourceStore do
 
     update(key, fn existing ->
       storable = existing |> held_body() |> fun.() |> then(&storable_data(key, &1))
-      deposit(existing, storable, source, resolve_version(version, storable), opts)
+      resolved = resolve_version(version, stored_body(storable))
+      warn_unversioned(key, storable, resolved)
+      deposit(existing, storable, source, resolved, opts)
     end)
   end
+
+  # A body with no version disarms every downstream staleness guard for that
+  # resource, silently. `Aiur.Events.GitHubWebhook.Deposit.regression?/2` needs a
+  # binary marker on *both* sides to refuse a late delivery, so one version-less
+  # deposit makes every later out-of-order delivery for that key acceptable — the
+  # guard is not weakened, it is switched off, and nothing says so.
+  #
+  # Only said out loud for the identities where ordering decides correctness: a
+  # whole mutable resource whose state a stale delivery can roll back. An
+  # endpoint list has no marker of its own and is not ordered against anything,
+  # so warning about those would be noise that trains the reader to ignore this.
+  defp warn_unversioned(key, {:ok, data}, nil) when not is_nil(data) do
+    case key do
+      {type, _owner, _repo, _id} when type in @order_sensitive_types ->
+        Logger.warning(
+          "GitHub.ResourceStore stored a body for #{inspect(key)} with no version; " <>
+            "downstream staleness guards cannot refuse a late delivery for it"
+        )
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp warn_unversioned(_key, _storable, _version), do: :ok
+
+  # A refused arrival stores nothing, so a `:version` function is applied to
+  # `nil` — it never describes the body the entry is still holding.
+  defp stored_body({:ok, data}), do: data
+  defp stored_body(:refused), do: nil
 
   # Resolved inside the caller's critical section, never before it, so a retry
   # re-derives the marker from the body that actually won the swap.
@@ -593,7 +745,13 @@ defmodule Aiur.GitHub.ResourceStore do
            %{
              data: data,
              version: Map.get(entry, :data_version),
-             source: Map.get(entry, :source),
+             # The pipe that deposited *this body*. Kept apart from `:source`,
+             # which records the pipe that last marked the resource processed:
+             # one deposit and one mark used to overwrite each other's answer,
+             # so a reader asking "where did this body come from" could be told
+             # about a mark instead. Falls back for entries written before the
+             # split.
+             source: Map.get(entry, :data_source) || Map.get(entry, :source),
              fetched_at_ms: Map.get(entry, :fetched_at_ms),
              etag: Map.get(entry, :etag)
            }}
@@ -862,21 +1020,45 @@ defmodule Aiur.GitHub.ResourceStore do
   # the held body is the only thing that decides whether a page has anything to
   # render. Comparing whole bodies is affordable: they are size-bounded, and an
   # identical body rewritten is a genuine no-op no subscriber should be woken for.
+  #
+  # Which pipe wrote it is *not* observable, and leaving it in was a broadcast
+  # storm waiting for its first subscriber. The same unchanged issue read by the
+  # ticket-detail path (`:fetch`) and by the poll (`:poll`) alternates that field
+  # on every cycle while nothing a viewer renders moves at all, so every reader
+  # of a quiet resource would have woken every subscriber of it, forever. A
+  # subscriber that wants to know who paid reads it off the change event.
   defp observable(entry) do
-    Map.take(entry, [:etag, :data, :data_version, :processed_at_ms, :source, :version])
+    Map.take(entry, [:etag, :data, :data_version, :processed_at_ms, :version])
   end
 
-  defp deposit(entry, data, source, version, opts) do
+  # A refused body leaves the entry's body exactly as it was.
+  #
+  # The refusal means "this arrival cannot be held", never "what you are holding
+  # is wrong". Writing `nil` over a good body would destroy state the store
+  # already paid for and force the next reader to buy it again — and it would do
+  # that while keeping the old validator, which is the bodyless pair every other
+  # path here refuses. `:fetched_at_ms` is left alone too: a deposit that stored
+  # nothing has not refreshed anything, and stamping it now would tell the next
+  # reader the held body is younger than it is.
+  defp deposit(entry, :refused, source, version, opts) do
+    apply_processed_mark(entry, source, version, opts)
+  end
+
+  defp deposit(entry, {:ok, data}, source, version, opts) do
     entry =
       entry
       |> Map.put(:data, data)
       |> Map.put(:data_version, version)
       |> Map.put(:fetched_at_ms, now_ms())
-      |> Map.put(:source, source)
-      |> deposit_etag(data, Keyword.get(opts, :etag))
+      |> Map.put(:data_source, source)
+      |> deposit_etag(Map.get(entry, :data), data, Keyword.get(opts, :etag))
 
-    # `:version` moves only alongside `:processed_at_ms`. See the moduledoc:
-    # advancing it on its own would suppress a version nothing has handled.
+    apply_processed_mark(entry, source, version, opts)
+  end
+
+  # `:version` moves only alongside `:processed_at_ms`. See the moduledoc:
+  # advancing it on its own would suppress a version nothing has handled.
+  defp apply_processed_mark(entry, source, version, opts) do
     cond do
       not Keyword.get(opts, :processed, false) ->
         entry
@@ -894,19 +1076,32 @@ defmodule Aiur.GitHub.ResourceStore do
         entry
         |> Map.put(:processed_at_ms, now_ms())
         |> Map.put(:version, version)
+        |> Map.put(:source, source)
     end
   end
 
-  # A validator is only recorded alongside the body it validates. Recording it
-  # for a body the store refused would earn the next reader a `304` for a
-  # resource nothing here holds — a spent request that returns no data, which is
-  # the exact failure this store exists to remove. Keeping the older validator
-  # instead guarantees a `200` with a body.
-  defp deposit_etag(entry, nil, _etag), do: entry
+  # A validator describes one exact body, so which validator an entry may keep
+  # is decided by what happened to the body.
+  #
+  #   * a validator supplied with the deposit describes the body arriving with
+  #     it — record it.
+  #   * no validator supplied and the body is **unchanged** — the held validator
+  #     still describes it, so keeping it keeps the next read free.
+  #   * no validator supplied and the body **changed** — the held validator
+  #     describes something the store no longer holds. Keeping it is not
+  #     conservative, it is wrong: every later conditional read is then
+  #     guaranteed to miss, so the entry can never earn a `304` again. A webhook
+  #     delivery is exactly this case — it carries a fresh body and no validator
+  #     of any kind.
+  #   * no body at all — nothing to describe either way, so the held validator
+  #     stands and only `change_validator/1` will hand it out.
+  defp deposit_etag(entry, _previous, _data, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
 
-  defp deposit_etag(entry, _data, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
+  defp deposit_etag(entry, _previous, nil, _etag), do: entry
 
-  defp deposit_etag(entry, _data, _etag), do: entry
+  defp deposit_etag(entry, previous, data, _etag) when previous == data, do: entry
+
+  defp deposit_etag(entry, _previous, _data, _etag), do: Map.delete(entry, :etag)
 
   # What the store will hold as a body, decided once, at deposit time, against
   # exactly what the checkpoint can write back unchanged.
@@ -924,7 +1119,11 @@ defmodule Aiur.GitHub.ResourceStore do
   # struct, a pid. Refusing yields `nil`, so `deposit_etag/3` also declines the
   # validator and the next reader gets an unconditional `200` with a real body
   # instead of a `304` and nothing.
-  defp storable_data(_key, nil), do: nil
+  # `:refused` and `{:ok, nil}` are kept apart deliberately. "I could not hold
+  # what you sent" and "I am holding nothing" are different instructions to
+  # `deposit/5`: the first must leave a good held body untouched, the second is a
+  # caller depositing an empty answer.
+  defp storable_data(_key, nil), do: {:ok, nil}
 
   defp storable_data(key, data) do
     cond do
@@ -934,14 +1133,15 @@ defmodule Aiur.GitHub.ResourceStore do
             "deposit string-keyed JSON data or the entry would change shape across a restart"
         )
 
-        nil
+        :refused
 
       oversized?(data) ->
-        Logger.debug("GitHub.ResourceStore refused an oversized body for #{inspect(key)}")
-        nil
+        Logger.warning("GitHub.ResourceStore refused an oversized body for #{inspect(key)}; any previously held body is kept")
+
+        :refused
 
       true ->
-        data
+        {:ok, data}
     end
   end
 
@@ -1107,6 +1307,7 @@ defmodule Aiur.GitHub.ResourceStore do
       # exists to remove.
       "data" => encoded_data,
       "data_version" => Map.get(entry, :data_version),
+      "data_source" => entry |> Map.get(:data_source) |> encode_atom(),
       "fetched_at_ms" => Map.get(entry, :fetched_at_ms)
     }
   end
@@ -1220,6 +1421,7 @@ defmodule Aiur.GitHub.ResourceStore do
       recorded_at_ms: integer_or_nil(Map.get(value, "recorded_at_ms")) || 0,
       data: decode_data(Map.get(value, "data")),
       data_version: string_or_nil(Map.get(value, "data_version")),
+      data_source: value |> Map.get("data_source") |> decode_source(),
       fetched_at_ms: integer_or_nil(Map.get(value, "fetched_at_ms"))
     }
   end

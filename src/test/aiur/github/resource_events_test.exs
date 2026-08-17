@@ -181,7 +181,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       assert ResourceStore.fetch(key) == :miss
       assert ResourceStore.data(key) == nil
-      assert ResourceStore.etag(key) == "W/\"only\""
+      assert ResourceStore.change_validator(key) == "W/\"only\""
     end
   end
 
@@ -208,6 +208,49 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       ResourceStore.put_resource(key, %{"body" => "same"}, opts)
 
       refute_receive {:github_resource_changed, _change}, 100
+    end
+
+    # The storm this closes, and it had a real subscriber waiting for it: two
+    # readers of the same unchanged resource write different `:source` values —
+    # the ticket-detail path deposits `:fetch`, the poll deposits `:poll` — so
+    # while that field counted as observable, every alternating cycle over a
+    # quiet issue woke every subscriber of it, forever, for nothing.
+    test "the same body re-deposited by a different pipe publishes nothing" do
+      key = ResourceStore.key(:issue, @owner, @repo, 22)
+      body = %{"state" => "open"}
+
+      ResourceStore.put_resource(key, body, source: :fetch, version: "v1", etag: "W/\"e\"")
+      :ok = ResourceEvents.subscribe(key)
+
+      ResourceStore.put_resource(key, body, source: :poll, version: "v1", etag: "W/\"e\"")
+
+      refute_receive {:github_resource_changed, _change}, 100
+    end
+
+    # The other half: which pipe paid is still *reported*, it is simply not a
+    # change on its own. A page showing provenance keeps working.
+    test "a real change still reports the pipe that deposited the body" do
+      key = ResourceStore.key(:issue, @owner, @repo, 23)
+
+      ResourceStore.put_resource(key, %{"state" => "open"}, source: :fetch, version: "v1")
+      :ok = ResourceEvents.subscribe(key)
+
+      ResourceStore.put_resource(key, %{"state" => "closed"}, source: :webhook, version: "v2")
+
+      assert_receive {:github_resource_changed, change}
+      assert change.source == :webhook
+    end
+
+    # A mark and a deposit each own their own field now, so neither answers for
+    # the other. Before the split the last writer of `:source` won, and a
+    # processed mark could claim authorship of a body it never wrote.
+    test "a processed mark does not overwrite who deposited the body" do
+      key = ResourceStore.key(:issue, @owner, @repo, 24)
+
+      ResourceStore.put_resource(key, %{"state" => "open"}, source: :fetch, version: "v1")
+      ResourceStore.mark_processed(key, :poll, "v1")
+
+      assert {:ok, %{source: :fetch}} = ResourceStore.fetch(key)
     end
 
     # The one case the module's own comments say matters most, and the one a

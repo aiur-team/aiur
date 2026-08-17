@@ -16,8 +16,10 @@ defmodule Aiur.GitHub.CacheInspector.ResourceStoreSource do
   ## What a stored entry actually holds
 
   The store writes a bare map under `{resource_type, owner, repo, id}` with
-  `:data`, `:data_version`, `:fetched_at_ms`, `:source`, `:etag`, `:version`,
-  `:processed_at_ms` and `:recorded_at_ms`. Every one of those is optional, and
+  `:data`, `:data_version`, `:fetched_at_ms`, `:data_source`, `:source`,
+  `:etag`, `:version`, `:processed_at_ms` and `:recorded_at_ms`.
+  `:data_source` is the pipe that deposited the body and `:source` the pipe that
+  last marked the resource processed. Every one of those is optional, and
   the combination that matters most is **`:etag` present with `:data` absent**:
   `Aiur.GitHub.ResourceStore.drop_data/1` deliberately keeps the validator, and
   a reader that treats that as a hit earns a `304` with no body — a request paid
@@ -62,7 +64,12 @@ defmodule Aiur.GitHub.CacheInspector.ResourceStoreSource do
       etag: Map.get(entry, :etag),
       version: Map.get(entry, :version),
       data_version: Map.get(entry, :data_version),
-      source: Map.get(entry, :source),
+      # The pipe that deposited the body, falling back to the pipe that last
+      # marked the resource processed. The store keeps those apart as
+      # `:data_source` and `:source` — they used to be one field that a deposit
+      # and a mark overwrote for each other — and what this page is asking is
+      # "who paid for the body I am looking at".
+      source: Map.get(entry, :data_source) || Map.get(entry, :source),
       fetched_at_ms: Map.get(entry, :fetched_at_ms),
       processed_at_ms: Map.get(entry, :processed_at_ms),
       recorded_at_ms: Map.get(entry, :recorded_at_ms),

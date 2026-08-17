@@ -124,12 +124,40 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   end
 
   describe "etags" do
-    test "stores and returns a validator" do
+    test "stores and returns a validator alongside the body it validates" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 42)
 
       assert ResourceStore.etag(key) == nil
-      assert :ok = ResourceStore.put_etag(key, ~s("abc123"))
+      assert :ok = ResourceStore.put_resource(key, %{"a" => 1}, etag: ~s("abc123"))
       assert ResourceStore.etag(key) == ~s("abc123")
+    end
+
+    # `etag/1` is the accessor for a reader that wants the *body*, so it answers
+    # only when the body is there. A validator recorded on its own can only earn
+    # that reader a `304` and no data — a spent request, then a second
+    # unconditional one. Two requests where one was needed.
+    test "a validator recorded without a body is not offered to a reader of bodies" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 45)
+
+      assert :ok = ResourceStore.put_etag(key, ~s("abc123"))
+
+      assert ResourceStore.etag(key) == nil
+      assert ResourceStore.change_validator(key) == ~s("abc123")
+    end
+
+    # The one honest use of a bodyless validator: a reader that only wants to
+    # know whether something changed. It asks for it by name.
+    test "change_validator answers with or without a body, and honours retention" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 46)
+      ResourceStore.put_resource(key, %{"a" => 1}, etag: ~s("v1"))
+
+      assert ResourceStore.change_validator(key) == ~s("v1")
+
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+      aged = Map.put(entry, :recorded_at_ms, System.system_time(:millisecond) - 73 * 60 * 60 * 1000)
+      :ets.insert(ResourceStore.Table, {key, aged})
+
+      assert ResourceStore.change_validator(key) == nil
     end
 
     test "an absent validator is never invented" do
@@ -139,6 +167,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       ResourceStore.put_etag(key, "")
 
       assert ResourceStore.etag(key) == nil
+      assert ResourceStore.change_validator(key) == nil
     end
 
     test "a validator and a processed mark coexist on one resource" do
@@ -147,8 +176,37 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       ResourceStore.put_etag(key, ~s("v1"))
       ResourceStore.mark_processed(key, :poll)
 
-      assert ResourceStore.etag(key) == ~s("v1")
+      assert ResourceStore.change_validator(key) == ~s("v1")
       assert ResourceStore.processed?(key)
+    end
+  end
+
+  # The finding this closes: `etag/1` had no retention check at all while
+  # `fetch/1` had one, so past 72 hours the store handed out a validator for a
+  # body it had already stopped serving. A caller reading it raw — U4's issue
+  # revalidation did exactly that — was guaranteed a `304` with nothing behind
+  # it and had to read again unconditionally.
+  describe "a validator is never offered without the body it validates" do
+    test "an expired body takes its validator out of the reader's reach" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8400)
+      ResourceStore.put_resource(key, %{"state" => "open"}, etag: ~s("v1"))
+
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+      aged = Map.put(entry, :fetched_at_ms, System.system_time(:millisecond) - 73 * 60 * 60 * 1000)
+      :ets.insert(ResourceStore.Table, {key, aged})
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.etag(key) == nil, "a validator for a body the store will not serve is two requests, not one"
+    end
+
+    test "dropping the body takes the validator out of the reader's reach too" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8401)
+      ResourceStore.put_resource(key, %{"state" => "open"}, etag: ~s("v1"))
+
+      ResourceStore.drop_data(key)
+
+      assert ResourceStore.etag(key) == nil
+      assert ResourceStore.change_validator(key) == ~s("v1"), "change detection survives, by name"
     end
   end
 
@@ -169,7 +227,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       restart_store!(path)
 
-      assert ResourceStore.etag(etag_key) == ~s("survives")
+      assert ResourceStore.change_validator(etag_key) == ~s("survives")
       assert ResourceStore.processed?(mark_key, "2026-08-17T10:00:00Z")
     end
 
@@ -223,9 +281,9 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       restart_store!(path)
 
-      assert ResourceStore.etag(ResourceStore.key(:issue_comments, "owner", "repo", 79)) == ~s("kept")
+      assert ResourceStore.change_validator(ResourceStore.key(:issue_comments, "owner", "repo", 79)) == ~s("kept")
       assert ResourceStore.size() == 1, "the unknown type must be dropped, not resurrected as a new atom"
-      assert ResourceStore.etag({:not_a_real_type, "owner", "repo", "1"}) == nil
+      assert ResourceStore.change_validator({:not_a_real_type, "owner", "repo", "1"}) == nil
     end
 
     # `:webhook`, `:poll`, `:mutation` and `:fetch` are resolvable atoms because
@@ -253,7 +311,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       restart_store!(path)
 
-      assert ResourceStore.etag(ResourceStore.key(:issue_comments, "owner", "repo", 81)) == ~s("kept")
+      assert ResourceStore.change_validator(ResourceStore.key(:issue_comments, "owner", "repo", 81)) == ~s("kept")
       assert ResourceStore.size() == 1, "a source atom must not decode into a resource key"
     end
 
@@ -380,15 +438,17 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
 
     # The rule this feature turns on: a 304 is not data. A validator alone is
-    # still worth keeping — the sweep uses it to learn *whether* anything
-    # changed — but it can never serve a reader, so `fetch/1` must miss and force
-    # a fetch rather than let a caller mistake "unchanged" for "here it is".
+    # still worth keeping — a reader that only wants change detection asks
+    # `change_validator/1` for it — but it can never serve a reader of bodies,
+    # so `fetch/1` misses and `etag/1` declines rather than let a caller mistake
+    # "unchanged" for "here it is".
     test "a validator without a body never serves a reader" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 8)
       ResourceStore.put_etag(key, "W/\"abc\"")
 
-      assert ResourceStore.etag(key) == "W/\"abc\"", "change detection survives"
-      assert ResourceStore.fetch(key) == :miss, "but it must not be mistaken for data"
+      assert ResourceStore.change_validator(key) == "W/\"abc\"", "change detection survives"
+      assert ResourceStore.etag(key) == nil, "but a reader of bodies is not offered it"
+      assert ResourceStore.fetch(key) == :miss, "and it must not be mistaken for data"
       assert ResourceStore.data(key) == nil
     end
 
@@ -399,23 +459,35 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       ResourceStore.drop_data(key)
 
       assert ResourceStore.fetch(key) == :miss
-      assert ResourceStore.etag(key) == "W/\"abc\""
+      assert ResourceStore.change_validator(key) == "W/\"abc\""
+      assert ResourceStore.etag(key) == nil
     end
 
-    # Refusing the body must not also record the validator that proves it
-    # current. That pair would earn the next reader a `304` for a resource the
-    # store does not hold — a spent request that returns no data, which is the
-    # exact failure this store exists to remove. The older validator is stale, so
-    # it earns a `200` with a body instead.
-    test "an oversized body is refused, and its validator is refused with it" do
+    # A refusal means "I cannot hold what you sent", never "what you are holding
+    # is wrong". Destroying a good body over a refused arrival would throw away
+    # state already paid for and make the next reader buy it again — while
+    # keeping the old validator, which is the bodyless pair every other path
+    # here refuses.
+    test "an oversized body is refused and the held body survives it" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 9)
       ResourceStore.put_resource(key, %{"small" => true}, etag: "W/\"old\"")
+      [{^key, before}] = :ets.lookup(ResourceStore.Table, key)
 
       huge = %{"blob" => String.duplicate("x", 300 * 1024)}
-      ResourceStore.put_resource(key, huge, etag: "W/\"new\"")
 
-      assert ResourceStore.fetch(key) == :miss, "an oversized body is refused, not stored"
-      assert ResourceStore.etag(key) == "W/\"old\"", "a validator without its body would earn a bodyless 304"
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          ResourceStore.put_resource(key, huge, etag: "W/\"new\"")
+        end)
+
+      assert log =~ "refused an oversized body"
+      assert ResourceStore.data(key) == %{"small" => true}, "the held body must survive a refused arrival"
+      assert ResourceStore.etag(key) == "W/\"old\"", "and keep the validator that describes it"
+
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+
+      assert Map.get(entry, :fetched_at_ms) == Map.get(before, :fetched_at_ms),
+             "a deposit that stored nothing must not make the held body look younger"
     end
 
     # A body the checkpoint could never render is refused at the door rather
@@ -425,11 +497,47 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 16)
       ResourceStore.put_resource(key, %{"was" => "here"}, etag: "W/\"old\"")
 
-      ResourceStore.put_resource(key, %{"pid" => self(), "tuple" => {1, 2}}, etag: "W/\"new\"")
+      ExUnit.CaptureLog.capture_log(fn ->
+        ResourceStore.put_resource(key, %{"pid" => self(), "tuple" => {1, 2}}, etag: "W/\"new\"")
+      end)
 
-      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.data(key) == %{"was" => "here"}
       assert ResourceStore.etag(key) == "W/\"old\""
       assert :ok = ResourceStore.flush()
+    end
+
+    # A deposit that supplies no validator has to say something about the one
+    # already held, and the honest answer depends on the body. A webhook
+    # delivery is the case that matters: it carries a fresh body and no
+    # validator of any kind, so keeping the old one guaranteed that every later
+    # conditional read would miss — the entry could never earn a `304` again.
+    test "a changed body deposited without a validator discards the stale one" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8410)
+      ResourceStore.put_resource(key, %{"state" => "open"}, etag: ~s("v1"))
+
+      ResourceStore.put_resource(key, %{"state" => "closed"}, source: :webhook, version: "2026-08-17T12:00:00Z")
+
+      assert ResourceStore.data(key) == %{"state" => "closed"}
+      assert ResourceStore.etag(key) == nil, "a validator for the previous body cannot describe this one"
+      assert ResourceStore.change_validator(key) == nil
+    end
+
+    test "an unchanged body deposited without a validator keeps it" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8411)
+      ResourceStore.put_resource(key, %{"state" => "open"}, etag: ~s("v1"))
+
+      ResourceStore.put_resource(key, %{"state" => "open"}, source: :webhook, version: "2026-08-17T12:00:00Z")
+
+      assert ResourceStore.etag(key) == ~s("v1"), "the held validator still describes this exact body"
+    end
+
+    test "a deposit that supplies a validator always records it" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8412)
+      ResourceStore.put_resource(key, %{"state" => "open"}, etag: ~s("v1"))
+
+      ResourceStore.put_resource(key, %{"state" => "closed"}, etag: ~s("v2"))
+
+      assert ResourceStore.etag(key) == ~s("v2")
     end
 
     # R8/A7. Without the body on disk a restart keeps every validator and loses
@@ -580,13 +688,13 @@ defmodule Aiur.GitHub.ResourceStoreTest do
         end)
 
       assert log =~ "JSON cannot round-trip"
-      assert ResourceStore.fetch(key) == :miss, "the refused body replaced the held one"
-      assert ResourceStore.etag(key) == ~s("old"), "a refused body refuses its validator too"
+      assert ResourceStore.data(key) == %{"kept" => true}, "the refused body must not destroy the held one"
+      assert ResourceStore.etag(key) == ~s("old"), "which is still the validator that describes it"
 
       assert :ok = ResourceStore.flush()
       restart_store!(path)
 
-      assert ResourceStore.data(key) == nil, "and the answer is the same after a restart as before it"
+      assert ResourceStore.data(key) == %{"kept" => true}, "and the answer is the same after a restart as before it"
     end
 
     test "a struct body is refused for the same reason" do
@@ -611,7 +719,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       key = {"issue_comment", "owner", "repo", "1"}
 
       assert :ok = ResourceStore.put_etag(key, ~s("x"))
-      assert ResourceStore.etag(key) == ~s("x")
+      assert ResourceStore.change_validator(key) == ~s("x")
     end
 
     test "a non-binary owner or repo is written and announced to nobody" do
@@ -780,8 +888,9 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
 
     # The same refusals `put_resource/3` applies, applied to what the merge
-    # returns rather than to what the caller passed.
-    test "a merge that returns an unstorable body is refused with its validator" do
+    # returns rather than to what the caller passed — including leaving the held
+    # body where it is.
+    test "a merge that returns an unstorable body leaves the held body alone" do
       key = ResourceStore.key(:issue, "owner", "repo", 8202)
       ResourceStore.put_resource(key, %{"kept" => true}, etag: ~s("old"))
 
@@ -789,12 +898,101 @@ defmodule Aiur.GitHub.ResourceStoreTest do
         assert :ok = ResourceStore.update_resource(key, fn _held -> %{atom: :keys} end, etag: ~s("new"))
       end)
 
-      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.data(key) == %{"kept" => true}
       assert ResourceStore.etag(key) == ~s("old")
     end
 
     test "a merge on a nil key is a no-op" do
       assert :ok = ResourceStore.update_resource(nil, fn _held -> %{"a" => 1} end)
+    end
+
+    # A version supplied from outside describes a body the merge may not produce:
+    # under contention the merge re-runs against whatever won, and the marker
+    # computed beforehand then labels the winner's content with the loser's
+    # version. Nothing raises — the body is just marked older than it is, and the
+    # next genuinely stale delivery is accepted against that wrong marker.
+    test "a version function is applied to the body that actually won the swap" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8500)
+      writers = 4
+      per_writer = 100
+
+      ResourceStore.put_resource(key, %{"gen" => 0, "updated_at" => "v0"}, version: "v0")
+
+      1..writers
+      |> Enum.map(fn _writer ->
+        Task.async(fn ->
+          for _step <- 1..per_writer do
+            ResourceStore.update_resource(
+              key,
+              fn held ->
+                gen = Map.get(held || %{}, "gen", 0) + 1
+                %{"gen" => gen, "updated_at" => "v#{gen}"}
+              end,
+              version: fn body -> body["updated_at"] end
+            )
+          end
+        end)
+      end)
+      |> Enum.each(&Task.await(&1, 60_000))
+
+      assert {:ok, %{data: %{"gen" => gen, "updated_at" => marker}, version: version}} = ResourceStore.fetch(key)
+      assert gen == writers * per_writer
+      assert version == marker, "the stored marker must describe the stored body, not a losing read's"
+    end
+
+    test "a binary version still describes the deposit exactly as before" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8501)
+
+      ResourceStore.update_resource(key, fn _held -> %{"a" => 1} end, version: "v7")
+
+      assert {:ok, %{version: "v7"}} = ResourceStore.fetch(key)
+    end
+
+    test "a version function answering nil records version unknown" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8502)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          ResourceStore.update_resource(key, fn _held -> %{"a" => 1} end, version: fn body -> body["missing"] end)
+        end)
+
+      assert {:ok, %{version: nil}} = ResourceStore.fetch(key)
+      assert log =~ "no version"
+    end
+  end
+
+  # A `nil` version is worse than a missing one: `GitHubWebhook.Deposit`'s
+  # regression guard needs a binary marker on both sides, so one version-less
+  # deposit does not weaken the guard for that resource, it switches it off and
+  # every later out-of-order delivery lands. Silent at every level until someone
+  # finds it by accident, so the store says it.
+  describe "a body stored without a version" do
+    test "is loud for an identity where ordering decides correctness" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8510)
+
+      log = ExUnit.CaptureLog.capture_log(fn -> ResourceStore.put_resource(key, %{"state" => "open"}) end)
+
+      assert log =~ "with no version"
+      assert log =~ "late delivery"
+    end
+
+    test "is quiet for an endpoint list, which has no marker of its own" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 8511)
+
+      log = ExUnit.CaptureLog.capture_log(fn -> ResourceStore.put_resource(key, [%{"id" => 1}]) end)
+
+      refute log =~ "with no version"
+    end
+
+    test "is quiet when a version is supplied" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8512)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          ResourceStore.put_resource(key, %{"state" => "open"}, version: "2026-08-17T12:00:00Z")
+        end)
+
+      refute log =~ "with no version"
     end
   end
 
