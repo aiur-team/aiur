@@ -5,6 +5,24 @@ defmodule AiurWeb.BuildOrder.DataSource do
 
   Refresh cadence and provider I/O remain owned by the underlying services.
   This adapter deliberately exposes no provider or mutation callback.
+
+  ## Reading is not asking
+
+  "Read-only" now means read-only against *GitHub* too, not merely against
+  Aiur's own state. Every callback here answers from what a provider already
+  holds; none of them can cause an upstream call. Opening a Build Order,
+  switching roots, or leaving the page open costs zero API calls no matter how
+  many operators do it.
+
+  That is why `load_context/2` reads `current` rather than `request`, and why
+  `demand/2` — which exists to tell a provider "fetch this for me" — is no
+  longer reachable from the LiveView. A cold read renders "not loaded yet" and
+  waits: the next webhook delivery, agent fetch, or Aiur-originated mutation
+  writes the resource, publishes a change event, and the subscribed page
+  re-renders for free.
+
+  `demand/2` and `release/2` remain on the boundary because the need-driven
+  fetch path is a real caller with a real need. A *view* is not one.
   """
 
   alias Aiur.AgentPubSub
@@ -102,11 +120,19 @@ defmodule AiurWeb.BuildOrder.DataSource do
     |> first_error()
   end
 
+  @doc """
+  Reads the ticket context a provider already holds.
+
+  `current` rather than `request`: `request` fetches on a miss, which would make
+  selecting a ticket in the graph cost an API call — the exact thing a viewer
+  must never do. A miss answers with the provider's cold state, which the
+  presenter renders as "not loaded yet".
+  """
   @spec load_context(TrackerIdentity.t(), keyword()) :: %{detail: term(), history: term()}
   def load_context(identity, opts \\ []) do
     %{
-      detail: call(dependency(opts, :ticket_detail_cache, TicketDetailCache), :request, [identity]),
-      history: call(dependency(opts, :ticket_history_provider, TicketHistoryProvider), :request, [identity])
+      detail: call(dependency(opts, :ticket_detail_cache, TicketDetailCache), :current, [identity]),
+      history: call(dependency(opts, :ticket_history_provider, TicketHistoryProvider), :current, [identity])
     }
   end
 

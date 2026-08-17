@@ -26,11 +26,20 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   defmodule BuildOrderSourceStub do
-    @moduledoc false
+    @moduledoc """
+    Deliberately has no `demand/2`.
+
+    The Analytics page resolves its Build Order scope by *reading* the graph
+    projection, never by asking it to fetch — opening `/analytics?build_order=N`
+    must cost zero API calls no matter how many operators do it. If the page
+    regresses to `demand`, `Runtime.safe_source_call/4` answers the stub's
+    missing function with `{:error, :unavailable}` and the scope assertions
+    below fail, which is exactly the alarm we want.
+    """
 
     def catalog(context), do: context.catalog
 
-    def demand(context, identity) do
+    def selected(context, identity) do
       case Map.fetch(context.selected, identity.identifier) do
         {:ok, snapshot} -> {:ok, snapshot}
         :error -> {:error, :unavailable}

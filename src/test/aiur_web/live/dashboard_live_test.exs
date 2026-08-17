@@ -22,6 +22,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.ResourceStore
 
   alias Aiur.OpenTicketSource.Snapshot, as: OpenTicketSnapshot
   alias Aiur.Orchestrator
@@ -4028,11 +4029,11 @@ defmodule AiurWeb.DashboardLiveTest do
         send(test_pid, {:history_unsubscribed, selected})
         :ok
       end,
-      ticket_detail_request_fun: fn selected ->
+      ticket_detail_read_fun: fn selected ->
         send(test_pid, {:detail_requested, selected})
         {:ok, units_ticket_detail(selected, "Responsive Units interface")}
       end,
-      ticket_history_request_fun: fn selected ->
+      ticket_history_read_fun: fn selected ->
         send(test_pid, {:history_requested, selected})
         {:ok, units_ticket_history(selected)}
       end
@@ -4079,6 +4080,53 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_receive {:detail_requested, ^identity}
     assert_receive {:history_requested, ^identity}
     assert html =~ ~s(id="units-ticket-context")
+  end
+
+  # The corollary that makes "viewing never fetches" survivable. This page paid
+  # for nothing: some other consumer — a webhook delivery, an agent's own
+  # fetch, an Aiur-originated mutation — wrote the store, the store published,
+  # and the open ticket context re-read locally. Without this the dashboard
+  # would be cheap and permanently stale, which is worse than expensive.
+  test "a GitHub store write re-renders the subscribed page without any fetch" do
+    identity = units_identity()
+    membership = units_membership(identity)
+    orchestrator_name = Module.concat(__MODULE__, :StoreEventOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+    {:ok, titles} = Agent.start_link(fn -> "Before any writer touched it" end)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      ticket_detail_read_fun: fn selected ->
+        send(test_pid, {:detail_read, selected})
+        {:ok, units_ticket_detail(selected, Agent.get(titles, & &1))}
+      end,
+      ticket_history_read_fun: fn selected -> {:ok, units_ticket_history(selected)} end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
+    assert_receive {:detail_read, ^identity}
+    assert html =~ "Before any writer touched it"
+
+    Agent.update(titles, fn _previous -> "After a writer filled the store" end)
+
+    ResourceStore.put_payload(
+      ResourceStore.key(:issue_comment, "aiur-team", "aiur", 424_242),
+      %{"body" => "an agent posted this and already paid for the round trip"},
+      nil
+    )
+
+    # The page re-read because it was told, not because it polled or fetched.
+    assert_receive {:detail_read, ^identity}
+    assert render(view) =~ "After a writer filled the store"
   end
 
   test "opens a read-only conversation drawer from the explicit action and closes it truthfully" do
@@ -4150,10 +4198,10 @@ defmodule AiurWeb.DashboardLiveTest do
       control_center_cache: false,
       units_membership_fun: fn -> membership end,
       units_activity_fun: fn -> units_activity(identity) end,
-      ticket_detail_request_fun: fn selected ->
+      ticket_detail_read_fun: fn selected ->
         {:ok, units_ticket_detail(selected, "Responsive Units interface")}
       end,
-      ticket_history_request_fun: fn selected -> {:ok, units_ticket_history(selected)} end,
+      ticket_history_read_fun: fn selected -> {:ok, units_ticket_history(selected)} end,
       live_conversation_resolve_fun: fn _handle ->
         send(test_pid, :unexpected_resolve)
         {:ok, conversation_snapshot(handle)}
@@ -4553,8 +4601,8 @@ defmodule AiurWeb.DashboardLiveTest do
       ticket_history_subscribe_fun: &context_subscription(test_pid, :history_subscribed, &1),
       ticket_detail_unsubscribe_fun: &context_subscription(test_pid, :detail_unsubscribed, &1),
       ticket_history_unsubscribe_fun: &context_subscription(test_pid, :history_unsubscribed, &1),
-      ticket_detail_request_fun: fn selected -> {:ok, units_ticket_detail(selected, "Ticket #{selected.identifier}")} end,
-      ticket_history_request_fun: fn selected -> {:ok, units_ticket_history(selected)} end
+      ticket_detail_read_fun: fn selected -> {:ok, units_ticket_detail(selected, "Ticket #{selected.identifier}")} end,
+      ticket_history_read_fun: fn selected -> {:ok, units_ticket_history(selected)} end
     )
 
     {:ok, view, _html} = live(build_conn(), "/")

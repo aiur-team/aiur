@@ -470,11 +470,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     calls = FakeDataSource.calls(source)
     subscribe_index = call_index(calls, {:subscribe_selected, [first]})
-    demand_index = call_index(calls, {:demand, [first]})
+    selected_index = call_index(calls, {:selected, [first]})
 
-    assert subscribe_index < demand_index
-    assert Enum.count(calls, &(&1 == {:demand, [first]})) == 1
-    refute Enum.any?(calls, &match?({:selected, _}, &1))
+    assert subscribe_index < selected_index
+    assert Enum.count(calls, &(&1 == {:selected, [first]})) == 1
+    # Selecting a root reads what the projection holds; it never asks the
+    # projection to fetch. `demand` is what made every open page pay for its
+    # own graph refresh, at the tightest cadence in the system.
+    refute Enum.any?(calls, &match?({:demand, _}, &1))
   end
 
   test "a healthy complete catalog distinguishes not-found from unavailable", %{first: first} do
@@ -546,7 +549,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     # #1792: an unresolved root has no name to state, and the collapsed failure
     # card must not resurrect one.
     assert Floki.parse_document!(html) |> selected_lede() == nil
-    assert {:demand, [first]} in FakeDataSource.calls(source)
+    assert {:selected, [first]} in FakeDataSource.calls(source)
   end
 
   test "renders the epic breakdown on the selected route", %{first: first} do
@@ -801,11 +804,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
     release_index = call_index(calls, {:release, [first]})
     unsubscribe_index = call_index(calls, {:unsubscribe_selected, [first]})
     subscribe_index = call_index(calls, {:subscribe_selected, [second]})
-    demand_index = call_index(calls, {:demand, [second]})
+    selected_index = call_index(calls, {:selected, [second]})
 
     assert release_index < unsubscribe_index
     assert unsubscribe_index < subscribe_index
-    assert subscribe_index < demand_index
+    assert subscribe_index < selected_index
   end
 
   test "selected publications reject the wrong root and accept one newer generation", %{

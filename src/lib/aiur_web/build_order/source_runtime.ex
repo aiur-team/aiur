@@ -139,9 +139,10 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   def assign_model(socket) do
     model =
       case {RouteState.selected_snapshot(socket.assigns.route_state), RouteState.status(socket.assigns.route_state)} do
-        # A selected scope that is still loading has no renderable model yet:
-        # the nil-data snapshot the demand returns while the async fetch is in
-        # flight must surface as the shimmer, not a provider-unavailable model.
+        # A selected scope with no data has no renderable model yet. The
+        # nil-data snapshot a cold read returns must surface as "not loaded
+        # yet", not as a provider-unavailable model: nothing failed, no pipe
+        # has simply written this graph yet.
         {%Snapshot{}, :selected_loading} ->
           nil
 
@@ -193,7 +194,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
       _ = Runtime.safe_source_call(source, :subscribe_selected, [identity], :ok)
 
       socket
-      |> demand_selected(source, identity)
+      |> read_selected(source, identity)
       |> schedule_reload()
     else
       socket
@@ -206,11 +207,19 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     :ok
   end
 
-  defp demand_selected(socket, source, identity) do
-    case Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}) do
+  # Selecting a root reads what the projection already holds; it never asks the
+  # projection to fetch. `demand` was the tightest cadence in the system — a
+  # 5s demand refresh against a GraphQL connection that bills per member — and
+  # every operator with the page open paid it again.
+  #
+  # A cold root therefore renders "not loaded yet" rather than a shimmer that
+  # resolves. It resolves when a writer next touches the graph, which is what
+  # the selected-scope subscription established just above is for.
+  defp read_selected(socket, source, identity) do
+    case Runtime.safe_source_call(source, :selected, [identity], {:error, :unavailable}) do
       {:ok, %Snapshot{} = snapshot} ->
         case accept_authority(socket, snapshot) do
-          {:ok, socket} -> put_demand_snapshot(socket, snapshot)
+          {:ok, socket} -> put_initial_snapshot(socket, snapshot)
           :ignored -> socket
         end
 
@@ -273,7 +282,7 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     end
   end
 
-  defp put_demand_snapshot(socket, snapshot) do
+  defp put_initial_snapshot(socket, snapshot) do
     {route_state, _accepted} = RouteState.put_selected(socket.assigns.route_state, snapshot)
     assign(socket, :route_state, route_state)
   end

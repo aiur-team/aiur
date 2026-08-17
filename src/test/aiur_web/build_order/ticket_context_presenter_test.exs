@@ -82,6 +82,36 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     end
   end
 
+  # Viewing never fetches, so a ticket no pipe has written yet is the normal
+  # cold state rather than an outage. The operator has to be able to tell three
+  # different facts apart: "we have not seen this yet", "this is genuinely
+  # empty", and "we tried and it failed". Collapsing the first into the third
+  # would report an outage every time the store is cold.
+  test "a ticket no pipe has written reads as not loaded, not as unavailable" do
+    identity = identity()
+
+    cold = %State{identity: identity, generation: :unknown, health: :unavailable}
+    assert TicketContextPresenter.present(cold, history(identity), []).detail.state == :not_loaded
+
+    attempted = %State{
+      identity: identity,
+      generation: 1,
+      health: :unavailable,
+      last_attempt_at: @observed_at
+    }
+
+    assert TicketContextPresenter.present(attempted, history(identity), []).detail.state == :unavailable
+
+    failed = %State{
+      identity: identity,
+      generation: 1,
+      health: :unavailable,
+      failure: %Failure{kind: :permission}
+    }
+
+    assert TicketContextPresenter.present(failed, history(identity), []).detail.state == :unavailable
+  end
+
   test "keeps every bounded Logs cardinality explicit" do
     identity = identity()
 

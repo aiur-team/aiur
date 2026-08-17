@@ -57,9 +57,13 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
     end
   end
 
+  # No `request/1`. `request` fetches on a miss, and this boundary exists to be
+  # unable to do that: a view reading a ticket must never cost an API call. A
+  # regression to `request` fails here as an UndefinedFunctionError rather than
+  # as a quiet return to per-viewer fetching.
   defmodule DetailSpy do
     def subscribe(identity), do: notify({:subscribe_detail, identity}, :ok)
-    def request(identity), do: notify({:request_detail, identity}, {:ok, :detail_state})
+    def current(identity), do: notify({:current_detail, identity}, {:ok, :detail_state})
     def topic(identity), do: notify({:detail_topic, identity}, "detail-topic")
 
     defp notify(message, result) do
@@ -70,7 +74,7 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
   defmodule HistorySpy do
     def subscribe(identity), do: notify({:subscribe_history, identity}, :ok)
-    def request(identity), do: notify({:request_history, identity}, {:ok, :history_snapshot})
+    def current(identity), do: notify({:current_history, identity}, {:ok, :history_snapshot})
     def topic(identity), do: notify({:history_topic, identity}, "history-topic")
 
     defp notify(message, result) do
@@ -157,8 +161,8 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert_received {:subscribe_detail, :ticket}
     assert_received {:subscribe_history, :ticket}
-    assert_received {:request_detail, :ticket}
-    assert_received {:request_history, :ticket}
+    assert_received {:current_detail, :ticket}
+    assert_received {:current_history, :ticket}
     assert_received {:detail_topic, :ticket}
     assert_received {:history_topic, :ticket}
     assert_received {:unsubscribe, "detail-topic"}

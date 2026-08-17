@@ -264,7 +264,6 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
   end
 
-
   describe "cached bodies" do
     test "a body written by one reader serves the next with no upstream call" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 7)

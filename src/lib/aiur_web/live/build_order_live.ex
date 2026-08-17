@@ -5,6 +5,8 @@ defmodule AiurWeb.BuildOrderLive do
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
 
+  alias Aiur.GitHub.ResourceEvents
+
   alias Aiur.TrackerIdentity
 
   alias AiurWeb.BuildOrder.{
@@ -61,6 +63,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:analytics, Presenter.analytics_navigation())
 
     socket = if connected, do: socket |> SourceRuntime.connect() |> UsageRuntime.connect(), else: socket
+    if connected, do: :ok = ResourceEvents.subscribe_all()
     if connected, do: schedule_ui_tick()
 
     {:ok, socket}
@@ -106,6 +109,12 @@ defmodule AiurWeb.BuildOrderLive do
   def handle_info(:flush_bo_usage, socket) do
     {:noreply, UsageRuntime.flush(socket)}
   end
+
+  # A writer moved GitHub state. The re-read below is local — the round trip
+  # was already paid by whoever wrote — so an open ticket context catches up
+  # without this page ever calling GitHub.
+  def handle_info({:github_resource_changed, %{}}, socket),
+    do: {:noreply, ContextRuntime.refresh(socket)}
 
   def handle_info({:decision_changed, _decision_id, _version}, socket),
     do: {:noreply, AwaitingCommands.refresh(socket)}

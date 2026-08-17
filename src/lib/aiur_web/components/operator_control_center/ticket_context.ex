@@ -123,6 +123,19 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         >{cta_label(capability)}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
       </div>
 
+      <%!-- A cold ticket is not an outage and not an empty ticket. Viewing
+      cannot fetch, so the honest thing to say is that nothing has written this
+      resource yet, and what will. Without this line an unwritten ticket and a
+      genuinely blank one render identically. --%>
+      <p
+        :if={@context.detail.state == :not_loaded}
+        class="ticket-context-status"
+        role="status"
+        data-ticket-context-detail-state="not_loaded"
+      >
+        Not loaded yet. Viewing never fetches from GitHub — this ticket fills in as soon as a webhook delivery, an agent, or the reconciliation sweep writes it.
+      </p>
+
       <section :if={@context.description} class="ticket-context-description" aria-labelledby={"#{@heading_id}-description"}>
         <h3 id={"#{@heading_id}-description"}>Description</h3>
         <div class="ticket-context-markdown">{Markdown.render(@context.description)}</div>

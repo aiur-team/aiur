@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.DecisionPubSub
   alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
+  alias Aiur.GitHub.ResourceEvents
   alias Aiur.LiveConversation
   alias Aiur.OpenTicketSource
   alias Aiur.Orchestrator.GlobalPause
@@ -106,6 +107,7 @@ defmodule AiurWeb.DashboardLive do
       :ok = TicketActivity.subscribe()
       :ok = OpenTicketSource.subscribe()
       :ok = subscribe_ticket_context_resets()
+      :ok = ResourceEvents.subscribe_all()
     end
 
     payload = PayloadLoader.load(if connected, do: :fresh, else: :cached)
@@ -280,6 +282,16 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info({:ticket_history_evicted, identity, _generation}, socket) do
     {:noreply, maybe_reset_ticket_context(socket, :history, identity)}
+  end
+
+  # Somebody wrote GitHub state into the store. Nobody here asked them to and
+  # nobody here pays for it: a webhook delivery, an agent's need-driven fetch,
+  # or an Aiur-originated mutation already made the round trip. Re-reading the
+  # open ticket context is a local read, so the operator's view catches up for
+  # free — this is the half of "viewing never fetches" that keeps a pure reader
+  # from also being a stale one.
+  def handle_info({:github_resource_changed, %{}}, socket) do
+    {:noreply, reread_ticket_context(socket)}
   end
 
   def handle_info({:ticket_detail_cache_reset, _epoch}, socket) do
@@ -1774,8 +1786,12 @@ defmodule AiurWeb.DashboardLive do
 
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do
     socket = replace_ticket_context_subscription(socket, identity)
-    detail = request_context(:ticket_detail_request_fun, &TicketDetailCache.request/1, identity)
-    history = request_context(:ticket_history_request_fun, &TicketHistoryProvider.request/1, identity)
+    # `current`, never `request`: inspecting a unit is viewing, and viewing must
+    # not spend. A cold ticket renders "not loaded yet" and fills in when a
+    # webhook delivery, an agent's fetch, or an Aiur-originated mutation next
+    # writes it — the subscription established just above is what delivers it.
+    detail = read_context(:ticket_detail_read_fun, &TicketDetailCache.current/1, identity)
+    history = read_context(:ticket_history_read_fun, &TicketHistoryProvider.current/1, identity)
 
     socket
     |> assign(:ticket_context_identity, identity)
@@ -1893,7 +1909,7 @@ defmodule AiurWeb.DashboardLive do
   defp unsubscribe_ticket_history(identity),
     do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
 
-  defp request_context(config_key, default, identity) do
+  defp read_context(config_key, default, identity) do
     case call_context(config_key, default, identity) do
       {:ok, value} -> value
       _error -> nil
@@ -1984,6 +2000,16 @@ defmodule AiurWeb.DashboardLive do
     else
       socket
     end
+  end
+
+  defp reread_ticket_context(%{assigns: %{ticket_context_identity: nil}} = socket), do: socket
+
+  defp reread_ticket_context(socket) do
+    identity = socket.assigns.ticket_context_identity
+    detail = read_context(:ticket_detail_read_fun, &TicketDetailCache.current/1, identity)
+    history = read_context(:ticket_history_read_fun, &TicketHistoryProvider.current/1, identity)
+
+    assign_ticket_context(socket, detail, history)
   end
 
   defp maybe_reset_ticket_context(socket, kind, identity) do

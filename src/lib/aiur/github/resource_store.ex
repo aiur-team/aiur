@@ -24,6 +24,15 @@ defmodule Aiur.GitHub.ResourceStore do
       resource. This is the suppress half of the sweep.
     * `:version` — the resource's own mutation marker, a comment's `updated_at`.
 
+  ## A write is announced, so viewing never has to ask
+
+  Every write publishes an `Aiur.GitHub.ResourceEvents` change event naming the
+  resource. That is what lets the dashboard be a pure reader: a page renders
+  from this store, subscribes by identity or by type, and is woken by whichever
+  writer next touches the resource — a webhook delivery, an agent's need-driven
+  fetch, an Aiur-originated mutation. The page never fetches, because it never
+  has to guess when to.
+
   ## Identity says *which* resource; version says *which state of it*
 
   A GitHub comment is mutable. An edit keeps the id and moves only `updated_at`,
@@ -78,6 +87,7 @@ defmodule Aiur.GitHub.ResourceStore do
   require Logger
 
   alias Aiur.{Config, Fs, JsonStore}
+  alias Aiur.GitHub.ResourceEvents
 
   @table __MODULE__.Table
   @retention_ms 72 * 60 * 60 * 1000
@@ -245,13 +255,14 @@ defmodule Aiur.GitHub.ResourceStore do
       # Refuse the body but keep change detection: drop only the stale payload.
       drop_payload(key)
     else
-      update(key, fn entry ->
-        entry
-        |> Map.put(:payload, payload)
-        |> then(fn e -> if is_binary(etag) and etag != "", do: Map.put(e, :etag, etag), else: e end)
-      end)
+      update(key, fn entry -> entry |> Map.put(:payload, payload) |> put_validator(etag) end)
     end
   end
+
+  # A body may arrive without a validator — a GraphQL response has no ETag — and
+  # in that case any validator already recorded for this resource still stands.
+  defp put_validator(entry, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
+  defp put_validator(entry, _etag), do: entry
 
   @doc """
   Removes the cached body for `key`, leaving any validator in place.
@@ -461,9 +472,35 @@ defmodule Aiur.GitHub.ResourceStore do
 
       entry = existing |> fun.() |> Map.put(:recorded_at_ms, now_ms())
       :ets.insert(table, {key, entry})
+      announce(key, existing, entry)
       :ok
     end)
   end
+
+  # A write publishes so subscribed views re-render without polling — the half
+  # of "viewing never fetches" that makes the other half survivable. A page that
+  # cannot fetch and is never told would simply be wrong.
+  #
+  # A write that leaves the entry's observable content unchanged is silent. Only
+  # `recorded_at_ms` moved, so no subscriber could see a difference, and a sweep
+  # re-recording an unchanged validator across the whole retention window would
+  # otherwise trade the poll this store removes for a broadcast storm.
+  defp announce(key, before, entry) do
+    if observable(before) == observable(entry) do
+      :ok
+    else
+      ResourceEvents.publish(key, entry)
+    end
+  end
+
+  # `:payload` is the load-bearing member. A body can arrive against an
+  # unchanged validator — a first `put_payload/3` for a resource whose ETag the
+  # sweep already recorded — and that is precisely the write a viewer is waiting
+  # for, because `payload/1` is the only thing that decides whether a page has
+  # anything to render. Comparing whole bodies is affordable: they are bounded
+  # at 256 KiB, and an identical body rewritten is a genuine no-op that no
+  # subscriber should be woken for.
+  defp observable(entry), do: Map.take(entry, [:etag, :payload, :processed_at_ms, :source, :version])
 
   # Every read and write funnels through here so a missing table — no store
   # started, a store that crashed, a test that never booted one — is answered

@@ -183,10 +183,25 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
 
     state_name =
       case {state.health, snapshot} do
-        {:healthy, %Snapshot{}} -> :available
-        {:stale, %Snapshot{}} -> :stale
-        {:healthy, nil} -> :missing
-        _ -> :unavailable
+        {:healthy, %Snapshot{}} ->
+          :available
+
+        {:stale, %Snapshot{}} ->
+          :stale
+
+        {:healthy, nil} ->
+          :missing
+
+        # Nothing failed and nothing was ever attempted: this ticket has simply
+        # not been written to the cache by any pipe yet. Viewing does not fetch,
+        # so this is a normal, expected state and must not read as an outage —
+        # the operator has to be able to tell "we have not seen this" from "this
+        # is empty" and from "this failed".
+        _cold when is_nil(snapshot) and is_nil(state.failure) and is_nil(state.last_attempt_at) ->
+          :not_loaded
+
+        _other ->
+          :unavailable
       end
 
     %{
@@ -444,7 +459,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
 
   defp normalized_detail(detail) when is_map(detail) do
     %{
-      state: map_value(detail, :state, [:available, :stale, :missing, :unavailable], :unavailable),
+      state: map_value(detail, :state, [:available, :not_loaded, :stale, :missing, :unavailable], :unavailable),
       observed_at: datetime(map_value(detail, :observed_at)),
       last_success_at: datetime(map_value(detail, :last_success_at)),
       last_attempt_at: datetime(map_value(detail, :last_attempt_at))

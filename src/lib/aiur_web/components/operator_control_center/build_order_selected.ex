@@ -57,18 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         </div>
       </div>
 
-      <div :if={is_nil(@graph_failure) and is_nil(@model) and @status == :selected_loading} class="bo-loading" role="status" aria-live="polite">
-        <span class="sr-only">Loading selected graph</span>
-        <div class="bo-shimmer bo-shimmer-lede" aria-hidden="true"></div>
-        <div class="bo-shimmer-metrics" aria-hidden="true">
-          <div :for={_metric <- 1..5} class="bo-shimmer bo-shimmer-metric"></div>
-        </div>
-        <div class="bo-shimmer-grid" aria-hidden="true">
-          <div :for={_card <- 1..8} class="bo-shimmer bo-shimmer-card"></div>
-        </div>
-      </div>
-
-      <div :if={is_nil(@graph_failure) and is_nil(@model) and @status != :selected_loading} class="bo-state-card" role={state_role(@status)}>
+      <div :if={is_nil(@graph_failure) and is_nil(@model)} class="bo-state-card" role={state_role(@status)} data-bo-state-card={@status}>
         <h3>{state_title(@status)}</h3>
         <p>{state_message(@status)}</p>
       </div>
@@ -311,7 +300,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_title(:catalog_stale), do: "Catalog is stale"
   defp state_title(:not_found), do: "Build Order not found"
   defp state_title(:invalid_catalog), do: "Catalog identity conflict"
-  defp state_title(:selected_loading), do: "Loading selected graph"
+  # Not "Loading". Viewing this page cannot start a fetch, so a shimmer would
+  # promise progress that nothing is making. "Not loaded yet" is the honest
+  # distinction the operator needs: this graph has not been seen, as opposed to
+  # having been seen and found empty, or having been fetched and failed.
+  defp state_title(:selected_loading), do: "Graph not loaded yet"
   defp state_title(:selected_stale), do: "Selected graph is stale"
   defp state_title(_status), do: "Build Order unavailable"
 
@@ -321,7 +314,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_message(:catalog_stale), do: "The last-known-good catalog cannot safely confirm this root."
   defp state_message(:not_found), do: "This Build Order is not in the catalog."
   defp state_message(:invalid_catalog), do: "This link matches more than one repository. Pick a specific one."
-  defp state_message(:selected_loading), do: "The exact root is selected; its graph snapshot is loading."
+
+  defp state_message(:selected_loading),
+    do: "The exact root is selected. Viewing never fetches, so this graph appears as soon as a webhook delivery, an agent, or the reconciliation sweep writes it."
 
   defp state_message(:selected_stale), do: "The provider is stale and has no selected-root last-known-good snapshot."
   defp state_message(_status), do: "Planning data is temporarily unavailable."

@@ -66,8 +66,12 @@ defmodule Aiur.AnalyticsCLI do
   defp valid_order(_since, nil), do: :ok
   defp valid_order(since, until), do: if(DateTime.compare(since, until) == :lt, do: :ok, else: {:error, "requires --since to be before --until"})
 
+  # `fetch: true` because this is a one-shot command with a real need: an
+  # operator asked for this Build Order's analytics now, and a cold graph the
+  # CLI declines to fetch is an empty report rather than a cheap one. The
+  # Analytics *page* takes the default and never fetches.
   defp resolve_scope(request, opts) do
-    resolver = Keyword.get(opts, :scope_resolver, &ScopeResolver.resolve/1)
+    resolver = Keyword.get(opts, :scope_resolver, &ScopeResolver.resolve(&1, fetch: true))
     resolver.(request[:build_order])
   end
 
