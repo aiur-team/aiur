@@ -2,6 +2,7 @@ defmodule AiurEngineTest do
   use ExUnit.Case, async: true
 
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
+  @cli_package Path.expand("../../packaging/npm/aiur-cli/package.json", __DIR__)
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
 
   # Run the engine's `__identity` probe with a clean AIUR_* env plus the given
@@ -322,6 +323,10 @@ defmodule AiurEngineTest do
   test "--version is distribution-free so it never collides with a running node" do
     rel = fake_release()
     state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+    elixir = Path.join([rel, "releases", "0.1.1", "elixir"])
+    cli_version = @cli_package |> File.read!() |> Jason.decode!() |> Map.fetch!("version")
+
+    File.write!(elixir, "#!/usr/bin/env bash\necho \"CLI_VERSION=$AIUR_CLI_VERSION\"\necho \"ELIXIR_ARGS: $*\"\n")
 
     {out, _} = run_engine(["--version"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
@@ -329,6 +334,7 @@ defmodule AiurEngineTest do
     # distributed release start script — so it claims no node name.
     assert out =~ "ELIXIR_ARGS:"
     assert out =~ "--eval"
+    assert out =~ "CLI_VERSION=#{cli_version}"
     refute out =~ "--name"
     refute out =~ "BIN:"
   end
@@ -523,6 +529,83 @@ defmodule AiurEngineTest do
     {out, code} = run_engine(["bogus-not-a-path"], [])
     assert code == 64
     assert out =~ "unknown command"
+    refute out =~ "installed CLI"
+  end
+
+  test "an unknown command diagnoses a dispatcher older than its stamped checkout" do
+    root = Path.join(System.tmp_dir!(), "aiur-stale-cli-#{System.unique_integer([:positive])}")
+    installed_libexec = Path.join([root, "installed", "libexec"])
+    checkout_package = Path.join([root, "checkout", "packaging", "npm", "aiur-cli"])
+    release = Path.join(root, "release")
+
+    File.mkdir_p!(installed_libexec)
+    File.mkdir_p!(checkout_package)
+    File.mkdir_p!(release)
+    File.write!(Path.join(root, "installed/package.json"), "{\n  \"version\": \"1.2.3\"\n}\n")
+    File.write!(Path.join(checkout_package, "package.json"), "{\n  \"version\": \"1.3.0\"\n}\n")
+    File.write!(Path.join(release, "AIUR_BUILD_STAMP"), "repo_root=#{Path.join(root, "checkout")}\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      run_sourced_engine(
+        ~S|engine_dir="$INSTALLED_LIBEXEC"; aiur_engine_main bogus-not-a-path|,
+        [{"INSTALLED_LIBEXEC", installed_libexec}, {"AIUR_RELEASE_DIR", release}]
+      )
+
+    assert code == 64
+    assert out =~ "installed CLI 1.2.3 is older than checkout CLI 1.3.0"
+    assert out =~ "update aiur-cli before retrying"
+    assert out =~ "Usage: aiur"
+  end
+
+  test "stale dispatcher diagnosis supports prerelease versions" do
+    root = Path.join(System.tmp_dir!(), "aiur-stale-prerelease-cli-#{System.unique_integer([:positive])}")
+    installed_libexec = Path.join([root, "installed", "libexec"])
+    checkout_package = Path.join([root, "checkout", "packaging", "npm", "aiur-cli"])
+    release = Path.join(root, "release")
+
+    File.mkdir_p!(installed_libexec)
+    File.mkdir_p!(checkout_package)
+    File.mkdir_p!(release)
+
+    File.write!(
+      Path.join(root, "installed/package.json"),
+      "{\n  \"version\": \"1.2.3-nightly.abcdef0+local\"\n}\n"
+    )
+
+    File.write!(Path.join(checkout_package, "package.json"), "{\n  \"version\": \"1.2.3\"\n}\n")
+    File.write!(Path.join(release, "AIUR_BUILD_STAMP"), "repo_root=#{Path.join(root, "checkout")}\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    {out, code} =
+      run_sourced_engine(
+        ~S|engine_dir="$INSTALLED_LIBEXEC"; aiur_engine_main bogus-not-a-path|,
+        [{"INSTALLED_LIBEXEC", installed_libexec}, {"AIUR_RELEASE_DIR", release}]
+      )
+
+    assert code == 64
+    assert out =~ "installed CLI 1.2.3-nightly.abcdef0+local is older than checkout CLI 1.2.3"
+    assert out =~ "Usage: aiur"
+  end
+
+  test "version comparison warns only when the installed CLI is older" do
+    {out, 0} =
+      run_sourced_engine(
+        """
+        version_is_older 1.2.3 1.2.3 && echo equal-older || true
+        version_is_older 1.2.4 1.2.3 && echo newer-older || true
+        version_is_older 1.2.3 1.2.4 && echo patch-older
+        version_is_older 1.2.3-nightly.aaaaaaa 1.2.3-nightly.bbbbbbb && echo prerelease-older
+        version_is_older not-semver 1.2.3 && echo malformed-older || true
+        """,
+        []
+      )
+
+    assert out =~ "patch-older"
+    assert out =~ "prerelease-older"
+    refute out =~ "equal-older"
+    refute out =~ "newer-older"
+    refute out =~ "malformed-older"
   end
 
   test "init boots interactively and distribution-free (no --name/--cookie)" do

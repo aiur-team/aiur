@@ -61,13 +61,20 @@ defmodule Aiur.CLI do
   def main(args), do: args |> evaluate() |> dispatch()
 
   defp dispatch(:ok), do: wait_for_shutdown()
-  defp dispatch({:version, version}), do: IO.puts("aiur #{version} (#{@repo} #{@git_rev})")
+  defp dispatch({:version, version}), do: IO.puts(version_line(version, System.get_env("AIUR_CLI_VERSION")))
   defp dispatch({:init, opts}), do: run_init_command(opts)
   defp dispatch({:todo, issue_ids, opts}), do: run_todo_command(issue_ids, opts)
   defp dispatch({:findings, opts}), do: run_findings_command(opts)
   defp dispatch({:asks, command}), do: run_asks_command(command)
 
   defp dispatch({:error, message}), do: shutdown_with_error(message)
+
+  @doc false
+  @spec version_line(String.t(), String.t() | nil) :: String.t()
+  def version_line(version, cli_version) when is_binary(cli_version) and cli_version != "",
+    do: "aiur #{version} (#{@repo} #{@git_rev}), cli #{cli_version}"
+
+  def version_line(version, _cli_version), do: "aiur #{version} (#{@repo} #{@git_rev})"
 
   @spec shutdown_with_error(String.t()) :: no_return()
   defp shutdown_with_error(message) do
