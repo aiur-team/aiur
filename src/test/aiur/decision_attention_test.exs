@@ -532,6 +532,32 @@ defmodule Aiur.DecisionAttentionTest do
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
   end
 
+  test "projects an attention unblocking so it cannot hold dispatch (#1844)" do
+    identifier = "DECISION-BLOCKING-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Needs a decision"}
+    test_pid = self()
+
+    {_pid, name} =
+      start_attention(
+        alert_emitter: fn _attention -> :ok end,
+        decision_projector: fn payload, opts ->
+          send(test_pid, {:projected, payload})
+          accepted_projection().(payload, opts)
+        end
+      )
+
+    assert :ok = DecisionAttention.open(name, issue, nil, nil, "scope-question", "Who owns the facade?")
+
+    assert_receive {:projected, payload}
+
+    # An attention is a visibility signal: opening one leaves its agent running,
+    # so filing it blocking asserts a gate that does not exist — and under
+    # #2001's dispatch gate that phantom gate stops the fleet.
+    assert payload["blocking"] == false
+    assert payload["kind"] == "legacy_attention"
+    assert payload["question"] == "Who owns the facade?"
+  end
+
   defp eventually(fun, attempts \\ 20)
 
   defp eventually(fun, attempts) when attempts > 0 do

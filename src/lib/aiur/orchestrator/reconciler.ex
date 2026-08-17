@@ -34,23 +34,45 @@ defmodule Aiur.Orchestrator.Reconciler do
     RateLimitFallback.reconcile(state)
   end
 
+  # Two independent read-reduction strategies meet on this path (#1674):
+  #
+  #   1. Reuse. The poll has already fetched the candidate list, so a running
+  #      ticket visible in that snapshot needs no request at all.
+  #   2. Revalidation. Whatever is left — running tickets absent from the
+  #      candidate snapshot — is fetched with `If-None-Match`, so an unchanged
+  #      ticket costs a 304 (free against the GitHub rate limit) instead of a
+  #      full read.
+  #
+  # They compose: reuse eliminates requests, revalidation makes the
+  # irreducible remainder cheap. The ETag/issue pairs live in
+  # `State.running_issue_cache`, threaded through `fetch_fun`.
+  #
+  # `fetch_fun` is deliberately arity-polymorphic rather than a second
+  # `is_list/1`-guarded arity-2 clause: an arity-1 fun is the legacy
+  # cache-free contract, an arity-2 fun is the conditional one. The arity is
+  # what distinguishes them, so no two clauses can shadow each other.
+  @typedoc false
+  @type fetch_fun ::
+          ([String.t()] -> {:ok, [Issue.t()]} | {:error, term()})
+          | ([String.t()], map() ->
+               {:ok, [Issue.t()], map()} | {:error, term()} | {:error, term(), map()})
+
   @spec refresh_running_issue_states(State.t()) :: State.t()
   def refresh_running_issue_states(%State{} = state) do
     running_ids = Map.keys(state.running)
-    refresh_running_issue_ids(state, running_ids, "running", &Tracker.fetch_issue_states_by_ids/1)
+    refresh_running_issue_ids(state, running_ids, "running", default_fetch_fun())
   end
 
   @spec refresh_running_issue_states(State.t(), [Issue.t()]) :: State.t()
   def refresh_running_issue_states(%State{} = state, candidate_issues)
       when is_list(candidate_issues) do
-    refresh_running_issue_states(state, candidate_issues, &Tracker.fetch_issue_states_by_ids/1)
+    refresh_running_issue_states(state, candidate_issues, default_fetch_fun())
   end
 
   @doc false
-  @spec refresh_running_issue_states(State.t(), [Issue.t()], ([String.t()] -> {:ok, [Issue.t()]} | {:error, term()})) ::
-          State.t()
+  @spec refresh_running_issue_states(State.t(), [Issue.t()], fetch_fun()) :: State.t()
   def refresh_running_issue_states(%State{} = state, candidate_issues, fetch_fun)
-      when is_list(candidate_issues) and is_function(fetch_fun, 1) do
+      when is_list(candidate_issues) and (is_function(fetch_fun, 1) or is_function(fetch_fun, 2)) do
     running_ids = Map.keys(state.running)
     running_id_set = MapSet.new(running_ids)
 
@@ -67,26 +89,73 @@ defmodule Aiur.Orchestrator.Reconciler do
     refresh_running_issue_ids(state, missing_ids, "missing running", fetch_fun)
   end
 
-  defp refresh_running_issue_ids(state, [], _context, _fetch_fun), do: state
+  defp default_fetch_fun, do: &Tracker.fetch_issue_states_by_ids_conditional/2
+
+  # Nothing to fetch: every running ticket was served from the polled
+  # snapshot. Still drop cache entries for tickets that stopped running, so
+  # the cache cannot outgrow `state.running`.
+  defp refresh_running_issue_ids(state, [], _context, _fetch_fun), do: prune_running_issue_cache(state)
 
   defp refresh_running_issue_ids(state, issue_ids, context, fetch_fun) do
-    case fetch_fun.(issue_ids) do
-      {:ok, issues} ->
-        issues
-        |> reconcile_running_issue_states(
-          state,
-          DispatchPolicy.active_state_set(),
-          DispatchPolicy.terminal_state_set()
-        )
+    case apply_fetch_fun(fetch_fun, issue_ids, state.running_issue_cache) do
+      {:ok, issues, cache} ->
+        state
+        |> put_running_issue_cache(cache)
+        |> reconcile_refreshed_running_issues(issues)
         |> reconcile_missing_running_issue_ids(issue_ids, issues)
+        |> prune_running_issue_cache()
 
-      {:error, reason} ->
-        issue_context = refresh_issue_context(state, issue_ids)
-
-        Logger.debug("Failed to refresh #{context} issue states for #{inspect(issue_context)}: #{inspect(reason)}; keeping active workers")
+      # Conditional fetchers surface the cache even on failure: ETags learned
+      # before the error are still valid, and discarding them would force a
+      # full re-read of every running ticket on the next poll.
+      {:error, reason, cache} ->
+        log_refresh_failure(state, issue_ids, context, reason)
 
         state
+        |> put_running_issue_cache(cache)
+        |> prune_running_issue_cache()
+
+      {:error, reason} ->
+        log_refresh_failure(state, issue_ids, context, reason)
+        state
     end
+  end
+
+  # An arity-1 `fetch_fun` is the cache-free contract; normalize its reply to
+  # the three-element shape with `nil` standing for "cache untouched".
+  defp apply_fetch_fun(fetch_fun, issue_ids, _cache) when is_function(fetch_fun, 1) do
+    case fetch_fun.(issue_ids) do
+      {:ok, issues} -> {:ok, issues, nil}
+      other -> other
+    end
+  end
+
+  defp apply_fetch_fun(fetch_fun, issue_ids, cache) when is_function(fetch_fun, 2) do
+    fetch_fun.(issue_ids, cache)
+  end
+
+  defp reconcile_refreshed_running_issues(state, issues) do
+    reconcile_running_issue_states(
+      issues,
+      state,
+      DispatchPolicy.active_state_set(),
+      DispatchPolicy.terminal_state_set()
+    )
+  end
+
+  defp put_running_issue_cache(state, nil), do: state
+  defp put_running_issue_cache(state, cache) when is_map(cache), do: %{state | running_issue_cache: cache}
+
+  defp prune_running_issue_cache(%State{running_issue_cache: cache} = state) when map_size(cache) == 0, do: state
+
+  defp prune_running_issue_cache(%State{} = state) do
+    %{state | running_issue_cache: Map.take(state.running_issue_cache, Map.keys(state.running))}
+  end
+
+  defp log_refresh_failure(state, issue_ids, context, reason) do
+    issue_context = refresh_issue_context(state, issue_ids)
+
+    Logger.debug("Failed to refresh #{context} issue states for #{inspect(issue_context)}: #{inspect(reason)}; keeping active workers")
   end
 
   defp refresh_issue_context(state, issue_ids) do

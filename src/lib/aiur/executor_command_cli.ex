@@ -18,12 +18,12 @@ defmodule Aiur.ExecutorCommandCLI do
 
       0
     else
-      {:usage, message} -> usage_error(message)
-      {:error, reason} -> command_error("answer", reason)
+      {:usage, message} -> usage_error(message, deps)
+      {:error, reason} -> command_error("answer", reason, deps)
     end
   end
 
-  def answer(_params, _deps), do: usage_error("answer expects command options")
+  def answer(_params, deps), do: usage_error("answer expects command options", deps)
 
   @spec escalate(keyword(), keyword()) :: 0 | 1 | 64
   def escalate(params, deps \\ [])
@@ -35,12 +35,12 @@ defmodule Aiur.ExecutorCommandCLI do
       IO.puts(escalation_message(normalized.decision_id, status))
       0
     else
-      {:usage, message} -> usage_error(message)
-      {:error, reason} -> command_error("escalate", reason)
+      {:usage, message} -> usage_error(message, deps)
+      {:error, reason} -> command_error("escalate", reason, deps)
     end
   end
 
-  def escalate(_params, _deps), do: usage_error("escalate expects command options")
+  def escalate(_params, deps), do: usage_error("escalate expects command options", deps)
 
   @doc false
   @spec escalation_topic(String.t(), String.t()) :: String.t()
@@ -92,7 +92,7 @@ defmodule Aiur.ExecutorCommandCLI do
     case {option_id, custom_response} do
       {option_id, nil} when is_binary(option_id) -> {:ok, %{"option_id" => option_id}}
       {nil, custom_response} when is_binary(custom_response) -> {:ok, %{"custom_response" => custom_response}}
-      _ -> {:usage, "answer requires exactly one of option_id or custom_response"}
+      _ -> {:usage, "answer requires exactly one of --option or --custom-response"}
     end
   end
 
@@ -140,7 +140,7 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp present(params, key) do
     case trimmed(Keyword.get(params, key)) do
-      nil -> {:usage, "#{key} is required"}
+      nil -> {:usage, "#{cli_flag(key)} is required"}
       value -> {:ok, value}
     end
   end
@@ -155,7 +155,7 @@ defmodule Aiur.ExecutorCommandCLI do
   defp positive_integer(params, key) do
     case Keyword.get(params, key) do
       value when is_integer(value) and value > 0 -> {:ok, value}
-      _ -> {:usage, "#{key} must be a positive integer"}
+      _ -> {:usage, "#{cli_flag(key)} must be a positive integer"}
     end
   end
 
@@ -168,38 +168,91 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp trimmed(_value), do: nil
 
-  defp usage_error(message) do
-    IO.puts(:stderr, "aiur: executor command #{message}")
+  defp usage_error(message, deps) do
+    write_error(deps, "aiur: executor command #{message}")
     64
   end
 
-  defp command_error(action, {:stale_version, expected, current}) do
-    IO.puts(:stderr, "aiur: cannot #{action} Command: stale version #{expected}; current version is #{inspect(current)}")
+  defp command_error(action, {:stale_version, expected, current}, deps) do
+    write_error(deps, "aiur: cannot #{action} Command: stale version #{expected}; current version is #{inspect(current)}")
     1
   end
 
-  defp command_error(_action, :already_answered) do
-    IO.puts(:stderr, "aiur: Command already has an answer; revise it in the dashboard")
+  defp command_error(action, {:conflict, {:stale_version, expected, current}}, deps),
+    do: command_error(action, {:stale_version, expected, current}, deps)
+
+  defp command_error(_action, :already_answered, deps) do
+    write_error(deps, "aiur: Command already has an answer; revise it in the dashboard")
     1
   end
 
-  defp command_error(action, {:not_open, status}) do
-    IO.puts(:stderr, "aiur: cannot #{action} Command because it is not open (#{inspect(status)})")
+  defp command_error(action, {:not_open, status}, deps) do
+    write_error(deps, "aiur: cannot #{action} Command because it is not open (#{inspect(status)})")
     1
   end
 
-  defp command_error(_action, {:answer_invalid, {:executor_scope, {field, value}}}) do
-    IO.puts(
-      :stderr,
+  defp command_error(_action, {:answer_invalid, {:executor_scope, {field, value}}}, deps) do
+    write_error(
+      deps,
       "aiur: this Command is outside what the Executor may answer directly (#{field}: #{inspect(value)}); " <>
-        "escalate it to the operator instead"
+        "run aiur executor-escalate for this decision instead"
     )
 
     1
   end
 
-  defp command_error(action, reason) do
-    IO.puts(:stderr, "aiur: failed to #{action} Command (#{inspect(reason)})")
+  defp command_error("answer", {:answer_invalid, {:idempotency_key, reason}}, deps) do
+    write_error(deps, "aiur: cannot answer Command: --idempotency-key is #{invalid_detail(reason)}; retry with a non-empty --idempotency-key")
     1
   end
+
+  defp command_error("answer", {:answer_invalid, {field, reason}}, deps) when field in [:actor, :actor_id, :actor_kind] do
+    write_error(
+      deps,
+      "aiur: cannot answer Command: Executor attribution is #{invalid_detail(reason)}; retry with a non-empty --executor-id or run aiur executor-escalate"
+    )
+
+    1
+  end
+
+  defp command_error("answer", {:answer_invalid, {:option_id, reason}}, deps) do
+    write_error(deps, "aiur: cannot answer Command: --option is #{invalid_detail(reason)}; choose one of the Command's listed option IDs and retry")
+    1
+  end
+
+  defp command_error("answer", {:answer_invalid, {:response, reason}}, deps) do
+    write_error(deps, "aiur: cannot answer Command: response is #{invalid_detail(reason)}; retry with exactly one of --option or --custom-response")
+    1
+  end
+
+  defp command_error("answer", {:answer_invalid, {field, reason}}, deps)
+       when field in [:custom_response, :expected_version, :rationale] do
+    write_error(deps, "aiur: cannot answer Command: #{cli_flag(field)} is #{invalid_detail(reason)}; correct the flag and retry")
+    1
+  end
+
+  defp command_error("answer", {:answer_invalid, {field, reason}}, deps) when is_atom(field) do
+    write_error(deps, "aiur: cannot answer Command: answer field #{field} is #{invalid_detail(reason)}; correct the answer and retry")
+    1
+  end
+
+  defp command_error(action, reason, deps) do
+    write_error(deps, "aiur: failed to #{action} Command (#{inspect(reason)})")
+    1
+  end
+
+  defp write_error(deps, message) when is_list(deps) do
+    error_fun = Keyword.get(deps, :error_fun, &default_error/1)
+    error_fun.(message)
+  end
+
+  defp write_error(_deps, message), do: default_error(message)
+
+  defp default_error(message), do: IO.puts(:stderr, message)
+
+  defp cli_flag(key), do: "--" <> (key |> Atom.to_string() |> String.replace("_", "-"))
+
+  defp invalid_detail(:missing), do: "missing"
+  defp invalid_detail(:invalid), do: "invalid"
+  defp invalid_detail(reason), do: "invalid (#{inspect(reason)})"
 end

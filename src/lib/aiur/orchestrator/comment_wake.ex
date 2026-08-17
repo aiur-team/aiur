@@ -360,7 +360,16 @@ defmodule Aiur.Orchestrator.CommentWake do
       {:skip, reason} ->
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
-        cancel_comment_rework_retry(state, issue_number, source)
+        state = cancel_comment_rework_retry(state, issue_number, source)
+
+        # `not_yet_attempted` is a skip of the *label transition* only, never of
+        # the comment. The ticket is dispatchable and will be picked up, so the
+        # comment has to survive into the digest the agent reads on its first
+        # turn. Dropping it here would trade a wrong label for lost operator
+        # input, which is the worse failure of the two.
+        if reason == :not_yet_attempted,
+          do: seed_idle_comment_wake_event(state, issue_number, event),
+          else: state
 
       {:error, reason} ->
         Logger.warning(
@@ -405,9 +414,31 @@ defmodule Aiur.Orchestrator.CommentWake do
     case idle_rework_issue(state, issue_number, event) do
       {:ok, %Issue{} = issue} ->
         cond do
-          Issue.parked?(issue) -> {:skip, :parked}
-          DispatchPolicy.normalize_issue_state(issue.state) == "" -> {:skip, :unlabeled_issue}
-          true -> :active
+          Issue.parked?(issue) ->
+            {:skip, :parked}
+
+          DispatchPolicy.normalize_issue_state(issue.state) == "" ->
+            {:skip, :unlabeled_issue}
+
+          # Same argument as the unlabelled case, one state further along: a
+          # `todo` ticket has not been worked either, so there is no prior
+          # implementation for "rework" to mean anything about. Flipping it
+          # discards the true state — nothing restores `todo` afterwards — and
+          # makes an operator's own triage note indistinguishable from a
+          # reviewer rejecting the work.
+          #
+          # Observed repeatedly: promoting a ticket to `agent:todo` and then
+          # commenting to say why reliably un-promoted it on the next poll, so
+          # promotion and commentary could not be done in the same breath.
+          #
+          # This skip still seeds the event digest below, unlike the two above:
+          # the ticket is about to be dispatched, so the comment is briefing
+          # material the agent must read on its first turn.
+          DispatchPolicy.normalize_issue_state(issue.state) == "todo" ->
+            {:skip, :not_yet_attempted}
+
+          true ->
+            :active
         end
 
       # The tracker has no record to read the labels off — a non-GitHub backend
