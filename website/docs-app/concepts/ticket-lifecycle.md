@@ -16,7 +16,7 @@ Dispatch provisions an isolated clone or workspace for the run. Each workspace w
 
 ## 3. Agent turn
 
-The agent works on branch `aiur/<issue-number>`, running one or more turns while the ticket stays active, up to the configured `max_turns`. It keeps a single `## Agent Workpad` issue comment current.
+The agent works on a generated ticket branch, running one or more turns while the ticket stays active, up to the configured `max_turns`. It keeps a single `## Agent Workpad` issue comment current.
 
 ## 4. Draft PR
 
@@ -24,7 +24,7 @@ The agent opens a draft pull request whose description starts `Closes #<issue>`,
 
 ## 5. CI wait
 
-When no code work remains, the agent moves the ticket to `agent:ci-wait` and yields its turn and dispatch slot. The central GitHub CI poller publishes the terminal pass or failure event; a configurable fallback re-wakes the agent for one recovery check if no event arrives. A pass lets the agent mark the PR ready and move to `agent:human-review`; a failure moves it to `agent:rework` with failed-check context.
+When no code work remains, the agent moves the ticket to `agent:ci-wait` and yields its turn and dispatch slot. A CI pass lets the agent mark the PR ready and move to `agent:human-review`; a failure moves it to `agent:rework` with failed-check context. If no CI result arrives, a configurable fallback re-wakes the agent for one recovery check.
 
 ## 6. Review
 
@@ -36,4 +36,4 @@ When the PR merges, the ticket terminalizes to `agent:done` and the issue closes
 
 ## 8. The Agent Workpad convention
 
-The Agent Workpad is a single pinned issue comment beginning `## Agent Workpad` that the agent keeps current across turns. It is filtered from event polling, so the agent's own workpad edits never wake agents or spam digests.
+The Agent Workpad is a single pinned issue comment beginning `## Agent Workpad` that the agent keeps current across turns.
