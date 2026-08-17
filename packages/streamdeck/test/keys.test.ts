@@ -4,6 +4,7 @@ import {
   BUCKET_STYLES,
   layoutKeys,
   progressBarColor,
+  UNKNOWN_PROGRESS_COLOR,
   type AgentInput,
   type AgentKey,
   type EmptyKey,
@@ -341,9 +342,10 @@ describe("progress freshness", () => {
   });
 
   it("drops the percent entirely when the daemon says unknown", () => {
-    expect(footerOf({ progress_freshness: "unknown" })).toMatchObject({ percent: null, freshness: "unknown" });
-    expect(footerOf({ progress_percent: null })).toMatchObject({ percent: null, freshness: "unknown" });
-    expect(footerOf({ progress_percent: Number.NaN })).toMatchObject({ percent: null, freshness: "unknown" });
+    const expected = { barColor: UNKNOWN_PROGRESS_COLOR, percent: null, freshness: "unknown" };
+    expect(footerOf({ progress_freshness: "unknown" })).toMatchObject(expected);
+    expect(footerOf({ progress_percent: null })).toMatchObject(expected);
+    expect(footerOf({ progress_percent: Number.NaN })).toMatchObject(expected);
   });
 
   it("keeps a measured zero as a measurement", () => {

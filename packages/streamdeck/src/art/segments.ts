@@ -19,6 +19,7 @@
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
 import { rowKindOfRole, type ChatKind, type DiffLine, type TranscriptRow } from "../channel.js";
+import { UNKNOWN_PROGRESS_COLOR } from "../keys.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import { encoderCenterX } from "../touchStrip/geometry.js";
 import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelRow } from "../touchStrip/providerPanel.js";
@@ -48,9 +49,6 @@ const DOT_ON = "#f1f3f6";
 const DOT_OFF = "rgba(255,255,255,0.28)";
 const CHIP_FILL = "rgba(255,255,255,0.08)";
 const CHIP_BORDER = "rgba(255,255,255,0.12)";
-/** Dashed track for a progress reading nobody took; matches the key face. */
-const UNKNOWN_METER = "rgba(255,255,255,0.22)";
-
 const PAD = 12;
 const METER_HEIGHT = 8;
 /** Full strip height; every panel is full height. */
@@ -833,7 +831,7 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
   const right = width - PAD;
 
   // An em dash rather than "0%": the key face for this same ticket is one
-  // press away painting a dashed no-reading track, and the two must not
+  // press away painting a flat-grey no-reading bar, and the two must not
   // contradict each other on the operator's screen.
   const percent = model.percent === null ? "—" : `${Math.round(model.percent)}%`;
   context.font = "700 22px sans-serif";
@@ -868,20 +866,16 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
   }
 
   if (model.percent === null) {
-    // The same dashed track the key face uses for a reading nobody took.
-    context.strokeStyle = UNKNOWN_METER;
-    context.lineWidth = 10;
-    context.setLineDash([5, 6]);
+    // The same uninterrupted neutral fill the key face uses for a reading
+    // nobody took.
     context.beginPath();
-    context.moveTo(left + 3, 79);
-    context.lineTo(right - 3, 79);
-    context.stroke();
-    context.setLineDash([]);
-    context.lineWidth = 1;
+    context.roundRect(left, 74, right - left, 10, 5);
+    context.fillStyle = UNKNOWN_PROGRESS_COLOR;
+    context.fill();
     return;
   }
-  // A measured 0% is a solid stub. The unknown branch above remains a dashed
-  // track, so the strip makes the same no-reading/zero distinction as the key.
+  // A measured 0% is a solid stub. The unknown branch above remains a full
+  // neutral bar, so the strip makes the same no-reading/zero distinction as the key.
   meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true, model.freshness === "stale" ? 0.5 : 1);
 };
 

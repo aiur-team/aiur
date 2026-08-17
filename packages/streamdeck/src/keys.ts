@@ -10,6 +10,15 @@ export { progressBarColor };
 export type Vendor = string;
 
 /**
+ * The single indeterminate treatment on every Stream Deck surface.
+ *
+ * Unknown progress is a flat neutral grey rather than a patterned fill. It is
+ * lighter than the empty track, while measured progress remains green, so an
+ * absent reading cannot be mistaken for either 0% or a live value.
+ */
+export const UNKNOWN_PROGRESS_COLOR = "rgba(255,255,255,0.22)";
+
+/**
  * What a key slot represents. The eight physical keys are reused across the
  * three surfaces, and each draws differently: an agent tile, one of the four
  * per-agent commands, or a row in the event log. Without this the command and
@@ -193,14 +202,11 @@ function buildFooter(agent: AgentInput): Footer {
   const pct = freshness === "unknown" ? null : clamped;
   return {
     kind: KEY_FACE_CONTRACT.footers.progress.kind,
-    barColor: pct === null ? UNKNOWN_BAR_COLOR : progressBarColor(pct),
+    barColor: pct === null ? UNKNOWN_PROGRESS_COLOR : progressBarColor(pct),
     percent: pct,
     freshness,
   };
 }
-
-/** Neutral track tint for a bar with no reading behind it. */
-const UNKNOWN_BAR_COLOR = "rgba(255,255,255,0.22)";
 
 function buildAgentKey(agent: AgentInput): AgentKey {
   const pct = clampPercent(agent.progress_percent);
