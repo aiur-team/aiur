@@ -3192,7 +3192,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "trusted idle review comment preserves stale active state while recording resume intent" do
+    test "trusted idle review comment dispatches a todo ticket without flipping it to rework" do
       test_root =
         Path.join(
           System.tmp_dir!(),
@@ -3266,7 +3266,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         assert {:noreply, next_state} = Orchestrator.handle_info({:event, event}, state)
 
-        assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
+        # The ticket is `agent:todo`: there is no prior work for "rework" to be
+        # a verdict on, so the label must be left alone. The comment still has
+        # to reach the digest the dispatched agent reads on its first turn —
+        # skipping the transition must not mean losing operator input.
+        refute_receive {:direct_dispatch_update, ^issue_identifier, _state}, 100
         assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
         refute_received :run_poll_cycle
 

@@ -275,6 +275,14 @@ defmodule Aiur.DecisionAttention do
 
   defp emit(alert_emitter, attention), do: alert_emitter.(attention)
 
+  # An attention is a visibility signal, not an agent gate: opening one leaves
+  # the agent running, and `pause.request` is what actually stops a ticket. So
+  # projecting it `blocking: true` asserts a block that does not exist. That
+  # misclassification is load-bearing in two places — it inflates the operator's
+  # `blocking` count with questions nothing is waiting on, and it feeds
+  # `DecisionStore.blocked_ticket_ids/1`, so a stale attention holds fleet
+  # dispatch with no gate behind it. Project it unblocking; it stays visible in
+  # the Commands queue and stays answerable and dismissable exactly as before.
   defp project_attention(projector, attention, opts) do
     with {:ok, correlation} <- correlation(attention.issue, attention.slug) do
       payload =
@@ -282,7 +290,7 @@ defmodule Aiur.DecisionAttention do
           "source_id" => correlation.source_id,
           "kind" => "legacy_attention",
           "question" => attention.question,
-          "blocking" => true,
+          "blocking" => false,
           "options" => []
         }
         |> maybe_put_source_created_at(Keyword.get(opts, :source_created_at))

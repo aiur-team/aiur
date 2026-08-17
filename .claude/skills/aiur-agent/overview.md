@@ -38,7 +38,7 @@ Agents working on dependent tickets used to coordinate through the Executor (PR 
 | Source | What it publishes |
 |--------|-------------------|
 | **GitHub firehose** | `branch.push`, `pr.opened`, `pr.merged`, `issue.commented`, `pr.review_comment`, etc. for any tracked issue |
-| **`git ls-remote`** | Low-latency `branch.push` override (faster than firehose) |
+| **`git -C "$workspace" ls-remote`** | Low-latency `branch.push` override (faster than firehose) |
 | **Agents (you)** | `progress`, `progress.*`, `decision.*`, `attention.*`, `blocked`, `unblocked`, `custom.*` via `emit_event` |
 
 Blockers are tracked through GitHub's native issue-dependency API

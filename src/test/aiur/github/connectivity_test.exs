@@ -100,7 +100,7 @@ defmodule Aiur.GitHub.ConnectivityTest do
   end
 
   describe "backoff_ms/3" do
-    test "rate_limited holds until the authoritative reset instead of retrying on the transport cap" do
+    test "rate_limited reset waits are capped at one hour independently of the transport cap" do
       now = ~U[2026-08-09 21:00:00Z]
 
       assert Connectivity.backoff_ms(:rate_limited, 1, %{
@@ -108,6 +108,13 @@ defmodule Aiur.GitHub.ConnectivityTest do
                now: now,
                retry_after: 30
              }) == 3_600_000
+
+      assert Connectivity.backoff_ms(:rate_limited, 1, %{
+               reset_at: "2026-08-09T23:00:00Z",
+               now: now
+             }) == 3_600_000
+
+      assert 3_600_000 > Connectivity.max_backoff_ms()
     end
 
     test "rate_limited honors retry_after when present" do
