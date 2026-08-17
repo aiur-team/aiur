@@ -17,6 +17,7 @@ test-sandbox/
 .claude/scheduled_tasks.lock
 .context/
 .aiur-agent-ir/
+.aiur-runtime/
 logs/
 
 # Per-workspace package-manager caches populated by Aiur prewarm hooks.

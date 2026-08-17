@@ -49,27 +49,42 @@ export default defineConfig({
         text: 'Introduction',
         items: [
           { text: 'Overview', link: '/' },
-          { text: 'Quick start', link: '/guide/quick-start' },
+          { text: 'Quick start', link: '/guide/quick-start' }
+        ]
+      },
+      {
+        text: 'Usage',
+        items: [
           { text: 'TUI', link: '/guide/tui' },
           { text: 'CLI', link: '/reference/cli' },
           { text: 'Dashboard', link: '/guide/executor-control-center' },
-          { text: 'Skills', link: '/skills' },
           { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
       {
         text: 'Concepts',
         items: [
+          { text: 'Executor', link: '/concepts/executor' },
+          { text: 'Units', link: '/concepts/units' },
+          { text: 'Commands', link: '/concepts/commands' },
+          { text: 'Build Orders', link: '/concepts/build-orders' },
           { text: 'How a ticket flows', link: '/concepts/ticket-lifecycle' },
           { text: 'Operating Aiur', link: '/concepts/operating-aiur' },
-          { text: 'Coordination and events', link: '/concepts/coordination' }
+          { text: 'Message Bus', link: '/concepts/message-bus' },
+          { text: 'Skills', link: '/skills' }
+        ]
+      },
+      {
+        text: 'APIs',
+        items: [
+          { text: 'GitHub', link: '/apis/github' },
+          { text: 'ElevenLabs', link: '/apis/elevenlabs' }
         ]
       },
       {
         text: 'Reference',
         items: [
-          { text: 'Configuration', link: '/reference/configuration' },
-          { text: 'State nodes and Build Orders', link: '/concepts/state-and-build-orders' }
+          { text: 'Configuration', link: '/reference/configuration' }
         ]
       }
     ],
