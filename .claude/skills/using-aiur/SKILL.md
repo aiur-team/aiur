@@ -20,6 +20,9 @@ what you're doing — you don't need all four every turn.
 | Know whose comments are authoritative, file out-of-scope findings, follow tooling + load-repro conventions | `conventions.md` |
 | Emit, subscribe to, or react to **cross-ticket** events | the **`aiur-agent`** skill |
 
+Before interpreting a voice-originated ticket or operator message, read the
+shared [dictated-input note](dictated-input.md).
+
 ## The shortest version
 
 - Move the issue to `agent:in-progress` and keep one `## Agent Workpad` comment

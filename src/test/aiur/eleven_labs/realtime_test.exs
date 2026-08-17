@@ -42,7 +42,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
     @impl true
     def close(_conn) do
-      send(observer(), :transport_close)
+      if observer = observer(), do: send(observer, :transport_close)
       :ok
     end
 
@@ -67,6 +67,26 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
     @impl true
     def close(_conn), do: :ok
+  end
+
+  defmodule FailingSendTransport do
+    @moduledoc false
+    @behaviour Aiur.ElevenLabs.Realtime.Transport
+
+    @impl true
+    def connect(url, headers) do
+      send(Process.whereis(:realtime_test_observer), {:transport_connect, url, headers})
+      {:ok, self()}
+    end
+
+    @impl true
+    def send_text(_conn, _text), do: {:error, :closed}
+
+    @impl true
+    def close(_conn) do
+      send(Process.whereis(:realtime_test_observer), :transport_close)
+      :ok
+    end
   end
 
   setup do
@@ -222,6 +242,26 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       assert_receive {:elevenlabs_closed}
     end
 
+    test "a failed audio send ends the session instead of silently dropping speech" do
+      session = ready_session(transport: FailingSendTransport)
+
+      Realtime.push(session, "AAAA")
+
+      assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}
+      assert_receive {:elevenlabs_closed}
+      assert_receive :transport_close
+    end
+
+    test "a failed commit send ends the session instead of reporting a completed utterance" do
+      session = ready_session(transport: FailingSendTransport)
+
+      Realtime.commit(session)
+
+      assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}
+      assert_receive {:elevenlabs_closed}
+      assert_receive :transport_close
+    end
+
     test "a peer close ends the session without inventing an error" do
       session = ready_session()
 
@@ -281,13 +321,45 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       refute_receive {:transport_send, _frame}, 20
     end
 
-    test "a commit before the session is ready closes without sending anything" do
+    test "a commit before the session is ready preserves queued audio and flushes after readiness" do
       {:ok, session} = started_session()
+      Realtime.push(session, "AAAA")
 
       Realtime.commit(session)
+      refute_receive {:elevenlabs_closed}, 20
+      refute_receive {:transport_send, _frame}, 20
 
+      frame(session, %{"message_type" => "session_started"})
+
+      assert %{"audio_base_64" => "AAAA", "commit" => false} = assert_sent_frame()
+      assert %{"audio_base_64" => "", "commit" => true} = assert_sent_frame()
+      assert_receive {:flush_armed, 2_000}
+    end
+  end
+
+  describe "readiness bounds" do
+    test "fails a session that never becomes ready" do
+      test_pid = self()
+      {:ok, session} = start_session(ready_scheduler: fn delay_ms -> send(test_pid, {:ready_armed, delay_ms}) end)
+      assert_receive {:transport_connect, _url, _headers}
+      assert_receive {:ready_armed, 10_000}
+
+      send(session, :ready_deadline)
+
+      assert_receive {:elevenlabs_error, "Speech-to-text session did not become ready"}
       assert_receive {:elevenlabs_closed}
-      refute_received {:transport_send, _frame}
+      assert_receive :transport_close
+    end
+
+    test "bounds audio queued before readiness" do
+      {:ok, session} = start_session(max_backlog_bytes: 4)
+      assert_receive {:transport_connect, _url, _headers}
+
+      Realtime.push(session, "AAAAA")
+
+      assert_receive {:elevenlabs_error, "Speech-to-text session did not become ready"}
+      assert_receive {:elevenlabs_closed}
+      assert_receive :transport_close
     end
   end
 
@@ -316,6 +388,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       sample_rate: 16_000,
       scheduler: fn delay_ms -> send(test_pid, {:flush_armed, delay_ms}) end
     ]
+    |> Keyword.merge(opts)
   end
 
   defp started_session do
@@ -324,10 +397,16 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
     {:ok, session}
   end
 
-  defp ready_session do
-    {:ok, session} = started_session()
+  defp ready_session(opts \\ []) do
+    {:ok, session} = started_session(opts)
     frame(session, %{"message_type" => "session_started"})
     session
+  end
+
+  defp started_session(opts) do
+    {:ok, session} = start_session(opts)
+    assert_receive {:transport_connect, _url, _headers}
+    {:ok, session}
   end
 
   defp frame(session, message), do: send(session, {:elevenlabs_transport, :text, Jason.encode!(message)})

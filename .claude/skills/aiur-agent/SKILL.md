@@ -20,10 +20,13 @@ When you're working on an Aiur ticket and another ticket might need a signal fro
 ## Quick reference
 
 - **Emit:** `emit_event(name, message, payload?)` — name must be in the allowlist (`event-taxonomy.md`)
-- **Subscribe to a pattern:** `aiur_subscribe(topic_pattern)` — AMQP topic syntax (`ticket.42.#`, `*.*.branch.push`)
+- **Subscribe to a pattern:** `aiur_subscribe(topic_pattern)` — watch one literal ticket with AMQP suffix wildcards, such as `ticket.42.#` or `ticket.42.branch.*`
 - **Declare a blocker:** `aiur_declare_blocker(issue_number)` — auto-subscribes you to a useful default subset
 - **Open an attention:** `emit_event("attention.<slug>", "what you need")`; close it with `attention.resolved` + `payload: {slug: "<the-slug>"}`
 - **Ask a bounded operator question:** emit `decision.requested` with structured `options` and a recommendation before any attention or pause. A question phrased as “A or B?” must produce clickable A/B options; `attention.*` and `pause.request` are not substitutes.
 - **Write a Command for a cold reader:** assume the operator has zero ticket context. Lead with the question, explain each option's consequence, name every referent, and state what happens without an answer.
 
 Tools fail loudly with structured errors — if you call `emit_event("system.foo", ...)` you'll get back a `event_name_not_in_allowlist` payload listing the valid forms.
+Agent-created subscriptions fail before binding unless they begin with
+`ticket.<literal-id>.`; `executor.*`, `system.*`, bare wildcard, and wildcard
+ticket-id patterns are reserved or too broad for ticket agents.

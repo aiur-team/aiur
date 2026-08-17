@@ -32,11 +32,12 @@ defmodule Aiur.Usage.Headless.OpenAICompatRequestUsageTest do
     assert {:ok, ^cell} = cell |> Key.encode_cell() |> Key.decode_cell()
   end
 
-  test "OpenRouter attributes the actual routed model/provider and exposes cache reads" do
+  test "OpenRouter records the selected upstream without overloading query source" do
     payload = %{
       "request_id" => "req-openrouter",
       "model" => "deepseek/deepseek-v4-flash",
-      "provider" => "DeepSeek",
+      "provider" => "OpenRouter",
+      "upstream_provider" => "DeepSeek",
       "usage" => %{
         "prompt_tokens" => 100,
         "completion_tokens" => 25,
@@ -45,10 +46,60 @@ defmodule Aiur.Usage.Headless.OpenAICompatRequestUsageTest do
       }
     }
 
-    assert [{:ok, envelope}] = OpenRouter.RequestUsage.extract(payload, nil, context(:openrouter), @now)
+    context = %{context(:openrouter) | query_source: "repl_main_thread"}
+
+    assert [{:ok, envelope}] = OpenRouter.RequestUsage.extract(payload, nil, context, @now)
     assert envelope.resolved_model == "deepseek/deepseek-v4-flash"
-    assert envelope.query_source == "DeepSeek"
+    assert envelope.upstream_provider == "DeepSeek"
+    assert envelope.query_source == "repl_main_thread"
     assert envelope.tokens.cached_input == 80
+  end
+
+  test "OpenRouter keeps exact safe upstream identities distinct in synthesized event identity" do
+    payload = %{
+      "model" => "router/auto",
+      "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 2, "total_tokens" => 5}
+    }
+
+    assert [{:ok, upper}] =
+             OpenRouter.RequestUsage.extract(Map.put(payload, "upstream_provider", "DeepSeek"), nil, context(:openrouter), @now)
+
+    assert [{:ok, lower}] =
+             OpenRouter.RequestUsage.extract(Map.put(payload, "upstream_provider", "deepseek"), nil, context(:openrouter), @now)
+
+    assert upper.upstream_provider == "DeepSeek"
+    assert lower.upstream_provider == "deepseek"
+    refute upper.source_event_id == lower.source_event_id
+  end
+
+  test "OpenRouter discards invalid upstream identities without dropping usage" do
+    invalid_values = ["", "Deep Seek", "provider-secret", String.duplicate("a", 257)]
+
+    for upstream <- invalid_values do
+      payload = %{
+        "request_id" => "req-invalid-upstream",
+        "upstream_provider" => upstream,
+        "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 2, "total_tokens" => 5}
+      }
+
+      assert [{:ok, envelope}] = OpenRouter.RequestUsage.extract(payload, nil, context(:openrouter), @now)
+      assert envelope.upstream_provider == nil
+      assert envelope.tokens.provider_reported_total == 5
+    end
+  end
+
+  test "direct OpenAI-compatible providers never record an upstream" do
+    payload = %{
+      "request_id" => "req-direct",
+      "model" => "deepseek-chat",
+      "upstream_provider" => "DeepSeek",
+      "provider" => "DeepSeek",
+      "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 2, "total_tokens" => 5}
+    }
+
+    assert [{:ok, envelope}] = DeepSeek.RequestUsage.extract(payload, nil, context(:deepseek), @now)
+    assert envelope.upstream_provider == nil
+    assert envelope.query_source == nil
   end
 
   test "Kimi does not invent cache usage when the response omits it" do

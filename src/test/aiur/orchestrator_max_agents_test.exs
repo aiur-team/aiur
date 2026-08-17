@@ -1,7 +1,7 @@
 defmodule Aiur.OrchestratorMaxAgentsTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
   defp running_entry(issue_id, identifier, status) do
     %{
@@ -59,6 +59,36 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
   end
 
   describe "set_max_concurrent_agents/2 (runtime absolute set)" do
+    test "wakes reconciliation after changing dispatch capacity" do
+      state = %State{
+        max_concurrent_agents: 10,
+        next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000
+      }
+
+      assert {:reply, {:ok, %{max: 5}}, next} =
+               Slots.apply_session_max_concurrent_agents(state, 5)
+
+      assert next.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+      assert_receive {:tick, token}
+      assert token == next.tick_token
+    end
+
+    test "does not wake reconciliation when the cap is unchanged" do
+      token = make_ref()
+
+      state = %State{
+        max_concurrent_agents: 10,
+        session_max_concurrent_agents: 5,
+        tick_token: token,
+        next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000
+      }
+
+      assert {:reply, {:ok, %{max: 5}}, ^state} =
+               Slots.apply_session_max_concurrent_agents(state, 5)
+
+      refute_receive {:tick, _token}
+    end
+
     test "sets an absolute cap and reports it" do
       name = Module.concat(__MODULE__, :SetCap)
       start_orchestrator(name)

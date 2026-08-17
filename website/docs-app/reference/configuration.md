@@ -80,13 +80,13 @@ fresh episode.
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 
 ### Choosing a poll interval
 
 Polling spends GitHub GraphQL points at a rate inversely proportional to the
-interval, and that spend is a fixed cost. It does not depend on how many agents
-are running. Against GitHub's 5,000 point/hour budget:
+interval. While agents are running, against GitHub's 5,000 point/hour budget:
 
 | `interval_seconds` | Approximate poll spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -104,6 +104,21 @@ also sends an `X-Poll-Interval` header on the repo-events endpoint, 60 seconds
 by default, and Aiur treats it as a floor. The interval actually used is the
 wider of the two, so setting `interval_seconds` below 60 generally does not
 speed polling up, while setting it above 60 does slow polling down.
+
+When no agents are actively running, including when every parked agent is
+paused or completed, Aiur multiplies the effective interval by
+`idle_widen_factor`. The default turns the 120-second base into a 10-minute idle
+sweep. The first startup sweep remains immediate, verified label webhooks and
+the dashboard refresh action wake reconciliation immediately, and
+admission-changing operator actions (`aiur --todo`, `aiur set max-agents`, and
+global resume) request a fresh sweep. A ticket is therefore refreshed before
+its first dispatch rather than admitted from the older idle snapshot.
+
+Idle and webhook widening compose. With both defaults active, a proven
+webhook-backed repo and an idle fleet poll every
+`120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still
+wins. `aiur status` prints an explicit `POLL idle backoff active` line with the
+base, effective interval, factor, and next sweep countdown.
 
 Widening past 120 seconds is the flat part of the curve: each further step
 saves less quota than the last while the wake latency grows proportionally.
@@ -488,12 +503,13 @@ agent:
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input: the device records dictation and streams the audio to Aiur, **Aiur** calls ElevenLabs speech-to-text with the credential below, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. This is the only place the credential is configured — the Stream Deck sidecar never holds it. The section may be omitted entirely; the defaults below apply.
+Optional. Backs Stream Deck voice input, Dashboard Units-modal dictation, and interactive spoken replies. Both capture clients stream audio to Aiur, and **Aiur** calls ElevenLabs with the credential below. Interactive conversation also streams raw speech audio back to the browser for playback. This is the only place the credential is configured — neither the Stream Deck sidecar nor the browser holds it. The section may be omitted entirely; the defaults below apply.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. Speech input needs Speech to Text permission; spoken replies also need Text to Speech permission. |
 | `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+| `elevenlabs.voice_id` | string or nil | nil | Stock or owned ElevenLabs voice used for Dashboard interactive conversation replies. Find the identifier in **My Voices**; Aiur does not clone or manage voices. |
 
 `ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
 
