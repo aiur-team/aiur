@@ -14,8 +14,8 @@ defmodule AiurWeb.GithubCacheLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.GithubCacheSourceSupport, as: Source
-  alias Aiur.GitHub.CacheInspector.Events
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.ResourceStore
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -63,12 +63,13 @@ defmodule AiurWeb.GithubCacheLiveTest do
       render_change(view, "search", %{"q" => "1999"})
       view |> element(~s([data-role="freshness-filter"][phx-value-freshness="stale"])) |> render_click()
       view |> element(~s([data-role="writer-filter"][phx-value-writer="webhook"])) |> render_click()
-      view |> element(~s([data-role="sort-control"][phx-value-sort="writes"])) |> render_click()
+      view |> element(~s([data-role="sort-control"][phx-value-sort="identity"])) |> render_click()
+      view |> element(~s([data-role="body-filter"][phx-value-body="bodyless"])) |> render_click()
       render_patch(view, "/github-cache/issue_comment/issue_comment:owner:repo:1")
       render_patch(view, "/github-cache")
 
       # Holding it open: a store change arrives and the page re-renders.
-      send(view.pid, {:github_resource_written, %{key: {:issue_comment, "owner", "repo", "1"}}})
+      send(view.pid, {:github_resource_changed, %{key: {:issue_comment, "owner", "repo", "1"}}})
       _held = render(view)
 
       assert reading(quota) == before
@@ -119,7 +120,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
         |> Enum.uniq()
         |> Enum.sort()
 
-      assert handlers == ["clear-filters", "filter-freshness", "filter-writer", "sort"]
+      assert handlers == ["clear-filters", "filter-body", "filter-freshness", "filter-writer", "sort"]
 
       forms = document |> Floki.find("#github-cache-page form") |> Floki.attribute("phx-change")
       assert Enum.uniq(forms) == ["search"]
@@ -152,7 +153,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert changed_rows(html) == []
 
       Source.install(entries(4, source: :webhook))
-      Events.broadcast(%{key: {:issue_comment, "owner", "repo", "4"}, source: :webhook})
+      send(view.pid, {:github_resource_changed, %{key: {:issue_comment, "owner", "repo", "4"}, source: :webhook}})
 
       assert changed_rows(render(view)) == ["issue_comment:owner:repo:4"]
       assert reading(quota) == before
@@ -166,12 +167,35 @@ defmodule AiurWeb.GithubCacheLiveTest do
       {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
 
       Source.install(entries(3, source: :mutation))
-      Events.broadcast(%{key: {:issue_comment, "owner", "repo", "3"}, source: :mutation})
+      send(view.pid, {:github_resource_changed, %{key: {:issue_comment, "owner", "repo", "3"}, source: :mutation}})
 
       html = render(view)
 
       assert html =~ "issue_comment:owner:repo:3"
       assert changed_rows(html) == ["issue_comment:owner:repo:3"]
+      assert reading(quota) == before
+    end
+
+    test "a real store deposit reaches the page through the store's own channel" do
+      # The three tests above drive the page's mailbox directly, which proves the
+      # rendering but not the wiring. This one writes to the actual store and
+      # asserts the page hears about it, because a subscription to a topic
+      # nothing publishes on looks exactly like a cache where nothing happened.
+      Source.uninstall()
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 55_501)
+      quota = install_quota()
+      before = reading(quota)
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
+
+      :ok = ResourceStore.put_resource(key, %{"body" => "arrived by webhook"}, source: :webhook, version: "v1")
+
+      html = render(view)
+
+      assert html =~ "issue_comment:owner:repo:55501"
+      assert changed_rows(html) == ["issue_comment:owner:repo:55501"]
+
+      # The write cost somebody a round trip. Watching it arrive cost nothing.
       assert reading(quota) == before
     end
 
@@ -181,7 +205,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
       {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
 
       Source.install(entries(2))
-      send(view.pid, {:github_resource_written, :not_a_key_shape})
+      send(view.pid, {:github_resource_changed, :not_a_key_shape})
 
       # "No events" and "nothing changed" look identical on screen, so an event
       # this page cannot parse must still cause a re-read rather than a silence.
@@ -249,7 +273,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
     test "filters are URL-addressable so a filtered view can be pasted as evidence" do
       Source.install(entries(6, source: :webhook))
 
-      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment?writer=webhook&sort=writes")
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment?writer=webhook&sort=identity")
 
       document = Floki.parse_document!(html)
 
@@ -309,6 +333,67 @@ defmodule AiurWeb.GithubCacheLiveTest do
       refute html =~ "No cache store is running yet"
     end
 
+    test "an entry holding a validator and no body is not shown as cached" do
+      # `drop_data/1` keeps the ETag on purpose. A reader that reads this as a
+      # hit sends the validator, is answered `304`, and receives no data — it has
+      # paid for a call and learned nothing. That was a P1 in the store
+      # foundation, so the page must never render it the way it renders a hit.
+      Source.install([
+        Map.merge(hd(entries(1)), %{data?: false, data: nil, fetched_at_ms: nil}),
+        Enum.at(entries(2), 1)
+      ])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment")
+      document = Floki.parse_document!(html)
+
+      bodyless = Floki.find(document, ~s(tr[data-role="entry-row"][data-bodyless="true"]))
+
+      assert Floki.attribute(bodyless, "data-identity") == ["issue_comment:owner:repo:1"]
+
+      # Not colour alone: the cell says what the state is, so it survives a
+      # screenshot, a colour-blind reader and a copied-out table.
+      assert bodyless |> Floki.find(~s(td[data-role="body"])) |> Floki.text() =~ "validator only"
+      assert Floki.attribute(bodyless, "class") == ["ghc-row ghc-row-bodyless"]
+
+      # And it is counted where an operator asking "why did that read cost
+      # money" is looking, rather than folded into the entry total.
+      tile = Floki.find(document, ~s([data-role="bodyless-count"]))
+      assert Floki.attribute(tile, "data-value") == ["1"]
+      assert Floki.text(tile) =~ "Validator only, no body"
+    end
+
+    test "opening a bodyless entry explains the 304 rather than showing an empty payload" do
+      Source.install([Map.merge(hd(entries(1)), %{data?: false, data: nil, fetched_at_ms: nil})])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment/issue_comment:owner:repo:1")
+      document = Floki.parse_document!(html)
+
+      assert document |> Floki.find(~s([data-role="bodyless-warning"])) |> Floki.text() =~ "304 with no data"
+      assert document |> Floki.find(~s([data-role="field-body"])) |> Floki.text() =~ "validator only"
+
+      # The validator really is held, and the page says so. Reporting "nothing
+      # cached" would be the opposite error.
+      assert document |> Floki.find(~s([data-role="field-etag"])) |> Floki.text() =~ "etag-1"
+      assert document |> Floki.find(~s([data-role="payload"])) |> Floki.text() =~ "must fetch unconditionally"
+    end
+
+    test "the bodyless filter narrows to exactly those entries" do
+      Source.install([
+        Map.merge(hd(entries(1)), %{data?: false, data: nil, fetched_at_ms: nil}),
+        Enum.at(entries(2), 1)
+      ])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment?body=bodyless")
+
+      rows =
+        html
+        |> Floki.parse_document!()
+        |> Floki.find(~s(tr[data-role="entry-row"]))
+        |> Floki.attribute("data-identity")
+
+      assert rows == ["issue_comment:owner:repo:1"]
+    end
+
     test "no secret material renders, even when the cache holds some" do
       token = "ghp_" <> String.duplicate("A", 36)
 
@@ -318,8 +403,9 @@ defmodule AiurWeb.GithubCacheLiveTest do
           etag: "etag-1",
           version: "2026-08-17T00:00:00Z",
           source: :webhook,
-          fetched_at: DateTime.utc_now(),
-          payload: %{
+          fetched_at_ms: System.system_time(:millisecond),
+          data?: true,
+          data: %{
             "body" => "here is my token #{token} please do not print it",
             "authorization" => "Bearer #{token}",
             "installation" => %{"token" => token},
@@ -374,10 +460,12 @@ defmodule AiurWeb.GithubCacheLiveTest do
         key: {resource_type, "owner", "repo", Integer.to_string(index)},
         etag: "etag-#{index}",
         version: "v#{index}",
+        data_version: "v#{index}",
         source: source,
-        writes: index,
-        fetched_at: DateTime.add(now, -index, :second),
-        payload: %{"id" => index, "body" => "body-#{index}"}
+        fetched_at_ms: DateTime.to_unix(DateTime.add(now, -index, :second), :millisecond),
+        recorded_at_ms: DateTime.to_unix(now, :millisecond),
+        data?: true,
+        data: %{"id" => index, "body" => "body-#{index}"}
       }
     end
   end
