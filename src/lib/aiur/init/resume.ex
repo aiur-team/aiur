@@ -113,7 +113,10 @@ defmodule Aiur.Init.Resume do
     agent = config["agent"] || %{}
     routing_backends = (agent["routing"] || %{}) |> Map.values() |> Enum.map(&routing_backend/1)
 
-    (List.wrap(agent["priority"]) ++ [agent["kind"] | routing_backends])
+    # `priority` members are routes, so strip the model segment the same way
+    # routing values are stripped — otherwise `openrouter:anthropic/claude-sonnet-5`
+    # matches no known backend and its labels are never provisioned.
+    (Enum.map(List.wrap(agent["priority"]), &routing_backend/1) ++ [agent["kind"] | routing_backends])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.filter(&(&1 in Questions.agent_kind_choices()))
     |> Questions.agent_kinds()

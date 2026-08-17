@@ -6,7 +6,8 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   the existing ticket-scoped alerts with their original Executor guidance.
   """
 
-  alias Aiur.{Alerts, Issue}
+  alias Aiur.{Alerts, CodingAgent, Issue}
+  alias Aiur.CodingAgent.RouteFailure
 
   @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def maybe_emit_usage_limit_alert(
@@ -41,6 +42,26 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   end
 
   def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload), do: :ok
+
+  @doc """
+  Applies #1923's route-failure disposition to a failed turn: a rejected
+  credential and a transient outage each raise their own attention, and neither
+  is written to `model-usage.json`.
+
+  The ledger is left alone on purpose. It means exactly "rate-limited until
+  `reset_at`", and recording an outage there would make the outage
+  indistinguishable from a quota event — suppressing the alert and benching the
+  route until a reset that was never real. Only the genuine quota path above
+  writes to it. See `Aiur.CodingAgent.RouteFailure`.
+  """
+  @spec maybe_emit_route_failure_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
+  def maybe_emit_route_failure_alert(%Issue{} = issue, workspace, worker_host, reason) do
+    route = CodingAgent.backend_for(issue)
+
+    RouteFailure.alert(issue, route, reason, workspace: workspace, worker_host: worker_host)
+
+    :ok
+  end
 
   @spec maybe_emit_more_tokens_alert(Issue.t(), Path.t() | nil, String.t() | nil, term()) :: :ok
   def maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason) do

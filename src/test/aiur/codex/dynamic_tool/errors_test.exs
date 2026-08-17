@@ -47,6 +47,12 @@ defmodule Aiur.Codex.DynamicTool.ErrorsTest do
       assert %{"error" => %{"message" => msg}} = Errors.payload(:missing_topic_pattern)
       assert msg =~ "topic_pattern"
     end
+
+    test ":agent_subscription_scope_forbidden renders the allowed boundary" do
+      assert %{"error" => %{"message" => msg}} = Errors.payload(:agent_subscription_scope_forbidden)
+      assert msg =~ "literal ticket"
+      assert msg =~ "ticket.42.#"
+    end
   end
 
   describe "payload/1 — blocker family" do

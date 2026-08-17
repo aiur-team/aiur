@@ -46,6 +46,10 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # The Units surfaces are one such domain: `units_presentation.ex` holds the
   # progress label lifted out of the already-exempt `units_table.ex`, and
   # `units_cli.ex` reprints that same label for the terminal.
+  # Ticket-activity retention is another: `ticket_activity.ex` and
+  # `progress_retention.ex` store, serialize, and reload the raw progress
+  # reading that the already-exempt `ticket_activity/projection.ex` holds in
+  # memory. They persist the reading; they never present it.
   @raw_progress_exempt_files [
     "aiur/agent_list/activation.ex",
     "aiur/agent_list/activity_intake.ex",
@@ -58,6 +62,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur/current_run_summary/projection.ex",
     "aiur/current_run_summary/status.ex",
     "aiur/orchestrator/status_report.ex",
+    "aiur/progress_retention.ex",
+    "aiur/ticket_activity.ex",
     "aiur/ticket_activity/projection.ex",
     "aiur/units_cli.ex",
     "aiur_web/build_order/ticket_context_presenter.ex",

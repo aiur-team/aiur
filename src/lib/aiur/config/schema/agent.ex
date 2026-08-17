@@ -71,7 +71,8 @@ defmodule Aiur.Config.Schema.Agent do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex}
+  alias Aiur.Config.RoutingValue
+  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy}
 
   @primary_key false
   embedded_schema do
@@ -150,9 +151,9 @@ defmodule Aiur.Config.Schema.Agent do
     # A CI-wait pause releases its dispatch slot. If no terminal CI event is
     # observed in this window, wake the agent for one recovery check.
     field(:ci_wait_rewake_minutes, :integer, default: 5)
-    # Per-scheduler 1-min load ceiling for the dispatch load gate (#465).
-    # Enabled by default so high-concurrency runs have protection without
-    # extra Executor knowledge; explicit YAML null disables it.
+    # Per-scheduler 1-min load ceiling for dispatch admission (#465). Exceeded
+    # load is corroborated with short-window reclaimable CPU before holding.
+    # Explicit YAML null disables it.
     field(:max_load_average, :float, default: 1.5)
     # Per-scheduler 1-min load target for the adaptive concurrency envelope.
     # It ramps capacity while below target and backs off before the separate
@@ -176,6 +177,7 @@ defmodule Aiur.Config.Schema.Agent do
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:pricing_policy, PricingPolicy, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -243,15 +245,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
     |> validate_dispatch_selections()
-    |> validate_change(:priority, fn :priority, backends ->
-      known = Aiur.CodingAgent.known_backends()
-
-      cond do
-        backends != Enum.uniq(backends) -> [priority: "must not contain duplicate backends"]
-        Enum.all?(backends, &(&1 in known)) -> []
-        true -> [priority: "contains an unknown backend; known backends: #{inspect(known)}"]
-      end
-    end)
+    |> AgentValidation.validate_agent_priority(:priority)
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -275,6 +269,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+    |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
   end
 
   defp validate_dispatch_selections(changeset) do
@@ -288,7 +283,11 @@ defmodule Aiur.Config.Schema.Agent do
   end
 
   defp dispatchable_with_priority(changeset) do
-    priority = Ecto.Changeset.get_field(changeset, :priority) || []
+    priority =
+      (Ecto.Changeset.get_field(changeset, :priority) || [])
+      |> Enum.map(&RoutingValue.routing_backend/1)
+      |> Enum.reject(&is_nil/1)
+
     base = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
     Enum.uniq(priority ++ base)
   end

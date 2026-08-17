@@ -98,45 +98,6 @@ defmodule Aiur.ProviderMeterProbeTest do
     def stop_session(_session), do: :ok
   end
 
-  # `test_helper.exs` points `:workflow_file_path` at the fixture config only
-  # after the application has booted, and `Aiur.WorkflowStore` picks a changed
-  # path up on its 1s poll — so for up to a poll interval `Aiur.Config` answers
-  # from the config it loaded at boot (here: none, hence the built-in default
-  # workspace root). Every other test in this file pins its config through
-  # `opts/2`, but the derived-workspace test necessarily reads the ambient
-  # `workspace_root/0`, and read inside that window it saw the default root
-  # while the assertion, running after the poll, saw the fixture's.
-  #
-  # Wait for the cached config to agree with on-disk truth once, for the whole
-  # file, rather than letting the seed decide.
-  setup_all do
-    settle_config(System.monotonic_time(:millisecond) + 5_000)
-    :ok
-  end
-
-  defp settle_config(deadline) do
-    cond do
-      cached_workspace_root() == on_disk_workspace_root() ->
-        :ok
-
-      System.monotonic_time(:millisecond) >= deadline ->
-        # Never pass quietly on the deadline: a silent give-up would restore
-        # exactly the ordering-dependent flake this exists to remove.
-        raise "config did not settle: cached workspace root #{inspect(cached_workspace_root())} " <>
-                "still disagrees with on-disk #{inspect(on_disk_workspace_root())}"
-
-      true ->
-        Process.sleep(25)
-        settle_config(deadline)
-    end
-  end
-
-  defp cached_workspace_root, do: workspace_root(Aiur.Config.settings())
-  defp on_disk_workspace_root, do: workspace_root(Aiur.Config.settings_uncached())
-
-  defp workspace_root({:ok, settings}), do: settings.workspace.root
-  defp workspace_root(_error), do: :unavailable
-
   setup do
     projection = :"probe_proj_#{System.unique_integer([:positive])}"
     {:ok, pid} = start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false]})
@@ -608,7 +569,16 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "absent or malformed balance values never fabricate zero credits" do
-    :ok = Events.subscribe_observed()
+    # Subscribe to the generation-scoped topics these probes publish to, not
+    # the shared fan-out: the fan-out is a global topic every async test
+    # module broadcasts on, so a bare `refute_receive` there is polluted by
+    # concurrent probes from other modules (the #1920 flake received a
+    # :port_closed codex snapshot broadcast by ProviderMeterProjectionTest).
+    # These two probes publish only on success — and both fail below — so
+    # asserting nothing arrives on their own scoped topics deterministically
+    # verifies "never fabricate" without ambient fan-out noise.
+    :ok = Events.subscribe(:deepseek, :openai_compat, nil)
+    :ok = Events.subscribe(:openrouter, :openai_compat, nil)
 
     assert %{observed?: false, reason: :missing_api_key} =
              OpenAICompatProbe.probe(:deepseek, "deepseek", path: baseline_path(), api_key_fetcher: fn _ -> nil end)

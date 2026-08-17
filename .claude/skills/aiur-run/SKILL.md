@@ -10,6 +10,9 @@ It replaces the former `aiur-loop` workflow. Read the canonical
 [Executor role](references/executor.md) before acting, then use `aiur-monitor`
 for status reads and the recurring observation loop.
 
+Before interpreting a dictated operator message, read the shared
+[dictated-input note](../aiur-agent/dictated-input.md).
+
 `iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings. Treat
 their run requests as this workflow.
 

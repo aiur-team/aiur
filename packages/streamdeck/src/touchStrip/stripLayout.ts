@@ -38,9 +38,10 @@ import { SegmentIndex, segmentRegion, spanRegion, STRIP_REGION } from "./geometr
 import type { PagerModel } from "./pagerSegment.js";
 import { providerPanelModel, WIDE_PANEL_THRESHOLD, type ProviderPanelModel, type ProviderPanelRow } from "./providerPanel.js";
 import type { SummaryModel } from "./summarySegment.js";
+import type { VoicePanelData } from "../voicePanel.js";
 
-/** The three touch-strip modes. */
-export type StripMode = "grid" | "cmd" | "logs";
+/** The four touch-strip modes. */
+export type StripMode = "grid" | "cmd" | "logs" | "settings";
 
 /** Structured content for one panel; the encoder renders it to a JPEG. */
 export type SegmentContent =
@@ -63,6 +64,21 @@ export type SegmentContent =
       readonly chatHasNext: boolean;
       readonly eventHasPrevious: boolean;
       readonly eventHasNext: boolean;
+    }
+  /**
+   * The voice readout: a scrolling waveform, a vertical decibel bar and the
+   * live text. One full-width panel, because a trace split across four 200px
+   * segments would repaint as four independently-diffed images of one
+   * continuous signal.
+   */
+  | { readonly kind: "voice"; readonly data: VoicePanelData }
+  /** The settings surface's readout when TestMic is not held. */
+  | {
+      readonly kind: "settings";
+      /** Label of the microphone capture will open, or an empty string. */
+      readonly selectedLabel: string;
+      readonly deviceCount: number;
+      readonly pageLabel: string;
     }
   /** A panel with nothing to show; painted as bare background, not a label. */
   | { readonly kind: "blank" };
@@ -88,6 +104,20 @@ export interface GridData {
 /** Data the `cmd` mode needs: the focused agent's whole readout. */
 export interface CmdData {
   readonly detail: AgentDetailModel;
+  /**
+   * The voice readout, when the host has a voice session. Whether it is
+   * actually *shown* is decided below rather than by the host — see
+   * {@link showsVoice}.
+   */
+  readonly voice?: VoicePanelData;
+}
+
+/** Data the `settings` mode needs: which microphone, how many, which page. */
+export interface SettingsData {
+  readonly selectedLabel: string;
+  readonly deviceCount: number;
+  readonly pageLabel: string;
+  readonly voice?: VoicePanelData;
 }
 
 /** Data the `logs` mode needs: the visible transcript rows and the scroll hints. */
@@ -108,7 +138,8 @@ export interface LogsData {
 export type StripData =
   | { readonly mode: "grid"; readonly data: GridData }
   | { readonly mode: "cmd"; readonly data: CmdData }
-  | { readonly mode: "logs"; readonly data: LogsData };
+  | { readonly mode: "logs"; readonly data: LogsData }
+  | { readonly mode: "settings"; readonly data: SettingsData };
 
 const BLANK: SegmentContent = { kind: "blank" };
 
@@ -142,6 +173,17 @@ const providerPanels = (providers: readonly ProviderPanelRow[], offset: number):
 };
 
 /**
+ * Whether cmd mode shows the voice readout instead of the agent readout.
+ *
+ * Two states qualify: the mic is held, or the buffer still holds text. The
+ * second is what makes Send and Cancel usable — the keys appear at the same
+ * moment, and pressing one without being able to read what will be sent is a
+ * coin toss.
+ */
+const showsVoice = (voice: VoicePanelData | undefined): voice is VoicePanelData =>
+  voice !== undefined && (voice.holding || voice.text !== "");
+
+/**
  * Compose a mode into the panels that tile the strip, left to right. The
  * renderer encodes and diffs each one independently.
  */
@@ -155,8 +197,33 @@ export function composeStrip(input: StripData): readonly StripPanel[] {
         { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, model: pager } },
       ];
     }
-    case "cmd":
-      return [{ region: STRIP_REGION, content: { kind: "agentDetail", model: input.data.detail } }];
+    case "cmd": {
+      const { detail, voice } = input.data;
+      // The voice readout stays up after the release, while the buffer still
+      // holds text: the operator has to be able to read what was heard before
+      // deciding between Send and Cancel, and snapping back to the agent
+      // readout the instant the key came up took that away.
+      return [
+        {
+          region: STRIP_REGION,
+          content: showsVoice(voice) ? { kind: "voice", data: voice } : { kind: "agentDetail", model: detail },
+        },
+      ];
+    }
+    case "settings": {
+      const { selectedLabel, deviceCount, pageLabel, voice } = input.data;
+      // TestMic only. Unlike cmd there is no buffer to read back here — the
+      // whole point of the key is "does this microphone hear me *now*".
+      return [
+        {
+          region: STRIP_REGION,
+          content:
+            voice !== undefined && voice.holding
+              ? { kind: "voice", data: voice }
+              : { kind: "settings", selectedLabel, deviceCount, pageLabel },
+        },
+      ];
+    }
     case "logs":
       return [
         {

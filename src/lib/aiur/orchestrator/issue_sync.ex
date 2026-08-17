@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
+  require Logger
+
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
@@ -427,27 +429,20 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       state =
         Enum.reduce(added_blocker_ids, state, fn blocker_id, state_acc ->
-          AutoSubscriptions.auto_subscribe_for_dependency(issue, current_blockers[blocker_id])
-
-          enqueue_dependency_event(
-            state_acc,
-            issue,
-            current_blockers[blocker_id],
-            :dependency_added
-          )
+          blocker = current_blockers[blocker_id]
+          subscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker)
         end)
 
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
-          AutoSubscriptions.auto_unsubscribe_for_dependency(issue, previous_blockers[blocker_id])
-
-          enqueue_dependency_event(
-            state_acc,
-            issue,
-            previous_blockers[blocker_id],
-            :dependency_removed
-          )
-          |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, previous_blockers[blocker_id], :removed)
+          blocker = previous_blockers[blocker_id]
+          # The resume stays outside the gating helper on purpose. #1821 made a
+          # cleared dependency wake its blockee; putting that behind a failed
+          # unsubscribe RPC would reintroduce exactly the stall it fixed. Only
+          # the derived event is deferred to the next reconcile.
+          state_acc
+          |> unsubscribe_and_maybe_enqueue_dependency(issue, blocker)
+          |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, blocker, :removed)
         end)
 
       Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
@@ -765,6 +760,44 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
+  defp unsubscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
+    case AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker) do
+      :ok ->
+        enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
+
+      {:error, reason} ->
+        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+
+        Logger.warning(
+          "IssueSync: unsubscription failed for dependency_removed " <>
+            "(#{issue.identifier} unblocked by #{blocker_id}): " <>
+            "#{inspect(reason)}; event will emit on next reconcile"
+        )
+
+        state_acc
+    end
+  end
+
+  defp subscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
+    case AutoSubscriptions.auto_subscribe_for_dependency(issue, blocker) do
+      :ok ->
+        enqueue_dependency_event(state_acc, issue, blocker, :dependency_added)
+
+      {:error, reason} ->
+        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+
+        Logger.warning(
+          "IssueSync: subscription failed for dependency_added " <>
+            "(#{issue.identifier} blocked by #{blocker_id}): " <>
+            "#{inspect(reason)}; event will emit on next reconcile"
+        )
+
+        state_acc
+    end
+  end
+
+  # Public because `PushRouting` enqueues a `:blocker_became_terminal` event
+  # through it; keep it exported even though this module is its main caller.
   @doc false
   @spec enqueue_dependency_event(State.t(), Issue.t(), map(), atom()) :: State.t()
   def enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
@@ -1315,6 +1348,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       %Issue{} = issue ->
         DispatchPolicy.normalize_issue_state(issue.state) == "todo" and
           not Issue.paused?(issue) and
+          not Issue.parked?(issue) and
           DispatchPolicy.issue_routable_to_worker?(issue) and
           !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set())
 

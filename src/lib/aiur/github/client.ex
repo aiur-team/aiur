@@ -149,6 +149,9 @@ defmodule Aiur.GitHub.Client do
           {:ok, %{check_runs: [map()], commit_status: map()}} | {:error, term()}
   def fetch_commit_ci_status(sha, opts \\ []), do: PullRequests.fetch_commit_ci_status(sha, opts)
 
+  @spec fetch_commit_timestamp(String.t(), keyword()) :: {:ok, DateTime.t() | nil} | {:error, term()}
+  def fetch_commit_timestamp(sha, opts \\ []), do: PullRequests.fetch_commit_timestamp(sha, opts)
+
   @spec fetch_open_pull_requests_by_label(String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_by_label(label, opts \\ []),

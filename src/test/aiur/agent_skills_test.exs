@@ -26,6 +26,48 @@ defmodule Aiur.AgentSkillsTest do
     end
   end
 
+  test "ships the pinned Compound Engineering dependency into every workspace", %{workspace: ws} do
+    assert AgentSkills.compound_engineering_version() == "3.19.0"
+    assert length(AgentSkills.compound_engineering_skills()) == 31
+
+    for skill <- ~w(ce-brainstorm ce-plan ce-work ce-code-review ce-doc-review ce-debug ce-setup lfg) do
+      assert skill in AgentSkills.compound_engineering_skills(), "missing bundled Compound Engineering skill #{skill}"
+    end
+
+    assert :ok = AgentSkills.install(ws)
+
+    for skill <- AgentSkills.compound_engineering_skills() do
+      claude_skill = Path.join([ws, ".claude", "skills", skill, "SKILL.md"])
+      codex_skill = Path.join([ws, ".codex", "skills", skill])
+
+      assert File.exists?(claude_skill), "missing installed Compound Engineering skill #{skill}"
+      assert {:ok, "../../.claude/skills/" <> ^skill} = File.read_link(codex_skill)
+    end
+
+    assert File.read!(Path.join([ws, ".claude", "skills", "compound-engineering.version"])) == "3.19.0\n"
+    assert File.read!(Path.join([ws, ".claude", "skills", "compound-engineering.LICENSE"])) =~ "Copyright (c) 2025 Every"
+  end
+
+  test "Compound Engineering manifest covers the complete vendored tree and retains its license" do
+    repo_root = Path.expand("../../..", __DIR__)
+    skills_root = Path.join([repo_root, ".claude", "skills"])
+
+    vendored_skills =
+      skills_root
+      |> Path.join("*/SKILL.md")
+      |> Path.wildcard()
+      |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
+      |> Enum.filter(&(&1 == "lfg" or String.starts_with?(&1, "ce-")))
+      |> Enum.sort()
+
+    assert AgentSkills.compound_engineering_skills() == vendored_skills
+
+    license = File.read!(Path.join(skills_root, "compound-engineering.LICENSE"))
+    assert :crypto.hash(:sha256, license) |> Base.encode16(case: :lower) == "61d89de7646effdaba2d0a4ab7bd0eba60b4094b83efe5bc73c7940e43e93fc6"
+    assert license =~ "MIT License"
+    assert license =~ "Copyright (c) 2025 Every"
+  end
+
   test "installs design-import auxiliary agent metadata", %{workspace: ws} do
     assert :ok = AgentSkills.install(ws)
 
@@ -65,12 +107,84 @@ defmodule Aiur.AgentSkillsTest do
 
     assert File.exists?(Path.join([remote_workspace, ".claude", "skills", "design-import", "SKILL.md"]))
     assert File.exists?(Path.join([remote_workspace, ".claude", "skills", "design-import", "agents", "openai.yaml"]))
+    assert File.read!(Path.join([remote_workspace, ".claude", "skills", "compound-engineering.version"])) == "3.19.0\n"
+    assert File.read!(Path.join([remote_workspace, ".claude", "skills", "compound-engineering.LICENSE"])) =~ "Copyright (c) 2025 Every"
 
     assert {:ok, "../../.claude/skills/design-import"} =
              File.read_link(Path.join([remote_workspace, ".codex", "skills", "design-import"]))
 
+    for skill <- AgentSkills.compound_engineering_skills() do
+      assert File.exists?(Path.join([remote_workspace, ".claude", "skills", skill, "SKILL.md"]))
+
+      assert {:ok, "../../.claude/skills/" <> ^skill} =
+               File.read_link(Path.join([remote_workspace, ".codex", "skills", skill]))
+    end
+
     assert Path.wildcard(Path.join([remote_workspace, ".claude", "skills", "*.tmp.*"])) == []
     assert {"", 0} = System.cmd("git", ["-C", remote_workspace, "status", "--short"], stderr_to_stdout: true)
+  end
+
+  test "refuses skill roots redirected outside the workspace", %{workspace: ws} do
+    external = Path.join(System.tmp_dir!(), "aiur_skills_external_#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(external) end)
+    File.mkdir_p!(external)
+    File.mkdir_p!(Path.join(ws, ".claude"))
+    File.ln_s!(external, Path.join([ws, ".claude", "skills"]))
+
+    assert :ok = AgentSkills.install(ws)
+    refute File.exists?(Path.join([external, "aiur-agent", "SKILL.md"]))
+    refute File.exists?(Path.join(external, "compound-engineering.version"))
+  end
+
+  test "remote install refuses skill roots redirected outside the workspace", %{workspace: ws} do
+    remote_workspace = Path.join(ws, "remote")
+    external = Path.join(ws, "external")
+    File.mkdir_p!(Path.join(remote_workspace, ".claude"))
+    File.mkdir_p!(external)
+    File.ln_s!(external, Path.join([remote_workspace, ".claude", "skills"]))
+    script_path = Path.join(ws, "remote-install.sh")
+    File.write!(script_path, AgentSkills.remote_install_script(remote_workspace))
+
+    assert {_output, status} = System.cmd("bash", [script_path], stderr_to_stdout: true)
+    assert status != 0
+    refute File.exists?(Path.join([external, "aiur-agent", "SKILL.md"]))
+    refute File.exists?(Path.join(external, "compound-engineering.version"))
+  end
+
+  test "refresh rejects upstream symlinks before replacing the managed tree", %{workspace: ws} do
+    fake_repo = Path.join(ws, "repo")
+    fake_script = Path.join([fake_repo, "scripts", "update-compound-engineering-skills"])
+    upstream = Path.join(ws, "upstream")
+    old_skill = Path.join([fake_repo, ".claude", "skills", "ce-old"])
+    new_skill = Path.join([upstream, "skills", "ce-new"])
+
+    File.mkdir_p!(Path.dirname(fake_script))
+    File.mkdir_p!(old_skill)
+    File.mkdir_p!(Path.join([fake_repo, ".codex", "skills"]))
+    File.mkdir_p!(Path.join(upstream, ".claude-plugin"))
+    File.mkdir_p!(new_skill)
+    File.cp!(Path.expand("../../../scripts/update-compound-engineering-skills", __DIR__), fake_script)
+    File.chmod!(fake_script, 0o755)
+    File.write!(Path.join(old_skill, "SKILL.md"), "old\n")
+    File.write!(Path.join([fake_repo, ".claude", "skills", "compound-engineering.skills"]), "ce-old\n")
+    File.write!(Path.join([fake_repo, ".claude", "skills", "compound-engineering.version"]), "1.0.0\n")
+    File.write!(Path.join([fake_repo, ".claude", "skills", "compound-engineering.LICENSE"]), "old license\n")
+    File.ln_s!("../../.claude/skills/ce-old", Path.join([fake_repo, ".codex", "skills", "ce-old"]))
+    File.write!(Path.join([upstream, ".claude-plugin", "plugin.json"]), ~s({\n  "version": "2.0.0"\n}\n))
+    File.write!(Path.join(upstream, "LICENSE"), "new license\n")
+    File.write!(Path.join(new_skill, "SKILL.md"), "new\n")
+    File.ln_s!(Path.join(ws, "outside"), Path.join(new_skill, "escape"))
+
+    assert {_output, status} = System.cmd(fake_script, ["2.0.0", upstream], stderr_to_stdout: true)
+    assert status != 0
+    assert File.read!(Path.join(old_skill, "SKILL.md")) == "old\n"
+    assert File.read!(Path.join([fake_repo, ".claude", "skills", "compound-engineering.version"])) == "1.0.0\n"
+
+    File.rm!(Path.join(new_skill, "escape"))
+    assert {_output, 0} = System.cmd(fake_script, ["2.0.0", upstream], stderr_to_stdout: true)
+    refute File.exists?(old_skill)
+    assert File.read!(Path.join([fake_repo, ".claude", "skills", "ce-new", "SKILL.md"])) == "new\n"
+    assert File.read!(Path.join([fake_repo, ".claude", "skills", "compound-engineering.version"])) == "2.0.0\n"
   end
 
   test "mirrors the Codex convention with relative symlinks that resolve", %{workspace: ws} do
@@ -91,6 +205,9 @@ defmodule Aiur.AgentSkillsTest do
     for skill <- AgentSkills.issue_worker_skills() do
       assert File.exists?(Path.join([ws, ".fake", "skills", skill, "SKILL.md"]))
     end
+
+    assert File.read!(Path.join([ws, ".fake", "skills", "aiur-agent", "dictated-input.md"])) =~
+             "Voice-originated text may render **Aiur**"
   end
 
   test "keeps registry-declared skill paths out of workspace status", %{workspace: ws} do

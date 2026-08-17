@@ -9,6 +9,8 @@ import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelModel
 import { encoderCenterX, SEGMENT_WIDTH } from "../../src/touchStrip/geometry.js";
 import type { SummaryModel } from "../../src/touchStrip/summarySegment.js";
 import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
+import { VOICE_HOLD_PROMPT, VOICE_LISTENING, VOICE_WAVEFORM_COLUMNS, voicePanel } from "../../src/voicePanel.js";
+import type { WaveformColumn } from "../../src/audio/index.js";
 
 const EMIT = "#9fd0ff";
 const INFO = "#c2c6cf";
@@ -28,7 +30,17 @@ const DIFF_ADDED_BG = [0x20, 0x30, 0x3b] as const;
 const DIFF_REMOVED_BG = [0x37, 0x22, 0x2c] as const;
 const ADDED_SIGN = "#b8db87";
 const REMOVED_SIGN = "#e26a75";
-const REASONING = "rgba(238,238,238,0.55)";
+
+/**
+ * The #1960 row-class colours, quoted from the emulator's opencode-borrowed
+ * logs palette (#1934) exactly as `segments.ts` quotes them. Written out again
+ * here rather than imported so a silent edit to the palette has to be made
+ * twice, deliberately.
+ */
+const COMMAND_COLOUR = "#88e0a6";
+const AGENT_COLOUR = "#9fd0ff";
+const LOGS_COLOUR = "#ffcf87";
+const USER_COLOUR = "#c69bff";
 
 interface Ink {
   readonly text: string;
@@ -244,7 +256,7 @@ describe("chat readout", () => {
   it("prints assistant prose with no role label at all, only an indent", () => {
     const ink = chat(message({ role: "assistant", body: "unblocking the refactor" }));
     const body = drew(ink, "unblocking the refactor");
-    expect(body?.fill).toBe(TEXT_BRIGHT);
+    expect(body?.fill).toBe(AGENT_COLOUR);
     // The label-free row is what makes "nothing in the gutter" mean "the agent".
     expect(ink.some((entry) => entry.text.toUpperCase() === "ASSISTANT")).toBe(false);
     // The body is the only thing on the transcript rows; the rest of the ink is
@@ -255,17 +267,21 @@ describe("chat readout", () => {
     expect(body?.x).toBeLessThan(40);
   });
 
-  it("gives an agent turn the same bare treatment and fades reasoning", () => {
-    expect(drew(chat(message({ role: "agent", body: "same as assistant" })), "same as assistant")?.fill).toBe(TEXT_BRIGHT);
-    expect(drew(chat(message({ role: "reasoning", body: "thinking it over" })), "thinking it over")?.fill).toBe(REASONING);
+  it("gives an agent turn the same bare blue and classifies reasoning as a log", () => {
+    expect(drew(chat(message({ role: "agent", body: "same as assistant" })), "same as assistant")?.fill).toBe(AGENT_COLOUR);
+    // Reasoning is a "logs" row (tan) with a gutter glyph, not faded prose:
+    // it is not something the agent said to the operator.
+    const reasoning = chat(message({ role: "reasoning", body: "thinking it over" }));
+    expect(drew(reasoning, "thinking it over")?.fill).toBe(LOGS_COLOUR);
+    expect(reasoning.find((entry) => entry.x < 30 && entry.text.length === 1)?.text).toBe("·");
   });
 
   // opencode gives bash no colour of its own; the `$` is the whole
-  // differentiator, over the panel fill.
-  it("marks a command with a $ glyph on a panel fill, not a colour", () => {
+  // differentiator, over the panel fill — #1960 adds the command green.
+  it("marks a command with a $ glyph on a panel fill, in the command green", () => {
     const { ink, pixels } = chatPixels(message({ role: "command", body: "mix test" }));
-    expect(drew(ink, "$")?.fill).toBe(TEXT_BRIGHT);
-    expect(drew(ink, "mix test")?.fill).toBe(TEXT_BRIGHT);
+    expect(drew(ink, "$")?.fill).toBe(COMMAND_COLOUR);
+    expect(drew(ink, "mix test")?.fill).toBe(COMMAND_COLOUR);
     expect(pixelAt(pixels, 800, 2, rowMiddle(0))).toEqual([...PANEL]);
   });
 
@@ -283,31 +299,36 @@ describe("chat readout", () => {
     expect(glyphOf(null)).toBe("⚙");
   });
 
-  it("titles a tool rather than shouting it, and names an unnamed one", () => {
-    const ink = chat(message({ role: "tool", body: "", tool: "web_fetch" }));
-    expect(drew(ink, "Web Fetch")?.fill).toBe(TEXT_MUTED);
-    expect(ink.some((entry) => entry.text === "WEB_FETCH")).toBe(false);
-    expect(drew(chat(message({ role: "tool", body: "", tool: null })), "Tool")).toBeDefined();
-    // A name that is all separators still has to leave a word behind.
-    expect(drew(chat(message({ role: "tool", body: "", tool: "read_" })), "Read")).toBeDefined();
+  // #1960: the tool row shows the command or path, not the tool name. The
+  // server's `body` (verb stripped) and `glyph` carry it; the fixture provides
+  // them the way the DTO would, and the title is gone.
+  it("shows the tool's argument as the row, not the tool name", () => {
+    const ink = chat(message({ role: "tool", body: "lib/aiur.ex", tool: "read", rowKind: "command", glyph: "→" }));
+    expect(drew(ink, "lib/aiur.ex")?.fill).toBe(COMMAND_COLOUR);
+    expect(drew(ink, "→")?.fill).toBe(COMMAND_COLOUR);
+    expect(ink.some((entry) => entry.text === "Read" || entry.text === "READ")).toBe(false);
+
+    // Without a server glyph, the renderer falls back to the tool-name map.
+    const fallback = chat(message({ role: "tool", body: "src/b.ts", tool: "write" }));
+    expect(drew(fallback, "src/b.ts")?.fill).toBe(COMMAND_COLOUR);
+    expect(fallback.find((entry) => entry.x < 30 && entry.text.length === 1)?.text).toBe("←");
   });
 
-  it("brackets tool arguments that read as k=v, and leaves prose alone", () => {
-    const args = chat(message({ role: "tool", body: "path=lib/a.ex, limit=20", tool: "read" }));
-    expect(drew(args, "[path=lib/a.ex, limit=20]")?.fill).toBe(TEXT_MUTED);
-
-    const prose = chat(message({ role: "tool", body: "ran 42 tests, all green", tool: "bash" }));
-    expect(drew(prose, "ran 42 tests, all green")).toBeDefined();
-    expect(prose.some((entry) => entry.text.startsWith("["))).toBe(false);
+  // A tool with no scalar argument keeps its name as the body (the deliberate
+  // fallback), still in the command green with a glyph, never a k=v bracket.
+  it("renders a tool's raw body rather than bracket-arg form", () => {
+    const args = chat(message({ role: "tool", body: "path=lib/a.ex, limit=20", tool: "read", rowKind: "command" }));
+    expect(drew(args, "path=lib/a.ex, limit=20")?.fill).toBe(COMMAND_COLOUR);
+    expect(args.some((entry) => entry.text.startsWith("["))).toBe(false);
 
     const empty = chat(message({ role: "tool", body: "", tool: "bash" }));
     expect(empty.some((entry) => entry.text.startsWith("["))).toBe(false);
   });
 
   // The user turn is the one element opencode gives a visible coloured bar.
-  it("gives a user turn a coloured bar and a panel fill", () => {
+  it("gives a user turn a coloured bar, a panel fill, and the user purple", () => {
     const { ink, pixels } = chatPixels(message({ role: "user", body: "ship it" }));
-    expect(drew(ink, "ship it")?.fill).toBe(TEXT_BRIGHT);
+    expect(drew(ink, "ship it")?.fill).toBe(USER_COLOUR);
     expect(pixelAt(pixels, 800, 5, rowMiddle(0))).toEqual([...USER_BAR]);
     expect(pixelAt(pixels, 800, 20, rowMiddle(0))).toEqual([...PANEL]);
 
@@ -316,10 +337,10 @@ describe("chat readout", () => {
     expect(pixelAt(prose.pixels, 800, 5, rowMiddle(0))).toEqual([...BACKGROUND]);
   });
 
-  it("gives system, alert and CI rows a glyph so they are not read as prose", () => {
+  it("gives system, alert and CI rows a glyph in the log tan, not prose ink", () => {
     const glyphs = ["system", "alert", "ci", "oracle"].map((role) => {
       const ink = chat(message({ role, body: "x" }));
-      expect(drew(ink, "x")?.fill).toBe(TEXT_MUTED);
+      expect(drew(ink, "x")?.fill).toBe(LOGS_COLOUR);
       return ink.find((entry) => entry.x < 30 && entry.text.length === 1)?.text;
     });
     expect(glyphs).toEqual(["·", "!", "✓", "·"]);
@@ -788,12 +809,33 @@ describe("agent detail panel", () => {
     expect(ink.find((entry) => entry.text.startsWith("HHH"))?.text.endsWith("…")).toBe(true);
   });
 
-  it("grows the bar with the percentage and fills nothing at zero", () => {
+  it("uses one green fill, a solid zero stub, and a brighter completion shade", () => {
     const empty = render(detail({ identifier: "401", bucket: "queued", progress_percent: 0 }), 800);
     const some = render(detail({ identifier: "401", bucket: "running", progress_percent: 60 }), 800);
+    const complete = render(detail({ identifier: "401", bucket: "running", progress_percent: 100 }), 800);
     expect(drew(empty.ink, "0%")).toBeDefined();
     expect(empty.inked).toBeGreaterThan(0);
     expect(empty.inked).toBeLessThan(some.inked);
+    expect(pixelAt(empty.pixels, 800, 211, 79)).toEqual([63, 185, 80]);
+    expect(pixelAt(some.pixels, 800, 300, 79)).toEqual([63, 185, 80]);
+    expect(pixelAt(complete.pixels, 800, 300, 79)).toEqual([116, 212, 127]);
+  });
+
+  it("keeps unknown progress structurally distinct from a measured zero", () => {
+    const unknown = render(detail({ identifier: "401", bucket: "running", progress_percent: null }), 800);
+    const zero = render(detail({ identifier: "401", bucket: "running", progress_percent: 0 }), 800);
+
+    expect(drew(unknown.ink, "—")).toBeDefined();
+    expect(drew(zero.ink, "0%")).toBeDefined();
+    expect(Array.from(unknown.pixels)).not.toEqual(Array.from(zero.pixels));
+  });
+
+  it("dims only a stale detail fill while leaving its track unchanged", () => {
+    const fresh = render(detail({ identifier: "401", bucket: "running", progress_percent: 60, progress_freshness: "fresh" }), 800);
+    const stale = render(detail({ identifier: "401", bucket: "running", progress_percent: 60, progress_freshness: "stale" }), 800);
+
+    expect(pixelAt(stale.pixels, 800, 300, 79)).not.toEqual(pixelAt(fresh.pixels, 800, 300, 79));
+    expect(pixelAt(stale.pixels, 800, 700, 79)).toEqual(pixelAt(fresh.pixels, 800, 700, 79));
   });
 
   it("clips an over-long title rather than running it under the percentage", () => {
@@ -808,5 +850,159 @@ describe("blank panel", () => {
   // label here would claim a provider that does not exist.
   it("draws nothing at all", () => {
     expect(render({ kind: "blank" }).ink).toEqual([]);
+  });
+});
+
+describe("voice panel", () => {
+  const columns = (shape: (index: number) => number): WaveformColumn[] =>
+    Array.from({ length: VOICE_WAVEFORM_COLUMNS }, (_, index) => ({ min: -shape(index), max: shape(index) }));
+
+  const panel = (over: Partial<Parameters<typeof voicePanel>[0]> = {}): SegmentContent => ({
+    kind: "voice",
+    data: voicePanel({
+      columns: columns(() => 0),
+      dbfs: -60,
+      text: "",
+      holding: false,
+      unavailableReason: null,
+      ...over,
+    }),
+  });
+
+  it("prints the hold prompt and the placeholder when idle", () => {
+    const { ink } = render(panel(), 800);
+    expect(drew(ink, VOICE_HOLD_PROMPT)).toBeDefined();
+    expect(drew(ink, "Nothing heard yet.")).toBeDefined();
+  });
+
+  it("prints LISTENING in the live accent while the key is held", () => {
+    const { ink } = render(panel({ holding: true }), 800);
+    expect(drew(ink, VOICE_LISTENING)?.fill).toBe(ACCENT_LIVE);
+    expect(drew(ink, "Listening…")).toBeDefined();
+  });
+
+  it("prints the transcribed text once there is some", () => {
+    expect(drew(render(panel({ text: "run the tests again" }), 800).ink, "run the tests again")).toBeDefined();
+  });
+
+  it("clips over-long text rather than running it off the panel", () => {
+    const { ink } = render(panel({ text: "word ".repeat(300) }), 800);
+    expect(ink.some((entry) => entry.text.endsWith("…"))).toBe(true);
+  });
+
+  /**
+   * The reason the split exists. A missing key is a configuration problem, and
+   * blanking the trace would present it as a dead microphone.
+   */
+  it("keeps the trace and the bar when transcription is unavailable", () => {
+    const reason = "Aiur has no ElevenLabs API key - transcription is off";
+    const off = render(panel({ unavailableReason: reason, dbfs: -6, columns: columns(() => 0.8) }), 800);
+    expect(drew(off.ink, reason.toUpperCase())).toBeDefined();
+    // Same trace, same bar, whether or not the reason is set.
+    const on = render(panel({ dbfs: -6, columns: columns(() => 0.8) }), 800);
+    expect(off.inked).toBeGreaterThan(render(panel(), 800).inked);
+    expect(Math.abs(off.inked - on.inked)).toBeLessThan(on.inked / 4);
+  });
+
+  // Every column carries a min/max pair. A rectified trace is a solid blob;
+  // peaks above and valleys below the centre are what read as speech.
+  it("draws each column above and below the centre line", () => {
+    const { pixels } = render(panel({ columns: columns(() => 0.9) }), 800);
+    const centre = 36;
+    const above = pixelAt(pixels, 800, 20, centre - 20);
+    const below = pixelAt(pixels, 800, 20, centre + 20);
+    expect(above).not.toEqual([...BACKGROUND]);
+    expect(below).not.toEqual([...BACKGROUND]);
+  });
+
+  /**
+   * The scroll direction: `createWaveformScroll` emits oldest-first, so column
+   * `i` maps straight to the `i`-th x position and the newest audio is the
+   * right-hand edge. A ramp therefore has to grow left to right.
+   */
+  it("puts the newest column at the right edge", () => {
+    const ramp = columns((index) => (index / VOICE_WAVEFORM_COLUMNS) * 0.95);
+    const { pixels } = render(panel({ columns: ramp }), 800);
+    const spread = (x: number): number => {
+      let top = 100;
+      let bottom = 0;
+      for (let y = 10; y < 62; y += 1) {
+        if (pixelAt(pixels, 800, x, y).join() !== [...BACKGROUND].join()) {
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+      return bottom - top;
+    };
+    // The trace band runs from PAD to just short of the decibel bar.
+    expect(spread(700)).toBeGreaterThan(spread(60));
+  });
+
+  /**
+   * The bar is a *height*, taken from `dbfsToFill`, which is already linear in
+   * decibels. Measured down the bar's own column rather than by total ink,
+   * because the track is painted at every level and would swamp the difference.
+   */
+  const barHeight = (dbfs: number): number => {
+    const { pixels } = render(panel({ dbfs }), 800);
+    // The bar sits at width - PAD - DB_BAR_WIDTH; 780 is inside it.
+    let filled = 0;
+    for (let y = 10; y < 62; y += 1) {
+      const [r, g] = pixelAt(pixels, 800, 780, y);
+      if (Math.max(r, g) > 120) filled += 1;
+    }
+    return filled;
+  };
+
+  it("grows the decibel bar with the level, linearly in decibels", () => {
+    expect(barHeight(-60)).toBe(0);
+    const half = barHeight(-30);
+    const loud = barHeight(-3);
+    expect(half).toBeGreaterThan(0);
+    expect(loud).toBeGreaterThan(half);
+    // -30 dBFS is halfway up a -60 dB scale; a bar re-mapped to amplitude would
+    // sit at about 3% instead.
+    expect(half / loud).toBeGreaterThan(0.4);
+    expect(half / loud).toBeLessThan(0.6);
+  });
+
+  it("prints the decibel reading beside the bar", () => {
+    expect(drew(render(panel({ dbfs: -3 }), 800).ink, "-3")).toBeDefined();
+  });
+});
+
+describe("settings panel", () => {
+  const settings = (over: Partial<Extract<SegmentContent, { kind: "settings" }>> = {}): SegmentContent => ({
+    kind: "settings",
+    selectedLabel: "Yeti X Analog Stereo",
+    deviceCount: 3,
+    pageLabel: "1/1",
+    ...over,
+  });
+
+  it("names the microphone capture will open, the count and the page", () => {
+    const { ink } = render(settings(), 800);
+    expect(drew(ink, "MICROPHONE")).toBeDefined();
+    expect(drew(ink, "Yeti X Analog Stereo")).toBeDefined();
+    expect(drew(ink, "3 found · page 1/1")).toBeDefined();
+    expect(drew(ink, "HOLD TESTMIC TO CHECK LEVELS")?.fill).toBe(ACCENT_LIVE);
+  });
+
+  // A headless box has no microphone and that is not a fault, so the panel says
+  // so rather than showing an empty selection that reads as broken.
+  it("says so when there is no microphone at all", () => {
+    const { ink } = render(settings({ selectedLabel: "", deviceCount: 0 }), 800);
+    expect(drew(ink, "No microphones")).toBeDefined();
+    expect(drew(ink, "Attach a microphone, then reopen settings")).toBeDefined();
+    expect(drew(ink, "HOLD TESTMIC TO CHECK LEVELS")?.fill).toBe(LABEL);
+  });
+
+  it("clips a long device name rather than running it off the panel", () => {
+    const { ink } = render(settings({ selectedLabel: "Yeti ".repeat(80) }), 800);
+    expect(ink.some((entry) => entry.text.endsWith("…"))).toBe(true);
+  });
+
+  it("carries the BACK hint, because dial A is what performs it", () => {
+    expect(render(settings(), 800).ink.some((entry) => entry.text.includes("BACK"))).toBe(true);
   });
 });

@@ -128,10 +128,13 @@ defmodule AiurWeb.Router do
   scope "/", AiurWeb do
     pipe_through([:dashboard_auth, :browser])
 
+    get("/decisions", CommandsRedirectController, :legacy)
+    get("/decisions/:decision_id", CommandsRedirectController, :legacy)
+
     live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
       live("/", DashboardLive, :index)
-      live("/decisions", DashboardLive, :decisions)
-      live("/decisions/:decision_id", DashboardLive, :decision)
+      live("/commands", DashboardLive, :decisions)
+      live("/commands/:decision_id", DashboardLive, :decision)
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
       live("/analytics", AnalyticsLive, :analytics)

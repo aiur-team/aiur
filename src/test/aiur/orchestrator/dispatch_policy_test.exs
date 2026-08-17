@@ -24,6 +24,25 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16) == :dispatch
     end
 
+    test "requires real CPU contention before a high load average holds dispatch" do
+      clear_headroom = %{idle_percent: 10.0, nice_percent: 70.0, reclaimable_percent: 80.0, runnable: 74}
+      contention = %{idle_percent: 5.0, nice_percent: 0.0, reclaimable_percent: 5.0, runnable: 20}
+
+      assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, clear_headroom) == :dispatch
+
+      assert {:hold,
+              %{
+                signal: :load,
+                measured: 143.0,
+                threshold: 24.0,
+                reclaimable_cpu_percent: 5.0,
+                reclaimable_cpu_threshold: 60.0
+              }} = DispatchPolicy.load_admission_reason(143.0, 1.5, 16, contention)
+
+      assert {:hold, %{signal: :load, measured: 143.0}} =
+               DispatchPolicy.load_admission_reason(143.0, 1.5, 16, :unavailable)
+    end
+
     # admission_gate/1 must never report a load decision that load_admission_reason/3
     # would not make, and the reported threshold must always be the already
     # multiplied `threshold * schedulers` — the operator reads that number
@@ -100,6 +119,18 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.read_cpu(nil, nil) == :unavailable
       assert DispatchPolicy.read_cpu(nil, 0) == :unavailable
     end
+
+    test "reads the CPU snapshot when any CPU-corroborated gate is enabled" do
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        {:ok, "cpu 100 0 100 800 0 0 0 0 0 0\nprocs_running 3\n"}
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :proc_stat_source_override) end)
+
+      assert %{runnable: 3} = DispatchPolicy.read_cpu(1.0, nil, 0.0)
+      assert %{runnable: 3} = DispatchPolicy.read_cpu(nil, nil, 1.5)
+      assert DispatchPolicy.read_cpu(nil, 0.0, 0.0) == :unavailable
+    end
   end
 
   describe "run_queue_gate/3" do
@@ -116,6 +147,23 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.run_queue_gate(99, 12, -1.0) == :dispatch
       assert DispatchPolicy.run_queue_gate(99, 12, :invalid) == :dispatch
       assert DispatchPolicy.run_queue_gate(:unavailable, 12, 1.5) == :dispatch
+    end
+
+    test "admission ignores a niced runnable queue when CPU remains reclaimable" do
+      assert :dispatch =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   run_queue_threshold: 1.5,
+                   runnable: 74,
+                   load: 10.0,
+                   cpu_headroom: %{
+                     idle_percent: 10.0,
+                     nice_percent: 70.0,
+                     reclaimable_percent: 80.0,
+                     runnable: 74
+                   }
+                 })
+               )
     end
   end
 
@@ -201,10 +249,36 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert {:hold, %{signal: :load, measured: 25.0, threshold: 18.0}} =
                DispatchPolicy.admission_gate(gate_input(%{load: 25.0}))
 
-      reset_at = ~U[2026-08-09 22:00:00Z]
+      assert :dispatch =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   load: 143.0,
+                   cpu_headroom: %{idle_percent: 10.0, nice_percent: 70.0, reclaimable_percent: 80.0, runnable: 74}
+                 })
+               )
 
-      assert {:hold, %{signal: :github_quota, measured: %{resource: "core"}, threshold: :ten_percent_remaining}} =
-               DispatchPolicy.admission_gate(gate_input(%{github_quota: {:hold, %{resource: "core", remaining: 500, limit: 5000, reset_at: reset_at}}}))
+      reset_at = ~U[2026-08-09 22:00:00Z]
+      observed_at = ~U[2026-08-09 21:55:00Z]
+
+      assert {:hold,
+              %{
+                signal: :github_quota,
+                measured: %{resource: "core", observed_at: ^observed_at},
+                threshold: :ten_percent_remaining
+              }} =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   github_quota:
+                     {:hold,
+                      %{
+                        resource: "core",
+                        remaining: 500,
+                        limit: 5000,
+                        reset_at: reset_at,
+                        observed_at: observed_at
+                      }}
+                 })
+               )
 
       build = %{enabled?: true, capacity: 1, active: 1, queued: 1}
 
@@ -402,6 +476,23 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       refute DispatchPolicy.queued_dispatch_demand?(issues, state)
     end
 
+    test "ignores a parked issue even when it carries an active state label" do
+      # #1971: `agent:parked` is the explicit operator-held marker. Unlike the
+      # paused override (which preserves a running session), parking means "do
+      # not dispatch this at all" — so a `todo` ticket with `agent:parked` must
+      # not surface as queued demand, be a dispatch candidate, or pass the
+      # should_dispatch_issue? gate.
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+
+      parked = issue("parked-ticket", state: "todo", parked: true, labels: ["agent:todo", "agent:parked"])
+      state = %State{max_concurrent_agents: 5}
+
+      refute DispatchPolicy.queued_dispatch_demand?([parked], state)
+      refute DispatchPolicy.dispatch_candidate?(parked, state)
+      refute DispatchPolicy.should_dispatch_issue?(parked, state)
+      assert DispatchPolicy.dispatch_decision(parked, state) == {:skip, :parked}
+    end
+
     test "ignores demand blocked by per-state capacity" do
       write_workflow_file!(Workflow.workflow_file_path(),
         max_concurrent_agents: 8,
@@ -460,6 +551,24 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert ramped.effective_concurrent_agents == 10
       assert ramped.load_envelope_state.last_decrease_ms == nil
       assert ramped.load_envelope_state.bootstrap_complete?
+    end
+
+    test "cold start seeds from niced headroom despite stale high load" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
+
+      previous = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+      current = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 1,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous}
+      }
+
+      seeded = DispatchPolicy.update_load_envelope(state, 143.0, 1.0, 16, 2_000, current, true)
+
+      assert seeded.effective_concurrent_agents == 8
+      assert seeded.load_envelope_state.bootstrap_complete?
     end
 
     test "cold seed adds idle slots to used and reserved capacity" do
@@ -635,6 +744,86 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert DispatchPolicy.dispatch_decision(claimed, state) ==
                {:skip, :workspace_ownership_waiting}
+    end
+  end
+
+  describe "blocked-on-decision dispatch gate (#1965)" do
+    test "a ticket with an open blocking Command is skipped with :blocked_on_decision" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      state = %State{max_concurrent_agents: 5}
+      ticket = issue("blocked", [])
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, MapSet.new([ticket.id])) ==
+               {:skip, :blocked_on_decision}
+
+      assert DispatchPolicy.dispatch_decision(
+               ticket,
+               %{state | blocked_ticket_ids: MapSet.new([ticket.id])}
+             ) == {:skip, :blocked_on_decision}
+
+      # A blocked ticket is also not a dispatch candidate, so it does not count
+      # as queued-work demand.
+      refute DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal, MapSet.new([ticket.id]))
+      refute DispatchPolicy.dispatch_candidate?(ticket, %{state | blocked_ticket_ids: MapSet.new([ticket.id])})
+      refute DispatchPolicy.queued_dispatch_demand?([ticket], %{state | blocked_ticket_ids: MapSet.new([ticket.id])})
+    end
+
+    test "a non-blocking Command does not gate dispatch" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      state = %State{max_concurrent_agents: 5}
+      ticket = issue("not-blocked", [])
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      # The ticket absent from the blocked set dispatches normally.
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, MapSet.new(["other"])) ==
+               :dispatch
+
+      # And a nil blocked set (never computed this cycle) never gates.
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, nil) == :dispatch
+      assert DispatchPolicy.dispatch_decision(ticket, state) == :dispatch
+    end
+
+    test "answering or dismissing the Command releases the ticket on the next poll" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      state = %State{max_concurrent_agents: 5}
+      ticket = issue("released", [])
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, MapSet.new([ticket.id])) ==
+               {:skip, :blocked_on_decision}
+
+      # The next cycle's store read no longer contains the answered/dismissed
+      # Command, so the same ticket is dispatchable again.
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, MapSet.new()) ==
+               :dispatch
+    end
+
+    test "an unreadable decision store fails closed for dispatch" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+      state = %State{max_concurrent_agents: 5}
+      ticket = issue("store-down", [])
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      assert DispatchPolicy.dispatch_decision(ticket, state, active, terminal, :unavailable) ==
+               {:skip, :blocked_on_decision}
+
+      refute DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal, :unavailable)
+      refute DispatchPolicy.queued_dispatch_demand?([ticket], %{state | blocked_ticket_ids: :unavailable})
+    end
+
+    test "blocked_on_decision?/2 is fail-closed for dispatch but strict for the Reconciler" do
+      ticket = issue("reconciler-check", [])
+
+      # Dispatch-facing: an unreadable store holds the ticket.
+      assert DispatchPolicy.blocked_on_decision?(ticket, MapSet.new([ticket.id]))
+      assert DispatchPolicy.blocked_on_decision?(ticket, :unavailable)
+      refute DispatchPolicy.blocked_on_decision?(ticket, MapSet.new(["other"]))
+      refute DispatchPolicy.blocked_on_decision?(ticket, nil)
     end
   end
 

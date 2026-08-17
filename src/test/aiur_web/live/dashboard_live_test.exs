@@ -65,6 +65,11 @@ defmodule AiurWeb.DashboardLiveTest do
     def handle_call(:snapshot_count, _from, state) do
       {:reply, state.snapshot_count, state}
     end
+
+    def handle_call(:request_refresh, _from, state) do
+      if is_pid(state.report), do: send(state.report, {:dashboard_refresh_requested, self()})
+      {:reply, %{coalesced: false}, state}
+    end
   end
 
   defmodule GlobalPauseFailureOrchestrator do
@@ -952,7 +957,7 @@ defmodule AiurWeb.DashboardLiveTest do
       )
 
     assert inbox_html =~ ~s(src="/aiur-logo.png")
-    assert inbox_html =~ ~s(href="/decisions/dec-safe-link")
+    assert inbox_html =~ ~s(href="/commands/dec-safe-link")
     assert inbox_html =~ "Commands inbox"
     refute inbox_html =~ ~s(id="recent-title")
     assert detail_html =~ "Recorded"
@@ -1446,33 +1451,33 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     view
     |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="blocking"]))
     |> render_click()
 
-    assert_patch(view, "/decisions?filter=blocking")
+    assert_patch(view, "/commands?filter=blocking")
 
     view
     |> element("#decision-#{decision.decision_id} .decision-card-head")
     |> render_click()
 
-    assert_patch(view, "/decisions/#{decision.decision_id}?filter=blocking")
+    assert_patch(view, "/commands/#{decision.decision_id}?filter=blocking")
 
     view
     |> element("#decision-#{decision.decision_id} .decision-card-head")
     |> render_click()
 
-    assert_patch(view, "/decisions?filter=blocking")
+    assert_patch(view, "/commands?filter=blocking")
 
     view
     |> element("#decision-#{decision.decision_id} .decision-card-head")
     |> render_click()
 
-    assert_patch(view, "/decisions/#{decision.decision_id}?filter=blocking")
+    assert_patch(view, "/commands/#{decision.decision_id}?filter=blocking")
     render_submit(view, "search-commands", %{"search" => decision.decision_id})
-    assert_patch(view, "/decisions?search=#{decision.decision_id}")
+    assert_patch(view, "/commands?search=#{decision.decision_id}")
   end
 
   test "ticket query navigation returns the exact Commands ticket instead of identifier prefixes" do
@@ -1498,7 +1503,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions?ticket=11")
+    {:ok, view, _html} = live(build_conn(), "/commands?ticket=11")
 
     assert has_element?(view, "#decision-#{exact.decision_id}")
     refute has_element?(view, "#decision-#{prefixed.decision_id}")
@@ -1527,13 +1532,13 @@ defmodule AiurWeb.DashboardLiveTest do
       control_center_cache: false
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     view
     |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="open"]))
     |> render_click()
 
-    assert_patch(view, "/decisions?filter=open")
+    assert_patch(view, "/commands?filter=open")
     assert has_element?(view, ".decision-list #decision-#{human.decision_id}")
     assert has_element?(view, ".decision-list #decision-#{delegated.decision_id}")
   end
@@ -1562,7 +1567,7 @@ defmodule AiurWeb.DashboardLiveTest do
       control_center_cache: false
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions")
+    {:ok, view, html} = live(build_conn(), "/commands")
 
     refute html =~ "Search retained Commands"
     refute html =~ "Command ID or ticket ID"
@@ -1570,7 +1575,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Final retained Command page"
     refute has_element?(view, "#decision-#{oldest.decision_id}")
 
-    invalid_html = render_patch(view, "/decisions?cursor=not-a-valid-cursor")
+    invalid_html = render_patch(view, "/commands?cursor=not-a-valid-cursor")
     assert invalid_html =~ "Command projection is currently unavailable"
     assert Process.alive?(view.pid)
   end
@@ -1612,7 +1617,7 @@ defmodule AiurWeb.DashboardLiveTest do
       control_center_cache: false
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions")
+    {:ok, view, html} = live(build_conn(), "/commands")
 
     assert html =~ ~r/All\s+<span class="count num">2<\/span>/
     assert has_element?(view, "#decision-#{Enum.at(decisions, 0).decision_id}")
@@ -1665,7 +1670,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, _view, html} = live(build_conn(), "/decisions/#{oldest.decision_id}")
+    {:ok, _view, html} = live(build_conn(), "/commands/#{oldest.decision_id}")
     assert html =~ oldest.decision_id
     assert html =~ "Should the dashboard ship this change?"
     refute html =~ "Command not found"
@@ -1702,7 +1707,7 @@ defmodule AiurWeb.DashboardLiveTest do
       control_center_cache: false
     )
 
-    {:ok, _view, html} = live(build_conn(), "/decisions/#{resolved.decision_id}?filter=open")
+    {:ok, _view, html} = live(build_conn(), "/commands/#{resolved.decision_id}?filter=open")
     assert html =~ "This retained decision is resolved."
     assert html =~ "Resolved"
     refute html =~ "No Commands match this filter."
@@ -1733,7 +1738,7 @@ defmodule AiurWeb.DashboardLiveTest do
     for detail_status <- [:unavailable, :indeterminate] do
       assert :ok = GenServer.call(detail_store_name, {:set_detail_status, detail_status})
 
-      {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
+      {:ok, view, html} = live(build_conn(), "/commands/#{overview.decision_id}")
       assert html =~ if(detail_status == :unavailable, do: "Command unavailable", else: "Command presence unknown")
       refute html =~ "Should the dashboard ship this change?"
       refute html =~ ~s(phx-submit="answer-decision")
@@ -1788,7 +1793,7 @@ defmodule AiurWeb.DashboardLiveTest do
     for detail_status <- [:unavailable, :indeterminate] do
       assert :ok = GenServer.call(detail_store_name, {:set_detail_status, detail_status})
 
-      {:ok, view, html} = live(build_conn(), "/decisions/#{overview.decision_id}")
+      {:ok, view, html} = live(build_conn(), "/commands/#{overview.decision_id}")
       assert html =~ if(detail_status == :unavailable, do: "Command unavailable", else: "Command presence unknown")
       refute has_element?(view, "#decision-#{overview.decision_id}")
       refute html =~ ~s(phx-submit="revise-decision")
@@ -1831,7 +1836,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ ~s(phx-submit="answer-decision")
 
     html =
@@ -1872,7 +1877,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     # Opening one Command's detail page must not make the other Command
     # unanswerable: its inline form is still rendered and must reach the store.
-    {:ok, view, html} = live(build_conn(), "/decisions/#{selected.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{selected.decision_id}")
     assert html =~ ~s(phx-submit="answer-decision")
 
     html =
@@ -1930,7 +1935,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ "Revise Command"
 
     html =
@@ -1971,7 +1976,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
     add_newer_dashboard_decisions(store, decision, "stale-payload-answer-newer")
     refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
     assert reload_view(view) =~ ~s(phx-submit="answer-decision")
@@ -2014,7 +2019,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
     add_newer_dashboard_decisions(store, decision, "stale-payload-revision-newer")
     refute Enum.any?(DecisionStore.recent_decisions(50, store), &(&1.decision_id == decision.decision_id))
     assert reload_view(view) =~ "Revise Command"
@@ -2063,7 +2068,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{detail.decision_id}")
     assert html =~ "Destroy the active release?"
     assert html =~ "Destroy the active release"
     refute html =~ "I understand this Command is irreversible or destructive."
@@ -2129,7 +2134,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{detail.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{detail.decision_id}")
     assert html =~ "Destroy the active release after review?"
     assert html =~ "Destroy the reviewed release"
     assert html =~ "I understand this revised Command is irreversible or destructive."
@@ -2174,7 +2179,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{initial.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{initial.decision_id}")
 
     draft_html =
       render_change(view, "decision-action-change", %{
@@ -2253,7 +2258,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{initial.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{initial.decision_id}")
 
     draft_html =
       render_change(view, "decision-revision-change", %{
@@ -2321,7 +2326,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: counting_store_name
     )
 
-    {:ok, _view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, _view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
 
     assert CountingDetailStore.retained_lookup_count(counting_store_name) == 2
   end
@@ -2339,7 +2344,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, _view, html} = live(build_conn(), "/decisions/dec-retained-missing")
+    {:ok, _view, html} = live(build_conn(), "/commands/dec-retained-missing")
     assert html =~ "Command not found"
     assert html =~ "No retained Command matches dec-retained-missing."
     refute html =~ "Command unavailable"
@@ -2350,7 +2355,7 @@ defmodule AiurWeb.DashboardLiveTest do
     start_counting_orchestrator(orchestrator_name)
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 100)
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert render_hook(view, "filter-decisions", %{}) =~ "Commands inbox"
     assert render_hook(view, "toggle-fleet-filter", %{}) =~ "Commands inbox"
@@ -2376,14 +2381,32 @@ defmodule AiurWeb.DashboardLiveTest do
     decision = request_dashboard_decision(store, "dashboard-action")
     start_counting_orchestrator(orchestrator_name)
 
+    # The delivery outcome is produced asynchronously: the store dispatches on
+    # a background task, records the failure, and only then broadcasts
+    # {:decision_changed, ...}, which the LiveView reflects through a payload
+    # reload. The default reload path throttles that reload by
+    # @reload_min_interval_ms (400ms), and under load the whole async chain
+    # can outrun any wall-clock wait — the flake #1920 observed (fails
+    # ~1-in-10 under load). render/1 already synchronizes with the LiveView
+    # process (a ping that drains its mailbox), so removing the artificial
+    # reload delay here is a real synchronization point: as soon as the store
+    # records the failure, the next render reflects it. This uses the same
+    # control_center_reload_timer hook the burst-throttle test relies on, and
+    # changes no production timing.
+    reload_timer = fn destination, message, _delay_ms ->
+      send(destination, message)
+      make_ref()
+    end
+
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
       decision_store: decision_store_name,
-      dashboard_writable: true
+      dashboard_writable: true,
+      control_center_reload_timer: reload_timer
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     refute html =~ "Answer this Command"
     assert html =~ ~s(phx-submit="answer-decision")
 
@@ -2400,8 +2423,13 @@ defmodule AiurWeb.DashboardLiveTest do
       "answer" => %{"choice" => "option:ship", "rationale" => "Checks are green"}
     }
 
-    _html = render_submit(view, "answer-decision", params)
-    html = render(view)
+    # render_submit returns the render produced by the submit handler itself,
+    # before the async delivery-failure broadcast reaches the LiveView, so the
+    # transient "Answer recorded" notice is still visible here. With the
+    # immediate reload timer, the follow-up reload clears the notice as soon as
+    # the failure lands — which is exactly what "Delivery failed" replaces it
+    # with below.
+    html = render_submit(view, "answer-decision", params)
     assert html =~ "Answer recorded"
 
     assert eventually(fn ->
@@ -2409,6 +2437,11 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :failed
            end)
 
+    # The delivery outcome is produced asynchronously: background dispatch task
+    # -> store records the failure -> {:decision_changed, ...} broadcast. With
+    # the immediate reload timer, render/1 (whose ping drains the LiveView
+    # mailbox) reflects that failure on the next call, so this wait is
+    # deterministic rather than a wall-clock guess at the whole async chain.
     assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
     html = render(view)
     assert html =~ "Recorded answer"
@@ -2450,7 +2483,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     refute html =~ "I understand this Command is irreversible or destructive."
 
     params = %{
@@ -2489,7 +2522,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ ~s(phx-submit="answer-decision")
 
     endpoint_config = Application.fetch_env!(:aiur, AiurWeb.Endpoint)
@@ -2526,7 +2559,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
 
     params = %{
       "decision_id" => decision.decision_id,
@@ -2567,7 +2600,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
 
     _html =
       render_submit(view, "answer-decision", %{
@@ -2650,7 +2683,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
 
     _html =
       render_submit(view, "answer-decision", %{
@@ -2738,7 +2771,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, _html} = live(build_conn(), "/commands/#{decision.decision_id}")
 
     html =
       render_submit(view, "revise-decision", %{
@@ -2798,7 +2831,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    path = "/decisions/#{decision.decision_id}"
+    path = "/commands/#{decision.decision_id}"
     {:ok, view, html} = live(build_conn(), path)
     refute html =~ "Answer this Command"
     refute html =~ "Command latency"
@@ -2861,7 +2894,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute root_html =~ "Recent repository merges"
     refute root_html =~ "Command history"
 
-    decisions_html = render_patch(view, "/decisions")
+    decisions_html = render_patch(view, "/commands")
     assert decisions_html =~ "Command history"
     assert decisions_html =~ "dashboard"
 
@@ -2894,7 +2927,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions")
+    {:ok, view, html} = live(build_conn(), "/commands")
     assert :ok = Exchange.subscribe("executor.#")
     assert html =~ ~s(phx-click="defer-decision")
 
@@ -2912,7 +2945,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     :sys.replace_state(orchestrator, &%{&1 | running: %{}})
     gone_decision = request_queue_decision(store, "dashboard-dismiss-gone", "988")
-    {:ok, gone_view, _html} = live(build_conn(), "/decisions")
+    {:ok, gone_view, _html} = live(build_conn(), "/commands")
 
     _html =
       gone_view
@@ -2941,7 +2974,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ ~s(phx-click="defer-decision")
 
     _html =
@@ -2991,7 +3024,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ ~s(phx-click="dismiss-decision")
 
     html =
@@ -3049,7 +3082,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    path = "/decisions/#{decision.decision_id}"
+    path = "/commands/#{decision.decision_id}"
     {:ok, view, _html} = live(build_conn(), path)
 
     _html =
@@ -3204,7 +3237,7 @@ defmodule AiurWeb.DashboardLiveTest do
     root_html = render_patch(view, "/")
     refute root_html =~ "Command history"
 
-    decisions_html = render_patch(view, "/decisions")
+    decisions_html = render_patch(view, "/commands")
     assert decisions_html =~ "Command history"
     assert decisions_html =~ "Hold deployment until the incident closes"
   end
@@ -3272,7 +3305,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert is_pid(AiurWeb.Endpoint.config(:control_center_cache))
 
-    path = "/decisions/#{decision.decision_id}"
+    path = "/commands/#{decision.decision_id}"
     {:ok, view, initial_html} = live(build_conn(), path)
 
     assert initial_html =~ "Hold the cached rollout"
@@ -3347,7 +3380,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_metrics: metrics_name
     )
 
-    path = "/decisions/#{decision.decision_id}"
+    path = "/commands/#{decision.decision_id}"
     conn = get(build_conn(), path)
     disconnected_html = html_response(conn, 200)
 
@@ -3400,7 +3433,7 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_writable: true
     )
 
-    {:ok, view, human_html} = live(build_conn(), "/decisions/#{human.decision_id}")
+    {:ok, view, human_html} = live(build_conn(), "/commands/#{human.decision_id}")
     refute human_html =~ "Human required"
 
     assert {:error, {:delegation_forbidden, %{reasons: [:human_required]}}} =
@@ -3410,7 +3443,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert current_human.decision_status == :open
     assert is_nil(current_human.answer)
 
-    delegated_path = "/decisions/#{delegated.decision_id}"
+    delegated_path = "/commands/#{delegated.decision_id}"
     delegated_html = render_patch(view, delegated_path)
     assert delegated_html =~ ~s(phx-submit="answer-decision")
 
@@ -3460,10 +3493,10 @@ defmodule AiurWeb.DashboardLiveTest do
     root_html = reload_view(view)
     refute root_html =~ "Command history"
 
-    decisions_html = render_patch(view, "/decisions")
+    decisions_html = render_patch(view, "/commands")
     assert decisions_html =~ "Command history"
 
-    _filtered_html = render_patch(view, "/decisions?filter=supervisor")
+    _filtered_html = render_patch(view, "/commands?filter=supervisor")
     filtered_list = view |> element(".decision-list") |> render()
     assert filtered_list =~ delegated.question
     refute filtered_list =~ human.question
@@ -3503,7 +3536,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert history_row_count(view) == 10
     assert render(view) =~ "10 of 25"
@@ -3536,7 +3569,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert has_element?(view, "#decision-#{decision.decision_id}")
     assert history_row_count(view) == 0
@@ -3586,7 +3619,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{answered.decision_id}")
     assert row |> Floki.text() =~ "“it is the executor's job to review”"
@@ -3637,7 +3670,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     assert render(view) =~ "“ship the original answer”"
 
@@ -3702,7 +3735,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
     assert history_row_count(view) == 10
 
     unloaded =
@@ -3712,7 +3745,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute is_nil(unloaded), "expected one answered Command outside the first history page"
 
-    {:ok, deep_linked, _html} = live(build_conn(), "/decisions/#{unloaded.decision_id}")
+    {:ok, deep_linked, _html} = live(build_conn(), "/commands/#{unloaded.decision_id}")
 
     # No row to expand, so the card is still the only way to read it.
     refute has_element?(deep_linked, "#history-detail-history-#{unloaded.decision_id}")
@@ -3742,7 +3775,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{expired.decision_id}")
 
@@ -3770,7 +3803,7 @@ defmodule AiurWeb.DashboardLiveTest do
       decision_store: decision_store_name
     )
 
-    {:ok, view, _html} = live(build_conn(), "/decisions")
+    {:ok, view, _html} = live(build_conn(), "/commands")
 
     view
     |> element(~s(button[phx-click="defer-decision"][phx-value-decision-id="#{decision.decision_id}"]))
@@ -4594,8 +4627,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsPanelOrchestrator)
-    orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
+    orchestrator = start_counting_orchestrator(orchestrator_name, report: test_pid)
 
     replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
@@ -4664,6 +4697,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_received {:add_label, "2101", "complexity:3"}
     assert_received {:add_label, "2101", ^model_label}
     assert_received {:remove_label, "2101", "complexity:5"}
+    assert_received {:dashboard_refresh_requested, ^orchestrator}
     assert render(view) =~ "Applied"
   end
 

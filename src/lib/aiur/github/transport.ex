@@ -14,6 +14,9 @@ defmodule Aiur.GitHub.Transport do
   abandon. On deadline the worker is killed, which closes the socket with it,
   and the caller gets `{:error, :fetch_deadline_exceeded}` instead of wedging.
   Quota preflight/observe stay on the caller so accounting order is unchanged.
+  Local budget admission has its own bound and completes before the HTTP
+  deadline starts, so broker process startup and SQLite work cannot consume the
+  time reserved for the network request.
 
   What this does *not* do: it does not stop a GenServer blocking on a GitHub
   read. The caller still waits in a selective receive for the reply, so the
@@ -38,6 +41,7 @@ defmodule Aiur.GitHub.Transport do
   @default_request_deadline_ms 60_000
   @deadline_margin_ms 5_000
   @orchestrator_request_deadline_ms 10_000
+  @budget_admission_timeout_ms 1_500
 
   @spec base_url() :: String.t()
   def base_url, do: @base_url
@@ -120,19 +124,21 @@ defmodule Aiur.GitHub.Transport do
     case quota_preflight(quota, request) do
       :ok ->
         deadline_ms = request_deadline_ms(request)
-        deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
-        budget_request(quota, request, request_fun, deadline_at_ms, deadline_ms)
+        budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
         {:ok, held_response(hold)}
     end
   end
 
-  defp budget_request(quota, request, request_fun, deadline_at_ms, deadline_ms) do
-    remaining_ms = remaining_deadline_ms(deadline_at_ms)
-
-    case acquire_budget(request, remaining_ms) do
+  defp budget_request(quota, request, request_fun, deadline_ms) do
+    case Budget.acquire(request,
+           timeout_ms: min(deadline_ms, @budget_admission_timeout_ms),
+           lease_timeout_ms: deadline_ms
+         ) do
       {:ok, lease} ->
+        deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
+
         try do
           result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
 
@@ -151,18 +157,16 @@ defmodule Aiur.GitHub.Transport do
       {:hold, hold} ->
         {:ok, held_response(hold)}
 
-      {:error, :fetch_deadline_exceeded} = error ->
+      {:error, _reason} = error ->
         error
 
       :bypass ->
+        deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
         result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
         quota_observe(quota, request, result)
         result
     end
   end
-
-  defp acquire_budget(_request, 0), do: {:error, :fetch_deadline_exceeded}
-  defp acquire_budget(request, remaining_ms), do: Budget.acquire(request, timeout_ms: remaining_ms)
 
   @doc """
   Runs `request_fun` on a throwaway process so the caller never owns the socket.

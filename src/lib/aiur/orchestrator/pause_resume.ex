@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.PushRouting
   alias Aiur.Orchestrator.Reconciler
@@ -812,11 +813,24 @@ defmodule Aiur.Orchestrator.PauseResume do
       if(status == :working, do: previous_pause_reason, else: pause_reason)
     )
 
-    state = %{state | running: Map.put(state.running, issue_id, updated_running_entry)}
+    state =
+      state
+      |> Map.put(:running, Map.put(state.running, issue_id, updated_running_entry))
+      |> maybe_wake_after_first_active_resume(state)
+
     state = finalize_applied_resume(state, issue_id, request)
     state = maybe_auto_resume_spurious_worker_pause(state, updated_running_entry, status)
     StatusReport.notify_dashboard(state)
     {:noreply, state}
+  end
+
+  defp maybe_wake_after_first_active_resume(next_state, previous_state) do
+    if State.active_running_count(previous_state.running) == 0 and
+         State.active_running_count(next_state.running) > 0 do
+      next_state |> OrchestratorLifecycle.request_refresh_state() |> elem(0)
+    else
+      next_state
+    end
   end
 
   defp apply_control_evidence(state, running_entry, status, %{request_id: request_id, generation: generation})
@@ -1360,6 +1374,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       {:ok, _request_id} ->
         issue_id = get_in(running_entry, [:issue, Access.key(:id)])
         previous_status = get_in(running_entry, [:control, :status]) || :working
+        previous_state = state
         now = DateTime.utc_now()
 
         state = put_running_control_status(state, issue_id, :working)
@@ -1368,6 +1383,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         state = update_in(state.running, &reset_duration_clock_if_capped(&1, issue_id, now, operator?))
         state = update_in(state.running, &clear_legacy_pause_reason(&1, issue_id))
         state = Dispatcher.reset_thrash_budget(state, issue_id)
+        state = maybe_wake_after_first_active_resume(state, previous_state)
 
         updated_entry = Map.get(state.running, issue_id, running_entry)
         resume_cause = if operator?, do: :operator_resume, else: :automatic_resume

@@ -34,13 +34,13 @@ defmodule Aiur.AgentSkills do
 
   alias Aiur.{CodingAgent, Workspace.GitMetadata, Workspace.Remote}
 
-  # The skills the agent prompt routes issue workers to. This is a deliberate
+  # The Aiur skills the agent prompt routes issue workers to. This is a deliberate
   # subset of the canonical taxonomy in `Aiur.AiurAgentSkillTest`
   # (`@codex_exposed_aiur_skills` / `@claude_executor_only_skills`): Executor
   # skills (aiur-build, aiur-run, aiur-monitor, release) are excluded because an
   # issue worker has no reason to run aiur itself. That test cross-checks this
   # subset, so the two cannot silently drift.
-  @issue_worker_skills ~w(aiur-agent aiur-debug design-import)
+  @aiur_issue_worker_skills ~w(aiur-agent aiur-debug design-import)
 
   # The bundled source tree is the release build input. Backend workspace paths
   # are supplied by `CodingAgent.skill_install_locations/0` below.
@@ -49,6 +49,23 @@ defmodule Aiur.AgentSkills do
   # src/lib/aiur -> src/lib -> src -> repo root, then `.claude/skills`. Used at
   # compile time only; nothing reads the source tree at runtime.
   @skills_root Path.expand("../../../#{@bundled_skills_dir}", __DIR__)
+
+  @compound_engineering_version_file Path.join(@skills_root, "compound-engineering.version")
+  @compound_engineering_manifest_file Path.join(@skills_root, "compound-engineering.skills")
+  @compound_engineering_license_file Path.join(@skills_root, "compound-engineering.LICENSE")
+
+  @external_resource @compound_engineering_version_file
+  @external_resource @compound_engineering_manifest_file
+  @external_resource @compound_engineering_license_file
+
+  @compound_engineering_version @compound_engineering_version_file |> File.read!() |> String.trim()
+  @compound_engineering_skills @compound_engineering_manifest_file |> File.read!() |> String.split(~r/\s+/, trim: true)
+  @issue_worker_skills @aiur_issue_worker_skills ++ @compound_engineering_skills
+  @compound_engineering_support_files [
+    {"compound-engineering.version", File.read!(@compound_engineering_version_file)},
+    {"compound-engineering.skills", File.read!(@compound_engineering_manifest_file)},
+    {"compound-engineering.LICENSE", File.read!(@compound_engineering_license_file)}
+  ]
 
   # Every file under the bundled skills, read at compile time and keyed by its
   # path relative to the skills root (e.g. "aiur-agent/SKILL.md").
@@ -69,6 +86,14 @@ defmodule Aiur.AgentSkills do
   @spec issue_worker_skills() :: [String.t()]
   def issue_worker_skills, do: @issue_worker_skills
 
+  @doc "The bundled Compound Engineering skills installed into every issue-worker workspace."
+  @spec compound_engineering_skills() :: [String.t()]
+  def compound_engineering_skills, do: @compound_engineering_skills
+
+  @doc "The pinned upstream Compound Engineering version bundled with Aiur."
+  @spec compound_engineering_version() :: String.t()
+  def compound_engineering_version, do: @compound_engineering_version
+
   @doc false
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do
@@ -77,7 +102,9 @@ defmodule Aiur.AgentSkills do
     [
       "set -eu",
       Remote.remote_shell_assign("workspace", workspace),
+      remote_safe_paths_script(locations),
       Enum.map_join(@issue_worker_skills, "\n", &remote_skill_script(&1, locations)),
+      remote_support_files_script(locations),
       remote_ignore_script(locations)
     ]
     |> Enum.join("\n")
@@ -93,7 +120,9 @@ defmodule Aiur.AgentSkills do
   def install(workspace) when is_binary(workspace) do
     locations = CodingAgent.skill_install_locations()
 
+    Enum.each(locations, &ensure_safe_install_path!(workspace, &1.path))
     Enum.each(@issue_worker_skills, &install_skill(workspace, &1, locations))
+    Enum.each(locations, &install_support_files(workspace, &1))
     ignore_generated_skill_locations(workspace, locations)
   rescue
     error in [ArgumentError, ErlangError, File.Error] ->
@@ -166,6 +195,29 @@ defmodule Aiur.AgentSkills do
     |> Enum.map_join("\n", &(prefix <> &1))
   end
 
+  defp remote_support_files_script(locations) do
+    locations
+    |> Enum.filter(&is_nil(Map.get(&1, :link_to)))
+    |> Enum.flat_map(fn %{path: path} ->
+      Enum.map(@compound_engineering_support_files, fn {name, content} ->
+        encoded = Base.encode64(content)
+        dest = "$workspace/#{path}/#{name}"
+
+        [
+          "dest=\"#{dest}\"",
+          "if [ ! -e \"$dest\" ] && [ ! -L \"$dest\" ]; then",
+          "  mkdir -p \"$(dirname \"$dest\")\"",
+          "  tmp=\"$dest.tmp.$$\"",
+          "  printf '%s' '#{encoded}' | base64 -d > \"$tmp\"",
+          "  mv \"$tmp\" \"$dest\"",
+          "fi"
+        ]
+        |> Enum.join("\n")
+      end)
+    end)
+    |> Enum.join("\n")
+  end
+
   # Write the embedded skill files into a registry-declared workspace location
   # unless the target repo already ships its own copy.
   defp install_skill_at(workspace, skill, %{path: path} = location) do
@@ -182,6 +234,66 @@ defmodule Aiur.AgentSkills do
       File.mkdir_p!(Path.dirname(dest))
       stage_and_rename(dest, skill_files(skill))
     end
+  end
+
+  defp install_support_files(workspace, %{path: path} = location) do
+    if is_nil(Map.get(location, :link_to)) do
+      root = Path.join(workspace, path)
+      File.mkdir_p!(root)
+      Enum.each(@compound_engineering_support_files, &install_support_file(root, &1))
+    end
+  end
+
+  defp install_support_file(root, {name, content}) do
+    target = Path.join(root, name)
+    unless exists?(target), do: stage_file_and_rename(target, content)
+  end
+
+  defp stage_file_and_rename(target, content) do
+    tmp = target <> ".tmp." <> Integer.to_string(System.unique_integer([:positive]))
+
+    try do
+      File.write!(tmp, content)
+      File.rename!(tmp, target)
+    after
+      File.rm(tmp)
+    end
+  end
+
+  defp ensure_safe_install_path!(workspace, relative_path) do
+    root = Path.expand(workspace)
+    destination = Path.expand(relative_path, root)
+
+    unless destination == root or String.starts_with?(destination, root <> "/") do
+      raise ArgumentError, "agent skill path escapes workspace: #{relative_path}"
+    end
+
+    relative_path
+    |> Path.split()
+    |> Enum.scan(root, &Path.join(&2, &1))
+    |> Enum.each(fn path ->
+      case File.lstat(path) do
+        {:ok, %File.Stat{type: :symlink}} -> raise ArgumentError, "agent skill path contains symlink: #{path}"
+        {:ok, _stat} -> :ok
+        {:error, :enoent} -> :ok
+        {:error, reason} -> raise File.Error, reason: reason, action: "inspect", path: path
+      end
+    end)
+  end
+
+  defp remote_safe_paths_script(locations) do
+    checks =
+      Enum.flat_map(locations, fn %{path: path} ->
+        path
+        |> Path.split()
+        |> Enum.scan("$workspace", fn component, prefix -> "#{prefix}/#{component}" end)
+      end)
+      |> Enum.uniq()
+      |> Enum.map_join("\n", fn path ->
+        "if [ -L \"#{path}\" ]; then echo \"agent skill path contains symlink: #{path}\" >&2; exit 1; fi"
+      end)
+
+    checks
   end
 
   # Stage the files in a sibling temp dir and rename into place (atomic within

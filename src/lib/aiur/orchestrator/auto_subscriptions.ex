@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   All functions execute inside the orchestrator GenServer process.
   """
 
+  require Logger
+
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.{IssueSync, State}
@@ -16,24 +18,27 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   # subscriptions-requirements.md (Subscriptions section). Idempotent via
   # SubscriptionStore.add_subscription's existing duplicate short-circuit.
 
-  @spec auto_subscribe_for_dependency(term(), term()) :: :ok
+  @spec auto_subscribe_for_dependency(term(), term()) :: :ok | {:error, term()}
   def auto_subscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
-         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      attach_and_subscribe(
-        blockee_identifier,
-        default_blockee_subscriptions(blocker_identifier),
-        "blocker:auto"
-      )
-
-      attach_and_subscribe(
-        blocker_identifier,
-        default_blocker_subscriptions(blockee_identifier),
-        "blockee:auto"
-      )
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker),
+         :ok <-
+           attach_and_subscribe(
+             blockee_identifier,
+             default_blockee_subscriptions(blocker_identifier),
+             "blocker:auto"
+           ),
+         :ok <-
+           attach_and_subscribe(
+             blocker_identifier,
+             default_blocker_subscriptions(blockee_identifier),
+             "blockee:auto"
+           ) do
+      :ok
+    else
+      nil -> :ok
+      {:error, _} = err -> err
     end
-
-    :ok
   end
 
   def auto_subscribe_for_dependency(_blockee, _blocker), do: :ok
@@ -59,44 +64,54 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   Idempotent: SubscriptionStore.add_subscription short-circuits on
   duplicate `(identifier, topic)`.
   """
-  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) ::
+          :ok | {:error, term()}
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
     blockee_str = to_string(blockee_identifier)
     blocker_str = to_string(blocker_identifier)
 
-    attach_and_subscribe(
-      blockee_str,
-      default_blockee_subscriptions(blocker_str),
-      "blocker:auto"
-    )
+    with :ok <-
+           attach_and_subscribe(
+             blockee_str,
+             default_blockee_subscriptions(blocker_str),
+             "blocker:auto"
+           ),
+         :ok <-
+           attach_and_subscribe(
+             blocker_str,
+             default_blocker_subscriptions(blockee_str),
+             "blockee:auto"
+           ) do
+      :ok
+    else
+      {:error, _} = err ->
+        Logger.warning("subscribe_for_declared_blocker(#{blockee_str}, #{blocker_str}) failed: #{inspect(err)}")
 
-    attach_and_subscribe(
-      blocker_str,
-      default_blocker_subscriptions(blockee_str),
-      "blockee:auto"
-    )
-
-    :ok
+        err
+    end
   end
 
-  @spec auto_unsubscribe_for_dependency(term(), term()) :: :ok
+  @spec auto_unsubscribe_for_dependency(term(), term()) :: :ok | {:error, term()}
   def auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
-         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      remove_auto_subscriptions(
-        blockee_identifier,
-        default_blockee_subscriptions(blocker_identifier),
-        "blocker:auto"
-      )
-
-      remove_auto_subscriptions(
-        blocker_identifier,
-        default_blocker_subscriptions(blockee_identifier),
-        "blockee:auto"
-      )
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker),
+         :ok <-
+           remove_auto_subscriptions(
+             blockee_identifier,
+             default_blockee_subscriptions(blocker_identifier),
+             "blocker:auto"
+           ),
+         :ok <-
+           remove_auto_subscriptions(
+             blocker_identifier,
+             default_blocker_subscriptions(blockee_identifier),
+             "blockee:auto"
+           ) do
+      :ok
+    else
+      nil -> :ok
+      {:error, _} = err -> err
     end
-
-    :ok
   end
 
   def auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
@@ -108,18 +123,66 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
     auto_unsubscribe_for_dependency(blockee, blocker)
   end
 
-  defp attach_and_subscribe(identifier, topics, reason) do
-    :ok = SubscriptionStore.attach(identifier)
+  @doc false
+  # Allows tests to inject a failing add_subscription without killing the
+  # real GenServer — same pattern as SubscriptionStore.set_enqueue_fn/1.
+  @spec set_add_subscription_fn((String.t(), String.t(), String.t() -> :ok | {:error, term()}) | nil) :: :ok
+  def set_add_subscription_fn(fun) when is_function(fun, 3) or is_nil(fun) do
+    :persistent_term.put({__MODULE__, :add_subscription_fn}, fun)
+  end
 
-    Enum.each(topics, fn topic ->
-      _ = SubscriptionStore.add_subscription(identifier, topic, reason)
-    end)
+  @doc false
+  @spec set_remove_subscription_fn((String.t(), String.t(), String.t() -> :ok | {:error, term()}) | nil) :: :ok
+  def set_remove_subscription_fn(fun) when is_function(fun, 3) or is_nil(fun) do
+    :persistent_term.put({__MODULE__, :remove_subscription_fn}, fun)
+  end
+
+  defp add_subscription_fn do
+    :persistent_term.get({__MODULE__, :add_subscription_fn}, nil) ||
+      (&SubscriptionStore.add_subscription/3)
+  end
+
+  defp remove_subscription_fn do
+    :persistent_term.get({__MODULE__, :remove_subscription_fn}, nil) ||
+      (&SubscriptionStore.remove_subscription/3)
+  end
+
+  defp attach_and_subscribe(identifier, topics, reason) do
+    with :ok <- SubscriptionStore.attach(identifier) do
+      add_fn = add_subscription_fn()
+
+      Enum.reduce_while(topics, :ok, fn topic, :ok ->
+        try do
+          case add_fn.(identifier, topic, reason) do
+            :ok -> {:cont, :ok}
+            {:error, _} = err -> {:halt, {:error, {:add_subscription_failed, topic, err}}}
+          end
+        catch
+          :exit, exit_reason ->
+            {:halt, {:error, {:add_subscription_failed, topic, exit_reason}}}
+        end
+      end)
+    end
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp remove_auto_subscriptions(identifier, topics, expected_reason) do
-    Enum.each(topics, fn topic ->
-      _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+    remove_fn = remove_subscription_fn()
+
+    Enum.reduce_while(topics, :ok, fn topic, :ok ->
+      try do
+        case remove_fn.(identifier, topic, expected_reason) do
+          :ok -> {:cont, :ok}
+          {:error, _} = err -> {:halt, {:error, {:remove_subscription_failed, topic, err}}}
+        end
+      catch
+        :exit, exit_reason ->
+          {:halt, {:error, {:remove_subscription_failed, topic, exit_reason}}}
+      end
     end)
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do

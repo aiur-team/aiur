@@ -68,6 +68,10 @@ defmodule Aiur.AgentControlCLITest do
       remove_label: fn id, label ->
         send(parent, {:todo_remove_label, id, label})
         remove_result.(id, label)
+      end,
+      request_refresh: fn ->
+        send(parent, :todo_request_refresh)
+        %{queued: true}
       end
     }
   end
@@ -235,6 +239,14 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "todo/2" do
+    test "requests an immediate reconciliation after queueing work" do
+      issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
+
+      {_stdout, _stderr, 0} = capture_todo(["11"], deps: todo_deps(issues))
+
+      assert_receive :todo_request_refresh
+    end
+
     test "mutates the tracker and emits the control exit marker" do
       issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
 
@@ -523,6 +535,29 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status surfaces an active idle polling backoff" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 590_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0}
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~ "POLL idle backoff active: interval=600s base=120s factor=5.0x next=590s"
+  end
+
   test "status surfaces whether the Executor listener is currently listening", %{orchestrator: _pid} do
     previous = Application.get_env(:aiur, :executor_listener_alive_fun)
 
@@ -569,6 +604,23 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "#99    idle"
     assert output =~ "waiting=waiting_for_dependency"
     assert output =~ "blocked_by=repo#12"
+  end
+
+  test "status names a blocking Command dispatch decline", %{orchestrator: pid} do
+    issue = %Issue{id: "issue-1965", identifier: "repo#1965", state: "todo", title: "Needs decision"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{issue.id => issue},
+          dispatch_declines: %{issue.id => :blocked_on_decision}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1965  idle"
+    assert output =~ "dispatch_decline=blocked_on_decision"
   end
 
   test "status makes degraded supervision explicit" do
@@ -843,7 +895,24 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~
              "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
-               "(local host sample; over local threshold, dispatch may be held)"
+               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | capacity_hold:
+            Map.merge(state.capacity_hold, %{
+              reclaimable_cpu_percent: 5.0,
+              reclaimable_cpu_threshold: 60.0
+            })
+      }
+    end)
+
+    corroborated_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert corroborated_output =~
+             "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
+               "reclaimable_cpu=5.0% threshold=60.0%)"
 
     # The daemon still holds. A quiet LOCAL sample must not clear the daemon's
     # decision, and the local line must never claim to be the fleet's binding
@@ -852,9 +921,30 @@ defmodule Aiur.AgentControlCLITest do
 
     persisted_hold_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert persisted_hold_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert persisted_hold_output =~
+             "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
+               "reclaimable_cpu=5.0% threshold=60.0%)"
+
     assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
     refute persisted_hold_output =~ "(binding: load)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | capacity_hold:
+            Map.merge(state.capacity_hold, %{
+              signal: :run_queue,
+              measured: 74,
+              threshold: 24.0
+            })
+      }
+    end)
+
+    run_queue_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert run_queue_output =~
+             "AGENTS 0/10 (binding: run_queue+cpu contention, runnable=74 threshold=24.0 " <>
+               "reclaimable_cpu=5.0% threshold=60.0%)"
 
     # The inverse, and the actual regression guard: the daemon is NOT holding,
     # but the CLI's own host is over the CLI's own threshold. A locally
@@ -870,7 +960,41 @@ defmodule Aiur.AgentControlCLITest do
 
     assert fallback_output =~
              "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
-               "(local host sample; over local threshold, dispatch may be held)"
+               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+  end
+
+  test "status gives the GitHub quota measurement and its observation time", %{orchestrator: pid} do
+    observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 16,
+          effective_concurrent_agents: 16,
+          capacity_hold: %{
+            signal: :github_quota,
+            measured: %{resource: "graphql", remaining: 143, limit: 5000, observed_at: observed_at},
+            threshold: :ten_percent_remaining,
+            held_since_ms: System.monotonic_time(:millisecond),
+            alerted?: false
+          },
+          last_polled_issues: %{"queued" => queued_issue()}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~
+             "AGENTS 0/16 (binding: github_quota, resource=graphql remaining=143/5000 measured_at=#{DateTime.to_iso8601(observed_at)})"
+
+    :sys.replace_state(pid, fn state ->
+      put_in(state.capacity_hold.measured.observed_at, DateTime.add(observed_at, -121, :second))
+    end)
+
+    stale_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert stale_output =~
+             "AGENTS 0/16 (binding: github_quota stale, last_resource=graphql last_remaining=143/5000 last_measured_at="
   end
 
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
@@ -912,7 +1036,7 @@ defmodule Aiur.AgentControlCLITest do
     # the fleet's decision.
     assert output =~
              "LOAD #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
-               "(local host sample; over local threshold, dispatch may be held)"
+               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -2089,7 +2213,7 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~
                "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
-                 "(local host sample; over local threshold, dispatch may be held)"
+                 "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
 
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"

@@ -29,6 +29,14 @@ const inkFraction = async (jpeg: Uint8Array): Promise<number> => {
   return inked / (120 * 120);
 };
 
+/** One decoded key pixel, used to pin geometry that a whole-image diff cannot name. */
+const keyPixel = async (jpeg: Uint8Array, x: number, y: number): Promise<number[]> => {
+  const canvas = createCanvas(120, 120);
+  const context = canvas.getContext("2d");
+  context.drawImage(await loadImage(Buffer.from(jpeg)), 0, 0);
+  return Array.from(context.getImageData(x, y, 1, 1).data.slice(0, 3));
+};
+
 describe("wrapToWidth", () => {
   const context = createCanvas(120, 120).getContext("2d");
   context.font = "600 14px sans-serif";
@@ -172,6 +180,21 @@ describe("createRasterizer key", () => {
     const stale = rasterizer.key(layoutKeys([bar(70, "stale")], 0)[0]);
     expect(Buffer.from(unknown).equals(Buffer.from(zero))).toBe(false);
     expect(Buffer.from(fresh).equals(Buffer.from(stale))).toBe(false);
+  });
+
+  it("does not ring stale progress with a full-width border", async () => {
+    const rasterizer = createRasterizer();
+    const bar = (freshness: string): AgentInput =>
+      agent({ bucket: "running", progress_percent: 50, progress_freshness: freshness });
+    const fresh = rasterizer.key(layoutKeys([bar("fresh")], 0)[0]);
+    const stale = rasterizer.key(layoutKeys([bar("stale")], 0)[0]);
+
+    // x=100 is in the unfilled half of the track. Stale differs inside the
+    // filled half by alpha, but outside it must be the same plain track: an
+    // outline would tint this pixel and recreate the second segment/border.
+    const freshTrack = await keyPixel(fresh, 100, 105);
+    const staleTrack = await keyPixel(stale, 100, 105);
+    expect(staleTrack.map((value, index) => Math.abs(value - freshTrack[index]!))).toEqual([0, 0, 0]);
   });
 });
 

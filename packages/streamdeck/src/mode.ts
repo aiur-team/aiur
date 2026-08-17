@@ -6,7 +6,7 @@
  * their own timer adapter.
  */
 
-export type StreamDeckMode = "grid" | "cmd" | "logs";
+export type StreamDeckMode = "grid" | "cmd" | "logs" | "settings";
 export type AgentId = string;
 export type LiveRefreshTimer = unknown;
 
@@ -45,7 +45,15 @@ export interface StreamDeckModeState extends ModeDialState {
   micHeld: boolean;
 }
 
-export type CommandId = "pause" | "priority" | "logs" | "mic";
+/**
+ * The command-mode keys, in key order.
+ *
+ * `prioritize`/`deprioritize` are gone: the orchestrator ranks tickets itself
+ * and the key was a second, weaker way to say the same thing. `settings` took
+ * its slot, and `send`/`cancel` appear only once there is transcribed text to
+ * act on.
+ */
+export type CommandId = "pause" | "logs" | "mic" | "settings" | "send" | "cancel";
 
 export interface CommandKey {
   command: CommandId;
@@ -85,14 +93,29 @@ export const createModeState = (): StreamDeckModeState => ({
   micHeld: false,
 });
 
-/** Returns the eight command-mode keys; the final four are intentionally empty. */
-export const commandKeys = (agent: Pick<StreamDeckAgent, "paused" | "prioritized">): readonly (CommandKey | null)[] => [
+/**
+ * Returns the eight command-mode keys.
+ *
+ * This table is under a parity contract with the Elixir emulator's own command
+ * row (`Aiur.StreamdeckLive`): the two surfaces must put the same command on the
+ * same physical key, or muscle memory learned on one presses the wrong thing on
+ * the other.
+ *
+ * `send` and `cancel` are present only while the voice buffer holds settled
+ * text. They are not disabled-looking keys: there is nothing to send before the
+ * operator has spoken, and a permanently lit Send would invite a press that
+ * delivers an empty message.
+ */
+export const commandKeys = (
+  agent: Pick<StreamDeckAgent, "paused">,
+  hasTranscript = false,
+): readonly (CommandKey | null)[] => [
   { command: "pause", label: agent.paused ? "Play" : "Pause" },
-  { command: "priority", label: agent.prioritized ? "Deprioritize" : "Prioritize" },
   { command: "logs", label: "Logs" },
   { command: "mic", label: "Mic" },
-  null,
-  null,
+  { command: "settings", label: "Settings" },
+  hasTranscript ? { command: "send", label: "Send" } : null,
+  hasTranscript ? { command: "cancel", label: "Cancel" } : null,
   null,
   null,
 ];
@@ -129,15 +152,29 @@ export const transitionMode = (state: StreamDeckModeState, action: ModeAction): 
     return { state: { ...state, mode: "cmd", liveRefreshTimer: null, micHeld: false }, effects };
   }
 
+  if (action.type === "command.press" && action.command === "settings" && state.mode === "cmd") {
+    return { state: { ...state, mode: "settings", micHeld: false }, effects: [] };
+  }
+
+  // Settings is a leaf of cmd, not of grid: the operator arrived from a focused
+  // agent and going back must return to that agent's commands, not drop the
+  // focus they were in the middle of using.
+  if (action.type === "back" && state.mode === "settings") {
+    return { state: { ...state, mode: "cmd", micHeld: false }, effects: [] };
+  }
+
   if (action.type === "back" && state.mode === "cmd") {
     return { state: { ...state, mode: "grid", activeAgentId: null, micHeld: false }, effects: [] };
   }
 
-  if (action.type === "mic.down" && state.mode === "cmd") {
+  // Both surfaces hold a microphone: `mic` in cmd and `TestMic` in settings.
+  // They are the same press-and-hold gesture against the same capture, so they
+  // are the same transition rather than two that can drift apart.
+  if (action.type === "mic.down" && holdsMic(state.mode)) {
     return { state: { ...state, micHeld: true }, effects: [] };
   }
 
-  if (isMicRelease(action) && state.mode === "cmd") {
+  if (isMicRelease(action) && holdsMic(state.mode)) {
     return { state: { ...state, micHeld: false }, effects: [] };
   }
 
@@ -152,3 +189,6 @@ const newestChatIndex = (bounds: StreamDeckEventProjection | undefined): number 
 
 const isMicRelease = (action: ModeAction): action is Extract<ModeAction, { type: "mic.up" | "mic.leave" | "mic.cancel" }> =>
   action.type === "mic.up" || action.type === "mic.leave" || action.type === "mic.cancel";
+
+/** The two modes with a hold-to-talk key on them. */
+const holdsMic = (mode: StreamDeckMode): boolean => mode === "cmd" || mode === "settings";

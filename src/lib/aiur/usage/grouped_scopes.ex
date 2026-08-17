@@ -20,13 +20,14 @@ defmodule Aiur.Usage.GroupedScopes do
       the aggregate token cells through `Aiur.Usage.PriceTable`), and
     * explicit *unknown* monetary coverage.
 
-  Every measure is preserved across the contributor dimensions (provider, run,
-  ticket, agent family, backend, exact resolved model, auth mode, account
-  generation, currency, occurrence-price partition/revision, and
-  token-relationship revision) and rolled up into one exact compatible-currency
-  API-equivalent total per currency that reconciles, in both directions, to its
-  preserved contributors. Unlike monetary bases and unlike currencies never
-  combine, and unknown or contradictory pricing can never become a zero total.
+  Every measure is preserved across the contributor dimensions (provider,
+  upstream provider, structured provider route, run, ticket, agent family,
+  backend, exact resolved model, auth mode, account generation, currency,
+  occurrence-price partition/revision, and token-relationship revision) and
+  rolled up into one exact compatible-currency API-equivalent total per
+  currency that reconciles, in both directions, to its preserved contributors.
+  Unlike monetary bases and unlike currencies never combine, and unknown or
+  contradictory pricing can never become a zero total.
 
   ## Exactness boundary
 
@@ -61,6 +62,7 @@ defmodule Aiur.Usage.GroupedScopes do
     by_ticket: :ticket,
     by_agent_family: :agent_family,
     by_backend: :backend,
+    by_upstream_provider: :upstream_provider,
     by_model: :resolved_model,
     by_auth_mode: :auth_mode,
     by_account_generation: :account_generation,
@@ -281,8 +283,13 @@ defmodule Aiur.Usage.GroupedScopes do
       end)
 
     dims_buckets
+    |> Map.put(:by_provider_route, bucket(token_entries, money_entries, &provider_route/1, &provider_route/1))
     |> Map.put(:by_price_partition, bucket(token_entries, [], &price_partition/1, &skip/1))
     |> Map.put(:by_currency, by_currency(money_entries, totals.api_amount))
+  end
+
+  defp provider_route(%{dims: dims}) do
+    %{provider: dims.provider, upstream_provider: dims.upstream_provider}
   end
 
   defp price_partition(%{priced: {:ok, %{price_revision: revision}}}), do: revision
@@ -413,12 +420,13 @@ defmodule Aiur.Usage.GroupedScopes do
   end
 
   defp unknown_attribution(selected) do
-    Enum.reduce(selected, %{run_id: 0, ticket: 0, account_generation: 0, resolved_model: 0, pricing_date: 0}, fn
+    Enum.reduce(selected, %{run_id: 0, ticket: 0, account_generation: 0, upstream_provider: 0, resolved_model: 0, pricing_date: 0}, fn
       {{dims, _measure}, _value}, acc ->
         acc
         |> bump(:run_id, is_nil(dims.run_id))
         |> bump(:ticket, dims.ticket == :unknown)
         |> bump(:account_generation, is_nil(dims.account_generation))
+        |> bump(:upstream_provider, dims.provider == :openrouter and is_nil(dims.upstream_provider))
         |> bump(:resolved_model, is_nil(dims.resolved_model))
         |> bump(:pricing_date, is_nil(dims.pricing_date))
     end)
@@ -595,7 +603,7 @@ defmodule Aiur.Usage.GroupedScopes do
     %{
       selected_cells: 0,
       api_equivalent: %{known: 0, unknown: 0, reasons: [], status: :none},
-      unknown_attribution: %{run_id: 0, ticket: 0, account_generation: 0, resolved_model: 0, pricing_date: 0},
+      unknown_attribution: %{run_id: 0, ticket: 0, account_generation: 0, upstream_provider: 0, resolved_model: 0, pricing_date: 0},
       unknown_pricing_tokens: %{},
       projection: %{folded_records: 0, partial_records: 0, reasons: []},
       source: %{}
@@ -603,7 +611,7 @@ defmodule Aiur.Usage.GroupedScopes do
   end
 
   defp empty_contributors do
-    labels = Map.keys(@dims_dimensions) ++ [:by_price_partition, :by_currency]
+    labels = Map.keys(@dims_dimensions) ++ [:by_provider_route, :by_price_partition, :by_currency]
     Map.new(labels, fn label -> {label, []} end)
   end
 

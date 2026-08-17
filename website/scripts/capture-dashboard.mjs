@@ -18,10 +18,10 @@ const baseURL = `http://127.0.0.1:${port}`;
 
 const surfaces = [
   { name: "overview", path: "/", selector: ".dashboard-shell", clipHeight: 390 },
-  { name: "decision-inbox", path: "/decisions", selector: ".decision-inbox" },
+  { name: "decision-inbox", path: "/commands", selector: ".decision-inbox" },
   {
     name: "decision",
-    path: "/decisions/dec-example-blocking",
+    path: "/commands/dec-example-blocking",
     selector: ".decision-card.open",
     writable: true,
   },

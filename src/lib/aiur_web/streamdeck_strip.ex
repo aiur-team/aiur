@@ -12,6 +12,7 @@ defmodule AiurWeb.StreamdeckStrip do
   """
 
   alias AiurWeb.StreamdeckKeyFaceContract
+  alias AiurWeb.StreamdeckLogs
 
   @type hint :: %{label: String.t(), older?: boolean(), newer?: boolean()}
 
@@ -19,6 +20,7 @@ defmodule AiurWeb.StreamdeckStrip do
   @spec command(map()) :: map()
   def command(agent) when is_map(agent) do
     percent = agent |> Map.get(:progress_percent) |> percent()
+    freshness = progress_freshness(percent, Map.get(agent, :progress_freshness))
     bucket = Map.fetch!(agent, :bucket)
     state = StreamdeckKeyFaceContract.state!(bucket)
 
@@ -31,6 +33,7 @@ defmodule AiurWeb.StreamdeckStrip do
       status: state["label"],
       accent: state["accent"],
       percent: percent,
+      progress_freshness: freshness,
       progress_colour: progress_colour(percent)
     }
   end
@@ -83,11 +86,27 @@ defmodule AiurWeb.StreamdeckStrip do
     %{shape: :diff_line, line: line, line_kind: line_kind(line)}
   end
 
-  defp entry(%{kind: :message, role: role, body: body}) do
-    %{shape: :message, speaker: speaker(role), text: to_string(body)}
+  defp entry(%{kind: :message} = message) do
+    role = Map.get(message, :role, "system")
+    body = to_string(Map.get(message, :body, ""))
+
+    %{
+      shape: :message,
+      # `row_kind` and `glyph` come from the StreamdeckLogs projection (so the
+      # emulator and the device DTO agree); the fallbacks let a raw transcript
+      # entry still render standalone. `display_body/2` strips the verb prefix
+      # for tool rows and is idempotent, so a projection body already stripped
+      # is unchanged.
+      kind: Map.get(message, :row_kind, StreamdeckLogs.row_kind(role)),
+      glyph: Map.get(message, :glyph, StreamdeckLogs.glyph(role, body)),
+      text: Map.get(message, :text, display_body(role, body)) |> to_string()
+    }
   end
 
-  defp entry(_entry), do: %{shape: :message, speaker: :ci, text: ""}
+  defp entry(_entry), do: %{shape: :message, kind: :logs, glyph: nil, text: ""}
+
+  defp display_body(role, body) when role in ["tool", :tool], do: StreamdeckLogs.tool_display(body)
+  defp display_body(_role, body), do: body
 
   # `nil` means the orchestrator has no progress reading for this agent, and the
   # strip says so rather than inventing a zero. The key face for the same agent
@@ -99,6 +118,10 @@ defmodule AiurWeb.StreamdeckStrip do
 
   defp progress_colour(nil), do: nil
   defp progress_colour(percent), do: StreamdeckKeyFaceContract.progress_color(percent)
+
+  defp progress_freshness(nil, _freshness), do: :unknown
+  defp progress_freshness(_percent, freshness) when freshness in [:stale, "stale"], do: :stale
+  defp progress_freshness(_percent, _freshness), do: :fresh
 
   # Glyphs are the strip's own affordance; the wording beside them is the
   # contract's `label`, so nothing here restates a state name.
@@ -115,11 +138,6 @@ defmodule AiurWeb.StreamdeckStrip do
       _ -> nil
     end
   end
-
-  defp speaker(role) when role in ["assistant", :assistant], do: :agent
-  defp speaker(role) when role in ["tool", :tool], do: :tool
-  defp speaker(role) when role in ["user", :user], do: :you
-  defp speaker(_role), do: :ci
 
   defp line_kind("+" <> _line), do: :addition
   defp line_kind("-" <> _line), do: :deletion

@@ -51,6 +51,7 @@ defmodule AiurWeb.Presenter do
       capacity: capacity_payload(Map.get(snapshot, :capacity)),
       capacity_hold: capacity_hold_payload(Map.get(snapshot, :capacity_hold)),
       dispatch_hold: dispatch_hold_payload(Map.get(snapshot, :dispatch_hold)),
+      polling: polling_payload(Map.get(snapshot, :polling)),
       globally_paused: globally_paused
     }
 
@@ -67,6 +68,12 @@ defmodule AiurWeb.Presenter do
   end
 
   defp public_global_pause(_), do: %{globally_paused: false, paused_at: nil, source: nil}
+
+  defp polling_payload(%{} = polling) do
+    Map.take(polling, [:checking?, :next_poll_in_ms, :poll_interval_ms, :effective_interval_ms, :idle_backoff])
+  end
+
+  defp polling_payload(_polling), do: nil
 
   defp auxiliary_payload(opts) do
     %{
@@ -419,7 +426,8 @@ defmodule AiurWeb.Presenter do
     %{
       decision: Map.get(result, :decision),
       pr_number: Map.get(result, :pr_number),
-      head_sha: Map.get(result, :head_sha)
+      head_sha: Map.get(result, :head_sha),
+      draft?: Map.get(result, :draft?) == true
     }
   end
 

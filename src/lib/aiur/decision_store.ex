@@ -300,6 +300,29 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, :retained_counts)
   end
 
+  @doc """
+  Returns the set of ticket identifiers that currently have an open blocking
+  Command, from one serialized store snapshot.
+
+  A Decision gates dispatch when it is both `blocking` and still open or
+  deferred (the operator has not chosen the next action, so dispatching the
+  ticket would duplicate or contradict that pending choice — #1965). Internal
+  delivery/persistence alerts are deliberately excluded, mirroring
+  `Aiur.DecisionStore.RetainedIndex.operator_command?/1`, so an operational
+  failure notice never becomes a second operator-facing block.
+
+  Fail-closed callers treat `{:error, :store_unavailable}` as *unknown* and
+  hold dispatch: an open blocking Command is indistinguishable from an empty
+  store when the store cannot be read.
+  """
+  @spec blocked_ticket_ids(GenServer.server()) ::
+          {:ok, MapSet.t(String.t())} | {:error, :store_unavailable}
+  def blocked_ticket_ids(server \\ __MODULE__) do
+    GenServer.call(server, :blocked_ticket_ids)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
   @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
   @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
   def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
@@ -863,6 +886,21 @@ defmodule Aiur.DecisionStore do
     {:reply, RetainedSnapshot.counts(state.retained_index, state.health), state}
   end
 
+  def handle_call(:blocked_ticket_ids, _from, state) do
+    if readable?(state.health) do
+      ids =
+        state.current
+        |> Map.values()
+        |> Enum.filter(&open_blocking_command?/1)
+        |> Enum.map(& &1.ticket.identifier)
+        |> MapSet.new()
+
+      {:reply, {:ok, ids}, state}
+    else
+      {:reply, {:error, :store_unavailable}, state}
+    end
+  end
+
   def handle_call({:recent_decisions, limit}, _from, state) do
     decisions = take_indexed_decisions(state.decision_index, state.current, limit)
     {:reply, decisions, state}
@@ -1299,6 +1337,34 @@ defmodule Aiur.DecisionStore do
   # custom response) is what actually releases the agent.
   defp unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
   defp unresolvable_block?(_decision), do: false
+
+  # Mirrors `RetainedIndex.readable?/1`: a corrupt store still serves its
+  # validated-prefix projection for reads, while an unavailable/repair-failed
+  # store cannot be trusted. `blocked_ticket_ids/1` relies on this so a
+  # genuinely-unavailable store fails closed instead of reading an empty
+  # `current` as "no blocking Commands".
+  defp readable?(:writable), do: true
+  defp readable?({:corrupt, _line, _reason}), do: true
+  defp readable?(_health), do: false
+
+  # An open (`:open` or `:deferred`) blocking Command gates its ticket's
+  # dispatch. Internal delivery/persistence alerts are operational notices
+  # about an existing Command, not operator-facing blocks, so they are excluded
+  # exactly as in `RetainedIndex.operator_command?/1`.
+  defp open_blocking_command?(%Decision{
+         decision_status: status,
+         blocking: true,
+         legacy_attention: %{slug: slug}
+       })
+       when status in [:open, :deferred] do
+    not String.starts_with?(slug, ["decision-delivery-", "decision-lifecycle-persistence-"])
+  end
+
+  defp open_blocking_command?(%Decision{decision_status: status, blocking: true})
+       when status in [:open, :deferred],
+       do: true
+
+  defp open_blocking_command?(%Decision{}), do: false
 
   defp persist_dismissal(decision, actor, state) do
     case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do

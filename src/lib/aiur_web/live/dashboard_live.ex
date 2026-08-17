@@ -1211,6 +1211,7 @@ defmodule AiurWeb.DashboardLive do
   # prediction are both stale until the poller catches up. Ask it to re-read now.
   defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
     OpenTicketSource.refresh()
+    Aiur.Orchestrator.request_refresh(capacity_orchestrator())
     reload_after_action(socket)
   rescue
     _error -> socket

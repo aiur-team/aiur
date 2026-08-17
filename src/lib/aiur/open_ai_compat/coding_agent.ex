@@ -144,8 +144,23 @@ defmodule Aiur.OpenAICompat.CodingAgent do
       end
     else
       {:paused, payload} -> {:paused, state, payload}
+      {:error, :rate_limited} -> {:paused, state, usage_limit_pause(state)}
       {:error, reason} -> {:error, state, reason}
     end
+  end
+
+  # A 429 is a quota event, and quota events have a home: the
+  # `usage_limit_exhausted` pause, which records the backend in
+  # `model-usage.json` with its reset and raises the existing quota alert, so
+  # the next claim falls through to the next `agent.priority` route and
+  # self-heals when the window rolls. Previously an OpenAI-compatible backend
+  # surfaced 429 as an anonymous error, so an exhausted account was never
+  # recorded and the fallback order never engaged for these backends at all
+  # (#1923). Every other transport failure keeps its reason untouched and is
+  # classified for disposition by `Aiur.CodingAgent.RouteFailure` at the alert
+  # layer — in particular a transient outage is never written to the ledger.
+  defp usage_limit_pause(state) do
+    %{kind: :usage_limit_exhausted, reason: :usage_limit_exhausted, backend: Map.get(state.config, :backend)}
   end
 
   defp finish_or_continue(state, completion, opts, rounds) do
@@ -251,13 +266,15 @@ defmodule Aiur.OpenAICompat.CodingAgent do
         request_id: completion.id,
         model: completion.model,
         provider: completion.provider,
+        upstream_provider: Map.get(completion, :upstream_provider),
         account_generation: account_generation,
         usage: completion.usage,
         payload: %{
           "usage" => completion.usage,
           "request_id" => completion.id,
           "model" => completion.model,
-          "provider" => completion.provider
+          "provider" => completion.provider,
+          "upstream_provider" => Map.get(completion, :upstream_provider)
         }
       })
     end

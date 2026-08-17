@@ -144,6 +144,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
       role_label: role_label(role),
       title: message_title(message, role),
       body: body,
+      complete?: Map.get(message, :complete?, true) == true,
       occurred_at: datetime(Map.get(message, :occurred_at)),
       observed_at: datetime(Map.get(message, :observed_at))
     }

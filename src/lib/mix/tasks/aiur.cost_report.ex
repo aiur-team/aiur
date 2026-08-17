@@ -1,17 +1,17 @@
 defmodule Mix.Tasks.Aiur.CostReport do
   use Mix.Task
 
-  alias Aiur.{Config, TrackerIdentity}
+  alias Aiur.{CodingAgent, Config, TrackerIdentity}
   alias Aiur.RunTelemetry.Summaries
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate.{Checkpoint, Projection}
 
-  @shortdoc "Print spend by model, agent family, and ticket from the usage aggregate"
+  @shortdoc "Print spend by model, provider route, agent family, and ticket"
   @requirements []
 
   @moduledoc """
-  # Spend by model, agent family, and ticket
+  # Spend by model, provider route, agent family, and ticket
 
   Pure wiring over `UsageAggregate` + `PriceTable` — needs no new recording. It
   reads the crash-safe aggregate projection checkpoint and re-prices the
@@ -273,6 +273,8 @@ defmodule Mix.Tasks.Aiur.CostReport do
     ]
 
     lines = lines ++ model_lines(snapshot)
+    lines = lines ++ ["", "Spend by provider route:", ""]
+    lines = lines ++ provider_route_lines(snapshot)
     lines = lines ++ ["", "Spend by agent family:", ""]
     lines = lines ++ agent_lines(snapshot)
     lines = lines ++ ["", "Spend by ticket:", ""]
@@ -289,6 +291,7 @@ defmodule Mix.Tasks.Aiur.CostReport do
   defp format_scope(_scope), do: "current run"
 
   defp model_lines(snapshot), do: dimension_lines(get_in(snapshot, [:contributors, :by_model]))
+  defp provider_route_lines(snapshot), do: route_dimension_lines(get_in(snapshot, [:contributors, :by_provider_route]))
   defp agent_lines(snapshot), do: dimension_lines(get_in(snapshot, [:contributors, :by_agent_family]))
   defp ticket_lines(snapshot), do: dimension_lines(get_in(snapshot, [:contributors, :by_ticket]))
 
@@ -307,6 +310,39 @@ defmodule Mix.Tasks.Aiur.CostReport do
     token_count = token_total(tokens)
     "  #{pad(key)} #{formatted}   (#{token_count} tokens)"
   end
+
+  defp route_dimension_lines(nil), do: ["  (none recorded)"]
+  defp route_dimension_lines([]), do: ["  (none recorded)"]
+  defp route_dimension_lines(entries), do: Enum.map(entries, &route_dimension_line/1)
+
+  defp route_dimension_line(%{key: route} = entry) do
+    entry
+    |> Map.put(:key, provider_route_label(route))
+    |> dimension_line()
+  end
+
+  defp provider_route_label(%{provider: provider, upstream_provider: upstream})
+       when is_binary(upstream),
+       do: "#{provider_label(provider)} -> #{upstream}"
+
+  defp provider_route_label(%{provider: provider, upstream_provider: nil})
+       when provider in [:openrouter, "openrouter"],
+       do: "OpenRouter -> upstream unknown"
+
+  defp provider_route_label(%{provider: provider}), do: provider_label(provider)
+  defp provider_route_label(_route), do: "Unknown"
+
+  defp provider_label(provider) when is_atom(provider) or is_binary(provider) do
+    case CodingAgent.provider_descriptor(provider) do
+      %{label: label} -> label
+      _unknown -> fallback_provider_label(provider)
+    end
+  end
+
+  defp provider_label(_provider), do: "Unknown"
+
+  defp fallback_provider_label(provider) when is_atom(provider), do: provider |> to_string() |> String.capitalize()
+  defp fallback_provider_label(provider) when is_binary(provider), do: provider
 
   # Sums the canonical token dimensions (never the provider-reported total,
   # which would double count the other dimensions).

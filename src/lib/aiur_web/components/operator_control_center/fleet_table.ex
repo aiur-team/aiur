@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview}
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, Overview}
 
   attr(:fleet, :map, required: true)
   attr(:decisions, :list, default: [])
@@ -72,7 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                 <div class="fleet-actions">
                   <.link
                     :if={decision_id = @decision_links[row.issue_identifier]}
-                    patch={"/decisions/#{decision_id}"}
+                    patch={DecisionPath.detail(decision_id, :all)}
                     class="fleet-action decision"
                     title="Open pending Command"
                     aria-label="Open pending Command"
@@ -160,9 +160,11 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
   defp waiting_chip_class(:unresponsive), do: "chip blocking"
   defp waiting_chip_class(_reason), do: "chip attention"
 
-  defp ci_review(%{ci: %{decision: decision, pr_number: number}, review: review}) do
+  defp ci_review(%{ci: %{decision: decision, pr_number: number} = ci, review: review}) do
     prefix = if number, do: "PR ##{number}", else: "CI"
-    "#{prefix} #{humanize(decision)} · #{review_label(review)}"
+    draft_marker = if Map.get(ci, :draft?), do: "DRAFT ", else: ""
+
+    "#{prefix} #{draft_marker}#{humanize(decision)} · #{review_label(review)}"
   end
 
   defp ci_review(%{review: review}), do: review_label(review)

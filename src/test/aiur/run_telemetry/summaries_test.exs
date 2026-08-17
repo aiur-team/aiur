@@ -12,6 +12,11 @@ defmodule Aiur.RunTelemetry.SummariesTest do
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-summaries-#{System.unique_integer([:positive])}")
+    # These two are application-global. Without restoring them, every later
+    # sync test in the same partition inherits a deleted tmp root and this
+    # file's analytics repo slug.
+    prior_repo_base_root = Application.fetch_env(:aiur, :repo_base_root)
+    prior_analytics_repo = Application.fetch_env(:aiur, :analytics_repo)
     Application.put_env(:aiur, :repo_base_root, root)
     Application.put_env(:aiur, :analytics_repo, "aiur-team/aiur")
     # Pin the "live" boot id so the current-boot raw read is deterministic.
@@ -21,6 +26,8 @@ defmodule Aiur.RunTelemetry.SummariesTest do
     on_exit(fn ->
       File.rm_rf!(root)
       restore_run_id(prior_run_id)
+      restore_env(:repo_base_root, prior_repo_base_root)
+      restore_env(:analytics_repo, prior_analytics_repo)
     end)
 
     :ok
@@ -28,6 +35,9 @@ defmodule Aiur.RunTelemetry.SummariesTest do
 
   defp restore_run_id(:unset), do: :persistent_term.erase({Aiur.Boot, :run_id})
   defp restore_run_id(value), do: :persistent_term.put({Aiur.Boot, :run_id}, value)
+
+  defp restore_env(key, :error), do: Application.delete_env(:aiur, key)
+  defp restore_env(key, {:ok, value}), do: Application.put_env(:aiur, key, value)
 
   defp seed_state_node do
     node = Summaries.state_node()

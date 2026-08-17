@@ -60,7 +60,7 @@ describe("key-face contract parity", () => {
     expect(bucketContract(bucket).rank).toBe(vector.rank);
   });
 
-  it.each(vectors.progress)("maps $percent%% progress to the parity-table hue", (vector) => {
+  it.each(vectors.progress)("maps $percent%% progress to the parity-table colour", (vector) => {
     expect(progressBarColor(vector.percent)).toBe(vector.color);
   });
 
@@ -102,7 +102,8 @@ describe("key-face contract parity", () => {
     const nonNumericRank = { ...KEY_FACE_CONTRACT, states: { ...KEY_FACE_CONTRACT.states, running: { ...KEY_FACE_CONTRACT.states.running, rank: "two" } } };
     const infiniteRank = { ...KEY_FACE_CONTRACT, states: { ...KEY_FACE_CONTRACT.states, running: { ...KEY_FACE_CONTRACT.states.running, rank: Infinity } } };
     const zeroRange = { ...KEY_FACE_CONTRACT, progress: { ...KEY_FACE_CONTRACT.progress, maximum: 0 } };
-    const invalidPrecision = { ...KEY_FACE_CONTRACT, progress: { ...KEY_FACE_CONTRACT.progress, round_decimals: -1 } };
+    const invalidFill = { ...KEY_FACE_CONTRACT, progress: { ...KEY_FACE_CONTRACT.progress, fill: "" } };
+    const invalidCompleteFill = { ...KEY_FACE_CONTRACT, progress: { ...KEY_FACE_CONTRACT.progress, complete_fill: "" } };
     const invalidReadyWhen = { ...KEY_FACE_CONTRACT, footers: { ...KEY_FACE_CONTRACT.footers, queued: { ...KEY_FACE_CONTRACT.footers.queued, ready_when: "true" } } };
 
     expect(() => assertKeyFaceContract(missingState as typeof KEY_FACE_CONTRACT)).toThrow("key-face states must handle exactly");
@@ -111,7 +112,8 @@ describe("key-face contract parity", () => {
     expect(() => assertKeyFaceContract(nonNumericRank as unknown as typeof KEY_FACE_CONTRACT)).toThrow("state running rank must be a finite number");
     expect(() => assertKeyFaceContract(infiniteRank as typeof KEY_FACE_CONTRACT)).toThrow("state running rank must be a finite number");
     expect(() => assertKeyFaceContract(zeroRange as typeof KEY_FACE_CONTRACT)).toThrow("progress maximum must exceed minimum");
-    expect(() => assertKeyFaceContract(invalidPrecision as typeof KEY_FACE_CONTRACT)).toThrow("progress round_decimals must be a non-negative integer");
+    expect(() => assertKeyFaceContract(invalidFill as typeof KEY_FACE_CONTRACT)).toThrow("progress fill must be a non-empty string");
+    expect(() => assertKeyFaceContract(invalidCompleteFill as typeof KEY_FACE_CONTRACT)).toThrow("progress complete_fill must be a non-empty string");
     expect(() => assertKeyFaceContract(invalidReadyWhen as unknown as typeof KEY_FACE_CONTRACT)).toThrow("queued footer ready_when must be a boolean");
   });
 });

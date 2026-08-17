@@ -399,7 +399,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         retained_counts: %{open: 0, blocking: 0, awaiting: 0, awaiting_blocking: 0, health: %{status: :available}}
       })
 
-    assert html =~ ~s(href="/decisions")
+    assert html =~ ~s(href="/commands")
     assert html =~ "1 unit awaiting commands"
     refute empty_html =~ "decisions-banner"
   end
@@ -434,6 +434,43 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     # them has a priority overview to fall back to. A degraded surface that
     # names a wrong reason is worse than one that only says the number is gone.
     refute html =~ "priority overview"
+  end
+
+  test "surfaces DRAFT so a draft PR is never indistinguishable from a blocked one" do
+    fleet = %{
+      running: [
+        fleet_row("AIUR-42", :active,
+          title: "Drafting ticket",
+          state: "human-review",
+          review: :awaiting,
+          ci: %{decision: :passed, pr_number: 77, head_sha: "head-77", draft?: true}
+        )
+      ],
+      retrying: [],
+      idle: []
+    }
+
+    html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    assert html =~ "PR #77"
+    assert html =~ "DRAFT"
+    assert html =~ "Review awaiting"
+
+    ready_fleet = put_in(fleet, [:running, Access.at(0), :ci, :draft?], false)
+
+    ready_html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: ready_fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    refute ready_html =~ "DRAFT"
   end
 
   defp fleet_row(identifier, waiting_reason, attrs \\ []) do
