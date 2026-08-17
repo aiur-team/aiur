@@ -92,8 +92,28 @@ defmodule Aiur.Memory.Tracker do
 
   @spec remove_label(String.t(), String.t()) :: :ok | {:error, term()}
   def remove_label(issue_id, label) do
+    remove_configured_label(issue_id, label)
     send_event({:memory_tracker_remove_label, issue_id, label})
     :ok
+  end
+
+  defp remove_configured_label(issue_id, label) do
+    issues =
+      Enum.map(configured_issues(), fn
+        %Issue{} = issue -> remove_issue_label(issue, issue_id, label)
+        other -> other
+      end)
+
+    Application.put_env(:aiur, :memory_tracker_issues, issues)
+  end
+
+  defp remove_issue_label(issue, issue_id, label) do
+    if Issue.identifier_matches?(issue.id, issue.identifier, issue_id) do
+      labels = Enum.reject(issue.labels, &(&1 == label))
+      %{issue | labels: labels, paused: issue.paused and not String.ends_with?(label, ":paused")}
+    else
+      issue
+    end
   end
 
   defp configured_issues do

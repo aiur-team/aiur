@@ -37,26 +37,62 @@ defmodule Aiur.Orchestrator.Reconciler do
   @spec refresh_running_issue_states(State.t()) :: State.t()
   def refresh_running_issue_states(%State{} = state) do
     running_ids = Map.keys(state.running)
+    refresh_running_issue_ids(state, running_ids, "running", &Tracker.fetch_issue_states_by_ids/1)
+  end
 
-    if running_ids == [] do
-      state
-    else
-      case Tracker.fetch_issue_states_by_ids(running_ids) do
-        {:ok, issues} ->
-          issues
-          |> reconcile_running_issue_states(
-            state,
-            DispatchPolicy.active_state_set(),
-            DispatchPolicy.terminal_state_set()
-          )
-          |> reconcile_missing_running_issue_ids(running_ids, issues)
+  @spec refresh_running_issue_states(State.t(), [Issue.t()]) :: State.t()
+  def refresh_running_issue_states(%State{} = state, candidate_issues)
+      when is_list(candidate_issues) do
+    refresh_running_issue_states(state, candidate_issues, &Tracker.fetch_issue_states_by_ids/1)
+  end
 
-        {:error, reason} ->
-          Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
+  @doc false
+  @spec refresh_running_issue_states(State.t(), [Issue.t()], ([String.t()] -> {:ok, [Issue.t()]} | {:error, term()})) ::
+          State.t()
+  def refresh_running_issue_states(%State{} = state, candidate_issues, fetch_fun)
+      when is_list(candidate_issues) and is_function(fetch_fun, 1) do
+    running_ids = Map.keys(state.running)
+    running_id_set = MapSet.new(running_ids)
 
-          state
-      end
+    visible_running_issues =
+      Enum.filter(candidate_issues, fn
+        %Issue{id: issue_id} -> MapSet.member?(running_id_set, issue_id)
+        _ -> false
+      end)
+
+    visible_running_ids = MapSet.new(visible_running_issues, & &1.id)
+    missing_ids = Enum.reject(running_ids, &MapSet.member?(visible_running_ids, &1))
+
+    state = reconcile_running_issue_states(visible_running_issues, state)
+    refresh_running_issue_ids(state, missing_ids, "missing running", fetch_fun)
+  end
+
+  defp refresh_running_issue_ids(state, [], _context, _fetch_fun), do: state
+
+  defp refresh_running_issue_ids(state, issue_ids, context, fetch_fun) do
+    case fetch_fun.(issue_ids) do
+      {:ok, issues} ->
+        issues
+        |> reconcile_running_issue_states(
+          state,
+          DispatchPolicy.active_state_set(),
+          DispatchPolicy.terminal_state_set()
+        )
+        |> reconcile_missing_running_issue_ids(issue_ids, issues)
+
+      {:error, reason} ->
+        issue_context = refresh_issue_context(state, issue_ids)
+
+        Logger.debug("Failed to refresh #{context} issue states for #{inspect(issue_context)}: #{inspect(reason)}; keeping active workers")
+
+        state
     end
+  end
+
+  defp refresh_issue_context(state, issue_ids) do
+    Enum.map(issue_ids, fn issue_id ->
+      {issue_id, get_in(state.running, [issue_id, :identifier])}
+    end)
   end
 
   @spec reconcile_running_issue_states([Issue.t()], State.t()) :: State.t()
