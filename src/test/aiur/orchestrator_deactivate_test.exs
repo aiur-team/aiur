@@ -1,9 +1,9 @@
 defmodule Aiur.OrchestratorDeactivateTest do
   use Aiur.TestSupport
 
-  alias Aiur.AgentResourceGuard
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
+  alias Aiur.AgentResourceGuard
   alias Aiur.CIApprovalStore
   alias Aiur.Events.{BranchRefStore, Exchange, Publisher, SubscriptionStore}
   alias Aiur.GitHub.CodeOwners
