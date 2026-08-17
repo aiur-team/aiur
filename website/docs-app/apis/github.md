@@ -79,8 +79,10 @@ agent dispatch.
 
 ### Where the budget went
 
-The meters above say how much is left. `aiur github-cost` says which code path
-spent it, ranked by points and by points per hour, for one budget at a time.
+The meters above say how much is left.
+
+`aiur github-cost` says which code path spent it, ranked by points and by points
+per hour, for one budget at a time.
 
 | Column | What it means |
 | --- | --- |
