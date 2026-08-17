@@ -12,8 +12,8 @@ defmodule Aiur.ExecutorListener do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Executor.StatePaths
   alias Aiur.Events.{Exchange, Topic}
+  alias Aiur.Executor.StatePaths
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
@@ -43,6 +43,7 @@ defmodule Aiur.ExecutorListener do
 
   @impl true
   def init(opts) do
+    StatePaths.ensure()
     if Keyword.get(opts, :reconcile?, true), do: ExecutorBindings.reconcile()
 
     patterns = Keyword.get(opts, :patterns, ExecutorBindings.patterns())

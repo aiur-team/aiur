@@ -168,6 +168,9 @@ defmodule Aiur.Application do
     # own pair against their own isolated state directory.
     recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
 
+    recording_children =
+      if recording?, do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener], else: []
+
     cli_children =
       if interactive_cli? do
         [
@@ -289,9 +292,7 @@ defmodule Aiur.Application do
       # Publisher they subscribe to, so they sit at the end of the always-on
       # block. `Claims` starts first: it arbitrates who may advance the shared
       # cursor the inbox owns.
-      Aiur.Executor.Claims,
-      if(recording?, do: Aiur.ExecutorWakeInbox),
-      if(recording?, do: Aiur.ExecutorListener),
+      recording_children,
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
@@ -304,6 +305,7 @@ defmodule Aiur.Application do
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor
     ]
+    |> List.flatten()
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
   end

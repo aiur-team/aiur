@@ -5,6 +5,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
   require Logger
 
+  alias Aiur.Alerts
   alias Aiur.DecisionLog
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
@@ -28,32 +29,32 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   @doc """
-  Advances the shared cursor past `records`.
+  Advances the shared cursor past `records`, with **no ownership check**.
 
-  Only the leased owner may do this. A non-owner is refused with
-  `{:error, {:not_owner, owner}}` so two consumers cannot silently split the
-  stream between them; a non-owner reads through `wait/2` or `pending/1`
-  instead, which never move the cursor.
+  Internal and test use only. Every consumer path must go through
+  `acknowledge_as/3`, which is the only form that respects the lease; calling
+  this directly bypasses the lease entirely and lets two consumers split the
+  stream between them.
   """
   @spec acknowledge([map()], GenServer.server()) :: :ok
   def acknowledge(records, server \\ __MODULE__) when is_list(records), do: GenServer.call(server, {:acknowledge, records})
 
+  @doc """
+  Advances the shared cursor on behalf of the leased owner.
+
+  A non-owner is refused with `{:error, {:not_owner, owner}}` and the cursor
+  does not move, so two consumers cannot silently split the stream; a non-owner
+  reads through `wait/2` or `pending/1` instead, which never move the cursor.
+
+  The ownership check and the cursor advance happen in one call, inside the
+  claim store's lock, so a revoke or an expiry cannot land between them. It also
+  writes the roster's consumption evidence: `last_acknowledged_at` has to come
+  from the path that actually consumes, or the real consumer looks permanently
+  `unknown` while a stalled one looks identical.
+  """
   @spec acknowledge_as(String.t(), [map()], GenServer.server()) :: :ok | {:error, term()}
   def acknowledge_as(consumer_id, records, server \\ __MODULE__) when is_binary(consumer_id) and is_list(records) do
-    case Claims.owner() do
-      {:ok, %{"id" => ^consumer_id}} -> acknowledge_as_owner(consumer_id, records, server)
-      {:ok, owner} -> {:error, {:not_owner, owner}}
-      :none -> {:error, {:not_owner, nil}}
-    end
-  end
-
-  # The roster's whole value rests on `last_acknowledged_at` being written by the
-  # path that actually consumes. Recording it anywhere else would leave the real
-  # consumer looking permanently unknown while a stalled one looked the same.
-  defp acknowledge_as_owner(consumer_id, records, server) do
-    :ok = acknowledge(records, server)
-    _entry = Claims.record_acknowledgement(consumer_id, cursor(server))
-    :ok
+    GenServer.call(server, {:acknowledge_as, consumer_id, records})
   end
 
   @spec pending(GenServer.server()) :: [map()]
@@ -70,6 +71,8 @@ defmodule Aiur.ExecutorWakeInbox do
     cursor_path = Keyword.get(opts, :cursor_path, cursor_path())
     pending_path = Keyword.get(opts, :pending_path, pending_path())
     max_records = Keyword.get(opts, :max_records, Application.get_env(:aiur, :executor_wake_max_records, @default_max_records))
+
+    StatePaths.ensure()
 
     with :ok <- DecisionLog.prepare(Path.dirname(path), path),
          {:ok, pending} <- read_pending(pending_path),
@@ -132,6 +135,20 @@ defmodule Aiur.ExecutorWakeInbox do
     :ok = advance_cursor(state.cursor_path, records)
     trim_consumed(state)
     {:reply, :ok, state}
+  end
+
+  def handle_call({:acknowledge_as, consumer_id, records}, _from, state) do
+    highest = records |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> read_cursor(state.cursor_path) end)
+
+    case Claims.record_acknowledgement(consumer_id, highest) do
+      {:ok, _entry} ->
+        :ok = advance_cursor(state.cursor_path, records)
+        trim_consumed(state)
+        {:reply, :ok, state}
+
+      {:error, _reason} = error ->
+        {:reply, error, state}
+    end
   end
 
   def handle_call(:cursor, _from, state), do: {:reply, read_cursor(state.cursor_path), state}
@@ -371,12 +388,12 @@ defmodule Aiur.ExecutorWakeInbox do
       consumed_limit = max(state.max_records - length(retained_unread), 0)
       retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
 
-      report_dropped_unread(state, unread -- retained_unread)
-
       if length(retained) < length(records) do
         contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
         _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
       end
+
+      report_dropped_unread(state, unread -- retained_unread)
     end
 
     :ok
@@ -388,12 +405,31 @@ defmodule Aiur.ExecutorWakeInbox do
     ids = Enum.map(dropped, & &1["wake_id"])
     :ok = advance_cursor(state.cursor_path, dropped)
 
+    message =
+      "Executor wake ledger overflowed its #{state.max_records}-record bound; " <>
+        "#{length(dropped)} unread wakes (ids #{Enum.min(ids)}-#{Enum.max(ids)}) were evicted and will never be delivered."
+
     Logger.warning(
       "aiur_executor_wake_inbox phase=unread_evicted count=#{length(dropped)} " <>
         "first_wake_id=#{Enum.min(ids)} last_wake_id=#{Enum.max(ids)} max_records=#{state.max_records}"
     )
 
+    safe_overflow_alert(message)
+  end
+
+  # Losing a wake is exactly the class of event an operator must be told about;
+  # a daemon log line is effectively silent. The alert never carries record
+  # content, only counts and ids, so the identifier-only boundary holds.
+  defp safe_overflow_alert(message) do
+    if Application.get_env(:aiur, :executor_wake_overflow_alerts?, true) do
+      _ = Alerts.emit_custom("executor.wakes.overflow", message, needs_attention: false, severity: "warning")
+    end
+
     :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   defp journal_path, do: StatePaths.wakes_path()
