@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     BuildOrder.ProviderHealth,
     BuildOrder.RootSummary,
     BuildOrder.SelectedRoot,
-    BuildOrder.TicketDetailCache,
+    BuildOrder.TicketDetailCoordinator,
     TrackerIdentity
   }
 
@@ -192,7 +192,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     {:ok, task_supervisor} = Task.Supervisor.start_link()
 
     {:ok, _cache} =
-      TicketDetailCache.start_link(
+      TicketDetailCoordinator.start_link(
         name: nil,
         task_supervisor: task_supervisor,
         configured_repo: @configured,
@@ -203,7 +203,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
         end
       )
 
-    assert :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.topic(root.identity))
+    assert :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCoordinator.topic(root.identity))
 
     catalog = Catalog.new([root], ProviderHealth.new(1, :healthy, true))
 

@@ -33,13 +33,16 @@ tracker:
     requests_per_minute: 120
     stagger_ms: 75
 build_order:
+  # Three settings are intentionally absent — graph_catalog_refresh_ms,
+  # graph_catalog_labels_refresh_ms and ticket_detail_freshness_ms. They derive
+  # from polling.interval_seconds, so they follow the tracker instead of going
+  # stale the next time it changes. Set one explicitly only to override that.
+  # A fourth and fifth, graph_selected_refresh_ms and graph_demand_refresh_ms,
+  # were deleted rather than retuned: they were how *viewing* bought GitHub
+  # reads. A selected root is now read when a writer or an explicit refresh asks
+  # for it, so holding the Build Order page open costs nothing.
   # Supervised configured-repository detail and sanitized typed-history providers.
   # Restart clears retained snapshots; selected tickets reload on demand.
-  ticket_detail_freshness_ms: 30000
-  graph_catalog_refresh_ms: 60000
-  graph_catalog_labels_refresh_ms: 600000
-  graph_selected_refresh_ms: 15000
-  graph_demand_refresh_ms: 5000
   graph_refresh_timeout_ms: 30000
   graph_max_selected_roots: 32
   graph_max_inflight: 4

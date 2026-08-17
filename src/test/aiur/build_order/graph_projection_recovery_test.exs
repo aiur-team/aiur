@@ -81,7 +81,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
                    2_000
   end
 
-  test "cold selected retry survives release, re-arms on demand, and recovers" do
+  test "cold selected retry survives release and recovers on an explicit refresh" do
     repository = repository()
     identity = identity(1, "I1", repository)
     clock = supervised_agent(%{now: @now, ms: 0})
@@ -91,6 +91,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
     failed_reader = await_reader({:selected, identity})
 
     finish(
@@ -122,11 +123,11 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
 
     assert next_retry_at == failed.health.next_retry_at
     rearmed = :sys.get_state(projection).selected[key]
-    assert is_reference(rearmed.timer)
+    assert rearmed.timer == nil
     refute_receive {:reader_started, {:selected, ^identity}, _reader}
 
     Agent.update(clock, fn _ -> %{now: DateTime.add(@now, 12, :second), ms: 12_000} end)
-    fire_timer(projection, rearmed, {:selected, identity})
+    :ok = GraphProjection.refresh(projection, identity)
     recovery_reader = await_reader({:selected, identity})
     recovered = selected(identity, repository)
     finish(recovery_reader, {:ok, ProviderResult.complete(recovered)})
@@ -136,6 +137,54 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
                      {:graph_projection_generation, %Snapshot{scope: {:selected, ^identity}, data: ^recovered}}
                    },
                    2_000
+  end
+
+  # A selected root has no cadence any more, so `reschedule_active_scopes/1` no
+  # longer re-arms one — and it runs on almost every message after cancelling
+  # every timer. A failed read's backoff timer therefore has to be restored
+  # explicitly, or the very next unrelated message silently throws away the only
+  # thing that would ever read that root again.
+  test "a failed selected read keeps its retry timer across unrelated messages" do
+    repository = repository()
+    identity = identity(1, "I1", repository)
+    clock = supervised_agent(%{now: @now, ms: 0})
+    {:ok, projection} = start_projection(repository, clock: clock)
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(identity, repository)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
+
+    finish(
+      await_reader({:selected, identity}),
+      {:error, ProviderResult.failed(:rate_limited, rate_limit: %{retry_after: 12})}
+    )
+
+    scope = {:selected, identity}
+    failure = :rate_limited
+
+    assert_receive {
+                     :projection_event,
+                     {:graph_projection_health, %Snapshot{scope: ^scope, health: %{failure: ^failure}}}
+                   },
+                   2_000
+
+    key = Policy.root_key(identity)
+    assert is_reference(:sys.get_state(projection).selected[key].timer)
+
+    # Any message at all reconciles, and reconciling cancels every timer. Three
+    # of them, so a single lucky ordering cannot make this pass.
+    for _ <- 1..3 do
+      assert %Snapshot{} = GraphProjection.catalog(projection)
+    end
+
+    retained = :sys.get_state(projection).selected[key]
+    assert is_reference(retained.timer)
+    assert DateTime.diff(retained.health.next_retry_at, @now, :second) == 12
+
+    # And it is still a retry, not a cadence: nothing is read before it is due.
+    refute_receive {:reader_started, {:selected, ^identity}, _reader}, 200
   end
 
   test "missing task supervisor reports bounded failure and recovers when the supervisor returns" do
@@ -196,11 +245,13 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
     assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
     first_reader = await_reader({:selected, first})
     assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, second)
+    :ok = GraphProjection.refresh(projection, second)
 
     for _ <- 1..3 do
-      assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, second)
+      :ok = GraphProjection.refresh(projection, second)
     end
 
     refute_receive {:reader_started, {:selected, ^second}, _reader}
@@ -299,8 +350,6 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
       call_budget: 4,
       options: [
         catalog_refresh_ms: Keyword.get(opts, :catalog_refresh_ms, 60_000),
-        selected_refresh_ms: 15_000,
-        demand_refresh_ms: 5_000,
         refresh_timeout_ms: 30_000,
         max_selected_roots: 4,
         max_inflight: Keyword.get(opts, :max_inflight, 4)

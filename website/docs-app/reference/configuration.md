@@ -500,19 +500,97 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `build_order.ticket_detail_freshness_ms` | integer | 30000 | Freshness window for cached ticket detail. |
+| `build_order.ticket_detail_freshness_ms` | integer | derived (¼ poll interval, min 5000) | Freshness window for ticket detail. |
 | `build_order.ticket_detail_max_entries` | integer | 32 | Maximum cached ticket-detail entries. |
 | `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Age after which ticket history is stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | 60000 | Catalog refresh cadence. |
-| `build_order.graph_catalog_labels_refresh_ms` | integer | 600000 | Cadence for the costlier catalog read that resolves epic and wave counts. |
-| `build_order.graph_selected_refresh_ms` | integer | 15000 | Selected Build Order refresh cadence. |
-| `build_order.graph_demand_refresh_ms` | integer | 5000 | Demand-driven selected-graph refresh cadence. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× poll interval) | Catalog refresh cadence. |
+| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
+
+### Two removed keys
+
+`build_order.graph_selected_refresh_ms` and `build_order.graph_demand_refresh_ms`
+no longer exist. They were the two settings by which *viewing* bought GitHub
+reads: the demand cadence fired when an operator selected a root, and the
+selected cadence repeated for as long as the page stayed open.
+
+No value makes that correct, because it makes API cost track how many people are
+looking rather than what has changed. They were removed rather than retuned.
+
+A selected root is now read when a writer asks for it — a webhook delivery, an
+agent mutation, or the daemon's own catalog reconciliation — or when something
+calls `Aiur.BuildOrder.GraphProjection.refresh/2` because it genuinely needs the
+data. Opening the Build Order page, selecting a root, and holding it open consume
+zero GitHub reads.
+
+A configuration that still sets either key keeps loading unchanged: unknown keys
+are ignored rather than rejected, so an upgrade gets the new behaviour instead of
+a boot failure.
+
+### Derived Build Order cadences
+
+Three of these keys have no fixed default. They are derived from
+`polling.interval_seconds`, and setting any of them explicitly overrides the
+derivation.
+
+Build Order displays state that the tracker produces, so it cannot be fresher
+than the tracker's own cycle. Refreshing faster only re-reads a graph that cannot
+have moved.
+
+The previous fixed defaults were chosen when the tracker polled every 5 seconds,
+and did not move when the tracker changed to 120 seconds. Deriving them is what
+stops that recurring.
+
+Each derivation, and the value it produces at the default poll interval:
+
+| Key | Derivation | At a 120s poll interval |
+| --- | --- | --- |
+| `graph_catalog_refresh_ms` | 1× poll interval | 120000 |
+| `graph_catalog_labels_refresh_ms` | 5× poll interval, floor 600000, never below `graph_catalog_refresh_ms` | 600000 |
+| `ticket_detail_freshness_ms` | ¼ poll interval, floor 5000 | 30000 |
+
+`graph_catalog_labels_refresh_ms` covers the 26-point catalog variant, so it is
+the slowest of the three, and it can never fall below the catalog cadence it
+rides on — a labels read that outran the catalog poll would make every poll buy
+the expensive query.
+
+`ticket_detail_freshness_ms` is not a cadence: nothing fires on it. It is the
+staleness a ticket-detail reader accepts from the shared store before
+revalidating, and it is allowed to be tighter than the graph cadences because it
+is the only one of the three backed by a REST read — so the only one whose
+refresh can be a free `304` rather than a paid query.
+
+### What these cadences cost
+
+GitHub's GraphQL API sends no `ETag`, no `Last-Modified` and no `Cache-Control`,
+and every query is a `POST`. There is no conditional request to make, so no
+GraphQL read below can ever return `304`, however it is written.
+
+What that leaves is **how often a query runs**, which is where almost all of the
+cost is.
+
+GitHub's point cost is `round(connection_requests / 100)`, with a minimum of one
+point. Anything below roughly 150 connection requests therefore costs exactly one
+point, however much it asks for.
+
+Size is not free above that threshold, but the lever is small: measured, a
+54-member Build Order root costs 3 points at the shipped 100-per-page and 2 at
+54-per-page. Running a query less often is worth far more than making it leaner.
+
+Measured against `aiur-team/aiur` with GitHub's own `rateLimit { cost }`:
+
+| Read | Protocol | Cost | Revalidation |
+| --- | --- | --- | --- |
+| `AiurBuildOrderCatalog` (cheap) | GraphQL | 1 point/page | Not possible |
+| `AiurBuildOrderCatalog` (labelled) | GraphQL | 26 points/page | Not possible |
+| `AiurBuildOrderSelectedRoot` (54 members) | GraphQL | 3 points/page, per selected root | Not possible |
+| `AiurLinkedPullRequests` | GraphQL | 1 point | Not possible |
+| `GET /repos/{owner}/{repo}/issues/{number}` | REST | 1 REST request | **`304`, which costs no primary rate limit** |
 
 ## Resolution & validation notes
 
