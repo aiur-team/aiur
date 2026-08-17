@@ -323,7 +323,15 @@ if [ "${1:-}" = api ] && [ "$api_paginated" -eq 0 ]; then
   if [ "$direct_issue_api" -eq 0 ]; then
     direct_endpoint=$(api_command_endpoint "$@") || direct_endpoint=
     case "$direct_endpoint" in
-      *repos/*/*/issues|*repos/*/*/issues?*)
+      # The collection endpoint, optionally with a trailing slash, query string,
+      # or fragment. `?` is escaped so it matches a literal `?`: unescaped it is
+      # a glob wildcard, which made this arm claim every issue *subresource*
+      # too — `issues/comments/<id>` most visibly, so an agent could not PATCH
+      # its own workpad comment and was told to run `gh issue create` instead.
+      # The #1793 guard is about creating issues, not about editing one.
+      *repos/*/*/issues|*repos/*/*/issues/|\
+      *repos/*/*/issues\?*|*repos/*/*/issues/\?*|\
+      *repos/*/*/issues#*|*repos/*/*/issues/#*)
         direct_method=
         direct_payload=0
         direct_method_expected=0
@@ -1290,6 +1298,39 @@ secondary_delay_ms() {
 now=$(date -u +%s)
 hold_until=0
 
+# A truncating `>` redirect leaves the hold file empty between truncate and
+# write. A concurrent reader sampling it in that gap sees no hold, `consider_hold`
+# bails, and the call goes out during an exhausted window. Writing to a sibling
+# temp file and renaming makes the hold appear in one step — the same reason the
+# Elixir side uses temp+rename in `Aiur.AgentGitHubGuard.write_hold_file/3`.
+write_hold() {
+  write_hold_tmp="$1.tmp.$$"
+
+  if printf '%s\n' "$2" > "$write_hold_tmp" 2>/dev/null; then
+    mv -f "$write_hold_tmp" "$1" 2>/dev/null || rm -f "$write_hold_tmp" 2>/dev/null || true
+  else
+    rm -f "$write_hold_tmp" 2>/dev/null || true
+  fi
+
+  return 0
+}
+
+# Exhaustion an agent discovers first is fleet-wide news, but holds used to be
+# written only to the per-workspace dir that no other agent and not the daemon
+# reads — so everyone else rediscovered it on the daemon's next `/rate_limit`
+# probe. Reads already consult both dirs (`consider_resource_holds` below), so
+# writes publish to both too. An unwritable shared dir just fails quietly and
+# leaves the workspace hold in place.
+publish_hold() {
+  if [ -n "$agent_quota_dir" ]; then write_hold "$agent_quota_dir/$1" "$2"; fi
+
+  if [ -n "$quota_dir" ] && [ "$quota_dir" != "$agent_quota_dir" ]; then
+    write_hold "$quota_dir/$1" "$2"
+  fi
+
+  return 0
+}
+
 consider_hold() {
   candidate=$(sed -n '1p' "$1" 2>/dev/null)
   case "$candidate" in
@@ -1407,13 +1448,16 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
 fi
 
 error_file=
+status_file=
 output_file=
 api_capture=0
 api_requested_include=0
+stderr_streamed=0
 if [ "$resource" != none ]; then
   old_umask=$(umask)
   umask 077
   error_file=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-stderr.XXXXXX" 2>/dev/null || true)
+  status_file=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-status.XXXXXX" 2>/dev/null || true)
   umask "$old_umask"
 fi
 
@@ -1436,15 +1480,30 @@ if [ -n "$error_file" ]; then
   fi
 
   if [ "$api_capture" -eq 1 ]; then
+    # stdout is already being captured for header parsing, so there is no live
+    # output to interleave with; buffering stderr here costs nothing.
     if [ "$api_requested_include" -eq 1 ]; then
       "$real_gh" "$@" > "$output_file" 2> "$error_file"
     else
       "$real_gh" "$@" --include > "$output_file" 2> "$error_file"
     fi
+    status=$?
+  elif [ -n "$status_file" ] && command -v tee > /dev/null 2>&1; then
+    # Pass stderr through `tee` so it reaches the terminal as it is written
+    # while still being captured for the rate-limit classification below.
+    # Replaying a buffered copy after exit stalls `gh run watch` progress — an
+    # allowlisted read — and swallows interactive prompts. `tee` ends the
+    # pipeline, so the real exit status travels via `status_file`.
+    { { "$real_gh" "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
+    stderr_streamed=1
+    status=$(sed -n '1p' "$status_file" 2>/dev/null)
+    case "$status" in
+      ''|*[!0-9]*) status=0 ;;
+    esac
   else
     "$real_gh" "$@" 2> "$error_file"
+    status=$?
   fi
-  status=$?
 
   if [ "$api_capture" -eq 1 ]; then
     if [ "$api_requested_include" -eq 1 ]; then
@@ -1456,7 +1515,9 @@ if [ -n "$error_file" ]; then
     fi
   fi
 
-  while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line" >&2; done < "$error_file"
+  if [ "$stderr_streamed" -eq 0 ]; then
+    while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line" >&2; done < "$error_file"
+  fi
 else
   "$real_gh" "$@"
   status=$?
@@ -1504,7 +1565,7 @@ record_successful_budget_hold() {
     0:[0-9]*)
       response_delay=$(( (response_reset - $(date -u +%s)) * 1000 ))
       if [ "$response_delay" -gt 0 ]; then
-        if [ -n "$agent_quota_dir" ]; then printf '%s\n' "$response_reset" > "$agent_quota_dir/$resource-hold" 2>/dev/null || true; fi
+        publish_hold "$resource-hold" "$response_reset"
         budget_hold resource "$response_delay" "$resource"
       fi
       ;;
@@ -1530,7 +1591,7 @@ if [ "$status" -ne 0 ] && [ -n "$error_file" ] && rate_limited_response && { [ -
 
     case "$core_remaining:$core_reset" in
       0:[0-9]*)
-        if [ -n "$agent_quota_dir" ]; then printf '%s\n' "$core_reset" > "$agent_quota_dir/core-hold" 2>/dev/null || true; fi
+        publish_hold "core-hold" "$core_reset"
         budget_delay=$(( (core_reset - $(date -u +%s)) * 1000 ))
         if [ "$budget_delay" -gt 0 ]; then budget_hold resource "$budget_delay" core; fi
         exhausted=1
@@ -1538,7 +1599,7 @@ if [ "$status" -ne 0 ] && [ -n "$error_file" ] && rate_limited_response && { [ -
     esac
     case "$graphql_remaining:$graphql_reset" in
       0:[0-9]*)
-        if [ -n "$agent_quota_dir" ]; then printf '%s\n' "$graphql_reset" > "$agent_quota_dir/graphql-hold" 2>/dev/null || true; fi
+        publish_hold "graphql-hold" "$graphql_reset"
         budget_delay=$(( (graphql_reset - $(date -u +%s)) * 1000 ))
         if [ "$budget_delay" -gt 0 ]; then budget_hold resource "$budget_delay" graphql; fi
         exhausted=1
@@ -1561,12 +1622,10 @@ if [ "$status" -ne 0 ] && [ -n "$error_file" ] && rate_limited_response && { [ -
     secondary_until=$(( $(date -u +%s) + secondary_wait_seconds ))
 
     case "$resource" in
-      core|graphql) if [ -n "$agent_quota_dir" ]; then printf '%s\n' "$secondary_until" > "$agent_quota_dir/$resource-secondary-hold" 2>/dev/null || true; fi ;;
+      core|graphql) publish_hold "$resource-secondary-hold" "$secondary_until" ;;
       *)
-        if [ -n "$agent_quota_dir" ]; then
-          printf '%s\n' "$secondary_until" > "$agent_quota_dir/core-secondary-hold" 2>/dev/null || true
-          printf '%s\n' "$secondary_until" > "$agent_quota_dir/graphql-secondary-hold" 2>/dev/null || true
-        fi
+        publish_hold "core-secondary-hold" "$secondary_until"
+        publish_hold "graphql-secondary-hold" "$secondary_until"
         ;;
     esac
 
@@ -1577,5 +1636,6 @@ fi
 
 budget_release
 if [ -n "$error_file" ]; then rm -f "$error_file" 2>/dev/null || true; fi
+if [ -n "$status_file" ]; then rm -f "$status_file" 2>/dev/null || true; fi
 if [ -n "$output_file" ]; then rm -f "$output_file" 2>/dev/null || true; fi
 exit "$status"
