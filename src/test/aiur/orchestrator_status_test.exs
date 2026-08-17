@@ -1553,7 +1553,9 @@ defmodule Aiur.OrchestratorStatusTest do
     }
 
     orchestrator_name = Module.concat(__MODULE__, :PinnedExecutionOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    # This test injects `last_polled_issues` directly; an automatic poll would
+    # replace it with tracker truth and drop the undispatched fixture.
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -2408,7 +2410,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do
     orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -4434,9 +4436,10 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
 
     send(pid, :run_poll_cycle)
-    Process.sleep(25)
 
-    assert :empty == Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
+    assert eventually?(fn ->
+             Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2") == :empty
+           end)
 
     Application.put_env(:aiur, :memory_tracker_issues, [
       blocker.("Done"),
@@ -4444,14 +4447,21 @@ defmodule Aiur.OrchestratorStatusTest do
     ])
 
     send(pid, :run_poll_cycle)
-    Process.sleep(25)
 
-    assert {:ok,
-            %{
-              category: :coordination_event,
-              event_type: :blocker_became_terminal,
-              body: %{blocker_issue_identifier: "MT-1", blocked_issue_identifier: "MT-2"}
-            }} = Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
+    assert eventually?(fn ->
+             match?(
+               {:ok,
+                %{
+                  category: :coordination_event,
+                  event_type: :blocker_became_terminal,
+                  body: %{
+                    blocker_issue_identifier: "MT-1",
+                    blocked_issue_identifier: "MT-2"
+                  }
+                }},
+               Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
+             )
+           end)
   end
 
   test "application configures a single-file logger handler when AIUR_DEBUG=1" do

@@ -695,7 +695,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 500
   end
 
-  test "emits a debounced fleet starvation alert for ready work below unused capacity" do
+  test "emits a fleet starvation alert after one configured poll interval" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
 
@@ -704,27 +704,32 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    ready = for id <- 1..8, do: issue("ready-#{id}", "todo")
+    ready = [issue("ready-1", "todo")]
 
     state = %State{
-      max_concurrent_agents: 20,
-      effective_concurrent_agents: 20,
-      running: running_agents(3),
-      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+      poll_interval_ms: 5_000,
+      max_concurrent_agents: 16,
+      effective_concurrent_agents: 16,
+      running: running_agents(15),
+      dispatch_capacity_sample: %{load: 15.0, target: 1.0, schedulers: 16}
     }
 
     waiting = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 1_000)
     refute waiting.fleet_capacity_starvation.alert_active
     refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
 
-    alerted = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 61_000)
+    almost_due = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 5_999)
+    refute almost_due.fleet_capacity_starvation.alert_active
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+
+    alerted = IssueSync.sync_fleet_capacity_starved_alert(almost_due, ready, 6_000)
     assert alerted.fleet_capacity_starvation.alert_active
 
     assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
     assert event["needs_attention"] == true
-    assert event["reason"] =~ "Ready tickets=8, live agents=3"
-    assert event["reason"] =~ "load=0.7/16.0"
-    assert event["reason"] =~ "effective cap=20, configured cap=20"
+    assert event["reason"] =~ "Ready tickets=1, live agents=15"
+    assert event["reason"] =~ "load=15.0/16.0"
+    assert event["reason"] =~ "effective cap=16, configured cap=16"
     assert event["reason"] =~ "binding constraint=no binding constraint identified"
   end
 

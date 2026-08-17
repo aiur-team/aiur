@@ -27,23 +27,6 @@ test_home =
 File.mkdir_p!(test_home)
 System.put_env("HOME", test_home)
 
-test_workflow_fallback = Path.expand("fixtures/test.yaml", __DIR__)
-
-# Every test run uses the checked-in fixture, never an operator's live config.
-#
-# Go through `Aiur.Workflow.set_workflow_file_path/1`, never a raw
-# `Application.put_env/3`: a bare put_env leaves `Aiur.WorkflowStore` serving
-# its boot-time config until the next 1s poll, so for the first few hundred
-# milliseconds of the suite `Aiur.GitHub.Config.repo/0` — and every path
-# derived from it, e.g. `Summaries.state_node/0` — answers with a stale value
-# and then flips to the fixture's mid-run. Any test that resolves a path,
-# writes to it, and re-resolves later can straddle that flip and target two
-# different directories. `set_workflow_file_path/1` writes the env *and*
-# forces a synchronous store reload, so the value is correct from t=0.
-if File.exists?(test_workflow_fallback) do
-  Aiur.Workflow.set_workflow_file_path(test_workflow_fallback)
-end
-
 # The suite-global :log_file isolation root is set in config/config.exs
 # (test block) so it is in force before the app boots. Fail loudly if it
 # is ever missing — without it, boot-time and non-TestSupport writes leak

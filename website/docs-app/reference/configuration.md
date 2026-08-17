@@ -317,17 +317,14 @@ Anthropic, because OpenRouter is who bills it. Direct and via-OpenRouter routes
 to the same model are separate identities and may legitimately carry different
 rates.
 
-Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
-also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
-live in a sibling `.locks` directory that is excluded from turn-writable roots, preventing
-a sandbox from replacing a held slot. Gate coordination failures return status `125`
-without running Mix. Repair the reported metadata/lock directory, `flock`, or `python3`
-subreaper dependency and
-restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
-old fleet and confirm no old Mix verification is live, then clear only the reported legacy
-records. To disable build admission completely, set `agent.max_concurrent_builds: 0`, set
+Local Codex turns use Aiur's shared build admission. If admission setup fails, Mix does not
+run and the ticket reports status `125`; repair the reported metadata or lock directory,
+`flock`, or `python3` dependency, then restart or re-dispatch the agent. If `aiur status`
+reports `BUILD GATE DEGRADED`, stop the old fleet, confirm no old Mix verification remains,
+and clear only the legacy records named in the message. To disable build admission
+completely, set `agent.max_concurrent_builds: 0`, set
 `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This explicit
-opt-out removes every build safeguard; it is never an automatic error fallback.
+opt-out removes every build safeguard.
 
 ## Host-pressure fleet admission
 
