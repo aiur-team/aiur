@@ -28,6 +28,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` is live-run telemetry and an optional Build Order scope. | `aiur analytics` |
+| **GitHub cache** | `/github-cache` is a read-only inspector for the shared GitHub state cache. | none |
 | **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
 | Route change | Behavior |
@@ -48,8 +49,33 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
 | Analytics | Lifecycle time, CPU, memory, concurrency, and cost; missing telemetry stays explicit. |
+| GitHub cache | What the shared GitHub state cache holds right now, and which writer put it there. |
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
+
+## GitHub cache
+
+Aiur reads GitHub state through one shared store. Webhook deliveries, Aiur's own mutations, need-driven fetches, and the safety sweep all write to it, and every consumer reads it before spending a token. `/github-cache` shows what that store currently holds.
+
+The page is strictly view-only. There is no refresh, no invalidate, no eviction and no fetch-now, because the store's central rule is that looking at cached state never costs a GitHub call — an inspector that could trigger a fetch would break the property it exists to demonstrate. Its headline tile, **Fetches caused by viewing**, therefore reads `0`, and prints the total number of calls the quota meter attributed beside it so the zero can be read as a measurement rather than a reassurance.
+
+It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without the page polling anything.
+
+| Layer | Route | Shows |
+| --- | --- | --- |
+| Map | `/github-cache` | Every resource type as a tile, sized by how many entries it holds and tinted by how stale its worst entry is. |
+| Group | `/github-cache/:resource_type` | That type's entries, searchable by identity and filterable by freshness, writer and body state. |
+| Entry | `/github-cache/:resource_type/:identity` | One record in full: key, `fetched_at`, processed version, body version, ETag, last writer, and the cached body. |
+
+Filters are carried in the query string, so a filtered view such as `/github-cache/issue_comment?writer=webhook` can be pasted into a ticket as evidence. A deep link to an entry keeps meaning the same thing after a restart, because the identity is the resource's own `(type, owner, repo, id)` rather than a position in a list.
+
+### Read "validator only, no body" carefully
+
+An entry can hold an ETag and no cached body. That is a legitimate state — dropping a body deliberately keeps the validator, which still answers "has this changed?" cheaply. It is **not** a cache hit: a consumer that sends that ETag is answered `304` with no data, so it spends a call and learns nothing, and must re-read unconditionally instead.
+
+The page shows those entries distinctly rather than rendering them as cached — their own count in the headline strip, their own filter, a marked row, and a `none — validator only` body cell. When a read you expected to be free still cost something, this is the first place to look.
+
+Cached bodies are redacted on the way out and collapsed by default, and a large store is truncated with the number of elided entries stated rather than silently showing a subset.
 
 ## Writable controls
 
