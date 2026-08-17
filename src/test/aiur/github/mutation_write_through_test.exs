@@ -439,6 +439,25 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert ResourceStore.processed?(key, "2026-08-17T16:00:00Z")
     end
 
+    # The mutation answers in GraphQL's shape and every other producer of this
+    # resource type files the poller shape. Depositing the response raw would
+    # put a body under this key whose own `"id"` is the node id rather than the
+    # id it is keyed by, with no author, no timestamps and no `html_url` — a
+    # truncated resource a reader cannot tell apart from a whole one.
+    test "a reply is deposited in the shape every other producer of this type files" do
+      {_calls, _result} =
+        record(&review_reply_response/1, fn fun ->
+          Reply.reply_to_review_thread("PRRT_thread", "addressed", request_fun: fun, attempts: 1, sleep_fun: fn _ -> :ok end)
+        end)
+
+      deposited = ResourceStore.data(ResourceStore.key(:pr_review_comment, "owner", "repo", 880_001))
+
+      assert deposited["id"] == 880_001
+      assert get_in(deposited, ["user", "login"]) == @author
+      assert deposited["updated_at"] == "2026-08-17T16:00:00Z"
+      assert deposited["html_url"] == "https://github.com/owner/repo/pull/7#discussion_r880001"
+    end
+
     test "resolving a thread deposits its resolution state" do
       {_calls, result} =
         record(&resolve_thread_response/1, fn fun ->
@@ -611,7 +630,9 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
                  "id" => "PRRC_node",
                  "databaseId" => 880_001,
                  "body" => "addressed",
+                 "createdAt" => "2026-08-17T16:00:00Z",
                  "updatedAt" => "2026-08-17T16:00:00Z",
+                 "url" => "https://github.com/owner/repo/pull/7#discussion_r880001",
                  "author" => %{"login" => @author}
                }
              }

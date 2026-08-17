@@ -93,13 +93,43 @@ defmodule Aiur.GitHub.WriteThrough do
   `addPullRequestReviewThreadReply`, whose `databaseId` is the same id the
   `pull_request_review_comment` delivery carries — which is what lets the
   deposit suppress the delivery.
+
+  A GraphQL response is *translated* before it is deposited, never stored raw.
+  Every other producer of this resource type files the poller shape — `"id"`,
+  `"created_at"`, `"updated_at"`, `"html_url"`, `"user" => %{"login" => …}` —
+  and a raw GraphQL body under the same key would hand the next reader a
+  resource whose own `"id"` is the node id rather than the id it is keyed by,
+  with no author and no timestamps, and no way to tell that it differs.
   """
   @spec pr_review_comment(term(), keyword()) :: :ok
   def pr_review_comment(comment, opts \\ []) do
     guarded(fn ->
+      comment = rest_comment_shape(comment)
       deposit(:pr_review_comment, comment_id(comment), comment, comment_version(comment), opts)
     end)
   end
+
+  # The GraphQL selection and the REST payload name the same seven facts
+  # differently. Translated additively — the camel-cased keys are left in place
+  # — so a caller already reading the mutation response's own shape is not
+  # broken by the store agreeing with the rest of the pipeline.
+  defp rest_comment_shape(%{"databaseId" => database_id} = comment)
+       when is_integer(database_id) or (is_binary(database_id) and database_id != "") do
+    comment
+    |> Map.put("id", database_id)
+    |> put_new_translated("created_at", Map.get(comment, "createdAt"))
+    |> put_new_translated("updated_at", Map.get(comment, "updatedAt"))
+    |> put_new_translated("html_url", Map.get(comment, "url"))
+    |> put_new_translated("user", author_as_user(comment))
+  end
+
+  defp rest_comment_shape(comment), do: comment
+
+  defp put_new_translated(comment, _key, nil), do: comment
+  defp put_new_translated(comment, key, value), do: Map.put_new(comment, key, value)
+
+  defp author_as_user(%{"author" => %{"login" => login}}) when is_binary(login), do: %{"login" => login}
+  defp author_as_user(_comment), do: nil
 
   @doc "Deposits a whole issue from a `PATCH .../issues/:number` response."
   @spec issue(term(), keyword()) :: :ok
