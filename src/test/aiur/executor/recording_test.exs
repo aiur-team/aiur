@@ -171,9 +171,14 @@ defmodule Aiur.Executor.RecordingTest do
 
     _settled = eventually(fn -> length(ExecutorWakeInbox.pending(@inbox_name)) <= max end)
 
-    assert ExecutorWakeInbox.cursor(@inbox_name) == 0
+    # The bound is real, not an average, and it holds with no consumer at all.
     assert length(read_ledger(StatePaths.wakes_path())) <= max
     assert length(ExecutorWakeInbox.pending(@inbox_name)) <= max
+
+    # Evicting an unread record loses a wake, so it is never silent: the durable
+    # cursor moves past the dropped range instead of leaving a gap a consumer
+    # would replay forever.
+    assert ExecutorWakeInbox.cursor(@inbox_name) == max * 4 - max
   end
 
   # The default claims path already resolves inside this case's state directory.
