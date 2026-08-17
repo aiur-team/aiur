@@ -1,4 +1,6 @@
 defmodule Aiur.DecisionDispatchTestSupport do
+  @moduledoc false
+
   def callback(test_pid) do
     fn correlation, result -> send(test_pid, {:terminal, correlation, result}) end
   end

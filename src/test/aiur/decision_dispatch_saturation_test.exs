@@ -39,8 +39,10 @@ defmodule Aiur.DecisionDispatchSaturationTest do
     assert_receive {:terminal, :queued, :ok}, 2_000
 
     central_log = File.read!(Path.join(log_root, "alerts.ndjson"))
-    assert central_log |> occurrences("\"name\":\"system.decision_dispatch.saturated\"") == 1
-    assert central_log |> occurrences("\"name\":\"system.decision_dispatch.saturated.resolved\"") == 1
+    assert occurrences(central_log, ~S("name":"system.decision_dispatch.saturated")) == 1
+
+    assert occurrences(central_log, ~S("name":"system.decision_dispatch.saturated.resolved")) ==
+             1
   end
 
   defp occurrences(content, needle), do: content |> String.split(needle) |> length() |> Kernel.-(1)

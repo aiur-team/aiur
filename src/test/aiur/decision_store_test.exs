@@ -2210,7 +2210,7 @@ defmodule Aiur.DecisionStoreTest do
       assert still_failed.delivery_status == :failed
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.count(audit, &(audit_type(&1) == :failed)) == 1
-      assert Enum.count(audit, &(audit_type(&1) == :dispatch_queued)) == 0
+      refute Enum.any?(audit, &(audit_type(&1) == :dispatch_queued))
     end
 
     test "an externally killed dispatch worker settles a specific durable failure", %{dir: dir} do

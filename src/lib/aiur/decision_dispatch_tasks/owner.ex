@@ -3,6 +3,9 @@ defmodule Aiur.DecisionDispatchTasks.Owner do
 
   alias Aiur.DecisionDispatchTasks.{Queue, Saturation, Worker}
 
+  @type state :: map()
+
+  @spec monitor(state(), pid()) :: state()
   def monitor(state, owner) do
     if Map.has_key?(state.owner_monitors, owner) do
       state
@@ -11,6 +14,7 @@ defmodule Aiur.DecisionDispatchTasks.Owner do
     end
   end
 
+  @spec cleanup(state(), pid()) :: state()
   def cleanup(state, owner) do
     if Queue.owner_present?(state, owner) do
       state
@@ -21,12 +25,14 @@ defmodule Aiur.DecisionDispatchTasks.Owner do
     end
   end
 
+  @spec by_ref(%{optional(pid()) => reference()}, reference()) :: pid() | nil
   def by_ref(owner_monitors, ref) do
     Enum.find_value(owner_monitors, fn {owner, owner_ref} ->
       if owner_ref == ref, do: owner
     end)
   end
 
+  @spec purge(state(), pid()) :: state()
   def purge(state, owner) do
     {state, active_tickets} = purge_tasks(state, owner)
     {state, queued_tickets} = Queue.drop_owner(state, owner)

@@ -1,11 +1,16 @@
 defmodule Aiur.DecisionDispatchTasks.Queue do
   @moduledoc false
 
+  @type state :: map()
+  @type ticket :: Aiur.DecisionDispatchTasks.ticket()
+
+  @spec admit?(state(), ticket()) :: boolean()
   def admit?(state, ticket) do
     state.pending < state.max_pending and
       pending_for_ticket(state, ticket) < state.max_pending_per_ticket
   end
 
+  @spec put(state(), ticket(), map()) :: state()
   def put(state, ticket, entry) do
     queue = Map.get(state.queues, ticket, :queue.new())
 
@@ -15,6 +20,7 @@ defmodule Aiur.DecisionDispatchTasks.Queue do
     |> make_runnable(ticket)
   end
 
+  @spec pop(state()) :: {ticket(), map(), state()} | :empty
   def pop(state) do
     case :queue.out(state.runnable_tickets) do
       {{:value, ticket}, runnable_tickets} ->
@@ -31,6 +37,7 @@ defmodule Aiur.DecisionDispatchTasks.Queue do
     end
   end
 
+  @spec make_runnable(state(), ticket()) :: state()
   def make_runnable(state, ticket) do
     if runnable?(state, ticket) and not MapSet.member?(state.runnable_ticket_set, ticket) do
       %{
@@ -43,6 +50,7 @@ defmodule Aiur.DecisionDispatchTasks.Queue do
     end
   end
 
+  @spec owner_present?(state(), pid()) :: boolean()
   def owner_present?(state, owner) do
     Enum.any?(state.active, fn {_ticket, task} -> task.owner == owner end) or
       Enum.any?(state.queues, fn {_ticket, queue} ->
@@ -50,6 +58,7 @@ defmodule Aiur.DecisionDispatchTasks.Queue do
       end)
   end
 
+  @spec drop_owner(state(), pid()) :: {state(), MapSet.t(ticket())}
   def drop_owner(state, owner) do
     {queues, removed, tickets} =
       Enum.reduce(state.queues, {%{}, 0, MapSet.new()}, fn {ticket, queue}, {queues, removed, tickets} ->

@@ -5,6 +5,9 @@ defmodule Aiur.DecisionDispatchTasks.Saturation do
 
   alias Aiur.Alerts
 
+  @type state :: map()
+
+  @spec mark(state()) :: state()
   def mark(%{saturated?: true} = state), do: state
 
   def mark(state) do
@@ -12,6 +15,7 @@ defmodule Aiur.DecisionDispatchTasks.Saturation do
     %{state | saturated?: true}
   end
 
+  @spec maybe_resolve(state()) :: state()
   def maybe_resolve(%{saturated?: false} = state), do: state
 
   def maybe_resolve(state) do
@@ -23,6 +27,7 @@ defmodule Aiur.DecisionDispatchTasks.Saturation do
     end
   end
 
+  @spec notify(:saturated | :recovered) :: term()
   def notify(:saturated) do
     Logger.warning("decision dispatch queue saturated")
 
