@@ -330,6 +330,21 @@ defmodule Aiur.CLITest do
     assert Application.get_env(:aiur, :interactive_cli) == true
   end
 
+  test "marks the run as an Executor-owned run when --executor is passed" do
+    previous_value = Application.get_env(:aiur, :executor_mode)
+
+    on_exit(fn ->
+      if is_nil(previous_value) do
+        Application.delete_env(:aiur, :executor_mode)
+      else
+        Application.put_env(:aiur, :executor_mode, previous_value)
+      end
+    end)
+
+    assert :ok = CLI.evaluate([@ack_flag, "--executor", ".aiurconfig"], passthrough_deps())
+    assert Application.get_env(:aiur, :executor_mode) == true
+  end
+
   defp passthrough_deps do
     %{
       file_regular?: fn _path -> true end,

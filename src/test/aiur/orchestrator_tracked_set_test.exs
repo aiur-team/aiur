@@ -20,6 +20,15 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
     on_exit(&ensure_orchestrator_running/0)
 
+    # The live orchestrator's scheduled poll rebuilds the table from
+    # `state.running` via `TrackedSet.refresh/1`. Between this test's
+    # `TrackedSet.reset/1` fixture and `terminate_orchestrator/0`, a poll can
+    # land and overwrite "681" with the (empty) running set — the #1647 flake.
+    # Freeze the poll so the fixture survives to the persistence assert below;
+    # the point under test is that a restart leaves the table intact, not that
+    # a concurrent poll happens to stay out of the way.
+    freeze_poll_cycle(orchestrator_pid)
+
     assert :ok = TrackedSet.reset(["681"])
     assert Orchestrator.issue_tracked?("681")
     refute Orchestrator.issue_tracked?("682")
@@ -32,6 +41,25 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
     assert {:ok, restarted_pid} = restart_orchestrator()
     assert is_pid(restarted_pid)
+  end
+
+  # Cancels the orchestrator's tick timer and fences the one-shot
+  # `:run_poll_cycle` (a 20ms render delay that is not token-fenced), so no
+  # scheduled poll can mutate the shared TrackedSet mid-test. Mirrors the
+  # freeze used by `OrchestratorStatusTest`.
+  defp freeze_poll_cycle(pid) do
+    :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      %{
+        state
+        | tick_timer_ref: nil,
+          tick_token: make_ref(),
+          next_poll_due_at_ms: nil,
+          poll_check_in_progress: false,
+          poll_frozen: true
+      }
+    end)
   end
 
   defp terminate_orchestrator do

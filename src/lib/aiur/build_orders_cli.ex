@@ -19,16 +19,20 @@ defmodule Aiur.BuildOrdersCLI do
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
-    case build(opts) do
+    error_fun = Keyword.get(opts, :error_fun, &default_error/1)
+
+    case build(Keyword.delete(opts, :error_fun)) do
       {:ok, envelope} ->
         if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: print_human(envelope)
         0
 
       {:error, reason} ->
-        IO.puts(:stderr, "aiur: build-orders #{reason}")
+        error_fun.("aiur: build-orders #{reason}")
         1
     end
   end
+
+  defp default_error(message), do: IO.puts(:stderr, message)
 
   @doc false
   @spec build(keyword()) :: {:ok, map()} | {:error, String.t()}

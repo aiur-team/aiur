@@ -22,6 +22,7 @@ defmodule Aiur.CLI do
     version: :boolean,
     interactive: :boolean,
     headless: :boolean,
+    executor: :boolean,
     no_dashboard: :boolean,
     max_agents: :integer,
     pause: :boolean,
@@ -189,6 +190,7 @@ defmodule Aiur.CLI do
          :ok <- maybe_set_max_agents(opts),
          :ok <- maybe_set_interactive(opts),
          :ok <- maybe_set_headless(opts),
+         :ok <- maybe_set_executor(opts),
          :ok <- maybe_disable_dashboard(opts),
          :ok <- maybe_set_pause(opts) do
       run(workflow_path, deps, opts)
@@ -357,7 +359,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]\n       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]\n       aiur ask --done <id> [--note <text>]\n       aiur asks [--open|--all] [--json]"
+    "Usage: aiur [--interactive] [--headless] [--executor] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]\n       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]\n       aiur ask --done <id> [--note <text>]\n       aiur asks [--open|--all] [--json]"
   end
 
   @spec runtime_deps() :: deps()
@@ -513,6 +515,18 @@ defmodule Aiur.CLI do
   defp maybe_set_headless(opts) do
     if Keyword.get(opts, :headless, false) do
       Application.put_env(:aiur, :headless, true)
+    end
+
+    :ok
+  end
+
+  # `--executor` marks this run as an Executor-owned run: the daemon starts the
+  # supervised `Aiur.ExecutorListener` (the Command inbox) as part of launch.
+  # It is explicit about role on purpose — an ordinary non-Executor launch must
+  # not silently acquire a Command inbox it will never read.
+  defp maybe_set_executor(opts) do
+    if Keyword.get(opts, :executor, false) do
+      Application.put_env(:aiur, :executor_mode, true)
     end
 
     :ok

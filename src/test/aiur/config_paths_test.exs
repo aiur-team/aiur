@@ -196,6 +196,32 @@ defmodule Aiur.Config.PathsTest do
     end
   end
 
+  describe "takeover_alert_state_dir/0" do
+    setup do
+      original_takeover = Application.get_env(:aiur, :takeover_alert_state_dir)
+      original_decision = Application.get_env(:aiur, :decision_state_dir)
+
+      on_exit(fn ->
+        restore_application_env(:takeover_alert_state_dir, original_takeover)
+        restore_application_env(:decision_state_dir, original_decision)
+      end)
+
+      :ok
+    end
+
+    test "uses a dedicated contained leaf beneath decision state" do
+      Application.put_env(:aiur, :decision_state_dir, "/tmp/aiur-private-state")
+      Application.delete_env(:aiur, :takeover_alert_state_dir)
+
+      assert Paths.takeover_alert_state_dir() == {:ok, "/tmp/aiur-private-state/executor-takeover-alerts"}
+    end
+
+    test "allows an explicit trusted test override" do
+      Application.put_env(:aiur, :takeover_alert_state_dir, "/tmp/takeover-alert-test")
+      assert Paths.takeover_alert_state_dir() == {:ok, "/tmp/takeover-alert-test"}
+    end
+  end
+
   defp restore_system_env(key, nil), do: System.delete_env(key)
   defp restore_system_env(key, value), do: System.put_env(key, value)
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)

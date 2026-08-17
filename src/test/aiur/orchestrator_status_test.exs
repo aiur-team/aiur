@@ -92,6 +92,7 @@ defmodule Aiur.OrchestratorStatusTest do
     end
 
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
 
     defp notify(message) do
       case Application.get_env(:aiur, :startup_cleanup_test_pid) do
@@ -2653,6 +2654,8 @@ defmodule Aiur.OrchestratorStatusTest do
       %{
         state
         | poll_interval_ms: 30_000,
+          effective_poll_interval_ms: 150_000,
+          idle_poll_backoff: %{active?: true, factor: 5.0},
           tick_timer_ref: nil,
           tick_token: make_ref(),
           next_poll_due_at_ms: now_ms + 4_000,
@@ -2666,6 +2669,8 @@ defmodule Aiur.OrchestratorStatusTest do
              polling: %{
                checking?: false,
                poll_interval_ms: 30_000,
+               effective_interval_ms: 150_000,
+               idle_backoff: %{active?: true, factor: 5.0},
                next_poll_in_ms: due_in_ms
              }
            } = snapshot
@@ -2714,14 +2719,16 @@ defmodule Aiur.OrchestratorStatusTest do
              polling: %{
                checking?: false,
                next_poll_in_ms: next_poll_in_ms,
-               poll_interval_ms: 5_000
+               poll_interval_ms: 5_000,
+               effective_interval_ms: 25_000,
+               idle_backoff: %{active?: true, factor: 5.0}
              }
            } =
              wait_for_snapshot(
                pid,
                fn
                  %{polling: %{checking?: false, next_poll_in_ms: due_in_ms}}
-                 when is_integer(due_in_ms) and due_in_ms <= 5_000 ->
+                 when is_integer(due_in_ms) and due_in_ms <= 25_000 ->
                    true
 
                  _ ->
@@ -2762,8 +2769,16 @@ defmodule Aiur.OrchestratorStatusTest do
 
     snapshot =
       wait_for_snapshot(pid, fn
-        %{polling: %{checking?: false, poll_interval_ms: 1_000, next_poll_in_ms: next_poll_in_ms}}
-        when is_integer(next_poll_in_ms) and next_poll_in_ms <= 1_000 ->
+        %{
+          polling: %{
+            checking?: false,
+            poll_interval_ms: 1_000,
+            effective_interval_ms: 5_000,
+            idle_backoff: %{active?: true, factor: 5.0},
+            next_poll_in_ms: next_poll_in_ms
+          }
+        }
+        when is_integer(next_poll_in_ms) and next_poll_in_ms <= 5_000 ->
           true
 
         _ ->
@@ -2774,13 +2789,15 @@ defmodule Aiur.OrchestratorStatusTest do
              polling: %{
                checking?: false,
                poll_interval_ms: 1_000,
+               effective_interval_ms: 5_000,
+               idle_backoff: %{active?: true, factor: 5.0},
                next_poll_in_ms: next_poll_in_ms
              }
            } = snapshot
 
     assert is_integer(next_poll_in_ms)
     assert next_poll_in_ms >= 0
-    assert next_poll_in_ms <= 1_000
+    assert next_poll_in_ms <= 5_000
   end
 
   test "orchestrator enqueues operator messages and pause requests for the running agent task" do
@@ -3786,8 +3803,8 @@ defmodule Aiur.OrchestratorStatusTest do
       %{torn_state | retry_attempts: %{issue.id => %{attempt: 1}}}
     end
 
-    next =
-      PauseResume.replace_admitted_completed_entry(
+    {result, next} =
+      PauseResume.replace_admitted_completed_entry_result(
         state,
         entry,
         issue,
@@ -3795,6 +3812,7 @@ defmodule Aiur.OrchestratorStatusTest do
         spawn_failure
       )
 
+    assert {:error, {:redispatch_deferred, {:worker_start_failed, %{attempt: 1}}}} = result
     refute Process.alive?(old_worker)
     restored = Map.fetch!(next.running, issue.id)
     assert restored.pid == nil
@@ -3909,15 +3927,17 @@ defmodule Aiur.OrchestratorStatusTest do
     assert_tracker_completed_preflight_retained(next, parked_entry, worker, item_ids)
   end
 
-  test "tracker rework after completed CI wait honors all-limited model admission" do
+  @tag :tmp_dir
+  test "tracker rework after completed CI wait honors all-limited model admission", %{tmp_dir: tmp_dir} do
     issue = %{completed_rework_issue("all-limited") | selected_backend: nil}
+    workflow_path = Path.join(tmp_dir, ".aiurconfig")
+    Workflow.set_workflow_file_path(workflow_path)
 
     configure_completed_revalidation!([issue],
       max_concurrent_agents: 3,
       agent_routing: %{"4" => "claude"}
     )
 
-    workflow_path = Workflow.workflow_file_path()
     workflow = File.read!(workflow_path)
 
     workflow =

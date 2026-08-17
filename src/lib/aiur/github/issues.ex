@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
-  alias Aiur.GitHub.{DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
+  alias Aiur.GitHub.{CycleFetchCache, DependenciesApi, DispatchAuthorization, Errors, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
 
@@ -463,12 +463,83 @@ defmodule Aiur.GitHub.Issues do
       dispatch_revision: dispatch_revision,
       dispatch_authorized?: false,
       paused: paused_label?(label_names, prefix),
+      parked: parked_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
       assigned_to_worker: true,
       created_at: parse_datetime(gh_issue["created_at"]),
       updated_at: parse_datetime(gh_issue["updated_at"])
     }
   end
+
+  @doc """
+  Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
+  Dependencies REST API, reusing the read side already consumed by
+  `Aiur.GitHub.IssueDependencies`.
+
+  The GitHub list poll never populates `blocked_by` (each dependency read is a
+  separate REST call, so per-issue hydration on the poll path would blow the
+  #1388 read budget). This function is deliberately called only for the issue
+  actually being considered for dispatch, so the cost is bounded by dispatch
+  attempts rather than by tracker size, and results are memoized in the
+  per-cycle fetch cache so repeated dispatch attempts of the same issue reuse
+  the same dependency snapshot.
+
+  Returns `{:error, reason}` when the dependency read fails; callers treat that
+  as *unknown* blockers and hold dispatch (fail-closed), because dispatching on
+  unknown blockers would reintroduce exactly the "dispatches work GitHub knows
+  is blocked" defect this gate exists to prevent.
+  """
+  @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(%Issue{} = issue), do: hydrate_blocked_by(issue, [])
+
+  @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(%Issue{blocked_by: blockers} = issue, _opts) when blockers != [] do
+    {:ok, issue}
+  end
+
+  def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
+    case CycleFetchCache.fetch({:blocked_by, id}, fn ->
+           DependenciesApi.fetch_blocked_by(id, opts)
+         end) do
+      {:ok, blockers} when is_list(blockers) ->
+        {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
+
+      {:error, _reason} = error ->
+        error
+
+      other ->
+        {:error, {:unexpected, other}}
+    end
+  end
+
+  def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
+
+  # Reduces GitHub's native dependency issue objects to the same `blocked_by`
+  # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
+  # so the dispatch gate (`DispatchPolicy.todo_issue_blocked_by_non_terminal?`)
+  # and the blocker event machinery consume them unchanged. Blocker state comes
+  # from the same source as the issue itself: `agent:*` labels, with a raw
+  # `state: "closed"` resolving to the terminal "Closed". A blocker with no
+  # derivable state keeps `state: nil`, which the gate treats as non-terminal
+  # (blocking) — fail-closed on incomplete payloads.
+  defp normalize_blockers(blockers, prefix) when is_list(blockers) do
+    Enum.map(blockers, &normalize_blocker(&1, prefix))
+  end
+
+  defp normalize_blocker(blocker, prefix) when is_map(blocker) do
+    number = Map.get(blocker, "number")
+    labels = Map.get(blocker, "labels") || []
+    label_names = Enum.map(labels, &(&1["name"] || ""))
+
+    %{
+      id: to_string(number),
+      identifier: to_string(number),
+      state: extract_state(blocker, label_names, prefix),
+      url: Map.get(blocker, "html_url")
+    }
+  end
+
+  defp normalize_blocker(_blocker, _prefix), do: %{id: "", identifier: "", state: nil, url: nil}
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(gh_issue, label_names, prefix) do
@@ -537,6 +608,14 @@ defmodule Aiur.GitHub.Issues do
 
     Enum.any?(label_names, fn name ->
       normalize_label_name(name) == paused_label
+    end)
+  end
+
+  defp parked_label?(label_names, prefix) when is_list(label_names) do
+    parked_label = normalize_label_name("#{prefix}:parked")
+
+    Enum.any?(label_names, fn name ->
+      normalize_label_name(name) == parked_label
     end)
   end
 

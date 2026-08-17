@@ -13,6 +13,8 @@ defmodule Aiur.TestSupport.GroupedScopes do
   # The claude relationship revision the standard price catalog is keyed by.
   @claude_price_relationship "claude-remote-control-2026-07"
   @codex_price_relationship "codex-app-server-2026-07"
+  @deepseek_price_relationship "deepseek-request-usage-2026-08"
+  @openrouter_price_relationship "openrouter-request-usage-2026-08"
 
   @spec identity(integer()) :: TrackerIdentity.t()
   def identity(number) do
@@ -91,6 +93,7 @@ defmodule Aiur.TestSupport.GroupedScopes do
         account_generation: "generation-c",
         backend: :remote_control,
         agent_family: :claude,
+        upstream_provider: nil,
         resolved_model: "claude-sonnet-4-6",
         auth_mode: :api_key,
         pricing_date: ~D[2026-07-15],
@@ -145,6 +148,54 @@ defmodule Aiur.TestSupport.GroupedScopes do
         auth_mode: Keyword.get(opts, :auth_mode, :api_key),
         relationship_revision: Keyword.get(opts, :relationship_revision, @claude_price_relationship),
         account_generation: account_generation(:claude, :remote_control, generation(opts, "generation-c"))
+      })
+
+    Aggregate.record(position, env, delta(opts))
+  end
+
+  @doc "An OpenRouter replay record with an optional selected upstream provider."
+  def openrouter_record(position, opts \\ []) do
+    env =
+      Aggregate.envelope(%{
+        provider: :openrouter,
+        source: "openrouter.openai_compat.request_usage",
+        source_version: "openai-compatible-2026-08",
+        attribution: attribution(run_id(opts), ticket_identity(opts)),
+        agent_family: :openrouter,
+        backend: :openai_compat,
+        transport: :openai_compat,
+        resolved_model: Keyword.get(opts, :model, "deepseek/deepseek-v4-flash"),
+        requested_model: Keyword.get(opts, :model, "deepseek/deepseek-v4-flash"),
+        auth_mode: :api_key,
+        upstream_provider: Keyword.get(opts, :upstream_provider),
+        occurred_at: DateTime.new!(Keyword.get(opts, :pricing_date, ~D[2026-08-01]), ~T[00:00:00], "Etc/UTC"),
+        pricing_effective_date: Keyword.get(opts, :pricing_date, ~D[2026-08-01]),
+        relationship_revision: Keyword.get(opts, :relationship_revision, @openrouter_price_relationship),
+        account_generation: account_generation(:openrouter, :openai_compat, generation(opts, "generation-o"))
+      })
+
+    Aggregate.record(position, env, delta(opts))
+  end
+
+  @doc "A direct DeepSeek replay record with no selected upstream provider."
+  def deepseek_record(position, opts \\ []) do
+    env =
+      Aggregate.envelope(%{
+        provider: :deepseek,
+        source: "deepseek.openai_compat.request_usage",
+        source_version: "openai-compatible-2026-08",
+        attribution: attribution(run_id(opts), ticket_identity(opts)),
+        agent_family: :deepseek,
+        backend: :openai_compat,
+        transport: :openai_compat,
+        resolved_model: Keyword.get(opts, :model, "deepseek-v4-flash"),
+        requested_model: Keyword.get(opts, :model, "deepseek-v4-flash"),
+        auth_mode: :api_key,
+        upstream_provider: nil,
+        occurred_at: DateTime.new!(Keyword.get(opts, :pricing_date, ~D[2026-08-01]), ~T[00:00:00], "Etc/UTC"),
+        pricing_effective_date: Keyword.get(opts, :pricing_date, ~D[2026-08-01]),
+        relationship_revision: Keyword.get(opts, :relationship_revision, @deepseek_price_relationship),
+        account_generation: account_generation(:deepseek, :openai_compat, generation(opts, "generation-d"))
       })
 
     Aggregate.record(position, env, delta(opts))

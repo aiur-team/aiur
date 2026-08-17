@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPhysicalController } from "../src/controller.js";
+import { createPhysicalController, type ControllerVoice } from "../src/controller.js";
 import type { StreamDeckGrid } from "../src/channel.js";
+import type { AudioDevice } from "../src/audio/index.js";
 import { dialButton, dialButtons, dialTurn, keyReport, keysReport } from "./support/deckReports.js";
 import { CHAT_WINDOW_ROWS } from "../src/touchStrip/chatLog.js";
 import { PROVIDER_SCROLL_ENCODER } from "../src/touchStrip/providerPanel.js";
@@ -23,7 +24,7 @@ describe("physical controller composition", () => {
     const focus = vi.fn();
     const control = vi.fn();
     const changed = vi.fn();
-    const controller = createPhysicalController({ grid, channel: () => ({ focus, control }), stateChanged: changed });
+    const controller = createPhysicalController({ grid, channel: () => ({ focus, control, say: vi.fn() }), stateChanged: changed });
 
     controller.handleReport(keyReport(3, true));
     controller.handleReport(keyReport(3, false));
@@ -36,7 +37,7 @@ describe("physical controller composition", () => {
 
     const resume = vi.fn();
     const pausedGrid = (): StreamDeckGrid => ({ ...grid(), agents: grid().agents.map((agent, index) => index === 6 ? { ...agent, bucket: "paused" } : agent) });
-    const pausedController = createPhysicalController({ grid: pausedGrid, channel: () => ({ focus: vi.fn(), control: resume }), stateChanged: vi.fn() });
+    const pausedController = createPhysicalController({ grid: pausedGrid, channel: () => ({ focus: vi.fn(), control: resume, say: vi.fn() }), stateChanged: vi.fn() });
     pausedController.handleReport(keyReport(3, true));
     pausedController.handleReport(keyReport(3, false));
     pausedController.handleReport(keyReport(0, true));
@@ -47,7 +48,7 @@ describe("physical controller composition", () => {
     for (const offset of [0, 4]) {
       for (const key of Array.from({ length: 8 }, (_, index) => index)) {
         const focus = vi.fn();
-        const controller = createPhysicalController({ grid: () => grid(20), channel: () => ({ focus, control: vi.fn() }), stateChanged: vi.fn() });
+        const controller = createPhysicalController({ grid: () => grid(20), channel: () => ({ focus, control: vi.fn(), say: vi.fn() }), stateChanged: vi.fn() });
         if (offset !== 0) {
           controller.handleReport(dialButton(3));
           controller.handleReport(dialButton(3, false));
@@ -64,12 +65,12 @@ describe("physical controller composition", () => {
   });
 
   it("keeps the physical mic hold local and clears it on release", () => {
-    const controller = createPhysicalController({ grid, channel: () => ({ focus: vi.fn(), control: vi.fn() }), stateChanged: vi.fn() });
+    const controller = createPhysicalController({ grid, channel: () => ({ focus: vi.fn(), control: vi.fn(), say: vi.fn() }), stateChanged: vi.fn() });
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
-    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(2, true));
     expect(controller.state().micHeld).toBe(true);
-    controller.handleReport(keyReport(3, false));
+    controller.handleReport(keyReport(2, false));
     expect(controller.state().micHeld).toBe(false);
   });
 
@@ -121,8 +122,8 @@ describe("physical controller composition", () => {
     });
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
-    controller.handleReport(keyReport(2, true));
-    controller.handleReport(keyReport(2, false));
+    controller.handleReport(keyReport(1, true));
+    controller.handleReport(keyReport(1, false));
     expect(controller.state().mode).toBe("logs");
     // Opens at the right-hand end of both axes.
     expect(controller.state()).toMatchObject({ eventOffset: 4, chatOffset: 11 });
@@ -173,11 +174,11 @@ describe("physical controller composition", () => {
 
     controller.handleReport(dialButton(0));
     controller.handleReport(dialButton(0, false));
-    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(2, true));
     expect(controller.state().micHeld).toBe(true);
     controller.cancel();
     expect(controller.state().micHeld).toBe(false);
-    controller.handleReport(keyReport(3, false));
+    controller.handleReport(keyReport(2, false));
 
     // Re-entering logs deliberately does *not* restore the old position: the
     // surface opens where the agent is working, every time. Restoring a reading
@@ -270,8 +271,8 @@ describe("physical controller composition", () => {
       controller.setLogs(logs);
       controller.handleReport(keyReport(0, true));
       controller.handleReport(keyReport(0, false));
-      controller.handleReport(keyReport(2, true));
-      controller.handleReport(keyReport(2, false));
+      controller.handleReport(keyReport(1, true));
+      controller.handleReport(keyReport(1, false));
       expect(controller.state().mode).toBe("logs");
       return controller;
     };
@@ -413,8 +414,8 @@ describe("physical controller composition", () => {
       });
       controller.handleReport(keyReport(0, true));
       controller.handleReport(keyReport(0, false));
-      controller.handleReport(keyReport(2, true));
-      controller.handleReport(keyReport(2, false));
+      controller.handleReport(keyReport(1, true));
+      controller.handleReport(keyReport(1, false));
       expect(controller.state().eventOffset).toBe(7);
       controller.handleReport(dialTurn(0, -13));
       expect(controller.state().selectedEvent).toBe(1);
@@ -442,8 +443,8 @@ describe("physical controller composition", () => {
       });
       controller.handleReport(keyReport(0, true));
       controller.handleReport(keyReport(0, false));
-      controller.handleReport(keyReport(2, true));
-      controller.handleReport(keyReport(2, false));
+      controller.handleReport(keyReport(1, true));
+      controller.handleReport(keyReport(1, false));
       controller.handleReport(keyReport(0, true));
       controller.handleReport(keyReport(0, false));
       const selected = controller.state().selectedEvent;
@@ -487,8 +488,8 @@ describe("physical controller composition", () => {
       });
       controller.handleReport(keyReport(0, true));
       controller.handleReport(keyReport(0, false));
-      controller.handleReport(keyReport(2, true));
-      controller.handleReport(keyReport(2, false));
+      controller.handleReport(keyReport(1, true));
+      controller.handleReport(keyReport(1, false));
       controller.handleReport(dialTurn(0, -99));
       expect(controller.state()).toMatchObject({ selectedEvent: 0, chatOffset: 0 });
     });
@@ -543,8 +544,8 @@ describe("physical controller composition", () => {
       });
       expect(controller.state().transcriptRows).toEqual([
         { kind: "diff", path: "lib/b.ex", additions: 0, deletions: 0, line: null },
-        { kind: "message", role: "system", body: "hello", tool: null },
-        { kind: "message", role: "system", body: "no kind", tool: null },
+        { kind: "message", role: "system", body: "hello", tool: null, rowKind: "logs", glyph: null },
+        { kind: "message", role: "system", body: "no kind", tool: null, rowKind: "logs", glyph: null },
       ]);
     });
 
@@ -748,9 +749,10 @@ describe("physical controller composition", () => {
     const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
-    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(2, true));
     expect(controller.state().micHeld).toBe(true);
-    controller.handleReport(keysReport([2, 3], true));
+    // Logs (key 1) rises while the mic key (key 2) is still down.
+    controller.handleReport(keysReport([1, 2], true));
     expect(controller.state()).toMatchObject({ mode: "logs", micHeld: false });
   });
 
@@ -903,5 +905,245 @@ describe("physical controller composition", () => {
     controller.handleReport(dialButton(3, false));
     controller.handleReport(dialTurn(3, -1));
     expect(controller.state().eventOffset).toBe(11);
+  });
+});
+
+/**
+ * The voice half of the command surface, driven entirely through real HID
+ * reports: key 2 is the mic, key 3 opens settings, keys 4 and 5 are Send and
+ * Cancel, and on the settings surface keys 0-5 are microphones, 6 is TestMic
+ * and 7 pages.
+ */
+describe("voice keys", () => {
+  const fakeVoice = (over: Partial<ControllerVoice> = {}) => {
+    let text = "";
+    let selected: string | null = null;
+    let devices: AudioDevice[] = [{ id: "a", label: "Mic A" }, { id: "b", label: "Mic B" }];
+    const port: ControllerVoice & { say(value: string): void; setDevices(list: AudioDevice[]): void } = {
+      hold: vi.fn(),
+      release: vi.fn(),
+      message: () => text,
+      hasMessage: () => text !== "",
+      clear: vi.fn(() => { text = ""; }),
+      dispose: vi.fn(),
+      microphones: () => devices,
+      refresh: vi.fn(),
+      selectedDeviceId: () => selected,
+      select: vi.fn((id: string) => { selected = id; }),
+      say: (value: string) => { text = value; },
+      setDevices: (list: AudioDevice[]) => { devices = list; },
+      ...over,
+    };
+    return port;
+  };
+
+  /** A controller focused on an agent, with the fake voice port wired in. */
+  const focused = (voice: ReturnType<typeof fakeVoice>, say = vi.fn()) => {
+    const controller = createPhysicalController({
+      grid,
+      channel: () => ({ focus: vi.fn(), control: vi.fn(), say }),
+      voice: () => voice,
+      stateChanged: vi.fn(),
+    });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    expect(controller.state().mode).toBe("cmd");
+    return { controller, say };
+  };
+
+  it("starts capture on key 2 down and ends it on key 2 up", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(2, true));
+    expect(voice.hold).toHaveBeenCalledOnce();
+    expect(controller.state().micHeld).toBe(true);
+    controller.handleReport(keyReport(2, false));
+    expect(voice.release).toHaveBeenCalledOnce();
+    expect(controller.state().micHeld).toBe(false);
+  });
+
+  it("shows Send and Cancel only once the buffer holds settled text", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(2, true));
+    expect(controller.state().hasTranscript).toBe(false);
+    voice.say("run the tests again");
+    controller.handleReport(keyReport(2, false));
+    expect(controller.state().hasTranscript).toBe(true);
+  });
+
+  it("delivers the buffer through say and clears it, staying in cmd", () => {
+    const voice = fakeVoice();
+    const { controller, say } = focused(voice);
+    voice.say("run the tests again");
+    controller.refreshVoice();
+    controller.handleReport(keyReport(4, true));
+    expect(say).toHaveBeenCalledWith("agent-0", "run the tests again");
+    expect(voice.clear).toHaveBeenCalledOnce();
+    expect(controller.state()).toMatchObject({ mode: "cmd", hasTranscript: false });
+  });
+
+  // The key face and the report that pressed it are a frame apart, so a press
+  // that raced the buffer emptying must not deliver a blank turn to the agent.
+  it("sends nothing when the buffer emptied under the press", () => {
+    const voice = fakeVoice();
+    const { controller, say } = focused(voice);
+    controller.handleReport(keyReport(4, true));
+    expect(say).not.toHaveBeenCalled();
+  });
+
+  it("clears the buffer without sending on Cancel", () => {
+    const voice = fakeVoice();
+    const { controller, say } = focused(voice);
+    voice.say("forget this");
+    controller.refreshVoice();
+    controller.handleReport(keyReport(5, true));
+    expect(say).not.toHaveBeenCalled();
+    expect(voice.clear).toHaveBeenCalledOnce();
+    expect(controller.state()).toMatchObject({ mode: "cmd", hasTranscript: false });
+  });
+
+  it("opens settings from key 3 and re-enumerates microphones", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(3, true));
+    expect(controller.state()).toMatchObject({ mode: "settings", micOffset: 0 });
+    expect(voice.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("returns from settings to the focused agent's commands with dial A", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
+    controller.handleReport(dialButton(0));
+    expect(controller.state()).toMatchObject({ mode: "cmd", focusedIdentifier: "agent-0" });
+  });
+
+  const inSettings = (voice: ReturnType<typeof fakeVoice>) => {
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
+    expect(controller.state().mode).toBe("settings");
+    return controller;
+  };
+
+  it("persists the microphone the pressed key names", () => {
+    const voice = fakeVoice();
+    const controller = inSettings(voice);
+    controller.handleReport(keyReport(1, true));
+    expect(voice.select).toHaveBeenCalledWith("b");
+    // Read back out of the store, not assumed from the press.
+    expect(controller.state().selectedMicId).toBe("b");
+  });
+
+  it("ignores a press on a microphone key with no device on it", () => {
+    const voice = fakeVoice();
+    const controller = inSettings(voice);
+    controller.handleReport(keyReport(5, true));
+    expect(voice.select).not.toHaveBeenCalled();
+  });
+
+  it("holds TestMic on key 6 and releases it on key 6 up", () => {
+    const voice = fakeVoice();
+    const controller = inSettings(voice);
+    controller.handleReport(keyReport(6, true));
+    expect(voice.hold).toHaveBeenCalledOnce();
+    expect(controller.state().micHeld).toBe(true);
+    controller.handleReport(keyReport(6, false));
+    expect(voice.release).toHaveBeenCalledOnce();
+    expect(controller.state().micHeld).toBe(false);
+  });
+
+  it("pages the microphone list with key 7, wrapping past the last page", () => {
+    const voice = fakeVoice();
+    voice.setDevices(Array.from({ length: 15 }, (_, index) => ({ id: `m${index}`, label: `Mic ${index}` })));
+    const controller = inSettings(voice);
+    for (const expected of [6, 12, 0]) {
+      controller.handleReport(keyReport(7, true));
+      controller.handleReport(keyReport(7, false));
+      expect(controller.state().micOffset).toBe(expected);
+    }
+  });
+
+  it("leaves the page alone when everything fits on one", () => {
+    const voice = fakeVoice();
+    const controller = inSettings(voice);
+    controller.handleReport(keyReport(7, true));
+    expect(controller.state().micOffset).toBe(0);
+  });
+
+  it("ignores knob 3 on the settings surface", () => {
+    const voice = fakeVoice();
+    const controller = inSettings(voice);
+    controller.handleReport(dialButton(3));
+    expect(controller.state().mode).toBe("settings");
+  });
+
+  it("stops capture and drops the buffer when the focus is left", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    voice.say("half a thought");
+    controller.refreshVoice();
+    controller.handleReport(dialButton(0));
+    expect(controller.state()).toMatchObject({ mode: "grid", hasTranscript: false });
+    expect(voice.dispose).toHaveBeenCalled();
+    // A message about one ticket must not follow the operator to the next.
+    expect(voice.clear).toHaveBeenCalled();
+  });
+
+  it("stops capture and drops the buffer on the demo chord", () => {
+    const voice = fakeVoice();
+    const controller = createPhysicalController({
+      grid,
+      channel: () => null,
+      voice: () => voice,
+      stateChanged: vi.fn(),
+      toggleDemo: vi.fn(),
+    });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(keyReport(2, true));
+    controller.handleReport(dialButtons([1, 2]));
+    expect(controller.state()).toMatchObject({ mode: "grid", micHeld: false });
+    expect(voice.dispose).toHaveBeenCalled();
+    expect(voice.clear).toHaveBeenCalled();
+  });
+
+  // A dropped device must not leave `parec` recording.
+  it("stops capture when the backend goes away mid-hold", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(2, true));
+    controller.cancel();
+    expect(voice.dispose).toHaveBeenCalled();
+    expect(controller.state().micHeld).toBe(false);
+  });
+
+  it("stops capture when Logs is opened from under a held mic", () => {
+    const voice = fakeVoice();
+    const { controller } = focused(voice);
+    controller.handleReport(keyReport(2, true));
+    controller.handleReport(keysReport([1, 2], true));
+    expect(controller.state().mode).toBe("logs");
+    expect(voice.dispose).toHaveBeenCalled();
+  });
+
+  // Every one of these paths has to tolerate a host with no audio at all.
+  it("is inert on a host with no voice port", () => {
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(keyReport(2, true));
+    expect(controller.state().micHeld).toBe(true);
+    controller.handleReport(keyReport(2, false));
+    controller.handleReport(keyReport(4, true));
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
+    expect(controller.state().mode).toBe("settings");
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(7, true));
+    controller.refreshVoice();
+    expect(controller.state()).toMatchObject({ mode: "settings", micOffset: 0, selectedMicId: null });
   });
 });

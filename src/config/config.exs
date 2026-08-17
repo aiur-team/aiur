@@ -35,8 +35,14 @@ if config_env() == :test do
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
   config :aiur, :github_quota_refresh?, false
+  config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available
+
+  # No test may reach a provider's model catalogue over the network. Discovery
+  # tests drive `Aiur.ModelDiscovery.refresh/2` with an injected fetcher; the
+  # lazy background refresh every other test could trip is off entirely.
+  config :aiur, :model_discovery_refresh?, false
 
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production

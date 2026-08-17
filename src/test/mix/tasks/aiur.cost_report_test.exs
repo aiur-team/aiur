@@ -88,12 +88,27 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
       assert output =~ "gpt-5.6-terra"
       assert output =~ "1000000 tokens"
       assert output =~ "Spend by model:"
+      assert output =~ "Spend by provider route:"
       assert output =~ "Spend by agent family:"
       assert output =~ "Spend by ticket:"
     end
 
+    test "prints routed, direct, and unknown-upstream provider routes", %{state_dir: state_dir} do
+      write_route_checkpoint!(state_dir)
+
+      output =
+        capture_io(fn ->
+          assert :ok = CostReport.run(["--ticket", "930", "--state-dir", state_dir])
+        end)
+
+      assert output =~ "Spend by provider route:"
+      assert output =~ "OpenRouter -> DeepSeek"
+      assert output =~ "OpenRouter -> upstream unknown"
+      assert output =~ "\n  DeepSeek"
+    end
+
     test "--json emits a machine-readable snapshot", %{state_dir: state_dir} do
-      write_checkpoint!(state_dir, [930])
+      write_route_checkpoint!(state_dir)
 
       output =
         capture_io(fn ->
@@ -104,6 +119,10 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
       assert decoded["scope"]["kind"] == "explicit_ticket_set"
       assert decoded["currency"] == "USD"
       assert decoded["contributors"]["by_ticket"] != []
+
+      routes = Enum.map(decoded["contributors"]["by_provider_route"], & &1["key"])
+      assert %{"provider" => "openrouter", "upstream_provider" => "DeepSeek"} in routes
+      assert %{"provider" => "deepseek", "upstream_provider" => nil} in routes
     end
 
     test "defaults to the current run and renders empty dimensions", %{state_dir: state_dir} do
@@ -209,6 +228,28 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
           cost: Aggregate.money("2.50")
         })
       end)
+
+    projection = Projection.apply_records(Projection.new(), records)
+    assert :ok = Checkpoint.write(Path.join(state_dir, "checkpoint.json"), projection)
+  end
+
+  defp write_route_checkpoint!(state_dir) do
+    base = envelope_with_ticket(930, "run-A")
+
+    records = [
+      Aggregate.record(1, %{base | provider: :openrouter, upstream_provider: "DeepSeek"}, %{
+        tokens: %{input: 10},
+        cost: Aggregate.money("1.00")
+      }),
+      Aggregate.record(2, %{base | provider: :openrouter, upstream_provider: nil, source_event_id: "route-unknown"}, %{
+        tokens: %{input: 20},
+        cost: Aggregate.money("2.00")
+      }),
+      Aggregate.record(3, %{base | provider: :deepseek, upstream_provider: nil, source_event_id: "direct"}, %{
+        tokens: %{input: 30},
+        cost: Aggregate.money("3.00")
+      })
+    ]
 
     projection = Projection.apply_records(Projection.new(), records)
     assert :ok = Checkpoint.write(Path.join(state_dir, "checkpoint.json"), projection)

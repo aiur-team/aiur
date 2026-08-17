@@ -16,6 +16,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
+  alias Aiur.ElevenLabs.Quota, as: ElevenLabsQuota
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.LiveConversation
   alias Aiur.OpenTicketSource
@@ -69,6 +70,10 @@ defmodule AiurWeb.DashboardLive do
 
   @runtime_tick_ms 1_000
   @github_quota_tick_ms 15_000
+  # The ElevenLabs credit quota is a whole-account figure that moves far more
+  # slowly than a per-request GitHub budget, so it refreshes on its own, longer
+  # tick rather than riding GitHub's.
+  @elevenlabs_quota_tick_ms 60_000
   @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
   @usage_summary_max_age_ms 30_000
@@ -110,6 +115,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:payload, payload)
       |> assign(:now, DateTime.utc_now())
       |> assign(:github_quota, github_quota_snapshot())
+      |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
@@ -160,6 +166,7 @@ defmodule AiurWeb.DashboardLive do
     if connected do
       schedule_runtime_tick()
       schedule_github_quota_tick()
+      schedule_elevenlabs_quota_tick()
     end
 
     {:ok, socket}
@@ -189,6 +196,11 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(:github_quota_tick, socket) do
     schedule_github_quota_tick()
     {:noreply, assign(socket, :github_quota, github_quota_snapshot())}
+  end
+
+  def handle_info(:elevenlabs_quota_tick, socket) do
+    schedule_elevenlabs_quota_tick()
+    {:noreply, assign(socket, :elevenlabs_quota, elevenlabs_quota_snapshot())}
   end
 
   @impl true
@@ -778,6 +790,7 @@ defmodule AiurWeb.DashboardLive do
       |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
+      |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -859,6 +872,7 @@ defmodule AiurWeb.DashboardLive do
           usage={@usage_summary}
           meters={@provider_meters_view}
           github_quota={@github_quota}
+          elevenlabs_quota={@elevenlabs_quota}
           now={@now}
         />
 
@@ -1197,6 +1211,7 @@ defmodule AiurWeb.DashboardLive do
   # prediction are both stale until the poller catches up. Ask it to re-read now.
   defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
     OpenTicketSource.refresh()
+    Aiur.Orchestrator.request_refresh(capacity_orchestrator())
     reload_after_action(socket)
   rescue
     _error -> socket
@@ -2495,8 +2510,11 @@ defmodule AiurWeb.DashboardLive do
 
   defp schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
   defp schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
+  defp schedule_elevenlabs_quota_tick, do: Process.send_after(self(), :elevenlabs_quota_tick, @elevenlabs_quota_tick_ms)
 
   defp github_quota_snapshot, do: GitHubQuota.snapshot()
+
+  defp elevenlabs_quota_snapshot, do: ElevenLabsQuota.snapshot()
 
   defp clear_chat_state(socket, identifier) do
     socket

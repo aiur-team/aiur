@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -59,8 +59,17 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec apply_session_max_concurrent_agents(State.t(), pos_integer()) ::
           {:reply, {:ok, map()}, State.t()}
+  def apply_session_max_concurrent_agents(%State{session_max_concurrent_agents: next} = state, next) when is_integer(next) do
+    {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+  end
+
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
-    state = %{state | session_max_concurrent_agents: next}
+    state =
+      state
+      |> Map.put(:session_max_concurrent_agents, next)
+      |> Lifecycle.request_refresh_state()
+      |> elem(0)
+
     StatusReport.notify_dashboard(state)
     {:reply, {:ok, max_concurrent_agent_status(state)}, state}
   end

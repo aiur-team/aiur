@@ -37,6 +37,7 @@ defmodule AiurWeb.Layouts do
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/ticket-context-dialog-hook.js"></script>
+        <script defer src="/conversation-voice-controller.js"></script>
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/build-order-grid-hook.js"></script>
         <script defer src="/time-brush-hook.js"></script>

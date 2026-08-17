@@ -168,6 +168,266 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
+  describe "dispatch_issue blocked_by dependency gate" do
+    test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "blocked-ticket",
+        identifier: "repo#blocked-ticket",
+        title: "blocked ticket",
+        state: "todo"
+      }
+
+      hydrated = %{issue | blocked_by: [%{id: "5", identifier: "5", state: "in-progress"}]}
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      log =
+        capture_log(fn ->
+          next_state =
+            Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, issue, nil, nil,
+              issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+              blocked_by_hydrator: fn _issue -> {:ok, hydrated} end,
+              runner: runner
+            )
+
+          refute Map.has_key?(next_state.running, issue.id)
+          refute MapSet.member?(next_state.claimed, issue.id)
+        end)
+
+      refute_receive {:agent_runner_run, _, _, _}, 100
+      assert log =~ "blocked by a non-terminal dependency"
+    end
+
+    test "holds dispatch (fail-closed) with an attention decline when hydration fails" do
+      candidate = issue("hydration-failed")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:error, :dependencies_unavailable} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
+
+      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+      assert_receive {:alert,
+                      %{
+                        name: ^attention_name,
+                        reason: reason,
+                        needs_attention: true
+                      }},
+                     2_000
+
+      assert reason =~ "dependency_hydration_failed"
+      refute Map.has_key?(declined.running, candidate.id)
+    end
+
+    test "holds dispatch when hydration returns an unexpected shape (fail-closed, no crash)" do
+      candidate = issue("hydration-odd-result")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> :bogus end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
+
+      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+      assert_receive {:alert, %{name: ^attention_name, needs_attention: true}}, 2_000
+      refute Map.has_key?(declined.running, candidate.id)
+    end
+
+    test "dispatches normally when hydration finds no blockers" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "unblocked-ticket",
+        identifier: "repo#unblocked-ticket",
+        title: "unblocked ticket",
+        state: "todo",
+        selected_backend: "codex"
+      }
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.dispatch_issue(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, issue, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == issue.id
+      assert Map.has_key?(next_state.running, issue.id)
+    end
+  end
+
+  describe "blocking Command dispatch gate (#1965)" do
+    test "a dispatch cycle reads an open blocking Command and releases it after answer" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("decision-cycle-#{System.unique_integer([:positive])}")
+
+      ticket = %{identifier: candidate.id, title: candidate.title, url: candidate.url}
+
+      source = %{
+        agent_id: "dispatcher-test",
+        session_id: "session-#{candidate.id}",
+        event_id: nil
+      }
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{"question" => "Which path should this ticket take?", "blocking" => true},
+                 ticket: ticket,
+                 source: source
+               )
+
+      on_exit(fn ->
+        Aiur.DecisionStore.answer(
+          decision.decision_id,
+          %{
+            "idempotency_key" => "cleanup-#{decision.decision_id}",
+            "expected_version" => decision.version,
+            "custom_response" => "Proceed"
+          },
+          actor: %{kind: :operator, id: "dispatcher-test"}
+        )
+      end)
+
+      state =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> Dispatcher.refresh_blocked_ticket_ids()
+
+      assert Dispatcher.choose_issues(state, [candidate]).dispatch_declines[candidate.id] ==
+               :blocked_on_decision
+
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "release-#{decision.decision_id}",
+                   "expected_version" => decision.version,
+                   "custom_response" => "Proceed"
+                 },
+                 actor: %{kind: :operator, id: "dispatcher-test"}
+               )
+
+      next_state = Dispatcher.refresh_blocked_ticket_ids(state)
+
+      assert DispatchPolicy.dispatch_decision(
+               candidate,
+               next_state,
+               DispatchPolicy.active_state_set(),
+               DispatchPolicy.terminal_state_set(),
+               next_state.blocked_ticket_ids
+             ) == :dispatch
+    end
+
+    test "a ticket with an open blocking Command is declined and the reason is visible in status" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("blocked-command")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: MapSet.new([candidate.id])
+      }
+
+      declined = Dispatcher.choose_issues(state, [candidate])
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+
+      assert_receive {:alert,
+                      %{
+                        name: "dispatch.candidate_declined",
+                        reason: reason,
+                        needs_attention: false
+                      }},
+                     2_000
+
+      assert reason =~ "blocked_on_decision"
+    end
+
+    test "an unreadable decision store fails closed (no new dispatch)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      candidate = issue("store-unavailable")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: :unavailable
+      }
+
+      declined = Dispatcher.choose_issues(state, [candidate])
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+    end
+
+    test "dispatch_issue refuses to spawn a fresh agent while a blocking Command is open" do
+      candidate = issue("dispatch-issue-blocked")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      state = %State{effective_concurrent_agents: 4, blocked_ticket_ids: MapSet.new([candidate.id])}
+
+      declined =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn issue -> {:ok, issue} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :blocked_on_decision
+      refute Map.has_key?(declined.running, candidate.id)
+      refute MapSet.member?(declined.claimed, candidate.id)
+    end
+
+    test "dispatch_issue proceeds when the ticket has no open blocking Command" do
+      test_pid = self()
+      candidate = %{issue("unblocked-dispatch") | selected_backend: "codex"}
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: MapSet.new(["other"])
+      }
+
+      next_state =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == candidate.id
+      assert Map.has_key?(next_state.running, candidate.id)
+    end
+  end
+
   defp dispatch_recovery(codex_thrash_budget) do
     %{
       workspace_ownership: %{waits: %{}, ready: %{}},
@@ -827,6 +1087,56 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
     end
 
+    test "a repeated load hold drops stale CPU corroboration when the next sample is unavailable" do
+      test_pid = self()
+      previous_cpu = %{total: 1_000, idle: 700, nice: 100, runnable: 20}
+      current_cpu = %{total: 1_200, idle: 710, nice: 100, runnable: 20}
+
+      base_probes = %{
+        memory_mb: :unavailable,
+        memory_threshold_mb: nil,
+        fd_sample: :unavailable,
+        runnable: 20,
+        run_queue_threshold: nil,
+        schedulers: 16,
+        load: 143.0,
+        load_threshold: 1.5,
+        build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+        provider_backends: [],
+        github_quota: :available,
+        target: nil
+      }
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 8,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous_cpu, bootstrap_complete?: true}
+      }
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("cpu-evidence")],
+          noop_choose(),
+          capacity_opts(test_pid, 1_000) ++
+            [admission_probes_fun: fn -> Map.put(base_probes, :cpu_snapshot, current_cpu) end]
+        )
+
+      assert %{reclaimable_cpu_percent: 5.0, reclaimable_cpu_threshold: 60.0} = held.capacity_hold
+
+      unavailable =
+        Dispatcher.maybe_choose_under_load(
+          held,
+          [issue("cpu-evidence")],
+          noop_choose(),
+          capacity_opts(test_pid, 2_000) ++
+            [admission_probes_fun: fn -> Map.put(base_probes, :cpu_snapshot, :unavailable) end]
+        )
+
+      refute Map.has_key?(unavailable.capacity_hold, :reclaimable_cpu_percent)
+      refute Map.has_key?(unavailable.capacity_hold, :reclaimable_cpu_threshold)
+    end
+
     test "dependency-paused agents do not prevent a queued keystone from reaching dispatch selection" do
       keystone = issue("keystone")
       test_pid = self()
@@ -911,6 +1221,92 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       assert recovered.capacity_hold == nil
       assert map_size(recovered.running) == 1
+    end
+
+    test "niced runnable load neither hard-holds dispatch nor pins the adaptive envelope" do
+      test_pid = self()
+
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+      current_cpu = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 4,
+        load_envelope_state: %{last_decrease_ms: 1_000, cpu_snapshot: previous_cpu, bootstrap_complete?: true}
+      }
+
+      probes = fn ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: 74,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 143.0,
+          load_threshold: 1.5,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: current_cpu,
+          target: 1.0
+        }
+      end
+
+      recovered =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("niced-load")],
+          fn next, _issues ->
+            send(test_pid, :dispatched)
+            next
+          end,
+          admission_probes_fun: probes,
+          now_ms: 2_000
+        )
+
+      assert_received :dispatched
+      assert %{signal: :envelope, measured: 7, threshold: 8} = recovered.capacity_hold
+      assert recovered.effective_concurrent_agents == 7
+    end
+
+    test "hard load admission samples CPU when the adaptive envelope is disabled" do
+      workflow_path = Workflow.workflow_file_path()
+      write_workflow_file!(workflow_path, max_concurrent_agents: 8)
+
+      workflow =
+        workflow_path
+        |> File.read!()
+        |> String.replace("agent:\n", "agent:\n  max_load_average: 1.5\n  target_load_average: null\n")
+
+      File.write!(workflow_path, workflow)
+      :ok = Aiur.WorkflowStore.force_reload(5_000)
+
+      schedulers = System.schedulers_online()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{schedulers * 9.0} 1.0 1.0 1/1 1\n"} end)
+
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        {:ok, "cpu 240 240 100 620 0 0 0 0 0 0\nprocs_running 74\n"}
+      end)
+
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      previous_cpu = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 8,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous_cpu, bootstrap_complete?: true}
+      }
+
+      recovered =
+        Dispatcher.maybe_choose_under_load(state, [issue("hard-gate-niced-load")], fn next, _issues ->
+          send(self(), :hard_gate_dispatched)
+          next
+        end)
+
+      assert_received :hard_gate_dispatched
+      assert recovered.capacity_hold == nil
     end
   end
 
@@ -1023,6 +1419,50 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000
+    end
+
+    test "prewarm sampling keeps ready-transition CPU corroboration fresh" do
+      with_prewarm_enabled_config()
+
+      ready = [issue("prewarm-cpu-window")]
+      previous_cpu = %{total: 900, idle: 400, nice: 0, runnable: 2}
+      prewarm_cpu = %{total: 1_100, idle: 580, nice: 0, runnable: 2}
+      ready_cpu = %{total: 1_200, idle: 590, nice: 0, runnable: 20}
+
+      probes = fn cpu_snapshot ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: 20,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 143.0,
+          load_threshold: 1.5,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: cpu_snapshot,
+          target: nil
+        }
+      end
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 8,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous_cpu, bootstrap_complete?: true}
+      }
+
+      held =
+        Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: fn -> probes.(prewarm_cpu) end)
+
+      assert held.load_envelope_state.cpu_snapshot == prewarm_cpu
+
+      ready_state =
+        Dispatcher.dispatch_or_hold(held, ready, fn -> :ready end, admission_probes_fun: fn -> probes.(ready_cpu) end)
+
+      assert %{signal: :load, reclaimable_cpu_percent: 10.0} = ready_state.capacity_hold
+      assert map_size(ready_state.running) == 0
     end
 
     test "fails open to a cold clone on a base-build error and resets the hold counter" do

@@ -80,6 +80,27 @@ defmodule Aiur.AlertsTest do
            end)
   end
 
+  # The base-branch change announcement is a semantic event (structured
+  # old -> new) delivered through the alert's Exchange payload, so agents
+  # subscribed to `system.config.base_branch.changed` see one event carrying
+  # both fields rather than a duplicate.
+  test "exchange_payload fields ride the Exchange event" do
+    :ok = Exchange.subscribe("system.config.base_branch.changed")
+
+    assert :ok =
+             Alerts.emit_system("system.config.base_branch.changed",
+               message: "tracker.base_branch changed from develop to main",
+               reason: "tracker.base_branch changed from develop to main",
+               exchange_payload: %{old_base: "develop", new_base: "main", source: :system}
+             )
+
+    assert_receive {:event, event}, 500
+    assert event.topic == "system.config.base_branch.changed"
+    assert event.old_base == "develop"
+    assert event.new_base == "main"
+    assert event["message"] == "tracker.base_branch changed from develop to main"
+  end
+
   # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
   # scopes (`task.*`, `agent.*`, `chat.*`). That gate moved to Ticket A's
   # `emit_event` tool allowlist — server-side `Alerts` no longer policies
@@ -275,6 +296,59 @@ defmodule Aiur.AlertsTest do
                alert["topic"] == topic and alert["reason"] == reason and alert["needs_attention"] == true
              end)
     end)
+  end
+
+  test "executor takeover advisories round-trip through the needs-attention feed and resolve" do
+    log_root = Path.join(System.tmp_dir!(), "aiur-takeover-alert-#{System.unique_integer([:positive])}")
+    original_log_file = Application.get_env(:aiur, :log_file)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(log_root)
+    end)
+
+    topic = "system.executor_takeover.999"
+
+    assert :ok =
+             Alerts.emit_system(topic,
+               message: "Executor takeover advisory for #999.",
+               reason: "Executor takeover advisory for #999.",
+               needs_attention: true,
+               severity: "warning"
+             )
+
+    assert Enum.any?(AlertFeed.list(log_roots: [log_root]), fn alert ->
+             alert["topic"] == topic and alert["needs_attention"] == true
+           end)
+
+    # The continuous reminder is collapsed to one active advisory by the feed.
+    assert :ok =
+             Alerts.emit_system(topic,
+               message: "Executor takeover advisory for #999 (repeated).",
+               reason: "Executor takeover advisory for #999.",
+               needs_attention: true,
+               severity: "warning"
+             )
+
+    active = AlertFeed.list(log_roots: [log_root], needs_attention: true) |> Enum.filter(&(&1["topic"] == topic))
+    assert length(active) == 1
+
+    # Resolution clears the active advisory from the needs-attention surface.
+    assert :ok =
+             Alerts.emit_system(topic <> ".resolved",
+               message: "Executor takeover advisory resolved: #999 is terminal or out of run scope.",
+               reason: "Executor takeover advisory resolved.",
+               needs_attention: false,
+               severity: "info"
+             )
+
+    refute Enum.any?(AlertFeed.list(log_roots: [log_root], needs_attention: true), &(&1["topic"] == topic))
   end
 
   describe "resolution alerts are edge-triggered" do

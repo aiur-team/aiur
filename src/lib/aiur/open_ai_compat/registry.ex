@@ -1,6 +1,7 @@
 defmodule Aiur.OpenAICompat.Registry do
   @moduledoc false
 
+  alias Aiur.ModelDiscovery
   alias Aiur.OpenAICompat.{CodingAgent, ProviderMeterProbe, Transcript}
 
   @spec entries() :: %{String.t() => Aiur.CodingAgent.Backend.capabilities()}
@@ -16,6 +17,7 @@ defmodule Aiur.OpenAICompat.Registry do
             base_url: "https://api.moonshot.ai/v1",
             api_key_env: "MOONSHOT_API_KEY",
             default_model: "kimi-k2.7-code",
+            models_endpoint: ModelDiscovery.Source.OpenAI,
             transport: :chat_completions,
             quirks: %{reasoning_content_replay: true}
           },
@@ -42,6 +44,7 @@ defmodule Aiur.OpenAICompat.Registry do
             base_url: "https://api.deepseek.com",
             api_key_env: "DEEPSEEK_API_KEY",
             default_model: "deepseek-v4-flash",
+            models_endpoint: ModelDiscovery.Source.OpenAI,
             transport: :responses,
             quirks: %{
               reasoning_content_replay: true,
@@ -72,10 +75,17 @@ defmodule Aiur.OpenAICompat.Registry do
             "anthropic/claude-sonnet-5",
             "anthropic/claude-opus-5"
           ],
+          # OpenRouter has no CLI of its own to expand `claude` into a
+          # version, so aiur derives the family aliases itself and rewrites
+          # them to a concrete slug before the request is built — which is
+          # also before any usage event exists to attribute. See
+          # `Aiur.CodingAgent.resolve_model/2`.
+          model_aliases: :derived,
           openai_compat: %{
             base_url: "https://openrouter.ai/api/v1",
             api_key_env: "OPENROUTER_API_KEY",
             management_api_key_env: "OPENROUTER_MANAGEMENT_KEY",
+            models_endpoint: ModelDiscovery.Source.OpenRouter,
             transport: :chat_completions,
             quirks: %{openrouter_metadata: true}
           },
@@ -102,7 +112,14 @@ defmodule Aiur.OpenAICompat.Registry do
         family: family,
         can_interrupt: false,
         safe_checkpoints: [:notification, :tool_result],
-        control_application_confirmation: :request_only,
+        # The OpenAI-compat worker implements the correlated unit-control
+        # protocol: `pause_state/0` echoes the orchestrator's `request_id` and
+        # `generation` in its `{:paused, ...}` payload, and the runner forwards
+        # that as `{:worker_control_state, ...}` evidence the orchestrator
+        # verifies before applying. Declare `:confirmed` so pause/resume are
+        # admitted and applied for these backends (#1966) instead of being
+        # rejected as `:unsupported` by the control preflight.
+        control_application_confirmation: :confirmed,
         remote_control: false,
         resumable: false,
         remote_worker: false,

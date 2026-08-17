@@ -13,6 +13,8 @@
 
       this.el.addEventListener("keydown", this.onKeydown);
       this.bindScrollElements();
+      this.voice = new window.AiurConversationVoiceController(this);
+      this.voice.mount();
       this.focusHeading();
 
       requestAnimationFrame(() => {
@@ -28,6 +30,7 @@
     updated() {
       this.readDataset();
       this.bindScrollElements();
+      this.voice.bindElements();
 
       if (this.wasAtBottom) this.scrollToBottom();
       this.updateJump();
@@ -36,6 +39,7 @@
     destroyed() {
       this.el.removeEventListener("keydown", this.onKeydown);
       this.unbindScrollElements();
+      this.voice.destroy();
 
       requestAnimationFrame(() => {
         const explicitOrigin = this.originId ? document.getElementById(this.originId) : null;

@@ -5,7 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+  alias AiurWeb.{OperatorControlCenter.RunSummaryStrip, StaticAssets}
 
   @now ~U[2026-07-20 12:00:00Z]
 
@@ -294,6 +294,84 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "$8.75"
   end
 
+  test "partial current facts show a qualified percentage and distinguish settling from degradation" do
+    partial_progress = %{
+      kind: :partial,
+      percent: 40,
+      current_member_count: 1,
+      total_member_count: 2,
+      missing_member_count: 1,
+      display_percent_label: "40%",
+      current_members_label: "1 of 2 members current"
+    }
+
+    settling =
+      run_view()
+      |> put_in([:progress], Map.merge(partial_progress, %{fact_status: :settling, fact_status_label: "Still settling"}))
+      |> put_in([:eta], %{reason: :unhealthy_weight_facts, label: "Unavailable — weight facts unhealthy"})
+
+    degraded =
+      settling
+      |> put_in([:progress, :fact_status], :degraded)
+      |> put_in([:progress, :fact_status_label], "Refresh degraded")
+
+    settling_html =
+      render_component(&RunSummaryStrip.run_summary_compact/1, %{
+        run: settling,
+        usage: usage_view(),
+        meters: meters_view(),
+        now: @now
+      })
+
+    degraded_html =
+      render_component(&RunSummaryStrip.run_summary_compact/1, %{
+        run: degraded,
+        usage: usage_view(),
+        meters: meters_view(),
+        now: @now
+      })
+
+    assert settling_html =~ "40%"
+    assert settling_html =~ "1 of 2 members current"
+    assert settling_html =~ "Still settling"
+    assert settling_html =~ ~s(style="width:40%")
+    refute settling_html =~ "Unavailable"
+    refute settling_html =~ "weight facts"
+
+    assert degraded_html =~ "40%"
+    assert degraded_html =~ "Refresh degraded"
+    refute degraded_html =~ "Still settling"
+  end
+
+  test "no current facts show a status-bearing pending figure without projection jargon" do
+    pending = %{
+      kind: :pending,
+      percent: nil,
+      progress_status_label: "Progress not computed yet",
+      current_members_label: "0 of 2 members current",
+      fact_status_label: "Still settling"
+    }
+
+    run =
+      run_view()
+      |> put_in([:progress], pending)
+      |> put_in([:eta], %{reason: :unhealthy_weight_facts, label: "Unavailable — weight facts unhealthy"})
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_compact/1, %{
+        run: run,
+        usage: usage_view(),
+        meters: meters_view(),
+        now: @now
+      })
+
+    assert html =~ "Progress not computed yet"
+    assert html =~ "0 of 2 members current"
+    assert html =~ "Still settling"
+    refute html =~ "weight facts"
+    refute html =~ ~s(style="width:40%")
+  end
+
   test "hides aggregate spend unless at least one provider uses an API key" do
     subscription_meters =
       update_in(meters_view(), [:cards], fn cards ->
@@ -417,124 +495,37 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   end
 
   # A prepaid balance is a :credit window with no percentage. It must render as
-  # a dollar amount, never as a fabricated "0% consumed" bar, and stay visible
-  # next to any rate-limit window the provider also publishes. The zero-flight
-  # concurrency gauge is hidden entirely (it only appears once requests are in
-  # flight).
-  test "renders a credit balance window as a dollar amount and hides the idle concurrency gauge" do
+  # a dollar amount, never as a fabricated "0% consumed" bar. Local concurrency
+  # is an instantaneous process-local reading, so retaining it on a provider
+  # card would turn it into a permanently stale pseudo-limit.
+  test "renders a credit balance and omits local concurrency from provider cards" do
     with_deepseek_key(fn ->
-      meters = %{
-        state: :authorized,
-        cards: [
-          %{
-            provider: :deepseek,
-            provider_label: "DeepSeek",
-            state: :ready,
-            status_label: "Healthy",
-            auth_mode: %{value: :api_key},
-            windows: [
-              %{
-                kind: :credit,
-                name: :credits,
-                coverage_label: "Supported",
-                credits: %{status: :available, label: "Available", amount: 7.25},
-                expires_at: DateTime.add(@now, 5, :minute)
-              },
-              scoped_window("local-concurrency", 0)
-            ]
-          }
-        ]
+      credit = %{
+        kind: :credit,
+        name: :credits,
+        coverage_label: "Supported",
+        credits: %{status: :available, label: "Available", amount: 7.25},
+        expires_at: DateTime.add(@now, 5, :minute)
       }
 
-      html =
-        render_component(&RunSummaryStrip.run_summary_strip/1, %{
-          run: %{state: :loading},
-          usage: %{state: :ready, providers: %{}},
-          meters: meters,
-          now: @now
-        })
+      Enum.each([{0, :ready, :fresh}, {5, :stale, :stale}, {42, :ready, :fresh}], fn {used, state, freshness} ->
+        concurrency =
+          scoped_window("local-concurrency", used)
+          |> Map.merge(%{name: "Local concurrency", freshness: freshness, resets_at: nil})
 
-      assert html =~ "$7.25"
-      refute html =~ "0% consumed"
-      # Only the credit row renders: the idle concurrency gauge is dropped, so
-      # exactly one provider limit row survives instead of two. The GitHub
-      # quota card has its own row earlier in the strip.
-      [_before_provider, provider_html] = String.split(html, "DeepSeek", parts: 2)
-      assert length(Regex.scan(~r/<div class="rs-limit">/, provider_html)) == 1
-      refute html =~ "concurrency"
-    end)
-  end
+        meters = %{
+          state: :authorized,
+          cards: [model_card(:deepseek, "DeepSeek", state, "Healthy", [credit, concurrency])]
+        }
 
-  test "shows the local-concurrency gauge once requests are in flight" do
-    with_deepseek_key(fn ->
-      meters = %{
-        state: :authorized,
-        cards: [
-          %{
-            provider: :deepseek,
-            provider_label: "DeepSeek",
-            state: :ready,
-            status_label: "Healthy",
-            auth_mode: %{value: :api_key},
-            windows: [scoped_window("local-concurrency", 42)]
-          }
-        ]
-      }
+        html = strip(run: %{state: :loading}, usage: %{state: :ready, providers: %{}}, meters: meters)
 
-      html =
-        render_component(&RunSummaryStrip.run_summary_strip/1, %{
-          run: %{state: :loading},
-          usage: %{state: :ready, providers: %{}},
-          meters: meters,
-          now: @now
-        })
-
-      assert html =~ "42%"
-      assert html =~ ~s(<i class="" style="width:42%">)
-    end)
-  end
-
-  # A few in-flight requests against a large concurrency limit round to a 0%
-  # meter, but the gauge is real activity and must still render. The hide rule
-  # keys on the used (in-flight) value, not the rounded meter.
-  test "the concurrency gauge stays visible for small in-flight counts that round to 0%" do
-    with_deepseek_key(fn ->
-      meters = %{
-        state: :authorized,
-        cards: [
-          %{
-            provider: :deepseek,
-            provider_label: "DeepSeek",
-            state: :ready,
-            status_label: "Healthy",
-            auth_mode: %{value: :api_key},
-            windows: [
-              %{
-                limit_id: "local-concurrency",
-                kind: :rate_limit,
-                name: "Primary",
-                coverage_label: "Supported",
-                meter: %{kind: :exact, now: 0, min: 0, max: 100},
-                used: 5,
-                used_percent: 0.2,
-                resets_at: DateTime.add(@now, 30, :minute)
-              }
-            ]
-          }
-        ]
-      }
-
-      html =
-        render_component(&RunSummaryStrip.run_summary_strip/1, %{
-          run: %{state: :loading},
-          usage: %{state: :ready, providers: %{}},
-          meters: meters,
-          now: @now
-        })
-
-      # The gauge row still renders (its bar rounds to 0% width, but the row
-      # is real activity, not an idle zero).
-      assert html =~ ~s(<div class="rs-meter">)
+        assert html =~ "$7.25"
+        refute html =~ "Local concurrency"
+        refute html =~ "reset unavailable"
+        [_before_provider, provider_html] = String.split(html, "DeepSeek", parts: 2)
+        assert length(Regex.scan(~r/<div class="rs-limit">/, provider_html)) == 1
+      end)
     end)
   end
 
@@ -1099,7 +1090,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ ~s(<section class="run-summary" aria-label="Provider and GitHub usage">)
+      assert html =~ ~s(<section class="run-summary" aria-label="Provider and API usage">)
       # Two panes: the GitHub card plus one models pane.
       assert pane_count(html) == 2
       assert html =~ ~s(<div class="rs-block github-quota-card">)
@@ -1293,6 +1284,176 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
+  # ---- ElevenLabs credit quota ----
+  #
+  # ElevenLabs publishes a character/credit quota plus the amount due on the
+  # next invoice. The latter is owed money, never a spendable balance. Like the
+  # other meters on this strip, the credit bar fills as usage is consumed.
+
+  test "an unconfigured ElevenLabs account leaves no trace on the strip" do
+    html = strip(elevenlabs_quota: %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
+
+    refute html =~ "ElevenLabs"
+    refute html =~ "Credits remaining"
+    refute html =~ "rs-elevenlabs"
+    assert html =~ "1 API"
+    refute html =~ "2 APIs"
+  end
+
+  test "an omitted ElevenLabs quota is an absent account, not an empty meter" do
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        github_quota: github_quota_view(),
+        now: @now
+      })
+
+    refute html =~ "ElevenLabs"
+    assert html =~ "1 API"
+  end
+
+  test "a configured account renders a filling used-credit meter and invoice amount beside GitHub" do
+    html = strip(elevenlabs_quota: elevenlabs_quota_view())
+    row = elevenlabs_row(html)
+
+    assert html =~ "2 APIs"
+    assert html =~ "Github"
+    assert row =~ "ElevenLabs"
+    assert row =~ ~s(src="/elevenlabs-symbol.svg")
+    assert row =~ "Credits"
+    assert row =~ "75.0K left · 25% used · resets 3d"
+    assert row =~ ~s(style="width:25.0%")
+    assert row =~ "Next invoice due"
+    assert row =~ "$5.00"
+    refute row =~ "100.0K"
+    refute row =~ "credits left"
+
+    assert {:ok, "image/svg+xml", svg} = StaticAssets.fetch("/elevenlabs-symbol.svg")
+    assert svg =~ ~s(<svg width="180" height="292")
+  end
+
+  test "the label names the quota it meters and the billing it does not" do
+    row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view()))
+
+    assert row =~ "account credit quota"
+    assert row =~ "Speech-to-text is billed per minute of audio and is not counted here."
+    assert row =~ "The dollar figure is the amount due on the next invoice, not a balance."
+  end
+
+  test "an absent next invoice does not hide the credit meter" do
+    row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(next_invoice: nil)))
+
+    assert row =~ "75.0K left · 25% used · resets 3d"
+    assert row =~ ~s(style="width:25.0%")
+    refute row =~ "Next invoice due"
+    refute row =~ "$"
+  end
+
+  test "compact reset copy chooses one truthful unit" do
+    cases = [
+      {DateTime.add(@now, -1, :second), "reset time passed"},
+      {DateTime.add(@now, 3, :day), "resets 3d"},
+      {DateTime.add(@now, 5, :hour), "resets 5h"},
+      {DateTime.add(@now, 45, :minute), "resets 45m"},
+      {nil, "reset unavailable"}
+    ]
+
+    for {reset_at, expected} <- cases do
+      row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(reset_at: reset_at)))
+      assert row =~ expected
+    end
+  end
+
+  test "a configured key with no answer yet says so and draws an empty bar" do
+    row = elevenlabs_row(strip(elevenlabs_quota: %{state: :unknown, window: nil, failure: nil, observed_at: nil}))
+
+    assert row =~ "Awaiting ElevenLabs response"
+    assert row =~ ~s(class="rs-meter")
+    assert row =~ ~s(style="width:0%")
+  end
+
+  test "a configured key whose read failed surfaces the failure without the credential" do
+    for {failure, sentence} <- [
+          {:authentication, "the API key was rejected"},
+          {:rate_limited, "rate limited by ElevenLabs"},
+          {:provider_error, "ElevenLabs returned an error"},
+          {:transport, "ElevenLabs could not be reached"},
+          {:malformed, "the response could not be read"}
+        ] do
+      row = elevenlabs_row(strip(elevenlabs_quota: %{state: :failed, window: nil, failure: failure, observed_at: nil}))
+
+      assert row =~ "Unavailable · " <> sentence
+      assert row =~ ~s(class="rs-meter")
+      assert row =~ ~s(style="width:0%")
+    end
+  end
+
+  test "a nearly exhausted quota warns and an exhausted one is critical" do
+    warning = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 95_000)))
+    assert warning =~ ~s(class="is-warning" style="width:95.0%")
+
+    critical = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(used: 100_000)))
+    assert critical =~ ~s(class="is-critical" style="width:100.0%")
+
+    healthy = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view()))
+    refute healthy =~ "is-warning"
+    refute healthy =~ "is-critical"
+  end
+
+  test "a zero character limit renders the credits and an empty bar" do
+    row = elevenlabs_row(strip(elevenlabs_quota: elevenlabs_quota_view(limit: 0, used: 0)))
+
+    assert row =~ "0 left"
+    assert row =~ ~s(class="rs-meter")
+    assert row =~ ~s(style="width:0%")
+    refute row =~ "% used"
+  end
+
+  # Everything after the ElevenLabs row's marker class and before the next pane.
+  defp elevenlabs_row(html) do
+    [_before, rest] = String.split(html, "rs-elevenlabs", parts: 2)
+    rest |> String.split("rs-block", parts: 2) |> List.first()
+  end
+
+  defp strip(opts) do
+    defaults = %{run: run_view(), usage: usage_view(), meters: meters_view(), github_quota: github_quota_view(), now: @now}
+    render_component(&RunSummaryStrip.run_summary_strip/1, Enum.into(opts, defaults))
+  end
+
+  defp elevenlabs_quota_view(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100_000)
+    used = Keyword.get(opts, :used, 25_000)
+
+    %{
+      state: :observed,
+      failure: nil,
+      observed_at: @now,
+      window: %{
+        limit: limit,
+        used: used,
+        remaining: max(limit - used, 0),
+        used_percent: test_used_percent(used, limit),
+        next_invoice: Keyword.get(opts, :next_invoice, %{amount_due_cents: 500, currency: "USD"}),
+        tier: "creator",
+        reset_at: Keyword.get(opts, :reset_at, DateTime.add(@now, 3, :day)),
+        observed_at: @now
+      }
+    }
+  end
+
+  defp test_used_percent(_used, limit) when limit <= 0, do: nil
+
+  defp test_used_percent(used, limit) do
+    used
+    |> Kernel./(limit)
+    |> Kernel.*(100)
+    |> max(0.0)
+    |> min(100.0)
+    |> Float.round(1)
+  end
+
   # Every pane in the strip is an `.rs-block`: the GitHub card and the models
   # pane.
   defp pane_count(html), do: length(String.split(html, "rs-block")) - 1
@@ -1413,8 +1574,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   # Mirrors the shape ProviderMetersPresenter emits: the rendered percentage
   # comes from `meter.now`, and `coverage_label` is required by the meta
-  # renderer. `used`/`used_percent` are carried through so the local-concurrency
-  # hide-at-zero rule keys on the used value as production does.
+  # renderer.
   defp scoped_window(limit_id, percent) do
     %{
       limit_id: limit_id,

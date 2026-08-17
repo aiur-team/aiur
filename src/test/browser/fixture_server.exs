@@ -28,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/conversation-voice-controller.js"></script>
         <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
@@ -152,8 +153,8 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
           <button id="route-shell-action" type="button">Reachable action</button>
         </section>
         <%!-- Command history is an accordion whose rows patch to the Command's
-              own URL, so it can only be exercised on the real `/decisions` and
-              `/decisions/:decision_id` routes the shell fixture already owns. --%>
+              own URL, so it can only be exercised on the real `/commands` and
+              `/commands/:decision_id` routes the shell fixture already owns. --%>
         <History.history
           :if={@live_action in [:decisions, :decision]}
           rows={history_decisions()}
@@ -797,7 +798,7 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
       chat: %{available?: true, destination: "/chat/#{identity.identifier}", identity: identity, active?: true, readable?: true},
-      commands: %{available?: true, destination: "/decisions/#{identity.identifier}", identity: identity, readable?: true}
+      commands: %{available?: true, destination: "/commands/#{identity.identifier}", identity: identity, readable?: true}
     }
   end
 
@@ -934,6 +935,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:now, @now)
      |> assign(:context, nil)
      |> assign(:conversation_drawer, nil)
+     |> assign(:drafts, %{})
+     |> assign(:sent_message, nil)
      |> assign(:selected_row, nil)
      |> assign(:tickets_view, tickets_view())
      # Deliberately below the production batch size: it puts a real reveal
@@ -1020,6 +1023,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       {:ok, row} ->
         drawer = %{
           origin_id: "units-conversation-#{token}",
+          row: row,
           view: ConversationPresenter.present(row, conversation_snapshot())
         }
 
@@ -1031,6 +1035,18 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   end
 
   def handle_event("close-conversation", _params, socket), do: {:noreply, assign(socket, :conversation_drawer, nil)}
+
+  def handle_event("composer-change", %{"message" => message}, socket) do
+    {:noreply, assign(socket, :drafts, %{"1110" => message})}
+  end
+
+  def handle_event("send-operator-message", %{"message" => message}, socket) do
+    Process.send_after(self(), :fixture_agent_voice_partial, 50)
+
+    {:noreply, socket |> assign(:sent_message, message) |> assign(:drafts, %{"1110" => ""})}
+  end
+
+  def handle_event("pause-agent", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
@@ -1069,6 +1085,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   end
 
   @impl true
+  def handle_info(:fixture_agent_voice_partial, %{assigns: %{conversation_drawer: %{row: row} = drawer}} = socket) do
+    updated_drawer = %{drawer | view: ConversationPresenter.present(row, conversation_snapshot(:with_partial_reply))}
+    Process.send_after(self(), :fixture_agent_voice_reply, 250)
+    {:noreply, assign(socket, :conversation_drawer, updated_drawer)}
+  end
+
+  def handle_info(:fixture_agent_voice_partial, socket), do: {:noreply, socket}
+
+  def handle_info(:fixture_agent_voice_reply, %{assigns: %{conversation_drawer: %{row: row} = drawer}} = socket) do
+    updated_drawer = %{drawer | view: ConversationPresenter.present(row, conversation_snapshot(:with_reply))}
+    {:noreply, assign(socket, :conversation_drawer, updated_drawer)}
+  end
+
+  def handle_info(:fixture_agent_voice_reply, socket), do: {:noreply, socket}
+
+  @impl true
   def render(assigns) do
     view = UnitsPresenter.project(assigns.catalog, assigns.selection)
 
@@ -1078,7 +1110,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       |> assign(:announcement, UnitsPresenter.announcement(view))
 
     ~H"""
-    <main class="app-shell" data-units-fixture="true">
+    <main class="app-shell" data-units-fixture="true" data-sent-message={@sent_message || ""}>
       <section class="section-card units-card" aria-labelledby="units-title">
         <header class="section-header units-header">
           <div>
@@ -1122,6 +1154,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         :if={@conversation_drawer}
         id="units-fixture-conversation-drawer"
         view={@conversation_drawer.view}
+        composer={%{target_key: "1110", writable_target?: true, messages: []}}
+        writable={true}
+        drafts={@drafts}
         close_event="close-conversation"
         fallback_focus_id="units-title"
         origin_id={@conversation_drawer.origin_id}
@@ -1296,12 +1331,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       end)
   end
 
-  defp conversation_snapshot do
-    %{
-      state: :live,
-      health: :healthy,
-      freshness: :current,
-      messages: [
+  defp conversation_snapshot(reply \\ :without_reply) do
+    messages =
+      [
         %{
           id: "fixture-message",
           role: "agent",
@@ -1310,12 +1342,48 @@ defmodule Aiur.BrowserHarness.UnitsLive do
           occurred_at: @now,
           observed_at: @now
         }
-      ],
+      ] ++ conversation_reply(reply)
+
+    %{
+      state: :live,
+      health: :healthy,
+      freshness: :current,
+      messages: messages,
       observed_at: @now,
       truncated?: false,
       evicted_count: 0,
       source: %{worker_generation: 1, session_id: "fixture-session"}
     }
+  end
+
+  defp conversation_reply(:without_reply), do: []
+
+  defp conversation_reply(:with_partial_reply) do
+    [
+      %{
+        id: "fixture-voice-reply",
+        role: "agent",
+        title: "Assistant",
+        body: "Voice reply",
+        complete?: false,
+        occurred_at: @now,
+        observed_at: @now
+      }
+    ]
+  end
+
+  defp conversation_reply(:with_reply) do
+    [
+      %{
+        id: "fixture-voice-reply",
+        role: "agent",
+        title: "Assistant",
+        body: "Voice reply from the agent.",
+        complete?: true,
+        occurred_at: @now,
+        observed_at: @now
+      }
+    ]
   end
 
   defp row(identity, overrides) do
@@ -1439,6 +1507,9 @@ defmodule Aiur.BrowserHarness.FixtureAuth do
 
   def authenticate(conn, %{"mode" => mode}) when mode in @access_modes do
     conn
+    |> put_req_header("authorization", "Basic " <> Base.encode64("browser_fixture:browser_fixture_password"))
+    |> AiurWeb.FinancialDataAccess.call([])
+    |> AiurWeb.FinancialDataAccess.call(:persist_session)
     |> put_session("fixture_access", mode)
     |> redirect(to: "/fixture")
   end
@@ -1455,6 +1526,31 @@ defmodule Aiur.BrowserHarness.FixtureAuth do
       |> halt()
     end
   end
+end
+
+defmodule Aiur.BrowserHarness.VoiceSTT do
+  @moduledoc false
+
+  use GenServer
+
+  def start_link(channel), do: GenServer.start_link(__MODULE__, channel)
+
+  @impl true
+  def init(channel), do: {:ok, channel}
+
+  @impl true
+  def handle_cast({:push, _pcm}, channel) do
+    send(channel, {:elevenlabs_transcript, :partial, "hello"})
+    {:noreply, channel}
+  end
+
+  def handle_cast(:commit, channel) do
+    send(channel, {:elevenlabs_transcript, :final, "hello browser"})
+    send(channel, {:elevenlabs_closed})
+    {:noreply, channel}
+  end
+
+  def handle_cast(:stop, channel), do: {:stop, :normal, channel}
 end
 
 defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
@@ -1901,7 +1997,14 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
     ~H"""
     <main class="app-shell" data-meter-row-fixture="true">
       <h1 class="sr-only">Provider meter row fixture</h1>
-      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+      <RunSummaryStrip.run_summary_strip
+        run={run()}
+        usage={usage()}
+        meters={meters()}
+        github_quota={github_quota()}
+        elevenlabs_quota={elevenlabs_quota()}
+        now={@now}
+      />
     </main>
     """
   end
@@ -1971,6 +2074,24 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
         }
       },
       backoffs: []
+    }
+  end
+
+  defp elevenlabs_quota do
+    %{
+      state: :observed,
+      failure: nil,
+      observed_at: @now,
+      window: %{
+        limit: 100_000,
+        used: 25_000,
+        remaining: 75_000,
+        used_percent: 25.0,
+        next_invoice: %{amount_due_cents: 500, currency: "USD"},
+        tier: "creator",
+        reset_at: DateTime.add(@now, 3, :day),
+        observed_at: @now
+      }
     }
   end
 end
@@ -2119,8 +2240,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
     live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
-    live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
-    live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
+    live("/commands", Aiur.BrowserHarness.RouteShellLive, :decisions)
+    live("/commands/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
   end
 
   scope "/" do
@@ -2151,6 +2272,11 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
   @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
   socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
+
+  socket("/voice", AiurWeb.VoiceSocket,
+    websocket: [connect_info: [session: @session_options], max_frame_size: 400_000],
+    longpoll: false
+  )
 
   plug(Plug.Static,
     at: "/",
@@ -2185,7 +2311,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.FixtureEndpoint
+  alias Aiur.BrowserHarness.{FixtureEndpoint, VoiceSTT}
   alias Aiur.IssueLog
 
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
@@ -2209,7 +2335,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
           ),
           Supervisor.child_spec({Phoenix.PubSub, name: Aiur.PubSub}, id: Aiur.PubSub),
           {AiurWeb.Endpoint, []},
-          AiurWeb.FinancialDataAccess.Generation
+          AiurWeb.FinancialDataAccess.Generation,
+          AiurWeb.VoiceSessionLimiter
         ],
         strategy: :one_for_one
       )
@@ -2426,7 +2553,26 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
         streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
-        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
+        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1,
+        voice_stt_start_fun: fn socket ->
+          case VoiceSTT.start_link(socket.channel_pid) do
+            {:ok, pid} -> {:ok, %{pid: pid}}
+            {:error, reason} -> {:error, inspect(reason)}
+          end
+        end,
+        voice_tts_start_fun: fn socket, text ->
+          {:ok, pid} =
+            Task.start(fn ->
+              if text == "Voice reply from the agent." do
+                send(socket.channel_pid, {:elevenlabs_audio, :chunk, <<0, 0, 255, 127, 0, 0, 1, 128>>})
+                send(socket.channel_pid, {:elevenlabs_audio, :done})
+              else
+                send(socket.channel_pid, {:elevenlabs_audio, :error, "fixture received an incomplete reply"})
+              end
+            end)
+
+          {:ok, pid}
+        end
       )
       |> Keyword.delete(:streamdeck_logs_fun)
 

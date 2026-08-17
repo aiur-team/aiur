@@ -8,11 +8,11 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // not merely when the page fails to render.
 
 const CONTROLLED = '1352'
-// The design's cmd slots are Pause / Prioritize / Logs / Mic, and the first two
-// relabel from the agent's real state. Asserting both variants is what proves
-// the labels track the fleet rather than being a fixed list.
-const CMD_COMMANDS_RUNNING = ['Pause', 'Prioritize', 'Logs', 'Mic']
-const CMD_COMMANDS_PAUSED = ['Play', 'Prioritize', 'Logs', 'Mic']
+// The design's cmd slots are Pause / Logs / Mic / Settings. Pause is the only
+// one that relabels from the agent's real state, so asserting both variants is
+// what proves the labels track the fleet rather than being a fixed list.
+const CMD_COMMANDS_RUNNING = ['Pause', 'Logs', 'Mic', 'Settings']
+const CMD_COMMANDS_PAUSED = ['Play', 'Logs', 'Mic', 'Settings']
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')

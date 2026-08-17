@@ -32,14 +32,23 @@ workflow_file =
 
 test_workflow_fallback = Path.expand("fixtures/test.aiurconfig", __DIR__)
 
+# Go through `Aiur.Workflow.set_workflow_file_path/1`, never a raw
+# `Application.put_env/3`: a bare put_env leaves `Aiur.WorkflowStore` serving
+# its boot-time config until the next 1s poll, so for the first few hundred
+# milliseconds of the suite `Aiur.GitHub.Config.repo/0` — and every path
+# derived from it, e.g. `Summaries.state_node/0` — answers with the operator's
+# real repo and then flips to the fixture's mid-run. Any test that resolves a
+# path, writes to it, and re-resolves later can straddle that flip and target
+# two different directories. `set_workflow_file_path/1` writes the env *and*
+# forces a synchronous store reload, so the value is correct from t=0.
 cond do
   File.exists?(workflow_file) ->
-    Application.put_env(:aiur, :workflow_file_path, workflow_file)
+    Aiur.Workflow.set_workflow_file_path(workflow_file)
 
   File.exists?(test_workflow_fallback) ->
     # CI (and any clone without a per-machine `.aiurconfig`) needs a
     # checked-in fallback so `Aiur.Config.settings!/0` can resolve.
-    Application.put_env(:aiur, :workflow_file_path, test_workflow_fallback)
+    Aiur.Workflow.set_workflow_file_path(test_workflow_fallback)
 
   true ->
     :ok
@@ -65,7 +74,12 @@ File.mkdir_p!(Path.dirname(global_log_file))
 # excluded elsewhere (e.g. macOS dev) rather than silently passing.
 real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 
-ExUnit.start(exclude: [:perf_regression, :quarantine] ++ real_proc_exclude)
+# `:external` tests call a third-party API over the network with a real
+# credential. They are evidence gathered on demand — a measurement or a contract
+# check against the live provider — never a gate, because a gate that needs the
+# internet and someone's API key fails for reasons that have nothing to do with
+# the change under test. Run one with `mix test --only external`.
+ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
 
 ExUnit.after_suite(fn _result ->
   case original_home do

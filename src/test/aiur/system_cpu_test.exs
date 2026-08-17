@@ -14,7 +14,7 @@ defmodule Aiur.SystemCpuTest do
       {:ok, "cpu  100 5 40 800 20 2 3 4 0 0\nprocs_running 3\n"}
     end)
 
-    assert %{total: 974, idle: 800, runnable: 3} = SystemCpu.snapshot()
+    assert %{total: 974, idle: 800, nice: 5, runnable: 3} = SystemCpu.snapshot()
   end
 
   test "calculates idle percentage from consecutive snapshots" do
@@ -24,13 +24,34 @@ defmodule Aiur.SystemCpuTest do
     assert %{idle_percent: 80.0, runnable: 2} = SystemCpu.headroom(previous, current)
   end
 
+  test "reports niced CPU time as reclaimable headroom" do
+    previous = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+    current = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+
+    assert %{
+             idle_percent: 10.0,
+             nice_percent: 70.0,
+             reclaimable_percent: 80.0,
+             runnable: 74
+           } = SystemCpu.headroom(previous, current)
+  end
+
   test "requires a prior positive monotonic delta" do
     current = %{total: 1_000, idle: 700, runnable: 2}
+    previous_with_nice = Map.put(current, :nice, 100)
 
     assert SystemCpu.headroom(nil, current) == :unavailable
     assert SystemCpu.headroom(current, current) == :unavailable
     assert SystemCpu.headroom(current, %{current | total: 999}) == :unavailable
     assert SystemCpu.headroom(current, %{current | total: 1_100, idle: 900}) == :unavailable
+
+    assert SystemCpu.headroom(previous_with_nice, %{current | total: 1_100, idle: 710} |> Map.put(:nice, 99)) ==
+             :unavailable
+
+    assert SystemCpu.headroom(
+             previous_with_nice,
+             %{current | total: 1_100, idle: 760} |> Map.put(:nice, 150)
+           ) == :unavailable
   end
 
   test "returns unavailable for missing or malformed procfs data" do

@@ -26,7 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
     case selected_open_decision(socket, decision_id) do
       {:ok, decision} -> socket |> put_form(decision_id, form, decision) |> submit_answer(decision, form, reload_fun)
-      :error -> put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
+      :error -> put_error(reload_fun.(socket), decision_id, "This Command is not loaded on this page; return to the Commands list.")
     end
   end
 
@@ -37,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
         defer_selected(socket, decision_id, decision, reload_fun)
 
       :error ->
-        put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
+        put_error(reload_fun.(socket), decision_id, "This Command is not loaded on this page; return to the Commands list.")
     end
   end
 
@@ -48,7 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
         dismiss_selected(socket, decision_id, decision, reload_fun)
 
       :error ->
-        put_error(reload_fun.(socket), decision_id, "This Command is no longer open.")
+        put_error(reload_fun.(socket), decision_id, "This Command is not loaded on this page; return to the Commands list.")
     end
   end
 
@@ -113,18 +113,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
        when status in [:open, :deferred],
        do: {:ok, decision}
 
-  defp selected_open_decision(%{assigns: %{decisions: decisions}}, decision_id) when is_list(decisions) do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
-      nil -> :error
-      decision -> {:ok, decision}
-    end
-  end
-
+  # Non-selected decisions fall through to the inbox page list, so opening one
+  # Command's detail page does not make the others unanswerable. The selected
+  # decision itself only answers through the selected-decision clause above:
+  # when its detail is unavailable/indeterminate (so `selected_decision` is nil)
+  # it must fail closed instead of being answered from a stale overview row.
   defp selected_open_decision(
-         %{assigns: %{selected_decision_id: nil, decision_page: %{decisions: decisions}}},
+         %{assigns: %{selected_decision_id: selected_id, decision_page: %{decisions: decisions}}},
          decision_id
        )
-       when is_list(decisions) do
+       when is_list(decisions) and decision_id != selected_id do
     case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
       nil -> :error
       decision -> {:ok, decision}

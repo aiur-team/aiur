@@ -576,6 +576,13 @@ defmodule Aiur.ExtensionsTest do
              ],
              "idle" => [],
              "agent_totals" => %{"seconds_running" => 42.5},
+             "polling" => %{
+               "checking?" => false,
+               "effective_interval_ms" => 600_000,
+               "idle_backoff" => %{"active?" => true, "factor" => 5.0},
+               "next_poll_in_ms" => 480_000,
+               "poll_interval_ms" => 120_000
+             },
              # The global pause switch rides along on every state payload so
              # API consumers can tell a quiet fleet from a held one.
              "globally_paused" => false
@@ -940,6 +947,7 @@ defmodule Aiur.ExtensionsTest do
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/conversation-voice-controller.js"
     assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
@@ -983,6 +991,10 @@ defmodule Aiur.ExtensionsTest do
     conversation_drawer_hook_conn = get(build_conn(), "/conversation-drawer-hook.js")
     assert response(conversation_drawer_hook_conn, 200) =~ "AiurConversationDrawerHook"
     assert Plug.Conn.get_resp_header(conversation_drawer_hook_conn, "content-type") == ["text/javascript"]
+
+    conversation_voice_conn = get(build_conn(), "/conversation-voice-controller.js")
+    assert response(conversation_voice_conn, 200) =~ "AiurConversationVoiceController"
+    assert Plug.Conn.get_resp_header(conversation_voice_conn, "content-type") == ["text/javascript"]
 
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
@@ -1284,15 +1296,15 @@ defmodule Aiur.ExtensionsTest do
       control_center_cache: cache
     }
 
-    {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
+    {:ok, inbox_view, inbox_html} = live(build_conn(), "/commands")
     assert inbox_html =~ "Commands inbox"
 
-    assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"])),
+    assert has_element?(inbox_view, ~s(a[href="/commands/decision-live-route"])),
            dashboard_route_diagnostic(inbox_html, providers)
 
-    refute has_element?(inbox_view, ~s(a[href="/decisions/unrelated-decision-50"]))
+    refute has_element?(inbox_view, ~s(a[href="/commands/unrelated-decision-50"]))
 
-    {:ok, detail_view, detail_html} = live(build_conn(), "/decisions/decision-live-route")
+    {:ok, detail_view, detail_html} = live(build_conn(), "/commands/decision-live-route")
 
     assert has_element?(detail_view, "#decision-detail-decision-live-route"),
            dashboard_route_diagnostic(detail_html, providers)
@@ -1302,7 +1314,7 @@ defmodule Aiur.ExtensionsTest do
     assert detail_html =~ "Read-only mode · Command mutation controls are hidden."
     refute detail_html =~ "phx-click=\"answer-decision\""
 
-    {:ok, _missing_view, missing_html} = live(build_conn(), "/decisions/not-present")
+    {:ok, _missing_view, missing_html} = live(build_conn(), "/commands/not-present")
     assert missing_html =~ "Command not found"
     assert missing_html =~ "not-present"
 
@@ -1410,7 +1422,7 @@ defmodule Aiur.ExtensionsTest do
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
 
-    for asset_path <- ["/conversation-drawer-hook.js", "/provider-assets/codex-color.svg"] do
+    for asset_path <- ["/conversation-drawer-hook.js", "/conversation-voice-controller.js", "/provider-assets/codex-color.svg"] do
       unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
       assert unauthenticated_asset.status == 401
     end
@@ -1426,6 +1438,10 @@ defmodule Aiur.ExtensionsTest do
     conversation_drawer_hook = Req.get!("http://127.0.0.1:#{port}/conversation-drawer-hook.js", headers: [authorization])
     assert conversation_drawer_hook.status == 200
     assert conversation_drawer_hook.body =~ "AiurConversationDrawerHook"
+
+    conversation_voice = Req.get!("http://127.0.0.1:#{port}/conversation-voice-controller.js", headers: [authorization])
+    assert conversation_voice.status == 200
+    assert conversation_voice.body =~ "AiurConversationVoiceController"
 
     provider_asset = Req.get!("http://127.0.0.1:#{port}/provider-assets/codex-color.svg", headers: [authorization])
     assert provider_asset.status == 200
@@ -1584,6 +1600,13 @@ defmodule Aiur.ExtensionsTest do
       ],
       idle: [],
       agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
+      polling: %{
+        checking?: false,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0},
+        next_poll_in_ms: 480_000,
+        poll_interval_ms: 120_000
+      },
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
   end

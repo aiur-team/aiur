@@ -87,6 +87,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
       # by this token before they can replace that retained view.
       snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
       poll_interval_ms: config.polling.interval_seconds * 1_000,
+      effective_poll_interval_ms: config.polling.interval_seconds * 1_000,
+      idle_poll_backoff: %{active?: false, factor: config.polling.idle_widen_factor},
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
@@ -106,7 +108,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
       ci_lifecycle:
         CIApprovalStore.load()
         |> Map.put(:poll_cache, %{})
-        |> Map.put(:rewakes, %{}),
+        |> Map.put(:rewakes, %{})
+        # `nil` (not an empty set) marks the parked-ready ledger as unseeded, so
+        # the first CI poll after boot reloads still-active alerts from the
+        # durable alert feed instead of re-firing them.
+        |> Map.put(:parked_ready_alerts, nil),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
       control_lifecycle: control_lifecycle
@@ -211,10 +217,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec request_refresh(State.t()) :: {:reply, map(), State.t()}
   def request_refresh(%State{} = state) do
-    now_ms = System.monotonic_time(:millisecond)
-    already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
-    coalesced = state.poll_check_in_progress == true or already_due?
-    state = if coalesced, do: state, else: schedule_tick(state, 0)
+    {state, coalesced} = request_refresh_state(state)
 
     {:reply,
      %{
@@ -223,6 +226,16 @@ defmodule Aiur.Orchestrator.Lifecycle do
        requested_at: DateTime.utc_now(),
        operations: ["poll", "reconcile"]
      }, state}
+  end
+
+  @doc false
+  @spec request_refresh_state(State.t()) :: {State.t(), boolean()}
+  def request_refresh_state(%State{} = state) do
+    now_ms = System.monotonic_time(:millisecond)
+    already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
+    coalesced = state.poll_check_in_progress == true or already_due?
+    state = if coalesced, do: state, else: schedule_tick(state, 0)
+    {state, coalesced}
   end
 
   @spec schedule_tick(State.t(), non_neg_integer()) :: State.t()

@@ -79,7 +79,7 @@ defmodule Aiur.Orchestrator.PauseResumeTest do
   end
 
   test "completed replacement preserves state committed by a rejected admission" do
-    issue = %Aiur.Issue{id: "known", identifier: "repo#known", state: "in-progress"}
+    issue = %Aiur.Issue{id: "known", identifier: "repo#known", title: "Known", state: "in-progress", labels: ["agent:in-progress"]}
 
     running_entry = %{
       issue: issue,
@@ -103,5 +103,68 @@ defmodule Aiur.Orchestrator.PauseResumeTest do
                end,
                replace_fun: fn _, _, _, _ -> flunk("rejected admission must not replace") end
              )
+  end
+
+  test "completed replacement returns the exact redispatch admission deferral" do
+    issue = %Aiur.Issue{id: "known", identifier: "repo#known", title: "Known", state: "in-progress", labels: ["agent:in-progress"]}
+
+    running_entry = %{
+      issue: issue,
+      identifier: issue.identifier,
+      completed_provenance: true,
+      control: %{status: :completed}
+    }
+
+    state = %State{
+      running: %{issue.id => running_entry},
+      max_concurrent_agents: 2,
+      effective_concurrent_agents: 2
+    }
+
+    rejected = %{state | claimed: MapSet.new(["admission-audited"])}
+
+    assert {{:error, {:redispatch_deferred, :preferred_worker_unavailable}}, ^rejected} =
+             PauseResume.dispatch_completed_replacement_result(state, running_entry, issue,
+               admit_fun: fn _state, ^issue, nil ->
+                 {:error, :preferred_worker_unavailable, rejected}
+               end,
+               replace_fun: fn _, _, _, _ -> flunk("rejected admission must not replace") end
+             )
+  end
+
+  test "queued resume returns the recorded dispatch decline instead of a bare category" do
+    issue = %Aiur.Issue{id: "known", identifier: "repo#known", title: "Known", state: "in-progress", labels: ["agent:in-progress"]}
+    state = %State{last_polled_issues: %{issue.id => issue}}
+
+    declined = %{state | dispatch_declines: %{issue.id => :missing_after_revalidation}}
+
+    assert {{:error, {:dispatch_failed, {:dispatch_declined, :missing_after_revalidation}}}, ^declined} =
+             PauseResume.dispatch_resumed_queued_issue(state, issue, dispatch_fun: fn ^state, ^issue -> declined end)
+  end
+
+  test "queued resume says explicitly when no dispatch cause can be determined" do
+    issue = %Aiur.Issue{id: "known", identifier: "repo#known", title: "Known", state: "in-progress", labels: ["agent:in-progress"]}
+    state = %State{last_polled_issues: %{issue.id => issue}}
+
+    assert {{:error, {:dispatch_failed, :cause_unknown}}, ^state} =
+             PauseResume.dispatch_resumed_queued_issue(state, issue, dispatch_fun: fn ^state, ^issue -> state end)
+  end
+
+  test "queued resume returns concrete pre-dispatch capacity and state causes" do
+    issue = %Aiur.Issue{id: "known", identifier: "repo#known", title: "Known", state: "in-progress", labels: ["agent:in-progress"]}
+    state = %State{last_polled_issues: %{issue.id => issue}}
+
+    for {decline, expected} <- [
+          worker_capacity: :no_worker_capacity,
+          state_capacity: :state_capacity,
+          fleet_capacity: :fleet_capacity,
+          inactive_state: {:dispatch_declined, :inactive_state}
+        ] do
+      assert {{:error, {:dispatch_failed, ^expected}}, ^state} =
+               PauseResume.dispatch_resumed_queued_issue(state, issue,
+                 dispatch_decision_fun: fn ^issue, ^state -> {:skip, decline} end,
+                 dispatch_fun: fn _, _ -> flunk("a declined issue must not dispatch") end
+               )
+    end
   end
 end

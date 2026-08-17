@@ -22,6 +22,7 @@ defmodule Aiur.Application do
   require Logger
 
   alias Aiur.{AgentGitHubGuard, GitHub.Budget}
+  alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.Config
@@ -37,6 +38,7 @@ defmodule Aiur.Application do
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     :ok = log_base_branch(settings)
+    :ok = log_route_credentials(settings)
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
@@ -76,6 +78,29 @@ defmodule Aiur.Application do
     Logger.info("aiur_boot phase=config base_branch=#{inspect(AiurConfig.base_branch(settings))}")
     :ok
   end
+
+  @doc """
+  Announces, once per boot, every `agent.priority` route that will be skipped
+  because its API key is not set.
+
+  A missing key stops being a hard error at dispatch and becomes a silent
+  selection-time skip (#1923) — that is the whole point of writing
+  `[claude, "openrouter:anthropic/claude-sonnet-5"]` while holding only the
+  OpenRouter key. But a behaviour change from "crashes loudly" to "quietly not
+  chosen" must not happen invisibly, so it is stated at boot rather than
+  per claim, where it would become noise the operator learns to skip.
+  """
+  @spec log_route_credentials(term()) :: :ok
+  def log_route_credentials(settings \\ AiurConfig.settings_uncached()) do
+    settings |> priority_routes() |> RouteCredentials.log_startup_survey()
+  end
+
+  # `settings_uncached/0` yields `{:ok, schema}` on success and an error tuple
+  # when the config is unreadable. Boot must survive the latter: a startup
+  # notice is never worth crashing the node over.
+  defp priority_routes({:ok, settings}), do: priority_routes(settings)
+  defp priority_routes(%{agent: %{priority: routes}}) when is_list(routes), do: routes
+  defp priority_routes(_settings), do: []
 
   @doc """
   Reject a no-dashboard launch when configured Remote Control sessions would
@@ -132,6 +157,7 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
+    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
 
     cli_children =
       if interactive_cli? do
@@ -172,6 +198,10 @@ defmodule Aiur.Application do
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
       Aiur.GitHub.Quota,
+      # The ElevenLabs account credit quota, read on its own schedule. Absent an
+      # API key it observes nothing at all, so an unconfigured account costs a
+      # boot-time config read and never a request.
+      Aiur.ElevenLabs.Quota,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
@@ -220,6 +250,9 @@ defmodule Aiur.Application do
       # LiveConversation is projection-only: it never replays workspace logs
       # after restart, so a missing key truthfully reports :restart_unknown.
       Aiur.LiveConversation,
+      # Durable last-known progress retention. Starts before TicketActivity so
+      # the projection can seed from it at boot and cast retains into it.
+      Aiur.ProgressRetention,
       Aiur.TicketActivity,
       # Claude telemetry owns an independent loopback listener and must be
       # available before the Orchestrator starts owned Claude workers.
@@ -234,7 +267,14 @@ defmodule Aiur.Application do
       Aiur.CurrentRunProjections,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
+      Aiur.Executor.TakeoverAlert.Store,
+      Aiur.Executor.TakeoverAlert.Monitor,
       Aiur.Logs.Retention,
+      # The daemon-resident Executor listener (the Command inbox) is started only
+      # for an Executor-owned run (`--executor`). It must come after the Exchange
+      # and the Publisher it subscribes to and alerts through, so it sits at the
+      # end of the always-on block.
+      if(executor_mode?, do: Aiur.ExecutorListener),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),

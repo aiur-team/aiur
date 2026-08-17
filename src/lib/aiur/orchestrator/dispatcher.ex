@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DecisionStore, DispatchBudgetStore, Issue, RepoBase, SystemCpu, Tracker}
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchPolicy,
     IssueSync,
     Lifecycle,
+    MergedTicketReconciler,
     PrAnchored,
     Reconciler,
     RetryEngine,
@@ -39,7 +40,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def run_poll_cycle(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
     state = maybe_dispatch(state)
-    state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
+    schedule = TrackerHealth.poll_schedule(state)
+
+    state =
+      state
+      |> Lifecycle.schedule_tick(schedule.delay_ms)
+      |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
+      |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
+
     state = %{state | poll_check_in_progress: false}
 
     state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
@@ -95,9 +103,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
     state = CommentPolling.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
+    # One decision-store read per poll cycle, shared by the running-state
+    # reconciliation (stop agents whose ticket just opened a blocking Command)
+    # and the dispatch gate (`choose_issues`). Threading it from here — rather
+    # than a per-ticket read inside `DispatchPolicy` — keeps the pure policy
+    # function GenServer-free and the orchestrator mailbox out from behind the
+    # decision store (#1965).
+    state = refresh_blocked_ticket_ids(state)
 
     case fetch_candidate_issues(state) do
       {:ok, issues, state} ->
+        {state, issues} = reconcile_merged_tickets(state, issues)
+        # Reconciliation runs against the snapshot this poll just revalidated,
+        # so a ticket relabelled since the previous poll is judged on its
+        # current labels rather than a stale cached copy (#1682).
         state = Reconciler.refresh_running_issue_states(state, issues)
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
@@ -137,6 +156,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
         StatusReport.notify_dashboard(state)
         state
     end
+  end
+
+  # Runs before anything else consumes the polled candidates: a ticket already
+  # closed by a merged pull request must not be state-synced, counted towards
+  # capacity, or dispatched as though it were still open. The returned list is
+  # the candidates that survived reconciliation.
+  @doc false
+  @spec reconcile_merged_tickets(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
+  def reconcile_merged_tickets(%State{} = state, issues, opts \\ []) when is_list(issues) and is_list(opts) do
+    MergedTicketReconciler.reconcile(state, issues, opts)
   end
 
   # Readiness is advisory at dispatch: the operator may be deliberately
@@ -358,6 +387,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
 
+  # Reads the open-blocking-Command ticket set once per poll cycle into State.
+  # The dispatch gate is fail-closed: `:unavailable` (the decision store could
+  # not be read) holds every new dispatch, because an open blocking Command is
+  # indistinguishable from an empty store when the store cannot be read. The
+  # Reconciler reads the same value but fails OPEN (it never stops healthy
+  # running agents on a store outage).
+  @spec refresh_blocked_ticket_ids(State.t()) :: State.t()
+  def refresh_blocked_ticket_ids(%State{} = state) do
+    case DecisionStore.blocked_ticket_ids() do
+      {:ok, %MapSet{} = ids} -> %{state | blocked_ticket_ids: ids}
+      {:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}
+    end
+  end
+
   @doc false
   @spec fetch_candidate_issues(State.t(), keyword()) ::
           {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()}
@@ -472,8 +515,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun)
        when is_list(issues) and is_function(admission_probes_fun, 0) do
-    probes = admission_probes_fun.()
-    state |> record_capacity_sample(probes) |> record_capacity_constraints(probes)
+    probes = admission_probes_fun.() |> put_cpu_headroom(state)
+
+    state
+    |> remember_cpu_snapshot(probes)
+    |> record_capacity_sample(probes)
+    |> record_capacity_constraints(probes)
   end
 
   @doc false
@@ -663,7 +710,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
     now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
     admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
-    probes = admission_probes_fun.()
+    probes = admission_probes_fun.() |> put_cpu_headroom(state)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
@@ -724,7 +771,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
-    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold)
+    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
 
     %{
       memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
@@ -766,7 +813,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         {:hold, :prewarm}
 
       true ->
-        probes = admission_probes()
+        probes = admission_probes() |> put_cpu_headroom(state)
 
         case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true)) do
           :dispatch -> :dispatch
@@ -832,7 +879,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
-       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime] do
+       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime, :blocked_on_decision] do
     if Slots.available_slots(state) > 0 do
       record_dispatch_decline(
         state,
@@ -864,7 +911,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:ok, %Issue{} = refreshed_issue} ->
         state
         |> clear_dispatch_decline(refreshed_issue)
-        |> do_dispatch_issue(refreshed_issue, attempt, preferred_worker_host, opts)
+        |> dispatch_with_dependency_gate(refreshed_issue, attempt, preferred_worker_host, opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
@@ -919,6 +966,113 @@ defmodule Aiur.Orchestrator.Dispatcher do
     {result, next_state}
   end
 
+  # GitHub-native `blocked_by` is hydrated only here — at the point an issue is
+  # actually being dispatched — so the cost is bounded by dispatch attempts, not
+  # by tracker size (#1631, against the #1388 read budget).
+  #
+  # The dependency decision is deliberately FAIL-CLOSED:
+  #   * a known non-terminal blocker holds the issue (`:dependency` skip, info);
+  #   * a failed or incomplete dependency read means blockers are *unknown*, and
+  #     dispatching on unknown blockers would reintroduce exactly the "dispatches
+  #     work GitHub knows is blocked" defect this gate exists to prevent, so the
+  #     issue is held with an attention decline (`:dependency_hydration_failed`).
+  # A `/dependencies` outage therefore holds dispatch rather than risking blocked
+  # work; the tracker-wide quota gate already holds the fleet during GitHub-side
+  # rate limiting, so fail-closed does not add a new outage class.
+  @doc false
+  @spec dispatch_with_dependency_gate(State.t(), Issue.t(), term(), term(), keyword()) :: State.t()
+  def dispatch_with_dependency_gate(
+        %State{} = state,
+        %Issue{} = refreshed_issue,
+        attempt,
+        preferred_worker_host,
+        opts
+      )
+      when is_list(opts) do
+    hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
+
+    case hydrator.(refreshed_issue) do
+      {:ok, %Issue{} = hydrated} ->
+        # Dispatch-time mirror of the per-cycle gate in `choose_issues`. The
+        # main dispatch path already refused the ticket, but resume/wake paths
+        # (`CommentWake`, `AutoResume`, pause resume) call `dispatch_issue`
+        # directly and must not spawn a fresh agent while the ticket's blocking
+        # Command is still open — that is exactly the #1637 cold-start defect.
+        # Fail-closed like the dependency gate: an unreadable decision store
+        # holds dispatch.
+        if DispatchPolicy.blocked_on_decision?(hydrated, state.blocked_ticket_ids) do
+          Logger.info(
+            "Skipping dispatch; issue has an open blocking Command: " <>
+              "#{State.issue_context(hydrated)}"
+          )
+
+          emit_dispatch_attempt_decline(state, hydrated, :blocked_on_decision, false)
+        else
+          dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts)
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Skipping dispatch; blocked-by hydration failed for #{State.issue_context(refreshed_issue)}: " <>
+            "#{inspect(reason)} (fail-closed: unknown blockers hold dispatch)"
+        )
+
+        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+
+      # A hydrator that returns an unexpected shape must never crash the
+      # orchestrator; treat it as unknown blockers and hold dispatch.
+      other ->
+        Logger.warning(
+          "Skipping dispatch; blocked-by hydration returned an unexpected result for " <>
+            "#{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)"
+        )
+
+        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+    end
+  end
+
+  defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
+    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+      Logger.info(
+        "Skipping dispatch; issue is blocked by a non-terminal dependency: " <>
+          "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+      )
+
+      state
+    else
+      do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+    end
+  end
+
+  # The GitHub tracker populates `blocked_by` from the native Issue Dependencies
+  # API only when the issue is being considered for a blocked_by decision
+  # (dispatch, or dependency-pause recheck in `PushRouting`). Other trackers
+  # (Linear, memory) already carry hydrated blockers from their poll response,
+  # so hydration is a passthrough.
+  @doc false
+  @spec default_blocked_by_hydrator(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def default_blocked_by_hydrator(%Issue{} = issue) do
+    if github_tracker_kind?() do
+      GitHubTracker.hydrate_blocked_by(issue)
+    else
+      {:ok, issue}
+    end
+  end
+
+  # `Config.settings/0`, not `Config.tracker_kind/0` (which raises when no
+  # workflow file is present): this hydrator is also invoked from the
+  # dependency-pause recheck path that unit tests exercise without a workflow
+  # file, so "no config" must mean "not a GitHub tracker" (passthrough), never
+  # a crash.
+  @doc false
+  @spec github_tracker_kind?() :: boolean()
+  def github_tracker_kind? do
+    case Config.settings() do
+      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
+      _ -> false
+    end
+  end
+
   defp emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
     record_dispatch_decline(
       state,
@@ -956,7 +1110,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
-      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed] ->
+      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :dependency_hydration_failed] ->
         Alerts.emit_custom(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",
@@ -1536,6 +1690,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp runnable_from(%{runnable: runnable}) when is_integer(runnable) and runnable >= 0, do: runnable
   defp runnable_from(_snapshot), do: :unavailable
 
+  defp put_cpu_headroom(probes, %State{} = state) do
+    previous = state.load_envelope_state.cpu_snapshot
+    Map.put(probes, :cpu_headroom, SystemCpu.headroom(previous, Map.get(probes, :cpu_snapshot, :unavailable)))
+  end
+
+  defp remember_cpu_snapshot(%State{} = state, %{cpu_snapshot: %{total: _, idle: _, runnable: _} = snapshot}) do
+    put_in(state.load_envelope_state.cpu_snapshot, snapshot)
+  end
+
+  defp remember_cpu_snapshot(%State{} = state, _probes), do: state
+
   @capacity_backoff_alert_ms 30_000
 
   # Reconciles the persisted `capacity_hold` with this poll's decision so status
@@ -1575,10 +1740,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case state.capacity_hold do
       %{signal: ^signal, alerted?: true} = hold ->
-        %{state | capacity_hold: Map.merge(hold, Map.take(reason, [:measured, :threshold]))}
+        %{state | capacity_hold: merge_capacity_reason(hold, reason)}
 
       %{signal: ^signal, alerted?: false} = hold ->
-        hold = Map.merge(hold, Map.take(reason, [:measured, :threshold]))
+        hold = merge_capacity_reason(hold, reason)
 
         if now_ms - hold.held_since_ms < debounce_ms do
           %{state | capacity_hold: hold}
@@ -1608,6 +1773,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp capacity_signal_label(_reason), do: "host pressure"
 
+  defp capacity_reason_measurements(reason) do
+    Map.take(reason, [
+      :measured,
+      :threshold,
+      :reclaimable_cpu_percent,
+      :reclaimable_cpu_threshold
+    ])
+  end
+
+  defp merge_capacity_reason(hold, reason) do
+    hold
+    |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
+    |> Map.merge(capacity_reason_measurements(reason))
+  end
+
   defp log_admission_hold(%{signal: :memory, measured: available_mb, threshold: threshold_mb}) do
     Logger.info(
       "aiur_perf memory_hold surface=dispatch available_mb=#{available_mb} " <>
@@ -1619,12 +1799,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
     log_fd_hold(sample)
   end
 
-  defp log_admission_hold(%{signal: :load, measured: load, threshold: limit}) do
-    Logger.info("aiur_perf load_hold load=#{load} limit=#{limit}")
+  defp log_admission_hold(%{signal: :load, measured: load, threshold: limit} = reason) do
+    Logger.info(
+      "aiur_perf load_hold load=#{load} limit=#{limit} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))} " <>
+        "reclaimable_cpu_threshold=#{inspect(Map.get(reason, :reclaimable_cpu_threshold))}"
+    )
   end
 
-  defp log_admission_hold(%{signal: :run_queue, measured: runnable, threshold: limit}) do
-    Logger.info("aiur_perf run_queue_hold runnable=#{runnable} limit=#{limit}")
+  defp log_admission_hold(%{signal: :run_queue, measured: runnable, threshold: limit} = reason) do
+    Logger.info(
+      "aiur_perf run_queue_hold runnable=#{runnable} limit=#{limit} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))} " <>
+        "reclaimable_cpu_threshold=#{inspect(Map.get(reason, :reclaimable_cpu_threshold))}"
+    )
   end
 
   defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
@@ -1675,13 +1863,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
     |> maybe_record_fd_constraint(DispatchPolicy.fd_gate(probes.fd_sample), probes.fd_sample)
     |> maybe_record_load_constraint(
-      DispatchPolicy.load_gate(probes.load, probes.load_threshold, probes.schedulers),
-      probes.load,
-      probes.load_threshold,
-      probes.schedulers
+      DispatchPolicy.load_admission_reason(
+        probes.load,
+        probes.load_threshold,
+        probes.schedulers,
+        Map.get(probes, :cpu_headroom, :unavailable)
+      ),
+      probes
     )
     |> maybe_record_run_queue_constraint(
-      DispatchPolicy.run_queue_gate(probes.runnable, probes.schedulers, probes.run_queue_threshold),
+      DispatchPolicy.run_queue_admission_reason(
+        probes.runnable,
+        probes.schedulers,
+        probes.run_queue_threshold,
+        Map.get(probes, :cpu_headroom, :unavailable)
+      ),
       probes
     )
     |> maybe_record_build_constraint(
@@ -1707,12 +1903,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     }
   end
 
-  defp maybe_record_run_queue_constraint(state, :hold, probes) do
+  defp maybe_record_run_queue_constraint(state, {:hold, reason}, probes) do
     record_capacity_constraint(
       state,
       :run_queue,
       "runnable=#{inspect(probes.runnable)} threshold=#{inspect(probes.run_queue_threshold)} " <>
-        "schedulers=#{probes.schedulers}"
+        "schedulers=#{probes.schedulers} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
     )
   end
 
@@ -1770,15 +1967,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_record_fd_constraint(state, _gate, _sample), do: state
 
-  defp maybe_record_load_constraint(state, :hold, load, threshold, schedulers) do
+  defp maybe_record_load_constraint(state, {:hold, reason}, probes) do
     record_capacity_constraint(
       state,
       :load,
-      "load=#{inspect(load)} threshold=#{threshold} schedulers=#{schedulers}"
+      "load=#{inspect(probes.load)} threshold=#{probes.load_threshold} schedulers=#{probes.schedulers} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
     )
   end
 
-  defp maybe_record_load_constraint(state, _gate, _load, _threshold, _schedulers), do: state
+  defp maybe_record_load_constraint(state, _gate, _probes), do: state
 
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()

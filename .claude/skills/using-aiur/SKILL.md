@@ -15,10 +15,13 @@ what you're doing — you don't need all four every turn.
 | You want to... | Read |
 |----------------|------|
 | Run a turn: labels, the Agent Workpad, the brainstorm→plan→work→review loop, which CE skill when, milestone alerts | `turn-workflow.md` |
-| Branch, commit, push, open + self-review the PR, manual CLI verification, PR description shape | `dev-loop.md` |
+| Branch, commit, push, open + self-review the PR, **when docs are required and where they go**, manual CLI verification, PR description shape | `dev-loop.md` |
 | Pick model / agent / skill depth from the `complexity:N` label | `complexity-routing.md` |
 | Know whose comments are authoritative, file out-of-scope findings, follow tooling + load-repro conventions | `conventions.md` |
 | Emit, subscribe to, or react to **cross-ticket** events | the **`aiur-agent`** skill |
+
+Before interpreting a voice-originated ticket or operator message, read the
+shared [dictated-input note](dictated-input.md).
 
 ## The shortest version
 
@@ -31,6 +34,12 @@ what you're doing — you don't need all four every turn.
   `ce-brainstorm → ce-plan → ce-work → ce-code-review`; smaller asks may skip
   brainstorm, plan, or review, but err on the side of using them when in doubt.
 - The workspace's checked-out branch is authoritative. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Never reconstruct a branch from the issue number.
+- **Docs ship in the same PR.** A new or changed config key, CLI command or
+  flag, operator-set environment variable, or user-facing surface — and any
+  change that makes an existing page wrong — updates `website/docs-app/` before
+  the PR is ready. Refactors, bug fixes restoring documented behavior, test-only
+  changes, and perf work with no interface change need nothing. `dev-loop.md`
+  has the page map.
 - Every PR description starts with `Closes #<issue>`. Commit messages are short
   (3–7 words), plain, and human — never mention AI, Claude, Codex, or models.
 - Branch freshness is your responsibility. Before handing the PR to CI or

@@ -23,6 +23,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     refute_protected(html)
   end
 
+  test "marks only exact 100% progress with the completion shade" do
+    ordinary = render(ready_view())
+    complete = ready_view() |> put_progress(%{ready_view().progress | percent: 100}) |> render()
+
+    assert ordinary =~ ~s(class="run-summary-progress-fill")
+    refute ordinary =~ ~s(class="run-summary-progress-fill is-complete")
+    assert complete =~ ~s(class="run-summary-progress-fill is-complete")
+  end
+
   test "lower-bound progress omits aria-valuenow and names coverage" do
     view =
       put_progress(ready_view(), %{
@@ -47,6 +56,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     assert html =~ "70% of eligible weight measured."
   end
 
+  test "partial current-fact progress renders the presenter's shared qualification" do
+    progress = %{
+      kind: :partial,
+      percent: 40,
+      display_percent_label: "40%",
+      current_members_label: "1 of 2 members current",
+      fact_status_detail: "progress inputs are still settling"
+    }
+
+    html = render(put_progress(ready_view(), progress))
+
+    assert html =~ "40% complete from current inputs"
+    assert html =~ "1 of 2 members current"
+    assert html =~ "progress inputs are still settling"
+    refute html =~ "weight facts"
+  end
+
+  test "pending progress distinguishes settling from degraded without a percentage" do
+    pending = %{
+      kind: :pending,
+      percent: nil,
+      progress_status_label: "Progress not computed yet",
+      current_members_label: "0 of 2 members current",
+      fact_status_detail: "progress inputs are still settling"
+    }
+
+    html = render(put_progress(ready_view(), pending))
+
+    assert html =~ "Progress not computed yet"
+    assert html =~ "0 of 2 members current"
+    assert html =~ "progress inputs are still settling"
+    refute html =~ "% complete"
+  end
+
   test "zero eligible weight names the absence of weighted progress" do
     view = put_progress(ready_view(), %{ready_view().progress | kind: :none})
     html = render(view)
@@ -61,6 +104,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     assert html =~ "Stale summary"
     assert html =~ "last known-good"
     assert html =~ "run-summary-grid"
+    assert html =~ ~s(class="run-summary-progress-fill is-stale")
+
+    complete = view |> put_progress(%{view.progress | percent: 100}) |> render()
+    assert complete =~ ~s(class="run-summary-progress-fill is-complete is-stale")
   end
 
   test "unavailable view is an alert naming the health reasons" do

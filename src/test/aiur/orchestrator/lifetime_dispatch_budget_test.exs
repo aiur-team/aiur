@@ -394,6 +394,13 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
+  test "public reset rejects an unavailable orchestrator instead of claiming it queued work" do
+    missing = Module.concat(__MODULE__, :MissingResetOrchestrator)
+
+    assert {:error, :unavailable} = PauseResume.reset_dispatch_budget(missing, "repo#lifetime")
+  end
+
+  @tag config: @enabled
   test "queued reset processing emits completion and failure outcomes" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)

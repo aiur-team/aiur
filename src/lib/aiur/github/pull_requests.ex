@@ -154,6 +154,33 @@ defmodule Aiur.GitHub.PullRequests do
 
   def fetch_commit_ci_status(sha, _opts), do: {:error, {:invalid_commit_sha, sha}}
 
+  @spec fetch_commit_timestamp(String.t(), keyword()) :: {:ok, DateTime.t() | nil} | {:error, term()}
+  def fetch_commit_timestamp(sha, opts \\ [])
+
+  def fetch_commit_timestamp(sha, opts) when is_binary(sha) and sha != "" do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
+
+      case Transport.fetch_json_map(request_fun, token, url) do
+        {:ok, commit} -> {:ok, commit_timestamp(commit)}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  def fetch_commit_timestamp(sha, _opts), do: {:error, {:invalid_commit_sha, sha}}
+
+  defp commit_timestamp(commit) do
+    value = get_in(commit, ["commit", "committer", "date"]) || get_in(commit, ["commit", "author", "date"])
+
+    case value && DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
   defp fetch_check_runs(request_fun, token, url, acc \\ []) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: %{"check_runs" => check_runs}} = response} when is_list(check_runs) ->

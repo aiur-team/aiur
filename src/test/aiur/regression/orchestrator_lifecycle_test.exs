@@ -25,6 +25,8 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
     def fetch_candidate_issues, do: {:ok, issues()}
 
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
 
     def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}

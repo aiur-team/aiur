@@ -373,6 +373,25 @@ defmodule Aiur.Config.SchemaTest do
       assert tightened.polling.interval_seconds == 15
     end
 
+    test "idle_widen_factor defaults to 5 and can only widen polling" do
+      {:ok, unset} = Schema.parse(%{})
+      assert unset.polling.idle_widen_factor == 5.0
+
+      {:ok, configured} = Schema.parse(%{"polling" => %{"idle_widen_factor" => 8}})
+      assert configured.polling.idle_widen_factor == 8.0
+
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"idle_widen_factor" => 0.5}})
+
+      assert message =~ "polling.idle_widen_factor"
+      assert message =~ "between 1.0 and 100.0"
+
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"idle_widen_factor" => 1.0e100}})
+
+      assert message =~ "polling.idle_widen_factor"
+    end
+
     # Measured: the provider usage endpoint serves roughly one request per two
     # minutes. Below that the excess is rejected and the meters quietly stop
     # updating, so the floor is enforced rather than merely documented.
@@ -464,6 +483,56 @@ defmodule Aiur.Config.SchemaTest do
 
       # $AIUR_NONEXISTENT_VAR is missing → falls back to LINEAR_API_KEY env
       assert settings.tracker.linear.api_key == "fallback-value"
+    end
+  end
+
+  describe "elevenlabs voice-input section" do
+    setup do
+      previous = System.get_env("ELEVENLABS_API_KEY")
+      System.delete_env("ELEVENLABS_API_KEY")
+      on_exit(fn -> restore_env("ELEVENLABS_API_KEY", previous) end)
+      :ok
+    end
+
+    test "defaults to no key and the ISO-639-3 English language code when the section is absent" do
+      assert {:ok, settings} = Schema.parse(%{})
+
+      assert settings.elevenlabs.api_key == nil
+      assert settings.elevenlabs.language_code == "eng"
+      assert settings.elevenlabs.voice_id == nil
+    end
+
+    test "parses an explicit section" do
+      assert {:ok, settings} =
+               Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config", "language_code" => "spa", "voice_id" => "voice-123"}})
+
+      assert settings.elevenlabs.api_key == "from-config"
+      assert settings.elevenlabs.language_code == "spa"
+      assert settings.elevenlabs.voice_id == "voice-123"
+    end
+
+    test "$ELEVENLABS_API_KEY resolves from the environment" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY"}})
+
+      assert settings.elevenlabs.api_key == "env-token"
+    end
+
+    test "an explicit config value wins over the ELEVENLABS_API_KEY env var" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config"}})
+
+      assert settings.elevenlabs.api_key == "from-config"
+    end
+
+    test "the env var supplies the key when the section omits it" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"language_code" => "eng"}})
+
+      assert settings.elevenlabs.api_key == "env-token"
     end
   end
 

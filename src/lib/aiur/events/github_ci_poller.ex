@@ -118,12 +118,14 @@ defmodule Aiur.Events.GithubCIPoller do
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
+          |> Map.merge(merge_queue_observation(pr))
           |> log_classification()
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
+          |> Map.merge(merge_queue_observation(pr))
           |> log_classification()
 
         {:ok, {:repaired, invalidation}} ->
@@ -145,6 +147,18 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, value}
     else
       _ -> :missing
+    end
+  end
+
+  # Carries the batch's merge-queue recovery observation (ready/approved/
+  # mergeable/armed/queued) into the poll result so CiLifecycle can alert on a
+  # parked-ready PR. Absent on the REST fallback path and on error/no-PR
+  # results; CiLifecycle treats a missing observation as `:unknown` (fail
+  # closed) instead of arming or clearing a recovery signal on partial data.
+  defp merge_queue_observation(%{} = pr) do
+    case Map.get(pr, "merge_queue") do
+      %{} = observation when map_size(observation) > 0 -> observation
+      _other -> %{}
     end
   end
 
@@ -261,7 +275,13 @@ defmodule Aiur.Events.GithubCIPoller do
       {:ok, ^observed_head_sha} ->
         evaluate(check_runs, commit_status)
         |> enforce_base_repair_invalidation(target, observed_head_sha, check_runs, commit_status, opts)
-        |> Map.merge(%{target: target, pr_number: pr_number, head_sha: observed_head_sha})
+        |> Map.merge(%{
+          target: target,
+          pr_number: pr_number,
+          head_sha: observed_head_sha,
+          draft?: pr_draft?(current_pr),
+          review_decision: Map.get(current_pr, "review_decision")
+        })
         |> log_classification()
 
       {:ok, current_head_sha} ->
@@ -703,6 +723,14 @@ defmodule Aiur.Events.GithubCIPoller do
 
   defp head_sha(%{"head" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
   defp head_sha(_pr), do: {:error, :head_sha_missing}
+
+  # REST pull requests and the GraphQL batch both carry draft state (`draft` /
+  # `isDraft`); `reviewDecision` is GraphQL-only and stays nil on the REST
+  # fallback path. Missing draft state reads false so a never-drafted PR is
+  # never misclassified as a stall.
+  defp pr_draft?(%{"draft" => draft}) when is_boolean(draft), do: draft
+  defp pr_draft?(%{"isDraft" => draft}) when is_boolean(draft), do: draft
+  defp pr_draft?(_pr), do: false
 
   defp poll_error(target, reason) do
     Logger.warning("GithubCIPoller failed: issue=#{target} reason=#{inspect(reason)}")

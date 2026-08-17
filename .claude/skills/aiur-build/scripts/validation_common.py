@@ -49,6 +49,18 @@ def nonempty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def lifecycle_label_prefix(value: object) -> str | None:
+    """Normalize one non-empty, non-whitespace-padded label prefix segment."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or ":" in value
+    ):
+        return None
+    return value.casefold()
+
+
 def strict_int(value: object) -> bool:
     return type(value) is int
 

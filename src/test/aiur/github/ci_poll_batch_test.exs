@@ -25,6 +25,12 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       refute body["query"] =~ ~r/pullRequests\(first:/
       assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
 
+      # Merge-queue recovery observation is part of the same batch node, so
+      # the parked-ready decision never pays a separate read.
+      assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
+      assert body["query"] =~ "autoMergeRequest { enabledAt }"
+      assert body["query"] =~ "mergeQueueEntry { id }"
+
       {:ok,
        %{
          status: 200,
@@ -48,6 +54,19 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
+    # The batch carries the merge-queue recovery observation derived from the
+    # same node, without any extra read.
+    assert %{
+             "merge_queue" => %{
+               draft?: true,
+               review_decision: "APPROVED",
+               mergeable: "MERGEABLE",
+               merge_state_status: "BLOCKED",
+               auto_merge_request: nil,
+               merge_queue_entry: nil
+             }
+           } = batch.pull_request
+
     assert [%{"name" => "test", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
@@ -198,6 +217,12 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       "headRefName" => "aiur/42-ci-batch",
       "headRefOid" => "head-77",
       "baseRefName" => "develop",
+      "isDraft" => true,
+      "reviewDecision" => "APPROVED",
+      "mergeable" => "MERGEABLE",
+      "mergeStateStatus" => "BLOCKED",
+      "autoMergeRequest" => nil,
+      "mergeQueueEntry" => nil,
       "commits" => %{
         "nodes" => [
           %{

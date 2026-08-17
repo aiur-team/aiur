@@ -14,13 +14,16 @@ defmodule Aiur.CurrentRunSummary.Projection do
     weights = Facts.weights(members)
     denominator_generation = Value.get(inputs, :denominator_generation, 0)
 
+    weight_status = Value.get(inputs, :weight_health, :healthy)
+
     context = %{
       counts: counts,
       denominator_generation: denominator_generation,
       membership_freshness: Status.membership_freshness(units),
       source_health: Status.source_health(units),
       truncated?: Value.get(units, :truncated?, false) == true,
-      weight_health: inputs |> Value.get(:weight_health, :healthy) |> Value.health()
+      weight_health: Value.health(weight_status),
+      weight_status: weight_status
     }
 
     %{progress: progress, eta: eta} = Progress.build(members, weights, run, context)
