@@ -61,6 +61,16 @@ not fail a build on line count alone.
   work complete, use `assert_receive` without an explicit timeout and use
   `refute_received` instead of `refute_receive`. Never assert exact counts on
   shared singletons. A test that flakes is a defect in the test.
+- **Shared global state is the other flake mechanism, and barriers do not fix
+  it.** A suite can be fully barrier-based and still be order-dependent. Pin and
+  restore any VM-global cache a test reads through — a `:persistent_term` entry
+  survives every test, so a test that reads one passes only until ordering
+  changes or the cache flushes. Refute on the narrowest topic you actually mean:
+  a namespace-wide `refute_receive`/`refute_received` on a shared bus asserts
+  about the whole system, so any other test publishing into that namespace can
+  fail it. And never call `self()` inside `on_exit` — the callback runs in a
+  different process, so the binding, monitor, or subscription you meant to clean
+  up leaks into later tests.
 - **Quarantine only while fixing.** Tag a confirmed flaky test with
   `@tag :quarantine`, open or link its repair issue, and leave a short reason
   beside the tag. Ordinary local and required CI runs exclude quarantined
