@@ -106,13 +106,19 @@ defmodule Aiur.GitHub.ResourceEvents do
   exists because the pipes disagree on casing; the topic inherits that so a
   subscriber and a writer that spell the repo differently still meet.
   """
-  @spec topic(ResourceStore.key()) :: String.t()
+  @spec topic(ResourceStore.key() | term()) :: String.t() | nil
   def topic({type, owner, repo, id}) when is_atom(type) and is_binary(owner) and is_binary(repo) and is_binary(id) do
     "#{@prefix}:#{type}:#{owner}/#{repo}:#{id}"
   end
 
+  # A key built by hand rather than through `ResourceStore.key/4` can have a
+  # member no topic can be made from. Answering `nil` keeps that out of the write
+  # path: a write must never fail because the announcement could not be
+  # addressed, which is the same direction every other degraded path takes.
+  def topic(_key), do: nil
+
   @doc "The topic for every resource of `type`, in any repository."
-  @spec type_topic(ResourceStore.resource_type()) :: String.t()
+  @spec type_topic(ResourceStore.resource_type()) :: String.t() | nil
   def type_topic(type) when is_atom(type), do: "#{@prefix}:#{type}"
 
   @doc "The topic for every resource of `type` within one repository."
@@ -143,11 +149,30 @@ defmodule Aiur.GitHub.ResourceEvents do
 
   def subscribe({_type, _owner, _repo, _id} = key), do: do_subscribe(topic(key))
 
-  def subscribe(type) when is_atom(type), do: do_subscribe(type_topic(type))
+  def subscribe(type) when is_atom(type) do
+    if known_type?(type), do: do_subscribe(type_topic(type)), else: unknown_type(type)
+  end
 
   @doc "Subscribes the caller to one resource type within one `\"owner/repo\"`."
   @spec subscribe(ResourceStore.resource_type(), String.t() | nil) :: :ok
-  def subscribe(type, full_name) when is_atom(type), do: do_subscribe(type_topic(type, full_name))
+  def subscribe(type, full_name) when is_atom(type) do
+    if known_type?(type), do: do_subscribe(type_topic(type, full_name)), else: unknown_type(type)
+  end
+
+  defp known_type?(type), do: type in ResourceStore.resource_types()
+
+  # Loud, for the same reason `ResourceStore.key/4` is loud about an unlisted
+  # type: nothing ever publishes to a topic for a type the store does not
+  # recognise, so a view subscribed to one would simply stop updating and never
+  # say why. This is that failure, named at the moment it is made.
+  defp unknown_type(type) do
+    Logger.error(
+      "GitHub.ResourceEvents refused a subscription to unknown resource type #{inspect(type)}; " <>
+        "nothing publishes to it — add it to Aiur.GitHub.ResourceStore's @resource_types"
+    )
+
+    :ok
+  end
 
   @doc """
   Subscribes the caller to every resource type the store recognises.

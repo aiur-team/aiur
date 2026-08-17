@@ -224,6 +224,8 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       restart_store!(path)
 
       assert ResourceStore.etag(ResourceStore.key(:issue_comments, "owner", "repo", 79)) == ~s("kept")
+      assert ResourceStore.size() == 1, "the unknown type must be dropped, not resurrected as a new atom"
+      assert ResourceStore.etag({:not_a_real_type, "owner", "repo", "1"}) == nil
     end
 
     test "entries older than the retention window are not reloaded", %{path: path} do
@@ -261,6 +263,31 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert :ok = ResourceStore.mark_processed(ResourceStore.key(:issue_comment, "owner", "repo", 5153), :poll)
       assert ResourceStore.size() == 0
       assert :marked = ResourceStore.claim(ResourceStore.key(:issue_comment, "owner", "repo", 5153), :poll)
+    end
+
+    # The generalized surface has to degrade the same way the marks do: a reader
+    # misses and fetches, a writer's deposit is accepted and dropped on the
+    # floor. Neither may raise into a poll task or a LiveView mount.
+    test "the resource surface answers storelessly too" do
+      stop_store!()
+      key = ResourceStore.key(:pull_request, "owner", "repo", 4242)
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.data(key) == nil
+      assert :ok = ResourceStore.put_resource(key, %{"number" => 4242}, source: :fetch, version: "v1")
+      assert :ok = ResourceStore.drop_data(key)
+      assert ResourceStore.fetch(key) == :miss
+      assert :ok = ResourceStore.subscribe(key)
+      assert :ok = ResourceStore.unsubscribe(key)
+    end
+
+    # A key built by hand can carry a member no topic can be made from. The
+    # announcement is what must give way, never the write.
+    test "a write survives a key no announcement can address" do
+      key = {:issue_comment, "owner", "repo", 5154}
+
+      assert :ok = ResourceStore.put_resource(key, %{"body" => "still stored"}, source: :fetch)
+      assert ResourceStore.data(key) == %{"body" => "still stored"}
     end
   end
 
@@ -346,7 +373,12 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert ResourceStore.etag(key) == "W/\"abc\""
     end
 
-    test "an oversized body is refused, and refusing keeps the validator" do
+    # Refusing the body must not also record the validator that proves it
+    # current. That pair would earn the next reader a `304` for a resource the
+    # store does not hold — a spent request that returns no data, which is the
+    # exact failure this store exists to remove. The older validator is stale, so
+    # it earns a `200` with a body instead.
+    test "an oversized body is refused, and its validator is refused with it" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 9)
       ResourceStore.put_resource(key, %{"small" => true}, etag: "W/\"old\"")
 
@@ -354,7 +386,21 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       ResourceStore.put_resource(key, huge, etag: "W/\"new\"")
 
       assert ResourceStore.fetch(key) == :miss, "an oversized body is refused, not stored"
-      assert ResourceStore.etag(key) == "W/\"new\"", "change detection is still worth keeping"
+      assert ResourceStore.etag(key) == "W/\"old\"", "a validator without its body would earn a bodyless 304"
+    end
+
+    # A body the checkpoint could never render is refused at the door rather
+    # than accepted and then quietly dropped — or worse, raised on, at the next
+    # checkpoint, where it would take every unrelated entry down with it.
+    test "a body JSON cannot encode is refused like an oversized one" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 16)
+      ResourceStore.put_resource(key, %{"was" => "here"}, etag: "W/\"old\"")
+
+      ResourceStore.put_resource(key, %{"pid" => self(), "tuple" => {1, 2}}, etag: "W/\"new\"")
+
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.etag(key) == "W/\"old\""
+      assert :ok = ResourceStore.flush()
     end
 
     # R8/A7. Without the body on disk a restart keeps every validator and loses
@@ -390,11 +436,27 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert {:ok, _entry} = ResourceStore.fetch(key)
 
       [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
-      aged = Map.put(entry, :recorded_at_ms, System.system_time(:millisecond) - 73 * 60 * 60 * 1000)
+      aged = Map.put(entry, :fetched_at_ms, System.system_time(:millisecond) - 73 * 60 * 60 * 1000)
       :ets.insert(ResourceStore.Table, {key, aged})
 
       assert ResourceStore.fetch(key) == :miss
       assert ResourceStore.data(key) == nil
+    end
+
+    # The trap this closes: every write touches `recorded_at_ms`, so judging the
+    # body by that field would let a sweep re-recording an unchanged validator
+    # keep a three-day-old body servable forever.
+    test "re-recording a validator does not renew an expired body" do
+      key = ResourceStore.key(:issue_comments, "owner", "repo", 17)
+      ResourceStore.put_resource(key, %{"title" => "ancient"})
+
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+      aged = Map.put(entry, :fetched_at_ms, System.system_time(:millisecond) - 73 * 60 * 60 * 1000)
+      :ets.insert(ResourceStore.Table, {key, aged})
+
+      ResourceStore.put_etag(key, "W/\"swept\"")
+
+      assert ResourceStore.fetch(key) == :miss
     end
 
     # A deposit is not a processed mark. Merging them would let a writer drag the
@@ -411,6 +473,23 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       assert ResourceStore.processed?(key, "v1")
       refute ResourceStore.processed?(key, "v2")
+    end
+
+    # A mark with no version suppresses on identity alone, which swallows that
+    # resource's next genuine change for the whole retention window. Asking for
+    # one is refused out loud rather than honoured quietly.
+    test "a processed mark with no version is refused and logged" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 18)
+      ResourceStore.mark_processed(key, :webhook, "v1")
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          ResourceStore.put_resource(key, %{"body" => "no version here"}, processed: true)
+        end)
+
+      assert log =~ "processed: true with no version"
+      assert ResourceStore.processed?(key, "v1"), "the earlier versioned mark must stand"
+      refute ResourceStore.processed?(key, nil)
     end
   end
 

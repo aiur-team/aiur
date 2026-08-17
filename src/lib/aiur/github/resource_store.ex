@@ -325,6 +325,12 @@ defmodule Aiur.GitHub.ResourceStore do
   Publishing is conditional on the resource actually differing from what is
   already held, so a writer re-depositing an unchanged body does not wake every
   subscribed view for nothing.
+
+  `:version` describes the body being deposited, so a deposit without one records
+  "version unknown" rather than keeping the previous body's version. That is
+  deliberate: an old version left attached to a new body would tell the next
+  reader something false, and the cost of the honest answer is at most one extra
+  re-render of a subscribed view, which spends nothing upstream.
   """
   @spec put_resource(key() | nil, term(), keyword()) :: :ok
   def put_resource(key, data, opts \\ [])
@@ -379,7 +385,10 @@ defmodule Aiur.GitHub.ResourceStore do
   def fetch(key) do
     case lookup(key) do
       %{data: data} = entry when not is_nil(data) ->
-        if expired?(Map.get(entry, :recorded_at_ms) || 0) do
+        # Judged on when the *body* was recorded, never on `:recorded_at_ms`:
+        # every write touches that field, so a sweep re-recording an unchanged
+        # validator would keep a three-day-old body servable forever.
+        if expired?(Map.get(entry, :fetched_at_ms) || 0) do
           :miss
         else
           {:ok,
@@ -412,11 +421,11 @@ defmodule Aiur.GitHub.ResourceStore do
   Topics live in `Aiur.GitHub.ResourceEvents`; these delegations exist so a
   caller holding a store key does not need to know that.
   """
-  @spec topic(key()) :: String.t()
+  @spec topic(key()) :: String.t() | nil
   defdelegate topic(key), to: ResourceEvents
 
   @doc "PubSub topic carrying changes to every resource of one type."
-  @spec type_topic(resource_type()) :: String.t()
+  @spec type_topic(resource_type()) :: String.t() | nil
   defdelegate type_topic(type), to: ResourceEvents
 
   @doc """
@@ -550,6 +559,15 @@ defmodule Aiur.GitHub.ResourceStore do
   # Every write in the module funnels through here, which is why publication
   # lives here too: a writer that had to remember to announce would eventually
   # forget, and leave a subscribed view stale with no way to notice.
+  #
+  # Writes land in ETS from the caller's own process rather than through the
+  # GenServer, because the poll fan-out writes one entry per comment and a single
+  # mailbox would become the bottleneck this store exists to remove. The cost is
+  # that this read-modify-write is not atomic against a concurrent writer: two
+  # writers racing on one resource can leave the later one's view of `before`
+  # stale, so a change may be announced twice or described one write behind. Both
+  # outcomes cost a re-render; neither loses data or spends an API call, which is
+  # the direction every trade-off in this module takes.
   defp update(key, fun) do
     with_table(:ok, fn table ->
       existing =
@@ -581,9 +599,8 @@ defmodule Aiur.GitHub.ResourceStore do
   # validator — a first deposit for a resource whose ETag a sweep already
   # recorded — and that is precisely the write a viewer is waiting for, because
   # the held body is the only thing that decides whether a page has anything to
-  # render. Comparing whole bodies is affordable: they are bounded at
-  # #{div(@max_data_bytes, 1024)} KiB, and an identical body rewritten is a
-  # genuine no-op no subscriber should be woken for.
+  # render. Comparing whole bodies is affordable: they are size-bounded, and an
+  # identical body rewritten is a genuine no-op no subscriber should be woken for.
   defp observable(entry) do
     Map.take(entry, [:etag, :data, :data_version, :processed_at_ms, :source, :version])
   end
@@ -595,28 +612,52 @@ defmodule Aiur.GitHub.ResourceStore do
       |> Map.put(:data_version, version)
       |> Map.put(:fetched_at_ms, now_ms())
       |> Map.put(:source, source)
-      |> maybe_put_etag(Keyword.get(opts, :etag))
+      |> deposit_etag(data, Keyword.get(opts, :etag))
 
     # `:version` moves only alongside `:processed_at_ms`. See the moduledoc:
     # advancing it on its own would suppress a version nothing has handled.
-    if Keyword.get(opts, :processed, false) do
-      entry
-      |> Map.put(:processed_at_ms, now_ms())
-      |> Map.put(:version, version)
-    else
-      entry
+    cond do
+      not Keyword.get(opts, :processed, false) ->
+        entry
+
+      is_nil(version) ->
+        # A mark with no version suppresses on identity alone, which would
+        # swallow the resource's next genuine change. Refused rather than
+        # honoured, and said out loud, because the caller asked for something
+        # that quietly breaks the guarantee the store is built on.
+        Logger.warning("GitHub.ResourceStore ignored processed: true with no version; suppression needs a version")
+
+        entry
+
+      true ->
+        entry
+        |> Map.put(:processed_at_ms, now_ms())
+        |> Map.put(:version, version)
     end
   end
 
-  defp maybe_put_etag(entry, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
-  defp maybe_put_etag(entry, _etag), do: entry
+  # A validator is only recorded alongside the body it validates. Recording it
+  # for a body the store refused would earn the next reader a `304` for a
+  # resource nothing here holds — a spent request that returns no data, which is
+  # the exact failure this store exists to remove. Keeping the older validator
+  # instead guarantees a `200` with a body.
+  defp deposit_etag(entry, nil, _etag), do: entry
 
-  # Measured on the term rather than its JSON, which is close enough for a
-  # backstop and does not cost an encode on every deposit.
+  defp deposit_etag(entry, _data, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
+
+  defp deposit_etag(entry, _data, _etag), do: entry
+
+  # Measured as the JSON the checkpoint would have to write, for two reasons: it
+  # is the size that actually costs something, and a body JSON cannot encode —
+  # a tuple, a pid, a struct with no encoder — is refused here rather than
+  # discovered later by a checkpoint that cannot render it.
   defp oversized?(data) do
-    byte_size(:erlang.term_to_binary(data)) > @max_data_bytes
+    case Jason.encode(data) do
+      {:ok, encoded} -> byte_size(encoded) > @max_data_bytes
+      _error -> true
+    end
   rescue
-    ArgumentError -> true
+    _error -> true
   end
 
   # Every read and write funnels through here so a missing table — no store

@@ -179,6 +179,25 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       refute_receive {:github_resource_changed, _change}, 100
     end
 
+    # The one case the module's own comments say matters most, and the one a
+    # weaker change check would swallow: only the body moved. Same validator,
+    # same source, same version. Delete `:data` from the change check and this
+    # is the test that fails.
+    test "a body-only change publishes, with nothing else moving" do
+      key = key(21)
+      opts = [etag: "W/\"same\"", source: :fetch, version: "v1"]
+      ResourceStore.put_resource(key, %{"body" => "first"}, opts)
+      :ok = ResourceEvents.subscribe(key)
+
+      ResourceStore.put_resource(key, %{"body" => "second"}, opts)
+
+      assert_receive {:github_resource_changed, change}
+      assert change.etag == "W/\"same\""
+      assert change.source == :fetch
+      assert change.data_version == "v1"
+      assert ResourceStore.data(key) == %{"body" => "second"}
+    end
+
     test "an edit to the same resource does publish" do
       key = key(19)
       ResourceStore.put_resource(key, %{"body" => "first"}, etag: "W/\"e\"", version: "v1")
@@ -244,6 +263,30 @@ defmodule Aiur.GitHub.ResourceEventsTest do
     test "subscribing to a repository it cannot parse is a no-op" do
       assert ResourceEvents.subscribe(:issue_comment, "not-a-repo") == :ok
       assert ResourceEvents.unsubscribe(:issue_comment, nil) == :ok
+    end
+
+    # Failing open must not become failing silently. Nothing ever publishes to a
+    # topic for a type the store does not recognise, so a view subscribed to one
+    # would stop updating and never say why.
+    test "subscribing to an unknown type is refused out loud" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert ResourceEvents.subscribe(:not_a_real_type) == :ok
+          assert ResourceEvents.subscribe(:not_a_real_type, @full_name) == :ok
+        end)
+
+      assert log =~ "unknown resource type"
+      assert log =~ "not_a_real_type"
+    end
+
+    # The write is what must survive. An entry keyed by hand can carry a member
+    # no topic can be built from, and the announcement is the part that gives way.
+    test "a key no topic can address does not fail the write" do
+      key = {:issue_comment, @owner, @repo, 99}
+
+      assert ResourceEvents.topic(key) == nil
+      assert :ok = ResourceStore.put_resource(key, %{"body" => "stored anyway"}, source: :fetch)
+      assert ResourceStore.data(key) == %{"body" => "stored anyway"}
     end
 
     test "subscribe_all covers every type the store recognises" do
