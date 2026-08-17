@@ -146,6 +146,7 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
   .ghc-row-bodyless td[data-role="body"] { color: var(--attention-ink); font-weight: 600; }
 
   .ghc-cell-bodyless { font-size: 0.75rem; color: var(--attention-ink); }
+  .ghc-cell-elided { font-size: 0.75rem; color: var(--muted); }
 
   .ghc-tile[data-role="bodyless-count"]:not([data-value="0"]) { border-color: var(--attention-ink); }
   .ghc-tile[data-role="bodyless-count"]:not([data-value="0"]) .ghc-tile-value { color: var(--attention-ink); }

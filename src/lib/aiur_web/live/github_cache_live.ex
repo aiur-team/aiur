@@ -292,7 +292,7 @@ defmodule AiurWeb.GithubCacheLive do
         <span class="ghc-tile-value">{@view_fetches}</span>
         <span class="ghc-tile-label">Fetches caused by viewing</span>
         <span class="ghc-tile-note" data-role="view-fetches-context">
-          of {@observed_calls} calls the meter attributed
+          of {@observed_calls} calls the meter attributed this window
         </span>
       </div>
 
@@ -331,6 +331,10 @@ defmodule AiurWeb.GithubCacheLive do
   end
 
   defp map_layer(assigns) do
+    # Computed once for the whole map rather than per cell: `weight/2` is called
+    # for every tile and the largest group does not change between them.
+    assigns = assign(assigns, :largest, assigns.projection.groups |> Enum.map(& &1.count) |> Enum.max(fn -> 1 end))
+
     ~H"""
     <div class="ghc-map" data-role="map-layer">
       <p :if={@projection.groups == []} class="ghc-empty">The cache holds no entries yet.</p>
@@ -344,7 +348,7 @@ defmodule AiurWeb.GithubCacheLive do
         data-worst={group.worst}
         data-count={group.count}
         data-bodyless={group.bodyless}
-        style={"--ghc-weight: #{weight(group, @projection)}; --ghc-stale: #{group.stale_fraction}"}
+        style={"--ghc-weight: #{weight(group, @largest)}; --ghc-stale: #{group.stale_fraction}"}
       >
         <span class="ghc-cell-count">{group.count}</span>
         <span class="ghc-cell-label">{group.label}</span>
@@ -353,6 +357,9 @@ defmodule AiurWeb.GithubCacheLive do
         </span>
         <span :if={group.bodyless > 0} class="ghc-cell-bodyless">
           {group.bodyless} validator only
+        </span>
+        <span :if={group.elided > 0} class="ghc-cell-elided">
+          {group.shown} of {group.count} drawn
         </span>
       </.link>
     </div>
@@ -697,9 +704,7 @@ defmodule AiurWeb.GithubCacheLive do
   defp back_label(_group, nil), do: "Back to the cache map"
   defp back_label(_group, _identity), do: "Back to the group"
 
-  defp weight(group, projection) do
-    largest = projection.groups |> Enum.map(& &1.count) |> Enum.max(fn -> 1 end)
-
+  defp weight(group, largest) do
     Float.round(max(group.count / max(largest, 1), 0.15), 3)
   end
 

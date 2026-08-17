@@ -14,6 +14,11 @@ defmodule Aiur.GithubCacheSourceSupport do
 
   @spec install([map()]) :: :ok
   def install(entries) do
+    # Created here, from the test process, and never lazily from whichever
+    # process happens to read first. A table owned by the LiveView under test
+    # dies when that view does, taking the fixture with it mid-test — a flake
+    # that would look like the page losing its data.
+    ensure_tables()
     reset()
     :ets.insert(@table, {:entries, entries})
     Application.put_env(:aiur, :github_cache_inspector_source, __MODULE__)
@@ -36,13 +41,13 @@ defmodule Aiur.GithubCacheSourceSupport do
 
   @impl true
   def available? do
-    ensure_tables()
-    :ets.lookup(@table, :entries) != []
+    :ets.whereis(@table) != :undefined and :ets.lookup(@table, :entries) != []
+  rescue
+    ArgumentError -> false
   end
 
   @impl true
   def entries do
-    ensure_tables()
     :ets.update_counter(@counter, :reads, 1, {:reads, 0})
 
     case :ets.lookup(@table, :entries) do
@@ -52,7 +57,6 @@ defmodule Aiur.GithubCacheSourceSupport do
   end
 
   defp reset do
-    ensure_tables()
     :ets.delete_all_objects(@table)
     :ets.delete_all_objects(@counter)
   end

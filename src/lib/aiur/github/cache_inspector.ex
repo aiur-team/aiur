@@ -41,6 +41,7 @@ defmodule Aiur.GitHub.CacheInspector do
   """
 
   alias Aiur.GitHub.CacheInspector.{Entry, ResourceStoreSource}
+  alias Aiur.GitHub.ResourceStore
 
   # How many rows one group page draws before it says it stopped.
   @default_limit 500
@@ -56,7 +57,11 @@ defmodule Aiur.GitHub.CacheInspector do
   # past which a consumer should say it is reading history; `expired` is the
   # retention edge, where the store itself stops keeping the entry.
   @default_stale_after_ms 5 * 60 * 1000
-  @default_expired_after_ms 72 * 60 * 60 * 1000
+
+  # The store's own retention window, taken from the store rather than restated,
+  # so a page calling an entry `expired` and a store still holding it cannot
+  # drift apart.
+  @default_expired_after_ms ResourceStore.retention_ms()
 
   # The store's own writer vocabulary, in the order the page offers it, plus the
   # bucket an unrecognised source lands in. `:other` is offered as a filter and
@@ -178,11 +183,15 @@ defmodule Aiur.GitHub.CacheInspector do
   def view_fetches(_snapshot), do: 0
 
   @doc """
-  How many GitHub calls the quota meter has attributed at all.
+  How many GitHub calls the quota meter attributed in its current window.
 
   Context for `view_fetches/1`: a zero against a meter that has observed
   thousands of calls says the view paths spent nothing. A zero against a meter
   that has observed nothing says only that nobody has measured anything yet.
+
+  Scoped to the meter's window rather than to all time, because that is what the
+  snapshot holds — the page says "attributed" rather than "ever made" for the
+  same reason.
   """
   @spec observed_calls(map()) :: non_neg_integer()
   def observed_calls(%{callers: callers}) when is_list(callers),
