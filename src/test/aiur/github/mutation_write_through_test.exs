@@ -569,7 +569,19 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     end
 
     result = fun.(request_fun)
-    on_exit(fn -> if Process.alive?(recorder), do: Agent.stop(recorder) end)
+
+    # `Aiur.TestSupport.safe_stop/1`, not a `Process.alive?/1` guard around
+    # `Agent.stop/1`. The recorder is `start_link`ed from the test process, so
+    # ExUnit's `exit(:shutdown)` at the end of the test already kills it over the
+    # link; the `on_exit/1` callback runs afterwards in a *different* process, so
+    # the guard is a TOCTOU race — it observes the recorder alive, the link then
+    # kills it, and `Agent.stop/1` exits with that `:shutdown` instead of the
+    # `:normal` it asked for, failing the case in teardown. The window is closed
+    # on an idle machine (measured: 3000 of 3000 samples found the recorder
+    # already dead) and widens under coverage instrumentation, which is why this
+    # only ever showed up in the coverage partitions. `safe_stop/1` catches the
+    # exit rather than guarding against it; its own docs name this exact race.
+    on_exit(fn -> Aiur.TestSupport.safe_stop(recorder) end)
 
     {fn -> Agent.get(recorder, &Enum.reverse/1) end, result}
   end
