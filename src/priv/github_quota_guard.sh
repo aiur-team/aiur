@@ -1496,9 +1496,12 @@ if [ -n "$error_file" ]; then
     # pipeline, so the real exit status travels via `status_file`.
     { { "$real_gh" "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
     stderr_streamed=1
+    # An unreadable or non-numeric status means the real exit code could not be
+    # confirmed. Reporting 0 there would turn a failed `gh` into an apparent
+    # success for every caller, so this fails closed instead.
     status=$(sed -n '1p' "$status_file" 2>/dev/null)
     case "$status" in
-      ''|*[!0-9]*) status=0 ;;
+      ''|*[!0-9]*) status=1 ;;
     esac
   else
     "$real_gh" "$@" 2> "$error_file"
