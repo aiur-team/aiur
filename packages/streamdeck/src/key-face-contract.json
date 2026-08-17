@@ -41,11 +41,8 @@
   "progress": {
     "minimum": 0,
     "maximum": 100,
-    "hue_start": 0,
-    "hue_end": 125,
-    "round_decimals": 0,
-    "saturation": 72,
-    "lightness": 50
+    "fill": "#3fb950",
+    "complete_fill": "#74d47f"
   },
   "direction_badges": {
     "EMIT": { "color": "#9fd0ff" },

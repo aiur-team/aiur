@@ -38,7 +38,7 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
   end
 
   test "retains occurrence-price partition dimensions across the checkpoint round trip" do
-    codex = envelope(%{context_tier: :short_context})
+    codex = envelope(%{context_tier: :short_context, upstream_provider: "DeepSeek"})
     claude = claude_envelope(%{cache_write_duration: :one_hour})
 
     projection =
@@ -51,38 +51,50 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
 
     assert restored.cells == projection.cells
     assert Key.dims(codex).context_tier == :short_context
+    assert Key.dims(codex).upstream_provider == "DeepSeek"
     assert Key.dims(claude).cache_write_duration == :one_hour
     assert restored.cells[{Key.dims(codex), {:token, :input}}] == 10
     assert restored.cells[{Key.dims(claude), {:token, :cache_creation_input}}] == 5
   end
 
-  test "loads a legacy checkpoint whose cells predate the occurrence-price partitions" do
+  test "loads a legacy checkpoint whose cells predate optional aggregate dimensions" do
     # A checkpoint written before this change has no context_tier /
     # cache_write_duration keys in its cell dims. Decoding must tolerate their
     # absence, surfacing the partition as unknown (nil) rather than erroring or
     # collapsing the price bucket to a guessed value.
-    projection = sample_projection()
+    projection =
+      Projection.new()
+      |> Projection.apply_record(record(1, envelope(%{context_tier: :short_context, upstream_provider: "DeepSeek"}), %{tokens: %{input: 10}}))
+
     encoded = Checkpoint.encode(projection)
 
     legacy_cells =
       Enum.map(encoded["cells"], fn cell ->
-        update_in(cell["dims"], &Map.drop(&1, ["context_tier", "cache_write_duration"]))
+        update_in(cell["dims"], &Map.drop(&1, ["context_tier", "cache_write_duration", "upstream_provider"]))
       end)
 
     assert {:ok, restored} =
              encoded |> Map.put("cells", legacy_cells) |> recompute_checksum() |> Checkpoint.from_record()
 
-    assert restored.cells == projection.cells
-
     {dims, _measure} = restored.cells |> Map.keys() |> hd()
     assert dims.context_tier == nil
     assert dims.cache_write_duration == nil
+    assert dims.upstream_provider == nil
   end
 
   test "rejects a checkpoint cell carrying an invalid occurrence-price partition" do
     encoded = Checkpoint.encode(sample_projection())
     [cell | rest] = encoded["cells"]
     tampered = put_in(cell, ["dims", "context_tier"], "bogus_tier")
+
+    assert {:error, _reason} =
+             encoded |> Map.put("cells", [tampered | rest]) |> recompute_checksum() |> Checkpoint.from_record()
+  end
+
+  test "rejects a rechecksummed cell carrying a non-ledger-safe upstream provider" do
+    encoded = Checkpoint.encode(sample_projection())
+    [cell | rest] = encoded["cells"]
+    tampered = put_in(cell, ["dims", "upstream_provider"], "Deep Seek")
 
     assert {:error, _reason} =
              encoded |> Map.put("cells", [tampered | rest]) |> recompute_checksum() |> Checkpoint.from_record()

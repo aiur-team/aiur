@@ -20,7 +20,7 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   await openFixture(page)
   await page.context().setHTTPCredentials(dashboardCredentials)
 
-  for (const path of ['/', '/units', '/decisions', '/build-orders', '/analytics']) {
+  for (const path of ['/', '/units', '/commands', '/build-orders', '/analytics']) {
     await page.goto(path)
     await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
   }
@@ -28,6 +28,18 @@ test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
   expect(notFound).toEqual([])
   expect(consoleErrors).toEqual([])
   expect(pageErrors).toEqual([])
+})
+
+test('legacy Commands URLs redirect permanently to the canonical route', async ({ page }) => {
+  await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
+
+  const response = await page.goto('/decisions/decision-123?filter=blocking')
+  const redirectedFrom = response?.request().redirectedFrom()
+
+  expect((await redirectedFrom?.response())?.status()).toBe(301)
+  await expect(page).toHaveURL(/\/commands\/decision-123\?filter=blocking$/)
+  await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
 })
 
 test('Build Order navigation returns to the production Units route', async ({ page }) => {
@@ -214,7 +226,7 @@ for (const { width, isMobile } of routeShellViewports) {
       } else {
         await commands.press('Enter')
       }
-      await expect(page).toHaveURL(/\/decisions$/)
+      await expect(page).toHaveURL(/\/commands$/)
       await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
 
@@ -223,11 +235,11 @@ for (const { width, isMobile } of routeShellViewports) {
       await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
 
       await page.goForward()
-      await expect(page).toHaveURL(/\/decisions$/)
+      await expect(page).toHaveURL(/\/commands$/)
       await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
 
-      await page.goto('/decisions/decision-123')
-      await expect(page).toHaveURL(/\/decisions\/decision-123$/)
+      await page.goto('/commands/decision-123')
+      await expect(page).toHaveURL(/\/commands\/decision-123$/)
       await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
       await expect(page.locator('#route-shell-action')).toBeVisible()

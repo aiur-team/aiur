@@ -245,6 +245,42 @@ defmodule Aiur.Usage.GroupedScopesTest do
 
       assert snap.reconciliation.reconciled?
     end
+
+    test "upstream and structured provider routes reconcile tokens and both cost bases" do
+      source =
+        Support.source([
+          Support.openrouter_record(1,
+            tokens: %{input: 1_000_000},
+            cost: "2.00",
+            upstream_provider: "DeepSeek"
+          ),
+          Support.openrouter_record(2,
+            tokens: %{output: 1_000_000},
+            cost: "3.00",
+            upstream_provider: "OtherHost"
+          ),
+          Support.deepseek_record(3, tokens: %{input: 1_000_000}, cost: "4.00")
+        ])
+
+      snap = project(source, Scope.this_run("run-1115"))
+
+      assert snap.reconciliation.by_dimension.by_upstream_provider
+      assert snap.reconciliation.by_dimension.by_provider_route
+
+      routed =
+        Enum.find(snap.contributors.by_provider_route, &(&1.key == %{provider: :openrouter, upstream_provider: "DeepSeek"}))
+
+      direct =
+        Enum.find(snap.contributors.by_provider_route, &(&1.key == %{provider: :deepseek, upstream_provider: nil}))
+
+      assert routed.tokens == %{input: 1_000_000}
+      assert Decimal.equal?(routed.provider_reported["USD"], Decimal.new("2.00"))
+      assert Decimal.equal?(routed.api_equivalent.amount["USD"], Decimal.new("0.14"))
+      assert direct.tokens == %{input: 1_000_000}
+      assert Decimal.equal?(direct.provider_reported["USD"], Decimal.new("4.00"))
+      assert Decimal.equal?(direct.api_equivalent.amount["USD"], Decimal.new("0.14"))
+      assert length(snap.contributors.by_provider_route) == 3
+    end
   end
 
   describe "tier join keys" do
@@ -268,6 +304,21 @@ defmodule Aiur.Usage.GroupedScopesTest do
   end
 
   describe "deterministic states" do
+    test "missing upstream attribution is partial only for OpenRouter cells" do
+      direct = project(Support.source([Support.deepseek_record(1, tokens: %{input: 1_000_000})]), Scope.this_run("run-1115"))
+
+      routed =
+        project(
+          Support.source([Support.openrouter_record(1, tokens: %{input: 1_000_000})]),
+          Scope.this_run("run-1115")
+        )
+
+      assert direct.coverage.unknown_attribution.upstream_provider == 0
+      assert direct.state == :ok
+      assert routed.coverage.unknown_attribution.upstream_provider == 1
+      assert routed.state == :partial
+    end
+
     test "a healthy scope selecting nothing is known-empty, not a zero total" do
       snap = project(mixed_run_source(), Scope.this_run("run-does-not-exist"))
 
@@ -284,7 +335,10 @@ defmodule Aiur.Usage.GroupedScopesTest do
       assert snap.reason == :unavailable_projection
       # Coverage keeps a consistent shape so consumers need not branch on state.
       assert snap.coverage.api_equivalent.status == :none
+      assert snap.coverage.unknown_attribution.upstream_provider == 0
       assert snap.coverage.unknown_pricing_tokens == %{}
+      assert snap.contributors.by_upstream_provider == []
+      assert snap.contributors.by_provider_route == []
     end
 
     test "a stale snapshot is distinct from partial and empty" do

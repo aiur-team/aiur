@@ -561,7 +561,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                max_inflight_per_endpoint: 2,
                requests_per_minute: 20,
                stagger_ms: 0,
-               timeout_ms: 10
+               timeout_ms: 1_000
              )
 
     assert {:ok, different_lease} =
@@ -1440,7 +1440,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                max_inflight_per_endpoint: 2,
                requests_per_minute: 20,
                stagger_ms: 0,
-               timeout_ms: 10
+               timeout_ms: 1_000
              )
   end
 

@@ -138,6 +138,7 @@ defmodule Aiur.Usage.Headless.Adapter do
       transport: context.transport,
       auth_mode: context.auth_mode,
       query_source: context.query_source,
+      upstream_provider: context.upstream_provider,
       effort: context.effort,
       requested_model: context.requested_model,
       resolved_model: context.resolved_model,

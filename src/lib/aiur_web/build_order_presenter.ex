@@ -574,7 +574,8 @@ defmodule AiurWeb.BuildOrderPresenter do
       status: :known,
       decision: decision,
       pr_number: positive_or_unknown(Map.get(result, :pr_number)),
-      head_sha: OpaqueIdentifier.normalize(Map.get(result, :head_sha), 128)
+      head_sha: OpaqueIdentifier.normalize(Map.get(result, :head_sha), 128),
+      draft?: boolean_or_unknown(Map.get(result, :draft?))
     }
   end
 

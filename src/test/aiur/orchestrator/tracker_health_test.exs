@@ -5,13 +5,64 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   alias Aiur.Webhooks.ModeRegistry
 
   test "uses the base interval when no GitHub delay is active" do
-    assert TrackerHealth.next_poll_delay_ms(%State{poll_interval_ms: 1_000, github_poll_delays: %{}}) == 1_000
+    state = %State{poll_interval_ms: 1_000, github_poll_delays: %{}, running: %{"issue-1" => %{}}}
+    assert TrackerHealth.next_poll_delay_ms(state) == 1_000
   end
 
   test "uses the largest active GitHub delay" do
-    state = %State{poll_interval_ms: 1_000, github_poll_delays: %{comments: 2_000, firehose: 3_000}}
+    state = %State{poll_interval_ms: 1_000, github_poll_delays: %{comments: 2_000, firehose: 3_000}, running: %{"issue-1" => %{}}}
 
     assert TrackerHealth.next_poll_delay_ms(state) == 3_000
+  end
+
+  test "widens the interval while the fleet is idle" do
+    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{}}
+
+    assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 5.0) == 600_000
+  end
+
+  test "reads the idle widen factor from configured settings" do
+    state = %State{poll_interval_ms: 30_000, github_poll_delays: %{}, running: %{}}
+
+    assert %{delay_ms: 150_000, idle_backoff?: true, idle_widen_factor: 5.0} =
+             TrackerHealth.poll_schedule(state)
+  end
+
+  test "widens the interval when every parked agent is paused" do
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{
+        "issue-1" => %{control: %{status: :paused}},
+        "issue-2" => %{control: %{status: :completed}}
+      }
+    }
+
+    assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 5.0) == 600_000
+  end
+
+  test "does not widen the interval while an agent is running" do
+    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{"issue-1" => %{}}}
+
+    assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 5.0) == 120_000
+  end
+
+  test "a factor of one disables idle backoff" do
+    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{}}
+
+    assert %{delay_ms: 120_000, idle_backoff?: false} =
+             TrackerHealth.poll_schedule(state, idle_widen_factor: 1.0)
+  end
+
+  test "idle and webhook widen factors compose before GitHub floors apply" do
+    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{comments: 900_000}, running: %{}}
+
+    assert TrackerHealth.next_poll_delay_ms(state,
+             repo: "aiur-team/aiur",
+             transport: :webhook,
+             widen_factor: 2.0,
+             idle_widen_factor: 5.0
+           ) == 1_200_000
   end
 
   # GitHub's X-Poll-Interval is a floor ("do not poll faster than this"), not a
@@ -20,19 +71,23 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   # config for any value above 60s, silently defeating the widening this epic
   # exists to deliver.
   test "a configured interval wider than GitHub's floor still wins" do
-    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{firehose: 60_000}}
+    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{firehose: 60_000}, running: %{"issue-1" => %{}}}
 
     assert TrackerHealth.next_poll_delay_ms(state) == 120_000
   end
 
   test "GitHub's floor still wins when it is wider than the configured interval" do
-    state = %State{poll_interval_ms: 30_000, github_poll_delays: %{firehose: 60_000}}
+    state = %State{poll_interval_ms: 30_000, github_poll_delays: %{firehose: 60_000}, running: %{"issue-1" => %{}}}
 
     assert TrackerHealth.next_poll_delay_ms(state) == 60_000
   end
 
   test "a rate-limit backoff longer than the configured interval is still respected" do
-    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{firehose: 60_000, comments: 900_000}}
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{firehose: 60_000, comments: 900_000},
+      running: %{"issue-1" => %{}}
+    }
 
     assert TrackerHealth.next_poll_delay_ms(state) == 900_000
   end
@@ -67,7 +122,8 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
 
     defp at(seconds), do: DateTime.add(~U[2026-08-10 12:00:00Z], seconds, :second)
 
-    defp delay(registry, state), do: TrackerHealth.next_poll_delay_ms(state, repo: @repo, server: registry, widen_factor: 2.0)
+    defp delay(registry, state),
+      do: TrackerHealth.next_poll_delay_ms(state, repo: @repo, server: registry, widen_factor: 2.0, idle_widen_factor: 1.0)
 
     test "a proven repo widens, silence degrades it, and the base interval comes back" do
       registry = start_registry()

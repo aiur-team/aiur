@@ -14,6 +14,14 @@ ticket.142.branch.push
 
 Events are signals, not shared mutable state. A consumer that needs code or a durable decision follows the event’s validated reference or correlation fields and reads the owning source of truth.
 
+Ticket agents can create persistent watches with `aiur_subscribe`, but each
+manual pattern must start with one literal ticket identifier, such as
+`ticket.142.#` or `ticket.314.branch.push`. Agent requests for `executor.*`,
+`system.*`, bare `*` or `#`, and fleet-wide ticket patterns such as
+`ticket.*.branch.push` are refused. Automatic own-ticket, blocker, CI, review,
+and base-branch subscriptions are trusted internal wiring and continue to use
+their purpose-specific topics.
+
 ## Dependencies
 
 Declaring another issue as a blocker creates a native issue dependency and subscribes the blocked ticket to relevant lifecycle and branch events. The blocked agent should keep independent preparation moving, but must not duplicate blocker-owned code.
@@ -39,7 +47,7 @@ Use events for cross-ticket coordination that another agent may consume. Use ale
 
 ## GitHub events and trust
 
-Aiur surfaces default-branch pushes, opened and merged pull requests, validated ticket-branch pushes, trusted comments and review feedback, and terminal CI results. The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`.
+Aiur surfaces default-branch pushes, opened and merged pull requests, validated ticket-branch pushes, trusted comments and review feedback, and terminal CI results. The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`. The Executor control-plane subscription is distinct from the agent manual-subscription policy above.
 
 Comment commands and review-driven rework are accepted only from configured trusted accounts or the resolved CODEOWNERS set. If Aiur cannot resolve CODEOWNERS, it raises a degraded-trust alert instead of silently widening authority. The bot identity cannot trigger its own work.
 

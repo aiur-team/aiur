@@ -194,6 +194,14 @@ defmodule Aiur.Orchestrator do
       when is_reference(ref) and is_pid(owner) and is_pid(pid),
       do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
 
+  # Quota observations arrive outside the tracker poll. A recovered window must
+  # invalidate the persisted admission verdict immediately; otherwise `status`
+  # can keep reporting the historical hold until some unrelated poll succeeds.
+  def handle_info(:github_quota_recovered, state) do
+    {:reply, _result, state} = Lifecycle.request_refresh(state)
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
@@ -582,11 +590,17 @@ defmodule Aiur.Orchestrator do
   def list_running_active_identifiers(server \\ __MODULE__, timeout \\ 1_000),
     do: StatusReport.list_running_active_identifiers_api(server, timeout)
 
-  @spec poll_status() :: %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  @type poll_status :: %{
+          checking?: boolean(),
+          next_poll_in_ms: integer() | nil,
+          effective_interval_ms: integer() | nil,
+          idle_backoff: %{active?: boolean(), factor: float()} | nil
+        }
+
+  @spec poll_status() :: poll_status() | :unavailable
   def poll_status, do: StatusReport.poll_status_api()
 
-  @spec poll_status(GenServer.server(), timeout()) ::
-          %{checking?: boolean(), next_poll_in_ms: integer() | nil} | :unavailable
+  @spec poll_status(GenServer.server(), timeout()) :: poll_status() | :unavailable
   def poll_status(server, timeout), do: StatusReport.poll_status_api(server, timeout)
   @spec status() :: [map()] | :timeout | :unavailable
   def status, do: StatusReport.status_api()
@@ -896,7 +910,7 @@ defmodule Aiur.Orchestrator do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   defdelegate retry_candidate_issue?(issue, terminal_states), to: DispatchPolicy
 
-  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  @spec subscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok | {:error, term()}
   def subscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
     do: AutoSubscriptions.subscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
 

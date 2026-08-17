@@ -52,6 +52,10 @@
   --blocking-line: rgba(255, 123, 114, 0.34);
   --good: #3fb950;
   --good-ink: #74d47f;
+  /* Shared with key-face-contract.json. Progress stays green at every measured
+     value; only exact completion steps up to the brighter shade. */
+  --progress-fill: #3fb950;
+  --progress-complete-fill: #74d47f;
   --good-soft: rgba(63, 185, 80, 0.14);
   --good-line: rgba(63, 185, 80, 0.32);
   --super: #c69bff;
@@ -3557,15 +3561,21 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  min-width: 5px;
+  background: var(--progress-fill);
 }
 
-.ut-pbar > i.is-blocked {
-  background: var(--blocking, #f2836b);
+.ut-pbar > i.is-complete {
+  background: var(--progress-complete-fill);
 }
 
-.ut-pbar > i.has-alert {
-  background: var(--attention, #e3b341);
+.ut-pbar > i.is-stale {
+  opacity: 0.5;
+}
+
+.ut-pbar.is-unknown {
+  border: 1px dashed var(--muted);
+  background: transparent;
 }
 
 .ut-latest-meta {
@@ -3787,11 +3797,13 @@ html[data-theme="light"] .toggle-icon .moon {
 
 /* The GitHub mark ships as a black glyph; the dashboard's default theme is
    dark, so invert it to a light glyph. The light theme shows the native mark. */
-.rs-github-mark {
+.rs-github-mark,
+.rs-elevenlabs-mark {
   filter: invert(1);
 }
 
-html[data-theme="light"] .rs-github-mark {
+html[data-theme="light"] .rs-github-mark,
+html[data-theme="light"] .rs-elevenlabs-mark {
   filter: none;
 }
 
@@ -3892,6 +3904,12 @@ html[data-theme="light"] .rs-github-mark {
   font-family: "JetBrains Mono", "SFMono-Regular", monospace;
   font-size: 0.7rem;
   color: var(--muted);
+}
+
+/* This row is intentionally compressed to the same one-line density as Core
+   and GraphQL; the invoice amount lives in the provider head above it. */
+.rs-elevenlabs .rs-limit-meta.is-compact {
+  white-space: nowrap;
 }
 
 .rs-meter {
@@ -4134,11 +4152,10 @@ html[data-theme="light"] .rs-github-mark {
   }
 }
 
-/* True phone widths keep full-width stacked sections: three ~110px cards on a
-   390px screen are legible in a screenshot but cramped in the hand, and the
-   provider cards are reference data rather than something scanned at a glance.
-   Tablets and split-view windows above this keep the three-up row. */
-@media (max-width: 480px) {
+/* Tablets, split views and phones keep full-width stacked sections. The API
+   pane's compact provider lines are deliberately single-line reference data;
+   below this point a one-third column cannot hold them without clipping. */
+@media (max-width: 1024px) {
   .run-summary {
     grid-template-columns: 1fr;
   }
@@ -6468,6 +6485,76 @@ html[data-theme="light"] .rs-github-mark {
   padding-top: 0.5rem;
 }
 
+.agent-voice-tools {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface-muted, rgba(255, 255, 255, 0.02));
+}
+
+.agent-voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.45rem;
+}
+
+.agent-voice-button {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  padding: 0.55rem;
+}
+
+.agent-voice-button svg {
+  width: 1.3rem;
+  height: 1.3rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-voice-button[aria-pressed="true"] {
+  border-color: var(--danger, #e25b5b);
+  color: var(--danger, #e25b5b);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger, #e25b5b) 22%, transparent);
+}
+
+.agent-voice-device-label {
+  display: grid;
+  flex: 1 1 12rem;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.agent-voice-device-label select {
+  min-width: 0;
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+.agent-voice-waveform {
+  display: block;
+  width: 100%;
+  height: 3.25rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface) 88%, black);
+}
+
+.agent-voice-status {
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 .conversation-drawer-provenance {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -6812,8 +6899,17 @@ html[data-theme="light"] .rs-github-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  min-width: 0.55rem;
+  background: var(--progress-fill);
   transition: width 0.3s ease;
+}
+
+.run-summary-progress-fill.is-complete {
+  background: var(--progress-complete-fill);
+}
+
+.run-summary-progress-fill.is-stale {
+  opacity: 0.5;
 }
 
 .run-summary-progress-value {
@@ -7191,6 +7287,15 @@ html[data-theme="light"] .rs-github-mark {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: 1rem;
+}
+
+.usage-provider-routes-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.usage-provider-routes-table {
+  min-width: 38rem;
 }
 
 /* Two-pane token chart: cumulative per-model line on the left, tokens-by-
@@ -8556,6 +8661,11 @@ html[data-theme="light"] .rs-github-mark {
   background: var(--sd-accent);
 }
 
+.sd-ag-foot.is-progress-unknown .sd-ag-dot {
+  border: 1px solid var(--sd-accent);
+  background: transparent;
+}
+
 /* Pulse timings come from key-face-contract.json via @key_face_css. */
 
 .sd-ag-bar {
@@ -8573,6 +8683,14 @@ html[data-theme="light"] .rs-github-mark {
   height: 100%;
   border-radius: inherit;
   background: var(--sd-progress-fill);
+  min-width: 6px;
+}
+
+.sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
+
+.sd-ag-foot.is-progress-unknown .sd-ag-bar {
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  background: transparent;
 }
 
 /* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
@@ -8764,7 +8882,23 @@ html[data-theme="light"] .rs-github-mark {
 .sd-strip-cmd-progress > i {
   display: block;
   height: 100%;
+  min-width: 0.34rem;
   border-radius: inherit;
+}
+
+.sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i {
+  opacity: 0.5;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
+  box-sizing: border-box;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress {
+  border: 1px dashed var(--muted);
+  background: transparent;
 }
 
 .sd-strip-logs {
@@ -9151,6 +9285,23 @@ html[data-theme="light"] .sd-device {
 
 .sd-device[data-mode="logs"] .sd-logs-view {
   display: block;
+}
+
+/* The settings pane is prose, not a key grid: there is nothing to pick here
+   because microphone enumeration happens on the sidecar host. */
+.sd-settings-view {
+  display: grid;
+  gap: 0.6rem;
+  align-content: center;
+  min-height: 8rem;
+  padding: 0.9rem 1rem;
+}
+
+.sd-settings-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .sd-mode-label {

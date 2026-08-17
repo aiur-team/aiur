@@ -44,7 +44,10 @@ defmodule Aiur.UsageCompaction.BlockTest do
   end
 
   test "round-trips through encode/decode preserving every cell and covered fact" do
-    records = for position <- 1..4, do: record(position, envelope(%{tokens: %{input: position}}))
+    records =
+      for position <- 1..4,
+          do: record(position, envelope(%{tokens: %{input: position}, upstream_provider: "DeepSeek"}))
+
     {:ok, block} = Block.build(records)
 
     {:ok, decoded} = Block.from_record(Block.encode(block))
@@ -53,6 +56,23 @@ defmodule Aiur.UsageCompaction.BlockTest do
     assert decoded.covered == block.covered
     assert decoded.coverage.reasons == block.coverage.reasons
     assert decoded.first_position == 1 and decoded.last_position == 4
+    assert decoded.cells |> Map.keys() |> Enum.all?(fn {dims, _measure} -> dims.upstream_provider == "DeepSeek" end)
+  end
+
+  test "loads a rechecksummed legacy block without an upstream provider dimension" do
+    records = [record(1, envelope(%{tokens: %{input: 9}, upstream_provider: "DeepSeek"}))]
+    {:ok, block} = Block.build(records)
+    encoded = Block.encode(block)
+
+    legacy_cells =
+      Enum.map(encoded["cells"], fn cell ->
+        update_in(cell["dims"], &Map.delete(&1, "upstream_provider"))
+      end)
+
+    assert {:ok, decoded} =
+             encoded |> Map.put("cells", legacy_cells) |> recompute_checksum() |> Block.from_record()
+
+    assert decoded.cells |> Map.keys() |> Enum.all?(fn {dims, _measure} -> dims.upstream_provider == nil end)
   end
 
   test "writes atomically and reloads a byte-identical block" do
@@ -101,5 +121,16 @@ defmodule Aiur.UsageCompaction.BlockTest do
     # Fixtures carry a pricing-effective date, so the span is populated.
     assert match?(%Date{}, block.covered.pricing_date_earliest)
     assert Date.compare(block.covered.pricing_date_latest, block.covered.pricing_date_earliest) != :lt
+  end
+
+  defp recompute_checksum(record) do
+    checksum =
+      record
+      |> Map.drop(["checksum"])
+      |> :erlang.term_to_binary([:deterministic])
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    Map.put(record, "checksum", checksum)
   end
 end

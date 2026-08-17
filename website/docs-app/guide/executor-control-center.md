@@ -27,7 +27,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Units** | `/` — the Agents fleet table and its filters, plus the Tickets panel of every open ticket; the tables below describe this surface. | `aiur units` |
-| **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
+| **Commands** | `/commands` — durable decision inbox and each decision’s detail. | `aiur commands` |
 | **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
 | **Streamdeck+** | `/streamdeck` — browser emulator for the physical Stream Deck + sidecar. | — |
@@ -40,7 +40,9 @@ The overview gives the Executor a fast triage path: a blocking-decision banner, 
 
 ## Decision inbox
 
-The inbox at `/decisions` sorts durable decisions by blocking status, urgency, and age. Filters separate open, blocking, undelivered, supervising-Executor, resolved, and superseded records. Selecting a card opens its stable `/decisions/:decision_id` detail URL.
+The inbox at `/commands` sorts durable decisions by blocking status, urgency, and age. Filters separate open, blocking, undelivered, supervising-Executor, resolved, and superseded records. Selecting a card opens its stable `/commands/:decision_id` detail URL. Existing `/decisions` inbox and detail links redirect permanently to their `/commands` equivalents.
+
+The operator-facing UI and CLI call these records **Commands**. Internal storage, event topics, API routes such as `/api/v1/decisions`, and identifiers such as `decision_id` retain the **decision** vocabulary for compatibility.
 
 <img src="/images/dashboard/decision-inbox-dark.png" alt="Desktop decision inbox populated with synthetic decisions in several lifecycle states">
 
@@ -83,17 +85,23 @@ A strip at the top of the Units page meters the non-model APIs a run spends, bes
 
 Read the ElevenLabs figure for exactly what it is:
 
-- It is the **account credit quota**, reported as credits **left** and a bar that *depletes* as they are spent. Every other meter on the page reads percentage *used* with a bar that fills, so this one runs in the opposite direction.
-- It is **not a dollar balance**. ElevenLabs does not publish a remaining-balance figure, so Aiur shows no dollar amount and does not derive one from character counts.
+- It is the **account credit quota**, reported as credits left and percentage **used**. The bar fills as credits are consumed; 100% means the quota is fully used, which is the same direction as every other meter on the page.
+- The dollar figure is **Next invoice due**. It is an amount owed, not a remaining balance, and Aiur does not derive it from character counts.
 - It is **not a voice-input spend meter**. Speech-to-text, which is what Stream Deck voice input uses, is billed per minute of audio; the character quota is primarily the text-to-speech credit pool. Dictating heavily can therefore leave this meter unmoved.
 
-An account with a zero character limit renders its counts and no bar: there is no denominator, so there is no percentage to state.
+An account with a zero character limit renders an empty track: there is no denominator, so there is no percentage to state.
 
 ## Units (fleet table)
 
 The Agents panel combines running, retrying, and idle tracker-active tickets. Each row exposes work and waiting state, latest activity, elapsed time, decision count, CI/review facts, and safe links to the ticket, decision, or agent conversation. The filters are cumulative and the table becomes a card list at narrow widths.
 
 <img src="/images/dashboard/fleet-dark.png" alt="Desktop fleet table with synthetic active, blocked, retrying, and review tickets">
+
+Selecting an agent opens its live conversation without leaving Units. A writable dashboard can send a typed message from the standard composer. When ElevenLabs speech-to-text is configured, the microphone button can instead transcribe speech into that same composer: the waveform confirms that the browser is receiving audio, and the operator reviews the text and presses **Send**. Dictation never sends a message automatically.
+
+Browser microphone capture requires a secure context. `localhost` qualifies, but a dashboard opened from a plain-HTTP LAN IP does not; use HTTPS through a trusted private proxy for remote access. An insecure origin or unsupported browser disables the control with an explanation. Permission denial is also explained beside the control, which remains available so the operator can change site permissions and retry. Device selection is browser-local and saved for that dashboard origin, independently of the Stream Deck microphone preference.
+
+Interactive spoken conversation is a separate, half-duplex control. Press it, speak, and press it again; the settled text is sent through the ordinary agent composer and therefore enters the ticket transcript. When the agent's next reply arrives, Aiur streams ElevenLabs text-to-speech audio back to the browser. The browser never receives the API key. Configure `elevenlabs.voice_id` and grant that key **Text to Speech** permission before using the control; voice cloning and barge-in are not part of this mode.
 
 ## Tickets
 
@@ -104,6 +112,12 @@ The panel opens on the first five tickets so a busy backlog does not push the re
 A search field under the panel title narrows the list as you type. It matches ticket identifiers, titles, and descriptions — every term has to match somewhere, in either field and in any order, so `retry storm` finds a ticket titled "Retry the dispatch" whose body mentions a webhook storm. Matching ignores case and punctuation, tolerates a prefix or a single typo, and ranks title hits above description hits. The search covers the whole open backlog, including tickets not yet revealed in the table. Clearing the field restores the full list, and a query that matches nothing says so.
 
 Confirming the add-agent dialog is a writable control. It applies the configured first active-state label — which is what makes a ticket dispatchable at all — plus the selected `complexity:` tag and `model:` overrides, and removes the labels those replace. A tracker other than GitHub reports the panel as unsupported rather than unavailable.
+
+## Usage and cost
+
+The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**. A routed call names both hops, such as `OpenRouter -> DeepSeek`; a direct provider appears without an arrow, and OpenRouter usage whose selected upstream was not reported says `OpenRouter -> upstream unknown`. Provider-reported and API-equivalent estimates remain separate, and an unavailable estimate reads **Unknown**, never zero.
+
+The same route dimension is available from `mix aiur.cost_report`. Its `--json` output keeps `provider` and `upstream_provider` as separate fields instead of requiring consumers to parse the human route label.
 
 ## Decision history
 

@@ -207,6 +207,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       :max_concurrent_agents,
       :next_poll_due_at_ms,
       :poll_check_in_progress,
+      :effective_poll_interval_ms,
+      :idle_poll_backoff,
       :poll_interval_ms,
       :retry_attempts,
       :auto_resume,
@@ -288,7 +290,9 @@ defmodule Aiur.Orchestrator.StatusReport do
     {:reply,
      %{
        checking?: state.poll_check_in_progress == true,
-       next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms)
+       next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
+       effective_interval_ms: state.effective_poll_interval_ms || state.poll_interval_ms,
+       idle_backoff: state.idle_poll_backoff
      }, state}
   end
 
@@ -393,7 +397,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       polling: %{
         checking?: state.poll_check_in_progress == true,
         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
-        poll_interval_ms: state.poll_interval_ms
+        poll_interval_ms: state.poll_interval_ms,
+        effective_interval_ms: state.effective_poll_interval_ms || state.poll_interval_ms,
+        idle_backoff: state.idle_poll_backoff
       }
     }
   end

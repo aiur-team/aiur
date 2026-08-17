@@ -38,7 +38,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
           agent_input_tokens: 10,
           agent_output_tokens: 20,
           agent_total_tokens: 30,
-          ci_result: %{decision: :pending, pr_number: 99, head_sha: "abc123"},
+          ci_result: %{decision: :pending, pr_number: 99, head_sha: "abc123", draft?: true},
           last_codex_timestamp: @now
         }
       ],
@@ -68,6 +68,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     refute Map.has_key?(active_node.execution, :tokens)
     assert active_node.execution.runtime_seconds == 90
     assert active_node.execution.ci_result.decision == :pending
+    assert active_node.execution.ci_result.draft? == true
     assert active_node.activity.progress.percent == 42
     assert active_node.activity.active_stage == :work
     assert active_node.card.progress == 42
@@ -380,13 +381,13 @@ defmodule AiurWeb.BuildOrderPresenterTest do
       BuildOrderPresenter.relationships(model, identity(1), %{
         issue: %{available?: true, url: "https://token@github.com/owner/repo/issues/1", identity: identity(1)},
         pull_request: %{available?: true, url: "https://github.com/owner/repo/pull/2", identity: identity(1), number: 2},
-        commands: %{available?: true, path: "/decisions/1", identity: identity(1)},
+        commands: %{available?: true, path: "/commands/1", identity: identity(1)},
         chat: %{available?: true, path: "/chat\nheader: value", identity: identity(1)}
       })
 
     refute relationships.capabilities.issue.available?
     assert relationships.capabilities.pull_request.destination == "https://github.com/owner/repo/pull/2"
-    assert relationships.capabilities.commands.destination == "/decisions/1"
+    assert relationships.capabilities.commands.destination == "/commands/1"
     refute relationships.capabilities.chat.available?
     assert BuildOrderPresenter.relationships(model, %{identifier: "1"}).status == :invalid_selection
 
@@ -409,9 +410,9 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     for {kind, destination} <- [
           {:chat, "/chat/1?capability=private"},
           {:chat, "/chat/1#token=private"},
-          {:chat, "/decisions/1"},
-          {:commands, "/decisions/1?token=private"},
-          {:commands, "/decisions/1#capability=private"},
+          {:chat, "/commands/1"},
+          {:commands, "/commands/1?token=private"},
+          {:commands, "/commands/1#capability=private"},
           {:commands, "/chat/1"}
         ] do
       capability = %{available?: true, path: destination, identity: identity(1), active?: true, readable?: true}
