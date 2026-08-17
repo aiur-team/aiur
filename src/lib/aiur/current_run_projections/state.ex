@@ -5,8 +5,10 @@ defmodule Aiur.CurrentRunProjections.State do
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
   alias Aiur.CurrentRunProjections.{Checkpoint, UnitsBuilder}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.OperatorControlCenter.UnitsRow
+
+  @cached_status_timeout_ms 5_000
 
   @spec new(keyword()) :: map()
   def new(opts) do
@@ -93,15 +95,39 @@ defmodule Aiur.CurrentRunProjections.State do
   end
 
   defp readers(opts) do
+    snapshot_store_read_fun = Keyword.get(opts, :snapshot_store_read_fun, &SnapshotStore.read/3)
+    status_orchestrator = Keyword.get(opts, :status_orchestrator, Aiur.Orchestrator)
+
     %{
       run: Keyword.get(opts, :run_snapshot_fun, &run_snapshot/0),
       membership: Keyword.get(opts, :membership_snapshot_fun, &CurrentRunMembership.snapshot/0),
-      status: Keyword.get(opts, :status_snapshot_fun, &StatusReport.snapshot_api/0),
-      status_facts: Keyword.get(opts, :status_facts_fun, &StatusReport.status_api/0),
+      status: Keyword.get(opts, :status_snapshot_fun, fn -> cached_status(snapshot_store_read_fun, status_orchestrator) end),
+      status_facts: Keyword.get(opts, :status_facts_fun, fn -> cached_status_facts(snapshot_store_read_fun, status_orchestrator) end),
       activity: Keyword.get(opts, :activity_snapshot_fun, &Aiur.TicketActivity.snapshots/0),
       merges: Keyword.get(opts, :recent_merges_snapshot_fun, &Aiur.RecentMergeStore.snapshot/0),
       configured_repository: Keyword.get(opts, :configured_repository_fun, &GitHubConfig.configured_repo/0)
     }
+  end
+
+  defp cached_status(read_fun, orchestrator) do
+    case read_cached_fleet(read_fun, orchestrator) do
+      {:ok, snapshot} -> snapshot
+      :unavailable -> :unavailable
+    end
+  end
+
+  defp cached_status_facts(read_fun, orchestrator) do
+    case read_cached_fleet(read_fun, orchestrator) do
+      {:ok, %{statuses: statuses}} when is_list(statuses) -> statuses
+      _unavailable_or_incomplete -> :unavailable
+    end
+  end
+
+  defp read_cached_fleet(read_fun, orchestrator) do
+    case read_fun.(orchestrator, @cached_status_timeout_ms, fleet_rows?: true) do
+      {:current, snapshot, _freshness} when is_map(snapshot) -> {:ok, snapshot}
+      _stale_or_unavailable -> :unavailable
+    end
   end
 
   defp initial_summary(units) do

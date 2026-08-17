@@ -17,6 +17,11 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
     :waiting_reason,
     :pause_reason,
     :tracker_paused,
+    :backend,
+    :selected_backend,
+    :agent_family,
+    :requested_model,
+    :resolved_model,
     :runtime_seconds,
     :stale_for_seconds,
     :started_at,
@@ -155,7 +160,12 @@ defmodule Aiur.CurrentRunProjections.SourceAdapter do
     %{
       identity: sanitize_identity(Value.get(fact, :identity, nil) || Value.get(fact, :tracker_identity, nil)),
       state: Value.get(fact, :tracker_state, nil) || Value.get(fact, :state, nil),
-      complexity: Value.get(fact, :complexity)
+      complexity: Value.get(fact, :complexity),
+      backend: Value.get(fact, :backend, nil),
+      selected_backend: Value.get(fact, :selected_backend, nil),
+      agent_family: Value.get(fact, :agent_family, nil),
+      requested_model: Value.get(fact, :requested_model, nil),
+      resolved_model: Value.get(fact, :resolved_model, nil)
     }
   end
 
