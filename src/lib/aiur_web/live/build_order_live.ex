@@ -141,7 +141,7 @@ defmodule AiurWeb.BuildOrderLive do
     do: {:noreply, ContextRuntime.refresh_for(socket, identity)}
 
   def handle_info({event, _epoch}, socket)
-      when event in [:ticket_detail_cache_reset, :ticket_history_reset],
+      when event in [:ticket_detail_coordinator_reset, :ticket_history_reset],
       do: {:noreply, ContextRuntime.refresh(socket)}
 
   def handle_info(_message, socket), do: {:noreply, socket}

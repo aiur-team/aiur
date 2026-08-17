@@ -9,7 +9,7 @@ defmodule AiurWeb.DashboardLive do
 
   alias Aiur.AgentPubSub
   alias Aiur.BuildOrder.TicketDetail.State, as: TicketDetailState
-  alias Aiur.BuildOrder.TicketDetailCache
+  alias Aiur.BuildOrder.TicketDetailCoordinator
   alias Aiur.BuildOrder.TicketHistory.Snapshot, as: TicketHistorySnapshot
   alias Aiur.BuildOrder.TicketHistoryProvider
   alias Aiur.CurrentRunMembership
@@ -282,7 +282,7 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, maybe_reset_ticket_context(socket, :history, identity)}
   end
 
-  def handle_info({:ticket_detail_cache_reset, _epoch}, socket) do
+  def handle_info({:ticket_detail_coordinator_reset, _epoch}, socket) do
     {:noreply, reset_selected_ticket_context(socket, :detail)}
   end
 
@@ -1757,7 +1757,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp open_ticket_context(socket, %{identity: %TrackerIdentity{} = identity} = row) do
     socket = replace_ticket_context_subscription(socket, identity)
-    detail = request_context(:ticket_detail_request_fun, &TicketDetailCache.request/1, identity)
+    detail = request_context(:ticket_detail_request_fun, &TicketDetailCoordinator.request/1, identity)
     history = request_context(:ticket_history_request_fun, &TicketHistoryProvider.request/1, identity)
 
     socket
@@ -1860,18 +1860,18 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp subscribe_default_ticket_context_resets do
-    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.reset_topic())
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCoordinator.reset_topic())
     Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.reset_topic())
   end
 
   defp subscribe_ticket_detail(identity),
-    do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCache.topic(identity))
+    do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCoordinator.topic(identity))
 
   defp subscribe_ticket_history(identity),
     do: Phoenix.PubSub.subscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
 
   defp unsubscribe_ticket_detail(identity),
-    do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketDetailCache.topic(identity))
+    do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketDetailCoordinator.topic(identity))
 
   defp unsubscribe_ticket_history(identity),
     do: Phoenix.PubSub.unsubscribe(Aiur.PubSub, TicketHistoryProvider.topic(identity))
