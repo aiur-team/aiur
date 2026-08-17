@@ -565,10 +565,9 @@ defmodule Aiur.Config do
 
     [
       freshness_ms:
-        Cadence.resolve(
+        Cadence.resolve_effective(
           :ticket_detail_freshness_ms,
-          build_order.ticket_detail_freshness_ms,
-          poll_interval_seconds()
+          build_order.ticket_detail_freshness_ms
         ),
       max_entries: build_order.ticket_detail_max_entries,
       max_description_bytes: build_order.ticket_detail_max_description_bytes
@@ -592,19 +591,18 @@ defmodule Aiur.Config do
   def build_order_graph_projection_options do
     build_order = settings!().build_order
 
-    # Derived from the tracker's own cycle unless the operator said otherwise.
-    # Build Order shows state the tracker produces, so a cadence faster than the
-    # poll interval re-reads a graph that cannot have moved — which is exactly
-    # what the old 15s and 5s constants did once #2064 slowed the tracker.
-    poll_interval_seconds = poll_interval_seconds()
-
+    # Derived from the tracker's *effective* cycle unless the operator said
+    # otherwise — the interval the dispatcher actually scheduled, idle and
+    # webhook widening included. Build Order shows state the tracker produces,
+    # so a cadence faster than the poll re-reads a graph that cannot have moved:
+    # the old 15s and 5s constants did that once #2064 slowed the tracker, and
+    # the base interval did it again whenever the fleet went idle (#2118).
     [
-      catalog_refresh_ms: Cadence.resolve(:graph_catalog_refresh_ms, build_order.graph_catalog_refresh_ms, poll_interval_seconds),
+      catalog_refresh_ms: Cadence.resolve_effective(:graph_catalog_refresh_ms, build_order.graph_catalog_refresh_ms),
       catalog_labels_refresh_ms:
-        Cadence.resolve(
+        Cadence.resolve_effective(
           :graph_catalog_labels_refresh_ms,
-          build_order.graph_catalog_labels_refresh_ms,
-          poll_interval_seconds
+          build_order.graph_catalog_labels_refresh_ms
         ),
       refresh_timeout_ms: build_order.graph_refresh_timeout_ms,
       max_selected_roots: build_order.graph_max_selected_roots,

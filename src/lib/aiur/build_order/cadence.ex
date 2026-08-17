@@ -20,15 +20,31 @@ defmodule Aiur.BuildOrder.Cadence do
   moved it to 120 and they did not follow, because nothing tied them together.
   Expressing them against the poll interval is what stops that recurring.
 
+  ## Which poll interval — the effective one, not the configured one
+
+  "The tracker's own cycle" is `Aiur.PollCadence.effective_interval_ms/1`, not
+  `polling.interval_seconds`. The dispatcher composes `webhooks.poll_widen_factor`
+  and `polling.idle_widen_factor` on top of the base before it schedules a tick,
+  and publishes what it actually scheduled. Deriving from the base instead is the
+  same class of bug this module was written to stop: at the shipped defaults an
+  idle fleet polls the tracker every 600s while the catalog kept firing every
+  120s, so the projection ran **five times more often than the thing it projects**
+  — 30 GraphQL requests an hour, unconditional, with nobody watching (#2118).
+
+  A daemon-owned reconciliation that runs for nobody must widen when the fleet
+  goes idle, exactly like the tracker it mirrors. It narrows again on its own:
+  `GraphProjection` re-reads these options on every reconcile, so the first tick
+  after the fleet picks up work is computed at the tight value.
+
   ## The ratios
 
-    * `catalog_refresh_ms` — **one poll interval.** The catalog reconciliation is
-      daemon-owned: it runs at boot and on its own timer, for nobody in
-      particular, and it is what notices a root appearing or changing. Refreshing
-      faster than the tracker cannot show anything new. It cannot be revalidated
-      (see below), so cadence is the only control it has.
+    * `catalog_refresh_ms` — **one effective poll interval.** The catalog
+      reconciliation is daemon-owned: it runs at boot and on its own timer, for
+      nobody in particular, and it is what notices a root appearing or changing.
+      Refreshing faster than the tracker cannot show anything new. It cannot be
+      revalidated (see below), so cadence is the only control it has.
 
-    * `catalog_labels_refresh_ms` — **five poll intervals, and never less than
+    * `catalog_labels_refresh_ms` — **five effective poll intervals, and never less than
       ten minutes.** This is the variant that resolves per-member labels, and it
       costs 26 points per page against the cheap read's 1 (#1766), so it is
       deliberately the slowest thing here. It is also floored at the catalog
@@ -36,7 +52,7 @@ defmodule Aiur.BuildOrder.Cadence do
       every poll buy the expensive query — the exact regression #1766 exists to
       prevent, and one the schema rejects outright.
 
-    * `ticket_detail_freshness_ms` — **a quarter of a poll interval.** Not a
+    * `ticket_detail_freshness_ms` — **a quarter of an effective poll interval.** Not a
       cadence at all: nothing fires on it. It is the staleness a ticket-detail
       reader will accept from `Aiur.GitHub.ResourceStore` before revalidating,
       and it is the one read here that is REST and therefore conditional — an
@@ -57,6 +73,8 @@ defmodule Aiur.BuildOrder.Cadence do
   An explicit setting always wins. These are defaults for operators who have not
   expressed a requirement, not a ceiling on ones who have.
   """
+
+  alias Aiur.PollCadence
 
   # What an unreadable `polling.interval_seconds` derives from: the shipped
   # tracker default (#2064), so a bad number costs freshness rather than budget.
@@ -94,8 +112,30 @@ defmodule Aiur.BuildOrder.Cadence do
   """
   @spec derive(pos_integer() | any()) :: t()
   def derive(poll_interval_seconds) do
-    interval_ms = interval_ms(poll_interval_seconds)
+    poll_interval_seconds |> interval_ms() |> derive_ms()
+  end
 
+  @doc """
+  The cadences implied by the interval the tracker is *actually* keeping.
+
+  This is what production reads. It differs from `derive/1` on the configured
+  interval by exactly the widening factors the dispatcher applied — at the
+  shipped defaults, a factor of 5 while the fleet is idle.
+  """
+  @spec effective(keyword()) :: t()
+  def effective(opts \\ []) do
+    opts |> PollCadence.effective_interval_ms() |> derive_ms()
+  end
+
+  @doc """
+  The cadences implied by an interval already expressed in milliseconds.
+  """
+  @spec derive_ms(pos_integer() | any()) :: t()
+  def derive_ms(interval_ms) when not (is_integer(interval_ms) and interval_ms > 0) do
+    derive_ms(@fallback_interval_ms)
+  end
+
+  def derive_ms(interval_ms) do
     catalog = clamp(interval_ms, 1, @max_catalog_refresh_ms)
 
     %{
@@ -119,7 +159,25 @@ defmodule Aiur.BuildOrder.Cadence do
   end
 
   @doc """
-  Resolves one cadence, preferring an explicit setting over the derived default.
+  Resolves one cadence against the interval the tracker is actually keeping,
+  preferring an explicit setting over the derived default.
+
+  This is the form production calls; `resolve/3` is for callers that already
+  hold a specific interval and want no ambient reads.
+  """
+  @spec resolve_effective(atom(), integer() | nil, keyword()) :: pos_integer()
+  def resolve_effective(key, configured, opts \\ [])
+
+  def resolve_effective(_key, configured, _opts) when is_integer(configured) and configured > 0 do
+    configured
+  end
+
+  def resolve_effective(key, _configured, opts) do
+    opts |> effective() |> Map.fetch!(key)
+  end
+
+  @doc """
+  Resolves one cadence against an explicitly supplied poll interval in seconds.
   """
   @spec resolve(atom(), integer() | nil, pos_integer() | any()) :: pos_integer()
   def resolve(key, configured, poll_interval_seconds)
