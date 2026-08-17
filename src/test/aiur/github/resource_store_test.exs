@@ -1169,6 +1169,47 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert :ok = ResourceStore.update_resource(nil, fn _held -> %{"a" => 1} end)
     end
 
+    # A writer whose deposit is conditional on what is held has to make that
+    # decision where the answer is still true. Deciding outside the call and
+    # depositing afterwards is a check-then-act with a whole round trip in the
+    # middle, and the newer body that lands in the middle is what the older
+    # delivery then overwrites.
+    test "a merge can decline the write from inside the swap" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8203)
+      ResourceStore.put_resource(key, %{"gen" => 2, "state" => "closed"}, version: "v2", etag: ~s("v2"))
+
+      assert :unchanged =
+               ResourceStore.update_resource(key, fn _held, %{version: held} ->
+                 if held == "v2", do: :unchanged, else: %{"gen" => 1, "state" => "open"}
+               end)
+
+      assert ResourceStore.data(key) == %{"gen" => 2, "state" => "closed"},
+             "a declined merge writes nothing at all"
+
+      assert {:ok, %{version: "v2", etag: ~s("v2")}} = ResourceStore.fetch(key)
+    end
+
+    test "a declined merge on a key nothing holds creates no entry" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8204)
+
+      assert :unchanged = ResourceStore.update_resource(key, fn _held, _meta -> :unchanged end)
+      assert :ets.lookup(ResourceStore.Table, key) == []
+    end
+
+    test "a two-arity merge is handed what the entry says about the held body" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8205)
+      ResourceStore.put_resource(key, %{"gen" => 1}, version: "v1", etag: ~s("e1"))
+
+      assert :ok =
+               ResourceStore.update_resource(
+                 key,
+                 fn held, meta -> Map.merge(held, %{"saw_version" => meta.version, "saw_etag" => meta.etag}) end,
+                 version: "v2"
+               )
+
+      assert ResourceStore.data(key) == %{"gen" => 1, "saw_version" => "v1", "saw_etag" => ~s("e1")}
+    end
+
     # A version supplied from outside describes a body the merge may not produce:
     # under contention the merge re-runs against whatever won, and the marker
     # computed beforehand then labels the winner's content with the loser's

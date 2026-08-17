@@ -617,6 +617,7 @@ defmodule Aiur.GitHub.ResourceStore do
 
   def put_resource(key, data, opts) do
     update_resource(key, fn _held -> data end, opts)
+    :ok
   end
 
   @doc """
@@ -691,22 +692,55 @@ defmodule Aiur.GitHub.ResourceStore do
   function is applied to the body actually being stored, so it sees `nil` for a
   body the store refused, and answering `nil` records "version unknown" the same
   way a missing `:version` does.
+
+  ## Declining the write from inside the swap
+
+  `fun` may answer `:unchanged` instead of a body, and the call then writes
+  nothing at all and answers `:unchanged`. That exists so a writer whose deposit
+  is *conditional* on what is held — a webhook delivery that must not overwrite a
+  newer object — can make that decision where the answer is still true. The same
+  decision made by reading first and depositing second is a check-then-act with a
+  whole round trip in the middle: a newer body landing in that gap is overwritten
+  by the older delivery, which is precisely the rollback the guard was written to
+  prevent. `:unchanged` is unambiguous because a bare atom is never a storable
+  body — the store refuses one, loudly, as a shape JSON cannot round-trip.
+
+  `fun` may also be **2-arity**, receiving the held body and a small map of what
+  the entry says *about* that body — `%{version: ..., fetched_at_ms: ..., etag: ...}`.
+  A conditional writer needs the held marker to compare against, and reading it
+  outside the call is the same check-then-act by another route.
   """
-  @spec update_resource(key() | nil, (term() -> term()), keyword()) :: :ok
+  @spec update_resource(key() | nil, (term() -> term()) | (term(), map() -> term()), keyword()) :: :ok | :unchanged
   def update_resource(key, fun, opts \\ [])
 
   def update_resource(nil, _fun, _opts), do: :ok
 
-  def update_resource(key, fun, opts) when is_function(fun, 1) do
+  def update_resource(key, fun, opts) when is_function(fun, 1) or is_function(fun, 2) do
     source = Keyword.get(opts, :source, :mutation)
     version = Keyword.get(opts, :version)
 
-    update(key, fn existing ->
-      storable = existing |> held_body() |> fun.() |> then(&storable_data(key, &1))
-      resolved = resolve_version(version, stored_body(storable))
-      warn_unversioned(key, storable, resolved)
-      deposit(existing, storable, source, resolved, opts)
+    update_reply(key, :ok, fn existing ->
+      case merge(fun, existing) do
+        :unchanged ->
+          {:skip, :unchanged}
+
+        merged ->
+          storable = storable_data(key, merged)
+          resolved = resolve_version(version, stored_body(storable))
+          warn_unversioned(key, storable, resolved)
+          {deposit(existing, storable, source, resolved, opts), :ok}
+      end
     end)
+  end
+
+  defp merge(fun, existing) when is_function(fun, 1), do: fun.(held_body(existing))
+
+  defp merge(fun, existing) do
+    fun.(held_body(existing), %{
+      version: Map.get(existing, :data_version),
+      fetched_at_ms: Map.get(existing, :fetched_at_ms),
+      etag: Map.get(existing, :etag)
+    })
   end
 
   # A body with no version disarms every downstream staleness guard for that

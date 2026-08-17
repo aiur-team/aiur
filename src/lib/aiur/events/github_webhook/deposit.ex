@@ -241,13 +241,27 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         []
 
       key ->
-        if regression?(key, version) do
-          []
-        else
-          # No `:etag`: a delivery carries no validator, and the store refuses a
-          # new validator that arrives without the body it validates anyway.
-          ResourceStore.put_resource(key, body, source: :webhook, version: version)
-          confirm(key)
+        # The ordering guard runs *inside* the store's compare-and-swap, against
+        # the marker the entry holds at the instant of the write. Asking the store
+        # first and depositing afterwards made this a check-then-act with a whole
+        # round trip in the middle: a newer delivery or a mutation response
+        # landing in that gap was answered "no regression" and then overwritten by
+        # this older body, `"state"` included — the exact rollback the guard
+        # exists to refuse, committed by the guard's own call site.
+        #
+        # No `:etag`: a delivery carries no validator, and the store refuses a
+        # new validator that arrives without the body it validates anyway.
+        outcome =
+          ResourceStore.update_resource(
+            key,
+            fn _held, %{version: held} -> if regression?(held, version), do: :unchanged, else: body end,
+            source: :webhook,
+            version: version
+          )
+
+        case outcome do
+          :unchanged -> []
+          :ok -> confirm(key)
         end
     end
   end
@@ -267,12 +281,10 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # legitimately differ under an unchanged marker (a dismissed review), and the
   # newer arrival is the better answer. A missing marker on either side is not a
   # judgement that anything went backwards, so it writes.
-  defp regression?(key, version) do
-    case ResourceStore.fetch(key) do
-      {:ok, %{version: held}} when is_binary(held) and is_binary(version) -> version < held
-      _other -> false
-    end
-  end
+  # A pure comparison of two markers, so it can be evaluated inside the store's
+  # swap instead of in a separate read.
+  defp regression?(held, version) when is_binary(held) and is_binary(version), do: version < held
+  defp regression?(_held, _version), do: false
 
   # The store refuses a body it cannot encode or one past its size cap, and a
   # refusal is silent by design — `fetch/1` simply misses and the reader pays
