@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces use the same projected fleet and AgentChat control contract.
+Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
 
 The browser emulator has three modes. A key press changes more than the key grid: it also changes the touch strip and dial actions. Treat the dial labels as current-mode controls, not as persistent settings.
 
@@ -60,23 +60,23 @@ A genuine 0% shows a short solid stub, so “just started” never looks like �
 
 ## How Grid chooses agent keys
 
-Grid has five buckets, in this exact priority: `alert` → `stuck` → `running` → `paused` → `queued`. Within `queued`, dependency-ready (unblocked) agents precede blocked agents. The server supplies that already-ranked list; the surface does not re-sort it.
+Grid has five buckets, in this exact priority: `alert` → `stuck` → `running` → `paused` → `queued`. Within `queued`, dependency-ready (unblocked) agents precede blocked agents. The order is the same in the browser emulator and on the physical deck.
 
 The eight key slots are column-major, not the usual row-major order. The first column contains agents 1 and 2, the next contains 3 and 4, and so on. Paging moves by columns, so a column’s pair stays together as you turn or press dial D.
 
 ## Physical sidecar status
 
-The commit-addressed Linux x64 archive installs the bundled Node runtime, the direct-HID sidecar and its production dependencies, a systemd **user** service, and the udev rule required to access the device. The supported transport deployment is Arch Linux on x64 glibc 2.28+; it does not support Alpine/musl, ARM, or older glibc.
+The Linux x64 archive installs the sidecar, a systemd **user** service, and the udev rule required to access the device. The supported deployment is Arch Linux on x64 glibc 2.28+; Alpine/musl, ARM, and older glibc are not supported.
 
-The service opens the USB device, sends a key-stream reset, applies `STREAMDECK_BRIGHTNESS`, watches hotplug and suspend, and connects to the authenticated Phoenix channel. It receives live fleet/provider projections, paints the key/touch-strip surface, and routes physical key controls through AgentChat. A short-lived token is renewed after channel disconnects.
+The service applies `STREAMDECK_BRIGHTNESS`, reconnects after device hotplug, suspend, or a dashboard disconnect, and keeps the keys and touch strip current with the live fleet.
 
 Set `AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and `AIUR_DASHBOARD_PASSWORD` in the private sidecar environment file at `~/.config/aiur/streamdeck.env`. The password is used only to mint the short-lived channel token and is not placed in the WebSocket URL. A Stream Deck +, an Arch Linux graphical session with systemd/logind, and the `users` fallback ACL are required for the physical surface.
 
-The [direct-HID transport runbook](https://github.com/aiur-team/aiur/blob/develop/packages/streamdeck/README.md) covers the archive, device access, pairing, and recovery workflow. [#1358](https://github.com/aiur-team/aiur/issues/1358) remains the terminal end-to-end evidence ticket for the physical surface.
+The [Stream Deck runbook](https://github.com/aiur-team/aiur/blob/develop/packages/streamdeck/README.md) covers installation, device access, pairing, and recovery.
 
 ## Voice input
 
-Voice input lets the sidecar capture speech from a microphone attached to the machine it runs on, transcribe it to English text, and deliver that text to an agent through the same AgentChat path the Dashboard composer uses. Nothing about the delivery is new: a spoken message and a typed message arrive at the agent identically.
+Voice input captures speech from a microphone attached to the sidecar machine, transcribes it to English text, and sends that text to the selected agent as an operator message.
 
 ### The keys
 
@@ -155,21 +155,12 @@ The consequences of that arrangement:
 
 `ELEVENLABS_API_KEY` is a secret and is treated as one.
 
-- It is configured in **one** place — Aiur's own configuration. There is no second location, and in particular no sidecar environment file that carries it. The sidecar has no need for it and is given no way to hold it.
-- It is covered by the agent-environment scrubbing that strips every `*_API_KEY` variable from the environment of coding agents, so an agent cannot read it.
-- It is passed to ElevenLabs in a request header, never in a URL, because URLs are what end up in error messages and logs.
-- It is never logged and never attached to a failure reason. A connection failure is reported generically for that reason: the underlying error can embed the request that produced it, and the request carries the header.
+- It is configured in **one** place — Aiur's own configuration. No sidecar environment file carries it, and the sidecar is given no way to hold it.
+- It is removed from coding-agent environments along with every other `*_API_KEY` variable, so an agent cannot read it.
+- It is never written to a log line and never attached to a failure reason, so a connection failure is reported generically.
 
-### Audio path
+### Supported microphones
 
-Microphones are enumerated with `pw-dump` on a PipeWire host, falling back to `pactl` on a PulseAudio one. Both see ALSA, USB and Bluetooth microphones through a single interface, which the ALSA card list does not — `arecord -l` misses Bluetooth devices entirely. Monitor sources, which are loopbacks of an output rather than microphones, are never offered.
+PipeWire and PulseAudio microphones are supported, including ALSA, USB, and Bluetooth devices. Output-monitor sources are not offered as microphones.
 
-Capture uses `parec` at 16 kHz mono PCM — the format the transcription endpoint accepts without resampling. Audio is captured in 20 ms chunks to drive the level meters smoothly and re-grouped into roughly 100 ms frames, which are relayed to Aiur ten times a second (about 43 kB/s). Aiur holds a streaming connection to ElevenLabs, so text comes back while you are still speaking rather than after you release the key.
-
-If a microphone stops producing audio, capture reports it rather than appearing to listen: a recorder given a device that has gone away otherwise waits indefinitely without a diagnostic.
-
-## Shared key-face contract
-
-The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, the normal and completed progress fills, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
-
-That code-level contract is now composed with the live channel and HID runtime. It is still not a substitute for the required Executor-root hardware proof.
+Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.

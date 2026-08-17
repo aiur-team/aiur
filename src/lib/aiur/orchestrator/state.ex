@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.State do
           snapshot_key: GenServer.server() | nil,
           snapshot_generation: reference() | nil,
           snapshot_ready?: boolean(),
+          candidate_snapshot_fresh?: boolean(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -251,6 +252,7 @@ defmodule Aiur.Orchestrator.State do
     # once instead of once per poll.
     merged_ticket_reconciliation_failures: MapSet.new(),
     snapshot_ready?: false,
+    candidate_snapshot_fresh?: true,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0
   ]

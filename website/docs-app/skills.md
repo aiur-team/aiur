@@ -4,16 +4,14 @@ title: Skills
 
 # Skills
 
-Aiur ships Agent Skills in this repository under `.claude/skills/`, mirrored to `.codex/skills/` by relative symlink. They split into two families by **where they run**, not by where they are stored:
+Aiur ships Agent Skills under `.claude/skills/` and makes them available to Codex under `.codex/skills/`. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
 - **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
 
-The split is defined in code, not by convention. `@issue_worker_skills` in [`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex) combines Aiur's worker skills with the pinned Compound Engineering manifest, and [`aiur_agent_skill_test.exs`](../../src/test/aiur/aiur_agent_skill_test.exs) cross-checks both sets so they cannot drift.
-
 ## Agent-workspace skills
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` writes these three Aiur skills and the complete pinned Compound Engineering set into `<workspace>/.claude/skills/`, then mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set without depending on a machine-local plugin cache.
+These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`. A Claude workspace and a Codex workspace get the same set, and neither depends on a machine-local plugin cache.
 
 | Skill | Loaded when | What it covers |
 | --- | --- | --- |

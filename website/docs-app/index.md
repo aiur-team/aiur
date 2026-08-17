@@ -10,7 +10,7 @@ Aiur turns project work into isolated, autonomous implementation runs so teams m
 
 ## Tracker-driven
 
-Trackers are pluggable adapters configured with `tracker.kind`. Aiur can use:
+Choose a tracker with `tracker.kind`. Aiur can use:
 
 - A Linear board.
 - GitHub issues.
@@ -38,7 +38,7 @@ Each ticket carries a `complexity:1`–`complexity:5` label. That label routes t
 
 ## Backends
 
-Implementation backends plug in behind Aiur's app-server protocol. A `model:<backend>` label routes a ticket to a backend, and `model:remote` enables remote control.
+Choose an implementation backend with a `model:<backend>` label. Add `model:remote` to enable remote control.
 
 - `codex`
 - `claude` (headless)
@@ -46,7 +46,7 @@ Implementation backends plug in behind Aiur's app-server protocol. A `model:<bac
 - `kimi`, `openrouter` (generic OpenAI-compatible instances, configurable by default)
 - `deepseek` (generic OpenAI-compatible instance; ships disabled and needs `agent.backend_configs.deepseek.enabled: true` to dispatch)
 
-Kimi, DeepSeek, and OpenRouter use the same OpenAI-compatible adapter, but are separate registered instances with provider credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that instance's default model. For example:
+Kimi, DeepSeek, and OpenRouter have separate credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that backend's default model. For example:
 
 ```yaml
 agent:
