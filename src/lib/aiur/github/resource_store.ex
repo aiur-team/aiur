@@ -133,6 +133,10 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # A single check run, as one `check_run` delivery reports it. Keyed on the
+    # run's own id because that is the only identity one delivery can claim: it
+    # says nothing about the other runs on the same head.
+    :check_run,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
