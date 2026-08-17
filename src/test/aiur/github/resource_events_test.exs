@@ -191,6 +191,47 @@ defmodule Aiur.GitHub.ResourceEventsTest do
     end
   end
 
+  describe "a view rides on somebody else's write" do
+    # Acceptance criterion A4, at the seam a LiveView sits on: a writer that paid
+    # for a round trip because *it* needed the data updates the watcher, and the
+    # watcher spends nothing. The assertion is the upstream call count — one, made
+    # by the writer — because that is what shows on the rate limit. A latency or
+    # percentage assertion would pass against a view that fetched for itself.
+    test "a subscribed watcher renders a writer's fetch without fetching itself" do
+      key = key(30)
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+      test = self()
+
+      # Unlinked on purpose: the watcher ends on its own, and killing a linked
+      # helper would take the test process with it.
+      _watcher =
+        spawn(fn ->
+          :ok = ResourceEvents.subscribe(key)
+          send(test, :watching)
+
+          receive do
+            {:github_resource_changed, %{key: ^key}} ->
+              # A watcher re-reads the store. It never fetches, which is why no
+              # branch here touches the counter.
+              send(test, {:rendered, ResourceStore.data(key)})
+          after
+            1_000 -> send(test, :never_told)
+          end
+        end)
+
+      assert_receive :watching
+
+      # The writer is an agent that needed the comment for its own reasons.
+      Agent.update(calls, &(&1 + 1))
+      ResourceStore.put_resource(key, %{"body" => "from the writer"}, source: :fetch, version: "v1")
+
+      assert_receive {:rendered, %{"body" => "from the writer"}}
+      assert Agent.get(calls, & &1) == 1, "the watcher must not have added a call of its own"
+
+      refute_received :never_told
+    end
+  end
+
   describe "failing open" do
     # A cache that cannot announce itself must cost a stale view, never a lost
     # write — the same direction every other degraded path in the store takes.
