@@ -889,6 +889,21 @@ defmodule AiurEngineTest do
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
   end
 
+  test "executor mutations describe their attempted decision and version to the wrapper" do
+    for {function, args} <- [
+          {"cmd_executor_answer", "'decision:42' --expected-version 3 --option yes --rationale why --idempotency-key key"},
+          {"cmd_executor_escalate", "'decision:42' --expected-version 3 --reason why"}
+        ] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "CONTEXT:$AIUR_CONTROL_ATTEMPT_CONTEXT"; }\n#{function} #{args}|,
+          []
+        )
+
+      assert out =~ "CONTEXT:decision ID decision:42 with expected version 3"
+    end
+  end
+
   test "executor-answer requires one choice and all concurrency/audit fields" do
     for {argv, message} <- [
           {~s|'decision:42' --expected-version 3 --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
