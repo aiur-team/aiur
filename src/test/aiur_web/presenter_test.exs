@@ -495,7 +495,9 @@ defmodule AiurWeb.PresenterTest do
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
     assert payload.globally_paused == true
-    assert payload.global_pause == %{globally_paused: true, paused_at: "2026-08-01T12:00:00Z", source: "dashboard"}
+    # Provenance is not exposed: the nav toggle only needs the boolean, and no
+    # surface renders `paused_at` / `source` since the pause banner was removed.
+    refute Map.has_key?(payload, :global_pause)
     assert [running_row] = payload.running
     assert running_row.waiting_reason == :run_paused
   end
