@@ -48,7 +48,19 @@ defmodule Aiur.ConfigurationReferenceTest do
     agent.rate_limit_primary
     alerts.alerts_file
     server.host
+    build_order.ticket_detail_freshness_ms
+    build_order.graph_catalog_refresh_ms
+    build_order.graph_catalog_labels_refresh_ms
   )
+
+  # The three `build_order` rows above are here for the reason this list exists:
+  # their default is `nil` in the struct precisely because it is resolved
+  # elsewhere — `Aiur.BuildOrder.Cadence` derives it from
+  # `polling.interval_seconds`. Comparing the documented value against
+  # `struct!(module)` would only ever assert that the reference says "nil", which
+  # is the one thing an operator does not need to read. The derivation itself is
+  # checked against the reference in `Aiur.BuildOrder.CadenceTest`, so removing it
+  # from here does not remove the machine check.
 
   @documented_defaults for {prefix, module} <- @schema_sections,
                            field <- module.__schema__(:fields) -- module.__schema__(:embeds),

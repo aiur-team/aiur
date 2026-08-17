@@ -125,6 +125,33 @@ defmodule Aiur.BuildOrder.Catalog do
   defp fill(nil, carried) when is_integer(carried) and carried >= 0, do: carried
   defp fill(current, _carried), do: current
 
+  @doc """
+  The change marker the catalog holds for one root, or `nil`.
+
+  This is the same `{identity, member_count, updated_at}` triple that
+  `carry_forward_counts/2` uses as its match key, exposed so a caller can ask
+  "has this root moved since I last read it?" without re-reading the root.
+
+  It answers that question no more precisely than `carry_forward_counts/2` does
+  — see the note there. GitHub does not bump a parent issue's `updatedAt` when a
+  sub-issue is relabelled, so a member changing lane or phase looks unchanged
+  here. What it does catch is the coarser drift: the root edited, a member added
+  or removed, or a different root under the same key.
+
+  `nil` means "no comparable marker", which is deliberately different from a
+  marker that differs. A caller must not read the difference between two `nil`s
+  as evidence of anything.
+  """
+  @spec root_fingerprint(t(), term()) :: term() | nil
+  def root_fingerprint(%__MODULE__{entries: entries}, identity) do
+    case Enum.find(entries, &same_identity?(&1.identity, identity)) do
+      %RootSummary{} = root -> carry_key(root)
+      _other -> nil
+    end
+  end
+
+  def root_fingerprint(_catalog, _identity), do: nil
+
   @spec select(t(), term()) :: selection()
   def select(%__MODULE__{} = catalog, identity) do
     case Enum.find(catalog.entries, &same_identity?(&1.identity, identity)) do
