@@ -15,7 +15,7 @@
  *   canvas and leaves the previous fill in place, which is what rendered every
  *   key solid black. They go through {@link createPaint}.
  * - **Progress states do not introduce a second segment.** Measured progress
- *   uses one green fill, unknown uses shape, and stale uses alpha only.
+ *   uses one green fill, unknown uses flat grey, and stale uses alpha only.
  * - **Titles re-wrap with real glyph metrics** rather than the character-count
  *   heuristic the pure layer uses, which is what lets a 120px key fit three
  *   proportional lines.
@@ -247,48 +247,27 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   const dotY = FOOTER_BASE - DOT_SIZE;
   const unknown = face.footer.percent === null;
   context.beginPath();
-  context.arc(PAD_X + DOT_SIZE / 2, dotY + DOT_SIZE / 2, DOT_SIZE / 2 - (unknown ? 0.75 : 0), 0, Math.PI * 2);
-  if (unknown) {
-    // Hollow dot: the key still reports its bucket, but nothing is claimed
-    // about how far along it is.
-    context.strokeStyle = face.accent;
-    context.lineWidth = 1.5;
-    context.stroke();
-  } else {
-    context.fillStyle = face.accent;
-    context.fill();
-  }
+  context.arc(PAD_X + DOT_SIZE / 2, dotY + DOT_SIZE / 2, DOT_SIZE / 2, 0, Math.PI * 2);
+  context.fillStyle = unknown ? face.footer.barColor : face.accent;
+  context.fill();
 
   const barX = PAD_X + DOT_SIZE + 7;
   const barWidth = KEY_IMAGE_SIZE - PAD_X - barX;
   const barY = dotY + (DOT_SIZE - BAR_HEIGHT) / 2;
   roundedPath(context, barX, barY, barWidth, BAR_HEIGHT, BAR_HEIGHT / 2);
-  context.fillStyle = BAR_TRACK;
+  context.fillStyle = unknown ? face.footer.barColor : BAR_TRACK;
   context.fill();
 
-  if (unknown) {
-    // A dashed track, and no fill at all. This is the state that used to be
-    // indistinguishable from a real 0%: both painted an empty track, so a
-    // ticket whose reading had merely gone stale looked like a ticket that had
-    // done nothing. Dashes say "no reading", a solid stub says "zero".
-    context.strokeStyle = face.footer.barColor;
-    context.lineWidth = BAR_HEIGHT;
-    context.setLineDash([4, 5]);
-    context.beginPath();
-    context.moveTo(barX + 2, barY + BAR_HEIGHT / 2);
-    context.lineTo(barX + barWidth - 2, barY + BAR_HEIGHT / 2);
-    context.stroke();
-    context.setLineDash([]);
-    context.lineWidth = 1;
-    return;
-  }
+  // Unknown fills the whole track with one neutral grey. A measured 0% below
+  // remains a short green stub, so the two states stay distinct without shape.
+  if (unknown) return;
 
   // `Math.max(..., BAR_HEIGHT)` deliberately applies at 0 as well: a known 0%
   // paints a visible stub. Skipping the fill there is what made "just started"
   // and "no reading" the same picture.
   const filled = Math.max(Math.round((barWidth * face.footer.percent) / 100), BAR_HEIGHT);
-  // Unknown uses shape and stale uses alpha, so neither can be mistaken for a
-  // measured second segment.
+  // Unknown uses neutral grey and stale uses alpha, so neither can be mistaken
+  // for a measured second segment.
   const stale = face.footer.freshness === "stale";
   if (stale) context.globalAlpha = 0.5;
   roundedPath(context, barX, barY, filled, BAR_HEIGHT, BAR_HEIGHT / 2);

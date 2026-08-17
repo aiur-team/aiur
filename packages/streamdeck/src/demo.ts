@@ -34,8 +34,8 @@ const AGENTS: readonly DemoAgent[] = [
   // freshness window. It must keep its percent and read as not-current, never
   // collapse to an empty bar that looks like 0%.
   { identifier: "333", title: "Fleet-wide retry storm", vendor: "codex", icon: "retry", bucket: "stuck", progress_percent: 34, progress_freshness: "stale", priority: true, dependency_ready: true, activity: "work", runtime_seconds: 2_700 },
-  // No reading at all. Renders as a dashed track and a hollow dot — the state
-  // that used to be indistinguishable from "0% done".
+  // No reading at all. Renders as flat neutral grey — the state that used to be
+  // indistinguishable from "0% done".
   { identifier: "640", title: "Tutorials — draft", vendor: "claude", icon: "book", bucket: "running", progress_percent: null, progress_freshness: "unknown", priority: false, dependency_ready: true, activity: "brainstorm", runtime_seconds: 320 },
   // A genuine zero, next to the two above so the three are comparable at a
   // glance: it paints a short solid stub, because 0% is a measurement.

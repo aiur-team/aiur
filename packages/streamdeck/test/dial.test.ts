@@ -1,5 +1,6 @@
 import type { ModeDialState } from "../src/mode.js";
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -31,11 +32,27 @@ import {
   windowStopPosition,
 } from "../src/dial.js";
 
+const emulatorHookSource = readFileSync(
+  new URL("../../../src/priv/static/streamdeck-emulator-hook.js", import.meta.url),
+  "utf8",
+);
+
+const emulatorHookConstant = (name: string): number => {
+  const match = emulatorHookSource.match(new RegExp(`var ${name} = ([0-9.]+);`));
+  if (!match) throw new Error(`Missing numeric ${name} in Stream Deck emulator hook`);
+  return Number(match[1]);
+};
+
 // ---------------------------------------------------------------------------
 // Constants — real behaviour assertions, not tautologies
 // ---------------------------------------------------------------------------
 
 describe("dial constants", () => {
+  it("keeps emulator drag and press constants aligned with package semantics", () => {
+    expect(emulatorHookConstant("DRAG_DIVISOR")).toBe(DIAL_DRAG_DIVISOR);
+    expect(emulatorHookConstant("PRESS_THRESHOLD_DEG")).toBe(PRESS_THRESHOLD_DEGREES);
+  });
+
   it("full 270° sweep maps to value 100 via applyDragDelta", () => {
     expect(applyDragDelta(0, DIAL_SWEEP_DEGREES)).toBe(100);
   });

@@ -78,6 +78,18 @@ const pkgJson = {
   version,
   description: `aiur OTP release for ${platform.os}/${platform.cpu}`,
   license: "Apache-2.0",
+  homepage: "https://github.com/aiur-team/aiur",
+  // Required, not cosmetic. Publishing under OIDC trusted publishing attaches a
+  // sigstore provenance attestation naming the source repo, and npm rejects the
+  // upload with 422 unless repository.url agrees with it. Omitting this field
+  // reads as "" and fails every platform package:
+  //   Failed to validate repository information: package.json: "repository.url"
+  //   is "", expected to match "https://github.com/aiur-team/aiur" from provenance
+  // Keep in sync with packaging/npm/aiur-cli/package.json.
+  repository: {
+    type: "git",
+    url: "git+https://github.com/aiur-team/aiur.git",
+  },
   os: [platform.os],
   cpu: [platform.cpu],
   files: ["release", "LICENSE", "NOTICE"],
