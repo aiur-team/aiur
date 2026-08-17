@@ -11,10 +11,23 @@ defmodule Aiur.GitHub.ViewStateSweep do
   `check_run`. That is why the store is a cache with reconciliation and never
   the system of record, and it is the entire reason this timer exists.
 
-  So the sweep has one job: **recover a delivery that was lost.** It is not a
-  refresh cadence, it is not how a page gets its data, and it must never be
-  tuned as though shortening it made anything fresher. A change that arrives is
-  already free; the sweep only closes the gap left by one that did not.
+  So the sweep has one job: **recover what a free writer did not deliver.** It
+  is not a refresh cadence and it must never be tuned as though shortening it
+  made anything fresher.
+
+  ## What this is not, yet
+
+  Stated plainly because the gap is easy to mistake for a bug: the three sources
+  below do **not** yet read the store, subscribe to its change events, or get
+  woken by a webhook delivery. Each still performs its own listing when asked.
+  So today this sweep is not merely closing a gap left by free writers — for
+  these three it is the only thing that refreshes them at all, and a change made
+  outside Aiur surfaces within one sweep interval rather than immediately.
+
+  That is the deliberate order of work: this module removes the cost, and the
+  store subscription that removes the latency — a subscribed view re-rendering
+  the instant any writer deposits — lands with the units that make these sources
+  read the store. The interval is sized for that, not for freshness.
 
   ## What it replaced
 
@@ -26,9 +39,12 @@ defmodule Aiur.GitHub.ViewStateSweep do
     * `Aiur.BuildOrder.PackStatus` — a GraphQL pack read, every 300s
 
   Three independent cadences against one API, at three intervals nobody chose
-  together, is how the burn this ticket exists to remove was built. They now hold
-  no timer at all: this process ticks and asks each of them to reconcile, and
-  each one still refreshes on demand when a real need arrives.
+  together, is how the burn this ticket exists to remove was built. Measured
+  against GitHub's own `rateLimit { cost }`, each of those reads costs one point,
+  so the three together were 1.7 requests per minute for state nobody was
+  necessarily looking at. They now hold no timer at all: this process ticks and
+  asks each of them to reconcile, and each one still refreshes on demand through
+  its own `refresh/1`.
 
   ## Bounding the sweep rather than tightening it
 
@@ -86,23 +102,23 @@ defmodule Aiur.GitHub.ViewStateSweep do
   def init(opts) do
     state = %{
       interval: Keyword.get(opts, :interval_ms) || configured_interval_ms(),
-      sources: Keyword.get(opts, :sources, @sources)
+      sources: Keyword.get(opts, :sources, @sources),
+      timer: nil
     }
 
     if Keyword.get(opts, :sweep_on_start, false), do: send(self(), :sweep)
-    schedule(state)
-    {:ok, state}
+    {:ok, schedule(state)}
   end
 
   @impl true
   def handle_call(:sweep_now, _from, state), do: {:reply, sweep(state), state}
   def handle_call(:interval_ms, _from, state), do: {:reply, state.interval, state}
+  def handle_call(:timer, _from, state), do: {:reply, state.timer, state}
 
   @impl true
   def handle_info(:sweep, state) do
     sweep(state)
-    schedule(state)
-    {:noreply, state}
+    {:noreply, schedule(state)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -121,11 +137,18 @@ defmodule Aiur.GitHub.ViewStateSweep do
     end)
   end
 
-  defp schedule(%{interval: interval}) when is_integer(interval) and interval > 0 do
-    Process.send_after(self(), :sweep, interval)
+  # Arming cancels first, so this process holds **at most one** timer no matter
+  # how many paths reach it. That matters more than it looks: a boot that both
+  # sent an immediate sweep and armed a delayed one would leave two permanent
+  # timers, silently doubling the sweep rate and its cost, in the module whose
+  # entire premise is that there is one. Holding the reference makes "one timer"
+  # a property of the state rather than of every caller remembering.
+  defp schedule(%{interval: interval} = state) when is_integer(interval) and interval > 0 do
+    if is_reference(state.timer), do: Process.cancel_timer(state.timer)
+    %{state | timer: Process.send_after(self(), :sweep, interval)}
   end
 
-  defp schedule(_state), do: :ok
+  defp schedule(state), do: %{state | timer: nil}
 
   # A configuration fault must not take the sweep down: without it a lost
   # delivery is unrecoverable, which is strictly worse than sweeping at the

@@ -22,7 +22,9 @@ defmodule Aiur.BuildOrder.PackStatus do
   repository and member chunk so later demand also receives capacity.
 
   It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile.
+  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
+  between. It does not yet read the store, so the sweep is currently the only
+  thing that refreshes it.
   """
 
   use GenServer

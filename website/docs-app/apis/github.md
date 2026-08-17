@@ -58,12 +58,13 @@ Dashboard and Build Order state is not on this cadence.
 
 | View state | Behaviour |
 | --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. It renders from stored state. |
-| A change anyone makes | Arrives free over a webhook, immediately. |
-| A delivery that was lost | Recovered by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Opening, focusing, or holding a page open | Zero API calls. |
+| Ticket backlog, Ad Hoc overlay, pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-Shortening that sweep makes nothing fresher — it is a recovery bound for the 9 of
-100 deliveries lost during a daemon restart, none of which GitHub retried.
+A change made outside Aiur reaches those three panels within one sweep rather
+than at once, which is the trade for them costing nothing while nobody is
+looking.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |

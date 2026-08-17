@@ -49,11 +49,65 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     use Source
   end
 
+  # A stand-in for a real reconciliation source: on each sweep it reads its whole
+  # upstream back and publishes only what nothing has claimed, which is exactly
+  # the shape the comment sweep has.
+  defmodule RecoveringSource do
+    @moduledoc false
+    use GenServer
+
+    alias Aiur.GitHub.ResourceStore
+
+    def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    def refresh, do: GenServer.cast(__MODULE__, :refresh)
+    def published, do: GenServer.call(__MODULE__, :published)
+
+    @impl true
+    def init(opts), do: {:ok, %{upstream: Keyword.fetch!(opts, :upstream), published: []}}
+
+    @impl true
+    def handle_call(:published, _from, state), do: {:reply, Enum.reverse(state.published), state}
+
+    @impl true
+    def handle_cast(:refresh, state) do
+      published =
+        Enum.reduce(state.upstream, state.published, fn {key, version}, acc ->
+          if ResourceStore.claim(key, :poll, version) == :marked, do: [key | acc], else: acc
+        end)
+
+      {:noreply, %{state | published: published}}
+    end
+  end
+
   describe "the sweep is the only view-state cadence" do
+    # The behavioural half: a source that still has a cadence has to keep the
+    # interval somewhere, and every one of them kept it in `state.interval`.
+    # Asserted against a live process rather than the source text.
+    test "no view-state source holds an interval in its state" do
+      for {source, opts} <- [
+            {Aiur.OpenTicketSource, open_ticket_opts()},
+            {Aiur.BuildOrder.AdHocSource, ad_hoc_opts()},
+            {Aiur.BuildOrder.PackStatus, pack_status_opts()}
+          ] do
+        {:ok, pid} = source.start_link(Keyword.merge(opts, name: nil, poll_on_start: false))
+
+        state = :sys.get_state(pid)
+
+        refute Map.has_key?(state, :interval),
+               "#{inspect(source)} still carries its own poll interval; ViewStateSweep is the only view-state cadence"
+
+        # These are unlinked-from-the-suite children started by hand, so they are
+        # stopped here rather than in `on_exit`, where the test process is gone
+        # and a linked exit has already taken them down.
+        Process.unlink(pid)
+        Process.exit(pid, :kill)
+      end
+    end
+
+    # The textual half, which catches the regression the state check cannot: a
+    # cadence reintroduced under a different field name. A reviewer adding a
+    # fourth cadence has to delete a test to do it.
     test "no view-state source schedules a GitHub read of its own" do
-      # The three sources that used to hold 60s, 120s and 300s timers against
-      # GitHub. This is a source-level assertion on purpose: a reviewer adding a
-      # fourth cadence to one of them has to delete this test to do it.
       for source <- ViewStateSweep.sources() do
         body = File.read!(source_path(source))
 
@@ -96,6 +150,41 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       assert Process.whereis(SourceAbsent) == nil
     end
 
+    # Without this the module could sweep once at boot and never again — every
+    # panel permanently stale — and every other test here would still pass,
+    # because they all drive `sweep_now/1` by hand.
+    test "the timer re-arms, so the sweep keeps running unattended" do
+      start_supervised!(SourceA)
+      start_supervised!({ViewStateSweep, name: :sweep_timer_test, sources: [SourceA], interval_ms: 20})
+
+      assert eventually(fn -> SourceA.calls() >= 3 end),
+             "the sweep did not tick repeatedly; it scheduled once and stopped"
+    end
+
+    # "One timer" is a property of the state, not of every caller remembering to
+    # arm it once: arming cancels the previous reference, so a boot that both
+    # sends an immediate sweep and arms a delayed one cannot leave two running
+    # and silently double the sweep rate.
+    test "however many paths arm it, exactly one timer is live" do
+      start_supervised!(SourceA)
+
+      pid =
+        start_supervised!({ViewStateSweep, name: :sweep_on_start_test, sources: [SourceA], interval_ms: 3_600_000, sweep_on_start: true})
+
+      assert eventually(fn -> SourceA.calls() >= 1 end)
+
+      first = GenServer.call(pid, :timer)
+      assert is_reference(first)
+      assert Process.read_timer(first) > 0
+
+      # The next tick re-arms, and the reference it replaced is dead rather than
+      # still pending alongside the new one.
+      send(pid, :sweep)
+      assert eventually(fn -> GenServer.call(pid, :timer) != first end)
+      assert Process.read_timer(first) == false
+      assert Process.read_timer(GenServer.call(pid, :timer)) > 0
+    end
+
     test "it runs slowly, because it recovers losses rather than providing freshness" do
       pid = start_supervised!({ViewStateSweep, name: :sweep_interval_test, sources: []})
 
@@ -105,8 +194,10 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       assert ViewStateSweep.interval_ms(pid) == :timer.seconds(Aiur.Config.view_state_sweep_seconds())
     end
 
+    # Asserted against the schema rather than the resolved settings, so a
+    # checkout whose own `.aiur/config` sets the key does not fail the suite.
     test "its interval is operator-configurable, unlike the three cadences it replaced" do
-      assert Aiur.Config.view_state_sweep_seconds() == 900
+      assert %Aiur.Config.Schema.Polling{}.view_state_sweep_seconds == 900
     end
   end
 
@@ -120,6 +211,9 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     # A6. Two comments exist upstream. One delivery arrived and was marked; the
     # other 502'd during a restart, GitHub retried it, and it never came. The
     # sweep reads both back and must publish exactly the one nothing handled.
+    #
+    # Driven through `ViewStateSweep` rather than by calling the store directly,
+    # so deleting the sweep fails this test instead of leaving it green.
     test "a resource whose delivery was dropped is published by the sweep, and its delivered sibling is not" do
       delivered = ResourceStore.key_for_repo(:issue_comment, "owner/repo", 5001)
       dropped = ResourceStore.key_for_repo(:issue_comment, "owner/repo", 5002)
@@ -128,17 +222,25 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       # that absence is exactly what makes it recoverable.
       ResourceStore.mark_processed(delivered, :webhook, "2026-08-17T10:00:00Z")
 
-      upstream = [
-        {delivered, "2026-08-17T10:00:00Z"},
-        {dropped, "2026-08-17T09:00:00Z"}
-      ]
+      start_supervised!(
+        {RecoveringSource,
+         upstream: [
+           {delivered, "2026-08-17T10:00:00Z"},
+           {dropped, "2026-08-17T09:00:00Z"}
+         ]}
+      )
 
-      recovered =
-        for {key, version} <- upstream, ResourceStore.claim(key, :poll, version) == :marked do
-          key
-        end
+      pid =
+        start_supervised!({ViewStateSweep, name: :sweep_a6, sources: [RecoveringSource], interval_ms: 3_600_000})
 
-      assert recovered == [dropped]
+      assert ViewStateSweep.sweep_now(pid) == [RecoveringSource]
+      assert eventually(fn -> RecoveringSource.published() == [dropped] end)
+
+      # And a second sweep recovers nothing further: the first one marked it, so
+      # the recovery does not become a repeating wake.
+      ViewStateSweep.sweep_now(pid)
+      Process.sleep(50)
+      assert RecoveringSource.published() == [dropped]
     end
 
     # The hazard a timestamp watermark would have: the dropped comment is
@@ -213,7 +315,30 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     :ok
   end
 
+  # Stubs only so each source can boot without a token or a network; the test
+  # asserts on state shape and never lets a fetch run.
+  defp open_ticket_opts do
+    [request_fun: &stub_request/1, repo_fun: fn -> {:ok, {"owner", "repo"}} end, token_fun: fn -> {:ok, "t"} end]
+  end
+
+  defp ad_hoc_opts, do: open_ticket_opts()
+
+  defp pack_status_opts do
+    [request_fun: &stub_request/1, token_fun: fn -> {:ok, "t"} end, paths_fun: fn -> [] end]
+  end
+
+  defp stub_request(_request), do: {:ok, %{status: 200, body: [], headers: []}}
+
   defp source_path(module) do
-    Path.join(["lib" | module |> Macro.underscore() |> Path.split()]) <> ".ex"
+    root = Application.app_dir(:aiur) |> Path.join("../../../..") |> Path.expand()
+    Path.join([root, "lib" | module |> Macro.underscore() |> Path.split()]) <> ".ex"
+  end
+
+  defp eventually(fun, attempts \\ 100) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(10) && eventually(fun, attempts - 1)
+    end
   end
 end

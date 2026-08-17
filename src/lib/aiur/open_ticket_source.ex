@@ -15,11 +15,15 @@ defmodule Aiur.OpenTicketSource do
   overlay.
 
   It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile; a webhook delivery or an explicit
-  `refresh/1` covers everything in between. Three sources each running their own
-  interval against one API is what this ticket exists to remove, and this
-  listing in particular was the fastest unconditional full-backlog read in the
-  system.
+  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
+  between. Three sources each running their own interval against one API is what
+  this ticket exists to remove, and this listing in particular was the fastest
+  unconditional full-backlog read in the system.
+
+  It does not yet read the store or subscribe to its change events, so the sweep
+  is currently the only thing that refreshes it and a change made outside Aiur
+  surfaces within one sweep interval. That latency is what the store
+  subscription removes; this module's job here was removing the cost.
   """
 
   use GenServer

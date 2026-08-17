@@ -18,7 +18,9 @@ defmodule Aiur.BuildOrder.AdHocSource do
   completion denominator, complexity total, critical path, or feature ETA.
 
   It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile.
+  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
+  between. It does not yet read the store, so the sweep is currently the only
+  thing that refreshes it.
   """
 
   use GenServer

@@ -274,7 +274,10 @@ defmodule Aiur.GitHub.ResourceStore do
   changed since it was marked reads as unprocessed and is published again.
 
   Answers `false` whenever the store cannot answer, because publishing a
-  duplicate is recoverable and dropping an event is not.
+  duplicate is recoverable and dropping an event is not — and for the same
+  reason, `false` once the mark passes its bound. A versioned mark is bounded by
+  the retention window because a change releases it; an unversioned one is
+  bounded by `unversioned_suppression_ms/0` because nothing else ever will.
   """
   @spec processed?(key() | nil, String.t() | nil) :: boolean()
   def processed?(key, version \\ nil)
@@ -305,7 +308,9 @@ defmodule Aiur.GitHub.ResourceStore do
   Marks `key` processed by `source` (`:webhook` or `:poll`) at `version`.
 
   Recording the version is what lets a later edit of the same resource be told
-  apart from a redelivery of it.
+  apart from a redelivery of it — and it is also what earns the mark the full
+  retention window. A mark made without one is deliberately short-lived; see
+  `unversioned_suppression_ms/0`.
   """
   @spec mark_processed(key() | nil, atom(), String.t() | nil) :: :ok
   def mark_processed(key, source, version \\ nil)
@@ -313,6 +318,17 @@ defmodule Aiur.GitHub.ResourceStore do
   def mark_processed(nil, _source, _version), do: :ok
 
   def mark_processed(key, source, version) when is_atom(source) do
+    # Said out loud, because this is the mapping mistake the bound exists to
+    # bound: a writer that could not read a version suppresses on identity alone,
+    # and the only evidence anything went wrong is this line. `deposit/5` already
+    # warns for the same case on the write path.
+    if is_nil(normalize_version(version)) do
+      Logger.warning(
+        "GitHub.ResourceStore marked #{inspect(key)} processed with no version; " <>
+          "suppression falls back to identity alone and expires after #{div(@unversioned_suppression_ms, 60_000)} minutes"
+      )
+    end
+
     update(key, fn entry ->
       entry
       |> Map.put(:processed_at_ms, now_ms())
@@ -325,8 +341,9 @@ defmodule Aiur.GitHub.ResourceStore do
   Marks `key` processed at `version` only if it was not already.
 
   Returns `:marked` for the first caller and `:already_processed` for every
-  later one inside the retention window, so a caller can gate a publish on the
-  answer without a separate read.
+  later one while the mark still suppresses, so a caller can gate a publish on
+  the answer without a separate read. How long that is depends on whether a
+  version stands behind the mark — see `processed?/2`.
   """
   @spec claim(key() | nil, atom(), String.t() | nil) :: :marked | :already_processed
   def claim(key, source, version \\ nil)
