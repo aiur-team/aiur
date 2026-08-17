@@ -92,24 +92,23 @@ defmodule Aiur.GitHub.GraphQLCost do
   # something other than "open a selection set": inside a string, inside a block
   # string, after a `#`, or inside the parentheses of a variable definition
   # whose default value is an input object.
+  # Anything without a `Query` root has already been declined, so the only
+  # question left here is where the operation's selection set opens.
   defp scan(query) do
-    with {:ok, keyword} <- operation_keyword(query) do
-      case keyword do
-        :query -> selection_offset(query)
-        :shorthand -> selection_offset(query)
-        _other -> :decline
-      end
+    case query_root?(query) do
+      true -> selection_offset(query)
+      false -> :decline
     end
   end
 
-  defp operation_keyword(query) do
+  # A `Query` root means either the `query` keyword or the shorthand form. A
+  # `mutation`, `subscription` or fragment-led document has no `rateLimit` field
+  # to select, and anything unrecognised is declined rather than guessed at.
+  defp query_root?(query) do
     case query |> strip_leading_trivia() |> String.downcase() do
-      "query" <> rest -> if boundary?(rest), do: {:ok, :query}, else: :decline
-      "{" <> _rest -> {:ok, :shorthand}
-      "mutation" <> _rest -> :decline
-      "subscription" <> _rest -> :decline
-      "fragment" <> _rest -> :decline
-      _unrecognised -> :decline
+      "query" <> rest -> boundary?(rest)
+      "{" <> _rest -> true
+      _other -> false
     end
   end
 
