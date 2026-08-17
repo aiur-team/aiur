@@ -65,6 +65,42 @@ defmodule Aiur.BuildOrder.CadenceTest do
     end
   end
 
+  # These three keys are absent from `Aiur.ConfigurationReferenceTest`'s struct
+  # comparison, because their struct default is `nil` by design. That would leave
+  # the documented numbers unchecked, so they are checked here instead: the
+  # reference's derived table has to agree with the derivation itself, at the
+  # documented poll interval.
+  describe "the configuration reference's derived table" do
+    @doc_path Path.expand("../../../../website/docs-app/reference/configuration.md", __DIR__)
+
+    test "documents the values this module derives at a 120s poll interval" do
+      reference = File.read!(@doc_path)
+      derived = Cadence.derive(120)
+
+      for {key, field} <- [
+            {"graph_catalog_refresh_ms", :graph_catalog_refresh_ms},
+            {"graph_catalog_labels_refresh_ms", :graph_catalog_labels_refresh_ms},
+            {"ticket_detail_freshness_ms", :ticket_detail_freshness_ms}
+          ] do
+        documented = documented_derived(reference, key)
+
+        assert documented == Map.fetch!(derived, field),
+               "the configuration reference documents #{key} deriving to #{documented} " <>
+                 "at a 120s poll interval; Cadence derives #{Map.fetch!(derived, field)}"
+      end
+    end
+
+    defp documented_derived(reference, key) do
+      regex = ~r/^\| `#{Regex.escape(key)}` \| [^|]+ \| (?<value>\d+) \|/m
+
+      case Regex.scan(regex, reference, capture: :all_names) do
+        [[value]] -> String.to_integer(value)
+        [] -> flunk("the configuration reference no longer documents a derived value for #{key}")
+        matches -> flunk("the configuration reference documents #{length(matches)} derived values for #{key}")
+      end
+    end
+  end
+
   describe "resolve/3" do
     test "an explicit setting always beats the derivation" do
       assert Cadence.resolve(:graph_catalog_refresh_ms, 7_000, 120) == 7_000

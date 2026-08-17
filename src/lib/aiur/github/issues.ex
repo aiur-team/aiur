@@ -119,10 +119,16 @@ defmodule Aiur.GitHub.Issues do
 
   Same endpoint and same body as `fetch_issue_raw/2` — `GET
   /repos/{owner}/{repo}/issues/{number}` — but addressed by the issue's identity
-  rather than by the caller, so every reader of that issue meets in one entry.
-  That is the point: the orchestrator's per-issue reconciliation poll, the Build
-  Order ticket-detail pane and the dashboard's ticket panel were each reading
-  this exact URL on their own schedule into their own cache.
+  rather than by the caller, so readers of that issue meet in one entry. That is
+  the point: the orchestrator's per-issue reconciliation poll, the Build Order
+  ticket-detail pane and the dashboard's ticket panel were each reading this exact
+  URL on their own schedule into their own cache.
+
+  One caller of the same URL is deliberately still outside this:
+  `Aiur.GitHub.IssueDependencies` reaches `fetch_issue_raw/2` through
+  `Aiur.GitHub.Client`, unconditionally, and neither reads nor populates the store.
+  It is named in `docs/measurements/2026-08-17-build-order-read-cost.md` rather
+  than quietly left out of the claim.
 
   The answer says which of three costs was paid, because "we had it" and "we
   revalidated it for free" are different claims and only one of them can be
@@ -275,6 +281,11 @@ defmodule Aiur.GitHub.Issues do
   defp serve_not_modified_raw_issue(issue_number, owner, repo, token, key, opts, retried_without_validator?) do
     case ResourceStore.data(key) do
       body when is_map(body) ->
+        # GitHub has just certified this body as current, so re-deposit it: the
+        # entry's `fetched_at_ms` is what the *next* reader's freshness window is
+        # measured against, and leaving it at the original fetch would make the
+        # read we just proved free have to be made again immediately.
+        put_issue_resource(key, body, ResourceStore.etag(key), :fetch)
         {:ok, body, :not_modified}
 
       _missing when not retried_without_validator? ->
@@ -291,8 +302,13 @@ defmodule Aiur.GitHub.Issues do
   #
   # `:version` is the issue's own `updated_at`. It is what lets a later webhook
   # delivery for the same issue tell "this is the change I already hold" from
-  # "this is a newer one", and the store refuses to publish a change event for a
-  # body it already has — so re-depositing an unchanged issue wakes nobody.
+  # "this is a newer one".
+  #
+  # It does *not* follow that re-depositing an unchanged issue is silent: the
+  # store's change test includes `:source`, and these two readers deposit under
+  # different sources, so alternating readers of an unchanged issue do publish.
+  # Nothing subscribes to `:issue` yet, and the honest fix belongs in the store's
+  # change test rather than here, so this is named rather than worked around.
   #
   # `:processed` is deliberately never passed: fetching an issue is not the same
   # as having acted on it, and marking it handled here would suppress the wake
@@ -305,14 +321,14 @@ defmodule Aiur.GitHub.Issues do
     )
   end
 
+  # Both call sites have already matched `body` as a map, so there is deliberately
+  # no non-map clause: dialyzer proves it unreachable.
   defp issue_version(body) when is_map(body) do
     case Map.get(body, "updated_at") do
       version when is_binary(version) and version != "" -> version
       _absent -> nil
     end
   end
-
-  defp issue_version(_body), do: nil
 
   defp raw_repository(opts) do
     case Keyword.fetch(opts, :repository) do
@@ -755,6 +771,11 @@ defmodule Aiur.GitHub.Issues do
          retained_etag,
          retried_without_cache?
        ) do
+    # Same reasoning as the detail path's `304`: the shared entry's freshness clock
+    # has to move when GitHub says the body is still current, or the next reader
+    # pays for bytes that were just proved unchanged.
+    refresh_stored_issue(ctx, issue_id, retained_etag)
+
     case materialized_issue(ctx, issue_id, cached_entry, retained_etag) do
       %Issue{} = issue ->
         issue =
@@ -775,6 +796,15 @@ defmodule Aiur.GitHub.Issues do
 
       _missing_materialized_issue ->
         {:halt, {:error, :github_issue_not_modified_without_cached_value, cache}}
+    end
+  end
+
+  defp refresh_stored_issue(ctx, issue_id, retained_etag) do
+    store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
+
+    case ResourceStore.data(store_key) do
+      body when is_map(body) -> put_issue_resource(store_key, body, retained_etag, :poll)
+      _missing -> :ok
     end
   end
 
@@ -803,8 +833,12 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
+  # The response cap is the endpoint's, not the caller's. Without it here the poll
+  # could deposit an issue larger than `fetch_issue_raw_conditional/2` is willing
+  # to accept, and the detail path would then be served — from the shared entry —
+  # a body it would have rejected had it fetched the same URL itself.
   defp conditional_get(ctx, url, etag) do
-    request = %{method: :get, url: url, token: ctx.token}
+    request = %{method: :get, url: url, token: ctx.token, max_response_bytes: @max_issue_response_bytes}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     case ctx.request_fun.(request) do

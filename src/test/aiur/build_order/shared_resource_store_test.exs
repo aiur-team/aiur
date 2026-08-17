@@ -187,6 +187,37 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       assert second.etag == "\"v1\""
     end
 
+    # A `304` is GitHub certifying the held body as current, so it has to move the
+    # entry's freshness clock. Without that the read just proved free would have to
+    # be made again immediately, and the "revalidate then serve" path would be a
+    # request per read forever.
+    test "a 304 makes the held body fresh again for the next reader" do
+      recorder = start_recorder()
+
+      request_fun =
+        recording_fun(recorder, fn request ->
+          case Map.get(request, :etag) do
+            nil -> {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: issue_body(7)}}
+            "\"v1\"" -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}}
+          end
+        end)
+
+      base = [repository: @repository, request_fun: request_fun]
+
+      # Paid once. The window below is then deliberately shorter than the age this
+      # body has reached, so only the `304` moving the clock can make it servable.
+      assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, base)
+      Process.sleep(30)
+
+      assert {:ok, _body, :not_modified} = Issues.fetch_issue_raw_conditional(7, base ++ [revalidate: true])
+      assert issue_count(recorder) == 2
+
+      assert {:ok, %{"number" => 7}, :fresh} =
+               Issues.fetch_issue_raw_conditional(7, base ++ [freshness_ms: 20])
+
+      assert issue_count(recorder) == 2
+    end
+
     # A restart keeps validators and drops bodies. A `304` then has nothing to
     # serve, and the only correct recovery is the unconditional request the
     # caller would have made anyway — never an error surfaced to the page.

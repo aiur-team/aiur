@@ -67,13 +67,46 @@ revalidation to graph reads": for the graph, it is not available.
 Cadences before: catalog 60s, labels 600s, selected 15s. After: the two catalog
 cadences derive from the 120s tracker poll interval — catalog 120s, labels 600s —
 and the selected root has no cadence at all. `graph_selected_refresh_ms` and
-`graph_demand_refresh_ms` were deleted rather than retuned, so a selected root's
-3 points/page is bought when a writer touches it — a webhook delivery, an agent
-mutation, or the daemon's own catalog reconciliation — or when something calls
-`Aiur.BuildOrder.GraphProjection.refresh/2`. Its "after" figure is therefore not
-a per-hour number: it tracks how often the repository changes, not how many
-people have the page open or for how long. Opening the Build Order page,
-selecting a root, and holding it open buys nothing.
+`graph_demand_refresh_ms` were deleted rather than retuned.
+
+A selected root's 3 points/page is now bought by exactly two things, and neither
+depends on a viewer:
+
+- **The catalog reconciliation says the root moved.** Each catalog read carries a
+  per-root change marker — `{identity, member_count, updated_at}`, the same
+  triple `Catalog.carry_forward_counts/2` matches on — and a watched root whose
+  marker differs from the one recorded at its last successful read is re-read
+  once. A root that sits still is not re-read, however long anyone watches it.
+- **A watched root has never been read.** Bought once, on the catalog's cycle
+  rather than on the viewer's, subject to the same failure backoff, and never
+  again once it succeeds.
+
+`Aiur.BuildOrder.GraphProjection.refresh/2` is the third, explicit path: a caller
+saying "read this now". It has no production caller yet — it exists so that
+removing the viewer cadence does not also remove an operator's ability to demand
+a read, and an operator-facing refresh control is the obvious consumer.
+
+The selected root's "after" figure is therefore not a per-hour number: it tracks
+how often the repository changes, not how many people have the page open or for
+how long. Opening the Build Order page, selecting a root, and holding it open buys
+nothing.
+
+### What the change marker does not catch
+
+Named rather than left for someone to discover. GitHub does not bump a parent
+issue's `updatedAt` when a sub-issue is relabelled, so a member moving from
+`phase:1` to `phase:2` — or between build lanes — leaves the marker identical and
+does not trigger a re-read. Under the deleted 15-second cadence that change
+reached the page within one cadence; under this one it does not reach the page at
+all until something else moves the root.
+
+That is not a reason to keep a 15-second cadence, and it is not fixed by a tighter
+marker either: the catalog read that produces the marker deliberately does not
+resolve member labels on most polls, because that variant costs 26 points against
+1 (#1766). The correct owner is the plan's slow safety sweep (U7, R9) — the one
+timer that survives, existing to recover exactly this class of missed change.
+Until that lands, an operator sees a relabelled member after the next change to
+the root itself.
 
 Build Order's timed GraphQL spend is now **186 points/hour**, about **3.1
 points/minute**, all of it catalog reconciliation — 30 cheap catalog reads at 1
@@ -115,6 +148,12 @@ Named rather than folded into a percentage:
 - `GET /repos/{owner}/{repo}/issues/{number}/timeline` — REST, issued per issue by
   `Aiur.GitHub.DispatchAuthorization` on the tracker poll path. Conditional
   support is possible and not done here.
+- `GET /repos/{owner}/{repo}/issues/{number}` reached through
+  `Aiur.GitHub.IssueDependencies` → `Aiur.GitHub.Client.fetch_issue_raw/2`. The
+  same URL as the read that did become free, but a third caller that still goes
+  through the unconditional `fetch_issue_raw/2` and neither reads nor populates
+  the store. It is an orchestrator path rather than a Build Order one, so it is
+  named here and left to the unit that owns that path.
 - `GET /repos/{owner}/{repo}/issues?labels=build-lane:adhoc&state=all&per_page=100`
   — the Build Order ad-hoc epic poll, REST, every 60s. Conditional support is
   possible and not done here.

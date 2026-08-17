@@ -58,6 +58,10 @@ defmodule Aiur.BuildOrder.Cadence do
   expressed a requirement, not a ceiling on ones who have.
   """
 
+  # What an unreadable `polling.interval_seconds` derives from: the shipped
+  # tracker default (#2064), so a bad number costs freshness rather than budget.
+  @fallback_interval_ms 120_000
+
   @labels_multiplier 5
   @min_labels_refresh_ms 600_000
   @detail_divisor 4
@@ -79,9 +83,14 @@ defmodule Aiur.BuildOrder.Cadence do
   @doc """
   The cadences implied by a tracker poll interval, in milliseconds.
 
-  A nonsensical interval falls back to one second rather than raising: this is
-  read on the way to starting a supervised process, and a bad number in
-  configuration should degrade the refresh rate, not prevent the page booting.
+  A nonsensical interval falls back to the shipped tracker default rather than
+  raising: this is read on the way to starting a supervised process, and a bad
+  number in configuration should slow the page down, not prevent it booting.
+
+  The fallback is deliberately slow, not fast. An earlier version fell back to one
+  second, which would have turned a typo in `polling.interval_seconds` into a
+  one-second catalog cadence — a fail-safe pointing the wrong way, at the one read
+  whose cost is entirely governed by how often it runs.
   """
   @spec derive(pos_integer() | any()) :: t()
   def derive(poll_interval_seconds) do
@@ -124,7 +133,7 @@ defmodule Aiur.BuildOrder.Cadence do
   end
 
   defp interval_ms(seconds) when is_integer(seconds) and seconds > 0, do: seconds * 1_000
-  defp interval_ms(_seconds), do: 1_000
+  defp interval_ms(_seconds), do: @fallback_interval_ms
 
   defp clamp(value, minimum, maximum), do: value |> max(minimum) |> min(maximum)
 end

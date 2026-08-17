@@ -517,9 +517,10 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 `build_order.graph_selected_refresh_ms` and `build_order.graph_demand_refresh_ms`
 no longer exist. They were the two settings by which *viewing* bought GitHub
 reads: the demand cadence fired when an operator selected a root, and the
-selected cadence repeated for as long as the page stayed open. No value makes
-that correct, because it makes API cost track how many people are looking rather
-than what has changed, so they were removed rather than retuned.
+selected cadence repeated for as long as the page stayed open.
+
+No value makes that correct, because it makes API cost track how many people are
+looking rather than what has changed. They were removed rather than retuned.
 
 A selected root is now read when a writer asks for it — a webhook delivery, an
 agent mutation, or the daemon's own catalog reconciliation — or when something

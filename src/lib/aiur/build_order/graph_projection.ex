@@ -350,6 +350,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
         catalog_labels_failures: 0,
         catalog_labels_penalty_ms: 0,
         selected: %{},
+        # Cleared with the roots they describe. A marker that outlived its graph
+        # would tell the next read of that root it was already current when
+        # nothing is held for it — and across repeated authority changes the map
+        # would grow without bound.
+        selected_fingerprints: %{},
         pending: MapSet.new(),
         active_repository: snapshot.repository,
         active_configuration_generation: snapshot.generation,
@@ -462,7 +467,16 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp evict_selected(state, key, entry) do
     cancel_entry_timer(entry)
-    %{state | selected: Map.delete(state.selected, key), pending: MapSet.delete(state.pending, entry.scope)}
+
+    %{
+      state
+      | selected: Map.delete(state.selected, key),
+        # The marker describes a graph this process no longer holds. Keeping it
+        # would tell a later re-selection of the same root that it was already
+        # current when it holds nothing at all.
+        selected_fingerprints: Map.delete(state.selected_fingerprints, key),
+        pending: MapSet.delete(state.pending, entry.scope)
+    }
   end
 
   defp evicted_snapshot(entry, state) do
@@ -701,8 +715,80 @@ defmodule Aiur.BuildOrder.GraphProjection do
       |> record_catalog_labels_read(scope, inflight)
 
     state = schedule_after_completion(state, scope, state |> scope_interval(scope))
-    {state, [{:generation, snapshot_for_entry(scope_entry(state, scope), state)}]}
+    state = record_selected_fingerprint(state, scope)
+    events = [{:generation, snapshot_for_entry(scope_entry(state, scope), state)}]
+
+    {state, follow_up} = request_changed_selected_roots(state, scope)
+    {state, events ++ follow_up}
   end
+
+  # A selected root's graph is read because the catalog — the one daemon-owned
+  # reader left — says the root moved, or because nothing has ever been read for
+  # a root somebody is watching. Both are writer-driven: neither depends on how
+  # long a page stays open, and neither repeats while the root sits still.
+  #
+  # Only a *catalog* completion reaches this. A selected completion must not, or
+  # a root would refresh itself forever.
+  defp request_changed_selected_roots(state, :catalog) do
+    state.selected
+    |> Enum.filter(fn {_key, entry} -> selected_read_due?(state, entry) end)
+    |> Enum.reduce({state, []}, fn {_key, entry}, {state, events} ->
+      {state, next_events} = request_scope(state, entry.scope)
+      {state, events ++ next_events}
+    end)
+  end
+
+  defp request_changed_selected_roots(state, _scope), do: {state, []}
+
+  # "Is anybody watching?" is deliberately not asked here. `request_scope/2`
+  # already declines a scope that is not active, and for a selected root that
+  # means `demanders` is empty — so a root that was selected and then released
+  # keeps its entry and buys nothing. Repeating the check here would be a second
+  # copy of that rule, free to drift from the one that is actually enforced.
+  defp selected_read_due?(state, entry) do
+    cond do
+      # A demanded root that has never been read is the cold case. It is bought
+      # once, on the catalog's cycle rather than on the viewer's, and it does not
+      # repeat once it succeeds. Backoff still applies, so a root that fails to
+      # read does not retry on every catalog poll.
+      is_nil(entry.data) -> retry_due?(entry, state)
+      # Otherwise: only a root the catalog says has moved.
+      selected_fingerprint_moved?(state, entry) -> retry_due?(entry, state)
+      true -> false
+    end
+  end
+
+  # `nil` on either side means "no comparable marker", which is not evidence of
+  # change. Treating it as change would make every catalog poll re-read every
+  # watched root — the deleted cadence back again, wearing the writer's clothes.
+  defp selected_fingerprint_moved?(state, %{scope: {:selected, identity}}) do
+    case {catalog_fingerprint(state, identity), Map.get(state.selected_fingerprints, Policy.root_key(identity))} do
+      {nil, _recorded} -> false
+      {_current, nil} -> false
+      {current, recorded} -> current != recorded
+    end
+  end
+
+  defp selected_fingerprint_moved?(_state, _entry), do: false
+
+  defp catalog_fingerprint(%{catalog: %{data: %Catalog{} = catalog}}, identity),
+    do: Catalog.root_fingerprint(catalog, identity)
+
+  defp catalog_fingerprint(_state, _identity), do: nil
+
+  # Stamped from the catalog held *now*, at the moment the root's own read
+  # succeeded. That is what makes the next comparison meaningful: it records
+  # which catalog observation this graph corresponds to.
+  defp record_selected_fingerprint(state, {:selected, identity}) do
+    key = Policy.root_key(identity)
+
+    case catalog_fingerprint(state, identity) do
+      nil -> %{state | selected_fingerprints: Map.delete(state.selected_fingerprints, key)}
+      fingerprint -> %{state | selected_fingerprints: Map.put(state.selected_fingerprints, key, fingerprint)}
+    end
+  end
+
+  defp record_selected_fingerprint(state, _scope), do: state
 
   # An unlabelled catalog poll cannot resolve epic/wave counts, so it inherits
   # the previous generation's — but only for roots `Catalog.carry_forward_counts/2`
@@ -857,12 +943,29 @@ defmodule Aiur.BuildOrder.GraphProjection do
     |> Map.put(:next_timer_token, token + 1)
   end
 
-  # Only the catalog is rescheduled across a configuration change. Selected roots
-  # are not on a cadence at all any more, so there is nothing to restore for
-  # them; re-arming a timer here would quietly reintroduce the viewer-driven
-  # refresh that `schedule_after_completion/3` removes.
+  # Only the catalog gets a *cadence* restored here. A selected root has none any
+  # more, so re-arming one for every watched root — which is what this used to do
+  # — would quietly reintroduce the viewer-driven refresh that
+  # `schedule_after_completion/3` removes.
+  #
+  # A selected root's **retry** is a different thing and must survive, because
+  # this runs on almost every message: it cancels all timers, so without
+  # restoring the retry a root whose read failed would lose its backoff timer to
+  # the next unrelated message and never be read again. So a selected scope is
+  # re-armed exactly when it is holding a pending retry, and never otherwise.
   defp reschedule_active_scopes(state) do
-    state |> cancel_all_timers() |> schedule_active_scope(:catalog)
+    state
+    |> cancel_all_timers()
+    |> schedule_active_scope(:catalog)
+    |> restore_selected_retries()
+  end
+
+  defp restore_selected_retries(state) do
+    Enum.reduce(state.selected, state, fn {_key, entry}, state ->
+      if is_nil(entry.health.next_retry_at),
+        do: state,
+        else: schedule_active_scope(state, entry.scope)
+    end)
   end
 
   defp active_scope?(_state, :catalog), do: true

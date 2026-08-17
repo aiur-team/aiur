@@ -45,6 +45,13 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       catalog_labels_failures: 0,
       catalog_labels_penalty_ms: 0,
       selected: %{},
+      # Root key => the catalog change marker in force when that root's graph was
+      # last read successfully. This is what makes a selected root writer-driven
+      # instead of viewer-driven: the catalog reconciliation compares the marker
+      # it just read against this one and asks for the root only when they
+      # differ. Without it there would be no cadence *and* no trigger, which is
+      # not "need-driven", it is "never read".
+      selected_fingerprints: %{},
       inflight_by_ref: %{},
       pending: MapSet.new(),
       monitor_by_ref: %{},

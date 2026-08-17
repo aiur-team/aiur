@@ -346,6 +346,54 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert entry.timer == nil
   end
 
+  # Deleting the viewer cadences leaves a question the cadence used to answer:
+  # what reads a selected root at all? The answer must be a writer, and the only
+  # daemon-owned writer left is the catalog reconciliation. If nothing triggered a
+  # selected read the page would simply never show a graph, which is not
+  # "need-driven" — it is broken — so this pins the whole trigger, including that
+  # it does not repeat and does not fire for a root nobody is watching.
+  test "the catalog cycle buys a watched cold root once, then only when it moves" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+    {:ok, projection} = start_projection()
+
+    unmoved = [counted_root(first), counted_root(second)]
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(unmoved))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    # `first` is watched. `second` is selected and then released, so an entry
+    # for it survives with nothing to show and nobody watching — the case where
+    # "is anyone watching?" is the only thing stopping the read.
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, second)
+    assert :ok = GraphProjection.release(projection, second)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
+
+    # The next catalog reconciliation notices that a watched root has nothing.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(unmoved))})
+
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The unwatched root is never read: the cost has to be caused by something.
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 100
+
+    # A catalog cycle that reports the same root, unmoved, buys nothing more —
+    # otherwise the deleted cadence is simply back, keyed off the catalog timer.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(unmoved))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # A catalog cycle that reports the root *moved* buys exactly one read.
+    moved = [%{counted_root(first) | member_count: 4}, counted_root(second)]
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(moved))})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 100
+  end
+
   # The other way a deleted cadence can come back: not as a setting, but as a
   # successor timer armed when a read finishes. That is where
   # `graph_selected_refresh_ms` actually lived — every completed selected read
@@ -585,6 +633,11 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   end
 
   defp finish(reader, result), do: send(reader, {:finish, result})
+
+  defp await_selected_scope(identity) do
+    assert_receive {:reader_started, {:selected, ^identity} = scope, _reader}, 2_000
+    scope
+  end
 
   defp authority(repository, generation, max_selected_roots) do
     %{
