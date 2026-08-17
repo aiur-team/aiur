@@ -129,6 +129,29 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicyTest do
 
       File.rm_rf!(repo_root)
     end
+
+    test "reports ownership unavailable when a quota hold blocks team expansion" do
+      repo_root = codeowners_repo!("* @acme/platform\n")
+      request_fun = fn _request -> {:ok, %{status: 429, body: %{}}} end
+
+      assert {:error, {:review_thread_resolution_ownership_unavailable, detail}} =
+               ResolutionPolicy.verify_review_thread_resolution_ready(
+                 thread_body(),
+                 "PRRT_test",
+                 "Done, no further changes.",
+                 "aiur-bot",
+                 repo_root: repo_root,
+                 token: "token",
+                 request_fun: request_fun,
+                 agent_logins: ["aiur-bot"]
+               )
+
+      assert detail.review_thread_id == "PRRT_test"
+      assert detail.path == "src/lib/foo.ex"
+      assert detail.reason == :quota_hold
+
+      File.rm_rf!(repo_root)
+    end
   end
 
   describe "review_thread_authoritative_comment?/2" do
@@ -171,6 +194,21 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicyTest do
 
       refute ResolutionPolicy.review_thread_authoritative_comment?(thread,
                repo_root: repo_root,
+               agent_logins: ["aiur-bot"]
+             )
+
+      File.rm_rf!(repo_root)
+    end
+
+    test "remains false when reviewer ownership is unavailable" do
+      repo_root = codeowners_repo!("* @acme/platform\n")
+      request_fun = fn _request -> {:ok, %{status: 429, body: %{}}} end
+      thread = get_in(thread_body(), ["data", "node"])
+
+      refute ResolutionPolicy.review_thread_authoritative_comment?(thread,
+               repo_root: repo_root,
+               token: "token",
+               request_fun: request_fun,
                agent_logins: ["aiur-bot"]
              )
 
