@@ -123,9 +123,11 @@ actually enter or leave the phase, not retroactively:
 
 Aiur automatically scopes every agent-emitted name under
 `ticket.<your-issue>.agent.`, so you pass the bare phase name and the event bus
-does the rest. (The Executor-bar `progress` / `progress.checkin` emits are a
-separate protocol — they stay in your per-turn prompt, paired with these phase
-alerts.)
+does the rest. Alerts and events share one topic space: an `emit_alert` name is
+prefixed into `ticket.<id>.agent.<name>` and published to the same exchange as
+`emit_event`, so a subscriber to `ticket.42.agent.#` receives alerts as well as
+events. (The Executor-bar `progress` / `progress.checkin` emits are a separate
+protocol — they stay in your per-turn prompt, paired with these phase alerts.)
 
 ## Agent Workpad template
 

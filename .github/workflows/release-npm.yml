@@ -1,17 +1,148 @@
 name: release-npm
 
 # Builds a native, self-contained OTP release per OS/arch and uploads each as a
-# packed npm tarball. Triggered on version tags (real releases) or manually
-# (workflow_dispatch) for dry runs. Publishing is handled by a separate job (U6).
+# packed npm tarball, then publishes all of them to npm in lockstep.
+#
+# Publishing uses npm OIDC trusted publishing, not an npm token. npm matches the
+# trusted publisher on this workflow's filename, so every channel — stable,
+# nightly, dry run — is triggered on THIS file. A separate publishing workflow,
+# or a reusable-workflow indirection, presents a different `workflow_ref` claim
+# and is rejected (npm/documentation#1755).
+#
+# Channels:
+#   stable   push of a v* tag, or workflow_dispatch with channel=stable.
+#            Version comes from src/mix.exs; a tag must agree with it.
+#            Publishes under `latest`.
+#   nightly  the nightly schedule, or workflow_dispatch with channel=nightly.
+#            Version is <mix.exs>-nightly.<short-sha>, published under the
+#            `nightly` dist-tag. Never touches `latest` or `next`.
+#   dry-run  default for workflow_dispatch. Builds, smokes, and runs
+#            `npm publish --dry-run`. Nothing reaches the registry.
 on:
   push:
     tags:
       - "v*"
+  schedule:
+    # Nightly cut. GitHub cron is UTC and has no DST handling: 07:00 UTC is
+    # 00:00 America/Los_Angeles while PDT is in effect, and 23:00 the previous
+    # day under PST. The "did main move" gate below keys off the head commit,
+    # not the calendar, so that one-hour drift can neither skip nor double-cut.
+    - cron: "0 7 * * *"
   workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel"
+        type: choice
+        options:
+          - dry-run
+          - nightly
+          - stable
+        default: dry-run
+
+permissions:
+  contents: read
 
 jobs:
+  # Resolve one version for the whole run and decide whether it should proceed.
+  # Every downstream job reads these outputs; nothing recomputes a version.
+  setup:
+    name: setup
+    runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.resolve.outputs.channel }}
+      version: ${{ steps.resolve.outputs.version }}
+      dist_tag: ${{ steps.resolve.outputs.dist_tag }}
+      publish: ${{ steps.resolve.outputs.publish }}
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      # src/mix.exs is the single source of truth for the Aiur version. The
+      # checked-in npm package.json files must already agree with it, so a local
+      # `npm pack` and a published tarball can never disagree.
+      - name: Verify checked-in package versions match mix.exs
+        run: |
+          base=$(node packaging/scripts/resolve-version.mjs --channel stable --format plain)
+          pkg=$(node -p "require('./packaging/npm/aiur-cli/package.json').version")
+          echo "mix.exs=$base packaging/npm/aiur-cli=$pkg"
+          if [ "$base" != "$pkg" ]; then
+            echo "version drift: run \`node packaging/scripts/stamp-versions.mjs $base\` and commit" >&2
+            exit 1
+          fi
+
+      # mix.exs must always name an UNRELEASED version. A nightly is a
+      # prerelease of it, and a prerelease sorts below its base, so a base that
+      # is already on the registry would produce a nightly older than something
+      # published. That is the mistake that leaves the repo one bump behind.
+      - name: Verify the version is unreleased
+        run: |
+          base=$(node packaging/scripts/resolve-version.mjs --channel stable --format plain)
+          if [ -n "$(npm view "aiur-cli@$base" version 2>/dev/null || true)" ]; then
+            echo "aiur-cli@$base is already published; bump src/mix.exs before releasing" >&2
+            exit 1
+          fi
+
+      - name: Resolve channel and version
+        id: resolve
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            channel=stable
+          elif [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            channel=nightly
+          else
+            channel="${{ inputs.channel }}"
+            channel="${channel:-dry-run}"
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          node packaging/scripts/resolve-version.mjs \
+            --channel "$([ "$channel" = "dry-run" ] && echo dev || echo "$channel")" \
+            --tag "$GITHUB_REF" \
+            --sha "$GITHUB_SHA" \
+            --run "$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # A nightly is worth cutting only if main moved. The nightly version
+      # embeds the head sha, so "already on the registry" is exactly "no new
+      # commits since the last nightly". No new commits means no publish, and a
+      # no-op run is the correct outcome.
+      - name: Gate nightly on new commits
+        id: gate
+        run: |
+          channel="${{ steps.resolve.outputs.channel }}"
+          version="${{ steps.resolve.outputs.version }}"
+          if [ "$channel" != "nightly" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$(npm view "aiur-cli@$version" version 2>/dev/null || true)" ]; then
+            echo "aiur-cli@$version is already published; main has not moved since the last nightly"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "cutting nightly $version"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| channel | ${{ steps.resolve.outputs.channel }} |"
+            echo "| version | ${{ steps.resolve.outputs.version }} |"
+            echo "| dist-tag | ${{ steps.resolve.outputs.dist_tag || 'none' }} |"
+            echo "| publishes | ${{ steps.resolve.outputs.publish }} |"
+            echo "| proceeding | ${{ steps.gate.outputs.proceed }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
     name: build ${{ matrix.target }}
+    needs: setup
+    if: needs.setup.outputs.proceed == 'true'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -48,15 +179,6 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.target }}-mix-${{ hashFiles('src/mix.lock') }}
           restore-keys: ${{ runner.os }}-${{ matrix.target }}-mix-
 
-      - name: Compute version
-        id: version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Build release
         id: build
         env:
@@ -71,7 +193,7 @@ jobs:
           out=$(node packaging/scripts/assemble-platform-package.mjs \
             --release "${{ steps.build.outputs.release_dir }}" \
             --target "${{ matrix.target }}" \
-            --version "${{ steps.version.outputs.version }}")
+            --version "${{ needs.setup.outputs.version }}")
           echo "out=$out" >> "$GITHUB_OUTPUT"
 
       - name: Verify local layout assets in release packages
@@ -96,7 +218,7 @@ jobs:
   # — not just --version. Runs on tags and on workflow_dispatch dry runs.
   smoke:
     name: smoke ${{ matrix.target }}
-    needs: build
+    needs: [setup, build]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -137,18 +259,9 @@ jobs:
           name: aiur-cli-${{ matrix.target }}
           path: artifacts
 
-      - name: Compute version
-        id: version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Stamp and pack launcher
         run: |
-          node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+          node packaging/scripts/stamp-versions.mjs "${{ needs.setup.outputs.version }}"
           mkdir -p launcher
           cd packaging/npm/aiur-cli
           npm pack --pack-destination "$GITHUB_WORKSPACE/launcher"
@@ -226,7 +339,7 @@ jobs:
   # beyond npm. One target is enough to cover the cross-manager path.
   smoke-bun:
     name: smoke-bun linux-x64
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -252,7 +365,7 @@ jobs:
           fi
       - name: Stamp and pack launcher
         run: |
-          node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+          node packaging/scripts/stamp-versions.mjs "${{ needs.setup.outputs.version }}"
           mkdir -p launcher
           cd packaging/npm/aiur-cli
           npm pack --pack-destination "$GITHUB_WORKSPACE/launcher"
@@ -263,31 +376,55 @@ jobs:
           bun add -g "$GITHUB_WORKSPACE"/launcher/*.tgz "$GITHUB_WORKSPACE"/artifacts/*.tgz
           "$HOME/.bun/bin/aiur" --version
 
-  # Publish all five packages in lockstep, advancing `latest` only after every
-  # publish succeeds. Tag events only — never on workflow_dispatch dry runs.
+  # Publish every package in lockstep. Authentication is npm OIDC trusted
+  # publishing: no NPM_TOKEN anywhere in this job.
   publish:
-    name: publish
-    needs: [build, smoke, smoke-bun]
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: publish (${{ needs.setup.outputs.channel }})
+    needs: [setup, build, smoke, smoke-bun]
     runs-on: ubuntu-latest
+    permissions:
+      # Required for the OIDC token npm exchanges for a short-lived credential.
+      id-token: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      # No registry-url here, deliberately. setup-node's registry-url writes
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into .npmrc
+      # unconditionally; with no token that resolves to an empty string, npm
+      # believes auth is already configured, skips the OIDC exchange, and fails
+      # with a misleading ENEEDAUTH/E404. See actions/setup-node#1551.
       - name: Set up Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          node-version: "24"
+
+      # Trusted publishing needs npm >= 11.5.1. Node 24.5+ bundles a new enough
+      # npm and Node 22 never will (it tops out at 10.9.8), but the bundled
+      # version is not a contract, so assert it. An npm that is too old fails
+      # the publish with an opaque auth error instead of a clear one.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+          node -e '
+            const need = [11, 5, 1];
+            const got = process.argv[1].split(".").map(Number);
+            for (let i = 0; i < 3; i++) {
+              if (got[i] > need[i]) break;
+              if (got[i] < need[i]) {
+                console.error(`npm ${process.argv[1]} is older than 11.5.1; OIDC trusted publishing is unsupported`);
+                process.exit(1);
+              }
+            }
+          ' "$(npm --version)"
+          test ! -f ~/.npmrc || ! grep -q _authToken ~/.npmrc
 
       - name: Download platform artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
-
-      - name: Compute version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       # Never start a partial publish: require every published platform tarball.
       # darwin-x64 temporarily excluded (macos-13 runners unavailable).
@@ -304,7 +441,7 @@ jobs:
           done
 
       - name: Stamp launcher version and dependency pins
-        run: node packaging/scripts/stamp-versions.mjs "${{ steps.version.outputs.version }}"
+        run: node packaging/scripts/stamp-versions.mjs "${{ needs.setup.outputs.version }}"
 
       - name: Pack launcher
         run: |
@@ -312,27 +449,66 @@ jobs:
           cd packaging/npm/aiur-cli
           npm pack --pack-destination "$GITHUB_WORKSPACE/artifacts/launcher"
 
-      # Publish under a holding tag first so `latest` is untouched until all
-      # five versions exist on the registry.
-      - name: Publish platform packages (holding tag)
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Dry-run channel stops here. `npm publish --dry-run` still attempts the
+      # OIDC exchange but swallows a failure and returns 0 (npm/cli#8525), so a
+      # broken trusted-publisher config would pass silently. Run it verbose and
+      # fail on the exchange-failure log line instead: that is currently the
+      # only preflight that actually proves OIDC before a real publish.
+      - name: Dry-run publish and assert OIDC exchange
+        if: needs.setup.outputs.publish != 'true'
+        run: |
+          set -o pipefail
+          fail=0
+          for tgz in "$GITHUB_WORKSPACE"/artifacts/aiur-cli-*/*.tgz "$GITHUB_WORKSPACE"/artifacts/launcher/*.tgz; do
+            echo "::group::dry-run $(basename "$tgz")"
+            npm publish "$tgz" --dry-run --access public --loglevel verbose 2>&1 | tee out.log
+            echo "::endgroup::"
+            if grep -q "Failed token exchange request" out.log; then
+              echo "OIDC token exchange FAILED for $(basename "$tgz")" >&2
+              grep -i oidc out.log >&2 || true
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+      # No dist-tag step. An OIDC-exchanged credential authorizes `npm publish`
+      # only, so `npm dist-tag add` cannot run here (npm/cli#8547) — and it is
+      # what failed the last three release runs under a token, too. The lockstep
+      # guarantee is preserved by ordering instead: platform packages go first,
+      # and only `aiur-cli` is installed directly by users, so its dist-tag
+      # cannot advance until every platform package it pins is already live.
+      - name: Publish platform packages
+        if: needs.setup.outputs.publish == 'true'
         run: |
           for t in linux-x64 linux-arm64 darwin-arm64; do
-            npm publish "$GITHUB_WORKSPACE"/artifacts/aiur-cli-$t/*.tgz --tag next --access public
+            npm publish "$GITHUB_WORKSPACE"/artifacts/aiur-cli-$t/*.tgz \
+              --tag "${{ needs.setup.outputs.dist_tag }}" --access public
           done
 
-      - name: Publish launcher (holding tag)
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish "$GITHUB_WORKSPACE"/artifacts/launcher/*.tgz --tag next --access public
-
-      # Only reached if every publish above succeeded.
-      - name: Advance latest dist-tag
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish launcher
+        if: needs.setup.outputs.publish == 'true'
         run: |
-          v="${{ steps.version.outputs.version }}"
+          npm publish "$GITHUB_WORKSPACE"/artifacts/launcher/*.tgz \
+            --tag "${{ needs.setup.outputs.dist_tag }}" --access public
+
+      - name: Verify registry state
+        if: needs.setup.outputs.publish == 'true'
+        run: |
+          v="${{ needs.setup.outputs.version }}"
+          tag="${{ needs.setup.outputs.dist_tag }}"
+          {
+            echo "| package | published | $tag | latest |"
+            echo "| --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
           for pkg in aiur-cli aiur-cli-linux-x64 aiur-cli-linux-arm64 aiur-cli-darwin-arm64; do
-            npm dist-tag add "$pkg@$v" latest
+            test "$(npm view "$pkg@$v" version)" = "$v"
+            tagged=$(npm view "$pkg" "dist-tags.$tag")
+            latest=$(npm view "$pkg" dist-tags.latest)
+            test "$tagged" = "$v"
+            # A nightly must never become the default install.
+            if [ "$tag" != "latest" ] && [ "$latest" = "$v" ]; then
+              echo "$pkg: latest moved to $v on a $tag cut" >&2
+              exit 1
+            fi
+            echo "| $pkg | $v | $tagged | $latest |" >> "$GITHUB_STEP_SUMMARY"
           done

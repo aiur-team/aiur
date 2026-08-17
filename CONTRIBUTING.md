@@ -106,6 +106,61 @@ not fail a build on line count alone.
   check behind them, so a reviewer treating a missing doc as a blocking finding
   is the whole enforcement.
 
+## Releasing to npm
+
+`src/mix.exs` `version:` is the single source of truth, and it always names the
+**next unreleased** version. Every npm version is derived from it, and
+`.github/workflows/release-npm.yml` publishes all four packages (`aiur-cli` plus
+one per platform).
+
+| Channel | Trigger | Version | dist-tag |
+| --- | --- | --- | --- |
+| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.5` | `latest` |
+| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.5-nightly.<short-sha>` | `nightly` |
+| dry run | `workflow_dispatch` default | `0.0.5-dev.<run>` | none |
+
+```bash
+# Stable cut without pushing a tag.
+gh workflow run release-npm.yml --ref main -f channel=stable
+
+# Prove the pipeline without touching the registry.
+gh workflow run release-npm.yml --ref main -f channel=dry-run
+```
+
+Bumping the version means editing `src/mix.exs` and running
+`node packaging/scripts/stamp-versions.mjs <version>` so the checked-in
+`package.json` files agree. The workflow refuses to release on drift, and also
+refuses if `mix.exs` names a version already on the registry.
+
+Nightlies sort below the release they lead to, so `npm install aiur-cli` never
+picks one up. `nightly` is its own dist-tag: `next` already carries a different
+meaning on this registry. The schedule is a no-op when `main` has not moved,
+because the nightly version embeds the head sha and an existing version is
+skipped.
+
+### Authentication
+
+Publishing uses [npm OIDC trusted publishing](https://docs.npmjs.com/trusted-publishers/),
+not an npm token. Four constraints shape the workflow:
+
+- **Each package needs its own trusted publisher** on npmjs.com, all pointing at
+  this repo and the workflow filename `release-npm.yml`.
+- **Publishing must be triggered on `release-npm.yml` itself.** npm validates the
+  calling workflow, so a `workflow_call` indirection fails the match
+  ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
+  That is why the nightly schedule lives in this file rather than its own.
+- **npm must be 11.5.1 or newer.** Node 22 tops out at npm 10.9.8, so the publish
+  job runs Node 24 and still reinstalls npm and asserts the version.
+- **`npm dist-tag add` cannot run under OIDC**
+  ([npm/cli#8547](https://github.com/npm/cli/issues/8547)); the exchanged
+  credential only authorizes `npm publish`. Packages are therefore published with
+  their final dist-tag, launcher last, so `aiur-cli` only points at a version
+  whose platform packages already exist.
+
+`actions/setup-node` must not set `registry-url` in the publish job: it writes an
+empty `_authToken` line that makes npm skip the OIDC exchange
+([actions/setup-node#1551](https://github.com/actions/setup-node/issues/1551)).
+
 ## Repository renames
 
 Before a global identifier rename, run the report-only [rename preflight](docs/rename-preflight.md):

@@ -693,7 +693,7 @@ class-complete sweep at round 1 finds all nine.
 review collapse ~9 review rounds + 4 CI-nit rounds + 12 partial evictions + 7 merge turns →
 **~3–4**, i.e. **85 → ~8–12 dispatches** and **~420M → ~60M units** on a ticket like this.
 
-Also FYI (no action): every dispatch re-reads a ~76KB cold-start set (22.3KB `using-aiur/` +
+Also FYI (no action): every dispatch re-reads a ~76KB cold-start set (22.3KB `aiur-agent/` +
 18.8KB `AGENTS.md` + a monotonically-growing 33.8KB issue thread) — ×85 ≈ **1.6–2.1M tokens of
 pure re-onboarding**. That's what my prior-work continuation fix attacks.
 
