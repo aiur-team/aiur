@@ -211,6 +211,23 @@ or the next poll and retires the affected answers then.
 
 That gap is the exposure, and it is why a verdict is never kept at all.
 
+## Changes Aiur makes itself
+
+There is a third path, and it is the cheapest one: a change Aiur makes.
+
+When Aiur posts a comment, applies or removes a label, closes a ticket, repairs a pull request base, declares a dependency, or replies to and resolves a review thread, GitHub's answer to that request already contains the new state. Aiur keeps it. The round trip was required by the write, so learning the result costs nothing extra, and no later read is spent discovering a change Aiur made.
+
+Two consequences:
+
+| Situation | What happens |
+| --- | --- |
+| A view is showing the resource | It updates from the write, with no API call of its own, and before any webhook for that change could arrive. |
+| The webhook for that change arrives | It is recognised as already handled and wakes nobody. An agent is never re-woken by its own comment. |
+
+Suppression here is per resource **and per version**, as above: a later edit of that same comment moves its `updated_at` and wakes the agent normally. Where GitHub's answer cannot name a version — the label endpoints return the label array and nothing else — Aiur keeps the state but suppresses nothing, so the next genuine change is never swallowed.
+
+A write that fails records nothing.
+
 ## Optional webhook
 
 The webhook shortens reaction time for repository events while polling continues as a reconciliation path.

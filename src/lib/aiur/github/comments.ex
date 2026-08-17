@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Comments do
 
   require Logger
   alias Aiur.Codeowners
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.{Errors, Transport, WriteThrough}
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_comment(issue_number, body, opts \\ [])
@@ -16,6 +16,15 @@ defmodule Aiur.GitHub.Comments do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments"
 
       case request_fun.(%{method: :post, url: url, token: token, body: %{"body" => body}}) do
+        # GitHub answers a comment creation with the comment it created, so the
+        # new state is already in hand and re-reading it later would be paying
+        # twice for one fact. Depositing it also marks it processed at its own
+        # `updated_at`, which is what stops the delivery GitHub sends moments
+        # later from waking an agent for a comment the agent itself posted.
+        {:ok, %{status: status, body: comment}} when status in [200, 201] ->
+          WriteThrough.issue_comment(comment)
+          :ok
+
         {:ok, %{status: status}} when status in [200, 201] ->
           :ok
 
