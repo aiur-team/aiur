@@ -182,11 +182,20 @@ defmodule Aiur.GitHub.AgentCache do
 
   def invalidate_key(_key, _opts), do: :ok
 
-  # The wrapper's two resource directories. Everything else has no agent-side
-  # directory, and is deliberately not invented one here: a name the wrapper does
-  # not write is a mark nothing will ever read.
+  # The wrapper's two resource directories, and the store identities that resolve
+  # to them. Everything else has no agent-side directory, and is deliberately not
+  # invented one here: a name the wrapper does not write is a mark nothing will
+  # ever read.
+  #
+  # `:issue_labels` and `:branch_pull_request` are keyed by a NUMBER an agent
+  # reads by — the issue's own, and the ticket's — so both land on that number's
+  # directories. `invalidate_key/2` then retires the sibling spelling too, which
+  # is what GitHub's shared number space requires: `gh issue view 2073` and
+  # `gh pr view 2073` are the same number.
   defp wrapper_kind(:pull_request), do: "pr"
   defp wrapper_kind(:issue), do: "issue"
+  defp wrapper_kind(:issue_labels), do: "issue"
+  defp wrapper_kind(:branch_pull_request), do: "issue"
   defp wrapper_kind(_type), do: nil
 
   # Down-cased, matching `ResourceStore.key/4`. The two pipes disagree on casing —

@@ -49,29 +49,43 @@ defmodule Aiur.GitHub.AgentCacheBridge do
     {:ok, %{opts: Keyword.take(opts, [:state_dir])}}
   end
 
-  # A store write that moved only a conditional-request validator is not news
-  # about a resource: nobody's cached answer is wrong because a poll re-recorded
-  # an `ETag`. These endpoint identities publish on every sweep — the repo-wide
-  # comment streams alone do it twice a dispatch tick — and treating each as a
-  # change would retire every cached collection query in the repository several
-  # times a minute, which is the sharing this exists for, undone.
-  @validator_only [
-    :issue_comments,
-    :pr_issue_comments,
-    :repo_issue_comment_stream,
-    :repo_review_comment_stream,
-    :pull_request_reviews,
-    :labelled_pull_requests
-  ]
+  # The only store identities this acts on: the ones whose id IS the issue or
+  # pull request number an agent reads by. Everything else is deliberately
+  # ignored, and the reason is what `Aiur.Events.GithubWebhook.Deposit` actually
+  # writes — every delivery that carries a comment or a review ALSO deposits the
+  # issue or pull request it hangs off, in the same call. So the parent is
+  # already named by a key in this list, and acting on the comment as well would
+  # add nothing except a second retirement of the same resource.
+  #
+  # The cost of not being narrow here is not theoretical. A subresource cannot
+  # name its parent from its own id, so the honest scope for it is the
+  # repository's collection queries — and a busy repository sees a comment every
+  # few seconds, which would retire every cached `pr list` and `issue list` in it
+  # continuously. That is the sharing this exists for, undone, to duplicate work
+  # the parent deposit has already done.
+  #
+  # A conditional-request validator is ignored for a plainer reason: nobody's
+  # answer is wrong because a poll re-recorded an `ETag`. The repo-wide comment
+  # streams alone publish twice a dispatch tick.
+  #
+  # `:check_run` is ignored too. A CI verdict is never served from the agent
+  # store at any age, so there is nothing about a check run for this to retire.
+  #
+  # The trade-off, stated plainly: a resource type added later retires nothing
+  # here until it is added to this list. That direction is chosen because the
+  # other one — flushing broadly on anything unrecognised — is a certain and
+  # continuous cost, while this is a bounded staleness window on a type nobody
+  # has taught the wrapper to file yet.
+  @invalidating_types [:issue, :pull_request, :issue_labels, :branch_pull_request]
 
   @impl GenServer
-  def handle_info({:github_resource_changed, %{key: {type, _owner, _repo, _id}}}, state)
-      when type in @validator_only do
+  def handle_info({:github_resource_changed, %{key: {type, _owner, _repo, _id} = key}}, state)
+      when type in @invalidating_types do
+    AgentCache.invalidate_key(key, state.opts)
     {:noreply, state}
   end
 
-  def handle_info({:github_resource_changed, %{key: key}}, state) do
-    AgentCache.invalidate_key(key, state.opts)
+  def handle_info({:github_resource_changed, %{key: {_type, _owner, _repo, _id}}}, state) do
     {:noreply, state}
   end
 
