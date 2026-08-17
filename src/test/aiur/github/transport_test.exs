@@ -67,6 +67,19 @@ defmodule Aiur.GitHub.TransportTest do
     assert {"X-GitHub-Api-Version", "2026-03-10"} in Transport.github_headers("token", %{api_version: "2026-03-10"})
   end
 
+  # Anonymous reads (public CODEOWNERS, for one) route through Transport so the
+  # meter sees them. Emitting `Bearer ` with no token would turn a legitimate
+  # anonymous call into a 401.
+  test "omits the Authorization header when there is no token" do
+    for token <- [nil, ""] do
+      headers = Transport.github_headers(token, %{})
+
+      refute Enum.any?(headers, fn {name, _value} -> name == "Authorization" end)
+      assert {"Accept", "application/vnd.github+json"} in headers
+      assert {"X-GitHub-Api-Version", "2022-11-28"} in headers
+    end
+  end
+
   test "handles GraphQL success, GraphQL errors, and HTTP errors" do
     request_fun = fn req ->
       assert req.method == :post

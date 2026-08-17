@@ -487,21 +487,27 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  @spec github_headers(String.t(), map()) :: [{String.t(), String.t()}]
-  def github_headers(token, %{api_version: version}) when is_binary(version) do
-    [
-      {"Authorization", "Bearer #{token}"},
+  @spec github_headers(String.t() | nil, map()) :: [{String.t(), String.t()}]
+  def github_headers(token, req) do
+    version =
+      case req do
+        %{api_version: version} when is_binary(version) -> version
+        _no_override -> "2022-11-28"
+      end
+
+    base = [
       {"Accept", "application/vnd.github+json"},
       {"X-GitHub-Api-Version", version}
     ]
-  end
 
-  def github_headers(token, _req) do
-    [
-      {"Authorization", "Bearer #{token}"},
-      {"Accept", "application/vnd.github+json"},
-      {"X-GitHub-Api-Version", "2022-11-28"}
-    ]
+    # A tokenless read is a legitimate anonymous call (public CODEOWNERS, for
+    # one). Sending `Bearer ` with no token turns it into a 401 instead, so the
+    # header is omitted rather than emitted empty.
+    if is_binary(token) and token != "" do
+      [{"Authorization", "Bearer #{token}"} | base]
+    else
+      base
+    end
   end
 
   @spec github_graphql(function(), String.t(), String.t(), map(), keyword()) ::
