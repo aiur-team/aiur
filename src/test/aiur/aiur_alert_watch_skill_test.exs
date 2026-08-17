@@ -80,6 +80,31 @@ defmodule Aiur.AiurAlertWatchSkillTest do
     out
   end
 
+  test "rejects an explicit legacy config path", %{home: home} do
+    File.mkdir_p!(home)
+    legacy = Path.join(home, ".aiurconfig")
+    File.write!(legacy, "workspace:\n  root: ~/workspaces\n")
+
+    {out, status} = System.cmd("bash", [@script, legacy], env: [{"HOME", home}], stderr_to_stdout: true)
+
+    assert status == 1
+    assert out =~ ".aiurconfig is no longer supported"
+    assert out =~ Path.join([home, ".aiur", "config"])
+    assert out =~ "relative prompt_file and hooks_file paths"
+  end
+
+  test "rejects a named legacy config with its YAML destination", %{home: home} do
+    File.mkdir_p!(home)
+    legacy = Path.join(home, "portable.aiurconfig")
+    File.write!(legacy, "workspace:\n  root: ~/workspaces\n")
+
+    {out, status} = System.cmd("bash", [@script, legacy], env: [{"HOME", home}], stderr_to_stdout: true)
+
+    assert status == 1
+    assert out =~ "portable.aiurconfig is no longer supported"
+    assert out =~ Path.join(home, "portable.yaml")
+  end
+
   # Pull the emitted JSON object lines (the watcher emits only alert objects).
   defp alert_lines(out) do
     out

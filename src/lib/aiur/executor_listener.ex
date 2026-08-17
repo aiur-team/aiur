@@ -50,15 +50,26 @@ defmodule Aiur.ExecutorListener do
     watermark = read_watermark()
     subscribe_missing(patterns)
 
-    if "executor.#" in patterns and bound?("executor.#") do
-      replay_and_deliver("executor.#", watermark)
-    end
-
     current_health = health(patterns)
+
+    state = %{
+      patterns: patterns,
+      watermark: watermark,
+      resubscribe_interval_ms: interval,
+      health: current_health
+    }
+
+    state =
+      if "executor.#" in patterns and bound?("executor.#") do
+        replay_and_deliver("executor.#", state)
+      else
+        state
+      end
+
     maybe_report_health(nil, current_health, patterns)
     schedule_resubscribe(interval)
 
-    {:ok, %{patterns: patterns, watermark: watermark, resubscribe_interval_ms: interval, health: current_health}}
+    {:ok, state}
   end
 
   @impl true
@@ -70,9 +81,12 @@ defmodule Aiur.ExecutorListener do
     executor_missing? = "executor.#" in state.patterns and not bound?("executor.#")
     subscribe_missing(state.patterns)
 
-    if executor_missing? and bound?("executor.#") do
-      replay_and_deliver("executor.#", read_watermark())
-    end
+    state =
+      if executor_missing? and bound?("executor.#") do
+        replay_and_deliver("executor.#", %{state | watermark: read_watermark()})
+      else
+        state
+      end
 
     current_health = health(state.patterns)
     maybe_report_health(observed_health, current_health, state.patterns)
@@ -111,14 +125,17 @@ defmodule Aiur.ExecutorListener do
 
   defp bound?(pattern), do: pattern in safe_bindings(self())
 
-  defp replay_and_deliver(pattern, watermark) do
-    case ExecutorEvents.replay([pattern], watermark) do
+  # Replay threads the caller's state through every event and returns it, so a
+  # watermark advanced during replay survives (#2039). Folding over a throwaway
+  # state instead would re-deliver the whole replayed range on the next restart.
+  defp replay_and_deliver(pattern, state) do
+    case ExecutorEvents.replay([pattern], state.watermark) do
       {:ok, events} ->
-        replay_state = %{patterns: [pattern], watermark: watermark, resubscribe_interval_ms: 0, health: :present}
-        Enum.each(events, &process_event(&1, replay_state))
+        Enum.reduce(events, state, &process_event/2)
 
       {:error, reason} ->
         Logger.error("aiur_executor_listener phase=replay_failed reason=#{inspect(reason)}")
+        state
     end
   end
 
@@ -262,6 +279,10 @@ defmodule Aiur.ExecutorListener do
   defp truncate(text, max) when is_binary(text) do
     if String.length(text) > max, do: String.slice(text, 0, max - 1) <> "…", else: text
   end
+
+  # Tests pin the interval to :infinity to keep the resubscribe timer from
+  # firing mid-assertion (#2039).
+  defp schedule_resubscribe(:infinity), do: :ok
 
   defp schedule_resubscribe(interval) when is_integer(interval) and interval > 0 do
     Process.send_after(self(), :resubscribe, interval)

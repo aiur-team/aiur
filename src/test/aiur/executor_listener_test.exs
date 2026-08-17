@@ -74,43 +74,56 @@ defmodule Aiur.ExecutorListenerTest do
     assert ExecutorListener.alive?(@listener_name)
   end
 
-  test "the periodic re-subscribe check never duplicates the binding" do
-    pid = start_listener(resubscribe_interval_ms: 50)
+  test "re-subscribe checks never duplicate the binding" do
+    pid = start_listener(resubscribe_interval_ms: :infinity)
 
-    # Let several re-subscribe ticks pass: the Exchange binding table is a
+    # Drive each scheduler tick explicitly. The Exchange binding table is a
     # duplicate bag, so an unconditional re-subscribe would multiply delivery.
-    Process.sleep(200)
-    assert Enum.sort(Exchange.bindings_for(pid)) == Enum.sort(ExecutorBindings.patterns())
+    # Reading the state after each send doubles as a mailbox barrier, which is
+    # why this needs no sleep to be reliable (#2039).
+    for _tick <- 1..3 do
+      send(pid, :resubscribe)
+      assert :sys.get_state(pid).health == :present
+      assert Enum.sort(Exchange.bindings_for(pid)) == Enum.sort(ExecutorBindings.patterns())
+    end
+
     assert ExecutorListener.alive?(@listener_name)
   end
 
   test "re-subscribes and replays missed events after the Exchange drops the binding" do
     :ok = Exchange.subscribe("executor.command.requested")
-    pid = start_listener(resubscribe_interval_ms: 500)
+    pid = start_listener(resubscribe_interval_ms: :infinity)
 
     first = command_decision("dec-gap-first")
-    assert {:ok, _first_id, _count} = ExecutorEvents.publish_requested(first)
-    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}, 500
+    assert {:ok, first_id, 1} = ExecutorEvents.publish_requested(first)
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}
     assert first_message =~ "dec-gap-first"
-    assert eventually(fn -> is_integer(watermark()) end)
+    assert :sys.get_state(pid).watermark >= first_id
+    assert watermark() >= first_id
 
     # Simulate the Exchange being restarted by the supervisor: its fresh
-    # binding table no longer has this listener's row. The next re-subscribe
-    # tick is 500ms out, so the Command below is published during a real gap.
+    # binding table no longer has this listener's row. The Command below is
+    # synchronously proven to have no live subscriber during that real gap.
     table = :persistent_term.get({{Aiur.Events.Exchange, :table}, Aiur.Events.Exchange})
     :ets.match_delete(table, {:_, pid, :_})
     assert ExecutorListener.alive?(@listener_name) == false
 
     second = command_decision("dec-gap-second")
-    assert {:ok, _second_id, _count} = ExecutorEvents.publish_requested(second)
-    refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
+    assert {:ok, second_id, 0} = ExecutorEvents.publish_requested(second)
+    refute_received {:event, %{"topic" => "executor.command.requested"}}
 
-    # The next re-subscribe tick re-establishes the binding and replays the
-    # missed Command — but never re-notifies the already-delivered one.
-    assert eventually(fn -> ExecutorListener.alive?(@listener_name) end)
-    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => replayed}}, 1_000
+    # Drive the next re-subscribe tick and use the state read as a mailbox
+    # barrier. It replays the missed Command and advances both watermarks, but
+    # never re-notifies the already-delivered one.
+    send(pid, :resubscribe)
+    state = :sys.get_state(pid)
+
+    assert state.health == :present
+    assert state.watermark >= second_id
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => replayed}}
     assert replayed =~ "dec-gap-second"
-    refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
+    refute_received {:event, %{"topic" => "executor.command.requested"}}
+    assert watermark() >= second_id
   end
 
   test "reports not alive when no listener is running" do

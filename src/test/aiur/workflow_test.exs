@@ -21,9 +21,19 @@ defmodule Aiur.WorkflowTest do
     {:ok, dir: dir}
   end
 
-  describe ".aiurconfig pure-YAML parse" do
-    test "a pure-YAML .aiurconfig with no prompt_file loads with an empty prompt", %{dir: dir} do
+  describe "config.yaml pure-YAML parse" do
+    test "an explicit legacy path is rejected before parsing", %{dir: dir} do
       path = Path.join(dir, ".aiurconfig")
+      File.write!(path, "tracker:\n  kind: memory\n")
+
+      assert {:error, message} = Workflow.load(path)
+      assert message =~ "#{path} is no longer supported"
+      assert message =~ Path.join([dir, ".aiur", "config"])
+      assert message =~ "relative prompt_file and hooks_file paths"
+    end
+
+    test "a pure-YAML config.yaml with no prompt_file loads with an empty prompt", %{dir: dir} do
+      path = Path.join(dir, "config.yaml")
 
       File.write!(path, """
       tracker:
@@ -41,8 +51,8 @@ defmodule Aiur.WorkflowTest do
       assert loaded.prompt_template == ""
     end
 
-    test "a .aiurconfig that decodes to a non-map is rejected", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+    test "a config.yaml that decodes to a non-map is rejected", %{dir: dir} do
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "- not\n- a\n- map\n")
 
       assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(path)
@@ -53,7 +63,7 @@ defmodule Aiur.WorkflowTest do
     test "prompt_file loads the sibling template as the prompt", %{dir: dir} do
       File.write!(Path.join(dir, "prompt.md"), "You are working on {{ issue.identifier }}.\n")
 
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
 
       File.write!(path, """
       tracker:
@@ -72,7 +82,7 @@ defmodule Aiur.WorkflowTest do
       File.mkdir_p!(subdir)
       File.write!(Path.join(subdir, "prompt.md"), "Nested prompt body.\n")
 
-      path = Path.join(subdir, ".aiurconfig")
+      path = Path.join(subdir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nprompt_file: prompt.md\n")
 
       elsewhere = Path.join(dir, "elsewhere")
@@ -85,7 +95,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "an empty prompt_file is treated as absent", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nprompt_file: \"\"\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -93,7 +103,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "a prompt_file pointing at a missing file is a clear error", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nprompt_file: missing.md\n")
 
       resolved = Path.expand("missing.md", dir)
@@ -104,7 +114,7 @@ defmodule Aiur.WorkflowTest do
   describe "hooks_file resolution" do
     test "hooks_file loads the sibling file as the hooks map", %{dir: dir} do
       File.write!(Path.join(dir, ".aiurhooks"), "after_create: echo created\nbefore_run: mix deps.get\n")
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -125,7 +135,7 @@ defmodule Aiur.WorkflowTest do
 
     test "hooks_file takes precedence over an inline hooks block", %{dir: dir} do
       File.write!(Path.join(dir, ".aiurhooks"), "after_create: from file\n")
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
 
       File.write!(path, """
       tracker:
@@ -140,7 +150,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "an inline hooks block still loads when no hooks_file is set", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
 
       File.write!(path, """
       tracker:
@@ -157,7 +167,7 @@ defmodule Aiur.WorkflowTest do
       subdir = Path.join(dir, "nested")
       File.mkdir_p!(subdir)
       File.write!(Path.join(subdir, ".aiurhooks"), "after_create: nested hook\n")
-      path = Path.join(subdir, ".aiurconfig")
+      path = Path.join(subdir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
 
       File.cd!(dir, fn ->
@@ -167,7 +177,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "a hooks_file pointing at a missing file is a clear error", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nhooks_file: missing.aiurhooks\n")
 
       resolved = Path.expand("missing.aiurhooks", dir)
@@ -176,7 +186,7 @@ defmodule Aiur.WorkflowTest do
 
     test "a hooks_file that isn't a YAML map is an invalid_hooks_file error", %{dir: dir} do
       File.write!(Path.join(dir, ".aiurhooks"), "- just\n- a\n- list\n")
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nhooks_file: .aiurhooks\n")
 
       resolved = Path.expand(".aiurhooks", dir)
@@ -184,7 +194,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "an empty hooks_file value falls back to the inline hooks block", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
 
       File.write!(path, """
       tracker:
@@ -216,7 +226,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "an absolute alerts_file is left untouched", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nalerts:\n  alerts_file: /etc/aiur/alerts.yaml\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -224,7 +234,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "a ~/ alerts_file is left untouched for later expansion", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nalerts:\n  alerts_file: ~/my-alerts.yaml\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -232,7 +242,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "an absent alerts_file leaves the alerts block unchanged", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nalerts:\n  enabled: true\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -243,7 +253,7 @@ defmodule Aiur.WorkflowTest do
   describe "prewarm base_build_file resolution" do
     test "base_build_file loads the sibling script into prewarm.base_build", %{dir: dir} do
       File.write!(Path.join(dir, "prewarm"), "mix deps.get && mix compile\n")
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  base_build_file: prewarm\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -251,7 +261,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "a base_build_file pointing at a missing file is a clear error", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  base_build_file: missing\n")
 
       resolved = Path.expand("missing", dir)
@@ -259,7 +269,7 @@ defmodule Aiur.WorkflowTest do
     end
 
     test "an inline base_build is left unchanged when no base_build_file is set", %{dir: dir} do
-      path = Path.join(dir, ".aiurconfig")
+      path = Path.join(dir, "config.yaml")
       File.write!(path, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  base_build: echo hi\n")
 
       assert {:ok, loaded} = Workflow.load(path)
@@ -291,7 +301,7 @@ defmodule Aiur.WorkflowTest do
       end)
     end
 
-    test "resolve_config_path follows .aiur/config > .aiurconfig > ~/.aiur/config > ~/.aiurconfig", %{
+    test "resolve_config_path uses repo then global .aiur/config and rejects legacy files", %{
       dir: dir
     } do
       repo_new = Path.join([dir, "repo", ".aiur", "config"])
@@ -308,19 +318,25 @@ defmodule Aiur.WorkflowTest do
         File.write!(path, "tracker:\n  kind: memory\n")
       end
 
-      # only legacy global -> legacy global
+      # A legacy global config must fail rather than silently loading or using defaults.
       write_config.(global_legacy)
-      assert Workflow.resolve_config_path(candidates) == global_legacy
 
-      # global new beats legacy global
+      assert_raise ArgumentError, ~r/\.aiurconfig is no longer supported.*\.aiur\/config/s, fn ->
+        Workflow.resolve_config_path(candidates)
+      end
+
+      # The canonical global config wins when both global forms exist.
       write_config.(global_new)
       assert Workflow.resolve_config_path(candidates) == global_new
 
-      # legacy repo beats anything global
+      # A repo legacy file fails before a global config can quietly take over.
       write_config.(repo_legacy)
-      assert Workflow.resolve_config_path(candidates) == repo_legacy
 
-      # new repo-local wins outright
+      assert_raise ArgumentError, ~r/\.aiurconfig is no longer supported.*\.aiur\/config/s, fn ->
+        Workflow.resolve_config_path(candidates)
+      end
+
+      # The canonical repo config wins when both repo forms exist.
       write_config.(repo_new)
       assert Workflow.resolve_config_path(candidates) == repo_new
     end
@@ -329,7 +345,7 @@ defmodule Aiur.WorkflowTest do
     # resolves the home the VM captured at boot and ignores a later
     # `System.put_env`, which silently defeated the suite's HOME sandbox and let
     # discovery reach the developer's real `~/.aiur/config`.
-    test "config_path_candidates is the 4-step precedence list anchored at cwd and home", %{dir: dir} do
+    test "config_path_candidates pairs canonical and legacy probes at cwd and home", %{dir: dir} do
       home = System.get_env("HOME")
 
       File.cd!(dir, fn ->

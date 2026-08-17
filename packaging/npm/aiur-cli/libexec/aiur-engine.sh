@@ -63,14 +63,95 @@ die() {
   exit 1
 }
 
+legacy_config_path() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --logs-root | --host | --port | --max-agents)
+        if [ "$#" -ge 2 ]; then
+          shift 2
+        else
+          shift
+        fi
+        ;;
+      --)
+        shift
+        [ "$#" -gt 0 ] || return
+        case "$1" in
+          *.aiurconfig) printf '%s' "$1" ;;
+        esac
+        return
+        ;;
+      --logs-root=* | --host=* | --port=* | --max-agents=* | --*)
+        shift
+        ;;
+      *.aiurconfig)
+        printf '%s' "$1"
+        return
+        ;;
+      *)
+        # A positional non-legacy config is authoritative. Let the Elixir CLI
+        # validate it instead of rejecting an unrelated ambient legacy file.
+        return
+        ;;
+    esac
+  done
+
+  local target_root="${AIUR_REPO_ROOT:-}" home_real
+  home_real="$(cd "${HOME:-}" 2>/dev/null && pwd -P || printf '%s' "${HOME:-}")"
+
+  if [ -n "$target_root" ]; then
+    if [ -f "$target_root/.aiur/config" ]; then
+      return
+    fi
+    if [ -f "$target_root/.aiurconfig" ]; then
+      printf '%s' "$target_root/.aiurconfig"
+      return
+    fi
+  else
+    local pwd_real d
+    pwd_real="$(pwd -P 2>/dev/null || printf '%s' "$PWD")"
+    d="$pwd_real"
+
+    while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
+      if [ -f "$d/.aiur/config" ]; then
+        return
+      fi
+      if [ -f "$d/.aiurconfig" ]; then
+        printf '%s' "$d/.aiurconfig"
+        return
+      fi
+      d="$(dirname "$d")"
+    done
+  fi
+
+  if [ -n "$home_real" ] && [ ! -f "$home_real/.aiur/config" ] && [ -f "$home_real/.aiurconfig" ]; then
+    printf '%s' "$home_real/.aiurconfig"
+  fi
+}
+
+reject_legacy_config() {
+  local legacy legacy_basename canonical
+  legacy="$(legacy_config_path "$@")"
+  [ -z "$legacy" ] && return
+  legacy_basename="${legacy##*/}"
+
+  if [ "$legacy_basename" = ".aiurconfig" ]; then
+    canonical="$(dirname "$legacy")/.aiur/config"
+  else
+    canonical="${legacy%.aiurconfig}.yaml"
+  fi
+
+  die "$legacy is no longer supported. Move it to $canonical. Keep relative prompt_file and hooks_file paths valid from the new config directory."
+}
+
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- distribution identity (per-instance: keyed by the aiur project root) -----
 
 # The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
 # shim) wins. Otherwise walk up from $PWD to the first dir holding a REPO-LOCAL
-# config — but the walk STOPS at $HOME: the global config at ~/.aiur/config (legacy
-# ~/.aiurconfig) is not a repo root, and treating it as one would collapse every
+# config — but the walk STOPS at $HOME: the global config at ~/.aiur/config is
+# not a repo root, and treating it as one would collapse every
 # project under $HOME onto one key (#443). When no repo-local config is found, the
 # BEAM serves this run via the global config (mirroring its discovery order in
 # src/lib/aiur/workflow.ex) — or via none — and in both cases the project being
@@ -94,7 +175,7 @@ aiur_project_root() {
 
   local d="$pwd_real"
   while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
-    if [ -f "$d/.aiur/config" ] || [ -f "$d/.aiurconfig" ]; then
+    if [ -f "$d/.aiur/config" ]; then
       printf '%s' "$d"
       return
     fi
@@ -113,7 +194,7 @@ aiur_project_root_source() {
 
   local d="$pwd_real"
   while [ -n "$d" ] && [ "$d" != "/" ] && [ "$d" != "$home_real" ]; do
-    if [ -f "$d/.aiur/config" ] || [ -f "$d/.aiurconfig" ]; then
+    if [ -f "$d/.aiur/config" ]; then
       printf 'repo'
       return
     fi
@@ -309,9 +390,9 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
-       aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
+       aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
        aiur --bg [--no-dashboard] [--executor] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
@@ -2874,6 +2955,11 @@ cmd_restart() {
   local skip_build=0 arg
   local run_args=()
 
+  # Refuse a stale config before stopping a healthy daemon. dispatch_run also
+  # checks this for ordinary launches, but restart mutates state before it gets
+  # that far.
+  reject_legacy_config "$@"
+
   for arg in "$@"; do
     case "$arg" in
       --no-build) skip_build=1 ;;
@@ -2968,6 +3054,8 @@ cmd_restart() {
 dispatch_run() {
   local mode="foreground" arg
   local args=()
+
+  reject_legacy_config "$@"
 
   for arg in "$@"; do
     if [ "$arg" = "--bg" ]; then

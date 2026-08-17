@@ -133,7 +133,7 @@ The TUI and dashboard are both optional: `aiur --bg` runs headless with the dash
 | Alerts | Customizable notifications and sounds in the checked-in `.aiur/alerts` file |
 | Workflow helpers | Repo-local skills and scripts that keep issue work, PR creation, and landing consistent across runs |
 
-See [src/README.md](src/README.md#config) for every `.aiurconfig` option, or the
+See [src/README.md](src/README.md#config) for every `.aiur/config` option, or the
 [configuration reference](https://aiur.team/docs/reference/configuration).
 
 ## Project layout

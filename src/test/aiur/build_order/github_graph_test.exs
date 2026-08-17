@@ -1409,7 +1409,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   describe "public repository authority" do
     setup do
       previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
-      fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)
+      fixture = Path.expand("../../fixtures/test.yaml", __DIR__)
 
       Application.put_env(:aiur, :workflow_file_path, fixture)
       Aiur.WorkflowStore.force_reload()
