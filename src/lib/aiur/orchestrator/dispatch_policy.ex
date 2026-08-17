@@ -247,10 +247,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def github_quota_gate({:hold, %{resource: resource}}) when resource in ["core", "graphql"], do: :hold
   def github_quota_gate(_status), do: :dispatch
 
+  # The corroboration keys are optional but no longer incidental: a `load` or
+  # `run_queue` hold cannot be produced without them (#2089), so the type has to
+  # admit them or dialyzer intersects the inferred 5-key hold with a closed
+  # 3-key spec, finds nothing, and declares every load/run-queue hold dead.
   @type admission_reason :: %{
-          signal: :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
-          measured: term(),
-          threshold: term()
+          :signal => :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
+          :measured => term(),
+          :threshold => term(),
+          optional(:reclaimable_cpu_percent) => number(),
+          optional(:reclaimable_cpu_threshold) => number()
         }
 
   @doc """
