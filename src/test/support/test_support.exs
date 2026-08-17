@@ -3,6 +3,9 @@ defmodule Aiur.TestSupport do
 
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+  alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
+  alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
+  alias Aiur.PollCadence
 
   @workflow_prompt "You are an agent for this repository."
   @github_repository {"its-everdred", "aiur"}
@@ -90,6 +93,38 @@ defmodule Aiur.TestSupport do
     Enum.map(@isolated_app_env_keys, &{&1, Application.fetch_env(:aiur, &1)})
   end
 
+  @doc """
+  Resets every piece of VM-global state a TestSupport case may have moved.
+
+  All of it lives in `:persistent_term`, so it outlasts the process that wrote
+  it and leaks between cases in the same VM. Each case therefore starts from the
+  production-safe default:
+
+    * `Aiur.Events.Publisher` / `Aiur.Events.SubscriptionStore` — a filtering or
+      enqueue stub would otherwise silently affect an unrelated Exchange case.
+    * `Aiur.GitHub.ResourceStore` — it records which GitHub resource each
+      published event was, deliberately global and restart-durable so a webhook
+      delivery can suppress the poll sweep that re-reads the same comment. In a
+      suite that means comment id 1 on issue 42 in one case would suppress
+      comment id 1 on issue 42 in the next.
+    * `Aiur.GitHub.AuthPreflight` — it remembers the credential it proved, so a
+      success recorded by one case would let a later case's poll cycle skip a
+      preflight it expects to observe.
+    * `Aiur.PollCadence` — every Orchestrator poll cycle writes the effective
+      interval there and every freshness threshold in the tree derives from it,
+      so a case that drives a poll cycle would move the staleness windows for
+      every later case.
+  """
+  @spec reset_global_state!() :: :ok
+  def reset_global_state! do
+    EventsPublisher.set_tracked_fn(fn _ -> true end)
+    EventsSubscriptionStore.set_enqueue_fn(nil)
+    GitHubResourceStore.reset()
+    GitHubAuthPreflight.invalidate(:test_setup)
+    PollCadence.forget_effective_interval_ms()
+    :ok
+  end
+
   @doc "Puts back what `capture_app_env/0` recorded, deleting keys that were unset."
   @spec restore_app_env([{atom(), {:ok, term()} | :error}]) :: :ok
   def restore_app_env(captured) do
@@ -155,28 +190,7 @@ defmodule Aiur.TestSupport do
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
         previous_app_env = Aiur.TestSupport.capture_app_env()
 
-        # These callbacks live in :persistent_term so they outlast the test
-        # process that installed them. Start every TestSupport case from the
-        # production-safe defaults and restore those defaults at teardown;
-        # otherwise a filtering/enqueue stub can silently affect an unrelated
-        # Exchange test that happens to run later in the VM.
-        EventsPublisher.set_tracked_fn(fn _ -> true end)
-        EventsSubscriptionStore.set_enqueue_fn(nil)
-
-        # Same reasoning, one layer down. `Aiur.GitHub.ResourceStore` records
-        # which GitHub resource each published event was, and it is deliberately
-        # global and restart-durable so a webhook delivery can suppress the poll
-        # sweep that re-reads the same comment. In a suite that means comment id
-        # 1 on issue 42 in one case would silently suppress comment id 1 on
-        # issue 42 in the next, so each case starts from an empty store.
-        GitHubResourceStore.reset()
-
-        # Same reasoning again. `Aiur.PollCadence` keeps the effective poll
-        # interval in :persistent_term, written by every Orchestrator poll cycle,
-        # and every freshness threshold in the tree derives from it. A case that
-        # drives a poll cycle would otherwise move the staleness windows for every
-        # later case in the VM, so each case starts from the configured cadence.
-        Aiur.PollCadence.forget_effective_interval_ms()
+        Aiur.TestSupport.reset_global_state!()
 
         File.mkdir_p!(workflow_root)
 
