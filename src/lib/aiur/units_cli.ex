@@ -136,7 +136,7 @@ defmodule Aiur.UnitsCLI do
   defp unavailable_catalog do
     %{
       status: :unavailable,
-      message: "Units catalog is unavailable.",
+      message: "Fleet data is unavailable.",
       truncated?: false,
       snapshot: %{freshness: %{membership: %{status: :unavailable}}, rows: []}
     }
@@ -232,7 +232,7 @@ defmodule Aiur.UnitsCLI do
     print_warning(source)
 
     case get_in(envelope, ["data", "view", "rows"]) do
-      nil -> IO.puts("Units catalog unavailable; units have not been observed.")
+      nil -> IO.puts("No live units; units have not been observed.")
       [] -> print_empty(envelope)
       rows when is_list(rows) -> print_rows(rows, format)
     end
@@ -251,7 +251,7 @@ defmodule Aiur.UnitsCLI do
 
     cond do
       view["zero_result?"] -> IO.puts("No units match this valid scope and condition selection.")
-      view["status"] == "empty" -> IO.puts("No units have been observed in this run.")
+      view["status"] == "empty" -> IO.puts("No units in this run yet.")
       true -> IO.puts("No Units match the selected view.")
     end
   end

@@ -154,7 +154,7 @@ defmodule AiurWeb.Presenter do
   defp recent_merge_message(:writable), do: nil
 
   defp recent_merge_message(_health) do
-    "The durable merge audit is degraded; showing its last validated prefix."
+    "Showing a partial merge history."
   end
 
   defp analytics_payload(opts) do

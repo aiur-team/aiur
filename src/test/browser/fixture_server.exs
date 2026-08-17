@@ -1235,7 +1235,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     # Match what UnitsPresenter actually derives for a catalog with no rows, so
     # the harness exercises the real zero-unit status rather than `:ready` with
     # an empty list — a shape production never produces.
-    %{catalog([]) | status: :empty, message: "No units have been observed in this run."}
+    %{catalog([]) | status: :empty, message: "No units in this run yet."}
   end
 
   defp mount_catalog(_params), do: catalog(rows())
@@ -2029,7 +2029,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
       state: :authorized,
       cards: [
         card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
-        card(:claude, "Claude", :stale, "Stale (last known-good)", [window("Session", 62, 1_900, 5_000, :stale)]),
+        card(:claude, "Claude", :stale, "Not live", [window("Session", 62, 1_900, 5_000, :stale)]),
         card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
         card(:kimi, "Kimi", :unavailable, "Unavailable", [])
       ]

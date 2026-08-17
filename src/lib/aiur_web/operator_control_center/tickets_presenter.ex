@@ -226,7 +226,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenter do
   defp status(_available, _rows), do: :ready
 
   defp message(:empty), do: "No open tickets on this repository."
-  defp message(:stale), do: "Showing the last-known-good open tickets; the tracker listing did not refresh."
+  defp message(:stale), do: "Showing the open tickets we last saw; the list did not refresh."
   defp message(:unavailable), do: "Open tickets are unavailable."
   defp message(:unsupported), do: "Open tickets are listed for GitHub trackers only."
   defp message(_ready), do: nil

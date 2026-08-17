@@ -27,12 +27,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
       <div :if={@status == :unavailable} class="units-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
-        <span><b>Units catalog unavailable.</b> {@message || "No last-known-good Units catalog is retained."}</span>
+        <span><b>No live units.</b> {@message || "Fleet data is unavailable."}</span>
       </div>
 
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
-        <span><b>Units catalog is partial.</b> Counts are lower bounds for the bounded membership prefix.</span>
+        <span><b>Partial list.</b> Counts are at least this high; some units are not shown.</span>
       </div>
 
       <div class="units-table-wrap">
@@ -267,7 +267,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
        when is_binary(owner) and is_binary(repository) and is_binary(identifier),
        do: "#{owner}/#{repository} ##{identifier}"
 
-  defp identity_label(_identity), do: "Typed identity unavailable"
+  defp identity_label(_identity), do: "Unknown ticket"
 
   defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle), do: handle
   defp conversation_handle(_row), do: nil

@@ -766,9 +766,9 @@ defmodule AiurWeb.DashboardLiveTest do
     # Before the first snapshot the fleet area degrades to its ordinary empty
     # state, which names the missing fleet view rather than claiming the run is
     # empty. No notice, no error card.
-    assert initial_html =~ "No last-known-good Units catalog is retained while the fleet snapshot is unavailable."
+    assert initial_html =~ "No live units. Fleet data is unavailable."
     refute initial_html =~ "snapshot_unpublished"
-    refute initial_html =~ "Fleet snapshot unavailable"
+    refute initial_html =~ "No fleet data"
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
@@ -791,8 +791,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert String.trim(unpublished) == ""
 
-    assert unavailable =~ "Fleet snapshot unavailable"
-    assert unavailable =~ "no last-known-good fleet view is retained"
+    assert unavailable =~ "No fleet data"
+    assert unavailable =~ "there is no earlier fleet data to show"
   end
 
   test "a read-model fault never claims the orchestrator is unreachable" do
@@ -802,8 +802,8 @@ defmodule AiurWeb.DashboardLiveTest do
     read_model_fault =
       render_component(&Overview.error/1, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"})
 
-    assert read_model_fault =~ "Fleet view could not be read"
-    assert read_model_fault =~ "fleet read model could not be composed"
+    assert read_model_fault =~ "Could not read the fleet"
+    assert read_model_fault =~ "fleet view could not be built"
     assert read_model_fault =~ "may still be running"
     refute read_model_fault =~ "The Orchestrator is not reachable"
 
@@ -818,7 +818,7 @@ defmodule AiurWeb.DashboardLiveTest do
         freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
       )
 
-    assert html =~ "Stale fleet"
+    assert html =~ "Not live"
     assert html =~ "The Orchestrator has stopped publishing."
     assert html =~ "2h 4m old"
     refute html =~ "The Orchestrator is busy."
@@ -830,8 +830,8 @@ defmodule AiurWeb.DashboardLiveTest do
         freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
       )
 
-    assert html =~ "Stale fleet"
-    assert html =~ "Showing the last-known-good fleet view"
+    assert html =~ "Not live"
+    assert html =~ "Showing the fleet as we last saw it"
     assert html =~ "1m 35s old"
     # The contradiction the operator reported: never unavailable and healthy at once.
     refute html =~ "unavailable"
@@ -1009,8 +1009,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert html =~ "73 units awaiting commands"
     assert html =~ "Issue commands"
-    assert html =~ "Partial retained Command counts"
-    assert html =~ "Partial retained Command data"
+    assert html =~ "Partial Command counts"
+    assert html =~ "Partial Command data"
   end
 
   test "cannot render an empty Units body while the same payload reports current agents and Commands" do
@@ -1048,7 +1048,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "3 units awaiting commands"
     assert html =~ ~s(id="units-rows")
     assert html =~ "Responsive Units interface"
-    refute html =~ "No units have been observed in this run"
+    refute html =~ "No units in this run yet in this run"
   end
 
   test "does not report a missing Decision as absent when retained replay is partial" do
@@ -1080,9 +1080,9 @@ defmodule AiurWeb.DashboardLiveTest do
       )
 
     assert html =~ "Command presence unknown"
-    assert html =~ "may exist beyond the validated audit prefix"
+    assert html =~ "may exist in a part we cannot read"
     refute html =~ "No retained Command matches"
-    refute html =~ "This detail was recovered from the validated audit prefix"
+    refute html =~ "Some of this detail may be missing"
   end
 
   test "keeps durable outcomes off the Units page during a snapshot outage" do
@@ -1576,7 +1576,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute has_element?(view, "#decision-#{oldest.decision_id}")
 
     invalid_html = render_patch(view, "/commands?cursor=not-a-valid-cursor")
-    assert invalid_html =~ "Command projection is currently unavailable"
+    assert invalid_html =~ "Commands are unavailable right now"
     assert Process.alive?(view.pid)
   end
 
@@ -3926,7 +3926,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     updated_announcement = updated_html |> Floki.parse_document!() |> Floki.find("#units-status") |> Floki.text()
     refute updated_announcement == initial_announcement
-    assert updated_announcement =~ ~r/Catalog update [a-f0-9]{10}/
+    assert updated_announcement =~ ~r/Update [a-f0-9]{10}/
   end
 
   test "opens shared ticket context only after explicit inspection and gates updates by typed identity" do

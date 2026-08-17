@@ -1364,7 +1364,7 @@ defmodule Aiur.ExtensionsTest do
     )
 
     {:ok, _view, html} = live(build_conn(), "/")
-    assert html =~ "Fleet snapshot unavailable"
+    assert html =~ "No fleet data"
     assert html =~ "orchestrator_unavailable"
     # The presenter still carries the unpublished wording for other codes; an
     # unreachable Orchestrator must never borrow it.

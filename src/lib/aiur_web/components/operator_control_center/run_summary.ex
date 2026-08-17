@@ -56,8 +56,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
       <div :if={@state == :stale} class="run-summary-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
         <span>
-          <b>Stale summary.</b>
-          Showing the last known-good values for this run; refresh is {String.downcase(@view.freshness.label)}.
+          <b>Not live.</b>
+          Showing the values we last read for this run; refresh is {String.downcase(@view.freshness.label)}.
         </span>
       </div>
 
