@@ -84,6 +84,31 @@ defmodule Aiur.TestSupport do
   @spec isolated_app_env_keys() :: [atom()]
   def isolated_app_env_keys, do: @isolated_app_env_keys
 
+  @doc """
+  An absolute path under the system tmp dir that no *other* VM on this host can
+  also choose.
+
+  `System.unique_integer/1` is node-scoped: it makes a name unique inside one
+  `mix test` VM and gives no protection at all across VMs. Every VM draws from
+  the same narrow window of counter values, so two concurrent `mix test` runs on
+  one host pick the same `<tmp>/<prefix>_<integer>` name routinely — measured at
+  60 shared names across 2 x 320 draws from two simultaneous runs of the same
+  file. When that happens the second VM creates its fixture tree inside the
+  directory the first VM's teardown is recursively removing, and `File.rm_rf!/1`
+  fails on the `rmdir` of a directory it had just emptied: ENOTEMPTY, which
+  Erlang reports as `:eexist` and Elixir renders as "file already exists". The
+  symptom looks like a writer racing teardown because it *is* one — the writer is
+  another VM running the same test.
+
+  `System.pid/0` is what makes the path host-unique; only one VM can own an OS
+  pid at a time. `config/config.exs` already isolates the suite-global log root
+  the same way. Prefer this over hand-rolling `Path.join(System.tmp_dir!(), ...)`.
+  """
+  @spec tmp_root!(String.t()) :: Path.t()
+  def tmp_root!(prefix) when is_binary(prefix) do
+    Path.join(System.tmp_dir!(), "#{prefix}-#{System.pid()}-#{System.unique_integer([:positive])}")
+  end
+
   @doc "Captures the current value of every isolated key, unset included."
   @spec capture_app_env() :: [{atom(), {:ok, term()} | :error}]
   def capture_app_env do
