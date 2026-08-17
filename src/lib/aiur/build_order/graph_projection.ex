@@ -918,9 +918,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # expensive read in Build Order, repeating because of who was looking rather
   # than because anything had changed.
   #
-  # What refreshes a selected root now is a writer: the daemon's own catalog
-  # reconciliation, a store write from a webhook or an agent mutation, or an
-  # explicit `refresh/2`. None of those depend on a viewer.
+  # What refreshes a selected root now is the daemon's own catalog reconciliation,
+  # via the per-root change marker, plus an explicit `refresh/2`. Neither depends
+  # on a viewer. A webhook or mutation write to `Aiur.GitHub.ResourceStore` does
+  # *not* reach here — the store holds issues, not graphs — so it is not claimed.
   defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state
 
   defp schedule_from_success(state, scope) do
