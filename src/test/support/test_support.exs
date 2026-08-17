@@ -19,6 +19,33 @@ defmodule Aiur.TestSupport do
   @spec github_repository_name() :: String.t()
   def github_repository_name, do: elem(@github_repository, 1)
 
+  @doc "Receives a matching message without a wall-clock timeout."
+  defmacro receive_barrier(pattern) do
+    vars =
+      pattern
+      |> Macro.prewalk([], fn
+        {skip, _, [_]}, acc when skip in [:^, :@, :quote] -> {:ok, acc}
+        {skip, _, [_, _]}, acc when skip == :quote -> {:ok, acc}
+        {:_, _, context}, acc when is_atom(context) -> {:ok, acc}
+        {name, meta, context}, acc when is_atom(name) and is_atom(context) -> {:ok, [{name, meta, context} | acc]}
+        node, acc -> {node, acc}
+      end)
+      |> elem(1)
+      |> Enum.uniq_by(fn {name, _meta, context} -> {name, context} end)
+
+    generated_vars = for {name, meta, context} <- vars, do: {name, [generated: true] ++ meta, context}
+    match = quote(do: unquote(pattern) = received)
+
+    quote do
+      {received, unquote(vars)} =
+        receive do
+          unquote(match) -> {received, unquote(generated_vars)}
+        end
+
+      received
+    end
+  end
+
   @doc false
   @spec prepare_workflow_file_path!(Path.t()) :: Path.t()
   def prepare_workflow_file_path!(root) do
@@ -102,6 +129,7 @@ defmodule Aiur.TestSupport do
           write_workflow_file!: 2,
           write_workflow_file_async!: 1,
           write_workflow_file_async!: 2,
+          receive_barrier: 1,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
