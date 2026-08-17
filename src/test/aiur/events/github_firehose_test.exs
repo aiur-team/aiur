@@ -131,6 +131,86 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.7.pr.merged"}}, 500
     end
 
+    test "PullRequestEvent ready_for_review publishes its own topic" do
+      :ok = Exchange.subscribe("ticket.7.pr.#")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("ready")}],
+           body: [
+             %{
+               "id" => "opened-event",
+               "type" => "PullRequestEvent",
+               "actor" => %{"login" => "carol"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "action" => "opened",
+                 "pull_request" => %{
+                   "number" => 7,
+                   "draft" => true,
+                   "head" => %{"ref" => "aiur/7-readable", "sha" => String.duplicate("a", 40)}
+                 }
+               }
+             },
+             %{
+               "id" => "ready-event",
+               "type" => "PullRequestEvent",
+               "actor" => %{"login" => "carol"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "action" => "ready_for_review",
+                 "pull_request" => %{
+                   "number" => 7,
+                   "draft" => false,
+                   "head" => %{"ref" => "aiur/7-readable", "sha" => String.duplicate("a", 40)}
+                 }
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 2}} = GithubFirehose.poll(request_fun: stub)
+      assert_receive {:event, %{topic: "ticket.7.pr.opened"}}, 500
+      assert_receive {:event, %{topic: "ticket.7.pr.ready_for_review"}}, 500
+      assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
+      refute_receive {:event, %{topic: "ticket.7.pr.opened"}}, 100
+      refute_receive {:event, %{topic: "ticket.7.pr.ready_for_review"}}, 100
+    end
+
+    test "PullRequestEvent converted_to_draft remains ignored" do
+      :ok = Exchange.subscribe("ticket.7.#")
+
+      stub = fn _ ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [{"ETag", ~s("draft")}],
+           body: [
+             %{
+               "id" => "draft-event",
+               "type" => "PullRequestEvent",
+               "actor" => %{"login" => "carol"},
+               "repo" => %{"name" => "owner/repo"},
+               "payload" => %{
+                 "action" => "converted_to_draft",
+                 "pull_request" => %{
+                   "number" => 7,
+                   "draft" => true,
+                   "head" => %{"ref" => "aiur/7-readable", "sha" => String.duplicate("b", 40)}
+                 }
+               }
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, %{count: 0}} = GithubFirehose.poll(request_fun: stub)
+      refute_receive {:event, %{topic: "ticket.7." <> _}}, 100
+    end
+
     test "startup reconciliation persists a pre-boot non-ticket merge from a later bounded page" do
       page_1 = ignored_events("startup-burst", 30)
 

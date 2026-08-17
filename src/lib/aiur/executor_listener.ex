@@ -1,190 +1,135 @@
 defmodule Aiur.ExecutorListener do
   @moduledoc """
-  Daemon-resident, supervised consumer of `executor.#` events for an Executor
-  run.
+  Daemon-resident, supervised consumer for the reviewed Executor wake bindings.
 
-  Started only when the run launches with `--executor` (see
-  `Aiur.CLI.maybe_set_executor/1` and `Aiur.Application.child_specs/1`), so an
-  ordinary non-Executor launch does not silently acquire a Command inbox it
-  will never read — Commands consumed by something that cannot act on them
-  would be a worse failure than the current one.
-
-  ## Why the daemon owns the subscription
-
-  The earlier design relied on the Executor starting `aiur executor-listen` in
-  a background shell. That shell is bounded by whatever process limits the
-  Executor harness imposes (observed: a 600-second per-command cap), so even a
-  correctly-started listener died every ten minutes with nothing announcing the
-  exit, and a dead listener was indistinguishable from a quiet one. This process
-  is supervised by the run itself: the supervisor restarts it, it re-establishes
-  its Exchange binding when the binding is lost, and it replays missed journal
-  events from its own durable watermark so a restart never re-notifies for
-  events it already delivered.
-
-  ## Delivery
-
-  For every `executor.decision.requested` / `executor.decision.deferred` event
-  this process emits a needs-attention alert (`executor.command.requested` /
-  `executor.command.deferred`) naming the decision and its ticket, so the
-  Executor's monitoring (`aiur watch`, `aiur alerts --needs-attention`) surfaces
-  the Command even when no interactive `executor-listen` stream is running. The
-  Executor reads the Command's full payload through `aiur commands
-  <decision-id>` and answers with `executor-answer` / `executor-escalate`. The
-  `executor-listen` CLI remains available as an optional raw JSON-line stream;
-  it keeps its own replay cursor, so it does not collide with this process's
-  watermark.
+  Command events retain their durable Executor journal and alert path. Other
+  allowlisted events are reduced to identifier-only wake records and persisted
+  by `Aiur.ExecutorWakeInbox` for bounded Executor waits.
   """
 
   use GenServer
 
   require Logger
 
-  alias Aiur.{Alerts, Config.Paths, Events.Exchange, Events.Topic, ExecutorEvents, JsonStore}
+  alias Aiur.Alerts
+  alias Aiur.Config.Paths
+  alias Aiur.Events.{Exchange, Topic}
+  alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
 
-  @default_topic "executor.#"
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
   @resubscribe_interval_ms 30_000
-
-  @type state :: %{
-          topic: String.t(),
-          subscribed?: boolean(),
-          watermark: non_neg_integer() | nil,
-          resubscribe_interval_ms: pos_integer() | :infinity
-        }
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
-  @doc """
-  True only while the daemon-resident listener is currently subscribed to
-  `executor.#` on the Exchange. A process that exists but lost its binding
-  (Exchange restart) reports false, so `aiur status` never mistakes "was
-  started once" for "is listening now".
-  """
   @spec alive?(GenServer.server()) :: boolean()
-  def alive?(server \\ __MODULE__) do
-    case Process.whereis(server) do
-      pid when is_pid(pid) ->
-        try do
-          Exchange.bindings_for(pid) |> Enum.member?(@default_topic)
-        rescue
-          _error -> false
-        catch
-          :exit, _reason -> false
-        end
+  def alive?(server \\ __MODULE__), do: bindings(server) != [] and missing_defaults(server) == []
 
-      _not_registered ->
-        false
+  @spec bindings(GenServer.server()) :: [String.t()]
+  def bindings(server \\ __MODULE__) do
+    case Process.whereis(server) do
+      pid when is_pid(pid) -> safe_bindings(pid)
+      _ -> []
     end
+  end
+
+  @spec missing_defaults(GenServer.server()) :: [String.t()]
+  def missing_defaults(server \\ __MODULE__) do
+    bound = MapSet.new(bindings(server))
+    Enum.reject(ExecutorBindings.patterns(), &MapSet.member?(bound, &1))
   end
 
   @impl true
   def init(opts) do
-    topic = Keyword.get(opts, :topic, @default_topic)
+    if Keyword.get(opts, :reconcile?, true), do: ExecutorBindings.reconcile()
+
+    patterns = Keyword.get(opts, :patterns, ExecutorBindings.patterns())
     interval = Keyword.get(opts, :resubscribe_interval_ms, @resubscribe_interval_ms)
     watermark = read_watermark()
-    subscribed? = subscribe_or_arm(topic)
+    subscribe_missing(patterns)
 
-    state = %{topic: topic, subscribed?: subscribed?, watermark: watermark, resubscribe_interval_ms: interval}
-    state = if subscribed?, do: replay_and_deliver(state), else: state
+    current_health = health(patterns)
 
+    state = %{
+      patterns: patterns,
+      watermark: watermark,
+      resubscribe_interval_ms: interval,
+      health: current_health
+    }
+
+    state =
+      if "executor.#" in patterns and bound?("executor.#") do
+        replay_and_deliver("executor.#", state)
+      else
+        state
+      end
+
+    maybe_report_health(nil, current_health, patterns)
     schedule_resubscribe(interval)
+
     {:ok, state}
   end
 
   @impl true
-  def handle_info({:event, event}, %{subscribed?: true} = state) do
-    {:noreply, process_event(event, state)}
-  end
+  def handle_info({:event, event}, state), do: {:noreply, process_event(event, state)}
 
-  # The Exchange is a sibling that can be restarted by the supervisor. When it
-  # comes back its binding table is fresh, so this listener's binding is gone
-  # even though the process is alive. Re-establish it and replay everything
-  # published since the durable watermark — events emitted during the gap must
-  # not be lost, and already-delivered events must not be re-notified.
-  def handle_info(:resubscribe, %{topic: topic, resubscribe_interval_ms: interval} = state) do
+  def handle_info(:resubscribe, state) do
+    observed_health = health(state.patterns)
+    maybe_report_health(state.health, observed_health, state.patterns)
+    executor_missing? = "executor.#" in state.patterns and not bound?("executor.#")
+    subscribe_missing(state.patterns)
+
     state =
-      if bound?(topic) do
-        state
+      if executor_missing? and bound?("executor.#") do
+        replay_and_deliver("executor.#", %{state | watermark: read_watermark()})
       else
-        case subscribe_or_arm(topic) do
-          true ->
-            replay_and_deliver(%{state | subscribed?: true, watermark: read_watermark()})
-
-          false ->
-            %{state | subscribed?: false}
-        end
+        state
       end
 
-    schedule_resubscribe(interval)
-    {:noreply, state}
+    current_health = health(state.patterns)
+    maybe_report_health(observed_health, current_health, state.patterns)
+    schedule_resubscribe(state.resubscribe_interval_ms)
+    {:noreply, %{state | health: current_health}}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, %{topic: topic}) do
-    Exchange.unsubscribe(topic)
+  def terminate(_reason, state) do
+    Enum.each(state.patterns, &Exchange.unsubscribe/1)
     :ok
   rescue
-    _error -> :ok
+    _ -> :ok
   end
 
-  defp subscribe_or_arm(topic) do
-    if bound?(topic) do
-      # Already bound — re-subscribing would add a second row to the Exchange's
-      # duplicate-bag table and deliver every event twice. Only (re)subscribe
-      # when the binding is actually gone (Exchange restart / first start).
-      true
-    else
-      # `Exchange.subscribe/2` returns `:ok` or raises/exits; either failure is
-      # caught below, so a non-`:ok` result does not need its own branch.
-      :ok = Exchange.subscribe(topic)
-      true
-    end
+  defp subscribe_missing(patterns) do
+    Enum.each(patterns, fn pattern ->
+      if not bound?(pattern), do: subscribe_or_arm(pattern)
+    end)
+  end
+
+  defp subscribe_or_arm(pattern) do
+    :ok = Exchange.subscribe(pattern)
+    true
   rescue
     error ->
-      Logger.error("aiur_executor_listener phase=subscribe_error topic=#{topic} error=#{Exception.message(error)}")
-      report_unavailable()
+      Logger.error("aiur_executor_listener phase=subscribe_error topic=#{pattern} error=#{Exception.message(error)}")
       false
   catch
     :exit, reason ->
-      Logger.error("aiur_executor_listener phase=subscribe_exit topic=#{topic} reason=#{inspect(reason)}")
-      report_unavailable()
+      Logger.error("aiur_executor_listener phase=subscribe_exit topic=#{pattern} reason=#{inspect(reason)}")
       false
   end
 
-  defp bound?(topic) do
-    Exchange.bindings_for(self()) |> Enum.member?(topic)
-  rescue
-    _error -> false
-  catch
-    :exit, _reason -> false
-  end
+  defp bound?(pattern), do: pattern in safe_bindings(self())
 
-  # Best-effort, guarded: at boot the alert pipeline may not be ready yet, and a
-  # failure to say "I could not subscribe" must not itself take the listener
-  # down. `alive?/0` and the status line remain the authoritative signal.
-  defp report_unavailable do
-    if alerting_enabled?() do
-      Alerts.emit_custom(
-        "executor.listener.unavailable",
-        "The Executor event listener could not subscribe to executor.#; Commands will not reach the Executor.",
-        reason: "executor listener subscription failed",
-        needs_attention: true,
-        severity: "warning"
-      )
-    end
-  rescue
-    _error -> :ok
-  catch
-    :exit, _reason -> :ok
-  end
-
-  defp replay_and_deliver(%{topic: topic, watermark: watermark} = state) do
-    case ExecutorEvents.replay([topic], watermark) do
+  # Replay threads the caller's state through every event and returns it, so a
+  # watermark advanced during replay survives (#2039). Folding over a throwaway
+  # state instead would re-deliver the whole replayed range on the next restart.
+  defp replay_and_deliver(pattern, state) do
+    case ExecutorEvents.replay([pattern], state.watermark) do
       {:ok, events} ->
         Enum.reduce(events, state, &process_event/2)
 
@@ -197,9 +142,14 @@ defmodule Aiur.ExecutorListener do
   defp process_event(event, state) do
     if matching_fresh_event?(event, state) do
       try do
-        deliver(event)
-        advance_watermark(event_id(event))
-        %{state | watermark: event_id(event)}
+        :ok = deliver(event)
+
+        if executor_topic?(event) do
+          :ok = advance_watermark(event_id(event))
+          %{state | watermark: event_id(event)}
+        else
+          state
+        end
       rescue
         error ->
           log_delivery_failure(event, error)
@@ -214,40 +164,40 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp matching_fresh_event?(event, %{topic: pattern, watermark: watermark}) do
+  defp matching_fresh_event?(event, state) do
     case {event_topic(event), event_id(event)} do
-      {event_topic, id} when is_binary(event_topic) and is_integer(id) ->
-        Topic.matches?(pattern, event_topic) and id > (watermark || 0)
+      {topic, id} when is_binary(topic) and is_integer(id) ->
+        Enum.any?(state.patterns, &Topic.matches?(&1, topic)) and
+          (not String.starts_with?(topic, "executor.") or id > (state.watermark || 0))
 
-      _not_a_topic_or_id ->
+      _ ->
         false
     end
   end
 
   defp deliver(event) do
-    scrubbed = ExecutorEvents.scrub_untrusted_output(event)
-
-    if command_topic?(scrubbed) and alerting_enabled?() do
-      emit_command_alert(scrubbed)
+    if executor_topic?(event) do
+      scrubbed = ExecutorEvents.scrub_untrusted_output(event)
+      if command_topic?(scrubbed) and alerting_enabled?(), do: emit_command_alert(scrubbed)
+      :ok
+    else
+      case ExecutorWakeProjection.project(event) do
+        {:ok, record} -> ExecutorWakeInbox.enqueue(record)
+        :ignore -> :ok
+      end
     end
-
-    :ok
   end
 
   defp emit_command_alert(event) do
-    decision_id = Map.get(event, "decision_id") || Map.get(event, :decision_id)
-    issue = Map.get(event, "issue_identifier") || Map.get(event, :issue_identifier)
+    decision_id = value(event, :decision_id)
+    issue = value(event, :issue_identifier)
     kind = if event_topic(event) == "executor.decision.deferred", do: "deferred", else: "requested"
-    title = Map.get(event, "title") || Map.get(event, :title)
+    title = value(event, :title)
 
     message =
       "Executor Command #{decision_id} awaits you (ticket ##{issue})" <>
-        if is_binary(title) and title != "", do: ": #{truncate(title, 80)}", else: ""
+        if(is_binary(title) and title != "", do: ": #{truncate(title, 80)}", else: "")
 
-    # The alert pipeline (ledger, event-log, sound) is best-effort delivery and
-    # runs outside the durable journal. A failure anywhere in it must never
-    # block this listener from advancing its watermark — the event was consumed
-    # either way, and a re-delivery would only duplicate the notification.
     Alerts.emit_custom(
       "executor.command.#{kind}",
       message,
@@ -266,10 +216,63 @@ defmodule Aiur.ExecutorListener do
       :ok
   end
 
-  defp command_topic?(event), do: event_topic(event) in @command_topics
+  defp health(patterns) do
+    count = Enum.count(patterns, &bound?/1)
 
-  defp event_topic(event), do: Map.get(event, :topic) || Map.get(event, "topic")
-  defp event_id(event), do: Map.get(event, :id) || Map.get(event, "id")
+    cond do
+      count == 0 -> :absent
+      count == length(patterns) -> :present
+      true -> :degraded
+    end
+  end
+
+  defp maybe_report_health(previous, current, _patterns) when previous == current, do: :ok
+  defp maybe_report_health(nil, :present, _patterns), do: :ok
+
+  defp maybe_report_health(_previous, :present, _patterns) do
+    safe_health_alert("executor.bindings.incomplete.resolved", "Executor wake bindings recovered.", false)
+  end
+
+  defp maybe_report_health(_previous, health, patterns) when health in [:degraded, :absent] do
+    bound = MapSet.new(safe_bindings(self()))
+    missing = Enum.reject(patterns, &MapSet.member?(bound, &1))
+
+    safe_health_alert(
+      "executor.bindings.incomplete",
+      "Executor wake bindings incomplete; missing: #{Enum.join(missing, ", ")}",
+      true
+    )
+  end
+
+  defp safe_health_alert(name, message, needs_attention?) do
+    if alerting_enabled?() do
+      alert_fun = Application.get_env(:aiur, :executor_listener_health_alert_fun, &Alerts.emit_custom/3)
+
+      alert_fun.(name, message,
+        reason: "executor wake binding health changed",
+        needs_attention: needs_attention?,
+        severity: if(needs_attention?, do: "warning", else: "info")
+      )
+    end
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_bindings(pid) do
+    Exchange.bindings_for(pid)
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
+  end
+
+  defp event_topic(event), do: value(event, :topic)
+  defp event_id(event), do: value(event, :id)
+  defp executor_topic?(event), do: is_binary(event_topic(event)) and String.starts_with?(event_topic(event), "executor.")
+  defp command_topic?(event), do: event_topic(event) in @command_topics
+  defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp alerting_enabled?, do: Application.get_env(:aiur, :executor_listener_alerting?, true)
 
@@ -277,8 +280,8 @@ defmodule Aiur.ExecutorListener do
     if String.length(text) > max, do: String.slice(text, 0, max - 1) <> "…", else: text
   end
 
-  defp truncate(_text, _max), do: ""
-
+  # Tests pin the interval to :infinity to keep the resubscribe timer from
+  # firing mid-assertion (#2039).
   defp schedule_resubscribe(:infinity), do: :ok
 
   defp schedule_resubscribe(interval) when is_integer(interval) and interval > 0 do
@@ -290,17 +293,15 @@ defmodule Aiur.ExecutorListener do
     case JsonStore.read(watermark_path()) do
       {:ok, %{"last_seen_event_id" => id}} when is_integer(id) and id > 0 -> id
       {:ok, %{last_seen_event_id: id}} when is_integer(id) and id > 0 -> id
-      _other -> 0
+      _ -> 0
     end
   end
 
   defp advance_watermark(id) do
     JsonStore.write!(watermark_path(), %{"last_seen_event_id" => id})
-    :ok
   end
 
-  defp watermark_path,
-    do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.listener.watermark.json")
+  defp watermark_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.listener.watermark.json")
 
   defp log_delivery_failure(event, error) do
     Logger.error("aiur_executor_listener phase=delivery_failed topic=#{inspect(event_topic(event))} id=#{inspect(event_id(event))} error=#{inspect(error)}")

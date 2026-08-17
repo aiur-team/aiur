@@ -383,6 +383,7 @@ defmodule Aiur.Events.GithubFirehose do
   defp translate(_event, _opts), do: nil
 
   defp pr_topic(id, "opened", _merged), do: "ticket.#{id}.pr.opened"
+  defp pr_topic(id, "ready_for_review", _merged), do: "ticket.#{id}.pr.ready_for_review"
   defp pr_topic(id, _action, true), do: "ticket.#{id}.pr.merged"
   defp pr_topic(_id, _action, _merged), do: nil
 
