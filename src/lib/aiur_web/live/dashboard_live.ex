@@ -646,19 +646,6 @@ defmodule AiurWeb.DashboardLive do
 
   defp global_paused?(_payload), do: false
 
-  defp global_pause_provenance(payload) do
-    case get_in(payload, [:fleet, :global_pause]) do
-      %{source: source, paused_at: paused_at} when is_binary(source) and is_binary(paused_at) ->
-        "Set by #{source} at #{paused_at}. "
-
-      %{source: source} when is_binary(source) ->
-        "Set by #{source}. "
-
-      _ ->
-        ""
-    end
-  end
-
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
@@ -811,10 +798,6 @@ defmodule AiurWeb.DashboardLive do
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
-        </div>
-        <div :if={global_paused?(@payload)} class="readonly-banner global-pause-banner" role="alert" aria-live="polite">
-          <span aria-hidden="true">⏸</span>
-          <span><b>Aiur is globally paused.</b> {global_pause_provenance(@payload)}Run <code>aiurdev resume</code> with no ticket ID to lift the global pause.</span>
         </div>
         <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       </:banner>
