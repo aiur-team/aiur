@@ -84,57 +84,7 @@ available to your agent and ask it to "run aiur":
 Once `aiur-intro` is available to your agent, ask *"what is aiur?"* or *"how do I install aiur?"*
 and it will walk you through setup and ask which mode you want.
 
-## Additional Capabilities
-
-- **Claude support:** Agents can run on claude as well as codex.
-- **Github issues:** In addition to Linear, agents can watch and move Github issues.
-- **Tracker adapters:** configure tracker backends for board- or issue-based queues, including
-  label-based state machines where the tracker supports them.
-- **Implementation adapters:** configure Codex and Claude through Aiur's app-server
-  protocol, or use the direct OpenAI-compatible transport for native Kimi,
-  native DeepSeek, and OpenRouter instances.
-- **Live run logs:** each workspace writes a human-readable `logs/agent.md` transcript, which the
-  dashboard opens in a live-updating modal while a run is active, plus `logs/agent.ndjson`, a
-  structured per-event JSON stream that feeds the attentions feed and records agent crash reasons.
-- **opencode chat panes:** the tmux CLI opens opencode-backed chat panes for live Executor
-  input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
-- **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
-  configured host/port for private operational access.
-- **Supervisor Decision API:** an independently authenticated machine API can inspect, enrich,
-  answer, and revise durable Decisions under an explicit fail-closed delegation policy.
-- **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing
-  behavior consistent across runs without making those workflows part of Aiur's core model. See
-  [Using Aiur with a coding agent](#using-aiur-with-a-coding-agent) for the bundled skills,
-  including the ones that let your agent operate a run as its Executor.
-- **Optional alert sounds:** users can edit the checked-in `.aiur/alerts` file, where each alert
-  defines its `name`, `message`, and optional `sound` clips in one place.
-
-See [src/README.md](src/README.md#config) for the supported `.aiurconfig` options and
-adapter examples. Build Order's optional `build_order` settings configure supervised,
-in-memory configured-repository ticket-detail, typed ticket-history, and planning-graph
-providers. The graph projection owns catalog and demanded-root refreshes independently of
-browser count, with bounded retained roots and provider work. Restart clears all three stores:
-ticket detail, ticket history, and graph snapshots remain unavailable until fresh provider
-evidence succeeds.
-
-## Project layout
-
-Aiur's Elixir application lives in `src/`. Node packages are standalone projects under
-`packages/`, so each package owns its own manifest and lockfile. The Stream Deck package is
-currently a scaffold; build it with:
-
-```bash
-cd packages/streamdeck
-npm ci
-npm run lint
-npm test
-npm run build
-```
-
-For the emulator and optional hardware acceptance flow, see the
-[Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).
-
-## Running Aiur
+## Getting started
 
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow
 conventions that autonomous implementation runs can follow.
@@ -148,16 +98,54 @@ aiur init                       # interactive setup wizard
 aiur                            # foreground; `aiur --bg` for headless
 ```
 
-Useful controls: `aiur status`, `aiur pause`, `aiur resume`, `aiur stop`.
+`aiur init` scaffolds `.aiur/config` and walks through tracker, agent backends and routing,
+limits, the GitHub token, and the `agent:*` lifecycle labels. Requires
+[tmux](https://github.com/tmux/tmux) at runtime; the install provisions
+[opencode](https://opencode.ai) for chat panes.
 
 That is the human-driven path. To have your coding agent operate the run instead, first make the
-repo-local Executor skills available to it, then ask it to "run aiur" — see
+repo-local Executor skills available to it, then ask it to "run aiur". See
 [Using Aiur with a coding agent](#using-aiur-with-a-coding-agent).
 
-See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
-reference (foreground, background, and `stop` modes on Linux and macOS). It also documents
-the default 64 MiB / 30-day telemetry retention window, which preserves complete boots for
-useful cross-session history.
+Full walkthrough: [Quick start](https://aiur.team/docs/guide/quick-start).
+
+## The four surfaces
+
+| Surface | What it gives you | How to open it | Guide |
+| --- | --- | --- | --- |
+| **CLI** | Scriptable control of a run from any shell | `aiur status`, `aiur pause 142` | [CLI reference](https://aiur.team/docs/reference/cli) |
+| **TUI** | Live agent board plus chat panes, in your terminal | `aiur` | [TUI](https://aiur.team/docs/guide/tui) |
+| **Dashboard** | Browser view of fleet, decisions, Build Order, analytics | `http://127.0.0.1:4000` | [Dashboard](https://aiur.team/docs/guide/executor-control-center) |
+| **Stream Deck** | Physical keys and dictation for the fleet | Separate sidecar, Linux x64, experimental | [Stream Deck](https://aiur.team/docs/guide/stream-deck) |
+
+The TUI and dashboard are both optional: `aiur --bg` runs headless with the dashboard, and
+`--no-dashboard` drops the web listener. The dashboard is writable by default and needs
+`AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` even on loopback.
+
+## Additional capabilities
+
+| Capability | Detail |
+| --- | --- |
+| Trackers | GitHub issues and Linear, including label-based state machines |
+| Agent backends | Codex and Claude over Aiur's app-server protocol, plus a direct OpenAI-compatible transport for Kimi, DeepSeek, and OpenRouter |
+| Live run logs | Per-workspace `logs/agent.md` transcript and `logs/agent.ndjson` event stream, opened live from the dashboard |
+| Decisions | A durable decision inbox, plus a separately authenticated machine API to inspect and answer them |
+| Alerts | Customizable notifications and sounds in the checked-in `.aiur/alerts` file |
+| Workflow helpers | Repo-local skills and scripts that keep issue work, PR creation, and landing consistent across runs |
+
+See [src/README.md](src/README.md#config) for every `.aiurconfig` option, or the
+[configuration reference](https://aiur.team/docs/reference/configuration).
+
+## Project layout
+
+| Path | Contents |
+| --- | --- |
+| `src/` | The Elixir application |
+| `packages/` | Standalone Node packages, each with its own manifest and lockfile |
+| `packaging/` | npm release packaging for `aiur-cli` and its per-platform packages |
+| `website/` | Marketing site and the docs published at [aiur.team/docs](https://aiur.team/docs/) |
+
+Contributing and the release process: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
