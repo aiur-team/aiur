@@ -155,7 +155,17 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
-    if state.snapshot_ready? == true, do: :ok = publish_snapshot(state)
+    # `snapshot_ready?` means this generation has completed a poll attempt, so a
+    # snapshot retained from a prior same-name orchestrator must no longer be
+    # served. It does not mean the board is good: a failed candidate refresh
+    # leaves `candidate_snapshot_fresh?: false`, which blanks the idle rows
+    # (`visible_polled_issues/1`). Publishing that would install a blank board
+    # as the last-known-good snapshot, so a later `aiur status` against a busy
+    # or stopped orchestrator would render an empty fleet instead of the real
+    # one — or instead of the clean "orchestrator is not running" error (#1814).
+    if state.snapshot_ready? == true and state.candidate_snapshot_fresh? != false do
+      :ok = publish_snapshot(state)
+    end
 
     state
     |> running_summaries()

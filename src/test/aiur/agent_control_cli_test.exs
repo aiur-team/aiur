@@ -207,10 +207,28 @@ defmodule Aiur.AgentControlCLITest do
     Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
 
     :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
       %{
         state
         | running: %{},
           last_polled_issues: %{},
+          # Freeze the live poll for the duration of each case, the same way
+          # orchestrator_status_test does. These cases inject `running` and
+          # `last_polled_issues` directly; a background poll against the
+          # fixture's unreachable GitHub tracker would latch
+          # `candidate_snapshot_fresh?: false` on the shared Orchestrator,
+          # which blanks every injected idle row
+          # (`StatusReport.visible_polled_issues/1`), and would flip
+          # `snapshot_ready?`, publishing a fleet snapshot that later cases
+          # then read back as last-known-good.
+          tick_timer_ref: nil,
+          tick_token: make_ref(),
+          next_poll_due_at_ms: nil,
+          poll_check_in_progress: false,
+          poll_frozen: true,
+          candidate_snapshot_fresh?: true,
+          snapshot_ready?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
