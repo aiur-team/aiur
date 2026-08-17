@@ -264,61 +264,171 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
   end
 
-
-  describe "cached bodies" do
+  describe "held resources" do
     test "a body written by one reader serves the next with no upstream call" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 7)
-      assert ResourceStore.payload(key) == nil
+      assert ResourceStore.fetch(key) == :miss
 
-      ResourceStore.put_payload(key, %{"title" => "hello"}, "W/\"abc\"")
+      ResourceStore.put_resource(key, %{"title" => "hello"}, etag: "W/\"abc\"", source: :fetch)
 
-      assert ResourceStore.payload(key) == %{"title" => "hello"}
+      assert ResourceStore.data(key) == %{"title" => "hello"}
       assert ResourceStore.etag(key) == "W/\"abc\""
+    end
+
+    # R7: freshness is explicit per entry, so a consumer can state the staleness
+    # it tolerates. An entry that cannot say when or from where it was recorded
+    # forces every consumer to either trust it blindly or refetch.
+    test "an entry carries its own freshness" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 12)
+      before_ms = System.system_time(:millisecond)
+
+      ResourceStore.put_resource(key, %{"number" => 12},
+        source: :webhook,
+        version: "2026-08-17T10:00:00Z",
+        etag: "W/\"pr\""
+      )
+
+      assert {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.data == %{"number" => 12}
+      assert entry.source == :webhook
+      assert entry.version == "2026-08-17T10:00:00Z"
+      assert entry.etag == "W/\"pr\""
+      assert entry.fetched_at_ms >= before_ms
+    end
+
+    # Two consumers inside one freshness window cost one upstream call. The
+    # assertion is the call count, because that is the thing that shows up on the
+    # rate limit; latency would pass against a cache that never hits.
+    test "the second consumer of a resource costs no upstream call" do
+      key = ResourceStore.key(:pull_request, "owner", "repo", 13)
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      read = fn ->
+        case ResourceStore.fetch(key) do
+          {:ok, %{data: data}} ->
+            data
+
+          :miss ->
+            Agent.update(calls, &(&1 + 1))
+            data = %{"number" => 13}
+            ResourceStore.put_resource(key, data, source: :fetch)
+            data
+        end
+      end
+
+      assert read.() == %{"number" => 13}
+      assert read.() == %{"number" => 13}
+      assert read.() == %{"number" => 13}
+
+      assert Agent.get(calls, & &1) == 1
     end
 
     # The rule this feature turns on: a 304 is not data. A validator alone is
     # still worth keeping — the sweep uses it to learn *whether* anything
-    # changed — but it can never serve a reader, so `payload/1` must answer nil
-    # and force a fetch rather than let a caller mistake "unchanged" for "here".
+    # changed — but it can never serve a reader, so `fetch/1` must miss and force
+    # a fetch rather than let a caller mistake "unchanged" for "here it is".
     test "a validator without a body never serves a reader" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 8)
       ResourceStore.put_etag(key, "W/\"abc\"")
 
       assert ResourceStore.etag(key) == "W/\"abc\"", "change detection survives"
-      assert ResourceStore.payload(key) == nil, "but it must not be mistaken for data"
+      assert ResourceStore.fetch(key) == :miss, "but it must not be mistaken for data"
+      assert ResourceStore.data(key) == nil
     end
 
     test "dropping a body keeps change detection" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 11)
-      ResourceStore.put_payload(key, %{"title" => "hello"}, "W/\"abc\"")
+      ResourceStore.put_resource(key, %{"title" => "hello"}, etag: "W/\"abc\"")
 
-      ResourceStore.drop_payload(key)
+      ResourceStore.drop_data(key)
 
-      assert ResourceStore.payload(key) == nil
+      assert ResourceStore.fetch(key) == :miss
       assert ResourceStore.etag(key) == "W/\"abc\""
     end
 
-    test "an oversized body is refused, and refusing also drops the validator" do
+    test "an oversized body is refused, and refusing keeps the validator" do
       key = ResourceStore.key(:issue_comments, "owner", "repo", 9)
-      ResourceStore.put_payload(key, %{"small" => true}, "W/\"old\"")
+      ResourceStore.put_resource(key, %{"small" => true}, etag: "W/\"old\"")
 
       huge = %{"blob" => String.duplicate("x", 300 * 1024)}
-      ResourceStore.put_payload(key, huge, "W/\"new\"")
+      ResourceStore.put_resource(key, huge, etag: "W/\"new\"")
 
-      assert ResourceStore.payload(key) == nil, "an oversized body is refused, not stored"
-      assert ResourceStore.etag(key) == "W/\"old\"", "change detection is still worth keeping"
+      assert ResourceStore.fetch(key) == :miss, "an oversized body is refused, not stored"
+      assert ResourceStore.etag(key) == "W/\"new\"", "change detection is still worth keeping"
     end
 
+    # R8/A7. Without the body on disk a restart keeps every validator and loses
+    # every answer, so the first reader after a boot sends `If-None-Match`, gets a
+    # bodyless 304, and has to pay full price anyway.
     test "a body survives a restart, and so does its validator", %{path: path} do
       restart_store!(path)
       key = ResourceStore.key(:issue_comments, "owner", "repo", 10)
-      ResourceStore.put_payload(key, %{"title" => "durable"}, "W/\"keep\"")
+
+      ResourceStore.put_resource(key, %{"title" => "durable"},
+        etag: "W/\"keep\"",
+        source: :fetch,
+        version: "2026-08-17T09:00:00Z"
+      )
+
       assert :ok = ResourceStore.flush()
 
       restart_store!(path)
 
-      assert ResourceStore.payload(key) == %{"title" => "durable"}
+      assert {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.data == %{"title" => "durable"}
+      assert entry.version == "2026-08-17T09:00:00Z"
+      assert entry.source == :fetch
       assert ResourceStore.etag(key) == "W/\"keep\""
+    end
+
+    # A deposit is not a processed mark. Merging them would let a writer drag the
+    # suppression mark forward onto a version nothing has handled, and the wake
+    # for that version would never happen.
+    test "depositing a body does not silently suppress the resource" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 14)
+
+      ResourceStore.put_resource(key, %{"body" => "hi"}, version: "v1")
+
+      refute ResourceStore.processed?(key, "v1")
+
+      ResourceStore.put_resource(key, %{"body" => "hi"}, version: "v1", processed: true)
+
+      assert ResourceStore.processed?(key, "v1")
+      refute ResourceStore.processed?(key, "v2")
+    end
+  end
+
+  describe "an unlisted resource type fails loudly" do
+    # The trap: `@resource_types` is a closed set that `decode_key/1` resolves
+    # against, so an unlisted type reads and writes perfectly until the next
+    # restart and then vanishes with no error. Refusing at the key turns a body
+    # that silently disappears into a caller that degrades visibly.
+    test "key/4 refuses an unknown type and says so" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert ResourceStore.key(:not_a_real_type, "owner", "repo", 1) == nil
+        end)
+
+      assert log =~ "refused unknown resource type"
+      assert log =~ "not_a_real_type"
+    end
+
+    test "every listed type builds a key" do
+      for type <- ResourceStore.resource_types() do
+        assert ResourceStore.key(type, "owner", "repo", 1) != nil
+      end
+    end
+
+    # A key built by hand bypasses `key/4`. The checkpoint is then the only place
+    # it can be lost, so it is the place that has to name it.
+    test "a key the checkpoint cannot render is named in the log", %{path: path} do
+      restart_store!(path)
+      ResourceStore.put_etag({:not_a_real_type, "owner", "repo", "1"}, ~s("x"))
+
+      log = ExUnit.CaptureLog.capture_log(fn -> assert :ok = ResourceStore.flush() end)
+
+      assert log =~ "cannot checkpoint key"
+      assert log =~ "not_a_real_type"
     end
   end
 

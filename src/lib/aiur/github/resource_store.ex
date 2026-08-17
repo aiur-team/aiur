@@ -71,6 +71,31 @@ defmodule Aiur.GitHub.ResourceStore do
   Entries expire after 72 hours, matching `Aiur.Webhooks.DeliveryLog`: that is
   the envelope inside which GitHub will still retry a delivery, so it is the
   window in which a duplicate can still legitimately arrive.
+
+  ## Holding the resource, not only the validator
+
+  An entry may also hold the resource's own `:data` — the object GitHub
+  returned. A validator alone is not enough to satisfy a second consumer: an
+  ETag shared without the body earns that consumer a `304` and no data, which
+  converts a duplicate fetch into a dropped read. The body is what makes a
+  reader able to answer without spending.
+
+  `put_resource/3` is how a writer deposits one, and every write that changes
+  what a reader could observe publishes a `Aiur.GitHub.ResourceEvents` change
+  event to the subscribers of that resource, of its type in that repository, and
+  of its type anywhere. That is what lets a view re-render off somebody else's
+  write instead of paying for a read of its own.
+
+  ## Two versions, deliberately kept apart
+
+  `:version` is the version at which some pipe *processed* the resource, and it
+  is the suppress half of the sweep. `:data_version` is the version of the body
+  currently held. They are stored separately because merging them would be a
+  suppression bug: a writer depositing newer data would otherwise silently drag
+  an older processed-mark forward onto a version nothing has handled, and the
+  event for that version would never be published. A deposit only advances
+  `:version` when its caller passes `processed: true`, meaning "I have already
+  done whatever this resource requires".
   """
 
   use GenServer
@@ -78,6 +103,7 @@ defmodule Aiur.GitHub.ResourceStore do
   require Logger
 
   alias Aiur.{Config, Fs, JsonStore}
+  alias Aiur.GitHub.ResourceEvents
 
   @table __MODULE__.Table
   @retention_ms 72 * 60 * 60 * 1000
@@ -86,11 +112,12 @@ defmodule Aiur.GitHub.ResourceStore do
   @filename "github_resources.json"
   @max_entries 100_000
 
-  # Ceiling on a single cached response body, encoded. A Build Order graph
-  # response over 54 members is large, and an unbounded body cache is a memory
-  # leak wearing a cache's clothes. Anything past this is refused rather than
-  # stored, and refusing also drops the validator so the pair stays consistent.
-  @max_payload_bytes 256 * 1024
+  # A single GitHub issue, pull request or comment body is a few kilobytes and
+  # GitHub itself caps an issue body at 64 KiB, so nothing legitimate here comes
+  # close. A resource that does is not cached at all: an entry that large would
+  # be paid for on every checkpoint, and the reader falling back to a fetch is
+  # exactly the pre-store behavior.
+  @max_data_bytes 256 * 1024
 
   # The closed set of resource identities. Declared here rather than left to
   # whichever module happens to be loaded first, because `decode_key/1` resolves
@@ -102,6 +129,10 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue_comment,
     :pr_review_comment,
     :pr_review,
+    # Whole resources — the identity a reader asks for and a mutation returns.
+    :issue,
+    :issue_labels,
+    :pr_review_thread,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
@@ -112,6 +143,13 @@ defmodule Aiur.GitHub.ResourceStore do
 
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}
+  @type entry :: %{
+          data: term(),
+          version: String.t() | nil,
+          source: atom() | nil,
+          fetched_at_ms: integer() | nil,
+          etag: String.t() | nil
+        }
 
   @doc "Every resource identity this store recognises."
   @spec resource_types() :: [resource_type()]
@@ -129,12 +167,29 @@ defmodule Aiur.GitHub.ResourceStore do
   the poller uses the configured repo identity while the webhook uses GitHub's
   delivered `repository.full_name`. An exact-match store would silently miss on
   that difference and both pipes would process the same comment.
+
+  A `resource_type` outside `resource_types/0` is **refused here and logged as
+  an error**, rather than accepted and lost later. `@resource_types` is a closed
+  set that `decode_key/1` resolves against, so an unlisted type would write and
+  read perfectly all day and then vanish at the next restart — a body that
+  disappears with no error and no way to attribute it. Refusing at the key makes
+  the caller degrade to the storeless path immediately and visibly, which is the
+  same failure it would eventually get, only debuggable.
   """
   @spec key(resource_type(), String.t(), String.t(), term()) :: key() | nil
   def key(resource_type, owner, repo, id) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
-    case normalize_id(id) do
-      nil -> nil
-      normalized -> {resource_type, String.downcase(owner), String.downcase(repo), normalized}
+    if resource_type in @resource_types do
+      case normalize_id(id) do
+        nil -> nil
+        normalized -> {resource_type, String.downcase(owner), String.downcase(repo), normalized}
+      end
+    else
+      Logger.error(
+        "GitHub.ResourceStore refused unknown resource type #{inspect(resource_type)}; " <>
+          "add it to Aiur.GitHub.ResourceStore's @resource_types or entries for it will not survive a restart"
+      )
+
+      nil
     end
   end
 
@@ -168,112 +223,13 @@ defmodule Aiur.GitHub.ResourceStore do
     end
   end
 
-  @doc """
-  Stores a validator for `key`. A `nil` or empty validator is discarded.
-
-  A validator is only useful alongside the body it validates — see
-  `put_payload/2` for why the two are written together.
-  """
+  @doc "Stores a validator for `key`. A `nil` or empty validator is discarded."
   @spec put_etag(key() | nil, String.t() | nil) :: :ok
   def put_etag(nil, _etag), do: :ok
   def put_etag(_key, etag) when not is_binary(etag) or etag == "", do: :ok
 
   def put_etag(key, etag) do
     update(key, fn entry -> Map.put(entry, :etag, etag) end)
-  end
-
-  @doc """
-  The cached response body for `key`, or `nil`.
-
-  ## Why the store must hold bodies, not just validators
-
-  A validator alone cannot serve a second reader. If two consumers want the same
-  resource and the store holds only an `ETag`, the second sends `If-None-Match`,
-  receives `304 Not Modified` — and a `304` carries **no body**. It has spent a
-  request and learned nothing it can use.
-
-  That turns a duplicate fetch into a *dropped read*, which is strictly worse
-  than the duplication it was meant to remove. So a reader is only served from
-  the store when the body is present.
-  """
-  @spec payload(key() | nil) :: term() | nil
-  def payload(nil), do: nil
-
-  def payload(key) do
-    case lookup(key) do
-      %{payload: payload} = entry when not is_nil(payload) ->
-        # Body freshness keys off when the body was *recorded*, not off
-        # `processed_at_ms`. Those are different facts: a fetch can cache a body
-        # for other readers without any pipe having processed that resource, and
-        # keying off the processing mark would make such a body invisible.
-        if expired?(Map.get(entry, :recorded_at_ms)), do: nil, else: payload
-
-      _other ->
-        nil
-    end
-  end
-
-  @doc """
-  Stores a response body for `key`, optionally with the validator that proves it
-  current.
-
-  Prefer this over `put_etag/2` whenever a fetch actually returned data. A
-  validator on its own is still useful — the sweep sends `If-None-Match` purely
-  to learn *whether anything changed*, and a `304` answers that for free without
-  needing a body. But a validator alone can never **serve** a second reader, and
-  that distinction is the rule callers must respect:
-
-  > Ask `payload/1` before spending a request. Never treat a `304` as data.
-
-  A reader that finds no body must fetch, even when a validator exists.
-  `payload/1` enforces this by answering `nil` whenever the body is absent, so a
-  caller cannot accidentally mistake "unchanged" for "here it is".
-
-  Bodies are bounded: anything larger than #{div(@max_payload_bytes, 1024)} KiB
-  encoded is refused rather than stored, because a cached graph response over 54
-  members is large and an unbounded body cache is a memory leak wearing a
-  cache's clothes. Refusing keeps any existing validator, since change detection
-  is still worth having when the body is not.
-  """
-  @spec put_payload(key() | nil, term(), String.t() | nil) :: :ok
-  def put_payload(key, payload, etag \\ nil)
-
-  def put_payload(nil, _payload, _etag), do: :ok
-
-  def put_payload(key, payload, etag) do
-    if oversized?(payload) do
-      # Refuse the body but keep change detection: drop only the stale payload.
-      drop_payload(key)
-    else
-      update(key, fn entry ->
-        entry
-        |> Map.put(:payload, payload)
-        |> then(fn e -> if is_binary(etag) and etag != "", do: Map.put(e, :etag, etag), else: e end)
-      end)
-    end
-  end
-
-  @doc """
-  Removes the cached body for `key`, leaving any validator in place.
-
-  The validator still answers "has this changed?" cheaply. It simply cannot
-  answer "what is it?" — which is why `payload/1` returns `nil` here and the
-  caller fetches.
-  """
-  @spec drop_payload(key() | nil) :: :ok
-  def drop_payload(nil), do: :ok
-
-  def drop_payload(key) do
-    update(key, fn entry -> Map.delete(entry, :payload) end)
-  end
-
-  defp oversized?(payload) do
-    case Jason.encode(payload) do
-      {:ok, encoded} -> byte_size(encoded) > @max_payload_bytes
-      # Unencodable payloads cannot be persisted or measured, so treat them as
-      # oversized rather than storing something the checkpoint would choke on.
-      _error -> true
-    end
   end
 
   @doc """
@@ -345,6 +301,132 @@ defmodule Aiur.GitHub.ResourceStore do
       :marked
     end
   end
+
+  @doc """
+  Deposits the resource GitHub returned, and publishes the change.
+
+  This is the writers' entry point. The cheapest writer of all is a mutation
+  Aiur itself made: the response to a posted comment, an applied label or an
+  edited body already carries the new state, so the round trip has been paid
+  for and a later read to learn about our own change is pure waste.
+
+  Options:
+
+    * `:source` — which writer deposited this (`:mutation`, `:webhook`,
+      `:poll`, `:fetch`). Defaults to `:mutation`.
+    * `:version` — the resource's own mutation marker, its `updated_at`.
+    * `:etag` — a validator for a later conditional re-read.
+    * `:processed` — when `true`, also mark the resource handled *at that
+      version*, so the delivery GitHub sends moments later for this same change
+      is recognised as already-processed and does not wake anybody twice. Only
+      pass it with a real `:version`; a mark with no version suppresses on
+      identity alone and would swallow the resource's next genuine change.
+
+  Publishing is conditional on the resource actually differing from what is
+  already held, so a writer re-depositing an unchanged body does not wake every
+  subscribed view for nothing.
+  """
+  @spec put_resource(key() | nil, term(), keyword()) :: :ok
+  def put_resource(key, data, opts \\ [])
+
+  def put_resource(nil, _data, _opts), do: :ok
+
+  def put_resource(key, data, opts) do
+    version = normalize_version(Keyword.get(opts, :version))
+    source = Keyword.get(opts, :source, :mutation)
+    # An oversized resource is held as no resource at all rather than as a
+    # truncated one: a reader that misses falls back to fetching, and a reader
+    # handed half a body cannot tell that it did.
+    storable = if oversized?(data), do: nil, else: data
+
+    update(key, fn existing -> deposit(existing, storable, source, version, opts) end)
+  end
+
+  @doc """
+  Removes the held resource for `key`, leaving any validator in place.
+
+  The validator still answers "has this changed?" cheaply. It simply cannot
+  answer "what is it?" — which is why `fetch/1` answers `:miss` afterwards and
+  the caller decides whether it needs the data enough to pay for it.
+  """
+  @spec drop_data(key() | nil) :: :ok
+  def drop_data(nil), do: :ok
+
+  def drop_data(key) do
+    update(key, fn entry -> entry |> Map.delete(:data) |> Map.delete(:data_version) end)
+  end
+
+  @doc """
+  The resource held for `key`, or `:miss` when the store holds no body for it.
+
+  A miss is not an error. It means this reader has to decide whether it needs
+  the data enough to pay for it, which is the decision the store exists to make
+  visible rather than automatic.
+  """
+  @spec fetch(key() | nil) :: {:ok, entry()} | :miss
+  def fetch(nil), do: :miss
+
+  def fetch(key) do
+    case lookup(key) do
+      %{data: data} = entry when not is_nil(data) ->
+        {:ok,
+         %{
+           data: data,
+           version: Map.get(entry, :data_version),
+           source: Map.get(entry, :source),
+           fetched_at_ms: Map.get(entry, :fetched_at_ms),
+           etag: Map.get(entry, :etag)
+         }}
+
+      _other ->
+        :miss
+    end
+  end
+
+  @doc "The held resource body for `key`, or `nil`."
+  @spec data(key() | nil) :: term()
+  def data(key) do
+    case fetch(key) do
+      {:ok, %{data: data}} -> data
+      :miss -> nil
+    end
+  end
+
+  @doc """
+  PubSub topic carrying changes to one resource.
+
+  Topics live in `Aiur.GitHub.ResourceEvents`; these delegations exist so a
+  caller holding a store key does not need to know that.
+  """
+  @spec topic(key()) :: String.t()
+  defdelegate topic(key), to: ResourceEvents
+
+  @doc "PubSub topic carrying changes to every resource of one type."
+  @spec type_topic(resource_type()) :: String.t()
+  defdelegate type_topic(type), to: ResourceEvents
+
+  @doc """
+  Subscribes the caller to changes of one resource, or of a whole type.
+
+  A subscriber receives `{:github_resource_changed, change}` and re-reads the
+  store — it never fetches. That is the whole point: a view rides on whichever
+  writer happened to pay, and costs nothing itself. See
+  `Aiur.GitHub.ResourceEvents` for the shape of `change`.
+  """
+  @spec subscribe(key() | resource_type() | nil) :: :ok
+  defdelegate subscribe(key_or_type), to: ResourceEvents
+
+  @doc "Unsubscribes the caller from one resource's or one type's changes."
+  @spec unsubscribe(key() | resource_type() | nil) :: :ok
+  defdelegate unsubscribe(key_or_type), to: ResourceEvents
+
+  @doc "Subscribes the caller to every change of one resource type."
+  @spec subscribe_type(resource_type()) :: :ok
+  def subscribe_type(type) when is_atom(type), do: ResourceEvents.subscribe(type)
+
+  @doc "Subscribes the caller to every store change."
+  @spec subscribe_all() :: :ok
+  defdelegate subscribe_all(), to: ResourceEvents
 
   @doc """
   Drops every entry.
@@ -451,6 +533,9 @@ defmodule Aiur.GitHub.ResourceStore do
     end)
   end
 
+  # Every write in the module funnels through here, which is why publication
+  # lives here too: a writer that had to remember to announce would eventually
+  # forget, and leave a subscribed view stale with no way to notice.
   defp update(key, fun) do
     with_table(:ok, fn table ->
       existing =
@@ -461,8 +546,63 @@ defmodule Aiur.GitHub.ResourceStore do
 
       entry = existing |> fun.() |> Map.put(:recorded_at_ms, now_ms())
       :ets.insert(table, {key, entry})
+      announce(key, existing, entry)
       :ok
     end)
+  end
+
+  # A write that leaves the entry's observable content unchanged is silent. Only
+  # `recorded_at_ms` moved, so no subscriber could see a difference, and a sweep
+  # re-recording an unchanged validator across the whole retention window would
+  # otherwise trade the poll this store removes for a broadcast storm.
+  defp announce(key, before, entry) do
+    if observable(before) == observable(entry) do
+      :ok
+    else
+      ResourceEvents.publish(key, entry)
+    end
+  end
+
+  # `:data` is the load-bearing member. A body can arrive against an unchanged
+  # validator — a first deposit for a resource whose ETag a sweep already
+  # recorded — and that is precisely the write a viewer is waiting for, because
+  # the held body is the only thing that decides whether a page has anything to
+  # render. Comparing whole bodies is affordable: they are bounded at
+  # #{div(@max_data_bytes, 1024)} KiB, and an identical body rewritten is a
+  # genuine no-op no subscriber should be woken for.
+  defp observable(entry) do
+    Map.take(entry, [:etag, :data, :data_version, :processed_at_ms, :source, :version])
+  end
+
+  defp deposit(entry, data, source, version, opts) do
+    entry =
+      entry
+      |> Map.put(:data, data)
+      |> Map.put(:data_version, version)
+      |> Map.put(:fetched_at_ms, now_ms())
+      |> Map.put(:source, source)
+      |> maybe_put_etag(Keyword.get(opts, :etag))
+
+    # `:version` moves only alongside `:processed_at_ms`. See the moduledoc:
+    # advancing it on its own would suppress a version nothing has handled.
+    if Keyword.get(opts, :processed, false) do
+      entry
+      |> Map.put(:processed_at_ms, now_ms())
+      |> Map.put(:version, version)
+    else
+      entry
+    end
+  end
+
+  defp maybe_put_etag(entry, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
+  defp maybe_put_etag(entry, _etag), do: entry
+
+  # Measured on the term rather than its JSON, which is close enough for a
+  # backstop and does not cost an encode on every deposit.
+  defp oversized?(data) do
+    byte_size(:erlang.term_to_binary(data)) > @max_data_bytes
+  rescue
+    ArgumentError -> true
   end
 
   # Every read and write funnels through here so a missing table — no store
@@ -551,16 +691,28 @@ defmodule Aiur.GitHub.ResourceStore do
   defp encode_entry({key, entry}, acc) do
     case encode_key(key) do
       nil ->
+        # Loud, because this is the one place an entry can be lost with nothing
+        # else to show for it: a key the checkpoint cannot render is simply
+        # absent after the next restart. Naming it here is what makes the
+        # disappearance attributable instead of a mystery.
+        Logger.error("GitHub.ResourceStore cannot checkpoint key #{inspect(key)}; it will not survive a restart")
+
         acc
 
       encoded ->
         Map.put(acc, encoded, %{
           "etag" => Map.get(entry, :etag),
-          "payload" => Map.get(entry, :payload),
           "processed_at_ms" => Map.get(entry, :processed_at_ms),
           "version" => Map.get(entry, :version),
           "source" => entry |> Map.get(:source) |> encode_atom(),
-          "recorded_at_ms" => Map.get(entry, :recorded_at_ms)
+          "recorded_at_ms" => Map.get(entry, :recorded_at_ms),
+          # The body is checkpointed too. Without it a restart keeps the
+          # validators but loses every answer, and the first reader after a
+          # restart pays full price for state the daemon already had — which is
+          # the cost this store exists to remove.
+          "data" => encode_data(Map.get(entry, :data)),
+          "data_version" => Map.get(entry, :data_version),
+          "fetched_at_ms" => Map.get(entry, :fetched_at_ms)
         })
     end
   end
@@ -569,10 +721,27 @@ defmodule Aiur.GitHub.ResourceStore do
   defp encode_atom(value) when is_atom(value), do: Atom.to_string(value)
   defp encode_atom(_value), do: nil
 
+  # Only JSON-shaped bodies round-trip, which is every GitHub response. Anything
+  # else is dropped rather than checkpointed as something `decode_data/1` would
+  # hand back in a different shape than it went in.
+  defp encode_data(data) when is_map(data) or is_list(data), do: data
+  defp encode_data(_data), do: nil
+
+  defp decode_data(data) when is_map(data) or is_list(data), do: data
+  defp decode_data(_data), do: nil
+
   # `|` cannot appear in a repo owner, name, or GitHub node id, so it is a safe
   # separator for a flat JSON object key.
+  #
+  # An unlisted type is refused here as well as in `key/4`, because a key built
+  # by hand bypasses `key/4` entirely and `decode_key/1` would drop it on the way
+  # back in. Refusing makes `encode_entry/2` say so out loud.
   defp encode_key({type, owner, repo, id}) when is_atom(type) and is_binary(owner) and is_binary(repo) and is_binary(id) do
-    if String.contains?(owner <> repo <> id, "|"), do: nil, else: "#{type}|#{owner}|#{repo}|#{id}"
+    cond do
+      type not in @resource_types -> nil
+      String.contains?(owner <> repo <> id, "|") -> nil
+      true -> "#{type}|#{owner}|#{repo}|#{id}"
+    end
   end
 
   defp encode_key(_key), do: nil
@@ -632,16 +801,20 @@ defmodule Aiur.GitHub.ResourceStore do
 
   defp known_source_atom("webhook"), do: :webhook
   defp known_source_atom("poll"), do: :poll
+  defp known_source_atom("mutation"), do: :mutation
+  defp known_source_atom("fetch"), do: :fetch
   defp known_source_atom(_value), do: nil
 
   defp decode_entry(%{} = value) do
     %{
       etag: string_or_nil(Map.get(value, "etag")),
-      payload: Map.get(value, "payload"),
       processed_at_ms: integer_or_nil(Map.get(value, "processed_at_ms")),
       version: string_or_nil(Map.get(value, "version")),
       source: value |> Map.get("source") |> decode_source(),
-      recorded_at_ms: integer_or_nil(Map.get(value, "recorded_at_ms")) || 0
+      recorded_at_ms: integer_or_nil(Map.get(value, "recorded_at_ms")) || 0,
+      data: decode_data(Map.get(value, "data")),
+      data_version: string_or_nil(Map.get(value, "data_version")),
+      fetched_at_ms: integer_or_nil(Map.get(value, "fetched_at_ms"))
     }
   end
 
