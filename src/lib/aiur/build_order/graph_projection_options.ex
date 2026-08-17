@@ -10,8 +10,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
     # against the 5,000-points/hour budget versus ~1 without it (#1766), so the
     # labelled read is bought on this slow cadence, not on every catalog poll.
     catalog_labels_refresh_ms: 600_000,
-    selected_refresh_ms: 15_000,
-    demand_refresh_ms: 5_000,
+    # There is deliberately no `selected_refresh_ms` or `demand_refresh_ms`. A
+    # selected root is not on a cadence: it is read when a writer or an explicit
+    # `GraphProjection.refresh/2` asks for it, never because a page is open.
     refresh_timeout_ms: 30_000,
     max_selected_roots: 32,
     max_inflight: 4
@@ -20,8 +21,6 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   @maxima %{
     catalog_refresh_ms: 3_600_000,
     catalog_labels_refresh_ms: 3_600_000,
-    selected_refresh_ms: 300_000,
-    demand_refresh_ms: 300_000,
     refresh_timeout_ms: 120_000,
     max_selected_roots: 100,
     max_inflight: 16
@@ -79,8 +78,6 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   @spec policy_options(keyword()) :: map()
   def policy_options(opts) do
-    selected = positive(opts, :selected_refresh_ms, @defaults[:selected_refresh_ms], @maxima.selected_refresh_ms)
-    demand = positive(opts, :demand_refresh_ms, @defaults[:demand_refresh_ms], @maxima.demand_refresh_ms)
     catalog = positive(opts, :catalog_refresh_ms, @defaults[:catalog_refresh_ms], @maxima.catalog_refresh_ms)
 
     catalog_labels =
@@ -96,8 +93,6 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # query, which is the regression #1766 exists to prevent. Clamping here
       # means no configuration can reinstate it.
       catalog_labels_refresh_ms: max(catalog_labels, catalog),
-      selected_refresh_ms: selected,
-      demand_refresh_ms: if(demand <= selected, do: demand, else: @defaults[:demand_refresh_ms]),
       refresh_timeout_ms: timeout,
       max_selected_roots: roots,
       max_inflight: positive(opts, :max_inflight, @defaults[:max_inflight], @maxima.max_inflight)

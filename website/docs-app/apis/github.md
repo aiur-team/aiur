@@ -67,6 +67,61 @@ the authenticated core budget, so they are metered in their own window. An
 exhausted anonymous allowance holds further anonymous reads but never gates
 agent dispatch.
 
+## One store, keyed by resource
+
+Aiur learns the same GitHub fact through more than one path. A ticket is read by
+the dispatch poll, by the Build Order page, and by the Build Order graph — the
+same `GET /repos/{owner}/{repo}/issues/{number}`, on three schedules. Historically
+each path kept its own cache, so the same bytes were bought up to three times.
+
+`Aiur.GitHub.ResourceStore` is where those paths meet. Every entry is addressed
+by `(resource_type, owner, repo, id)` — the resource's identity, not the identity
+of whoever asked for it — so a ticket fetched by one reader satisfies the next.
+
+Each entry holds two things:
+
+- **A validator (`ETag`)**, used to make the next read conditional. GitHub does
+  not count a `304` against the primary REST rate limit, so revalidating an
+  unchanged resource is free rather than merely cheap. Validators survive a
+  restart.
+- **The response body.** This is not an extra optimisation, it is what makes
+  sharing a validator safe. A `304` carries no body, so if two readers shared an
+  `ETag` without also sharing the body, the first would get the bytes and the
+  second would get a `304` and *nothing* — a duplicate fetch turned into a
+  dropped read. Bodies are held in memory only and expire well before validators
+  do, because a body can always be re-fetched.
+
+A read therefore has three possible costs, and they are worth telling apart:
+
+| Outcome | Request made | Primary rate limit |
+| --- | --- | --- |
+| Served from the store inside the freshness window | none | none |
+| Revalidated, answered `304` | one conditional | none |
+| Fetched, answered `200` | one | one request |
+
+Every fault — no store running, an unwritable state directory, a corrupt
+checkpoint — degrades to the behaviour Aiur had before the store existed: an
+unconditional request. A cache that cannot answer costs throughput, never
+correctness.
+
+### Where revalidation is not available
+
+GitHub's GraphQL API returns no `ETag`, no `Last-Modified` and no
+`Cache-Control`, and every query is a `POST`. No conditional request exists to
+make, so a GraphQL read can never answer `304`. For GraphQL, the only controls
+are how often a query runs and how large its connections are — which is why
+Build Order's GraphQL cadences are derived from the tracker poll interval rather
+than fixed. See `build_order` in the configuration reference.
+
+Reads that remain unconditional today, named rather than averaged away:
+
+- `AiurBuildOrderCatalog`, `AiurBuildOrderSelectedRoot`, `AiurLinkedPullRequests`
+  — GraphQL, so not revalidatable at all. Controlled by cadence.
+- `GET /repos/{owner}/{repo}/issues/{number}/timeline` — REST, issued per issue
+  by dispatch authorization. Conditional support is possible and not yet done.
+- The Build Order ad-hoc epic poll, `GET /repos/{owner}/{repo}/issues?labels=…`
+  — REST, conditional support is possible and not yet done.
+
 ## Optional webhook
 
 The webhook shortens reaction time for repository events while polling continues as a reconciliation path.

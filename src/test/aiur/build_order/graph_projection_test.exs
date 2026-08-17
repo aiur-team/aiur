@@ -317,6 +317,35 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                    2_000
   end
 
+  # Acceptance criterion 1: opening the Build Order page costs zero, cold cache
+  # included. "Cold" is the case that used to be guaranteed to spend — a selected
+  # entry with no `last_success_ms` was due by definition, so the first person to
+  # look at a root paid for it. Asserted by counting reader starts, because the
+  # reader is the only witness that cannot be fooled: latency and health state
+  # both look the same whether or not a request went out.
+  test "opening a cold root, repeatedly, starts no reader at all" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    # Mount, re-mount, reconnect — every one of these is a `demand/2`.
+    for _ <- 1..5 do
+      assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    end
+
+    # Holding the page open is `selected/2`, which also must not spend.
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.selected(projection, first)
+
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 200
+
+    # And nothing was armed to spend later on the viewer's behalf either: a timer
+    # here would just be the same cost deferred by one interval.
+    entry = :sys.get_state(projection).selected[Policy.root_key(first)]
+    assert entry.timer == nil
+  end
+
   test "selected-root demand coalesces, protects live entries, and evicts released LRU entries" do
     first = identity(1, "I1")
     second = identity(2, "I2")
@@ -330,11 +359,17 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                    },
                    2_000
 
+    # Demand registers the watcher and buys nothing, so no reader starts for it.
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
+
+    # The explicit need is what spends, and repeated needs still coalesce onto
+    # the one inflight read.
+    :ok = GraphProjection.refresh(projection, first)
     first_reader = await_reader({:selected, first})
 
     for _ <- 1..3 do
-      assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+      :ok = GraphProjection.refresh(projection, first)
     end
 
     refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
@@ -357,6 +392,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
     assert :ok = GraphProjection.release(projection, first)
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, second)
+    :ok = GraphProjection.refresh(projection, second)
     second_reader = await_reader({:selected, second})
 
     assert {:ok, %Snapshot{data: nil, generation: :unknown}} = GraphProjection.selected(projection, first)
@@ -422,6 +458,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       end)
 
     assert_receive {:demand_result, {:ok, %Snapshot{data: nil}}}, 2_000
+    :ok = GraphProjection.refresh(projection, first)
     selected_reader = await_reader({:selected, first})
     selected = selected(first)
     finish(selected_reader, {:ok, ProviderResult.complete(selected)})
@@ -497,8 +534,6 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       now: fn -> @now end,
       clock_ms: clock_ms,
       catalog_refresh_ms: 60_000,
-      selected_refresh_ms: 15_000,
-      demand_refresh_ms: 5_000,
       refresh_timeout_ms: 30_000,
       max_selected_roots: max_selected_roots,
       max_inflight: 4,
@@ -532,8 +567,6 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       call_budget: 4,
       options: [
         catalog_refresh_ms: 60_000,
-        selected_refresh_ms: 15_000,
-        demand_refresh_ms: 5_000,
         refresh_timeout_ms: 30_000,
         max_selected_roots: max_selected_roots,
         max_inflight: 4

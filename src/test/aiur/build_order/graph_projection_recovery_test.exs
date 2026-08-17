@@ -91,6 +91,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
     failed_reader = await_reader({:selected, identity})
 
     finish(
@@ -122,11 +123,11 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
 
     assert next_retry_at == failed.health.next_retry_at
     rearmed = :sys.get_state(projection).selected[key]
-    assert is_reference(rearmed.timer)
+    assert rearmed.timer == nil
     refute_receive {:reader_started, {:selected, ^identity}, _reader}
 
     Agent.update(clock, fn _ -> %{now: DateTime.add(@now, 12, :second), ms: 12_000} end)
-    fire_timer(projection, rearmed, {:selected, identity})
+    :ok = GraphProjection.refresh(projection, identity)
     recovery_reader = await_reader({:selected, identity})
     recovered = selected(identity, repository)
     finish(recovery_reader, {:ok, ProviderResult.complete(recovered)})
@@ -196,11 +197,13 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
     assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
     first_reader = await_reader({:selected, first})
     assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, second)
+    :ok = GraphProjection.refresh(projection, second)
 
     for _ <- 1..3 do
-      assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, second)
+      :ok = GraphProjection.refresh(projection, second)
     end
 
     refute_receive {:reader_started, {:selected, ^second}, _reader}
@@ -299,8 +302,6 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
       call_budget: 4,
       options: [
         catalog_refresh_ms: Keyword.get(opts, :catalog_refresh_ms, 60_000),
-        selected_refresh_ms: 15_000,
-        demand_refresh_ms: 5_000,
         refresh_timeout_ms: 30_000,
         max_selected_roots: 4,
         max_inflight: Keyword.get(opts, :max_inflight, 4)
