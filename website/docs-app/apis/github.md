@@ -96,6 +96,16 @@ Aiur therefore records each comment it has processed by its identity, and both p
 
 If the record is unavailable or unreadable, Aiur behaves as though it were absent: it publishes, and the existing one-hour replay window catches short-range duplicates. A duplicate wake is recoverable; a dropped comment is not.
 
+## One record for one resource
+
+That record is not only a set of marks. Aiur keeps the resource GitHub returned — the comment, the issue, the pull request — addressed by what it is (`type`, owner, repository, id) rather than by which code path happened to ask for it. A resource fetched down one path therefore answers every other path.
+
+Each entry carries when it was recorded, which path recorded it, the resource's own `updated_at`, and an `ETag` where GitHub provides one. Entries and the resources themselves are written to disk, so a restart does not re-buy state the daemon already had. Keeping only the `ETag` would not achieve that: a validator sent for a resource Aiur no longer holds earns a `304 Not Modified` with no body, which spends a request and returns nothing usable.
+
+Every write that changes what a reader could see is announced, so anything watching that resource learns about it without asking GitHub. A change costs one API call at most — whoever needed it first — no matter how many things were watching.
+
+The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+
 ## Optional webhook
 
 The webhook shortens reaction time for repository events while polling continues as a reconciliation path.
