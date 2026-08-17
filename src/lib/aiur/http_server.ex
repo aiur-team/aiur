@@ -99,8 +99,12 @@ defmodule Aiur.HttpServer do
   end
 
   # Require basic-auth credentials for writable dashboards on every host, and
-  # for read-only dashboards exposed beyond loopback. Returns `:ok` to proceed,
-  # or a sentinel that disables the dashboard after logging remediation.
+  # for read-only dashboards exposed beyond loopback. Even when the bind guard
+  # permits a loopback bind without credentials, the dashboard plug fails
+  # closed: every request is refused (503) until credentials are set, so an
+  # unconfigured loopback dashboard is bound but inert, never open. Returns
+  # `:ok` to proceed, or a sentinel that disables the dashboard after logging
+  # remediation.
   defp guard_dashboard_credentials(ip, host_input, dashboard_writable) do
     cond do
       basic_auth_configured?() ->
@@ -117,6 +121,12 @@ defmodule Aiur.HttpServer do
         :dashboard_credentials_missing
 
       loopback?(ip) ->
+        Logger.warning(
+          "Aiur dashboard binding on loopback without basic-auth credentials. " <>
+            "The dashboard plug fails closed, so every request is refused (503) " <>
+            "until AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD are set."
+        )
+
         :ok
 
       true ->
@@ -124,7 +134,8 @@ defmodule Aiur.HttpServer do
           "Aiur dashboard refusing to bind on non-loopback host " <>
             "(#{inspect(host_input)} resolved to #{format_ip(ip)}) without basic-auth credentials.\n" <>
             "Set AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD env vars, " <>
-            "or re-run with --host 127.0.0.1 (loopback bind is unauthenticated by design)."
+            "or re-run with --host 127.0.0.1. Without credentials the dashboard " <>
+            "binds on loopback but refuses every request (503) until they are set."
         )
 
         :dashboard_credentials_missing
