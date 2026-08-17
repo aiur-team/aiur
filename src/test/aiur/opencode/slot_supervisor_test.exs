@@ -96,8 +96,11 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
 
   describe "acquire_slot_or_grow/0 with a consumed slot" do
     test "delegates growth to the globally registered slot policy" do
+      pubsub = Module.concat(__MODULE__, "PubSub#{System.unique_integer([:positive, :monotonic])}")
+      start_supervised!({Phoenix.PubSub, name: pubsub}, id: {Phoenix.PubSub, pubsub})
+
       policy =
-        start_supervised!({SlotPolicy, target_count: 1, max_slots: 2, pubsub: Aiur.PubSub, slot_starter: FakeSlotStarter})
+        start_supervised!({SlotPolicy, target_count: 1, max_slots: 2, pubsub: pubsub, slot_starter: FakeSlotStarter})
 
       assert SlotPolicy.highest_started(policy) == 1
       assert [{1, _slot_pid}] = SlotRegistry.all()
