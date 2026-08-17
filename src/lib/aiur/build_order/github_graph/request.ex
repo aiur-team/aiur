@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GitHubGraph.Request do
   @moduledoc false
 
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.{Errors, GraphQLCost, Transport}
 
   @spec page(map(), String.t(), String.t(), map()) ::
           {:ok, map(), map()} | {:error, atom(), map()}
@@ -14,9 +14,21 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
   def page(state, token, query, variables) do
     state = %{state | calls: state.calls + 1}
 
-    case Transport.github_graphql_response(state.request_fun, token, query, variables) do
+    case Transport.github_graphql_response(state.request_fun, token, query, variables, caller: caller(query)) do
       {:ok, body, response} -> {:ok, body, observe(state, body, response)}
       {:error, reason, response} -> {:error, reason, observe_failure(state, response)}
+    end
+  end
+
+  # The two graph reads are separate call sites even though they share this
+  # function: the catalog is a repo-wide poll and the selected root refreshes
+  # only while someone is looking at it. Ranked together they would be one row
+  # and the cadence question could not be answered from the ranking (#2084).
+  defp caller(query) do
+    case GraphQLCost.operation_name(query) do
+      "AiurBuildOrderCatalog" -> :build_order_catalog
+      "AiurBuildOrderSelectedRoot" -> :build_order_selected_root
+      _other -> :build_order_graph
     end
   end
 
