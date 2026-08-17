@@ -8,7 +8,9 @@ also publishes into it — `attention.state_divergence`,
 `attention.error-lifetime_latch`, and `attention.unsupported_model` — so a
 subscriber to `ticket.<id>.agent.attention.#` sees orchestrator-authored
 attentions alongside your own. Opening and closing the ❗ chips you author
-works exactly as below; you don't resolve the orchestrator's.
+works exactly as below; you don't resolve the orchestrator's. Your
+`attention.resolved` only clears the slugs you opened, so keep your own
+attention slugs distinct from system ones.
 
 ## Opening an attention
 

@@ -86,7 +86,7 @@ ground truth; confirm it against the code and correct it in your inventory.
     `src/lib/aiur_web/live/`
   - Two kinds of skills: **(a)** skills for agents/users *driving* aiur →
     `.claude/skills/` (aiur-build, aiur-run, aiur-monitor, design-import,
-    using-aiur, aiur-agent, release); **(b)** skills installed into workspaces for agents *run by* aiur
+    aiur-agent, release); **(b)** skills installed into workspaces for agents *run by* aiur
     (compound-engineering skills symlinked in at boot). These bloat new-agent context
     if unmanaged — the refactor should make them modular and lean so freshly-spun
     agents aren't flooded with fluff, while retaining essentials like repo pre-warm.
@@ -101,14 +101,14 @@ ground truth; confirm it against the code and correct it in your inventory.
   `agent:in-progress → agent:human-review / agent:rework → agent:merging →
   agent:done`. An optional `complexity:N` label routes hard tickets to stronger
   models; keep your tickets **low-complexity** so lesser agents suffice. Review
-  `.claude/skills/aiur-run/` and `.claude/skills/using-aiur/` yourself to confirm
+  `.claude/skills/aiur-run/` and `.claude/skills/aiur-agent/` yourself to confirm
   the exact conventions before finalizing ticket shape.
 
 ---
 
 ## Research you must do first (in this order)
 
-1. **Read the aiur-run + using-aiur skills** to lock the ticket/label conventions
+1. **Read the aiur-run + aiur-agent skills** to lock the ticket/label conventions
    your backlog must match.
 2. **Build the authoritative feature/behavior inventory** from the code and tests —
    every feature, flag, config option, skill, event, alert, and CLI command. This is
