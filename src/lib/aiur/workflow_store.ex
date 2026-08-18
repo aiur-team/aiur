@@ -58,9 +58,18 @@ defmodule Aiur.WorkflowStore do
 
   @spec current() :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
   def current do
-    case Cache.fetch() do
+    case Cache.fetch(Workflow.workflow_file_path()) do
       {:ok, workflow, _generation} ->
         {:ok, workflow}
+
+      # The cache holds a config loaded from a different path — a reload that
+      # re-pointed this singleton at another config landed after the caller's
+      # own fixture was loaded and awaited (#2133). Serving it would hand a
+      # caller a config that is not its own, so refuse the entry and read the
+      # caller's current path from disk instead. The store catches up on its
+      # next reload.
+      {:stale, _cached_path} ->
+        Workflow.load()
 
       :error ->
         case Process.whereis(__MODULE__) do
@@ -73,9 +82,12 @@ defmodule Aiur.WorkflowStore do
   @spec current_with_generation() ::
           {:ok, Workflow.loaded_workflow(), pos_integer() | :unknown} | {:error, term()}
   def current_with_generation do
-    case Cache.fetch() do
+    case Cache.fetch(Workflow.workflow_file_path()) do
       {:ok, workflow, generation} ->
         {:ok, workflow, generation}
+
+      {:stale, _cached_path} ->
+        load_with_unknown_generation()
 
       :error ->
         case Process.whereis(__MODULE__) do
@@ -385,8 +397,8 @@ defmodule Aiur.WorkflowStore do
   # would race back to the value it was told had changed.
   defp commit(%State{} = state), do: commit(nil, state)
 
-  defp commit(previous, %State{} = state) do
-    Cache.put(state.workflow, state.generation)
+  defp commit(previous, %State{path: path} = state) do
+    Cache.put(state.workflow, state.generation, path)
     broadcast_configuration(state)
     maybe_announce_base_branch_change(previous, state)
     :ok

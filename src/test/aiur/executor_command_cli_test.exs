@@ -234,4 +234,90 @@ defmodule Aiur.ExecutorCommandCLITest do
       assert ExecutorCommandCLI.escalation_resolution_topic("decision:42", "42") == topic <> ".resolved"
     end
   end
+
+  describe "moot/2" do
+    test "routes one attributed moot retirement through the serialized store API" do
+      test_pid = self()
+
+      deps = [
+        moot_fun: fn decision_id, payload, opts, store ->
+          send(test_pid, {:moot, decision_id, payload, opts, store})
+          {:ok, %{status: :accepted}}
+        end,
+        decision_store: :decision_store
+      ]
+
+      output =
+        capture_io(fn ->
+          assert ExecutorCommandCLI.moot(
+                   [
+                     decision_id: "decision:42",
+                     expected_version: 3,
+                     reason_class: "ticket_closed",
+                     reason: "Ticket #2071 is closed.",
+                     executor_id: "codex-executor"
+                   ],
+                   deps
+                 ) == 0
+        end)
+
+      assert_received {:moot, "decision:42",
+                       %{
+                         expected_version: 3,
+                         reason_class: "ticket_closed",
+                         reason: "Ticket #2071 is closed."
+                       }, [actor: actor], :decision_store}
+
+      assert actor == %{kind: :executor, id: "codex-executor"}
+      assert output =~ "Executor codex-executor mooted Command decision:42"
+    end
+
+    test "requires a non-empty reason class" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.moot(
+                   [decision_id: "decision:42", expected_version: 3, reason_class: ""],
+                   moot_fun: fn _, _, _, _ -> flunk("missing reason-class must not reach the store") end
+                 ) == 64
+        end)
+
+      assert output =~ "--reason-class is required"
+    end
+
+    test "reports a non-open Command as a command error" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.moot(
+                   [decision_id: "decision:42", expected_version: 3, reason_class: "ticket_closed"],
+                   moot_fun: fn _, _, _, _ -> {:error, {:conflict, :decided}} end
+                 ) == 1
+        end)
+
+      assert output =~ "cannot moot Command because it is :decided"
+    end
+
+    test "routes moot errors through an injected writer" do
+      test_pid = self()
+
+      assert ExecutorCommandCLI.moot(
+               [decision_id: "decision:42", expected_version: 3, reason_class: "ticket_closed"],
+               moot_fun: fn _, _, _, _ -> {:error, :store_unavailable} end,
+               error_fun: &send(test_pid, {:error, &1})
+             ) == 1
+
+      assert_received {:error, "aiur: failed to moot Command (:store_unavailable)"}
+    end
+
+    test "reports a stale version as a command error" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.moot(
+                   [decision_id: "decision:42", expected_version: 3, reason_class: "ticket_closed"],
+                   moot_fun: fn _, _, _, _ -> {:error, {:stale_version, 3, 4}} end
+                 ) == 1
+        end)
+
+      assert output =~ "stale version"
+    end
+  end
 end

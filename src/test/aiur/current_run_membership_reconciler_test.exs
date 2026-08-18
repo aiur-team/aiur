@@ -154,9 +154,9 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     {:ok, snapshot} = Agent.start_link(fn -> %{running: [], retrying: [], idle: []} end)
 
     on_exit(fn ->
-      if Process.alive?(current_store), do: GenServer.stop(current_store)
-      if Process.alive?(snapshot), do: Agent.stop(snapshot)
-      if pid = Process.whereis(reconciler_name), do: GenServer.stop(pid)
+      Aiur.TestSupport.safe_stop(current_store)
+      Aiur.TestSupport.safe_stop(snapshot)
+      Aiur.TestSupport.safe_stop(reconciler_name)
       File.rm_rf!(dir)
     end)
 

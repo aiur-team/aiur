@@ -25,6 +25,7 @@ defmodule Aiur.AgentControlCLI do
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
+  alias Aiur.Executor.{Claims, Roster}
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -60,6 +61,16 @@ defmodule Aiur.AgentControlCLI do
   # launcher's 10s control-RPC timeout.
   @resume_confirm_timeout_ms 4_000
   @resume_confirm_poll_ms 100
+
+  # `aiur message` has the same shape: `{:ok, request_id}` is a queue handle,
+  # not a delivery receipt (#1824). One target means a much smaller budget than
+  # `resume --all` needs, and an operator nudge to a busy agent is normally
+  # claimed at its next checkpoint rather than inside any window we could
+  # afford to wait — so this window exists to catch the fast claim, not to
+  # decide the outcome. Anything still pending when it elapses is reported as
+  # queued, which is what actually happened.
+  @message_confirm_timeout_ms 1_500
+  @message_confirm_poll_ms 100
 
   # RepoBase phases that mean the warm base is still becoming dispatchable
   # (the gate holds new work). Anything else with prewarm enabled — :ready
@@ -305,6 +316,11 @@ defmodule Aiur.AgentControlCLI do
     guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)
   end
 
+  @spec executor_moot(keyword()) :: :ok
+  def executor_moot(opts) when is_list(opts) do
+    guarded("executor-moot", fn -> opts |> ExecutorCommandCLI.moot(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec units(keyword()) :: :ok
   def units(opts \\ []) do
     UnitsCLI.run(opts) |> exit_marker()
@@ -364,32 +380,215 @@ defmodule Aiur.AgentControlCLI do
   @spec executor_listen(keyword()) :: no_return()
   def executor_listen(opts \\ []), do: ExecutorEvents.listen(opts)
 
+  @doc """
+  Waits for Executor wake records, auto-claiming the stream when nobody holds
+  it.
+
+  There is no detection of "is this an agent" anywhere in this path — the caller
+  simply claims. A caller that gets the claim is the owner and acknowledges, so
+  the shared cursor advances exactly once per record. A caller refused by a
+  live, renewing owner reads the same records as a read-only observer and never
+  advances the cursor, so two consumers cannot split the stream between them.
+  """
   @spec executor_wait(keyword()) :: :ok
   def executor_wait(opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
     json? = Keyword.get(opts, :json, false)
+    consumer_id = Claims.resolve_consumer_id(opts)
+    {role, holder} = executor_wait_role(consumer_id)
 
-    case ExecutorWakeInbox.wait(timeout_ms) do
-      {:ok, records} ->
-        print_executor_wakes(records, json?)
-        :ok = ExecutorWakeInbox.acknowledge(records)
-        exit_marker(0)
+    announce_executor_peers(consumer_id, holder)
 
-      :timeout ->
-        exit_marker(75)
+    # A quiet wait can outlast a lease, and an owner that silently expired
+    # mid-wait would be refused its own acknowledgement and re-read the same
+    # records forever. Renew from a helper process for as long as the wait runs.
+    renewer = start_lease_renewer(consumer_id)
+
+    try do
+      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?)
+    after
+      stop_lease_renewer(renewer)
+    end
+  end
+
+  defp executor_wait_role(consumer_id) do
+    case Claims.claim(consumer_id) do
+      {:ok, _entry} ->
+        {:owner, nil}
+
+      {:error, {:held_by, owner}} ->
+        _ = Claims.observe(consumer_id)
+        {:observer, owner}
 
       {:error, reason} ->
-        control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
+        control_error(
+          "aiur: could not claim the wake stream (#{format_reason(reason)}); reading as observer, " <>
+            "so the shared cursor will not advance"
+        )
+
+        {:observer, nil}
+    end
+  end
+
+  defp start_lease_renewer(consumer_id) do
+    interval = max(div(Claims.lease_ttl_ms(), 3), 1_000)
+    spawn_link(fn -> renew_lease_forever(consumer_id, interval) end)
+  end
+
+  defp renew_lease_forever(consumer_id, interval) do
+    Process.sleep(interval)
+    _ = Claims.renew(consumer_id)
+    renew_lease_forever(consumer_id, interval)
+  end
+
+  defp stop_lease_renewer(pid) do
+    Process.unlink(pid)
+    Process.exit(pid, :kill)
+    :ok
+  end
+
+  defp executor_wait_result({:ok, records}, consumer_id, role, json?) do
+    print_executor_wakes(records, json?, role)
+    acknowledge_executor_wakes(records, consumer_id, role)
+    exit_marker(0)
+  end
+
+  defp executor_wait_result(:timeout, _consumer_id, _role, _json?), do: exit_marker(75)
+
+  defp executor_wait_result({:error, reason}, _consumer_id, _role, _json?) do
+    control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
+    exit_marker(1)
+  end
+
+  defp acknowledge_executor_wakes(_records, _consumer_id, :observer), do: :ok
+
+  defp acknowledge_executor_wakes(records, consumer_id, :owner) do
+    case ExecutorWakeInbox.acknowledge_as(consumer_id, records) do
+      :ok ->
+        :ok
+
+      # Never swallowed: an unacknowledged batch means the cursor did not move
+      # and these same records come back next wait, which reads as a working
+      # consumer looping. Say so instead.
+      {:error, {:not_owner, owner}} ->
+        control_error(
+          "aiur: these wakes were NOT acknowledged - the claim is now held by " <>
+            "#{(owner && owner["id"]) || "nobody"}, so the cursor did not advance and they will be delivered again"
+        )
+
+      {:error, reason} ->
+        control_error("aiur: these wakes were NOT acknowledged (#{format_reason(reason)}); the cursor did not advance")
+    end
+  end
+
+  # An agent that finds a peer tells the operator, unprompted, with the evidence
+  # rather than a verdict. A healthy peer is reported plainly; multiple
+  # executors are a supported configuration, not a fault.
+  defp announce_executor_peers(consumer_id, holder) do
+    peers =
+      Roster.build(record?: false).executors
+      |> Enum.reject(&(&1.id == consumer_id or &1.state == :expired))
+
+    Enum.each(peers, fn peer -> IO.puts("PEER " <> Roster.describe_line(peer)) end)
+
+    if holder do
+      IO.puts("PEER-OWNER #{holder["id"]} holds the wake stream; reading as observer. Revoke is an operator decision.")
+    end
+  end
+
+  @doc "Prints the Executor roster with the liveness evidence behind each state."
+  @spec executor_roster(keyword()) :: :ok
+  def executor_roster(opts \\ []) do
+    roster = Roster.build(Keyword.take(opts, [:now, :stall_after_ms]))
+
+    if Keyword.get(opts, :json, false) do
+      IO.puts(Jason.encode!(roster))
+    else
+      IO.puts("CURSOR #{roster.cursor} PENDING #{roster.pending_count}")
+
+      case roster.executors do
+        [] -> IO.puts("EXECUTORS none")
+        executors -> Enum.each(executors, &IO.puts(Roster.describe_line(&1)))
+      end
+    end
+
+    exit_marker(0)
+  end
+
+  @doc "Claims the wake stream, or refuses and names the live owner holding it."
+  @spec executor_claim(keyword()) :: :ok
+  def executor_claim(opts \\ []) do
+    consumer_id = Claims.resolve_consumer_id(opts)
+
+    case Claims.claim(consumer_id) do
+      {:ok, entry} ->
+        IO.puts("CLAIMED #{entry["id"]} lease_expires_at=#{entry["lease_expires_at"]}")
+        exit_marker(0)
+
+      {:error, {:held_by, owner}} ->
+        control_error(
+          "aiur: wake stream is held by #{owner["id"]} (host=#{owner["host"]} pid=#{owner["pid"]} " <>
+            "last_renewed_at=#{owner["last_renewed_at"]}); it is live and renewing, so takeover needs an explicit " <>
+            "`aiur executor-revoke #{owner["id"]}` from the operator"
+        )
+
+        exit_marker(1)
+
+      {:error, reason} ->
+        control_error("aiur: executor claim failed (#{format_reason(reason)})")
         exit_marker(1)
     end
   end
 
-  defp print_executor_wakes(records, true), do: IO.puts(Jason.encode!(records))
+  @doc "Releases this consumer's claim so the stream is immediately free."
+  @spec executor_release(keyword()) :: :ok
+  def executor_release(opts \\ []) do
+    consumer_id = Claims.resolve_consumer_id(opts)
 
-  defp print_executor_wakes(records, false) do
+    case Claims.release(consumer_id) do
+      :ok ->
+        IO.puts("RELEASED #{consumer_id}")
+        exit_marker(0)
+
+      {:error, reason} ->
+        control_error("aiur: executor release failed (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
+
+  @doc """
+  Explicit operator revoke of a named live owner.
+
+  Deliberately requires the owner's id: an agent recommends a revoke from the
+  roster evidence, the operator decides. Nothing revokes a live peer implicitly.
+  """
+  @spec executor_revoke(String.t(), keyword()) :: :ok
+  def executor_revoke(owner_id, opts \\ []) when is_binary(owner_id) do
+    case Claims.revoke(owner_id, Keyword.take(opts, [:now])) do
+      {:ok, entry} ->
+        IO.puts("REVOKED #{entry["id"]}")
+        exit_marker(0)
+
+      {:error, :no_owner} ->
+        control_error("aiur: no live owner holds the wake stream")
+        exit_marker(1)
+
+      {:error, :not_owner} ->
+        control_error("aiur: #{owner_id} is not the live owner of the wake stream")
+        exit_marker(1)
+
+      {:error, reason} ->
+        control_error("aiur: executor revoke failed (#{format_reason(reason)})")
+        exit_marker(1)
+    end
+  end
+
+  defp print_executor_wakes(records, true, role), do: IO.puts(Jason.encode!(%{"role" => role, "records" => records}))
+
+  defp print_executor_wakes(records, false, role) do
     Enum.each(records, fn record ->
       ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
-      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]}")
+      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}")
     end)
   end
 
@@ -826,8 +1025,8 @@ defmodule Aiur.AgentControlCLI do
   # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
   defp deliver_message(status, text) do
     case send_message(canonical_identifier(status), text) do
-      {:ok, _request_id} ->
-        IO.puts("aiur: messaged #{display_identifier(status)}")
+      {:ok, request_id} ->
+        report_message_outcome(status, request_id, await_message_delivery(request_id))
         0
 
       {:error, reason} ->
@@ -836,11 +1035,81 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  # A successful send returns a queue handle, not a delivery receipt: the
+  # message is enqueued for the agent and is claimed later, and with
+  # `fallback: :queue_next` deferred delivery is the expected case rather than
+  # the exception (#1824). So poll the queue item this invocation created for a
+  # short window and say only what was observed — "delivered" once the agent
+  # has claimed it, "queued" otherwise. Both are successful enqueues, so both
+  # exit 0; only the claim about what happened differs.
+  defp await_message_delivery(request_id) when is_integer(request_id) do
+    deadline = System.monotonic_time(:millisecond) + message_confirm_timeout_ms()
+    poll_message_delivery(request_id, deadline)
+  end
+
+  defp await_message_delivery(_request_id), do: :unobserved
+
+  defp poll_message_delivery(request_id, deadline) do
+    case message_delivery_status(request_id, max(remaining_ms(deadline), @message_confirm_poll_ms)) do
+      # The agent has the message: claimed (`:delivered`) or already acted on
+      # it (`:consumed`). This is the only outcome that may claim delivery.
+      {:ok, status} when status in [:delivered, :consumed] ->
+        :delivered
+
+      # Settled without reaching the agent — no point spending the rest of the
+      # budget, and "unconfirmed" would understate a known non-delivery.
+      {:ok, status} when status in [:failed, :superseded] ->
+        {:undelivered, status}
+
+      # Still `:pending`, or the status is unreadable (the daemon is busy, the
+      # item is not visible yet). Neither proves anything, so keep waiting.
+      {:ok, _pending} ->
+        retry_message_delivery(request_id, deadline)
+
+      {:error, _reason} ->
+        retry_message_delivery(request_id, deadline)
+    end
+  end
+
+  defp retry_message_delivery(request_id, deadline) do
+    if remaining_ms(deadline) <= @message_confirm_poll_ms do
+      :queued
+    else
+      Process.sleep(@message_confirm_poll_ms)
+      poll_message_delivery(request_id, deadline)
+    end
+  end
+
+  defp report_message_outcome(status, request_id, :delivered) do
+    IO.puts("aiur: delivered message to #{display_identifier(status)} (request #{request_id})")
+  end
+
+  defp report_message_outcome(status, request_id, {:undelivered, queue_status}) do
+    IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); not delivered (#{queue_status})")
+  end
+
+  defp report_message_outcome(status, request_id, _queued) do
+    IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); delivery is unconfirmed")
+  end
+
   defp send_message(identifier, text) do
     Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/2).(
       identifier,
       text
     )
+  end
+
+  # The read never outlives the confirmation budget, so `message` cannot walk
+  # past the launcher's control-RPC timeout waiting for an answer.
+  defp message_delivery_status(request_id, timeout_ms) do
+    Application.get_env(:aiur, :agent_control_cli_message_status_fun, &AgentChat.delivery_status/2).(
+      request_id,
+      timeout_ms
+    )
+  end
+
+  defp message_confirm_timeout_ms do
+    Application.get_env(:aiur, :agent_control_cli_message_confirm_timeout_ms, @message_confirm_timeout_ms)
   end
 
   defp control(action, targets) when action in [:pause, :resume] do
@@ -1677,12 +1946,11 @@ defmodule Aiur.AgentControlCLI do
   defp format_pause_time(%DateTime{} = paused_at), do: "at #{DateTime.to_iso8601(paused_at)}"
   defp format_pause_time(_), do: nil
 
-  # Surface whether the daemon-resident Executor listener (the Command inbox,
-  # started by `--executor`) is currently listening. Absence is otherwise
-  # indistinguishable from "no Commands were created", which is exactly the
-  # silent failure #1961 set out to make visible. The check reflects the live
-  # Exchange binding, not "was started once": a listener that lost its binding
-  # (Exchange restart) or a launch that forgot `--executor` both report absent.
+  # Surface whether the daemon-resident Executor listener is currently
+  # listening. The listener is now armed on every run, so absence no longer
+  # means "no Executor was intended" — it means the recording path is broken and
+  # this run is losing its wake stream. The check reflects the live Exchange
+  # binding, not "was started once".
   defp print_executor_listener_status do
     bindings = Application.get_env(:aiur, :executor_listener_alive_fun, &ExecutorListener.bindings/0).()
     bindings = if is_list(bindings), do: bindings, else: if(bindings, do: ["executor.#"], else: [])
@@ -1692,7 +1960,7 @@ defmodule Aiur.AgentControlCLI do
 
     cond do
       bindings == [] ->
-        IO.puts("LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)")
+        IO.puts("LISTENER absent (FAULT: recording is armed on every run, so this means the wake path is broken; Commands and PR events are not being recorded)")
 
       missing == [] ->
         IO.puts("LISTENER present (#{length(defaults)} bindings: #{Enum.join(defaults, ", ")})")
@@ -1741,7 +2009,7 @@ defmodule Aiur.AgentControlCLI do
         queued: queued,
         degraded?: true,
         issues: [issue | remaining]
-      } ->
+      } = status ->
         suffix = if remaining == [], do: "", else: " (+#{length(remaining)} more)"
 
         IO.puts(
@@ -1750,14 +2018,61 @@ defmodule Aiur.AgentControlCLI do
             "recovery=#{issue.recovery}"
         )
 
-      %{enabled?: true, capacity: capacity, active: active, queued: queued}
+        print_build_gate_holders(Map.get(status, :holders, []))
+
+      %{enabled?: true, capacity: capacity, active: active, queued: queued} = status
       when active > 0 or queued > 0 ->
         IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
+        print_build_gate_holders(Map.get(status, :holders, []))
 
       _ ->
         :ok
     end
   end
+
+  # Name every lease currently held or queued so an operator can tell a
+  # correctly-busy gate from one pinned by a leaked process (#2116). The
+  # metadata is advisory: a record that cannot be parsed still leaves the
+  # `active`/`queued` summary intact.
+  defp print_build_gate_holders(holders) do
+    Enum.each(holders, &print_build_gate_holder/1)
+  end
+
+  defp print_build_gate_holder(%{kind: :slot} = holder) do
+    identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
+    print_build_gate_line("HOLDER", identifiers, holder, "held")
+  end
+
+  defp print_build_gate_holder(%{kind: :queue} = holder) do
+    print_build_gate_line("QUEUED", ["pid=#{Map.get(holder, :pid)}"], holder, "waiting")
+  end
+
+  defp print_build_gate_holder(_holder), do: :ok
+
+  defp print_build_gate_line(kind, identifiers, holder, duration_label) do
+    with pid when is_integer(pid) <- Map.get(holder, :pid),
+         command when is_binary(command) <- Map.get(holder, :command) do
+      IO.puts(
+        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
+          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}"
+      )
+    else
+      _ -> :ok
+    end
+  end
+
+  defp format_gate_hold(nil), do: "unknown"
+
+  defp format_gate_hold(seconds) when is_integer(seconds) and seconds >= 3_600 do
+    "#{div(seconds, 3_600)}h#{div(rem(seconds, 3_600), 60)}m"
+  end
+
+  defp format_gate_hold(seconds) when is_integer(seconds) and seconds >= 60 do
+    "#{div(seconds, 60)}m#{rem(seconds, 60)}s"
+  end
+
+  defp format_gate_hold(seconds) when is_integer(seconds) and seconds >= 0, do: "#{seconds}s"
+  defp format_gate_hold(_seconds), do: "unknown"
 
   defp print_supervision_health do
     health_status =

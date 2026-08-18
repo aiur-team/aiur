@@ -49,10 +49,26 @@ if config_env() == :test do
   # default, but this singleton must not poll across sequential test boundaries.
   config :aiur, :orchestrator_initial_poll?, false
 
+  # Executor recording is unconditional in a real run. The shared test app must
+  # not hold the singleton wake inbox and listener, or every case would contend
+  # on one VM-wide ledger written before per-test path isolation is applied.
+  # Recording cases supervise their own pair against their own state directory.
+  config :aiur, :executor_recording?, false
+
+  # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
+  # a real run. A case that touches it without TestSupport's per-test root would
+  # otherwise write to the developer's own machine-local state.
+  config :aiur, :executor_state_dir, Path.join(System.tmp_dir!(), "aiur-test-executor-state")
+
   # The shared app's Ad Hoc overlay poller must not reach GitHub across
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+
+  # The shared app must not replace the singleton BranchRefStore with real
+  # remote refs while tests are exercising it with synthetic refs. Ticker
+  # tests start their own paused instances with injected ls_remote functions.
+  config :aiur, :ls_remote_ticker_enabled?, false
 
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
@@ -91,5 +107,19 @@ if config_env() == :test do
   # fake transport.
   config :aiur, :upgrade_check_refresh?, false
 
-  config :aiur, :workflow_file_path, Path.expand("../test/fixtures/test.yaml", __DIR__)
+  # Suite-global :workflow_file_path baseline isolation. The :aiur app boots
+  # BEFORE test/test_helper.exs runs, so this config block is the only hook
+  # early enough to keep the baseline out of the checked-out repo. Every path
+  # the code derives from Path.dirname(workflow_file_path()) — model-usage.json,
+  # model-catalog.json, ci-readiness.json, the alerts dir — lands beside the
+  # active workflow config, so a baseline pointing at src/test/fixtures/test.yaml
+  # dirties the working tree with durable cross-run state (#2134). Copy the
+  # fixture into the same per-VM tmp root as :log_file / :decision_state_dir:
+  # the fixture stays readable while every derived path resolves outside the
+  # checkout. Per-test overrides (Aiur.TestSupport) still win.
+  File.mkdir_p!(test_log_root)
+  test_workflow_file_path = Path.join(test_log_root, "test.yaml")
+  File.cp!(Path.expand("../test/fixtures/test.yaml", __DIR__), test_workflow_file_path)
+
+  config :aiur, :workflow_file_path, test_workflow_file_path
 end

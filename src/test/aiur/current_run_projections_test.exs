@@ -10,7 +10,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
   }
 
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
-  alias Aiur.CurrentRunProjections.{Checkpoint, Projector}
+  alias Aiur.CurrentRunProjections.{Checkpoint, Projector, SourceAdapter, State}
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
@@ -30,6 +31,13 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert outcomes.completeness == :complete
     assert length(outcomes.outcomes) == 1
 
+    # The bounded source adapter must retain the existing routing facts that
+    # the Units row already knows how to render as agent/model tags.
+    assert [unit] = :sys.get_state(owner).units.rows
+    assert unit.backend == :codex
+    assert unit.agent_family == :codex
+    assert unit.requested_model == "gpt-5"
+
     assert CurrentRunSummary.snapshot(server: owner) == summary
     assert CurrentRunSummary.health(server: owner) == summary.health
     assert CurrentRunSummary.freshness(server: owner) == summary.freshness
@@ -39,6 +47,131 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert CurrentRunOutcomeSnapshot.health(server: owner) == outcomes.health
     assert CurrentRunOutcomeSnapshot.generation(server: owner) == outcomes.generation
     assert Process.alive?(source)
+  end
+
+  test "default status readers consume only a current cached fleet snapshot" do
+    test_pid = self()
+    snapshot = Map.merge(sources().status, %{statuses: sources().status_facts})
+
+    cache_reader = fn server, timeout, opts ->
+      send(test_pid, {:snapshot_store_read, server, timeout, opts})
+      {:current, snapshot, %{status: :current}}
+    end
+
+    state = State.new(name: nil, snapshot_store_read_fun: cache_reader)
+
+    assert state.readers.status.() == snapshot
+    assert state.readers.status_facts.() == snapshot.statuses
+
+    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, []}
+    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, [fleet_rows?: true]}
+    refute_receive _message
+  end
+
+  test "default status readers reject stale and missing cached fleet snapshots" do
+    snapshot = Map.merge(sources().status, %{statuses: sources().status_facts})
+
+    for result <- [
+          {:stale, snapshot, %{status: :stale}},
+          :snapshot_unpublished,
+          :orchestrator_unavailable
+        ] do
+      state = State.new(name: nil, snapshot_store_read_fun: fn _, _, _ -> result end)
+
+      assert state.readers.status.() == :unavailable
+      assert state.readers.status_facts.() == :unavailable
+    end
+  end
+
+  test "a cold cache never calls the Orchestrator status path" do
+    test_pid = self()
+    orchestrator = unique_name(:cold_cache_orchestrator)
+    probe = spawn(fn -> report_messages(test_pid) end)
+    true = Process.register(probe, orchestrator)
+
+    on_exit(fn ->
+      SnapshotStore.forget(orchestrator)
+      if Process.alive?(probe), do: Process.exit(probe, :kill)
+    end)
+
+    state = State.new(name: nil, status_orchestrator: orchestrator)
+
+    assert state.readers.status.() == :unavailable
+    assert state.readers.status_facts.() == :unavailable
+    refute_receive {:orchestrator_message, _message}
+  end
+
+  test "cached status readers preserve routing facts through the Units projection" do
+    source =
+      start_supervised!(Supervisor.child_spec({Agent, fn -> sources() end}, id: unique_name(:cached_reader_source)))
+
+    cache =
+      start_supervised!(Supervisor.child_spec({Agent, fn -> :current end}, id: unique_name(:cached_reader_cache)))
+
+    pubsub = unique_name(:cached_reader_pubsub)
+    start_supervised!({Phoenix.PubSub, name: pubsub})
+
+    cache_reader = fn _server, _timeout, _opts ->
+      status = Agent.get(source, & &1.status)
+      status_facts = Agent.get(source, & &1.status_facts)
+
+      case Agent.get(cache, & &1) do
+        :current -> {:current, Map.put(status, :statuses, status_facts), %{status: :current}}
+        :stale -> {:stale, Map.put(status, :statuses, status_facts), %{status: :stale}}
+      end
+    end
+
+    opts =
+      source
+      |> owner_options(pubsub, snapshot_store_read_fun: cache_reader)
+      |> Keyword.delete(:status_snapshot_fun)
+      |> Keyword.delete(:status_facts_fun)
+
+    owner = start_supervised!({CurrentRunProjections, opts})
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+    assert %{status: true, status_facts: true} = :sys.get_state(owner).availability
+
+    assert [unit] = :sys.get_state(owner).units.rows
+    assert unit.backend == :codex
+    assert unit.agent_family == :codex
+    assert unit.requested_model == "gpt-5"
+
+    Agent.update(cache, fn _ -> :stale end)
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    degraded = :sys.get_state(owner)
+    assert %{status: false, status_facts: false} = degraded.availability
+    assert degraded.sources.status.health == :unavailable
+    assert degraded.sources.status.freshness == :stale
+    assert [retained_unit] = degraded.units.rows
+    assert retained_unit.agent_family == :codex
+  end
+
+  test "status sanitization retains existing routing facts in map and list forms" do
+    ticket = identity()
+
+    routing = %{
+      backend: :codex,
+      selected_backend: :claude,
+      agent_family: :codex,
+      requested_model: "gpt-5",
+      resolved_model: "gpt-5.6"
+    }
+
+    assert {:ok, %{running: [status_row]}} =
+             SourceAdapter.read(:status, fn ->
+               %{running: [Map.merge(%{tracker_identity: ticket}, routing)], retrying: [], idle: []}
+             end)
+
+    assert Map.take(status_row, Map.keys(routing)) == routing
+
+    assert {:ok, [status_fact]} =
+             SourceAdapter.read(:status_facts, fn ->
+               [Map.merge(%{tracker_identity: ticket, complexity: 3}, routing)]
+             end)
+
+    assert Map.take(status_fact, Map.keys(routing)) == routing
   end
 
   test "a post-bootstrap run read failure exposes same-fence last-known-good snapshots" do
@@ -1210,5 +1343,13 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
   defp unique_name(suffix) do
     String.to_atom("current_run_projections_#{suffix}_#{System.unique_integer([:positive])}")
+  end
+
+  defp report_messages(test_pid) do
+    receive do
+      message ->
+        send(test_pid, {:orchestrator_message, message})
+        report_messages(test_pid)
+    end
   end
 end

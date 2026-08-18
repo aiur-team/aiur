@@ -1446,7 +1446,12 @@ defmodule Aiur.AppServerTest do
   end
 
   defp expected_runtime_policy(%{"type" => "workspaceWrite"} = policy, workspace) do
-    Enum.reduce([workspace, Aiur.BuildGate.gate_dir()], policy, &add_expected_root/2)
+    roots =
+      [workspace] ++
+        Aiur.AgentEnvironment.package_cache_paths() ++
+        [Aiur.BuildGate.gate_dir()]
+
+    Enum.reduce(roots, policy, &add_expected_root/2)
   end
 
   defp expected_runtime_policy(policy, _workspace), do: policy

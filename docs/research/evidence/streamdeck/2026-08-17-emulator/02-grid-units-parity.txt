@@ -1,0 +1,23 @@
+Step 2 (part 2) — emulator grid vs Units after a live fleet change.
+Units removed one unit: 7 observed -> 6 observed.
+fleet size (emulator data-grid-total): 5
+fleet size (Units rows): 5
+
+slot  identifier  emulator-bucket  units-row-tone  (column-major)
+0  1111  st-running  is-paused
+1  1114  st-queued  is-queued
+2  1116  st-queued  is-queued
+3  (empty)
+4  1112  st-queued  is-queued
+5  1115  st-queued  is-queued
+6  (empty)
+7  (empty)
+
+ASSERTED: membership and column-major slot order are identical.
+
+NOT ASSERTED: that the two surfaces agree per-agent about state. The
+fixture hands the deck the Units identifiers and nothing else, so each
+surface keeps its own seeded states — comparing the two columns below
+would measure the harness. (Units also paints a row tone only for states
+needing attention, so a running agent reads `none` there.) State parity
+with Units is part of the live proof, not this run.

@@ -5,12 +5,16 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
   alias Aiur.Claude.Repl.Launcher
   alias Aiur.{ProcessReaper, Tmux}
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   setup do
     test_pid = self()
     name = Module.concat(__MODULE__, :"Inst#{System.unique_integer([:positive])}")
     reaper = Module.concat(__MODULE__, :"Reaper#{System.unique_integer([:positive])}")
-    {:ok, _pid} = start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
+
+    {:ok, _pid} =
+      start_supervised({Tmux, [transport: {:mock, test_pid, :infinity}, name: name, session: "test"]})
+
     {:ok, _pid} = start_supervised({ProcessReaper, name: reaper})
     %{tmux: name, reaper: reaper}
   end
@@ -37,12 +41,10 @@ defmodule Aiur.Claude.Repl.LauncherTest do
 
       {:tmux_mock_out, "kill-pane -t " <> ^pane} ->
         respond(tmux, "")
-        assert_receive {:tmux_mock_out, pane_query}, 1_000
+        receive_barrier({:tmux_mock_out, pane_query})
         assert pane_query == "display-message -p -t #{pane} \#{pane_pid}"
         respond_error(tmux, "no pane\n")
-        assert {:error, :repl_not_ready} = Task.await(task, 2_000)
-    after
-      3_000 -> flunk("did not observe kill-pane within timeout")
+        assert {:error, :repl_not_ready} = Task.await(task, :infinity)
     end
   end
 
@@ -60,11 +62,11 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.starts_with?(cmd, "new-window")
     respond(tmux, "%10\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %10 \#{pane_pid}"})
     respond(tmux, "5050\n")
 
     drain_until_kill(tmux, "%10", task)
@@ -89,24 +91,24 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, "new-window" <> _}, 1_000
+    receive_barrier({:tmux_mock_out, "new-window" <> _})
     respond(tmux, "%11\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"})
     respond(tmux, "5050\n")
-    assert_receive {:provider_started, %{root_pid: 5050}}, 1_000
+    receive_barrier({:provider_started, %{root_pid: 5050}})
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %11"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %11"})
     respond(tmux, "still booting\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"})
     respond(tmux, "5050\n")
-    assert_receive {:tmux_mock_out, "kill-pane -t %11"}, 1_000
+    receive_barrier({:tmux_mock_out, "kill-pane -t %11"})
     respond_error(tmux, "permission denied\n")
-    assert_receive {:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %11 \#{pane_pid}"})
     respond(tmux, "5050\n")
 
-    assert {:error, {:repl_cleanup_failed, _reason}} = Task.await(task, 2_000)
+    assert {:error, {:repl_cleanup_failed, _reason}} = Task.await(task, :infinity)
   end
 
   test "ready non-RC spawn returns session with backend=claude-repl and registers both ProcessReaper keys", %{
@@ -137,20 +139,20 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.starts_with?(cmd, "new-window")
     assert String.contains?(cmd, "exec claude")
     assert String.contains?(cmd, "AIUR_BASE_BRANCH='integration'")
     refute String.contains?(cmd, "--remote-control")
     respond(tmux, "%20\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %20 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %20 \#{pane_pid}"})
     respond(tmux, "5050\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %20"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %20"})
     respond(tmux, "❯\n")
 
-    assert {:ok, session} = Task.await(task, 2_000)
+    assert {:ok, session} = Task.await(task, :infinity)
     assert session.backend == "claude-repl"
     assert session.pane_id == "%20"
     assert session.os_pid == 5050
@@ -186,30 +188,30 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         )
       end)
 
-    assert_receive {:tmux_mock_out, cmd}, 1_000
+    receive_barrier({:tmux_mock_out, cmd})
     assert String.contains?(cmd, "--remote-control")
     assert String.contains?(cmd, "AIUR_BASE_BRANCH='integration'")
     respond(tmux, "%30\n")
 
-    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"})
     respond(tmux, "2147480000\n")
 
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %30"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %30"})
     respond(tmux, "❯\n")
 
     # RC evidence scan: no banner
-    assert_receive {:tmux_mock_out, "capture-pane -p -t %30"}, 1_000
+    receive_barrier({:tmux_mock_out, "capture-pane -p -t %30"})
     respond(tmux, "❯\n")
 
     # Pane must be killed on RC-unavailable degrade
-    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"})
     respond(tmux, "2147480000\n")
-    assert_receive {:tmux_mock_out, "kill-pane -t %30"}, 1_000
+    receive_barrier({:tmux_mock_out, "kill-pane -t %30"})
     respond(tmux, "")
-    assert_receive {:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"}, 1_000
+    receive_barrier({:tmux_mock_out, "display-message -p -t %30 \#{pane_pid}"})
     respond_error(tmux, "no pane\n")
 
-    assert {:error, :remote_control_unavailable} = Task.await(task, 2_000)
+    assert {:error, :remote_control_unavailable} = Task.await(task, :infinity)
   end
 
   test "RC spawn fails before opening a pane when the lifecycle-hook listener is unavailable", %{tmux: tmux} do
@@ -221,6 +223,7 @@ defmodule Aiur.Claude.Repl.LauncherTest do
                hook_settings_fun: fn true, "1077" -> nil end
              )
 
-    refute_receive {:tmux_mock_out, _command}, 100
+    :sys.get_state(tmux)
+    refute_received {:tmux_mock_out, _command}
   end
 end

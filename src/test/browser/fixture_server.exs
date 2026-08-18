@@ -34,6 +34,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
+        <script defer src="/assets/sortable-table-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
         <script>
@@ -91,6 +92,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurStreamdeckEmulatorHook) {
               window.BrowserHarnessHooks.StreamdeckEmulator = window.AiurStreamdeckEmulatorHook;
+            }
+
+            if (window.AiurSortableTableHook) {
+              window.BrowserHarnessHooks.SortableTable = window.AiurSortableTableHook;
             }
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
@@ -979,6 +984,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
   end
 
+  def handle_event("table-sort-changed", _params, socket), do: {:noreply, socket}
+
   def handle_event("inspect-unit", %{"unit" => token}, socket) do
     case UnitsPresenter.lookup(socket.assigns.catalog, token) do
       {:ok, row} -> {:noreply, socket |> assign(:selected_row, row) |> assign(:context, context(row))}
@@ -1599,6 +1606,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
   def streamdeck_emulator_hook(conn, _params), do: serve_embedded(conn, "/streamdeck-emulator-hook.js")
+  def sortable_table_hook(conn, _params), do: serve_embedded(conn, "/sortable-table-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
@@ -1977,10 +1985,10 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
   end
 end
 
-# The provider meter row above Units collapses into a single grouped table once
-# it would otherwise render more than four panes. The threshold is what this
-# fixture exists to exercise, so it carries five panes — the GitHub pane plus
-# four model providers — which is the first configuration that trips it.
+# The provider meter row above Units carries today's four model providers and
+# can add one hypothetical provider through `?extra=true`. Browser coverage uses
+# both shapes to prove another provider adds one fixed-height row without
+# changing the existing rows' columns or measurements.
 defmodule Aiur.BrowserHarness.MeterRowLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
@@ -1990,7 +1998,9 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
   @reset ~U[2026-07-18 12:00:00Z]
 
   @impl true
-  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+  def mount(params, _session, socket) do
+    {:ok, socket |> assign(:now, @now) |> assign(:extra_provider?, Map.get(params, "extra") == "true")}
+  end
 
   @impl true
   def render(assigns) do
@@ -2000,7 +2010,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
       <RunSummaryStrip.run_summary_strip
         run={run()}
         usage={usage()}
-        meters={meters()}
+        meters={meters(@extra_provider?)}
         github_quota={github_quota()}
         elevenlabs_quota={elevenlabs_quota()}
         now={@now}
@@ -2024,15 +2034,24 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
   # One provider per freshness state the compressed row has to keep
   # distinguishable: a fresh reading, a fresh zero, a stale last-known-good, and
   # a provider that reported nothing at all.
-  defp meters do
+  defp meters(extra_provider?) do
+    cards = [
+      card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
+      card(:claude, "Claude", :stale, "Stale (last known-good)", [window("Session", 62, 1_900, 5_000, :stale)]),
+      card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
+      card(:kimi, "Kimi", :unavailable, "Unavailable", [])
+    ]
+
+    cards =
+      if extra_provider? do
+        cards ++ [card(:kimi, "Nova", :healthy, "Healthy", [window("Session", 25, 3_750, 5_000, :fresh)])]
+      else
+        cards
+      end
+
     %{
       state: :authorized,
-      cards: [
-        card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
-        card(:claude, "Claude", :stale, "Not live", [window("Session", 62, 1_900, 5_000, :stale)]),
-        card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
-        card(:kimi, "Kimi", :unavailable, "Unavailable", [])
-      ]
+      cards: cards
     }
   end
 
@@ -2073,7 +2092,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
           "graphql" => %{attributed: 78, named: 78, spend: 4_500, fraction: 0.0173, named_fraction: 0.0173, estimated?: false}
         }
       },
-      backoffs: []
+      backoffs: [%{resource: "core", until: DateTime.add(@now, 45, :second), seconds_remaining: 45}]
     }
   end
 
@@ -2219,6 +2238,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
     get("/assets/streamdeck-emulator-hook.js", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator_hook)
+    get("/assets/sortable-table-hook.js", Aiur.BrowserHarness.FixtureAssets, :sortable_table_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end

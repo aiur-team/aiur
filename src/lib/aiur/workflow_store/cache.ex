@@ -46,20 +46,34 @@ defmodule Aiur.WorkflowStore.Cache do
   never pair a new workflow with values derived from an older one. Both are
   also generation-stamped, so a torn write between the insert and the deletes
   is a miss rather than a stale hit.
+
+  The entry carries the `path` the workflow was loaded from. A reader fetches
+  by its own current path (see `fetch/1`) and only accepts an entry whose path
+  matches — so a reload that re-pointed the store at a *different* config
+  cannot be observed by a reader whose path still points at its own file.
   """
-  @spec put(term(), generation()) :: :ok
-  def put(workflow, generation) when is_integer(generation) do
+  @spec put(term(), generation(), Path.t()) :: :ok
+  def put(workflow, generation, path) when is_integer(generation) and is_binary(path) do
     safe(fn ->
-      :ets.insert(@table, {@current_key, workflow, generation})
+      :ets.insert(@table, {@current_key, path, workflow, generation})
       :ets.delete(@table, @settings_key)
       :ets.delete(@table, @env_names_key)
     end)
   end
 
-  @spec fetch() :: {:ok, term(), generation()} | :error
-  def fetch do
+  @doc """
+  Fetches the published workflow whose path matches `path`.
+
+  Returns `{:stale, cached_path}` when the cache holds an entry for a *different*
+  path. Callers use that to refuse the entry rather than serving a config that
+  belongs to another path — the fence that keeps a `write_workflow_file!/2`
+  + `force_reload` from being clobbered by a concurrent reload from elsewhere.
+  """
+  @spec fetch(Path.t()) :: {:ok, term(), generation()} | {:stale, Path.t()} | :error
+  def fetch(path) when is_binary(path) do
     case safe_lookup(@current_key) do
-      [{@current_key, workflow, generation}] -> {:ok, workflow, generation}
+      [{@current_key, ^path, workflow, generation}] -> {:ok, workflow, generation}
+      [{@current_key, cached_path, _workflow, _generation}] -> {:stale, cached_path}
       _ -> :error
     end
   end

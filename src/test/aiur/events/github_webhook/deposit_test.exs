@@ -99,12 +99,87 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
   end
 
+  # Acceptance #2126-2. A strict read never serves from the store (R10), but a
+  # `304` is a fresh answer GitHub asserts *right now*, so it is free against the
+  # primary rate limit. For a strict read to revalidate, the store must hold a
+  # validator beside the deposited body — which is exactly what a plain deposit
+  # did not leave behind. The deposit now derives one (`etag: :derive`), and this
+  # is the property asserted: call count and the conditional header.
+  describe "a strict read of a webhook-deposited resource revalidates" do
+    test "sends If-None-Match and a 304 costs nothing" do
+      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+
+      validator = ResourceStore.etag(key)
+      assert is_binary(validator) and validator != "", "the deposit must leave a validator beside the body"
+
+      {:ok, calls} = Agent.start_link(fn -> %{count: 0, opts: []} end)
+
+      fetcher = fn opts ->
+        Agent.update(calls, fn state -> %{count: state.count + 1, opts: state.opts ++ [opts]} end)
+        {:not_modified, Keyword.fetch!(opts, :etag)}
+      end
+
+      assert {:ok, %{"number" => 77}, meta} =
+               ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "merge decision")
+
+      # Upstream was asked exactly once — a strict read is a bypass, not a hint —
+      # and the request carried the stored validator as `If-None-Match`.
+      assert Agent.get(calls, & &1.count) == 1
+      assert Agent.get(calls, & &1.opts) == [[etag: validator]]
+      assert meta.outcome == :revalidated
+      refute meta.spent?
+    end
+
+    test "a delivered body holds a validator the store will offer" do
+      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      assert {:ok, %{data: %{"number" => 77}, etag: etag}} = ResourceStore.fetch(key)
+      assert is_binary(etag) and etag != ""
+    end
+
+    # The `:derive` contract: a re-delivery of an unchanged body must keep a
+    # validator a fetch already recorded — GitHub's real ETag is what actually
+    # earns the free `304`, so knocking it out would turn a free read back into a
+    # full-price one.
+    test "an unchanged re-delivery keeps a held validator" do
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+
+      # A conditional reader fetches, recording GitHub's real ETag for the body.
+      ResourceStore.put_resource(key, pull_request(), etag: ~s("github-real"))
+      assert ResourceStore.etag(key) == ~s("github-real")
+
+      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+
+      assert ResourceStore.etag(key) == ~s("github-real"),
+             "an unchanged re-delivery must not replace a GitHub ETag with a derived one"
+    end
+
+    # The derived validator is content-based, so a changed body cannot keep a
+    # validator that describes the previous one (the stale-validator hazard).
+    test "a changed body re-derives a validator that describes it" do
+      key = ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)
+      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+      {:ok, %{etag: before}} = ResourceStore.fetch(key)
+
+      changed = put_in(pull_request_delivery(), ["pull_request", "title"], "edited")
+      GithubWebhook.handle_delivery("pull_request", changed, repo: @repo)
+
+      assert {:ok, %{etag: later}} = ResourceStore.fetch(key)
+      assert is_binary(later) and later != ""
+      assert later != before, "a validator that describes a different body is a stale one"
+    end
+  end
+
   # A deposit nobody can address is a write to nowhere: it costs bytes against
   # the size cap and the entry ceiling, a checkpoint every 30 seconds and a
-  # publish on every arrival, and returns nothing. That is not hypothetical.
-  # `:pull_request` is deposited keyed by **pull request number**, while the
-  # only pull-request consumer reads `:branch_pull_request` keyed by **ticket
-  # number** — two pipes keyed so they can never meet (#2126).
+  # publish on every arrival, and returns nothing. That is not hypothetical:
+  # `:pull_request` used to be deposited keyed by **pull request number** while
+  # the only pull-request consumer read `:branch_pull_request` keyed by **ticket
+  # number** — two pipes keyed so they could never meet. `Deposit` now files the
+  # PR under both keys (#2126).
   #
   # Nothing caught that, because nothing asserted the two halves address the
   # same entry. This table does, in both directions:
@@ -140,12 +215,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
            "no module builds an :issue_labels key to read one"},
       pull_request:
         {:signal_only,
-         "retires the agent cache by type, but no reader addresses it: the only pull-request " <>
-           "consumer reads :branch_pull_request keyed by ticket number (#2126)"},
-      check_run:
-        {:unreachable,
-         "deliberately excluded from AgentCacheBridge — a CI verdict is never served from a cache — " <>
-           "and no module reads it, so this deposit currently buys nothing (#2126)"}
+         "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
+           "same delivery's :branch_pull_request sibling is what the human-review gate reads (#2126)"},
+      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]}
     }
 
   describe "every deposit is addressable by whoever wants it" do
@@ -242,45 +314,66 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
                ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
     end
 
+    # Acceptance #2126-1: `:pull_request` deposits and `:branch_pull_request`
+    # reads resolve to the same key. Asserted by running the real delivery and
+    # reading back the keys it wrote, with the ticket id derived from the PR's
+    # own head branch — never from a number the test happened to choose.
+    test ":pull_request deposits and :branch_pull_request reads resolve to the same key" do
+      pr = pull_request()
+      ticket_id = Aiur.TicketBranch.ticket_id(get_in(pr, ["head", "ref"]))
+      assert ticket_id == "42", "fixture's head branch must carry a parseable ticket id"
+
+      deposit_keys = GithubWebhook.Deposit.deposit("pull_request", pull_request_delivery(), @repo)
+
+      pr_key = ResourceStore.key_for_repo(:pull_request, @repo, pr["number"])
+      branch_key = ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_id)
+
+      assert pr_key in deposit_keys
+      assert branch_key in deposit_keys
+
+      # The key the human-review gate builds to read it (`context.issue_number`
+      # is the ticket number, `human_review_gate.ex:106`).
+      read_key = ResourceStore.key_for_repo(:branch_pull_request, @repo, ticket_id)
+      assert branch_key == read_key
+    end
+
+    # Acceptance #2126-1 second half, in the other direction: a pull request
+    # delivery deposits the open PR under the ticket whose branch it belongs to,
+    # and that body is the same object the `:pull_request` key holds.
+    test "a pull_request delivery also deposits the open pull request under its ticket" do
+      GithubWebhook.handle_delivery("pull_request", pull_request_delivery(), repo: @repo)
+
+      assert {:ok, %{data: %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}}}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:branch_pull_request, @repo, 42))
+    end
+
+    # A head branch that is not an Aiur ticket branch has no ticket key the gate
+    # could read, so depositing one would be exactly the write-to-nowhere this
+    # table exists to catch.
+    test "a PR on a non-ticket branch is deposited only under its own number" do
+      non_ticket = %{pull_request_delivery() | "pull_request" => %{pull_request() | "head" => %{"ref" => "main"}}}
+
+      keys = GithubWebhook.Deposit.deposit("pull_request", non_ticket, @repo)
+
+      assert ResourceStore.key_for_repo(:pull_request, @repo, 77) in keys
+      refute ResourceStore.key_for_repo(:branch_pull_request, @repo, 42) in keys
+      assert ResourceStore.fetch(ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)) == :miss
+    end
+
+    # Acceptance #2126-3: the `:check_run` deposit is removed. No store reader
+    # addresses a check run and it is deliberately excluded from the agent cache
+    # (a CI verdict is never served from a cache at any age), so depositing one
+    # bought nothing — the single legitimate ceasing candidate.
+    test "a check_run delivery deposits nothing" do
+      assert GithubWebhook.Deposit.deposit("check_run", %{"check_run" => %{"id" => 5501}}, @repo) == []
+    end
+
     test "issues deposits the issue and label set even though the event only reconciles" do
       assert %{status: :reconciled} =
                GithubWebhook.handle_delivery("issues", issues_delivery("labeled"), repo: @repo, reconcile_fun: fn _ -> :ok end)
 
       assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
       assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
-    end
-
-    test "check_run deposits the run under its own id" do
-      assert %{status: :reconciled} =
-               GithubWebhook.handle_delivery("check_run", check_run_delivery(5501), repo: @repo, reconcile_fun: fn _ -> :ok end)
-
-      assert {:ok, %{data: %{"id" => 5501, "conclusion" => "success"}, version: "2026-06-24T13:00:00Z"}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:check_run, @repo, 5501))
-    end
-
-    test ":check_run is a member of the store's closed type set" do
-      # An unlisted type is refused at the key and would vanish at the next
-      # restart, so membership is the deposit's precondition, not a detail.
-      assert :check_run in ResourceStore.resource_types()
-      assert ResourceStore.key_for_repo(:check_run, @repo, 5502) != nil
-    end
-
-    @tag :tmp_dir
-    test "a deposited check run survives a restart of the store", %{tmp_dir: tmp_dir} do
-      # The failure the closed set exists to prevent is not a rejected write, it
-      # is a body that writes and reads perfectly all day and then vanishes at
-      # the next restart with no error. Only a real checkpoint round trip can
-      # tell those apart, so this one uses a file.
-      path = Path.join(tmp_dir, "github_resources.json")
-      restart_store!(path)
-
-      GithubWebhook.handle_delivery("check_run", check_run_delivery(5503), repo: @repo, reconcile_fun: fn _ -> :ok end)
-      assert :ok = ResourceStore.flush()
-
-      restart_store!(path)
-
-      assert {:ok, %{data: %{"id" => 5503}, source: :webhook}} =
-               ResourceStore.fetch(ResourceStore.key_for_repo(:check_run, @repo, 5503))
     end
 
     test "a delivery for an untracked repository deposits nothing" do
@@ -613,8 +706,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     {"issues", :issues_delivery},
     {"pull_request_review_comment", :review_comment_delivery},
     {"pull_request_review", :review_delivery},
-    {"pull_request", :pull_request_delivery},
-    {"check_run", :check_run_delivery}
+    {"pull_request", :pull_request_delivery}
   ]
 
   defp deposited_keys do
@@ -644,7 +736,6 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         :review_comment_delivery -> review_comment_delivery(9402)
         :review_delivery -> review_delivery(9403)
         :pull_request_delivery -> pull_request_delivery()
-        :check_run_delivery -> check_run_delivery(9404)
       end
 
     event
@@ -766,23 +857,6 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       "action" => "opened",
       "repository" => %{"full_name" => @repo},
       "pull_request" => pull_request(),
-      "sender" => %{"login" => @human}
-    }
-  end
-
-  defp check_run_delivery(id) do
-    %{
-      "action" => "completed",
-      "repository" => %{"full_name" => @repo},
-      "check_run" => %{
-        "id" => id,
-        "name" => "test",
-        "conclusion" => "success",
-        "head_sha" => "abc123",
-        "started_at" => "2026-06-24T12:50:00Z",
-        "completed_at" => "2026-06-24T13:00:00Z",
-        "pull_requests" => [pull_request()]
-      },
       "sender" => %{"login" => @human}
     }
   end

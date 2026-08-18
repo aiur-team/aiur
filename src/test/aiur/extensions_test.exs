@@ -201,7 +201,12 @@ defmodule Aiur.ExtensionsTest do
     assert {:ok, %{prompt: "Second prompt"}, ^generation} =
              WorkflowStore.current_with_generation()
 
-    File.write!(Workflow.workflow_file_path(), "tracker: [\n")
+    # Write the malformed config atomically: a plain `File.write!/2` truncates
+    # first, and the store's background poll could read and commit the empty
+    # intermediate (empty YAML parses to valid defaults) before the synchronous
+    # reload below sees the malformed bytes — replacing last-known-good and
+    # failing the "keeps last good workflow" guarantee (#1635).
+    write_workflow_file_atomic!(Workflow.workflow_file_path(), "tracker: [\n")
     assert {:error, _reason} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
 
@@ -255,7 +260,7 @@ defmodule Aiur.ExtensionsTest do
     path = Workflow.workflow_file_path()
     valid_config = File.read!(path)
 
-    File.write!(path, "tracker: [\n")
+    write_workflow_file_atomic!(path, "tracker: [\n")
 
     writer =
       Task.async(fn ->
@@ -320,7 +325,7 @@ defmodule Aiur.ExtensionsTest do
     assert Process.alive?(manual_pid)
 
     state = :sys.get_state(manual_pid)
-    File.write!(manual_path, "tracker: [\n")
+    write_workflow_file_atomic!(manual_path, "tracker: [\n")
     assert {:noreply, returned_state} = WorkflowStore.handle_info(:poll, state)
     assert returned_state.workflow.prompt == "Manual workflow prompt"
     refute returned_state.stamp == nil
@@ -950,6 +955,7 @@ defmodule Aiur.ExtensionsTest do
     assert html =~ "/conversation-voice-controller.js"
     assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
+    assert html =~ "/sortable-table-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
@@ -999,6 +1005,10 @@ defmodule Aiur.ExtensionsTest do
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
     assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    sortable_table_hook_conn = get(build_conn(), "/sortable-table-hook.js")
+    assert response(sortable_table_hook_conn, 200) =~ "AiurSortableTableHook"
+    assert Plug.Conn.get_resp_header(sortable_table_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
     for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js"] do
       hook_conn = get(build_conn(), "/#{hook}")

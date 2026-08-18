@@ -103,6 +103,12 @@ defmodule Aiur.Config.Schema do
     )
   end
 
+  @doc false
+  @spec add_runtime_turn_sandbox_roots(map(), [Path.t()]) :: {:ok, map()} | {:error, term()}
+  def add_runtime_turn_sandbox_roots(policy, roots) do
+    CodexSandboxPolicy.add_runtime_writable_roots(policy, roots)
+  end
+
   defp effective_turn_sandbox_policy(%Codex{turn_sandbox_policy: nil, thread_sandbox: thread_sandbox})
        when is_binary(thread_sandbox) do
     case String.trim(thread_sandbox) do

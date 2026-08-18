@@ -80,7 +80,7 @@ defmodule Aiur.WebhookModeContract do
         alert_fun: fn _name, _message, _opts -> :ok end
       )
 
-    ExUnit.Callbacks.on_exit(fn -> stop(pid) end)
+    ExUnit.Callbacks.on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     %{mode: mode, repo: repo, server: name, source: EventSource.for_transport(mode)}
   end
@@ -106,11 +106,5 @@ defmodule Aiur.WebhookModeContract do
       |> Keyword.put_new(:publish_fun, fn published -> send(self(), {:published, published}) end)
 
     context.source.deliver(context.repo, event, opts)
-  end
-
-  defp stop(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
   end
 end

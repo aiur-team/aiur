@@ -49,7 +49,7 @@ function resolveReleaseDir() {
   if (!triple) {
     fail(
       `unsupported platform ${process.platform}/${process.arch}. ` +
-        "Supported: darwin/linux on arm64/x64. " +
+        "Supported: linux (x64/arm64) and darwin (arm64). " +
         "See https://github.com/aiur-team/aiur",
     );
   }

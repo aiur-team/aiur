@@ -17,6 +17,15 @@ defmodule Aiur.Orchestrator.CommandScan do
   still wins while it has an entry — it is the newest thing this daemon knows —
   and the store answers for the cycle after a restart, exactly as
   `Aiur.Events.GithubCommentsPoller` already does for per-issue streams.
+
+  The lists themselves are deposited beside the validators, so the store holds
+  the full validator/body pair. That is what lets a `304` *answer* rather than
+  only say "unchanged": the held list is run back through the same publish path,
+  and the per-comment command dedup key suppresses everything already handled,
+  so only a command the publish path itself dropped surfaces again — the same
+  recovery the comment poller has. Before the bodies were deposited, a `304`
+  against a stream had nothing to replay and anything the publish dropped was
+  simply gone.
   """
 
   require Logger
@@ -62,11 +71,14 @@ defmodule Aiur.Orchestrator.CommandScan do
     review_resource = ResourceStore.key_for_repo(:repo_review_comment_stream, repo, @review_comment_stream)
     issue_resource = ResourceStore.key_for_repo(:repo_issue_comment_stream, repo, @issue_comment_stream)
 
-    review_etag_in = durable_etag(review_resource, Map.get(etags, :command_scan_review))
-    issue_etag_in = durable_etag(issue_resource, Map.get(etags, :command_scan_issue))
+    {review_etag_in, review_provenance} = durable_etag(review_resource, Map.get(etags, :command_scan_review))
+    {issue_etag_in, issue_provenance} = durable_etag(issue_resource, Map.get(etags, :command_scan_issue))
 
-    {review_comments, review_etag} = command_scan_review_comments(Keyword.put(fetch_opts, :etag, review_etag_in))
-    {issue_comments, issue_etag} = command_scan_issue_comments(Keyword.put(fetch_opts, :etag, issue_etag_in))
+    {review_comments, review_etag, review_deposit?} =
+      command_scan_review_comments(review_resource, review_provenance, Keyword.put(fetch_opts, :etag, review_etag_in))
+
+    {issue_comments, issue_etag, issue_deposit?} =
+      command_scan_issue_comments(issue_resource, issue_provenance, Keyword.put(fetch_opts, :etag, issue_etag_in))
 
     pr_comments =
       (review_comments ++ issue_comments)
@@ -80,14 +92,18 @@ defmodule Aiur.Orchestrator.CommandScan do
 
     publish_command_hits(pr_comments, repo, command_scan_limit(opts))
 
-    # Recorded only now, never before the publish above. These are durable
-    # *endpoint* validators: GitHub answering `304` to one suppresses the whole
-    # stream at once, so a cycle that read a command and died before publishing
-    # it would come back to a validator that hides the command for the store's
-    # full retention window. Written after the publish, the same crash leaves no
-    # validator and the next scan reads unconditionally and finds it again.
-    remember_etag(review_resource, review_etag)
-    remember_etag(issue_resource, issue_etag)
+    # Each stream's comment list is deposited as the entry's body beside its
+    # validator — the store's validator/body contract — and only after the
+    # publish above. The body is what makes a later `304` *answer*: it replays
+    # the held list through the same publish path, and the per-comment command
+    # dedup key suppresses everything already handled, so only a command the
+    # publish path itself dropped (a Publisher refusal, a partial fan-out)
+    # surfaces again. Deposited after the publish for the same reason the old
+    # `put_etag/2` was: a cycle that read a command and died before publishing
+    # it leaves no entry at all, so the next scan reads unconditionally and
+    # finds it again.
+    maybe_remember_list(review_deposit?, review_resource, review_comments, review_etag)
+    maybe_remember_list(issue_deposit?, issue_resource, issue_comments, issue_etag)
 
     %{
       state
@@ -102,7 +118,12 @@ defmodule Aiur.Orchestrator.CommandScan do
   # Fetch the repo-wide review-comment stream (pulls/comments). A failure is
   # logged and yields [] so the scan never raises; the cursor is unaffected
   # because command_scan_newest_datetime/1 only advances on comments seen.
-  defp command_scan_review_comments(fetch_opts) do
+  #
+  # Answers `{comments, etag, deposit?}`: `deposit?` is false only for a `304`
+  # against a validator the store cannot serve — nothing was deposited there,
+  # so an empty list must not be written over it. See
+  # `command_scan_unchanged_list/3`.
+  defp command_scan_review_comments(resource, provenance, fetch_opts) do
     fetcher =
       Keyword.get_lazy(fetch_opts, :command_scan_review_comment_fetcher, fn ->
         fn scan_opts -> GitHubClient.fetch_recent_repo_review_comments_conditional(scan_opts) end
@@ -110,21 +131,21 @@ defmodule Aiur.Orchestrator.CommandScan do
 
     case fetcher.(fetch_opts) do
       {:ok, comments, etag} when is_list(comments) ->
-        {comments, etag}
+        {comments, etag, true}
 
       {:not_modified, etag} ->
-        {[], etag}
+        command_scan_unchanged_list(resource, provenance, etag)
 
       {:ok, comments} when is_list(comments) ->
-        {comments, Keyword.get(fetch_opts, :etag)}
+        {comments, Keyword.get(fetch_opts, :etag), true}
 
       {:error, reason} ->
         Logger.warning("scan_pr_commands review-comment stream failed; reason=#{inspect(reason)}")
-        {[], Keyword.get(fetch_opts, :etag)}
+        {[], Keyword.get(fetch_opts, :etag), false}
 
       other ->
         Logger.warning("scan_pr_commands review-comment stream returned unexpected value: #{inspect(other)}")
-        {[], Keyword.get(fetch_opts, :etag)}
+        {[], Keyword.get(fetch_opts, :etag), false}
     end
   end
 
@@ -132,7 +153,7 @@ defmodule Aiur.Orchestrator.CommandScan do
   # endpoint returns comments on plain issues AND PR conversations; PR-number
   # derivation (command_scan_comment_pr_number/1) only resolves the PR ones,
   # so non-PR issue comments are dropped downstream (out of scope).
-  defp command_scan_issue_comments(fetch_opts) do
+  defp command_scan_issue_comments(resource, provenance, fetch_opts) do
     fetcher =
       Keyword.get_lazy(fetch_opts, :command_scan_issue_comment_fetcher, fn ->
         fn scan_opts -> GitHubClient.fetch_recent_repo_issue_comments_conditional(scan_opts) end
@@ -140,40 +161,85 @@ defmodule Aiur.Orchestrator.CommandScan do
 
     case fetcher.(fetch_opts) do
       {:ok, comments, etag} when is_list(comments) ->
-        {comments, etag}
+        {comments, etag, true}
 
       {:not_modified, etag} ->
-        {[], etag}
+        command_scan_unchanged_list(resource, provenance, etag)
 
       {:ok, comments} when is_list(comments) ->
-        {comments, Keyword.get(fetch_opts, :etag)}
+        {comments, Keyword.get(fetch_opts, :etag), true}
 
       {:error, reason} ->
         Logger.warning("scan_pr_commands issue-comment stream failed; reason=#{inspect(reason)}")
-        {[], Keyword.get(fetch_opts, :etag)}
+        {[], Keyword.get(fetch_opts, :etag), false}
 
       other ->
         Logger.warning("scan_pr_commands issue-comment stream returned unexpected value: #{inspect(other)}")
-        {[], Keyword.get(fetch_opts, :etag)}
+        {[], Keyword.get(fetch_opts, :etag), false}
     end
   end
 
   # The cycle's own map wins when it has an entry; the store answers only when it
   # does not, which after a restart is both streams.
   #
-  # `change_validator/1` rather than `etag/1`, and the difference is the whole
-  # design of this scan: it keeps no body, so a `304` here means "no new
-  # commands, do nothing" and is a genuine saving. `etag/1` is for a reader that
-  # wants the body back and would be handed nothing. Depositing the streams as
-  # bodies — the way the comment poller does — would let a `304` republish
-  # anything a crash left unpublished, and is the better shape for this scan to
-  # grow into.
-  defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: etag
-  defp durable_etag(resource, _etag), do: ResourceStore.change_validator(resource)
+  # `etag/1` rather than `change_validator/1`, and the difference is the whole
+  # point of holding a body: `etag/1` answers only when the store also holds the
+  # list that validator describes, so a `304` against it can be served from that
+  # held list instead of saying "unchanged" and handing the reader nothing. The
+  # validator's provenance is returned with it because it decides what a `304`
+  # against it is allowed to mean — see `command_scan_unchanged_list/3`.
+  defp durable_etag(_resource, etag) when is_binary(etag) and etag != "", do: {etag, :cycle}
+  defp durable_etag(resource, _etag), do: {ResourceStore.etag(resource), :store}
 
-  defp remember_etag(resource, etag) do
-    ResourceStore.put_etag(resource, etag)
+  # The stream's comment list and its validator, deposited together and only
+  # after the commands in it were published — the poller's `remember_list/3`,
+  # applied to the repo-wide streams. The body is what lets a later `304`
+  # replay the list through the publish path (see
+  # `command_scan_unchanged_list/3`). Re-depositing the same list on a `304`
+  # refresh publishes nothing — the body and validator are unchanged — and only
+  # keeps the entry alive inside the store's retention window.
+  defp remember_list(resource, comments, etag) when is_list(comments) do
+    ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
     etag
+  end
+
+  defp remember_list(_resource, _comments, etag), do: etag
+
+  defp maybe_remember_list(true, resource, comments, etag), do: remember_list(resource, comments, etag)
+  defp maybe_remember_list(false, _resource, _comments, _etag), do: :ok
+
+  # What a `304` is worth, decided by what the store holds and where the
+  # validator came from — mirrors `Aiur.Events.GithubCommentsPoller.unchanged_list/2`.
+  #
+  #   * the list itself — run it back through the publish path. Every comment
+  #     in it is either already published, and suppressed by the command dedup
+  #     key for free, or was never published, and is recovered. That is what
+  #     makes a `304` produce the same events a `200` would have.
+  #   * no list, but the validator is this daemon's own from an earlier cycle —
+  #     nothing to recover: the `200` that minted it was published first (the
+  #     store refused the body, or is not running). Keep the validator, because
+  #     dropping it would make every steady-state cycle a full-price read,
+  #     which is the cost this path exists to remove.
+  #   * no list, and the validator came out of the store — it may have outlived
+  #     the publish it was recorded beside, and it is an *endpoint* validator,
+  #     so GitHub's `304` suppressed the whole list at once and nothing can see
+  #     inside it. Unusable, so the validator is dropped and the next scan reads
+  #     unconditionally.
+  defp command_scan_unchanged_list(resource, provenance, etag) do
+    case ResourceStore.fetch(resource) do
+      {:ok, %{data: comments}} when is_list(comments) -> {comments, etag, true}
+      _other when provenance == :cycle -> {[], etag, false}
+      _other -> {[], drop_validator(resource), false}
+    end
+  end
+
+  # A `304` against a durable validator with no body behind it spent a request
+  # and learned nothing recoverable, so the validator goes and the next scan
+  # reads unconditionally — the reader's half of the store's validator/body
+  # contract; see `Aiur.GitHub.ResourceStore`.
+  defp drop_validator(resource) do
+    ResourceStore.drop_etag(resource)
+    nil
   end
 
   # Stamp event-time trust (author_trusted? from the canonical CODEOWNERS U

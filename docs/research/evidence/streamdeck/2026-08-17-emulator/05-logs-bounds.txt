@@ -1,0 +1,4 @@
+Step 5 — focused agent #1352.
+event window max offset: 4 (scrolled to 0, clamped)
+transcript max offset: 20 (scrolled to 0, clamped)
+up hint hidden at the origin, down hint shown — both read from the server render.
