@@ -371,8 +371,9 @@ or starts the local agent. If the tracker refuses that removal, the command exit
 non-zero and explains that the resume will not hold; it does not report a plain
 success. A fleet-wide `aiurdev resume` still preserves per-ticket pause labels.
 
-When `server.host` is absent, the engine supplies a lower-precedence dashboard
-default: an authenticated Tailscale IPv4 when available, otherwise `127.0.0.1`.
+When `server.host` is absent, the engine supplies a lower-precedence `127.0.0.1`
+(loopback) dashboard default — external access arrives over the Cloudflare
+tunnel / SSH / Tailscale `serve`, so there is no plain-HTTP tailnet bind.
 Configured `server.host` wins over that default, and explicit `--host` wins over
 both. Startup output reports the usable URL and effective bind host and port.
 

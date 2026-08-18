@@ -496,9 +496,9 @@ These policy keys never grant transport access by themselves. The supervisor API
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
-| `server.host` | string | launcher-selected | HTTP bind address. An explicit value wins over the launcher's authenticated Tailscale-or-loopback default. |
+| `server.host` | string | launcher-selected | HTTP bind address. An explicit value wins over the launcher's loopback (`127.0.0.1`) default. |
 
-When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscale IPv4 if dashboard credentials are configured and otherwise uses `127.0.0.1`. A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+When `server.host` is absent, a normal `aiur` launch uses `127.0.0.1` (loopback). External access arrives over the Cloudflare tunnel / SSH / Tailscale `serve`, so there is no plain-HTTP tailnet bind. A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
 ## opencode
 
