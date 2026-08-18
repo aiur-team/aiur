@@ -245,6 +245,56 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
+  @doc """
+  Fetches the OPEN pull requests carrying `label` with `If-None-Match` support.
+
+  The list-only `fetch_open_pull_requests_by_label/2` contract is unchanged for
+  callers that need a fresh answer. The comment poll uses this variant so its
+  per-cycle watch-target discovery is a `304` in steady state — a request GitHub
+  does not bill against the primary REST limit — instead of a full-price re-read
+  of every open pull request.
+
+  The validator belongs to the first page of the open-pull-request collection
+  (`GET /pulls?state=open&per_page=100`); later pages ride along on a `200` and
+  are folded into the returned list, so a `304` against the first page reuses
+  the whole stored list. This is the same page-one contract the issue-comment
+  conditional reads already trust.
+  """
+  @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_requests_by_label_conditional(label, opts \\ []) when is_binary(label) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      etag = Keyword.get(opts, :etag)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
+      request = %{method: :get, url: url, token: token}
+      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+      case request_fun.(request) do
+        {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+          matched = Enum.filter(body, &pull_request_has_label?(&1, label))
+          next = Transport.parse_next_page_url(headers)
+          first_etag = Transport.header(headers, "etag") || etag
+
+          case fetch_labeled_open_pull_requests(request_fun, token, next, label, matched) do
+            {:ok, pull_requests} -> {:ok, pull_requests, first_etag}
+            {:error, _reason} = error -> error
+          end
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_pull_request_head_ref(pr_number, opts \\ []) do

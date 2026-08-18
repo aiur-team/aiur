@@ -378,16 +378,16 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {thread_count, thread_result} =
           poll_unaddressed_pr_review_threads(target, pr_number, repo, approval_only_context(review_context), opts)
 
-        {review_count, review_result, review_seen_at} =
+        {review_count, review_result, review_etag, review_seen_at} =
           if review_submission_enabled?(target, opts),
-            do: poll_pr_review_submissions(target, pr_number, repo, review_context, opts),
-            else: {0, :ok, nil}
+            do: poll_pr_review_submissions(target, pr_number, Map.get(etags, :pr_reviews), repo, review_context, opts),
+            else: {0, :ok, Map.get(etags, :pr_reviews), nil}
 
         {
           conversation_count + thread_count + review_count,
           conversation_newest,
           [conversation_result, thread_result, review_result],
-          %{{:pr_issue, pr_number} => conversation_etag},
+          %{{:pr_issue, pr_number} => conversation_etag, :pr_reviews => review_etag},
           review_seen_at
         }
 
@@ -484,34 +484,79 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
   end
 
-  defp poll_pr_review_submissions(target, pr_number, repo, review_context, opts) do
+  # Review submissions are the last comment kind the poller still re-read at
+  # full price every cycle: the webhook delivers `pull_request_review` free and
+  # marks the `:pr_review` resource, and the sweep re-read the same list
+  # unconditionally (#2069). The read is now conditional like the issue-comment
+  # sweep — a 304 costs nothing against the primary limit — and the per-review
+  # identity suppression keeps a delivered review from waking the agent twice.
+  # A `304` reuses the list the store still holds, which keeps the cutoff
+  # watermark moving and recovers any review whose delivery was lost.
+  defp poll_pr_review_submissions(target, pr_number, etag, repo, review_context, opts) do
     since = Map.get(Keyword.get(opts, :pr_review_seen_at, %{}), to_string(target))
     # Fall back to the issue-comment cursor so reviews submitted before it are
     # treated as already processed — mirrors the ?since= filter used for comments
     # and prevents restart-replay of old CHANGES_REQUESTED on resolved PRs.
     issue_since = Keyword.get(opts, :current_target_since)
     cutoff = since || issue_since || GithubKeys.boot_cutoff_iso8601(opts)
+    resource = ResourceStore.key_for_repo(:pull_request_reviews, repo, pr_number)
+    {etag, provenance} = request_etag(resource, etag)
+    request_opts = Keyword.put(opts, :etag, etag)
 
-    case Client.fetch_pull_request_reviews(pr_number, opts) do
-      {:ok, reviews} ->
-        actionable =
-          reviews
-          |> Enum.filter(&review_after_cutoff?(&1, cutoff))
-          |> most_recent_actionable_per_reviewer()
+    case Client.fetch_pull_request_reviews_conditional(pr_number, request_opts) do
+      {:ok, reviews, next_etag} ->
+        {count, max_seen} = publish_review_submissions(target, pr_number, reviews, cutoff, repo, review_context)
+        remember_list(resource, reviews, next_etag)
+        {count, :ok, next_etag, max_seen}
 
-        count =
-          actionable
-          |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo, review_context))
-          |> Enum.count(&match?({:ok, _, _}, &1))
-
-        max_seen = reviews |> Enum.map(&Map.get(&1, "submitted_at")) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
-
-        {count, :ok, max_seen}
+      {:not_modified, next_etag} ->
+        unchanged_review_submissions(target, pr_number, resource, provenance, next_etag, cutoff, repo, review_context)
 
       {:error, reason} ->
         Logger.warning("GithubCommentsPoller PR reviews failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
 
-        {0, {:error, {:pr_reviews, reason}}, nil}
+        {0, {:error, {:pr_reviews, reason}}, etag, nil}
+    end
+  end
+
+  defp publish_review_submissions(target, pr_number, reviews, cutoff, repo, review_context) do
+    actionable =
+      reviews
+      |> Enum.filter(&review_after_cutoff?(&1, cutoff))
+      |> most_recent_actionable_per_reviewer()
+
+    count =
+      actionable
+      |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo, review_context))
+      |> Enum.count(&match?({:ok, _, _}, &1))
+
+    max_seen =
+      reviews
+      |> Enum.map(&Map.get(&1, "submitted_at"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.max(fn -> nil end)
+
+    {count, max_seen}
+  end
+
+  # What a `304` against the review-list validator is worth, decided by the same
+  # store/provenance contract as `unchanged_issue_comments/5`: a held list is
+  # republished (each review suppressed by identity when it was already handled),
+  # a cycle-minted validator with no body has nothing to recover, and a
+  # store-minted validator with no body is unusable — drop it so the next read
+  # is unconditional rather than spent on an empty `304`.
+  defp unchanged_review_submissions(target, pr_number, resource, provenance, next_etag, cutoff, repo, review_context) do
+    case unchanged_list(resource, provenance) do
+      {:ok, reviews} ->
+        {count, max_seen} = publish_review_submissions(target, pr_number, reviews, cutoff, repo, review_context)
+        remember_list(resource, reviews, next_etag)
+        {count, :ok, next_etag, max_seen}
+
+      :nothing_to_recover ->
+        {0, :ok, next_etag, nil}
+
+      :unusable_validator ->
+        {0, :ok, forget_validator(resource), nil}
     end
   end
 

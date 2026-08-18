@@ -58,20 +58,38 @@ live in `Aiur.GitHub.ResourceStore` and are checkpointed to disk, so a restart n
 longer forces a full-price re-read of every watched ticket — which mattered,
 because restarts here are routine.
 
+**Made conditional since the first measurement (follow-up on #2069):**
+
+- `fetch_pull_request_reviews/2` — the poller's review-submission sweep now
+  reads `If-None-Match` from the `:pull_request_reviews` validator and reuses
+  the held list on a `304`, so the last comment kind the sweep re-read at full
+  price every cycle is free in steady state. Webhook-delivered reviews stay
+  exactly-once via the per-review identity mark, and a lost delivery is still
+  recovered because the read itself is never skipped.
+- `fetch_open_pull_requests_by_label/2` — watch-target discovery now reads the
+  open-pull-request collection conditionally under `:labelled_pull_requests`
+  and serves the held list back on a `304`.
+
 **Still unconditional in a cycle, named rather than rounded to zero:**
 
-- `fetch_open_pull_requests_by_label/2` — one read per cycle for watch targets.
 - `fetch_open_pull_request_for_branch/2` — one read per human-review target, in
-  `TargetSelection.with_human_review_pr_updated_at/2`.
-- `fetch_pull_request_reviews/2` — one read per human-review target.
+  `TargetSelection.with_human_review_pr_updated_at/2`. This is a two-stage
+  search (a per-head legacy-branch query plus a paginated fallback scan over
+  all open pull requests), and the two stages have different validators, so no
+  single stored ETag can validly cover both: a `304` against the legacy query
+  proves nothing about a generated-branch result. `Aiur.GitHub.HumanReviewGate`
+  already defers this exact read for the same reason. It stays a named cost
+  until the freshness signal moves onto the GraphQL identity field set.
 - `fetch_unaddressed_pr_review_thread_comments/2` — GraphQL, 1 point per pull
   request. GraphQL has no conditional-request mechanism, so this one cannot be
   made free; it was made *rare* instead, by paying it once per resolved pull
   request rather than once per speculative candidate.
 
-A steady-state comment sweep over unchanged tickets is free. The cycle as a whole
-is not yet, and the four calls above are why. They are the next thing to fix, not
-a rounding error.
+A steady-state comment and review sweep over unchanged tickets is free, and so
+is watch-target discovery. The cycle as a whole is still not zero where
+human-review targets are present: the branch-freshness search above is the
+remaining REST spend, and the GraphQL thread read the remaining points. Both are
+named rather than rounded away.
 
 ## Suppress and recover, which pull against each other
 
