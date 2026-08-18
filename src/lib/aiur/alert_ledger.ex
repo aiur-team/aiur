@@ -3,8 +3,8 @@ defmodule Aiur.AlertLedger do
 
   require Logger
 
-  alias Aiur.{AlertTopic, Fs, Jsonl}
   alias Aiur.AlertLedger.Tail
+  alias Aiur.{AlertTopic, Fs, Jsonl}
   alias Aiur.Config.Paths
 
   @ledger_suffix ".alerts.ndjson"
@@ -226,7 +226,7 @@ defmodule Aiur.AlertLedger do
   defp read_entries(path) do
     entries =
       path
-      |> File.stream!([], :line)
+      |> File.stream!(:line, [])
       |> Stream.with_index()
       |> Enum.flat_map(fn {line, index} ->
         case Jsonl.decode_line(line) do
