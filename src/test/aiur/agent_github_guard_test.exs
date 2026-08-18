@@ -1456,6 +1456,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     budget_root = Path.join(context.state_path, "host-budget")
     counter = Path.join(context.state_path, "broker-calls")
     seq_broker = Path.join(context.workspace, "seq-broker.py")
+
     File.write!(seq_broker, """
     import os
     count_file = os.environ["FAKE_BROKER_COUNTER"]
@@ -1464,6 +1465,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     open(count_file, "w").write(str(n))
     print("wait actor 100" if n == 1 else "granted " + "a" * 32)
     """)
+
     File.chmod!(seq_broker, 0o755)
 
     assert {output, 0} =
