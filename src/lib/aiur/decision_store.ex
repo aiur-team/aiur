@@ -72,14 +72,14 @@ defmodule Aiur.DecisionStore do
   @executor_answerable_authorities [:supervisor_allowed, :supervisor_preferred]
   @executor_answerable_reversibilities [:reversible]
   # Creation-time dedup (#2099): two Commands from one agent on one ticket inside
-  # a short window with substantially the same question collapse to one at
-  # creation. An exact-after-normalization match is an unambiguous duplicate and
-  # is trusted across the full window; a paraphrase is only trusted across a much
-  # shorter window (the rapid-fire re-file shape), and only when both questions
-  # are long enough that a high token overlap means real substance rather than a
+  # a short window that *paraphrase* the same question collapse to one at
+  # creation. Only paraphrases are collapsed: an exact-identical re-file is the
+  # agent deliberately asking the same question again and stays its own Command
+  # (the tool-call/retry contract tests this), while a rapid-fire re-phrasing is
+  # the accidental-duplicate shape the #2099 daemon showed. Matching requires
+  # enough substance that a high token overlap means real overlap rather than a
   # tiny shared template (e.g. "Untouched open decision 1?" vs "…2?").
-  @creation_dedup_window_seconds 60
-  @creation_fuzzy_dedup_window_seconds 5
+  @creation_dedup_window_seconds 5
   @creation_fuzzy_min_tokens 12
   # Sørensen–Dice token-overlap floor for paraphrases. The #2099 paraphrases
   # score ~0.59–0.79; 0.5 collapses them while leaving genuinely different
@@ -1478,21 +1478,15 @@ defmodule Aiur.DecisionStore do
       {_, nil} ->
         false
 
+      # An exact-identical re-file is the agent deliberately asking the same
+      # question again (same source, distinct tool call) and is never an
+      # accidental duplicate; only a paraphrased re-phrasing collapses.
+      {normalized_a, normalized_b} when normalized_a == normalized_b ->
+        false
+
       {normalized_a, normalized_b} ->
-        cond do
-          normalized_a == normalized_b ->
-            within_creation_window?(candidate.created_at, decision.created_at, @creation_dedup_window_seconds)
-
-          creation_paraphrase?(normalized_a, normalized_b) ->
-            within_creation_window?(
-              candidate.created_at,
-              decision.created_at,
-              @creation_fuzzy_dedup_window_seconds
-            )
-
-          true ->
-            false
-        end
+        creation_paraphrase?(normalized_a, normalized_b) and
+          within_creation_window?(candidate.created_at, decision.created_at, @creation_dedup_window_seconds)
     end
   end
 
@@ -1866,16 +1860,23 @@ defmodule Aiur.DecisionStore do
         {:reply, {:error, {:conflict, {:source_event_conflict, event_id}}}, state}
 
       :new ->
-        case Map.get(state.current, decision.decision_id) do
-          nil ->
-            case find_creation_duplicate(decision, state) do
-              nil -> accept(%{decision | version: 1}, state)
-              existing -> {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
-            end
+        apply_fresh_attention_projection(decision, opts, state)
+    end
+  end
 
-          existing ->
-            apply_attention_projection(existing, decision, opts, state)
+  # A fresh attention may still collide with a recent same-agent, same-ticket
+  # Command asking substantially the same question (#2099), so creation-time
+  # dedup runs before a new row is accepted.
+  defp apply_fresh_attention_projection(decision, opts, state) do
+    case Map.get(state.current, decision.decision_id) do
+      nil ->
+        case find_creation_duplicate(decision, state) do
+          nil -> accept(%{decision | version: 1}, state)
+          existing -> {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
         end
+
+      existing ->
+        apply_attention_projection(existing, decision, opts, state)
     end
   end
 

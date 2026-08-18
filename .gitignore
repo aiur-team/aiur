@@ -68,3 +68,4 @@ __pycache__/
 # a cold start falls back to the curated registry list, so it is never a
 # dependency worth committing.
 .aiur/model-catalog.json
+.aiur/update-check.json

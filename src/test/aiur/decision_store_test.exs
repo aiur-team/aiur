@@ -883,20 +883,23 @@ defmodule Aiur.DecisionStoreTest do
   end
 
   describe "creation-time dedup (#2099)" do
-    test "two same-agent, same-ticket, same-window, same-question Commands create one", %{dir: dir} do
+    test "an exact-identical re-file from the same agent stays a distinct Command", %{dir: dir} do
       pid = start_store!(dir)
       question = "Should PR #1820 push its existing merge?"
 
+      # An identical re-file is the agent deliberately asking the same question
+      # again (e.g. a distinct tool call), not an accidental duplicate: the
+      # tool-call/retry contract depends on this, so it stays its own row.
       assert {:ok, %{status: :accepted, decision: first}} =
-               request(pid, %{"question" => question, "blocking" => false})
+               request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-1"})
 
-      assert {:ok, %{status: :duplicate, decision: duplicate}} =
-               request(pid, %{"question" => question, "blocking" => false})
+      assert {:ok, %{status: :accepted, decision: second}} =
+               request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-2"})
 
-      assert duplicate.decision_id == first.decision_id
+      refute second.decision_id == first.decision_id
 
       assert decisions = DecisionStore.list(pid)
-      assert length(decisions) == 1
+      assert length(decisions) == 2
     end
 
     test "paraphrases of one question from the same agent collapse within the window", %{dir: dir} do
