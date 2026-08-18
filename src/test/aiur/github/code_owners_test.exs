@@ -5,8 +5,11 @@ defmodule Aiur.GitHub.CodeOwnersTest do
   alias Aiur.Workflow
 
   setup do
-    tmp_dir =
-      Path.join(System.tmp_dir!(), "aiur_codeowners_#{System.unique_integer([:positive])}")
+    # Host-unique, not just VM-unique: a sibling `mix test` VM used to pick the
+    # same directory and overwrite this case's CODEOWNERS fixture mid-test, which
+    # is why `snapshot/1` came back bot-only under parallel runs and passed in
+    # isolation. See `Aiur.TestSupport.tmp_root!/1`.
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_codeowners")
 
     File.mkdir_p!(tmp_dir)
     path = Path.join(tmp_dir, "CODEOWNERS")

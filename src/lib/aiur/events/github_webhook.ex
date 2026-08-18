@@ -19,6 +19,13 @@ defmodule Aiur.Events.GithubWebhook do
   this caller. Configuration only says a webhook is *expected*; an observed
   delivery is what proves it works, so without this call a repo stays "configured
   but unproven" forever and W-6's degradation sweep has nothing to hold onto.
+
+  Every such delivery also deposits the bodies it carries into
+  `Aiur.GitHub.ResourceStore` through `Aiur.Events.GithubWebhook.Deposit`. A
+  delivery is the cheapest writer the cache has — GitHub already paid for the
+  round trip — so firing the event and discarding the payload means paying for
+  the same body twice. The deposit never marks anything processed; that stays
+  `Publisher`'s, after a successful publish.
   Recording happens *before* the publish, so a consumer reacting synchronously
   can never observe the repo as silent while it handles one of that repo's
   deliveries. Deliveries for untracked repositories record nothing: the fleet
@@ -33,7 +40,7 @@ defmodule Aiur.Events.GithubWebhook do
 
   require Logger
 
-  alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer}
   alias Aiur.Events.{Publisher, Sanitizer}
   alias Aiur.Webhooks
 
@@ -64,7 +71,7 @@ defmodule Aiur.Events.GithubWebhook do
   """
   @spec handle_delivery(term(), term(), keyword()) :: outcome()
   def handle_delivery(event_type, payload, opts \\ []) do
-    record_proof_of_life(payload, opts)
+    record_tracked_delivery(event_type, payload, opts)
 
     case Normalizer.normalize(event_type, payload, opts) do
       {:publish, triples} ->
@@ -100,10 +107,22 @@ defmodule Aiur.Events.GithubWebhook do
   # to mean: an event type this fleet ignores still proves the webhook, the App
   # install, and the tunnel are all working. So this keys off the tracked-repo
   # filter alone and runs ahead of `normalize/3`, not off the publish outcome.
-  defp record_proof_of_life(payload, opts) do
+  #
+  # The same tracked-repo answer also gates the resource deposit, for the same
+  # reason and from the same judgement: the bodies a delivery carries are worth
+  # caching exactly when the fleet tracks the repository they belong to.
+  # Depositing happens *before* the publish so a consumer woken by the event
+  # finds the body already held rather than racing the writer that is handing it
+  # the wake.
+  defp record_tracked_delivery(event_type, payload, opts) do
     case Normalizer.tracked_repo(payload, opts) do
-      {:ok, repo} -> Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
-      _untracked_or_malformed -> :ok
+      {:ok, repo} ->
+        Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
+        Deposit.deposit(event_type, payload, repo)
+        :ok
+
+      _untracked_or_malformed ->
+        :ok
     end
   end
 

@@ -2,6 +2,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GitHubGraph.Normalizer
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.{Failure, Policy, Snapshot}
   alias Aiur.TrackerIdentity
@@ -317,6 +318,208 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                    2_000
   end
 
+  # Acceptance criterion 1: opening the Build Order page costs zero, cold cache
+  # included. "Cold" is the case that used to be guaranteed to spend — a selected
+  # entry with no `last_success_ms` was due by definition, so the first person to
+  # look at a root paid for it. Asserted by counting reader starts, because the
+  # reader is the only witness that cannot be fooled: latency and health state
+  # both look the same whether or not a request went out.
+  test "opening a cold root, repeatedly, starts no reader at all" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    # Mount, re-mount, reconnect — every one of these is a `demand/2`.
+    for _ <- 1..5 do
+      assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    end
+
+    # Holding the page open is `selected/2`, which also must not spend.
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.selected(projection, first)
+
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 200
+
+    # And nothing was armed to spend later on the viewer's behalf either: a timer
+    # here would just be the same cost deferred by one interval.
+    entry = :sys.get_state(projection).selected[Policy.root_key(first)]
+    assert entry.timer == nil
+  end
+
+  # The regression this whole trigger exists to avoid, and the one a marker built
+  # only from the *root* issue silently reintroduces.
+  #
+  # GitHub does not bump a parent issue's `updatedAt` when a sub-issue closes, and
+  # closing does not change `member_count`. So a member finishing — the single
+  # change a Build Order page exists to show — leaves an `{identity, member_count,
+  # updated_at}` marker byte-identical, and the graph is never re-read. Under the
+  # deleted 15s cadence it appeared within 15 seconds; with that marker it never
+  # appears at all.
+  #
+  # The roots here are built by the real `Normalizer.root/2` from raw GraphQL
+  # nodes rather than by a fixture with a hand-set digest, so the test cannot pass
+  # by agreeing with itself about what the marker contains.
+  test "a member closing re-reads the graph even though the root is untouched" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+
+    # The cold read, so what follows is a *change* rather than a first fill.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # Nothing has changed yet, so nothing is bought.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # One member closes. The root issue itself is untouched: same `updatedAt`,
+    # same `member_count`, same title, same labels.
+    closed = normalized_root(1, ["CLOSED", "OPEN", "OPEN"])
+    assert closed.updated_at == open.updated_at
+    assert closed.member_count == open.member_count
+
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([closed]))})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+  end
+
+  # A lost update, and the reason the marker is captured at dispatch rather than
+  # at completion.
+  #
+  # A read starts while the catalog says D1. The catalog then moves to D2, so the
+  # root is due — but a read is already inflight and the request is declined. That
+  # read finally lands carrying D1-era data. If it stamps the marker held *now*,
+  # it stamps D2: the root is recorded as current at a state it has never held,
+  # and because nothing else moves the marker it is never read again.
+  #
+  # Two things have to be true to avoid that: the completion stamps D1, and the
+  # request declined mid-flight is queued rather than dropped.
+  test "a catalog change during an inflight read is not lost when the read lands" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+
+    # A read is dispatched against the D1 catalog, and deliberately left running.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    stale_reader = await_reader({:selected, first})
+
+    # The world moves underneath it: a member closes.
+    closed = normalized_root(1, ["CLOSED", "OPEN", "OPEN"])
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([closed]))})
+
+    # The inflight read cannot answer the new question, so no second reader starts
+    # yet — but the request must not have been thrown away either.
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 200
+
+    # The D1-era read lands. Its data is D1-era, so it must be recorded as D1 and
+    # the queued D2 request must now run.
+    finish(stale_reader, {:ok, ProviderResult.complete(selected(first))})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+
+    # And the stamp itself, which is the half the queue would otherwise paper
+    # over: the landed read holds D1-era data, so it must be recorded at D1. A D2
+    # stamp here is the lost update — it claims the root is current at a state it
+    # has never held, and the moment anything drops the queued read (a failure, a
+    # restart, an eviction) nothing is left that would ever re-read it.
+    recorded = :sys.get_state(projection).selected_fingerprints[Policy.root_key(first)]
+    assert recorded == Catalog.root_fingerprint(catalog([open]), first)
+    refute recorded == Catalog.root_fingerprint(catalog([closed]), first)
+  end
+
+  # Deleting the viewer cadences leaves a question the cadence used to answer:
+  # what reads a selected root at all? The answer must be a writer, and the only
+  # daemon-owned writer left is the catalog reconciliation. If nothing triggered a
+  # selected read the page would simply never show a graph, which is not
+  # "need-driven" — it is broken — so this pins the whole trigger, including that
+  # it does not repeat and does not fire for a root nobody is watching.
+  test "the catalog cycle buys a watched cold root once, then only when it moves" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+    {:ok, projection} = start_projection()
+
+    unmoved = [counted_root(first), counted_root(second)]
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(unmoved))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    # `first` is watched. `second` is selected and then released, so an entry
+    # for it survives with nothing to show and nobody watching — the case where
+    # "is anyone watching?" is the only thing stopping the read.
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, second)
+    assert :ok = GraphProjection.release(projection, second)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
+
+    # The next catalog reconciliation notices that a watched root has nothing.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(unmoved))})
+
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The unwatched root is never read: the cost has to be caused by something.
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 100
+
+    # A catalog cycle that reports the same root, unmoved, buys nothing more —
+    # otherwise the deleted cadence is simply back, keyed off the catalog timer.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(unmoved))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # A catalog cycle that reports the root *moved* buys exactly one read.
+    moved = [%{counted_root(first) | member_count: 4}, counted_root(second)]
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog(moved))})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 100
+  end
+
+  # The other way a deleted cadence can come back: not as a setting, but as a
+  # successor timer armed when a read finishes. That is where
+  # `graph_selected_refresh_ms` actually lived — every completed selected read
+  # queued the next one — so deleting the setting without deleting the
+  # rescheduling would move the cost rather than remove it.
+  test "a completed selected read arms no successor for the watcher" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The watcher is still there and still watching, which is exactly the state
+    # that used to guarantee a successor read.
+    entry = :sys.get_state(projection).selected[Policy.root_key(first)]
+    assert MapSet.size(entry.demanders) == 1
+    assert entry.timer == nil
+
+    # And no second reader starts, however long the page stays open.
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+  end
+
   test "selected-root demand coalesces, protects live entries, and evicts released LRU entries" do
     first = identity(1, "I1")
     second = identity(2, "I2")
@@ -330,11 +533,17 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
                    },
                    2_000
 
+    # Demand registers the watcher and buys nothing, so no reader starts for it.
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
+
+    # The explicit need is what spends, and repeated needs still coalesce onto
+    # the one inflight read.
+    :ok = GraphProjection.refresh(projection, first)
     first_reader = await_reader({:selected, first})
 
     for _ <- 1..3 do
-      assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+      :ok = GraphProjection.refresh(projection, first)
     end
 
     refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
@@ -357,6 +566,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
     assert :ok = GraphProjection.release(projection, first)
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, second)
+    :ok = GraphProjection.refresh(projection, second)
     second_reader = await_reader({:selected, second})
 
     assert {:ok, %Snapshot{data: nil, generation: :unknown}} = GraphProjection.selected(projection, first)
@@ -422,6 +632,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       end)
 
     assert_receive {:demand_result, {:ok, %Snapshot{data: nil}}}, 2_000
+    :ok = GraphProjection.refresh(projection, first)
     selected_reader = await_reader({:selected, first})
     selected = selected(first)
     finish(selected_reader, {:ok, ProviderResult.complete(selected)})
@@ -497,8 +708,6 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       now: fn -> @now end,
       clock_ms: clock_ms,
       catalog_refresh_ms: 60_000,
-      selected_refresh_ms: 15_000,
-      demand_refresh_ms: 5_000,
       refresh_timeout_ms: 30_000,
       max_selected_roots: max_selected_roots,
       max_inflight: 4,
@@ -523,6 +732,11 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
   defp finish(reader, result), do: send(reader, {:finish, result})
 
+  defp await_selected_scope(identity) do
+    assert_receive {:reader_started, {:selected, ^identity} = scope, _reader}, 2_000
+    scope
+  end
+
   defp authority(repository, generation, max_selected_roots) do
     %{
       repository: repository,
@@ -532,8 +746,6 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       call_budget: 4,
       options: [
         catalog_refresh_ms: 60_000,
-        selected_refresh_ms: 15_000,
-        demand_refresh_ms: 5_000,
         refresh_timeout_ms: 30_000,
         max_selected_roots: max_selected_roots,
         max_inflight: 4
@@ -567,6 +779,45 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       epic_count: Keyword.get(opts, :epic_count),
       phase_count: Keyword.get(opts, :phase_count)
     })
+  end
+
+  # A root as the catalog GraphQL query actually returns it, put through the real
+  # normalizer. `member_states` are the sub-issue lifecycles; everything about the
+  # root itself is fixed, so any marker that moves between two calls moved because
+  # of a *member*.
+  defp normalized_root(number, member_states, {owner, repo} \\ @repository) do
+    members =
+      Enum.map(member_states, fn
+        "CLOSED" -> %{"state" => "CLOSED", "stateReason" => "COMPLETED"}
+        state -> %{"state" => state, "stateReason" => nil}
+      end)
+
+    Normalizer.root(
+      %{
+        "id" => "I#{number}",
+        "databaseId" => number,
+        "number" => number,
+        "title" => "Build Order #{number}",
+        "url" => "https://github.com/#{owner}/#{repo}/issues/#{number}",
+        "state" => "OPEN",
+        "stateReason" => nil,
+        "createdAt" => "2026-07-01T10:00:00Z",
+        "updatedAt" => "2026-07-15T11:00:00Z",
+        "repository" => %{"name" => repo, "owner" => %{"login" => owner}},
+        "parent" => nil,
+        "labels" => %{
+          "totalCount" => 1,
+          "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+          "nodes" => [%{"name" => "build-order"}]
+        },
+        "subIssues" => %{
+          "totalCount" => length(members),
+          "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+          "nodes" => members
+        }
+      },
+      {owner, repo}
+    )
   end
 
   defp identity(number, provider_id, repository \\ @repository) do

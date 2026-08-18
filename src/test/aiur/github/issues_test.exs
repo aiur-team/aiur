@@ -238,6 +238,9 @@ defmodule Aiur.GitHub.IssuesTest do
           {:ok, %{status: 200, headers: [], body: []}}
         else
           assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+          # The open-issue list is bound by its own, larger cap (#2140); the
+          # single-issue cap would truncate a growing backlog.
+          assert request.max_response_bytes == 1_048_576
 
           Agent.get_and_update(list_step, fn
             0 ->

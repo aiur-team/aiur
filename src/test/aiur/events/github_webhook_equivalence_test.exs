@@ -28,6 +28,7 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubFirehose, GithubWebhook, Publisher}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.ReviewFreshness
   alias Aiur.Workflow
 
@@ -564,11 +565,18 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     end
   end
 
+  # These tests deliberately drive both pipes over the *same* comment so the two
+  # published events can be compared field by field. In production that second
+  # publish is exactly what must not happen — it is the double-processing #2069
+  # removes — so every suppression layer has to be cleared between the halves,
+  # not just the in-memory window.
   defp clear_dedup do
     case :ets.whereis(@dedup_table) do
       :undefined -> :ok
       _table -> :ets.delete_all_objects(@dedup_table)
     end
+
+    ResourceStore.reset()
 
     :ok
   end
