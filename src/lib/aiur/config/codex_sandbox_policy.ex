@@ -33,6 +33,14 @@ defmodule Aiur.Config.CodexSandboxPolicy do
     |> default_runtime_policy(opts)
   end
 
+  @doc false
+  @spec add_runtime_writable_roots(map(), [Path.t()]) :: {:ok, map()} | {:error, term()}
+  def add_runtime_writable_roots(policy, roots) when is_map(policy) and is_list(roots) do
+    with {:ok, canonical_roots} <- canonicalize_additional_roots(roots) do
+      {:ok, maybe_add_workspace_writable_roots(policy, canonical_roots)}
+    end
+  end
+
   @spec default_policy(Path.t()) :: map()
   def default_policy(workspace) when is_binary(workspace), do: policy_for_roots([workspace])
 

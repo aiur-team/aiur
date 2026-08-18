@@ -66,31 +66,33 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-group-count">{api_count_label(@elevenlabs?)}</span>
       </div>
       <div class="rs-apis-rows">
-        <div class="rs-api">
+        <div class="rs-api rs-provider-row">
           <div class="rs-head">
             <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
             <span class="rs-name">Github</span>
           </div>
-          <div class="rs-limits">
-            <div :if={@windows == []} class="rs-limit">
-              <div class="rs-limit-top">
+          <div class="rs-provider-body">
+            <div class="rs-limits">
+              <div :if={@windows == []} class="rs-limit">
                 <span class="rs-limit-label">Quota</span>
-                <span class="rs-limit-meta">Awaiting GitHub response</span>
+                <div class="rs-meter"><i style="width:0%"></i></div>
+                <span class="rs-limit-meta rs-limit-meta-wide">Awaiting GitHub response</span>
+                <span class="rs-limit-meta rs-limit-meta-compact">Awaiting response</span>
               </div>
-              <div class="rs-meter"><i style="width:0%"></i></div>
-            </div>
-            <div :for={window <- @windows} class="rs-limit">
-              <div class="rs-limit-top">
+              <div :for={window <- @windows} class="rs-limit">
                 <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
-                <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
+                <div class="rs-meter">
+                  <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+                </div>
+                <span class="rs-limit-meta rs-limit-meta-wide">{github_window_meta(window, @now)}</span>
+                <span class="rs-limit-meta rs-limit-meta-compact">{github_window_compact_meta(window, @now)}</span>
               </div>
-              <div class="rs-meter">
-                <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+              <div :for={backoff <- @backoffs} class="rs-limit github-quota-backoff">
+                <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
+                <div class="rs-meter"><i class="is-warning" style="width:100%"></i></div>
+                <span class="rs-limit-meta rs-limit-meta-wide">Secondary limit · {backoff.seconds_remaining}s left</span>
+                <span class="rs-limit-meta rs-limit-meta-compact">{backoff.seconds_remaining}s left</span>
               </div>
-            </div>
-            <div :for={backoff <- @backoffs} class="github-quota-backoff">
-              <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
-              <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
             </div>
           </div>
         </div>
@@ -116,29 +118,30 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:meter_percent, elevenlabs_meter_percent(window))
 
     ~H"""
-    <div class="rs-api rs-elevenlabs">
+    <div class="rs-api rs-elevenlabs rs-provider-row">
       <div class="rs-head">
         <img class="rs-logo rs-elevenlabs-mark" src="/elevenlabs-symbol.svg" alt="" aria-hidden="true" />
         <span class="rs-name">ElevenLabs</span>
-        <div :if={@invoice_due} class="rs-head-stats">
-          <div class="rs-stat">
-            <span class="rs-stat-label">Next invoice due</span>
-            <span class="rs-stat-val">{@invoice_due}</span>
+      </div>
+      <div class="rs-provider-body">
+        <div class="rs-limits">
+          <div class="rs-limit">
+            <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
+            <div class="rs-meter">
+              <i
+                class={meter_class(@meter_percent, 90)}
+                style={"width:#{@meter_percent}%"}
+              >
+              </i>
+            </div>
+            <span class={["rs-limit-meta", "rs-limit-meta-wide", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
+            <span class="rs-limit-meta rs-limit-meta-compact">{elevenlabs_compact_meta(@quota, @now)}</span>
           </div>
         </div>
-      </div>
-      <div class="rs-limits">
-        <div class="rs-limit">
-          <div class="rs-limit-top">
-            <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
-            <span class={["rs-limit-meta", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
-          </div>
-          <div class="rs-meter">
-            <i
-              class={meter_class(@meter_percent, 90)}
-              style={"width:#{@meter_percent}%"}
-            >
-            </i>
+        <div :if={@invoice_due} class="rs-head-stats">
+          <div class="rs-stat" role="group" aria-label={"Next invoice due #{@invoice_due}"}>
+            <span class="rs-stat-label">Next invoice due</span>
+            <span class="rs-stat-val">{@invoice_due}</span>
           </div>
         </div>
       </div>
@@ -165,6 +168,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:run_state, run_state)
       |> assign(:run_ready?, run_state in [:ready, :stale])
       |> assign(:remaining, remaining)
+      |> assign(:run_percent, run_percent(assigns.run))
+      |> assign(:progress_label, progress_label(assigns.run))
       |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))
 
     ~H"""
@@ -186,11 +191,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-progress">
         <div class="rs-limit-top">
           <span class="rs-limit-label">Progress</span>
-          <span class="rs-limit-meta">{progress_label(@run)}</span>
+          <span class="rs-limit-meta">{@progress_label || "—"}</span>
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>
-        <div class="rs-meter"><i class={meter_class(run_percent(@run))} style={"width:#{run_percent(@run)}%"}></i></div>
+        <div
+          class={["rs-meter", is_nil(@run_percent) && "is-unknown"]}
+          role="progressbar"
+          aria-label={if(is_integer(@run_percent), do: "Progress #{@run_percent}%", else: "Progress unavailable")}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={@run_percent}
+        >
+          <i :if={is_integer(@run_percent)} class={meter_class(@run_percent)} style={"width:#{@run_percent}%"}></i>
+        </div>
       </div>
     </section>
     """
@@ -229,13 +243,31 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:standing, model_standing(assigns.card))
 
     ~H"""
-    <div class="rs-model">
+    <div class="rs-model rs-provider-row">
       <div class="rs-head">
         <%!-- One logo per row, on the far left, so every row starts with the same landmark. Decorative: the name beside it already identifies the provider. --%>
         <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
+      </div>
+      <div class="rs-provider-body">
+        <div class="rs-limits">
+          <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
+            <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
+            <span class="rs-limit-meta rs-limit-meta-wide">{durable_meta(durable_record(@card), @now)}</span>
+            <span class="rs-limit-meta rs-limit-meta-compact">{durable_compact_meta(durable_record(@card))}</span>
+          </div>
+          <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
+            <div class="rs-meter"><i style="width:0%"></i></div>
+            <span class="rs-limit-meta">{provider_status(@card)}</span>
+          </div>
+          <div :for={window <- @windows} class="rs-limit">
+            <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
+            <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now, @standing)}</span>
+            <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now, @standing)}</span>
+          </div>
+        </div>
         <div class="rs-head-stats">
-          <div :if={@token_count} class="rs-stat">
+          <div :if={@token_count} class="rs-stat" role="group" aria-label={"Tokens #{@token_count}"}>
             <span class="rs-stat-label">Tokens</span>
             <span class="rs-stat-val">
               {@token_count}
@@ -247,32 +279,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <img :if={@token_glyph? and is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
         </div>
         <%!-- The spend figure closes the row on the right. --%>
-        <div :if={@show_spend?} class="rs-stat rs-spend">
+        <div :if={@show_spend?} class="rs-stat rs-spend" role="group" aria-label={"Spend #{if @usage_ready?, do: money(@usage), else: "N/A"}"}>
           <span class="rs-stat-label">Spend</span>
           <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
-        </div>
-      </div>
-      <div class="rs-limits">
-        <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
-          <div class="rs-limit-top">
-            <span class="rs-limit-label">Limits</span>
-            <span class="rs-limit-meta">{durable_meta(durable_record(@card), @now)}</span>
-          </div>
-          <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
-        </div>
-        <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
-          <div class="rs-limit-top">
-            <span class="rs-limit-label">Limits</span>
-            <span class="rs-limit-meta">{provider_status(@card)}</span>
-          </div>
-          <div class="rs-meter"><i style="width:0%"></i></div>
-        </div>
-        <div :for={window <- @windows} class="rs-limit">
-          <div class="rs-limit-top">
-            <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <span class="rs-limit-meta">{model_window_meta(window, @now, @standing)}</span>
-          </div>
-          <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
         </div>
       </div>
     </div>
@@ -318,6 +327,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       end
 
     if standing && not String.contains?(meta, standing), do: meta <> " (#{standing})", else: meta
+  end
+
+  defp model_window_compact_meta(window, now, standing) do
+    window
+    |> model_window_meta(now, standing)
+    |> String.replace("resets in ", "")
+    |> String.replace(" used", "")
+    |> String.replace(~r/ \((stale|partial)\)/, " \\1")
   end
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
@@ -372,6 +389,28 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
   defp elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
+
+  defp elevenlabs_compact_meta(%{state: :observed, window: %{} = window}, now) do
+    [
+      compact_number(window.remaining),
+      elevenlabs_percent_text(window) |> compact_percent_text(),
+      elevenlabs_compact_reset_text(window.reset_at, now)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp elevenlabs_compact_meta(%{state: :failed}, _now), do: "Unavailable"
+  defp elevenlabs_compact_meta(_quota, _now), do: "Awaiting response"
+
+  defp compact_percent_text(nil), do: nil
+  defp compact_percent_text(text), do: String.replace_suffix(text, " used", "")
+
+  defp elevenlabs_compact_reset_text(reset_at, now) do
+    reset_at
+    |> elevenlabs_reset_text(now)
+    |> String.replace_prefix("resets ", "")
+  end
 
   defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
   defp elevenlabs_percent_text(_window), do: nil
@@ -431,6 +470,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_window_meta(window, now) do
     "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
+  end
+
+  defp github_window_compact_meta(window, now) do
+    "#{window.remaining}/#{window.limit} · #{compact_reset_text(window.reset_at, now)}"
+  end
+
+  defp compact_reset_text(reset_at, now) do
+    reset_at
+    |> reset_text(now)
+    |> String.replace_prefix("resets in ", "")
   end
 
   # A provider card only occupies strip space when the provider is actually
@@ -593,33 +642,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end
   end
 
-  # Codex reports several limits that share a `name`: an account-wide one and a
-  # per-model one both come through as "Primary", differing only in the scope
-  # prefix of their id (`codex:primary` vs `codex_bengalfox:primary`). They are
-  # genuinely different limits — they read alike only while both sit unused —
-  # so they are both shown, and the scope is what distinguishes them.
-  defp window_label(window, windows) do
-    name = Map.get(window, :name, "Limit")
-
-    if Enum.count(windows, &(Map.get(&1, :name) == name)) > 1 do
-      window |> Map.get(:limit_id) |> window_scope() || name
-    else
-      name
-    end
-  end
-
-  # `limit_id` is "<scope>:<name>"; the scope is the part worth showing when the
-  # name cannot tell two windows apart.
-  defp window_scope(nil), do: nil
-
-  defp window_scope(limit_id) do
-    limit_id
-    |> to_string()
-    |> String.split(":")
-    |> List.first()
-    |> String.replace("_", " ")
-  end
-
   # Whether the remaining ticket count is a known value at all, as opposed to
   # not being known yet (loading, unavailable).
   defp remaining_count(state, run) when state in [:ready, :stale], do: Map.get(run[:counts] || %{}, :remaining, 0)
@@ -631,37 +653,23 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp progress_meta(_state, _run), do: "N/A"
 
   defp progress_label(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent),
-    do: "#{percent}% complete"
+    do: "#{percent}%"
 
-  defp progress_label(%{
-         progress: %{
-           kind: :partial,
-           display_percent_label: percent,
-           current_members_label: members,
-           fact_status_label: status
-         }
-       }),
-       do: "#{percent} · #{members} · #{status}"
+  defp progress_label(%{progress: %{kind: :partial, display_percent_label: percent}}),
+    do: percent
 
   defp progress_label(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent),
-    do: "At least #{percent}% complete"
+    do: "At least #{percent}%"
 
-  defp progress_label(%{
-         progress: %{
-           kind: :pending,
-           progress_status_label: progress,
-           current_members_label: members,
-           fact_status_label: status
-         }
-       }),
-       do: "#{progress} · #{members} · #{status}"
+  defp progress_label(%{progress: %{kind: :pending}}),
+    do: nil
 
-  defp progress_label(_run), do: "Progress not computed yet"
+  defp progress_label(_run), do: nil
 
   defp run_percent(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :partial, percent: percent}}) when is_integer(percent), do: percent
-  defp run_percent(_run), do: 0
+  defp run_percent(_run), do: nil
 
   defp eta_label(true, %{eta: %{reason: :zero_eligible_weight}}), do: nil
   defp eta_label(true, %{eta: %{reason: :unhealthy_weight_facts}}), do: nil
@@ -798,6 +806,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # place left that qualifies the number it sits beside (issue #1564).
   defp durable_meta(%{percent: percent, observed_at: observed_at}, _now) do
     "#{percent}% used · as of #{clock_label(observed_at)} (stale)"
+  end
+
+  defp durable_compact_meta(%{percent: percent, observed_at: observed_at}) do
+    "#{percent}% · #{clock_label(observed_at)} stale"
   end
 
   defp durable_percent(%{percent: percent}), do: percent

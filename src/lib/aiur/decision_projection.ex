@@ -325,6 +325,19 @@ defmodule Aiur.DecisionProjection do
     {:ok, decision}
   end
 
+  # A Command is moot when its ticket closed or its originating agent is gone:
+  # the question itself is void, so neither `blocking` nor `authority` keeps it
+  # answerable. The event records why and who, and no answer is ever set, so a
+  # mooted Command is durably distinguishable from a decided one.
+  defp transition(%Decision{decision_status: status} = decision, %DecisionEvent{type: :decision_mooted})
+       when status in [:open, :deferred] do
+    {:ok, %{decision | decision_status: :moot, delivery_status: :not_dispatched}}
+  end
+
+  defp transition(%Decision{decision_status: :moot} = decision, %DecisionEvent{type: :decision_mooted}) do
+    {:ok, decision}
+  end
+
   defp transition(%Decision{} = decision, %DecisionEvent{type: :revision_recorded, data: revision} = event) do
     with :ok <- require_current_version(decision, event.decision_version),
          {:ok, _answer} <- require_answer(decision),

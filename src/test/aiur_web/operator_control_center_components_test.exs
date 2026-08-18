@@ -501,7 +501,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_history([answered, dismissed])
 
-    assert html =~ ~s(<table class="history-table")
+    assert html =~ ~s(<table id="command-history-table" class="history-table")
     assert html =~ ~s(data-severity="good")
     assert html =~ "Answered"
     assert html =~ "Closed without a recorded answer"
@@ -514,7 +514,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     html = render_history([expired])
 
     assert html =~ "Expired"
-    assert html =~ ~s(<td class="history-decision">N/A</td>)
+    assert html =~ ~s(<td class="history-decision" data-sort-value="N/A">N/A</td>)
     assert html =~ ~s(data-severity="attn")
     refute html =~ ~s(class="decision-card)
   end
@@ -530,8 +530,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     html = render_history([custom, chosen])
 
-    assert html =~ "<th scope=\"col\">Decision</th>"
-    refute html =~ "<th scope=\"col\">Outcome</th>"
+    assert html =~ ~s(<th scope="col" data-sort-key="decision">Decision</th>)
+    refute html =~ "Outcome</th>"
     assert html =~ "“it is the executor&#39;s job to review”"
     assert html =~ "“Ship it”"
   end
@@ -569,10 +569,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     # These are the component describing a lifecycle, not repeating an answer,
     # so none of them may wear quotation marks.
-    assert html =~ ~s(<td class="history-decision">Handed to the Executor</td>)
-    assert html =~ ~s(<td class="history-decision">Closed without a recorded answer</td>)
-    assert html =~ ~s(<td class="history-decision">N/A</td>)
-    assert html =~ ~s(<td class="history-decision">—</td>)
+    assert html =~ ~s(<td class="history-decision" data-sort-value="Handed to the Executor">Handed to the Executor</td>)
+
+    assert html =~
+             ~s(<td class="history-decision" data-sort-value="Closed without a recorded answer">Closed without a recorded answer</td>)
+
+    assert html =~ ~s(<td class="history-decision" data-sort-value="N/A">N/A</td>)
+    assert html =~ ~s(<td class="history-decision" data-sort-value="">—</td>)
     refute html =~ "“”"
   end
 
@@ -595,7 +598,10 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute collapsed =~ "history-detail-row"
 
     assert expanded =~ ~s(aria-expanded="true")
-    assert expanded =~ ~s(<tr id="history-detail-history-dec-history-open" class="history-detail-row">)
+
+    assert expanded =~
+             ~s(<tr id="history-detail-history-dec-history-open" class="history-detail-row" data-sort-detail-for="history-dec-history-open">)
+
     assert expanded =~ "The queue is full."
     assert expanded =~ "Event timeline"
   end

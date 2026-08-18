@@ -1,6 +1,16 @@
 defmodule Aiur.TestSupportTest do
   use Aiur.TestSupport
 
+  test "receive_barrier selectively receives and exports bindings without a clock" do
+    send(self(), :unrelated)
+    send(self(), {:ready, 42})
+
+    receive_barrier({:ready, value})
+
+    assert value == 42
+    assert_received :unrelated
+  end
+
   test "write_workflow_file! waits for the active config reload to finish" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)

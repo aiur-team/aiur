@@ -53,6 +53,16 @@ defmodule Aiur.RepoBase do
   def base_path(repo_url) when is_binary(repo_url),
     do: Path.join(repo_path(repo_url), "latest")
 
+  @doc false
+  @spec cache_sidecar_paths(Path.t()) :: [Path.t()]
+  def cache_sidecar_paths(root) when is_binary(root) do
+    Enum.map(@cache_sidecars, &Path.join(root, &1))
+  end
+
+  @doc "Absolute root beneath which every per-repository state node lives."
+  @spec state_root() :: Path.t()
+  def state_root, do: base_root()
+
   @doc "Absolute path of the per-repository state node for `repo_url`."
   @spec repo_path(String.t()) :: Path.t()
   def repo_path(repo_url) when is_binary(repo_url),
@@ -146,7 +156,7 @@ defmodule Aiur.RepoBase do
       Path.join(node, "meta"),
       Path.join([node, "meta", "retros"]),
       Path.join(node, "executor")
-      | Enum.map(@cache_sidecars, &Path.join(node, &1))
+      | cache_sidecar_paths(node)
     ]
     |> Enum.reduce_while(:ok, fn path, :ok ->
       case ensure_state_path_safe(node, path) do
@@ -505,9 +515,9 @@ defmodule Aiur.RepoBase do
 
     case run_base_build(base_path, base_build) do
       :ok ->
-        with :ok <- relocate_sidecars(base_path),
-             :ok <- write_base_record(base_path, base_build) do
-          {:ok, base_path}
+        case write_base_record(base_path, base_build) do
+          :ok -> {:ok, base_path}
+          {:error, _reason} = error -> error
         end
 
       {:error, reason} ->
@@ -522,8 +532,10 @@ defmodule Aiur.RepoBase do
     # Same execution shape as workspace hooks: scrub the Executor’s Erlang
     # distribution env at the shell level, then run in the base dir. `base_env/1`
     # trusts the base's mise.toml (MISE_TRUSTED_CONFIG_PATHS) so mise-provided
-    # tools run. Cache homes point at the repository node, outside `latest`, so
-    # materialized workspaces inherit only the repository tree.
+    # tools run. Cache homes point at the daemon-owned executor subtree, outside
+    # both `latest` and the agent-writable sidecars, so materialized workspaces
+    # inherit only the repository tree and prewarm never executes agent-controlled
+    # package cache content.
     scrubbed = AgentEnvironment.scrub_shell_command(command)
 
     {out, status} =
@@ -791,8 +803,6 @@ defmodule Aiur.RepoBase do
       end
     end)
   end
-
-  defp relocate_sidecars(base_path), do: move_sidecars(base_path, repo_node_path(base_path))
 
   defp import_legacy_retrospective(_repo_url, nil), do: :ok
 
@@ -1311,13 +1321,14 @@ defmodule Aiur.RepoBase do
   end
 
   defp base_env(base_path) do
-    node = repo_node_path(base_path)
+    cache_root = Path.join([repo_node_path(base_path), "executor", "package-manager-cache"])
+    [hex_home, mix_home, npm_cache] = cache_sidecar_paths(cache_root)
 
     AgentEnvironment.base_env(base_path) ++
       [
-        {"HEX_HOME", Path.join(node, ".aiur-hex")},
-        {"MIX_HOME", Path.join(node, ".aiur-mix")},
-        {"npm_config_cache", Path.join(node, ".aiur-npm-cache")}
+        {"HEX_HOME", hex_home},
+        {"MIX_HOME", mix_home},
+        {"npm_config_cache", npm_cache}
       ]
   end
 

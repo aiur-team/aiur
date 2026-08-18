@@ -1348,7 +1348,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   defp stop_codeowners(%{pid: pid, path: path, owned?: true}) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
+    Aiur.TestSupport.safe_stop(pid)
     File.rm(path)
   end
 
