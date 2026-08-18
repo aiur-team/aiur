@@ -892,12 +892,23 @@ defmodule Aiur.RepoBaseTest do
     end
 
     test "keeps package-manager caches beside latest rather than in the clone", %{origin: origin, node: node, base: base} do
-      command = ~s(mkdir -p "$HEX_HOME" "$MIX_HOME" "$npm_config_cache"; touch "$HEX_HOME/hex" "$MIX_HOME/mix" "$npm_config_cache/npm")
+      command =
+        ~s(printf '%s\n%s\n%s\n' "$HEX_HOME" "$MIX_HOME" "$npm_config_cache" > package_manager_env; ) <>
+          ~s(mkdir -p "$HEX_HOME" "$MIX_HOME" "$npm_config_cache"; touch "$HEX_HOME/hex" "$MIX_HOME/mix" "$npm_config_cache/npm")
 
       assert {:ok, ^base} = RepoBase.refresh(base, origin, command)
 
+      daemon_cache_root = Path.join([node, "executor", "package-manager-cache"])
+
+      assert Path.join(base, "package_manager_env") |> File.read!() |> String.split("\n", trim: true) == [
+               Path.join(daemon_cache_root, ".aiur-hex"),
+               Path.join(daemon_cache_root, ".aiur-mix"),
+               Path.join(daemon_cache_root, ".aiur-npm-cache")
+             ]
+
       for cache <- [".aiur-hex/hex", ".aiur-mix/mix", ".aiur-npm-cache/npm"] do
-        assert File.exists?(Path.join(node, cache))
+        assert File.exists?(Path.join(daemon_cache_root, cache))
+        refute File.exists?(Path.join(node, cache))
         refute File.exists?(Path.join(base, cache))
       end
     end

@@ -191,7 +191,7 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env(workspace, opts \\ [])
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
-    {hex, mix, npm_cache} = sidecar_paths(opts)
+    [hex, mix, npm_cache] = package_cache_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
@@ -459,6 +459,14 @@ defmodule Aiur.AgentEnvironment do
   defp configured_base_branch(opts), do: Config.base_branch(opts)
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
 
+  @doc false
+  @spec package_cache_paths(keyword()) :: [Path.t()]
+  def package_cache_paths(opts \\ []) do
+    root = repo_url(opts) |> RepoBase.repo_path()
+
+    RepoBase.cache_sidecar_paths(root)
+  end
+
   # `false` unsets the variable for the child, which is what a non-GitHub
   # tracker or an unconfigured repo should produce: the guard then resolves no
   # resource identity and caches nothing, rather than filing responses under a
@@ -480,19 +488,13 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  defp sidecar_paths(opts) do
-    root = repo_url(opts) |> RepoBase.repo_path()
-
-    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
-  end
-
   # Remote workers have their own home directories, so shell launches must
   # transmit a stable, home-relative state-node identity rather than the
   # daemon host's absolute cache path.
   defp remote_sidecar_paths(opts) do
     root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
 
-    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+    root |> RepoBase.cache_sidecar_paths() |> List.to_tuple()
   end
 
   @doc """
