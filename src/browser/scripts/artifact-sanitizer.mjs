@@ -7,6 +7,7 @@ const sensitiveEnvironmentNames = ['AIUR_DASHBOARD_PASSWORD', 'AIUR_DASHBOARD_US
 const textExtensions = new Set(['.json', '.log', '.md', '.txt'])
 const retainedBinaryExtensions = new Set(['.png', '.zip'])
 const inheritedRuntimeNames = [
+  'AIUR_REAL_GIT',
   'CI',
   'HEX_HOME',
   'HOME',

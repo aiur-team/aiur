@@ -134,8 +134,19 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert css_rule(".run-summary-progress-fill.is-stale") =~ "opacity: 0.5"
     assert css_rule(".sd-strip-cmd-progress > i") =~ "min-width: 0.34rem"
     assert css_rule(".sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i") =~ "opacity: 0.5"
-    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before") =~ "background: transparent"
-    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress") =~ "border: 1px dashed"
+    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before") =~ "background: rgba(255, 255, 255, 0.32)"
+    assert css_rule(".ut-pbar.is-unknown") =~ "background: var(--line-strong)"
+    assert css_rule(".rs-meter.is-unknown") =~ "background: var(--line-strong)"
+    assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress") =~ "background: rgba(255, 255, 255, 0.22)"
+    refute css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress") =~ "dashed"
+  end
+
+  test "dashboard styling does not reintroduce dashes or hatching" do
+    css = File.read!(@css)
+
+    refute css =~ "dashed"
+    refute css =~ "stroke-dasharray"
+    refute css =~ "repeating-linear-gradient"
   end
 
   # Text on a filled control needs its own token pair: a fill tuned to carry

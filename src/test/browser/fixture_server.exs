@@ -34,6 +34,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/streamdeck-emulator-hook.js"></script>
+        <script defer src="/assets/sortable-table-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
         <script>
@@ -91,6 +92,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurStreamdeckEmulatorHook) {
               window.BrowserHarnessHooks.StreamdeckEmulator = window.AiurStreamdeckEmulatorHook;
+            }
+
+            if (window.AiurSortableTableHook) {
+              window.BrowserHarnessHooks.SortableTable = window.AiurSortableTableHook;
             }
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
@@ -979,6 +984,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     {:noreply, push_patch(socket, to: units_path(UnitsURL.zero_result_reset()))}
   end
 
+  def handle_event("table-sort-changed", _params, socket), do: {:noreply, socket}
+
   def handle_event("inspect-unit", %{"unit" => token}, socket) do
     case UnitsPresenter.lookup(socket.assigns.catalog, token) do
       {:ok, row} -> {:noreply, socket |> assign(:selected_row, row) |> assign(:context, context(row))}
@@ -1599,6 +1606,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
   def streamdeck_emulator_hook(conn, _params), do: serve_embedded(conn, "/streamdeck-emulator-hook.js")
+  def sortable_table_hook(conn, _params), do: serve_embedded(conn, "/sortable-table-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
@@ -2230,6 +2238,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
     get("/assets/streamdeck-emulator-hook.js", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator_hook)
+    get("/assets/sortable-table-hook.js", Aiur.BrowserHarness.FixtureAssets, :sortable_table_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end

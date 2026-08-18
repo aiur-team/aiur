@@ -950,6 +950,7 @@ defmodule Aiur.ExtensionsTest do
     assert html =~ "/conversation-voice-controller.js"
     assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
+    assert html =~ "/sortable-table-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
@@ -999,6 +1000,10 @@ defmodule Aiur.ExtensionsTest do
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
     assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    sortable_table_hook_conn = get(build_conn(), "/sortable-table-hook.js")
+    assert response(sortable_table_hook_conn, 200) =~ "AiurSortableTableHook"
+    assert Plug.Conn.get_resp_header(sortable_table_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
     for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js"] do
       hook_conn = get(build_conn(), "/#{hook}")

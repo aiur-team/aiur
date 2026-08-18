@@ -11,10 +11,13 @@ The Units page is dashboard `/` and CLI `aiur units`.
 | Column or control | Meaning |
 | --- | --- |
 | State filters | Cumulative `active`, `alert`, `paused`, `queued`, and `finished` conditions. |
+| Unit | Agent family, model, complexity, and priority tags for the selected routing. |
 | Activity | Latest action and elapsed time. |
 | Commands | Durable issues the Unit raised for the Executor. |
 | CI and review | Current PR facts with safe links to the ticket, Command, or conversation. |
 | CLI scope | `--scope live|unfinished|all|none`; repeat `--condition` for any selected condition. |
+
+The Summary progress bar uses the daemon's weighted current-run aggregate across Units with current inputs. When that aggregate cannot be computed, the bar keeps its shape but renders as flat grey rather than as zero or a hatched track.
 
 ## API meters
 
