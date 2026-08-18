@@ -34,7 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanelTest do
     # Anchor the refutations to a rendered row table, so a regression that dropped
     # the table entirely cannot read as "the column is correctly gone".
     assert html =~ "tickets-rows"
-    assert html =~ ~s(<th class="tk-col-title">Title</th>)
+    assert html =~ ~s(<th class="tk-col-title" data-sort-key="title">Title</th>)
 
     refute html =~ "Would route to"
     refute html =~ "tk-col-agent"

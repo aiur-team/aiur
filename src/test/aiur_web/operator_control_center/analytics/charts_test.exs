@@ -1,7 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
   use ExUnit.Case, async: true
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
 
   @t0 1_000_000
 
@@ -112,6 +112,21 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
 
   test "burnup renders the scope line" do
     assert Charts.burnup(model()) =~ "scope"
+  end
+
+  test "analytics styling and chart guides use no dashed treatment" do
+    m = model()
+
+    refute Styles.css() =~ "dashed"
+
+    for chart <- [
+          Charts.cpu_stack(m, MapSet.new(m.actors, & &1.key)),
+          Charts.concurrency(m),
+          Charts.memory(m),
+          Charts.burnup(m)
+        ] do
+      refute chart =~ "stroke-dasharray"
+    end
   end
 
   test "a shared time domain crops every time chart while preserving the elapsed axis origin" do

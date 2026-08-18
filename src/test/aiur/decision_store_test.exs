@@ -565,14 +565,20 @@ defmodule Aiur.DecisionStoreTest do
                })
 
       # The same question filed a second time as an option-less attention —
-      # the exact #1844 shape. `source_id` differs, so nothing dedups it today.
+      # the exact #1844 shape. `source_id` differs, so nothing dedups it today;
+      # it is filed by a *different* agent so creation-time dedup (#2099) does
+      # not collapse it before the answer-time supersede can be exercised.
       assert {:ok, %{status: :accepted, decision: duplicate}} =
-               project_attention(pid, %{
-                 "question" => "  SHOULD PR #1820 push its existing `merge`.  ",
-                 "blocking" => false,
-                 "kind" => "legacy_attention",
-                 "source_id" => "legacy_attention:push-question"
-               })
+               project_attention(
+                 pid,
+                 %{
+                   "question" => "  SHOULD PR #1820 push its existing `merge`.  ",
+                   "blocking" => false,
+                   "kind" => "legacy_attention",
+                   "source_id" => "legacy_attention:push-question"
+                 },
+                 source: %{@source | agent_id: "agent-2"}
+               )
 
       # A genuinely different question on the same ticket, and the same question
       # on a different ticket. Neither may be swept up.
@@ -676,6 +682,330 @@ defmodule Aiur.DecisionStoreTest do
     restarted = start_store!(dir)
     assert {:ok, replayed} = DecisionStore.get(decision.decision_id, restarted)
     assert replayed.decision_status == :expired
+  end
+
+  describe "moot disposition (#2099)" do
+    test "retires an open Command with a recorded reason and no answer", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Reclassify #2071?", "blocking" => true})
+
+      assert {:ok, %{status: :accepted, decision: mooted}} =
+               DecisionStore.moot(
+                 decision.decision_id,
+                 %{
+                   "reason_class" => "ticket_closed",
+                   "reason" => "Ticket #2071 was folded into #2073."
+                 },
+                 [actor: %{kind: :operator, id: "dashboard"}],
+                 pid
+               )
+
+      assert mooted.decision_status == :moot
+      assert mooted.answer == nil
+
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+
+      assert [
+               %DecisionEvent{type: :requested},
+               %DecisionEvent{
+                 type: :decision_mooted,
+                 data: %{
+                   reason_class: "ticket_closed",
+                   detail: "Ticket #2071 was folded into #2073.",
+                   actor: %{kind: :operator, id: "dashboard"}
+                 }
+               }
+             ] = audit
+
+      # Distinguishable from a real answer: the Command is not decided, and the
+      # audit record carries an actor + reason, never a DecisionAnswer.
+      assert {:error, {:conflict, :moot}} =
+               answer(pid, decision.decision_id, %{
+                 "idempotency_key" => "too-late",
+                 "expected_version" => 1,
+                 "custom_response" => "Ship"
+               })
+    end
+
+    test "moot is durable, idempotent, and historic", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Defer or close?", "blocking" => true})
+      opts = [actor: %{kind: :operator, id: "dashboard"}]
+      assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+      assert deferred.decision_status == :deferred
+
+      assert {:ok, %{status: :accepted, decision: mooted}} =
+               DecisionStore.moot(decision.decision_id, %{"reason_class" => "origin_agent_gone"}, opts, pid)
+
+      assert mooted.decision_status == :moot
+
+      assert {:ok, %{status: :duplicate, decision: duplicate}} =
+               DecisionStore.moot(decision.decision_id, %{"reason_class" => "origin_agent_gone"}, opts, pid)
+
+      assert duplicate.decision_status == :moot
+
+      assert {:ok, %{decisions: [historic], total: 1}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: :historic, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert historic.decision_id == decision.decision_id
+
+      # A mooted Command leaves the open surface entirely.
+      assert {:ok, %{decisions: [], total: 0}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: :open, search: nil, ticket: nil},
+                 pid
+               )
+
+      GenServer.stop(pid)
+      restarted = start_store!(dir)
+      assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+      assert durable.decision_status == :moot
+    end
+
+    test "a blocking human_required legacy Command about a closed ticket is retirable", %{dir: dir} do
+      pid = start_store!(dir)
+
+      # The exact #2099 daemon shape: legacy_attention, blocking, human_required.
+      assert {:ok, %{status: :accepted, decision: decision}} =
+               DecisionStore.project_attention(
+                 %{
+                   "question" => "Should ticket #2071 be reclassified for fresh implementation?",
+                   "blocking" => true,
+                   "authority" => "human_required",
+                   "reversibility" => "irreversible",
+                   "kind" => "legacy_attention",
+                   "source_id" => "legacy_attention:2071-reclassify"
+                 },
+                 [
+                   ticket: @ticket,
+                   source: %{agent_id: "codex", session_id: nil, event_id: nil},
+                   legacy_attention: %{slug: "2071-reclassify", topic: "ticket.979.agent.attention.2071-reclassify"}
+                 ],
+                 pid
+               )
+
+      assert decision.blocking
+      assert decision.authority == :human_required
+      assert decision.decision_status == :open
+
+      # `executor-answer` is refused by the floor for this Command…
+      assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "executor-try",
+                   "expected_version" => 1,
+                   "custom_response" => "Reclassify"
+                 },
+                 [actor: %{kind: :executor, id: "aiur-cli"}],
+                 pid
+               )
+
+      # …and it sits in the open blocking surface (R4: `commands --blocking`).
+      assert {:ok, %{decisions: [open_blocker], total: 1}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: :open, blocking: true, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert open_blocker.decision_id == decision.decision_id
+
+      # Moot is the disposition for a question that is void: it retires the
+      # Command — and the block with it — recording why and by whom, with no
+      # answer fabricated.
+      assert {:ok, %{status: :accepted, decision: mooted}} =
+               DecisionStore.moot(
+                 decision.decision_id,
+                 %{
+                   "reason_class" => "ticket_closed",
+                   "reason" => "Ticket #2071 was folded into #2073."
+                 },
+                 [actor: %{kind: :operator, id: "dashboard"}],
+                 pid
+               )
+
+      assert mooted.decision_status == :moot
+      assert mooted.answer == nil
+
+      # The blocking surface reports only Commands a human genuinely still needs.
+      assert {:ok, %{decisions: [], total: 0}} =
+               DecisionStore.retained_query(
+                 %{limit: 25, cursor: nil, lifecycle: :open, blocking: true, search: nil, ticket: nil},
+                 pid
+               )
+
+      assert {:ok, %{counts: %{blocking: 0, open: 0}}} =
+               DecisionStore.retained_counts(pid)
+    end
+
+    test "moot requires a reason class and is write-gated", %{dir: dir} do
+      pid = start_store!(dir)
+      opts = [actor: %{kind: :operator, id: "dashboard"}]
+      assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Void?", "blocking" => false})
+
+      assert {:error, {:moot_invalid, {:reason_class, :missing}}} =
+               DecisionStore.moot(decision.decision_id, %{}, opts, pid)
+
+      :sys.replace_state(pid, &%{&1 | writable?: false, health: {:corrupt, 1, :test}})
+
+      assert {:error, {:store_unavailable, {:corrupt, 1, :test}}} =
+               DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, opts, pid)
+    end
+
+    test "moot is refused for a Command that already has an answer", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Push or hold?",
+                 "blocking" => false,
+                 "options" => [%{"id" => "push", "label" => "Push"}]
+               })
+
+      assert {:ok, %{decision: answered}} =
+               answer(pid, decision.decision_id, %{
+                 "idempotency_key" => "answer",
+                 "expected_version" => 1,
+                 "option_id" => "push"
+               })
+
+      assert answered.decision_status == :decided
+
+      assert {:error, {:conflict, :decided}} =
+               DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, [actor: %{kind: :operator, id: "dashboard"}], pid)
+    end
+  end
+
+  describe "creation-time dedup (#2099)" do
+    test "an exact-identical re-file from the same agent stays a distinct Command", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Should PR #1820 push its existing merge?"
+
+      # An identical re-file is the agent deliberately asking the same question
+      # again (e.g. a distinct tool call), not an accidental duplicate: the
+      # tool-call/retry contract depends on this, so it stays its own row.
+      assert {:ok, %{status: :accepted, decision: first}} =
+               request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-1"})
+
+      assert {:ok, %{status: :accepted, decision: second}} =
+               request(pid, %{"question" => question, "blocking" => false, "source_id" => "ask-2"})
+
+      refute second.decision_id == first.decision_id
+
+      assert decisions = DecisionStore.list(pid)
+      assert length(decisions) == 2
+    end
+
+    test "paraphrases of one question from the same agent collapse within the window", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{status: :accepted, decision: first}} =
+               request(pid, %{
+                 "question" => "Should ticket #2071 be reclassified for fresh implementation, or should the missing prior PR/ref and review feedback be restored first?",
+                 "blocking" => false,
+                 "source_id" => "q1"
+               })
+
+      assert {:ok, %{status: :duplicate, decision: second}} =
+               request(pid, %{
+                 "question" => "Ticket #2071 has no prior PR/ref or review feedback; choose fresh implementation or artifact restoration",
+                 "blocking" => false,
+                 "source_id" => "q2"
+               })
+
+      assert {:ok, %{status: :duplicate, decision: third}} =
+               request(pid, %{
+                 "question" => "Reclassify #2071 for fresh implementation, or restore the missing prior PR/ref and review feedback?",
+                 "blocking" => false,
+                 "source_id" => "q3"
+               })
+
+      # All three collapse to the first Command.
+      assert second.decision_id == first.decision_id
+      assert third.decision_id == first.decision_id
+
+      assert decisions = DecisionStore.list(pid)
+      assert length(decisions) == 1
+    end
+
+    test "a different agent or ticket does not collapse", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Should we drop the index?"
+
+      assert {:ok, %{decision: agent_a}} = request(pid, %{"question" => question, "blocking" => false})
+
+      assert {:ok, %{decision: agent_b}} =
+               request(pid, %{"question" => question, "blocking" => false}, source: %{@source | agent_id: "agent-2"})
+
+      assert {:ok, %{decision: other_ticket}} =
+               request(pid, %{"question" => question, "blocking" => false}, ticket: %{@ticket | identifier: "5150"})
+
+      refute agent_b.decision_id == agent_a.decision_id
+      refute other_ticket.decision_id == agent_a.decision_id
+
+      assert decisions = DecisionStore.list(pid)
+      assert length(decisions) == 3
+    end
+
+    test "an answered Command is not a dedup candidate for a new similar one", %{dir: dir} do
+      pid = start_store!(dir)
+      question = "Which owner should take this?"
+
+      assert {:ok, %{decision: first}} =
+               request(pid, %{"question" => question, "blocking" => false, "source_id" => "first"})
+
+      assert {:ok, %{status: :accepted, decision: decided}} =
+               answer(pid, first.decision_id, %{
+                 "idempotency_key" => "answer",
+                 "expected_version" => 1,
+                 "custom_response" => "Platform"
+               })
+
+      assert decided.decision_status == :decided
+
+      # A decided Command no longer represents an open question, so a fresh
+      # similar Command from the same agent creates its own row.
+      assert {:ok, %{status: :accepted, decision: fresh}} =
+               request(pid, %{
+                 "question" => question,
+                 "blocking" => false,
+                 "source_id" => "fresh",
+                 now: DateTime.add(DateTime.utc_now(), 5, :second)
+               })
+
+      refute fresh.decision_id == first.decision_id
+      assert fresh.decision_status == :open
+    end
+
+    test "attention projections dedup against a recent same-agent Command", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{status: :accepted, decision: first}} =
+               request(pid, %{
+                 "question" => "Should ticket #2071 be reclassified for fresh implementation?",
+                 "blocking" => false,
+                 "source_id" => "agent-request"
+               })
+
+      assert {:ok, %{status: :duplicate, decision: duplicate}} =
+               project_attention(pid, %{
+                 "question" => "Reclassify ticket #2071 for fresh implementation?",
+                 "blocking" => false,
+                 "kind" => "legacy_attention",
+                 "source_id" => "legacy_attention:2071-reclassify"
+               })
+
+      assert duplicate.decision_id == first.decision_id
+
+      assert decisions = DecisionStore.list(pid)
+      assert length(decisions) == 1
+    end
   end
 
   defp decision_index_key(decision) do
@@ -2275,9 +2605,20 @@ defmodule Aiur.DecisionStoreTest do
           dispatch_delay_ms: 0
         )
 
+      # Distinct questions so creation-time dedup (#2099) does not collapse the
+      # three concurrently-open Commands this scenario needs for dispatch
+      # admission; they represent three separate dispatch attempts.
+      requests = [
+        {"saturation-active", "Deploy the active change?"},
+        {"saturation-queued", "Deploy the queued change?"},
+        {"saturation-rejected", "Deploy the rejected change?"}
+      ]
+
       decisions =
-        for source <- ["saturation-active", "saturation-queued", "saturation-rejected"] do
-          assert {:ok, %{decision: decision}} = request(pid, answerable_request(source))
+        for {source, question} <- requests do
+          assert {:ok, %{decision: decision}} =
+                   request(pid, %{answerable_request(source) | "question" => question})
+
           decision
         end
 

@@ -177,16 +177,16 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
         <p :if={@context.logs.entries == [] and not progress_entry?(@context.progress)} class="empty-state compact">No safe Log entries are available.</p>
         <p :if={@context.logs.truncated?} class="ticket-context-status" role="status">Logs are truncated to the newest safe entries.</p>
         <div :if={@context.logs.entries != [] or progress_entry?(@context.progress)} class="ticket-context-logs-wrap">
-          <table class="ticket-context-logs">
-            <thead><tr><th>Activity</th><th>Detail</th><th>When</th></tr></thead>
+          <table id={"#{@heading_id}-logs-table"} class="ticket-context-logs" phx-hook="SortableTable" data-sort-table="ticket-logs">
+            <thead><tr><th data-sort-key="activity">Activity</th><th data-sort-key="detail">Detail</th><th data-sort-key="when">When</th></tr></thead>
             <tbody>
-              <tr :if={progress_entry?(@context.progress)} class="ticket-context-progress-row">
-                <td><strong>Progress update</strong></td>
-                <td>{progress_entry_text(@context.progress)}</td>
-                <td><.timestamp value={progress_entry_at(@context.progress)} /></td>
+              <tr :if={progress_entry?(@context.progress)} class="ticket-context-progress-row" data-sort-id="progress-update">
+                <td data-sort-value="Progress update"><strong>Progress update</strong></td>
+                <td data-sort-value={progress_entry_text(@context.progress)}>{progress_entry_text(@context.progress)}</td>
+                <td data-sort-value={timestamp_sort_value(progress_entry_at(@context.progress))}><.timestamp value={progress_entry_at(@context.progress)} /></td>
               </tr>
-              <tr :for={entry <- @context.logs.entries}>
-                <td>
+              <tr :for={entry <- @context.logs.entries} data-sort-id={log_sort_id(entry)}>
+                <td data-sort-value={entry.label}>
                   <details>
                     <summary><strong>{entry.label}</strong></summary>
                     <dl>
@@ -196,8 +196,8 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
                     </dl>
                   </details>
                 </td>
-                <td>{activity_detail(entry)}</td>
-                <td><.timestamp value={entry.occurred_at || entry.observed_at} /></td>
+                <td data-sort-value={activity_detail(entry)}>{activity_detail(entry)}</td>
+                <td data-sort-value={timestamp_sort_value(entry.occurred_at || entry.observed_at)}><.timestamp value={entry.occurred_at || entry.observed_at} /></td>
               </tr>
             </tbody>
           </table>
@@ -272,6 +272,19 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   defp progress_entry_at(%{occurred_at: %DateTime{} = at}), do: at
   defp progress_entry_at(%{observed_at: %DateTime{} = at}), do: at
   defp progress_entry_at(_progress), do: nil
+
+  defp timestamp_sort_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp timestamp_sort_value(value) when is_binary(value), do: value
+  defp timestamp_sort_value(_value), do: ""
+
+  defp log_sort_id(%{event_id: event_id}) when is_integer(event_id) and event_id > 0,
+    do: "event-#{event_id}"
+
+  defp log_sort_id(entry) do
+    [entry.label, entry.occurred_at, entry.observed_at, activity_detail(entry)]
+    |> :erlang.phash2()
+    |> then(&"legacy-#{&1}")
+  end
 
   defp activity_detail(%{details: %{percent: percent}}), do: "#{percent}% complete"
 

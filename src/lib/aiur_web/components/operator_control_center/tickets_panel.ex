@@ -118,30 +118,30 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
       <div :if={@searchable? and @search_status == :no_matches} class="units-state empty-state tk-no-matches">{@search_message}</div>
 
       <div :if={@rows != []} class="units-table-wrap">
-        <table class="units-table tickets-table">
+        <table id="tickets-table" class="units-table tickets-table" phx-hook="SortableTable" data-sort-table="tickets">
           <caption class="sr-only">Open tickets</caption>
           <thead>
             <tr>
-              <th class="tk-col-id">ID</th>
-              <th class="tk-col-title">Title</th>
-              <th class="tk-col-labels">Labels</th>
+              <th class="tk-col-id" data-sort-key="id" data-sort-type="number">ID</th>
+              <th class="tk-col-title" data-sort-key="title">Title</th>
+              <th class="tk-col-labels" data-sort-key="labels">Labels</th>
               <th class="tk-col-action"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody id="tickets-rows">
             <tr :for={row <- @rows} id={"ticket-#{row.token}"} class="units-row tickets-row" data-ticket-token={row.token}>
-              <td data-label="ID" class="tk-id-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
+              <td data-label="ID" data-sort-value={row.identifier} class="tk-id-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
                 <span class="ut-id-num mono num">{row.identifier}</span>
               </td>
 
-              <td data-label="Title" class="tk-title-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
+              <td data-label="Title" data-sort-value={row.title} class="tk-title-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
                 <div class="ut-title">{row.title || "Title unknown"}</div>
                 <span :if={row.state} class="u-lane is-state">
                   <span class="u-lane-dot" aria-hidden="true"></span>{row.state |> to_string() |> String.replace("-", " ") |> String.upcase()}
                 </span>
               </td>
 
-              <td data-label="Labels" class="tk-labels-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
+              <td data-label="Labels" data-sort-value={Enum.join(row.labels, " ")} class="tk-labels-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
                 <div class="ut-pill-row">
                   <span :for={label <- visible_labels(row.labels)} class="u-pill u-label">{label}</span>
                   <span :if={hidden_label_count(row.labels) > 0} class="u-pill u-label is-more">+{hidden_label_count(row.labels)}</span>

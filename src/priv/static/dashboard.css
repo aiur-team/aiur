@@ -597,6 +597,10 @@ textarea:focus-visible,
   overflow: hidden;
 }
 
+.bo-catalog-progress.is-unknown .bo-catalog-progress-track {
+  background: var(--line-strong);
+}
+
 .bo-catalog-progress-track > i {
   display: block;
   height: 100%;
@@ -612,16 +616,11 @@ textarea:focus-visible,
   color: var(--muted);
 }
 
-/* Partial resolution: the percentage is real but covers only part of the
-   pack, so the bar is striped and the coverage ratio rides alongside it. */
+/* Partial resolution still shows the measured percentage, but uses a solid
+   muted fill so progress styling never falls back to hatching. */
 .bo-catalog-progress-partial .bo-catalog-progress-track > i {
-  background: repeating-linear-gradient(
-    135deg,
-    var(--accent),
-    var(--accent) 3px,
-    transparent 3px,
-    transparent 6px
-  );
+  background: var(--accent);
+  opacity: 0.55;
 }
 
 .bo-catalog-progress-coverage {
@@ -630,23 +629,53 @@ textarea:focus-visible,
   letter-spacing: 0.04em;
   color: var(--muted);
   opacity: 0.85;
-  border: 1px dashed currentColor;
+  border: 1px solid var(--line-strong);
   border-radius: 999px;
   padding: 0 0.35rem;
 }
 
-/* Unresolved: not a blank, not a zero bar. It reads as a word. */
-.bo-catalog-progress-unresolved {
+/* An unresolved catalog count reads as a word rather than a fabricated zero. */
+.bo-catalog-count-unresolved {
   display: inline-block;
   font-size: 0.62rem;
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--warning, #d08a2a);
-  border: 1px dashed currentColor;
+  color: var(--muted);
+  background: var(--line-strong);
   border-radius: 999px;
   padding: 0.05rem 0.45rem;
+}
+
+/* Shared, keyboard-operable table sorting. The hook owns aria-sort and the
+   URL state; CSS supplies the visible direction cue on every table surface. */
+th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+}
+
+th[data-sort-key]::after {
+  content: "↕";
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: var(--muted);
+  font-size: 0.75em;
+}
+
+th[data-sort-key][aria-sort="descending"]::after {
+  content: "↓";
+  color: var(--accent);
+}
+
+th[data-sort-key][aria-sort="ascending"]::after {
+  content: "↑";
+  color: var(--accent);
+}
+
+th[data-sort-key]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .bo-catalog-table tbody tr {
@@ -718,7 +747,7 @@ textarea:focus-visible,
 
 .bo-state-card {
   padding: 1rem;
-  border: 1px dashed var(--line-strong);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: var(--pill-bg);
 }
@@ -1181,7 +1210,7 @@ textarea:focus-visible,
 
 .bo-breakdown-warnings {
   padding: 0.7rem 0.85rem;
-  border: 1px dashed var(--line-strong);
+  border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: var(--pill-bg);
   font-size: 0.72rem;
@@ -1498,7 +1527,6 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-cleared {
   stroke: var(--good);
-  stroke-dasharray: none;
 }
 
 .bo-layout-edge-marker.is-cleared {
@@ -1507,7 +1535,6 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-blocking {
   stroke: var(--blocking);
-  stroke-dasharray: 11 4;
 }
 
 .bo-layout-edge-marker.is-blocking {
@@ -1516,7 +1543,6 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-terminal_unsatisfied {
   stroke: var(--attention);
-  stroke-dasharray: 7 4;
 }
 
 .bo-layout-edge-marker.is-terminal_unsatisfied {
@@ -1525,7 +1551,6 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-unknown {
   stroke: var(--muted);
-  stroke-dasharray: 3 4;
 }
 
 .bo-layout-edge-marker.is-unknown {
@@ -1534,7 +1559,6 @@ textarea:focus-visible,
 
 .bo-layout-edge.is-cyclic {
   stroke: var(--super);
-  stroke-dasharray: 2 3;
 }
 
 .bo-layout-edge-marker.is-cyclic {
@@ -1645,7 +1669,7 @@ textarea:focus-visible,
 
 .bo-graph-legend-line.is-blocking {
   border-top-color: var(--blocking);
-  border-top-style: dashed;
+  border-top-style: solid;
 }
 
 .bo-graph-control {
@@ -1741,8 +1765,8 @@ textarea:focus-visible,
   transition: box-shadow 120ms ease, opacity 120ms ease;
 }
 
-/* Focused/selected/chain cues are never color-only: they add ring weight, a
-   dashed border, opacity, and a text badge alongside any color change. */
+/* Focused/selected/chain cues are never color-only: they add ring weight,
+   opacity, and a text badge alongside any color change. */
 .bo-layout-card.is-graph-active,
 .bo-layout-card.is-graph-selected {
   border-color: var(--accent-line);
@@ -1762,7 +1786,7 @@ textarea:focus-visible,
 
 .bo-layout-card.is-graph-chain {
   border-color: var(--accent-line);
-  border-style: dashed;
+  border-style: solid;
 }
 
 .bo-layout-card.is-graph-dimmed {
@@ -3088,7 +3112,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .decision-revision-entry.original {
-  border-style: dashed;
+  border-style: solid;
 }
 
 .decision-follow-up {
@@ -3578,8 +3602,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ut-pbar.is-unknown {
-  border: 1px dashed var(--muted);
-  background: transparent;
+  background: var(--line-strong);
 }
 
 .ut-latest-meta {
@@ -3737,6 +3760,7 @@ html[data-theme="light"] .toggle-icon .moon {
    embeds in that pane instead of drawing its own bordered box. */
 .rs-block.rs-summary-compact {
   padding: 0.85rem 0 0;
+  margin-bottom: 1.15rem;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -3749,33 +3773,45 @@ html[data-theme="light"] .toggle-icon .moon {
   grid-column: span 2;
 }
 
-.rs-models-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.rs-models-rows,
+.rs-apis-rows {
+  --rs-provider-row-height: 1.2rem;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem 0.8rem;
+  min-width: 0;
 }
 
 /* The APIS pane holds one row per non-model API (GitHub, and ElevenLabs when an
    account is configured), stacked with the same rhythm the models pane uses so
    the two panes read as one strip. */
-.rs-apis-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+/* Provider wrappers disappear into the parent grid so every identity shares
+   one intrinsic-width column and every meter starts at the same x-position.
+   There is intentionally no heading above the identity track: the logos and
+   names explain it, while the rest of each pane belongs to the meters. */
+.rs-provider-row {
+  display: contents;
 }
 
-.rs-api {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
+.rs-provider-row > .rs-head {
+  align-items: center;
+  align-self: start;
+  flex-wrap: nowrap;
+  height: var(--rs-provider-row-height);
   min-width: 0;
 }
 
-/* One model per row, reusing the head + limits vocabulary the provider cards
-   used. Rows are separated by the container's gap, not hairlines, so the pane
-   reads as one continuous block. */
-.rs-model {
+.rs-provider-row > .rs-provider-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem 4.5rem;
+  align-items: start;
+  gap: 0.55rem;
   min-width: 0;
+}
+
+.rs-api > .rs-provider-body {
+  grid-template-columns: minmax(0, 1fr) 2.5rem;
 }
 
 /* The stats cluster must be able to drop below the name and shrink: at the
@@ -3814,6 +3850,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-name {
   font-weight: 700;
   font-size: 0.92rem;
+  line-height: 1.2rem;
+  white-space: nowrap;
 }
 
 .rs-head-stats {
@@ -3861,8 +3899,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .rs-token-ic {
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1.2rem;
+  height: 1.2rem;
   flex: none;
   object-fit: contain;
   margin: 0 0 0 0.15rem;
@@ -3879,7 +3917,100 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-limits {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* A provider meter is a single logo-height line. Models need only the flexible
+   bar and its status text; API windows retain their Core/GraphQL/Credits label
+   because one API can expose more than one independent budget. */
+.rs-provider-row .rs-limit {
+  display: grid;
+  align-items: center;
+  gap: 0.45rem;
+  height: var(--rs-provider-row-height);
+  min-width: 0;
+}
+
+.rs-model .rs-limit {
+  grid-template:
+    "meter meta" var(--rs-provider-row-height) /
+    minmax(0, 1fr) 9rem;
+}
+
+.rs-api .rs-limit {
+  grid-template:
+    "label meter meta" var(--rs-provider-row-height) /
+    3.5rem minmax(0, 1fr) 7rem;
+}
+
+.rs-provider-row .rs-meter {
+  grid-area: meter;
+  width: 100%;
+  height: var(--rs-provider-row-height);
+}
+
+.rs-provider-row .rs-limit-label {
+  grid-area: label;
+}
+
+.rs-provider-row .rs-limit-meta {
+  grid-area: meta;
+  justify-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-provider-row .rs-limit-label,
+.rs-provider-row .rs-limit-meta,
+.rs-provider-row .rs-stat-label,
+.rs-provider-row .rs-stat-val {
+  height: var(--rs-provider-row-height);
+  line-height: var(--rs-provider-row-height);
+}
+
+.rs-provider-row .rs-limit-meta {
+  white-space: nowrap;
+}
+
+.rs-limit-meta-compact {
+  display: none;
+}
+
+.rs-api .rs-limit-meta-wide {
+  display: none;
+}
+
+.rs-api .rs-limit-meta-compact {
+  display: inline;
+}
+
+.rs-provider-body > .rs-head-stats {
+  align-items: center;
+  align-self: start;
+  flex-wrap: nowrap;
+  gap: 0.55rem;
+  height: var(--rs-provider-row-height);
+  margin-left: 0;
+}
+
+.rs-provider-body .rs-stat {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+  height: var(--rs-provider-row-height);
+  white-space: nowrap;
+}
+
+.rs-provider-body > .rs-spend {
+  align-self: start;
+}
+
+/* The due amount remains visible and labelled for assistive technology; the
+   long visual label would take more width than the ElevenLabs meter itself. */
+.rs-elevenlabs .rs-head-stats .rs-stat-label {
+  display: none;
 }
 
 .rs-limit-top {
@@ -3941,8 +4072,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .github-quota-attribution,
-.github-quota-coverage,
-.github-quota-backoff {
+.github-quota-coverage {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -3952,7 +4082,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 /* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
    the same warning colour the meters use as they approach their ceiling. */
-.github-quota-backoff {
+.github-quota-backoff .rs-limit-label,
+.github-quota-backoff .rs-limit-meta {
   color: var(--warning, #d08a2a);
 }
 
@@ -4081,16 +4212,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   white-space: nowrap;
 }
 
-/* A line with no measured value — an unavailable provider, or a secondary-limit
-   backoff — draws a hollow dashed track instead of a bar. A solid empty track
-   would be indistinguishable from a real 0%-consumed reading, which is exactly
-   the confusion the compressed row must not introduce. */
+/* Unknown values remain visibly inert without resembling a measured 0%. */
 .rs-meter-none {
   display: block;
   height: 0.34rem;
-  border: 1px dashed var(--line);
   border-radius: 999px;
-  background: none;
+  background: var(--line-strong);
+}
+
+.rs-meter.is-unknown {
+  background: var(--line-strong);
 }
 
 /* Narrow widths: the identity column stops being a fixed track, so the row
@@ -4153,6 +4284,57 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
   .rs-name {
     font-size: 0.82rem;
+  }
+
+  .rs-models-rows,
+  .rs-apis-rows {
+    gap: 0.55rem 0.55rem;
+  }
+
+  .rs-provider-row > .rs-provider-body {
+    grid-template-columns: minmax(0, 1fr) 3.2rem 2.5rem;
+    gap: 0.35rem;
+  }
+
+  .rs-api > .rs-provider-body {
+    grid-template-columns: minmax(0, 1fr) 2.5rem;
+  }
+
+  .rs-provider-row .rs-limit {
+    gap: 0.3rem;
+  }
+
+  .rs-model .rs-limit {
+    grid-template-columns: minmax(0, 1fr) 6.5rem;
+  }
+
+  .rs-api .rs-limit {
+    grid-template-columns: 3rem minmax(0, 1fr) 5.8rem;
+  }
+
+  .rs-provider-row .rs-limit-label,
+  .rs-provider-row .rs-limit-meta,
+  .rs-provider-row .rs-stat-label {
+    font-size: 0.6rem;
+  }
+
+  .rs-provider-row .rs-stat-val {
+    font-size: 0.72rem;
+  }
+
+  /* At the dashboard's existing phone width the values and decorative token
+     glyphs remain, while their repeated headings move to the aria-label on the
+     containing stat. This keeps every meter on one fixed-height line. */
+  .rs-model .rs-stat-label {
+    display: none;
+  }
+
+  .rs-provider-row .rs-limit-meta-wide {
+    display: none;
+  }
+
+  .rs-provider-row .rs-limit-meta-compact {
+    display: inline;
   }
 }
 
@@ -5028,7 +5210,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .empty-state {
   margin: 1rem 0 0;
   padding: 1.5rem;
-  border: 1px dashed var(--line-strong);
+  border: 1px solid var(--line-strong);
   border-radius: 13px;
   color: var(--muted);
   text-align: center;
@@ -6435,7 +6617,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .conversation-drawer-log {
   margin-top: 0.75rem;
   padding-top: 0.6rem;
-  border-top: 1px dashed var(--line);
+  border-top: 1px solid var(--line);
 }
 
 .conversation-drawer-log-heading {
@@ -7094,7 +7276,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .provider-meter-window.coverage-unsupported,
 .provider-meter-window.coverage-empty_supported {
-  border-style: dashed;
+  border-style: solid;
 }
 
 .provider-meter-window-header {
@@ -7742,7 +7924,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .bo-legend-line.is-blocking {
-  border-top-style: dashed;
+  border-top-style: solid;
   border-top-color: var(--blocking);
 }
 
@@ -7977,7 +8159,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-node.is-ready {
   border-color: var(--accent-line);
-  border-style: dashed;
+  border-style: solid;
 }
 
 /* Green is reserved for work that is finished AND merged. An agent being live
@@ -8007,7 +8189,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 /* Planning (pre-ticket): neutral, not-yet-started. */
 .bo-node.is-planned {
-  border-style: dashed;
+  border-style: solid;
   border-color: var(--line-strong);
   background: var(--surface-2);
   color: var(--fg);
@@ -8075,13 +8257,13 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .bo-legend-swatch.is-planned {
-  border-style: dashed;
+  border-style: solid;
   border-color: var(--line-strong);
   background: var(--surface-2);
 }
 
 .bo-legend-line.is-planned {
-  border-top-style: dashed;
+  border-top-style: solid;
   border-top-color: var(--faint);
 }
 
@@ -8225,19 +8407,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   fill: none;
   stroke: var(--blocking);
   stroke-width: 1.5;
-  stroke-dasharray: 5 4;
   opacity: 0.5;
 }
 
 .bo-edge.is-cleared {
   stroke: var(--good);
-  stroke-dasharray: none;
   opacity: 0.6;
 }
 
 .bo-edge.is-planned {
   stroke: var(--faint);
-  stroke-dasharray: 4 4;
   opacity: 0.5;
 }
 
@@ -8249,7 +8428,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .bo-edge.is-hl {
   stroke: var(--accent);
   stroke-width: 2.2;
-  stroke-dasharray: none;
   opacity: 1;
 }
 
@@ -8257,7 +8435,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .bo-edge.is-hl-far {
   stroke: var(--accent);
   stroke-width: 1.6;
-  stroke-dasharray: none;
   opacity: 0.4;
 }
 
@@ -8698,8 +8875,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .sd-ag-foot.is-progress-unknown .sd-ag-dot {
-  border: 1px solid var(--sd-accent);
-  background: transparent;
+  border: 0;
+  background: rgba(255, 255, 255, 0.32);
 }
 
 /* Pulse timings come from key-face-contract.json via @key_face_css. */
@@ -8725,8 +8902,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
 
 .sd-ag-foot.is-progress-unknown .sd-ag-bar {
-  border: 1px dashed rgba(255, 255, 255, 0.45);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.24);
 }
 
 /* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
@@ -8740,7 +8916,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .sd-key:is(.is-empty, .sd-empty) .sd-key-face {
-  background: repeating-linear-gradient(135deg, #101114 0 7px, #0c0d10 7px 14px);
+  background: #101114;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
@@ -8928,13 +9104,12 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
   box-sizing: border-box;
-  border: 1px solid currentColor;
-  background: transparent;
+  border: 0;
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .sd-strip-cmd.is-progress-unknown .sd-strip-cmd-progress {
-  border: 1px dashed var(--muted);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.22);
 }
 
 .sd-strip-logs {
@@ -9089,21 +9264,15 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: linear-gradient(90deg, #3f8bff, #8fbcff);
 }
 
-/* A stale reading is an attention state, the same as every other stale
-   surface in the dashboard (provider meters, run/usage freshness badges),
-   so it paints with the themed --attention family rather than a literal.
-   The chassis pins --attention-ink to the dark :root value, so the hatch
-   stays legible on the near-black key face in both themes. */
+/* A stale reading remains distinct through colour and opacity, without the
+   hatch treatment used by the old unknown-progress state. */
 .sd-mini.is-stale .sd-mini-r {
   color: var(--attention-ink);
 }
 
 .sd-mini.is-stale .sd-mini-bar > i {
-  background: repeating-linear-gradient(
-    135deg,
-    var(--attention) 0 3px,
-    var(--attention-ink) 3px 6px
-  );
+  background: var(--attention);
+  opacity: 0.6;
 }
 
 .sd-pager {

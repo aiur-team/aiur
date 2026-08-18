@@ -218,6 +218,12 @@ fills unset names. Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
 Keep the global per-user file outside Git trees and never commit either dotenv
 file. `aiur init` also reads `.env` for the GitHub token during setup.
 
+`ERL_CRASH_DUMP` and `ERL_CRASH_DUMP_SECONDS` optionally override the daemon's
+durable BEAM dump path and bounded write time. They apply only to the Aiur
+daemon: agent and build children have both variables removed from their
+environment so they cannot overwrite daemon evidence or inherit its dump
+policy.
+
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.

@@ -1,7 +1,7 @@
 defmodule Aiur.ShutdownTest do
   use Aiur.TestSupport, async: false
 
-  alias Aiur.Shutdown
+  alias Aiur.{AlertLedger, Shutdown}
 
   test "cleanup/1 is a no-op on an empty registry" do
     assert Shutdown.cleanup() == :ok
@@ -56,6 +56,20 @@ defmodule Aiur.ShutdownTest do
              end) =~ "record_workspace_root"
     after
       restore_env("AIUR_WORKSPACE_ROOT_FILE", previous)
+    end
+  end
+
+  test "record_alert_ledger_path/0 writes the canonical ledger when requested" do
+    path = Path.join(System.tmp_dir!(), "aiur-alert-ledger-#{System.unique_integer([:positive])}")
+    previous = System.get_env("AIUR_ALERT_LEDGER_PATH_FILE")
+    System.put_env("AIUR_ALERT_LEDGER_PATH_FILE", path)
+
+    try do
+      assert :ok = Shutdown.record_alert_ledger_path()
+      assert File.read!(path) == AlertLedger.path()
+    after
+      restore_env("AIUR_ALERT_LEDGER_PATH_FILE", previous)
+      File.rm(path)
     end
   end
 end
