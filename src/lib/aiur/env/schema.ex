@@ -198,10 +198,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_SSH_CONFIG", type: :path, group: :dev, purpose: "Custom ssh config path used for git operations."},
     {"AIUR_DEFAULT_DASHBOARD_HOST", type: :string, group: :dev, default: "127.0.0.1", purpose: "Default dashboard bind host when server.host is unset."},
     {"AIUR_BASE_BRANCH", type: :string, group: :dev, purpose: "Authoritative integration branch for PRs and affected-test scoping."},
-    {"AIUR_EXECUTOR_ID",
-     type: :string,
-     group: :dev,
-     purpose: "Pins the executor wake-stream owner when multiple daemons share a repository."},
+    {"AIUR_EXECUTOR_ID", type: :string, group: :dev, purpose: "Pins the executor wake-stream owner when multiple daemons share a repository."},
     {"AIUR_BUILD_ORDER_DIRS", type: :string, validate: false, example: false, group: :dev, purpose: "Colon-separated build-order pack dirs; dev/test override."},
 
     # --- Ambient (read, not operator-configured) ---
@@ -223,19 +220,10 @@ defmodule Aiur.Env.Schema do
     {"GIT_AUTHOR_NAME", type: :string, validate: false, example: false, group: :ambient, purpose: "Author name for commits made by agents."}
   ]
 
+  # NimbleOptions.validate!/2 returns the declaration as a keyword list with
+  # defaults filled in, so `spec` is a keyword list of atom keys, not a map.
   @type type :: :string | :integer | :boolean | :path | :secret
-  @type spec :: %{
-          type: type(),
-          required: boolean(),
-          secret: boolean(),
-          default: term() | nil,
-          group: atom() | nil,
-          validate: boolean(),
-          example: boolean(),
-          emit_default: boolean(),
-          purpose: String.t(),
-          fetch: String.t() | nil
-        }
+  @type spec :: keyword()
 
   @spec_entry_schema [
     type: [type: {:in, [:string, :integer, :boolean, :path, :secret]}, required: true],
