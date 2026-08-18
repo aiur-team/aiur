@@ -440,11 +440,10 @@ agent:
 
 ## upgrade
 
-The `aiur run` upgrade-version notice. Like every outbound integration in Aiur,
-it is optional and opt-out: it caches with a TTL (the registry is contacted at
-most once a day), fails open and silent when unreachable, and never runs under
-`aiurdev`. It is channel-aware: a `nightly` or `next` user is never offered a
-lower `latest`.
+The `aiur run` upgrade-version notice is optional and opt-out: it caches with a
+TTL (the registry is contacted at most once a day), fails open and silent when
+unreachable, never runs under `aiurdev`, and is channel-aware — a `nightly` or
+`next` user is never offered a lower `latest`.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
