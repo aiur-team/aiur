@@ -4,6 +4,7 @@ defmodule Aiur.TestSupport do
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
   alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
+  alias Aiur.GitHub.DispatchAuthorization, as: GitHubDispatchAuthorization
   alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
   alias Aiur.PollCadence
 
@@ -167,6 +168,12 @@ defmodule Aiur.TestSupport do
       interval there and every freshness threshold in the tree derives from it,
       so a case that drives a poll cycle would move the staleness windows for
       every later case.
+    * `Aiur.GitHub.DispatchAuthorization` — it caches the verified applier of
+      the trigger label per `{id, label, updated_at}`. One case's timeline
+      decision would otherwise be reused by a later case that happens to fetch
+      the same issue id with the same labels and `updated_at`, skipping (or
+      wrongly satisfying) the timeline fetch that later case expected to drive
+      (#2082).
   """
   @spec reset_global_state!() :: :ok
   def reset_global_state! do
@@ -175,6 +182,7 @@ defmodule Aiur.TestSupport do
     GitHubResourceStore.reset()
     GitHubAuthPreflight.invalidate(:test_setup)
     PollCadence.forget_effective_interval_ms()
+    GitHubDispatchAuthorization.clear_cache()
     :ok
   end
 
