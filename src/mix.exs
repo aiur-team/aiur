@@ -165,6 +165,7 @@ defmodule Aiur.MixProject do
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
       {:jose, "~> 1.11"},
+      {:nimble_options, "~> 1.0"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},
       {:decimal, "~> 3.0"},
