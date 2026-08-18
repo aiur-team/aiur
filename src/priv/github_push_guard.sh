@@ -6,6 +6,28 @@
 # asks for GitHub HTTPS credentials, the helper returns only the configured
 # tracker token and never falls through to a cached Executor credential.
 real_git=${AIUR_REAL_GIT:-}
+
+# A stale AIUR_REAL_GIT — one captured by an old env built with
+# `command -v git` after this wrapper's directory was already on PATH — points
+# back at this wrapper. Executing it would recurse. Resolve a real git from
+# PATH, excluding this wrapper's own directory, whenever the recorded
+# executable is missing, not executable, or is this wrapper itself.
+if [ -z "$real_git" ] || [ ! -x "$real_git" ] || [ "$real_git" = "$0" ]; then
+  wrapper_bin=$(CDPATH= cd -P "$(dirname "$0")" 2>/dev/null && pwd)
+  real_git=
+  saved_ifs=$IFS
+  IFS=:
+  for dir in $PATH; do
+    [ -n "$dir" ] || dir=.
+    candidate="$dir/git"
+    if [ "$dir" != "$wrapper_bin" ] && [ -x "$candidate" ] && [ "$candidate" != "$0" ]; then
+      real_git=$candidate
+      break
+    fi
+  done
+  IFS=$saved_ifs
+fi
+
 if [ -z "$real_git" ] || [ ! -x "$real_git" ]; then
   printf '%s\n' 'aiur: real git executable is unavailable' >&2
   exit 127
