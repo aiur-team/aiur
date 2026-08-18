@@ -40,6 +40,7 @@ defmodule Aiur.Events.Publisher do
 
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
@@ -75,6 +76,22 @@ defmodule Aiur.Events.Publisher do
       bypasses filter (e.g. system topics like `system.<base_branch>.branch.push`)
     * `:actor` — author login; if matches `bot_account`, drop
     * `:dedup_key` — stable source-specific key; if set, dedup is applied
+    * `:resource` — an `Aiur.GitHub.ResourceStore` key naming the GitHub
+      resource this event *is*, as `{type, owner, repo, id}`. Where
+      `:dedup_key` suppresses a replay within this daemon's lifetime, this
+      suppresses one across restarts and across pipes: a comment the webhook
+      already published is not published again by the reconciliation sweep that
+      re-reads it, because both name the same resource. Absent, or with no
+      store running, publishing is exactly as it was before.
+    * `:resource_version` — the resource's own mutation marker, normally the
+      comment's `updated_at`. A GitHub comment is mutable and its id is stable
+      across an edit, so identity alone cannot distinguish "already handled"
+      from "changed since I handled it". Without this an edited comment would
+      stay suppressed for the store's full retention window, and editing a
+      comment to correct an agent is a normal workflow. Absent, suppression
+      falls back to identity alone.
+    * `:resource_source` — which pipe produced this event (`:webhook` or
+      `:poll`), recorded alongside the resource. Defaults to `:poll`.
     * `:bypass_contamination` — when `true`, skip the tracked-issue
       filter for this publish. Used for external reactivation triggers
       (firehose `issue.commented` / `pr.review_comment`): a `:deactivated`
@@ -91,8 +108,15 @@ defmodule Aiur.Events.Publisher do
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
-    actor = Keyword.get(opts, :actor)
+    case rejection(topic, payload, opts) do
+      nil -> do_publish(topic, payload, opts)
+      rejection -> rejection
+    end
+  end
 
+  # The gates, in the order they are cheapest to answer and most decisive.
+  # `nil` means nothing rejected the event and it should be published.
+  defp rejection(topic, payload, opts) do
     cond do
       durable_decision_topic?(topic) ->
         {:error, :decision_requires_durable_publish}
@@ -100,26 +124,56 @@ defmodule Aiur.Events.Publisher do
       executor_topic_from_github?(topic, payload, opts) ->
         {:error, :executor_namespace_rejects_github_source}
 
-      filtered_bot_self_loop?(topic, actor) ->
+      filtered_bot_self_loop?(topic, Keyword.get(opts, :actor)) ->
         :filtered
 
       not Keyword.get(opts, :bypass_contamination, false) and
           not tracked?(Keyword.get(opts, :issue_number)) ->
         :filtered
 
+      # Durable identity gate. The in-memory window below is the fast path but
+      # it is ETS owned by this process: it empties on every daemon restart,
+      # which is exactly when a duplicate is most likely, because a webhook
+      # delivered the comment before the restart and the first sweep after it
+      # reads the same comment back. Consulted first so a hit never pollutes
+      # the volatile window with an entry that changes nothing.
+      resource_processed?(opts) ->
+        :deduped
+
       deduped?(Keyword.get(opts, :dedup_key)) ->
         :deduped
 
       true ->
-        id = IdGenerator.next_id()
-
-        event = event_with_observation(topic, payload, id, opts)
-
-        subscribers = Exchange.publish(topic, event)
-        record_emit_marker(topic, event, opts)
-        DebugLog.broadcast(:publish, topic, id: id, body: payload)
-        {:ok, id, subscribers}
+        nil
     end
+  end
+
+  defp do_publish(topic, payload, opts) do
+    id = IdGenerator.next_id()
+    event = event_with_observation(topic, payload, id, opts)
+
+    subscribers = Exchange.publish(topic, event)
+    record_emit_marker(topic, event, opts)
+    # Recorded *after* the publish, never before. A crash in between then
+    # leaves the resource unmarked, so the next reconciliation sweep
+    # republishes it — a duplicate the window above still absorbs. Marking
+    # first would make the same crash suppress the event permanently,
+    # because this store is the sweep's own source of suppression.
+    mark_resource_processed(opts)
+    DebugLog.broadcast(:publish, topic, id: id, body: payload)
+    {:ok, id, subscribers}
+  end
+
+  defp resource_processed?(opts) do
+    ResourceStore.processed?(Keyword.get(opts, :resource), Keyword.get(opts, :resource_version))
+  end
+
+  defp mark_resource_processed(opts) do
+    ResourceStore.mark_processed(
+      Keyword.get(opts, :resource),
+      Keyword.get(opts, :resource_source, :poll),
+      Keyword.get(opts, :resource_version)
+    )
   end
 
   @doc """

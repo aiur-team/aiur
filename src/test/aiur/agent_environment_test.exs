@@ -474,6 +474,13 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_GITHUB_LABEL_PREFIX", ~c"agent"} =
                List.keyfind(env, ~c"AIUR_GITHUB_LABEL_PREFIX", 0)
 
+      # #2073 U6: the `gh` guard files a cached response under a resource
+      # identity, so it needs the repository the agent was dispatched against.
+      # A tracker with no GitHub slug unsets it, which leaves the guard unable
+      # to name a resource and therefore caching nothing — the right outcome.
+      assert {~c"AIUR_GITHUB_REPO", slug} = List.keyfind(env, ~c"AIUR_GITHUB_REPO", 0)
+      assert slug == false or (is_list(slug) and List.to_string(slug) =~ ~r{\A[\w.-]+/[\w.-]+\z})
+
       custom_env =
         AgentEnvironment.workspace_env("/work/aiur/440",
           base_branch: "integration",
@@ -584,8 +591,13 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
-      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT=\"$(command -v git"
+      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT='"
+      refute prefix =~ "command -v git"
       assert prefix =~ "AIUR_GITHUB_LABEL_PREFIX='agent'"
+      # A remote worker keeps its own budget root, and therefore its own state
+      # cache shared with the other agents on that host — the same sharing
+      # boundary the budget broker already draws.
+      assert prefix =~ ~r{export AIUR_GITHUB_REPO='[\w.-]+/[\w.-]+'\n|unset AIUR_GITHUB_REPO\n}
       assert prefix =~ "AIUR_GITHUB_BUDGET_CONSUMER='workspace:/work/aiur/440'"
       assert prefix =~ "AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'"
       assert prefix =~ "AIUR_GITHUB_BUDGET_BROKER='/work/aiur/440/.aiur-runtime/bin/aiur-github-budget'"

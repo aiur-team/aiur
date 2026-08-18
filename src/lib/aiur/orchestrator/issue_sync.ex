@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
+  alias Aiur.PollCadence
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
@@ -1114,6 +1115,25 @@ defmodule Aiur.Orchestrator.IssueSync do
         emit_fleet_capacity_starvation(state, context, since_ms)
       end
     end
+  end
+
+  # Deliberately cadence-derived, and deliberately the *effective* cadence
+  # rather than the configured one. Fleet starvation is only observable on a
+  # poll tick, and starvation means no agent is running — which is exactly when
+  # idle backoff widens the tick. A de-bounce shorter than one observation cycle
+  # is no de-bounce at all: it alerts on the first observation. Reading
+  # `poll_interval_ms` (the base) made that true the moment `idle_widen_factor`
+  # went above 1.0. The cost is an alert that arrives one widened cycle after
+  # starvation begins; the alternative is an alert that fires before the
+  # dispatcher has had a chance to clear it.
+  #
+  # Routed through `PollCadence` rather than used raw so the de-bounce inherits
+  # the same bound on a remote `X-Poll-Interval` as every other cadence-derived
+  # threshold: a server that asks Aiur to poll rarely must not also be able to
+  # silence its starvation alert.
+  defp fleet_capacity_starvation_alert_after_ms(%State{effective_poll_interval_ms: effective_ms})
+       when is_integer(effective_ms) and effective_ms > 0 do
+    PollCadence.effective_interval_ms(effective_interval_ms: effective_ms)
   end
 
   defp fleet_capacity_starvation_alert_after_ms(%State{poll_interval_ms: poll_interval_ms})

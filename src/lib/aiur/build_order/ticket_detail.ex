@@ -23,7 +23,12 @@ defmodule Aiur.BuildOrder.TicketDetail do
   @spec fetch(TrackerIdentity.t(), keyword()) :: result()
   def fetch(identity, opts \\ []) do
     with {:ok, identity, configured_repository} <- fetchable_identity(identity, opts),
-         {:ok, raw_issue} <- Repository.fetch_issue(identity, configured_repository, opts),
+         # The read cost — served, revalidated, or paid — is deliberately not
+         # carried into the snapshot. A snapshot describes the ticket, not how
+         # cheaply it arrived, and a test that wants to prove a refresh spent
+         # nothing counts requests at the transport rather than trusting a label
+         # the code under test wrote about itself.
+         {:ok, raw_issue, _read_cost} <- Repository.fetch_issue(identity, configured_repository, opts),
          {:ok, relationships} <- Repository.fetch_linked_pull_requests(identity, configured_repository, opts),
          {:ok, snapshot} <- snapshot(identity, raw_issue, Keyword.put(opts, :relationships, relationships)) do
       {:ok, snapshot}

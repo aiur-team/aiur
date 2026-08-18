@@ -45,6 +45,18 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
   end
 
+  # The whole remote install travels as ONE argv string, and Linux caps a single
+  # argument at 128 KiB (`MAX_ARG_STRLEN`) however large `ARG_MAX` is. The guards
+  # grew past that ceiling once, and the failure mode is `Argument list too long`
+  # before a single line runs — no agent, no useful error. Half the ceiling is the
+  # bar so the next guard that grows is caught here rather than on a remote host.
+  test "the remote install script fits in one argument", context do
+    script = AgentGitHubGuard.remote_install_script(context.workspace)
+
+    assert byte_size(script) < 65_536,
+           "remote install script is #{byte_size(script)} bytes; the single-argument ceiling is 131072"
+  end
+
   test "local installation replaces a command-target symlink", context do
     assert :ok = AgentBuildGuard.install(context.workspace)
     target = Path.join(AgentBuildGuard.bin_dir(context.workspace), "mix")
