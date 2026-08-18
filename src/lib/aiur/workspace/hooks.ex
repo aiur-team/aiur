@@ -107,17 +107,26 @@ defmodule Aiur.Workspace.Hooks do
     # compile silently produce nothing and the agent pays the cost
     # of the cold fetch on its first turn. Reuses the same scrub
     # that AgentEnvironment applies for the agent's own shell.
-    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
-
     with {:ok, build_gate_env} <- local_build_gate_env(build_guard_root) do
       shell = if build_gate_env == [], do: "sh", else: "bash"
 
+      # local_build_gate_env/1 supplies the only BASH_ENV this boundary may
+      # retain; disabled admission leaves the operator value explicitly unset.
+      scrubbed_command =
+        Aiur.AgentEnvironment.scrub_shell_command(command,
+          trusted_bash_env: build_gate_env != []
+        )
+
+      startup_env =
+        Aiur.AgentEnvironment.system_shell_startup_env()
+        |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" and build_gate_env != [] end)
+
       task =
         Task.async(fn ->
-          System.cmd(shell, ["-lc", scrubbed_command],
+          System.cmd(shell, ["-c", scrubbed_command],
             cd: workspace,
             stderr_to_stdout: true,
-            env: build_gate_env ++ hook_env(issue_context)
+            env: startup_env ++ build_gate_env ++ hook_env(issue_context)
           )
         end)
 

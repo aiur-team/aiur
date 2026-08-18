@@ -112,7 +112,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
     end
   end
 
-  defp run_sentence(:stale, _view), do: "Current run, stale last known-good values."
+  defp run_sentence(:stale, _view), do: "Current run, showing the values we last read."
   defp run_sentence(_state, _view), do: "Current run."
 
   defp counts_sentence(counts) do
@@ -292,7 +292,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   defp eta_label(_status, %{reason: :unhealthy_weight_facts}, progress) do
     case Map.get(progress, :fact_status) do
       :settling -> "ETA pending — progress inputs are still settling"
-      :degraded -> "ETA unavailable — progress refresh degraded"
+      :degraded -> "ETA unavailable — progress is not updating"
       _status -> "ETA unavailable — progress inputs incomplete"
     end
   end
@@ -300,9 +300,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   defp eta_label(_status, eta, _progress), do: eta_reason_label(Map.get(eta, :reason))
 
   defp eta_reason_label(:invalid_run_window), do: "Unavailable — no valid run window"
-  defp eta_reason_label(:unhealthy_membership), do: "Unavailable — membership facts unhealthy"
-  defp eta_reason_label(:membership_not_fresh), do: "Unavailable — membership not fresh"
-  defp eta_reason_label(:truncated_membership), do: "Unavailable — membership truncated"
+  defp eta_reason_label(:unhealthy_membership), do: "Unavailable — the unit list could not be read"
+  defp eta_reason_label(:membership_not_fresh), do: "Unavailable — the unit list is out of date"
+  defp eta_reason_label(:truncated_membership), do: "Unavailable — not all units are counted"
   defp eta_reason_label(:zero_eligible_weight), do: "Unavailable — no eligible weight"
   defp eta_reason_label(:insufficient_successful_completions), do: "Unavailable — fewer than two completions"
   defp eta_reason_label(:insufficient_elapsed_time), do: "Unavailable — under ten minutes elapsed"
@@ -334,10 +334,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
 
   defp fact_status_text(status), do: status |> fact_status_label() |> String.downcase()
   defp fact_status_label(:settling), do: "Still settling"
-  defp fact_status_label(:degraded), do: "Refresh degraded"
+  defp fact_status_label(:degraded), do: "Not updating"
   defp fact_status_label(_status), do: "Current"
   defp fact_status_detail(:settling), do: "progress inputs are still settling"
-  defp fact_status_detail(:degraded), do: "progress refresh is degraded"
+  defp fact_status_detail(:degraded), do: "progress is not updating"
   defp fact_status_detail(_status), do: "progress inputs are current"
   defp pending_progress_label(:settling), do: "Progress not computed yet"
   defp pending_progress_label(:degraded), do: "Progress unavailable"

@@ -2234,6 +2234,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             repl_pane_id: nil,
             repl_os_pid: nil,
             headless_os_pid: nil,
+            headless_process_group_id: nil,
             agent_input_tokens: 0,
             agent_output_tokens: 0,
             agent_total_tokens: 0,

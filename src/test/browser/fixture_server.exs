@@ -1235,7 +1235,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     # Match what UnitsPresenter actually derives for a catalog with no rows, so
     # the harness exercises the real zero-unit status rather than `:ready` with
     # an empty list — a shape production never produces.
-    %{catalog([]) | status: :empty, message: "No units have been observed in this run."}
+    %{catalog([]) | status: :empty, message: "No units in this run yet."}
   end
 
   defp mount_catalog(_params), do: catalog(rows())
