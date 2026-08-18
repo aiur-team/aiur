@@ -572,7 +572,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   describe "poll recovery" do
-    test "a stranded in-progress ticket is dispatched and reported with tracker truth" do
+    test "a stranded in-progress ticket is released to todo and dispatched with tracker truth" do
       previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
       on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
@@ -601,10 +601,15 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       send(pid, :run_poll_cycle)
       state = :sys.get_state(pid, 15_000)
 
+      # #2076: a restart orphans an in-progress claim (no live runtime owns it),
+      # so the first successful poll's startup reconciliation releases it to
+      # todo before dispatch. The entry then reports the tracker's post-release
+      # truth ("todo"), never the stale claim it was recovered from.
       assert MapSet.member?(state.claimed, issue.id)
-      assert state.last_polled_issues[issue.id].state == "in-progress"
+      assert state.last_polled_issues[issue.id].state == "todo"
+      assert_receive {:memory_tracker_state_update, "L11-ORPHAN", "todo"}, 2000
 
-      assert %{running: [%{identifier: "L11-ORPHAN", state: "in-progress"}]} =
+      assert %{running: [%{identifier: "L11-ORPHAN", state: "todo"}]} =
                Orchestrator.snapshot(name, 15_000)
     end
   end
