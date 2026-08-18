@@ -1,4 +1,4 @@
-defmodule Mix.Tasks.Aiur.EnvExample do
+defmodule Mix.Tasks.Aiur.Env.Example do
   use Mix.Task
 
   @shortdoc "Regenerate .env.example from Aiur.Env.Schema"
