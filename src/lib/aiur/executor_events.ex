@@ -439,9 +439,13 @@ defmodule Aiur.ExecutorEvents do
       )
   end
 
+  # Deliberately NOT `StatePaths.ensure/0`: this runs on every publish, and the
+  # one-time legacy import behind it costs a `mkdir_p` plus a handful of stats
+  # per append — enough to push a Command past an operator-visible latency
+  # budget under load. `DecisionLog.prepare/2` below already creates the
+  # directory, and the import runs once from the supervised children's `init/1`
+  # (`Claims`, `ExecutorWakeInbox`, `ExecutorListener`).
   defp append_event(event) do
-    StatePaths.ensure()
-
     with :ok <- DecisionLog.prepare(StatePaths.dir(), journal_path()) do
       DecisionLog.append(journal_path(), event)
     end
