@@ -137,18 +137,28 @@ defmodule Aiur.Events.GithubWebhook do
   # resolved id is stamped onto the delivery's comment, where the normalizer
   # reads it and keys on the thread.
   #
+  # Gated on the tracked-repo filter first: a resolution costs a GraphQL point,
+  # and a delivery for a repository the fleet does not track is going to be
+  # dropped anyway, so paying for the lookup would buy nothing.
+  #
   # Best-effort: a delivery with no `node_id`, or a lookup that fails, is left
   # untouched and the normalizer falls back to per-comment keying — today's
   # behaviour. A duplicate wake is recoverable; a dropped delivery is not.
   defp maybe_resolve_review_thread("pull_request_review_comment", payload, opts) when is_map(payload) do
-    case get_in(payload, ["comment", "node_id"]) do
-      node_id when is_binary(node_id) and node_id != "" ->
-        case ThreadResolver.resolve(node_id, opts) do
-          {:ok, thread_id} -> put_in(payload, ["comment", "review_thread_id"], thread_id)
-          :not_resolvable -> payload
+    case Normalizer.tracked_repo(payload, opts) do
+      {:ok, _repo} ->
+        case get_in(payload, ["comment", "node_id"]) do
+          node_id when is_binary(node_id) and node_id != "" ->
+            case ThreadResolver.resolve(node_id, opts) do
+              {:ok, thread_id} -> put_in(payload, ["comment", "review_thread_id"], thread_id)
+              :not_resolvable -> payload
+            end
+
+          _other ->
+            payload
         end
 
-      _other ->
+      _untracked_or_malformed ->
         payload
     end
   end
