@@ -457,11 +457,18 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
-  test "reset-budget restores a latched agent:error ticket to a dispatchable state" do
+  test "reset-budget restores a latched agent:error ticket to todo, never rework" do
     # #1453 review P2c: a latched ticket is durably moved to `agent:error`
     # (not an active state), so clearing the budget alone left it
-    # undispatchable. `reset_dispatch_budget_call` must also restore it to
-    # `rework` so the reset actually returns the ticket to the board.
+    # undispatchable. `reset_dispatch_budget_call` must also restore it to a
+    # dispatchable state so the reset actually returns the ticket to the board.
+    #
+    # #2075 criterion 3: the restore writes `todo`, never `rework` — a lifetime
+    # dispatch latch is an exhaustion of retry budget, not a reviewer's
+    # rejection, so `rework` would assert a verdict that never happened and
+    # strand a no-PR ticket in a state nothing selects. The precondition this
+    # writer requires is "budget restore, no review verdict", which `todo`
+    # names.
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "error"}
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
 
@@ -473,7 +480,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
              PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
-    assert %Issue{state: "rework"} = reset_state.last_polled_issues[@issue_id]
+    assert %Issue{state: "todo"} = reset_state.last_polled_issues[@issue_id]
     assert DispatchPolicy.should_dispatch_issue?(reset_state.last_polled_issues[@issue_id], reset_state)
   end
 
