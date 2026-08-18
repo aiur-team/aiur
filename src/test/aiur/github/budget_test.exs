@@ -408,6 +408,35 @@ defmodule Aiur.GitHub.BudgetTest do
     assert Budget.usage(state_dir: root) == %{actors: []}
   end
 
+  test "a stale policy row does not constrain the reconcile but stays in the usage report", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 4,
+      max_inflight_per_endpoint: 4,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/fresh",
+      agent_core_limit_per_hour: 3,
+      agent_graphql_limit_per_hour: 5
+    ]
+
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+    assert {:ok, _} = Budget.acquire(request, opts)
+
+    # A consumer that went idle ten minutes ago keeps a policy row (the usage
+    # report needs its label and limits for the hour), but its old max_inflight
+    # of 1 must not constrain the fleet in the meantime.
+    insert_stale_policy(Budget.database_path(state_dir: root), Budget.token_key("shared-token"))
+
+    assert {:ok, l1} = Budget.acquire(request, opts)
+    assert {:ok, l2} = Budget.acquire(request, opts)
+    :ok = Budget.release(l1, opts)
+    :ok = Budget.release(l2, opts)
+
+    usage = Budget.usage(state_dir: root)
+    assert Enum.any?(usage.actors, &(&1.consumer_label == "workspace:/stale"))
+  end
+
   defp request(token, path), do: %{method: :get, url: "https://api.github.com#{path}", token: token}
 
   defp secondary_response(seconds) do
@@ -438,6 +467,26 @@ defmodule Aiur.GitHub.BudgetTest do
     on_exit(fn -> close_port(port) end)
     assert_receive {^port, {:data, "locked\n"}}, 2_000
     port
+  end
+
+  # Direct injection of a policy row whose `observed_at_ms` is ten minutes in
+  # the past, so the concurrency reconcile must ignore it while the usage report
+  # still retains it (the report's window is an hour, the reconcile's is two
+  # minutes).
+  defp insert_stale_policy(db, token_key) do
+    stale_at = System.system_time(:millisecond) - 10 * 60 * 1_000
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute(\"INSERT INTO policies(token_key, consumer_key, consumer_label, max_inflight, " <>
+        "max_inflight_per_endpoint, requests_per_minute, stagger_ms, core_limit_per_hour, " <>
+        "graphql_limit_per_hour, observed_at_ms) VALUES (?,?,?,1,1,1,0,3,5,?)\", " <>
+        "(sys.argv[2], 'stale', 'workspace:/stale', int(sys.argv[3]))); c.commit()"
+
+    {_output, 0} =
+      System.cmd("python3", ["-c", script, db, token_key, Integer.to_string(stale_at)], stderr_to_stdout: true)
+
+    :ok
   end
 
   defp close_port(port) do

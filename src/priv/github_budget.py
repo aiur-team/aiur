@@ -23,6 +23,11 @@ import time
 # for an actor whose last request was minutes ago.
 ADMISSIONS_RETENTION_MS = 3600000
 HOURLY_WINDOW_MS = 3600000
+# The concurrency/rate reconcile deliberately reads only recently-observed
+# policy rows (the pre-#2181 2-minute window): a consumer that went idle must
+# not keep its old max_inflight constraining the fleet for the whole hour that
+# the usage report now retains it for.
+POLICY_RECONCILE_WINDOW_MS = 120000
 
 
 def now_ms():
@@ -269,8 +274,9 @@ def acquire(args):
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
             "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
-            "MIN(requests_per_minute), MAX(stagger_ms) FROM policies WHERE token_key = ?",
-            (args.token_key,),
+            "MIN(requests_per_minute), MAX(stagger_ms) FROM policies WHERE token_key = ? "
+            "AND observed_at_ms > ?",
+            (args.token_key, now - POLICY_RECONCILE_WINDOW_MS),
         ).fetchone()
 
         if hold_until > now:
