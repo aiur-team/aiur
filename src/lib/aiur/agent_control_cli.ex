@@ -1767,32 +1767,30 @@ defmodule Aiur.AgentControlCLI do
   # metadata is advisory: a record that cannot be parsed still leaves the
   # `active`/`queued` summary intact.
   defp print_build_gate_holders(holders) do
-    Enum.each(holders, fn holder ->
-      command = Map.get(holder, :command)
+    Enum.each(holders, &print_build_gate_holder/1)
+  end
 
-      case {Map.get(holder, :pid), Map.get(holder, :held_for_seconds)} do
-        {pid, held} when is_binary(command) and is_integer(pid) ->
-          case Map.get(holder, :kind) do
-            :slot ->
-              IO.puts(
-                "BUILD GATE HOLDER slot=#{Map.get(holder, :slot)} pid=#{pid} " <>
-                  "command=#{inspect(command)} held=#{format_gate_hold(held)}"
-              )
+  defp print_build_gate_holder(%{kind: :slot} = holder) do
+    identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
+    print_build_gate_line("HOLDER", identifiers, holder, "held")
+  end
 
-            :queue ->
-              IO.puts(
-                "BUILD GATE QUEUED pid=#{pid} command=#{inspect(command)} " <>
-                  "waiting=#{format_gate_hold(held)}"
-              )
+  defp print_build_gate_holder(%{kind: :queue} = holder) do
+    print_build_gate_line("QUEUED", ["pid=#{Map.get(holder, :pid)}"], holder, "waiting")
+  end
 
-            _ ->
-              :ok
-          end
+  defp print_build_gate_holder(_holder), do: :ok
 
-        _ ->
-          :ok
-      end
-    end)
+  defp print_build_gate_line(kind, identifiers, holder, duration_label) do
+    with pid when is_integer(pid) <- Map.get(holder, :pid),
+         command when is_binary(command) <- Map.get(holder, :command) do
+      IO.puts(
+        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
+          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}"
+      )
+    else
+      _ -> :ok
+    end
   end
 
   defp format_gate_hold(nil), do: "unknown"

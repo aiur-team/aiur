@@ -144,20 +144,24 @@ defmodule Aiur.BuildGate do
       if linux_lock_strategy?(opts) do
         linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
       else
-        {active, active_holders} = if(capacity > 0, do: active_count(gate_dir, capacity), else: {0, []})
-        {queued, queue_holders} = queue_count(gate_dir)
-
-        %{
-          enabled?: true,
-          capacity: capacity,
-          active: active,
-          queued: queued,
-          holders: active_holders ++ queue_holders
-        }
+        pid_status(gate_dir, capacity)
       end
     else
       %{enabled?: false, capacity: 0, active: 0, queued: 0, holders: []}
     end
+  end
+
+  defp pid_status(gate_dir, capacity) do
+    {active, active_holders} = if(capacity > 0, do: active_count(gate_dir, capacity), else: {0, []})
+    {queued, queue_holders} = queue_count(gate_dir)
+
+    %{
+      enabled?: true,
+      capacity: capacity,
+      active: active,
+      queued: queued,
+      holders: active_holders ++ queue_holders
+    }
   end
 
   defp linux_status(gate_dir, lock_dir, capacity) do
@@ -471,19 +475,21 @@ defmodule Aiur.BuildGate do
     case File.ls(queue_dir) do
       {:ok, entries} ->
         entries
-        |> Enum.reduce({0, []}, fn entry, {queued, holders} ->
-          path = Path.join(queue_dir, entry)
-
-          if owner_alive?(owner_pid(path)) do
-            {queued + 1, maybe_holder(holders, path, :queue, nil)}
-          else
-            {queued, holders}
-          end
-        end)
+        |> Enum.reduce({0, []}, &count_queue_entry_pid(&1, &2, queue_dir))
         |> then(fn {queued, holders} -> {queued, Enum.reverse(holders)} end)
 
       _ ->
         {0, []}
+    end
+  end
+
+  defp count_queue_entry_pid(entry, {queued, holders}, queue_dir) do
+    path = Path.join(queue_dir, entry)
+
+    if owner_alive?(owner_pid(path)) do
+      {queued + 1, maybe_holder(holders, path, :queue, nil)}
+    else
+      {queued, holders}
     end
   end
 
