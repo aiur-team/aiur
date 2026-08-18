@@ -50,7 +50,15 @@ defmodule Aiur.SSH do
 
   @spec remote_shell_command(String.t()) :: String.t()
   def remote_shell_command(command) when is_binary(command) do
-    "bash -lc " <> Aiur.Shell.escape(command)
+    "test \"${BASH_ENV-}\" = /dev/null && " <>
+      "test \"${ENV-}\" = /dev/null && " <>
+      "test \"${HOME-}\" = /dev/null && " <>
+      "test \"${ZDOTDIR-}\" = /dev/null || " <>
+      "{ printf '%s\\n' 'Aiur remote worker must accept the BASH_ENV, ENV, HOME, and ZDOTDIR SSH environment variables' >&2; exit 78; }; " <>
+      "AIUR_REMOTE_HOME=$(getent passwd \"$(id -u)\" | cut -d: -f6); " <>
+      "test -n \"$AIUR_REMOTE_HOME\" || exit 78; " <>
+      "env -u BASH_ENV -u ENV ZDOTDIR=/dev/null HOME=\"$AIUR_REMOTE_HOME\" bash -c " <>
+      Aiur.Shell.escape(command)
   end
 
   defp ssh_executable do
@@ -113,8 +121,16 @@ defmodule Aiur.SSH do
     []
     |> maybe_put_config()
     |> Kernel.++(["-T"])
+    |> Kernel.++(shell_environment_args())
     |> maybe_put_port(port)
     |> Kernel.++([destination])
+  end
+
+  defp shell_environment_args do
+    [
+      "-o",
+      "SetEnv=BASH_ENV=/dev/null ENV=/dev/null HOME=/dev/null ZDOTDIR=/dev/null"
+    ]
   end
 
   defp maybe_put_line_option(port_opts, nil), do: port_opts

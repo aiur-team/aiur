@@ -50,7 +50,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       patch={!@navigate && DecisionPath.inbox(:all)}
       navigate={@navigate && DecisionPath.inbox(:all)}
       class={["decisions-banner", @blocking > 0 && "blocking"]}
-      aria-label={"#{@open} retained Commands awaiting the operator, #{@blocking} blocking"}
+      aria-label={"#{@open} Commands awaiting you, #{@blocking} blocking"}
     >
       <span class="decision-banner-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -79,13 +79,13 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
       <span>
-        <b>Retained Command counts unavailable.</b>
+        <b>Command counts unavailable.</b>
         This page cannot show how many units are awaiting commands. Open Commands to work the queue directly.
       </span>
     </div>
     <div :if={@health == :partial and is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
-      <span><b>Partial retained Command counts.</b> Counts cover the validated audit prefix only.</span>
+      <span><b>Partial Command counts.</b> Counts are at least this high.</span>
     </div>
     """
   end
@@ -143,9 +143,9 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   # A published-but-aged fleet view is never "unavailable": it is last-known-good
   # data with an age. Only a producer with nothing published reaches `error/1`.
-  defp error_title("orchestrator_unavailable"), do: "Fleet snapshot unavailable"
-  defp error_title("snapshot_unavailable"), do: "Fleet view could not be read"
-  defp error_title(_code), do: "Fleet snapshot unavailable"
+  defp error_title("orchestrator_unavailable"), do: "No fleet data"
+  defp error_title("snapshot_unavailable"), do: "Could not read the fleet"
+  defp error_title(_code), do: "No fleet data"
 
   # Every detail line must be derivable from the code it is given. Naming a
   # subsystem that was never observed is the defect this component exists to
@@ -153,17 +153,17 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   # as the "current-run membership is healthy" that once explained a missing
   # snapshot.
   defp error_detail("orchestrator_unavailable", _message),
-    do: "The Orchestrator is not reachable and no last-known-good fleet view is retained."
+    do: "The Orchestrator is not reachable and there is no earlier fleet data to show."
 
   # `snapshot_unavailable` is raised by the read-model composition itself, not by
   # the Orchestrator, so it says nothing about whether the Orchestrator is alive.
   defp error_detail("snapshot_unavailable", _message),
     do:
-      "The fleet read model could not be composed, so no fleet view is available. " <>
+      "The fleet view could not be built, so there is nothing to show. " <>
         "This does not report on the Orchestrator itself, which may still be running."
 
   defp error_detail(_code, _message),
-    do: "No fleet view is available. The reported fault is shown below."
+    do: "No fleet data. The reported fault is shown below."
 
   # A compact, logo-adjacent staleness label. The full explanation lives in the
   # hover popover, so the header stays one line while the staleness stays named.
@@ -178,13 +178,13 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       title={stale_label_title(@freshness)}
       aria-label={stale_label_title(@freshness)}
     >
-      Stale fleet
+      Not live
     </span>
     """
   end
 
   defp stale_label_title(freshness) do
-    ["Showing the last-known-good fleet view", stale_age_clause(freshness[:age_seconds]), stale_reason(freshness[:reason])]
+    ["Showing the fleet as we last saw it", stale_age_clause(freshness[:age_seconds]), stale_reason(freshness[:reason])]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(". ")
     |> String.trim_trailing(".")

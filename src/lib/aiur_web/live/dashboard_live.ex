@@ -646,19 +646,6 @@ defmodule AiurWeb.DashboardLive do
 
   defp global_paused?(_payload), do: false
 
-  defp global_pause_provenance(payload) do
-    case get_in(payload, [:fleet, :global_pause]) do
-      %{source: source, paused_at: paused_at} when is_binary(source) and is_binary(paused_at) ->
-        "Set by #{source} at #{paused_at}. "
-
-      %{source: source} when is_binary(source) ->
-        "Set by #{source}. "
-
-      _ ->
-        ""
-    end
-  end
-
   defp pause_agent_action(socket, modal) do
     key = agent_log_key(modal)
 
@@ -812,10 +799,6 @@ defmodule AiurWeb.DashboardLive do
           <span aria-hidden="true">⚠</span>
           <span>{@global_pause_error}</span>
         </div>
-        <div :if={global_paused?(@payload)} class="readonly-banner global-pause-banner" role="alert" aria-live="polite">
-          <span aria-hidden="true">⏸</span>
-          <span><b>Aiur is globally paused.</b> {global_pause_provenance(@payload)}Run <code>aiurdev resume</code> with no ticket ID to lift the global pause.</span>
-        </div>
         <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
       </:banner>
 
@@ -824,7 +807,7 @@ defmodule AiurWeb.DashboardLive do
       <div :if={@live_action in [:decisions, :decision]} class="control-panel">
         <div :if={not is_nil(@selected_decision) and partial_detail?(@selected_decision_health)} class="readonly-banner" role="status" aria-live="polite">
           <span aria-hidden="true">◉</span>
-          <span><b>Partial retained Command data.</b> This detail was recovered from the validated audit prefix.</span>
+          <span><b>Partial Command data.</b> Some of this detail may be missing.</span>
         </div>
         <div :if={@live_action == :decision and is_nil(@selected_decision)} class="error-card" role="alert">
           <h2>{selected_decision_error_title(@selected_decision_status)}</h2>
@@ -985,7 +968,7 @@ defmodule AiurWeb.DashboardLive do
     do: "Retained Command data is currently unavailable for #{decision_id}. The overview remains available."
 
   defp selected_decision_error_message(:indeterminate, decision_id),
-    do: "#{decision_id} may exist beyond the validated audit prefix, so it cannot be reported as absent. The overview remains available."
+    do: "#{decision_id} may exist in a part we cannot read, so it cannot be reported as missing. The overview is still available."
 
   defp selected_decision_error_message(_status, decision_id),
     do: "No retained Command matches #{decision_id}."
@@ -1022,7 +1005,7 @@ defmodule AiurWeb.DashboardLive do
       awaiting: nil,
       awaiting_blocking: nil,
       deferred: nil,
-      health: %{status: :unavailable, label: "Retained Command counts unavailable"}
+      health: %{status: :unavailable, label: "Command counts unavailable"}
     }
   end
 

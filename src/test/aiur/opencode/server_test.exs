@@ -4,6 +4,12 @@ defmodule Aiur.Opencode.ServerTest do
   alias Aiur.Opencode.{ApiClient, Server, TokenRegistry, WorkspaceSetup}
   alias Exqlite.Basic
 
+  test "launch_env clears shell startup hooks" do
+    assert {~c"BASH_ENV", false} in Server.launch_env("/workspace")
+    assert {~c"ENV", false} in Server.launch_env("/workspace")
+    assert {~c"ZDOTDIR", ~c"/dev/null"} in Server.launch_env("/workspace")
+  end
+
   test "ticket-directory prompt resolves the slot provider and persists" do
     root = Path.join(System.tmp_dir!(), "aiur-opencode-server-test-#{System.unique_integer([:positive, :monotonic])}")
     slot_workspace = Path.join(root, "slot")

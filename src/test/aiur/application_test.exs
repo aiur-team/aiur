@@ -102,6 +102,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       Aiur.CoordinationTasks,
+      Aiur.DecisionDispatchTasks,
       Aiur.BuildOrder.TicketDetailCache,
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
@@ -191,6 +192,21 @@ defmodule Aiur.ApplicationTest do
         task_sup = Enum.find_index(mods, &(&1 == Task.Supervisor))
         assert reaper < task_sup, "ProcessReaper must precede Task.Supervisor for #{inspect(opts)}"
         assert containment < task_sup, "PauseContainment must precede Task.Supervisor for #{inspect(opts)}"
+      end
+    end
+
+    test "decision dispatch coordinator starts after its task supervisor and before DecisionStore" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        task_supervisor = Enum.find_index(mods, &(&1 == Task.Supervisor))
+        dispatch_tasks = Enum.find_index(mods, &(&1 == Aiur.DecisionDispatchTasks))
+        decision_store = Enum.find_index(mods, &(&1 == Aiur.DecisionStore))
+
+        assert task_supervisor < dispatch_tasks
+        assert dispatch_tasks < decision_store
       end
     end
 
