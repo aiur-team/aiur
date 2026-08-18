@@ -1736,6 +1736,121 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {_output, 0} = run_git_guard(context, ["status", "--short"])
   end
 
+  # ---------------------------------------------------------------------------
+  # `git worktree remove` protection (#2094)
+  #
+  # #2049 installed the destructive-git guard only into fleet agent
+  # workspaces. These cover the extension to every Aiur-spawned process: the
+  # same wrapper installed at host level (alongside `aiurdev`) applies two
+  # checks to `git worktree remove` regardless of which process invokes it —
+  # the worktree must be idle (no live process rooted in it) and must not hold
+  # uncommitted work unless the caller deliberately passes the guard's distinct
+  # override flag. Losing committed work is recoverable through the reflog;
+  # losing uncommitted work is not, and that asymmetry is encoded rather than
+  # left to judgement. The #2049 `-C` requirement and its workspace-derived
+  # authority survive unchanged for workspace installs.
+  # ---------------------------------------------------------------------------
+
+  test "git worktree remove refuses a worktree holding uncommitted changes without the explicit override", context do
+    worktree = make_workspace_worktree(context, "wt-dirty")
+    File.write!(Path.join(worktree, "tracked.txt"), "dirty\n")
+
+    assert {output, 64} =
+             run_git_guard(context, ["-C", context.workspace, "worktree", "remove", worktree])
+
+    assert output =~ "has uncommitted changes"
+    assert output =~ "--aiur-remove-dirty"
+    assert File.dir?(worktree)
+  end
+
+  test "the explicit override removes a dirty worktree and supplies git's own force", context do
+    worktree = make_workspace_worktree(context, "wt-dirty-override")
+    File.write!(Path.join(worktree, "tracked.txt"), "dirty\n")
+
+    assert {_output, 0} =
+             run_git_guard(context, [
+               "-C",
+               context.workspace,
+               "worktree",
+               "remove",
+               worktree,
+               "--aiur-remove-dirty"
+             ])
+
+    refute File.dir?(worktree)
+  end
+
+  test "git worktree remove refuses a worktree with a live process rooted in it, naming the pid", context do
+    if match?({:unix, :linux}, :os.type()) do
+      worktree = make_workspace_worktree(context, "wt-live")
+
+      # The only live process rooted in the worktree is a "sibling wrapper":
+      # its command line never mentions git or worktree, so naive
+      # `/proc/*/cmdline` matching cannot see it — `/proc/<pid>/cwd` can.
+      {port, pid} = spawn_rooted_sibling(worktree, "sleep 60")
+      on_exit(fn -> stop_rooted_sibling(port, pid) end)
+      :ok = wait_rooted(pid, worktree)
+
+      # The override exists only for uncommitted work; a live worktree is
+      # refused with no override at all.
+      assert {output, 64} =
+               run_git_guard(context, [
+                 "-C",
+                 context.workspace,
+                 "worktree",
+                 "remove",
+                 worktree,
+                 "--aiur-remove-dirty"
+               ])
+
+      assert output =~ "pid #{pid} is rooted in"
+      assert File.dir?(worktree)
+      stop_rooted_sibling(port, pid)
+    else
+      # The liveness check reads /proc/<pid>/cwd, which is Linux-only; the
+      # uncommitted-changes protection above still applies on every platform.
+    end
+  end
+
+  test "the worktree protection applies to a plain-shell caller outside .aiur-runtime/bin", context do
+    host_wrapper = install_host_wrapper(context)
+    {main, worktree} = make_host_worktree(context)
+    File.write!(Path.join(worktree, "tracked.txt"), "dirty\n")
+
+    # A plain shell resolves `git` straight from PATH: no AIUR_REAL_GIT, no
+    # workspace marker. The host wrapper resolves the real executable itself
+    # and still refuses the removal.
+    assert {output, 64} = run_host_guard(host_wrapper, main, ["worktree", "remove", worktree])
+    assert output =~ "has uncommitted changes"
+    assert output =~ "--aiur-remove-dirty"
+    assert File.dir?(worktree)
+  end
+
+  test "a plain-shell caller cannot remove a live worktree either", context do
+    if match?({:unix, :linux}, :os.type()) do
+      host_wrapper = install_host_wrapper(context)
+      {main, worktree} = make_host_worktree(context)
+      {port, pid} = spawn_rooted_sibling(worktree, "sleep 60")
+      on_exit(fn -> stop_rooted_sibling(port, pid) end)
+      :ok = wait_rooted(pid, worktree)
+
+      assert {output, 64} = run_host_guard(host_wrapper, main, ["worktree", "remove", worktree])
+      assert output =~ "pid #{pid} is rooted in"
+      assert File.dir?(worktree)
+      stop_rooted_sibling(port, pid)
+    else
+      # The liveness check reads /proc/<pid>/cwd, which is Linux-only.
+    end
+  end
+
+  test "the host wrapper passes every non-worktree command through untouched", context do
+    host_wrapper = install_host_wrapper(context)
+    {main, _worktree} = make_host_worktree(context)
+
+    assert {"tracked\n", 0} = run_host_guard(host_wrapper, main, ["show", "HEAD:tracked.txt"])
+    assert {_output, 0} = run_host_guard(host_wrapper, main, ["status", "--short"])
+  end
+
   # #1793: 29 tickets were filed mid-run with no `agent:*` label. Each one was
   # undispatchable and absent from every state-scoped view, so the fleet read as
   # having no work left. The skills instruct every filing path to set the
@@ -2607,6 +2722,98 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.write!(Path.join(context.workspace, "tracked.txt"), "tracked\n")
     assert {_, 0} = System.cmd(real_git(), ["-C", context.workspace, "add", "tracked.txt"], stderr_to_stdout: true)
     assert {_, 0} = System.cmd(real_git(), ["-C", context.workspace, "commit", "--quiet", "-m", "initial"], stderr_to_stdout: true)
+  end
+
+  # A linked worktree of the agent workspace itself, so
+  # `-C workspace worktree remove <it>` passes the #2049 workspace-authority
+  # check and reaches the #2094 liveness and uncommitted-changes checks.
+  defp make_workspace_worktree(context, name) do
+    init_git_workspace(context)
+    worktree = Path.join(context.workspace, name)
+
+    assert {_, 0} =
+             System.cmd(real_git(), ["-C", context.workspace, "worktree", "add", "--quiet", worktree, "-b", name], stderr_to_stdout: true)
+
+    worktree
+  end
+
+  # A wrapper installed outside `<workspace>/.aiur-runtime/bin`, the shape the
+  # host-level install (`~/.aiur/bin/git`, alongside `aiurdev`) takes for a
+  # plain-shell caller.
+  defp install_host_wrapper(context) do
+    host_bin = Path.join(context.workspace, "host-bin")
+    File.mkdir_p!(host_bin)
+    host_wrapper = Path.join(host_bin, "git")
+    File.cp!(context.git_wrapper, host_wrapper)
+    File.chmod!(host_wrapper, 0o755)
+    host_wrapper
+  end
+
+  defp make_host_worktree(context) do
+    main = Path.join(context.workspace, "host-main")
+    File.mkdir_p!(main)
+    assert {_, 0} = System.cmd(real_git(), ["init", "--quiet", main], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", main, "config", "user.email", "test@example.com"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", main, "config", "user.name", "Test"], stderr_to_stdout: true)
+    File.write!(Path.join(main, "tracked.txt"), "tracked\n")
+    assert {_, 0} = System.cmd(real_git(), ["-C", main, "add", "tracked.txt"], stderr_to_stdout: true)
+    assert {_, 0} = System.cmd(real_git(), ["-C", main, "commit", "--quiet", "-m", "initial"], stderr_to_stdout: true)
+    worktree = Path.join(main, "wt")
+    assert {_, 0} = System.cmd(real_git(), ["-C", main, "worktree", "add", "--quiet", worktree, "-b", "wt"], stderr_to_stdout: true)
+    {main, worktree}
+  end
+
+  # Invoke the host wrapper the way a plain shell would: no AIUR_REAL_GIT, no
+  # workspace marker. The wrapper resolves the real git from PATH on its own.
+  defp run_host_guard(host_wrapper, main, args) do
+    System.cmd(host_wrapper, args,
+      cd: main,
+      env: [{"AIUR_REAL_GIT", nil}],
+      stderr_to_stdout: true
+    )
+  end
+
+  # A "sibling wrapper" process rooted in a worktree: the spawned command line
+  # never mentions git or worktree, which is precisely the shape that defeats
+  # naive `/proc/*/cmdline` matching. `exec` replaces the shell, so the port's
+  # OS pid IS the rooted process.
+  defp spawn_rooted_sibling(worktree, command) do
+    port =
+      Port.open(
+        {:spawn_executable, "/bin/sh"},
+        [:binary, args: ["-c", "cd \"$1\" && exec $2", "sh", worktree, command]]
+      )
+
+    {:os_pid, pid} = Port.info(port, :os_pid)
+    {port, pid}
+  end
+
+  defp wait_rooted(pid, worktree, attempts \\ 200)
+
+  defp wait_rooted(_pid, _worktree, 0), do: flunk("sibling wrapper never rooted in the worktree")
+
+  defp wait_rooted(pid, worktree, attempts) do
+    case File.read_link("/proc/#{pid}/cwd") do
+      {:ok, cwd} when is_binary(cwd) ->
+        if Path.expand(cwd) == Path.expand(worktree) do
+          :ok
+        else
+          Process.sleep(10)
+          wait_rooted(pid, worktree, attempts - 1)
+        end
+
+      _ ->
+        Process.sleep(10)
+        wait_rooted(pid, worktree, attempts - 1)
+    end
+  end
+
+  defp stop_rooted_sibling(_port, pid) do
+    # The port closes with its owning test process; only the rooted process
+    # needs an explicit kill, and `kill` by pid works from any process, so the
+    # on_exit callback can reuse this without touching the dead owner's port.
+    _ = System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
+    :ok
   end
 
   defp real_git, do: System.get_env("AIUR_REAL_GIT") || System.find_executable("git")
