@@ -18,7 +18,7 @@ defmodule Aiur.DecisionMetricsTest do
         metrics_changed_fun: fn -> send(test_process, {:decision_metrics_changed, self()}) end
       )
 
-    on_exit(fn -> stop_if_alive(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
     %{path: path, pid: pid}
   end
 
@@ -141,7 +141,7 @@ defmodule Aiur.DecisionMetricsTest do
   test "subscribes to the existing Exchange and ignores unrelated decision coordination", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "exchange-decision-latency.ndjson")
     pid = start_metrics!(path, subscribe?: true)
-    on_exit(fn -> stop_if_alive(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     assert Exchange.publish("ticket.42.agent.decision.requested", request_event(40, true)) >= 1
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", pid)
@@ -193,7 +193,7 @@ defmodule Aiur.DecisionMetricsTest do
     Application.put_env(:aiur, :decision_state_dir, state_dir)
 
     on_exit(fn ->
-      stop_if_alive(metrics)
+      Aiur.TestSupport.safe_stop(metrics)
 
       if previous_state_dir,
         do: Application.put_env(:aiur, :decision_state_dir, previous_state_dir),
@@ -201,7 +201,7 @@ defmodule Aiur.DecisionMetricsTest do
     end)
 
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
-    on_exit(fn -> stop_if_alive(store) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
 
     ticket = %{identifier: "42", title: "Decision metrics", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
@@ -222,7 +222,7 @@ defmodule Aiur.DecisionMetricsTest do
     topic = "ticket.42.agent.attention.operator-decision"
     path = Path.join(tmp_dir, "indexed-attention.ndjson")
     metrics = start_metrics!(path, decision_store: :missing_decision_store)
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
 
     request =
       request_event(50, true)
@@ -285,11 +285,5 @@ defmodule Aiur.DecisionMetricsTest do
     lifecycle_event(id, "ignored", offset_ms)
     |> Map.put(:topic, "ticket.42.agent.attention.operator-decision")
     |> Map.put(:type, "alert")
-  end
-
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
   end
 end
