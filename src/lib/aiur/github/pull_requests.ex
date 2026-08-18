@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.PullRequests do
   require Logger
 
   alias Aiur.{Codeowners, TicketBranch}
-  alias Aiur.GitHub.{Comments, Errors, Transport}
+  alias Aiur.GitHub.{Comments, Errors, Transport, WriteThrough}
 
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
@@ -55,6 +55,28 @@ defmodule Aiur.GitHub.PullRequests do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
 
       Transport.fetch_json_list(request_fun, token, url)
+    end
+  end
+
+  @doc """
+  Fetches a pull request's review submissions with `If-None-Match` support.
+
+  The list-only `fetch_pull_request_reviews/2` contract is unchanged for
+  foreground callers. This variant exists because the approval read behind the
+  human-review gate runs on every transition attempt and must be strictly fresh:
+  it cannot be answered from a cache, so the only way to make it cost nothing is
+  to let GitHub answer `304`. That is a request GitHub does not bill against the
+  primary REST limit.
+  """
+  @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_reviews_conditional(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
+
+      Transport.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag))
     end
   end
 
@@ -372,10 +394,11 @@ defmodule Aiur.GitHub.PullRequests do
          {:ok,
           %{
             status: 200,
-            body: %{
-              "base" => %{"ref" => expected_base},
-              "head" => %{"sha" => confirmed_head_sha}
-            }
+            body:
+              %{
+                "base" => %{"ref" => expected_base},
+                "head" => %{"sha" => confirmed_head_sha}
+              } = pull_request
           }},
          pr_number,
          _current_base,
@@ -383,6 +406,10 @@ defmodule Aiur.GitHub.PullRequests do
        )
        when is_binary(confirmed_head_sha) and confirmed_head_sha != "" do
     Logger.info("Pull request base repaired: pr=#{pr_number} base=#{inspect(expected_base)} action=repaired")
+    # The repair response is the whole pull request at its new `updated_at`.
+    # Only the confirmed repair deposits: the not-confirmed clause below is a
+    # state Aiur is refusing to believe, so caching it would be caching a doubt.
+    WriteThrough.pull_request(pull_request)
     {:ok, {:repaired, confirmed_head_sha}}
   end
 

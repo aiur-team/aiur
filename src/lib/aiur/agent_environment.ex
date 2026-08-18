@@ -30,6 +30,7 @@ defmodule Aiur.AgentEnvironment do
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY\z/
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
+  @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -39,7 +40,52 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_command(String.t(), keyword()) :: String.t()
   def scrub_shell_command(command, opts \\ []) when is_binary(command) do
     exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
-    "#{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+    "#{shell_startup_prefix(opts)}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+  end
+
+  @doc """
+  Startup-file suppression for every shell that Aiur starts on an agent's
+  behalf. These values are deliberately applied at the process boundary, before
+  the shell gets a chance to interpret an operator-controlled startup variable.
+  """
+  @spec shell_startup_env() :: [{String.t(), String.t() | false}]
+  def shell_startup_env, do: [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", @neutral_zdotdir}]
+
+  @spec shell_startup_env_name?(String.t() | charlist()) :: boolean()
+  def shell_startup_env_name?(name) when is_binary(name),
+    do: Enum.any?(shell_startup_env(), fn {startup_name, _value} -> startup_name == name end)
+
+  def shell_startup_env_name?(name) when is_list(name),
+    do: shell_startup_env_name?(List.to_string(name))
+
+  def shell_startup_env_name?(_name), do: false
+
+  @doc """
+  Same suppression as `shell_startup_env/0`, in the shape `System.cmd/3`
+  accepts. `System.cmd` spells "remove this variable" as `nil`; `Port.open`
+  and tmux spell it `false`. Passing `false` to `System.cmd` raises a
+  `FunctionClauseError` inside `System.validate_env/1`.
+  """
+  @spec system_shell_startup_env() :: [{String.t(), String.t() | nil}]
+  def system_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {name, nil}
+      {name, value} -> {name, value}
+    end)
+  end
+
+  @spec port_shell_startup_env() :: [{charlist(), charlist() | false}]
+  def port_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {String.to_charlist(name), false}
+      {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+    end)
+  end
+
+  @spec shell_startup_prefix(keyword()) :: String.t()
+  def shell_startup_prefix(opts \\ []) do
+    unset_names = if Keyword.get(opts, :trusted_bash_env, false), do: "ENV", else: "BASH_ENV ENV"
+    "unset #{unset_names}; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
   end
 
   @spec scrub_shell_prefix() :: String.t()
@@ -162,6 +208,14 @@ defmodule Aiur.AgentEnvironment do
         fn name -> {String.to_charlist(name), false} end
       )
 
+    port_startup_env =
+      shell_startup_env()
+      |> replace_bash_env(build_gate_env)
+      |> Enum.map(fn
+        {name, false} -> {String.to_charlist(name), false}
+        {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+      end)
+
     workspace_env =
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
@@ -178,6 +232,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+        # The repository the agent was dispatched against, so the `gh` guard can
+        # file a cached response under a resource identity (#2073 U6). `gh`
+        # resolves the repo from the working directory, so the guard only trusts
+        # this while the agent is inside the workspace below — a clone of some
+        # other repository must not have its answers filed under this one.
+        {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
@@ -214,9 +274,7 @@ defmodule Aiur.AgentEnvironment do
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
-        Enum.map(build_gate_env, fn {name, value} ->
-          {String.to_charlist(name), String.to_charlist(value)}
-        end)
+        port_startup_env
 
     unset_inherited_env ++ workspace_env
   end
@@ -246,6 +304,19 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
+  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
+  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
+  # operator value, and is only present when admission is enabled.
+  defp replace_bash_env(startup_env, build_gate_env) do
+    case List.keyfind(build_gate_env, "BASH_ENV", 0) do
+      {"BASH_ENV", _hook_path} ->
+        Enum.reject(startup_env, fn {name, _value} -> name == "BASH_ENV" end) ++ build_gate_env
+
+      nil ->
+        startup_env ++ build_gate_env
+    end
+  end
+
   @doc """
   Shell-export prefix for the same vars `workspace_env/1` injects into
   Port.open env. Used by the SSH-launch path which has no `env:` option
@@ -262,6 +333,7 @@ defmodule Aiur.AgentEnvironment do
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
     github_budget = Budget.guard_settings()
     build_gate_exports = build_gate_export_prefix(workspace, opts)
+    real_git = System.find_executable("git")
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -287,9 +359,10 @@ defmodule Aiur.AgentEnvironment do
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
     "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\n" <>
-      "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
+      "AIUR_REAL_GIT=#{if real_git, do: Aiur.Shell.escape(real_git), else: ""}\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
+      remote_repo_slug_export() <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
@@ -385,6 +458,27 @@ defmodule Aiur.AgentEnvironment do
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
+
+  # `false` unsets the variable for the child, which is what a non-GitHub
+  # tracker or an unconfigured repo should produce: the guard then resolves no
+  # resource identity and caches nothing, rather than filing responses under a
+  # placeholder slug that no other agent would ever ask for.
+  # Remote workers keep their own budget root under their own home, so they get
+  # their own state cache shared with the other agents on that host — the same
+  # sharing boundary the budget broker already draws.
+  defp remote_repo_slug_export do
+    case configured_repo_slug() do
+      false -> "unset AIUR_GITHUB_REPO\n"
+      slug -> "export AIUR_GITHUB_REPO=#{Aiur.Shell.escape(List.to_string(slug))}\n"
+    end
+  end
+
+  defp configured_repo_slug do
+    case GitHubConfig.repo() do
+      repo when is_binary(repo) -> if repo =~ ~r{\A[\w.-]+/[\w.-]+\z}, do: String.to_charlist(repo), else: false
+      _other -> false
+    end
+  end
 
   defp sidecar_paths(opts) do
     root = repo_url(opts) |> RepoBase.repo_path()

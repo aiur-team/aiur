@@ -912,6 +912,14 @@ defmodule Aiur.AgentControlCLITest do
         else: Application.delete_env(:aiur, :loadavg_source_override)
     end)
 
+    # The load gate holds only against a measured CPU window (#2089), so the
+    # probes carry a `/proc/stat` sample and the sampled state carries the
+    # baseline a polling daemon would already hold: 10 idle jiffies out of 200 is
+    # 5% reclaimable.
+    baseline_cpu = %{total: 1_000, idle: 700, nice: 100, runnable: 20}
+    current_cpu = %{total: 1_200, idle: 710, nice: 100, runnable: 20}
+    contention = %{idle_percent: 5.0, nice_percent: 0.0, reclaimable_percent: 5.0, runnable: 20}
+
     probes = %{
       memory_mb: :unavailable,
       memory_threshold_mb: nil,
@@ -924,7 +932,8 @@ defmodule Aiur.AgentControlCLITest do
       build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
       provider_backends: [],
       github_quota: :available,
-      cpu_snapshot: :unavailable,
+      cpu_snapshot: current_cpu,
+      cpu_headroom: contention,
       target: nil
     }
 
@@ -935,7 +944,12 @@ defmodule Aiur.AgentControlCLITest do
 
     sampled =
       :sys.get_state(pid)
-      |> Map.merge(%{max_concurrent_agents: 10, effective_concurrent_agents: 10, last_polled_issues: %{"queued" => queued_issue()}})
+      |> Map.merge(%{
+        max_concurrent_agents: 10,
+        effective_concurrent_agents: 10,
+        last_polled_issues: %{"queued" => queued_issue()},
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: baseline_cpu, bootstrap_complete?: true}
+      })
       |> Dispatcher.maybe_choose_under_load(
         [queued_issue()],
         fn state, _issues ->
@@ -946,8 +960,15 @@ defmodule Aiur.AgentControlCLITest do
       )
 
     refute_received :dispatched
-    assert %{signal: :load, measured: ^local_load, threshold: ^threshold} = sampled.capacity_hold
-    :sys.replace_state(pid, fn _state -> sampled end)
+
+    assert %{signal: :load, measured: ^local_load, threshold: ^threshold, reclaimable_cpu_percent: 5.0} =
+             sampled.capacity_hold
+
+    # A persisted hold without corroboration fields still has to render (an older
+    # daemon's state, or a signal that carries none).
+    :sys.replace_state(pid, fn _state ->
+      %{sampled | capacity_hold: Map.drop(sampled.capacity_hold, [:reclaimable_cpu_percent, :reclaimable_cpu_threshold])}
+    end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 

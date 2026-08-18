@@ -10,6 +10,10 @@ defmodule AiurWeb.Router do
     plug(:dashboard_basic_auth)
   end
 
+  pipeline :dashboard_auth_required do
+    plug(:dashboard_basic_auth, required?: true)
+  end
+
   pipeline :supervisor_auth do
     plug(AiurWeb.SupervisorAuth)
   end
@@ -138,6 +142,9 @@ defmodule AiurWeb.Router do
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
       live("/analytics", AnalyticsLive, :analytics)
+      live("/github-cache", GithubCacheLive, :github_cache)
+      live("/github-cache/:resource_type", GithubCacheLive, :github_cache_group)
+      live("/github-cache/:resource_type/:identity", GithubCacheLive, :github_cache_entry)
       live("/streamdeck", StreamdeckLive, :streamdeck)
     end
   end
@@ -172,9 +179,14 @@ defmodule AiurWeb.Router do
   end
 
   scope "/", AiurWeb do
-    pipe_through(:dashboard_auth)
+    pipe_through(:dashboard_auth_required)
 
     post("/api/v1/streamdeck/token", StreamdeckSessionController, :create)
+  end
+
+  scope "/", AiurWeb do
+    pipe_through(:dashboard_auth)
+
     get("/api/v1/state", ObservabilityApiController, :state)
     get("/api/v1/streamdeck/grid", ObservabilityApiController, :streamdeck_grid)
     get("/api/v1/:issue_identifier/events", ObservabilityApiController, :events)

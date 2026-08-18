@@ -44,7 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenterTest do
     view = TicketsPresenter.load(tickets_fun: fn -> snapshot(:stale, [ticket("41")]) end)
 
     assert view.status == :stale
-    assert view.message =~ "last-known-good"
+    assert view.message =~ "Showing the open tickets we last saw"
     assert length(view.rows) == 1
   end
 
@@ -132,7 +132,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenterTest do
       searched = TicketsPresenter.search(view, "zzzzqqqq")
 
       assert searched.status == :stale
-      assert searched.message =~ "last-known-good"
+      assert searched.message =~ "Showing the open tickets we last saw"
       assert searched.search_status == :no_matches
     end
 

@@ -316,7 +316,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp card_sentence(%{provider_label: label, state: :stale} = card) do
-    "#{label}: stale last known-good#{plan_clause(card)}, #{window_clause(card)}."
+    "#{label}: last read#{plan_clause(card)}, #{window_clause(card)}."
   end
 
   defp card_sentence(%{provider_label: label, state: :loading}), do: "#{label}: loading account meters."
@@ -333,7 +333,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp window_clause(_card), do: "no meters reported"
 
   defp failure_phrase(%{health: %{failure_label: label}}) when is_binary(label), do: String.downcase(label)
-  defp failure_phrase(_card), do: "no last known-good values"
+  defp failure_phrase(_card), do: "no earlier values to show"
 
   defp pluralize(1, singular, _plural), do: singular
   defp pluralize(_count, _singular, plural), do: plural
@@ -358,7 +358,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp status_label(:error), do: "Provider error"
   defp status_label(:healthy), do: "Healthy"
   defp status_label(:partial), do: "Partial coverage"
-  defp status_label(:stale), do: "Stale (last known-good)"
+  defp status_label(:stale), do: "Not live"
 
   defp auth_mode_label(:subscription), do: "Subscription"
   defp auth_mode_label(:api_key), do: "API key"

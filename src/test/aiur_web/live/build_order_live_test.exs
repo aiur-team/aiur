@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrderLiveTest do
   use Aiur.TestSupport
 
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
@@ -303,13 +303,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert Enum.map(unresolved_markers, &Floki.attribute(&1, "role")) == [["img"], ["img"]]
 
     assert Enum.map(unresolved_markers, &Floki.attribute(&1, "aria-label")) == [
-             ["Epics unresolved; count not fetched"],
-             ["Waves unresolved; count not fetched"]
+             ["Epics not counted"],
+             ["Waves not counted"]
            ]
 
     assert Enum.map(unresolved_markers, &Floki.attribute(&1, "title")) == [
-             ["Epics were not fetched for this catalog entry"],
-             ["Waves were not fetched for this catalog entry"]
+             ["Epics could not be counted for this Build Order"],
+             ["Waves could not be counted for this Build Order"]
            ]
 
     refute Floki.find(unresolved_counts, ".bo-catalog-invalid") != []
@@ -411,14 +411,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
     cold = install_source(catalog: nil)
     assert {:ok, cold_view, cold_html} = live(build_conn(), "/build-orders")
     assert cold_html =~ ~s(data-build-order-catalog-state="loading")
-    assert cold_html =~ "Loading Build Order catalog"
+    assert cold_html =~ "Loading Build Orders"
     GenServer.stop(cold_view.pid)
     assert Process.alive?(cold)
 
     unavailable = install_source(catalog: catalog_snapshot(nil, :unknown, :unavailable))
     assert {:ok, unavailable_view, unavailable_html} = live(build_conn(), "/build-orders")
     assert unavailable_html =~ ~s(data-build-order-catalog-state="unavailable")
-    assert unavailable_html =~ "Catalog unavailable"
+    assert unavailable_html =~ "No Build Order list"
     GenServer.stop(unavailable_view.pid)
     assert Process.alive?(unavailable)
 
@@ -426,7 +426,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     stale = install_source(catalog: catalog_snapshot([root(identity, "Stale root")], 1, :stale))
     assert {:ok, _view, stale_html} = live(build_conn(), "/build-orders")
     assert stale_html =~ ~s(data-build-order-catalog-state="stale_lkg")
-    assert stale_html =~ "Showing the last-known-good catalog"
+    assert stale_html =~ "Showing the Build Orders we last saw"
     assert stale_html =~ ~s(href="/build-orders/42")
     assert Process.alive?(stale)
 
@@ -536,8 +536,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_unavailable")
-    assert html =~ "Could not fetch planning graph"
-    assert html =~ "Investigate why Build Order #42&#39;s planning graph could not be fetched."
+    assert html =~ "Could not read the plan"
+    assert html =~ "Investigate why Build Order #42&#39;s plan could not be read."
     assert html =~ "`provider_unavailable`"
     refute html =~ "Build Order graph summary"
     refute html =~ "Plan distribution"
@@ -839,7 +839,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert health_html =~ "Ticket 99"
     # Degraded provider states surface as an explicit state card (the always-on
     # health badge was removed from the header).
-    assert health_html =~ "Stale last-known-good graph"
+    assert health_html =~ "Plan is not live"
   end
 
   test "collapses structurally invalid selected data into one copyable page-level state", %{
@@ -855,12 +855,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert html =~ ~s(data-build-order-status="selected_invalid")
     assert [_card] = Floki.find(document, ".bo-state-card")
-    assert html =~ "Fetched planning graph is malformed"
-    assert html =~ "Investigate why Build Order #42&#39;s fetched planning graph is malformed."
+    assert html =~ "The plan is unreadable"
+    assert html =~ "Investigate why Build Order #42&#39;s plan is unreadable."
     assert html =~ "`members: 0`"
     assert html =~ "`invalid_root`"
     refute html =~ "Build Order graph summary"
-    refute html =~ "Plan distribution is structurally invalid"
+    refute html =~ "Plan distribution is unreadable"
     refute html =~ "Analytics unavailable"
     refute html =~ "Usage and cost unavailable"
     refute html =~ "Root data is unavailable."
@@ -887,7 +887,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     card_text = Floki.text(card)
 
     assert html =~ ~s(data-build-order-status="selected_invalid")
-    assert card_text =~ "Fetched planning graph is malformed"
+    assert card_text =~ "The plan is unreadable"
     assert card_text =~ "Reported fault: invalid_member"
     assert html =~ "The selected-root provider reports `invalid_member`"
     refute card_text =~ "rate_limited"
@@ -1573,6 +1573,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ "2 units awaiting commands"
 
     assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
+  # Dashboard routes are behind the FinancialDataAccess plug, which challenges
+  # any request once credentials are configured (regardless of `dashboard_auth_required`).
+  # test_helper configures credentials globally, so every Build Order render test must
+  # present them.
+  defp build_conn do
+    Phoenix.ConnTest.build_conn()
+    |> Plug.Conn.put_req_header(
+      "authorization",
+      "Basic " <> Base.encode64("operator:test-dashboard-secret")
+    )
   end
 
   # --- awaiting-Commands banner ---------------------------------------------

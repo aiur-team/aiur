@@ -263,8 +263,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   end
 
   defp empty_message(:known_empty), do: "No conversation has been recorded for this worker yet."
-  defp empty_message(:unavailable), do: "No conversation is available from the source right now."
-  defp empty_message(:restart_unknown), do: "No retained conversation is available after the restart."
+  defp empty_message(:unavailable), do: "No conversation is available right now."
+  defp empty_message(:restart_unknown), do: "This conversation was not kept across the restart."
   defp empty_message(_state), do: "No messages are available to display."
 
   defp valid_close_event?(value) when is_binary(value),

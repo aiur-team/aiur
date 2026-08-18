@@ -1,8 +1,13 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
   @moduledoc false
 
-  alias Aiur.{Issue, TrackerIdentity}
+  alias Aiur.{Issue, PollCadence, TrackerIdentity}
   alias AiurWeb.OperatorControlCenter.UnitsRow.Value
+
+  # Two effective poll intervals: an idle Orchestrator only republishes on a
+  # poll tick, so a retained fleet view is not "genuinely old" until two ticks
+  # have been missed.
+  @fleet_stale_after_intervals 2
 
   @type source_set :: %{
           membership: map(),
@@ -12,9 +17,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
           issue: map()
         }
 
-  # Kept in step with `UnitsPresenter`, which reports the same window on the
-  # catalog's own status. See `fleet_stale_after_seconds/0`.
-  @fleet_stale_after_seconds 300
+  # A floor, not the threshold. `fleet_stale_after_seconds/0` derives the real
+  # window from the effective poll cadence; 300s only preserves the behaviour a
+  # 5s-poll deployment has today, where two cycles is ten seconds.
+  @fleet_stale_after_seconds_floor 300
 
   @spec normalize(map()) :: source_set()
   def normalize(inputs) do
@@ -108,9 +114,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
   showing the retained fleet while the Units catalog silently drops every
   status-sourced row. Both surfaces therefore share one tolerance, and only a
   genuinely old fleet view stops being a valid floor.
+
+  The tolerance is derived from the effective poll cadence, not fixed. With the
+  shipped `idle_widen_factor: 5.0` and `poll_widen_factor: 2.0` an idle fleet
+  polls every 1200s, so a fixed 300s window dropped every status-sourced row
+  and emptied the Units table while nothing at all was wrong. Idle is not gone.
   """
   @spec fleet_stale_after_seconds() :: pos_integer()
-  def fleet_stale_after_seconds, do: @fleet_stale_after_seconds
+  def fleet_stale_after_seconds do
+    PollCadence.stale_after_seconds(@fleet_stale_after_intervals,
+      floor_ms: @fleet_stale_after_seconds_floor * 1_000
+    )
+  end
 
   @spec current_status?(source_set()) :: boolean()
   def current_status?(sources) do
@@ -124,7 +139,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
   defp usable_freshness?(source) do
     case {freshness_status(source), freshness_age_seconds(source)} do
       {status, _age_seconds} when status in [:fresh, :current] -> true
-      {:stale, age_seconds} when is_integer(age_seconds) and age_seconds < @fleet_stale_after_seconds -> true
+      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds < fleet_stale_after_seconds()
       _freshness -> false
     end
   end

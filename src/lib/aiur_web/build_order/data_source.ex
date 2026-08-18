@@ -8,7 +8,7 @@ defmodule AiurWeb.BuildOrder.DataSource do
   """
 
   alias Aiur.AgentPubSub
-  alias Aiur.BuildOrder.{AdHocSource, GraphProjection, TicketDetailCache, TicketHistoryProvider}
+  alias Aiur.BuildOrder.{AdHocSource, GraphProjection, TicketDetailCoordinator, TicketHistoryProvider}
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
@@ -85,13 +85,13 @@ defmodule AiurWeb.BuildOrder.DataSource do
 
   @spec subscribe_context(TrackerIdentity.t(), keyword()) :: :ok | {:error, term()}
   def subscribe_context(identity, opts \\ []) do
-    with :ok <- call(dependency(opts, :ticket_detail_cache, TicketDetailCache), :subscribe, [identity]),
+    with :ok <- call(dependency(opts, :ticket_detail_coordinator, TicketDetailCoordinator), :subscribe, [identity]),
          do: call(dependency(opts, :ticket_history_provider, TicketHistoryProvider), :subscribe, [identity])
   end
 
   @spec unsubscribe_context(TrackerIdentity.t(), keyword()) :: :ok | {:error, term()}
   def unsubscribe_context(identity, opts \\ []) do
-    detail = dependency(opts, :ticket_detail_cache, TicketDetailCache)
+    detail = dependency(opts, :ticket_detail_coordinator, TicketDetailCoordinator)
     history = dependency(opts, :ticket_history_provider, TicketHistoryProvider)
     unsubscribe = unsubscribe(opts)
 
@@ -105,7 +105,7 @@ defmodule AiurWeb.BuildOrder.DataSource do
   @spec load_context(TrackerIdentity.t(), keyword()) :: %{detail: term(), history: term()}
   def load_context(identity, opts \\ []) do
     %{
-      detail: call(dependency(opts, :ticket_detail_cache, TicketDetailCache), :request, [identity]),
+      detail: call(dependency(opts, :ticket_detail_coordinator, TicketDetailCoordinator), :request, [identity]),
       history: call(dependency(opts, :ticket_history_provider, TicketHistoryProvider), :request, [identity])
     }
   end

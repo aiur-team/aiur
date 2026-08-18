@@ -12,14 +12,16 @@ if [ $# -lt 1 ]; then
 fi
 
 THREAD_ID=$1
-BODY=$(cat)
+BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/ce-review-reply.XXXXXX")
+trap 'rm -f "$BODY_FILE"' EXIT
+cat > "$BODY_FILE"
 
-if [ -z "$BODY" ]; then
+if [ ! -s "$BODY_FILE" ]; then
     echo "Error: No body provided on stdin."
     exit 1
 fi
 
-gh api graphql -f threadId="$THREAD_ID" -f body="$BODY" -f query='
+gh api graphql -f threadId="$THREAD_ID" -F "body=@$BODY_FILE" -f query='
 mutation ReplyToReviewThread($threadId: ID!, $body: String!) {
   addPullRequestReviewThreadReply(input: {
     pullRequestReviewThreadId: $threadId

@@ -194,6 +194,7 @@ defmodule Aiur.Application do
       {Task.Supervisor, name: Aiur.TaskSupervisor},
       Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
+      Aiur.DecisionDispatchTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
@@ -202,11 +203,20 @@ defmodule Aiur.Application do
       # API key it observes nothing at all, so an unconfigured account costs a
       # boot-time config read and never a request.
       Aiur.ElevenLabs.Quota,
-      {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
+      {Aiur.BuildOrder.TicketDetailCoordinator, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
       {Aiur.Events.Exchange, name: Aiur.Events.Exchange},
       Aiur.Events.BranchRefStore,
+      # Restart-durable GitHub state keyed by resource identity. Starts before
+      # the Publisher and before anything that polls or receives, so the first
+      # delivery of the boot already has somewhere to record that it handled a
+      # comment — and so the first poll sweep already has last run's ETags.
+      Aiur.GitHub.ResourceStore,
+      # Carries store changes into the agents' `gh` answer store, so a fact
+      # learned for free retires the paid reads of the same resource. Starts
+      # after the store because it subscribes to it.
+      Aiur.GitHub.AgentCacheBridge,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       # Per-repo delivery mode. Starts before anything that polls or receives
@@ -261,6 +271,9 @@ defmodule Aiur.Application do
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
+      # The single view-state cadence. Starts after the three sources it sweeps
+      # so its first tick never races their boot fill.
+      Aiur.GitHub.ViewStateSweep,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,

@@ -187,7 +187,10 @@ GH_HOST=<derived-host> bash "$SKILL_DIR/scripts/resolve-pr-thread" THREAD_ID
 These cannot be resolved via GitHub's API. Reply with a top-level PR comment referencing the original (pass `-R OWNER/REPO` — the parsed base repo — so a fork→upstream reply posts on the watched upstream PR, not the fork namespace):
 
 ```bash
-GH_HOST=<derived-host> gh pr comment PR_NUMBER -R OWNER/REPO --body "REPLY_TEXT"
+REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/ce-pr-reply.XXXXXX")
+trap 'rm -f "$REPLY_FILE"' EXIT
+printf '%s\n' "REPLY_TEXT" > "$REPLY_FILE"
+GH_HOST=<derived-host> gh pr comment PR_NUMBER -R OWNER/REPO --body-file "$REPLY_FILE"
 ```
 
 Include enough quoted context in the reply so the reader can follow which comment is being addressed without scrolling.
