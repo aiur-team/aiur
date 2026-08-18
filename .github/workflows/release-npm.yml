@@ -88,6 +88,13 @@ jobs:
             exit 1
           fi
 
+      # The platform set this release publishes must equal the set aiur-cli pins
+      # as optionalDependencies, and both must match platforms.mjs. A pin with no
+      # published package is the silent-broken-install defect from #2110 — CI
+      # enforces it on every PR, and a release run re-checks before publishing.
+      - name: Check platform publish/pin drift
+        run: node packaging/scripts/check-platform-drift.mjs
+
       - name: Resolve channel and version
         id: resolve
         run: |
@@ -520,7 +527,11 @@ jobs:
             echo "| package | published | $tag | latest |"
             echo "| --- | --- | --- | --- |"
           } >> "$GITHUB_STEP_SUMMARY"
-          for pkg in aiur-cli aiur-cli-linux-x64 aiur-cli-linux-arm64 aiur-cli-darwin-arm64; do
+          # Verify EVERY package the manifest pins (plus the launcher itself)
+          # resolves on the registry at this version. Deriving the list from the
+          # pinned optionalDependencies means a platform the publish loop skipped
+          # can never pass this check (see #2110).
+          for pkg in aiur-cli $(node -e 'const d=require("./packaging/npm/aiur-cli/package.json").optionalDependencies||{}; process.stdout.write(Object.keys(d).join(" "))'); do
             test "$(npm view "$pkg@$v" version)" = "$v"
             tagged=$(npm view "$pkg" "dist-tags.$tag")
             latest=$(npm view "$pkg" dist-tags.latest)

@@ -25,11 +25,18 @@
   "engines": {
     "node": ">=18"
   },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
   "opencodeVersion": "1.17.10",
   "optionalDependencies": {
     "aiur-cli-linux-x64": "0.0.5",
     "aiur-cli-linux-arm64": "0.0.5",
-    "aiur-cli-darwin-x64": "0.0.5",
     "aiur-cli-darwin-arm64": "0.0.5"
   }
 }
