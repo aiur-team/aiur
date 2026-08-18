@@ -239,8 +239,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "$0.00"
 
     # A locked usage is an unknown token count: the row keeps its token glyph
-    # alone instead of a "Tokens N/A" value, while the meter metadata names the
-    # unavailable standing without the old Limits heading.
+    # alone instead of a "Tokens N/A" value, while the Limits meter names the
+    # unavailable standing.
     assert html =~ "N/A"
     refute html =~ "Tokens"
     assert html =~ "rs-token-na"
@@ -1151,8 +1151,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         assert html =~ "3750/5000 left · resets in 30m"
 
         [_, models_html] = String.split(html, "rs-models", parts: 2)
-        refute models_html =~ ">Limits<"
-        refute models_html =~ ">Primary<"
+        # The #2085 label removal is reverted: a label sits above every model
+        # bar (the window name, or "Limits" for a row with no live windows).
+        assert models_html =~ ~s(<span class="rs-limit-label">Session</span>)
+        assert models_html =~ ~s(<span class="rs-limit-label">Limits</span>)
+        # The SPEND label is deleted from the model rows; the amount keeps its
+        # accessible name on the containing stat.
+        refute models_html =~ ~s(<span class="rs-stat-label">Spend</span>)
       end)
     end)
   end

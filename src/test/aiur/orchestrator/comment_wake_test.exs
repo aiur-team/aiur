@@ -333,6 +333,66 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     end
   end
 
+  # #2075: `rework` requires work that exists and was rejected, and the one
+  # unambiguous precondition every writer needs is "an open PR exists". A
+  # trusted comment on a ticket with no open PR must be refused at the source —
+  # stamping `rework` on absent work asserts a review verdict that never
+  # happened, strands the ticket in a state nothing selects, and costs the
+  # dispatched agent a turn discovering there is nothing to rework (#1844).
+  # This is the precondition test for the comment_wake writer.
+  describe "maybe_transition_idle_issue_to_rework/5 open-PR precondition (#2075)" do
+    defp rework_labelled_issue(number, state \\ "human-review") do
+      %Issue{id: number, identifier: number, state: state, title: "t", labels: ["agent:#{state}"]}
+    end
+
+    test "refuses rework at the source when the ticket has no open PR" do
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "please fix"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2075")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, nil} end
+      }
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.maybe_transition_idle_issue_to_rework(state, "2075", "issue comment", event, 1) == state
+        end)
+
+      assert log =~ "ignored for idle issue"
+      assert log =~ ":no_open_pr"
+
+      # The refusal is deterministic (no open PR exists), not a transient
+      # failure, so no retry is scheduled.
+      assert state.comment_rework_retries == %{}
+    end
+
+    test "writes rework when an open PR exists" do
+      # Control: with an open PR the trusted-comment writer reaches the tracker
+      # update. The unset tracker fails the write (permanently, here a 404), so
+      # the write is skipped and reported — proving the gate passed and the
+      # `rework` write was actually attempted.
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "please fix"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2075")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{number: 42}} end
+      }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2075", "issue comment", event, 1)
+        end)
+
+      refute log =~ "ignored for idle issue"
+      refute log =~ ":no_open_pr"
+      assert log =~ "rework transition skipped"
+    end
+  end
+
   describe "comment_rework_retry_delay_ms/1" do
     test "returns base delay for attempt 1" do
       assert CommentWake.comment_rework_retry_delay_ms(1) == 2_000

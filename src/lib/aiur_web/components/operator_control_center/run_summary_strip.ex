@@ -252,15 +252,18 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-provider-body">
         <div class="rs-limits">
           <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
+            <span class="rs-limit-label">Limits</span>
             <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
             <span class="rs-limit-meta rs-limit-meta-wide">{durable_meta(durable_record(@card), @now)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{durable_compact_meta(durable_record(@card))}</span>
           </div>
           <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
+            <span class="rs-limit-label">Limits</span>
             <div class="rs-meter"><i style="width:0%"></i></div>
             <span class="rs-limit-meta">{provider_status(@card)}</span>
           </div>
           <div :for={window <- @windows} class="rs-limit">
+            <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
             <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now, @standing)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now, @standing)}</span>
@@ -278,9 +281,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <%!-- An unknown token count hides its label and the "N/A" text. On the two rows that carry a token glyph it remains, alone, so the card keeps its shape; the rest simply lose the stat. --%>
           <img :if={@token_glyph? and is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
         </div>
-        <%!-- The spend figure closes the row on the right. --%>
+        <%!-- The spend figure closes the row on the right. Its label is deleted
+        (operator directive); the amount keeps its accessible name from the
+        aria-label, the same pattern the ElevenLabs invoice figure uses. --%>
         <div :if={@show_spend?} class="rs-stat rs-spend" role="group" aria-label={"Spend #{if @usage_ready?, do: money(@usage), else: "N/A"}"}>
-          <span class="rs-stat-label">Spend</span>
           <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
         </div>
       </div>
@@ -640,6 +644,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       nil -> true
       limit_id -> limit_id |> to_string() |> String.split(":") |> List.first() == to_string(provider)
     end
+  end
+
+  # The label above a model bar names the window. Most providers publish a
+  # single budget whose name is enough; when two windows share a name (Codex
+  # reports an account-wide "Primary" and a per-model "Primary" that differ only
+  # in scope), the scope is what tells them apart, so it replaces the name.
+  defp window_label(window, windows) do
+    name = Map.get(window, :name, "Limit")
+
+    if Enum.count(windows, &(Map.get(&1, :name) == name)) > 1 do
+      window |> Map.get(:limit_id) |> window_scope() || name
+    else
+      name
+    end
+  end
+
+  # `limit_id` is "<scope>:<name>"; the scope is the part worth showing when the
+  # name cannot tell two windows apart.
+  defp window_scope(nil), do: nil
+
+  defp window_scope(limit_id) do
+    limit_id
+    |> to_string()
+    |> String.split(":")
+    |> List.first()
+    |> String.replace("_", " ")
   end
 
   # Whether the remaining ticket count is a known value at all, as opposed to
