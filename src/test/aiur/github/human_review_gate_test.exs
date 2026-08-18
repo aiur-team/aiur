@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.HumanReviewGateTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.HumanReviewGate
+  alias Aiur.GitHub.{HumanReviewGate, ResourceStore}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -24,6 +24,11 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       tracker_kind: "github",
       tracker_repo: "owner/repo"
     )
+
+    # The gate now deposits what it reads. The store is global and long-lived, so
+    # one case's deposit would otherwise be visible to the next.
+    ResourceStore.reset()
+    on_exit(fn -> ResourceStore.reset() end)
 
     :ok
   end
@@ -120,6 +125,70 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
                  request_fun: request_fun,
                  bot_account: "aiur-bot"
                )
+    end
+
+    # R10. This gate is a merge decision, so it declares the strict tolerance and
+    # must reach GitHub on every check no matter what the store is holding.
+    describe_strict = "the approval read is strict"
+
+    test "#{describe_strict}: it reaches GitHub even with a fresh approval already stored" do
+      key = ResourceStore.key_for_repo(:pull_request_reviews, "owner/repo", 77)
+      approved = [review("its-everdred", "APPROVED", "2026-08-10T10:47:00Z")]
+      # A body deposited a millisecond ago. A cache-satisfied read would answer
+      # from this and let the gate pass without asking anybody.
+      ResourceStore.put_resource(key, approved, source: :webhook)
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn req ->
+        if req.method == :get and req.url =~ "/pulls/77/reviews" do
+          Agent.update(counter, &(&1 + 1))
+        end
+
+        blocking_thread_request_fun([review("other-owner", "CHANGES_REQUESTED", "2026-08-10T11:00:00Z")]).(req)
+      end
+
+      # Upstream says changes are requested, and upstream wins over the stored
+      # approval — which is the whole point of a strict read.
+      assert {:error, {:unverified_review_threads, _detail}} =
+               HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+
+      assert Agent.get(counter, & &1) == 1
+    end
+
+    test "#{describe_strict}: it sends If-None-Match and a 304 answers from the held body" do
+      key = ResourceStore.key_for_repo(:pull_request_reviews, "owner/repo", 77)
+      approved = [review("its-everdred", "APPROVED", "2026-08-10T10:47:00Z")]
+      ResourceStore.put_resource(key, approved, source: :poll, etag: ~s("reviews-v1"))
+
+      {:ok, sent} = Agent.start_link(fn -> [] end)
+
+      request_fun = fn req ->
+        if req.method == :get and req.url =~ "/pulls/77/reviews" do
+          Agent.update(sent, &(&1 ++ [Map.get(req, :etag)]))
+          {:ok, %{status: 304, headers: [{"etag", ~s("reviews-v1")}], body: nil}}
+        else
+          blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      # The request happened and carried the stored validator, so it was a fresh
+      # answer from GitHub rather than a cached one — and it cost no rate limit.
+      assert :ok = HumanReviewGate.verify_human_review_ready("42", request_fun: request_fun, bot_account: "aiur-bot")
+      assert Agent.get(sent, & &1) == [~s("reviews-v1")]
+    end
+
+    test "#{describe_strict}: it deposits the answer so a tolerant reader rides on the spend" do
+      key = ResourceStore.key_for_repo(:pull_request_reviews, "owner/repo", 77)
+      approved = [review("its-everdred", "APPROVED", "2026-08-10T10:47:00Z")]
+
+      assert :ok =
+               HumanReviewGate.verify_human_review_ready("42",
+                 request_fun: blocking_thread_request_fun(approved),
+                 bot_account: "aiur-bot"
+               )
+
+      assert ResourceStore.data(key) == approved
     end
 
     test "returns :ok when no open PR exists (FI-GH-033)" do

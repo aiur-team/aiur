@@ -872,6 +872,97 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  # #2089: `Orchestrator` dropped queued work under host CPU load. The mechanism
+  # was the FIRST admission decision a `State` ever makes: `put_cpu_headroom/2`
+  # has no earlier `/proc/stat` snapshot to diff against, so the corroborating
+  # measurement is `:unavailable`, and an unavailable corroboration used to be
+  # treated as confirmation of the raw load-average hold. On a box whose 1-minute
+  # average is over `max_load_average * schedulers` — routine while the fleet
+  # ramps — the very cycle that should start work returned an empty `running`
+  # map with a `%{signal: :load}` `capacity_hold` and no CPU evidence behind it.
+  describe "ramp-from-zero admission (#2089)" do
+    setup do
+      # A load average far over the ceiling, with a valid CPU snapshot whose
+      # window cannot be measured yet because the state has no baseline.
+      probes = fn ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: 200,
+          run_queue_threshold: 1.5,
+          schedulers: 4,
+          load: 143.0,
+          load_threshold: 1.5,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: %{total: 1_200, idle: 710, nice: 100, runnable: 200},
+          target: nil
+        }
+      end
+
+      %{probes: probes, queued: issue("ramp-from-zero")}
+    end
+
+    test "dispatches queued work on the first cycle, before any CPU window exists", %{
+      probes: probes,
+      queued: queued
+    } do
+      # `cpu_snapshot: nil` is the State default, i.e. a freshly booted
+      # orchestrator or any handler that builds its own state.
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false}
+      }
+
+      next =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [queued],
+          &consume_available_slots/2,
+          admission_probes_fun: probes
+        )
+
+      assert Map.has_key?(next.running, queued.id)
+      assert next.capacity_hold == nil
+      assert next.dispatch_capacity_constraints == []
+    end
+
+    test "still holds the same load once the window is measurable and shows contention", %{
+      probes: probes,
+      queued: queued
+    } do
+      # Identical probes; the only difference is a baseline the window can be
+      # measured against. 10 idle jiffies out of 200 is 5% reclaimable, so the
+      # hold is now backed by a measurement — a fix that simply stopped holding
+      # would fail here.
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        load_envelope_state: %{
+          last_decrease_ms: nil,
+          cpu_snapshot: %{total: 1_000, idle: 700, nice: 100, runnable: 200},
+          bootstrap_complete?: true
+        }
+      }
+
+      next =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [queued],
+          &consume_available_slots/2,
+          admission_probes_fun: probes
+        )
+
+      assert next.running == %{}
+
+      assert %{signal: :run_queue, reclaimable_cpu_percent: 5.0, reclaimable_cpu_threshold: 60.0} =
+               next.capacity_hold
+    end
+  end
+
   describe "capacity constraint sampling" do
     test "preserves a load gate age while memory and FD holds mask admission" do
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -892,7 +983,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           ]
         end)
 
+      # Advancing /proc/stat counters that grow almost entirely in non-idle time,
+      # so every cycle measures a real 5%-reclaimable window. The load gate needs
+      # that measurement before it can hold at all (#2089).
+      {:ok, cpu_cycles} = Agent.start_link(fn -> 0 end)
+
       admission_probes = fn ->
+        cycle = Agent.get_and_update(cpu_cycles, &{&1 + 1, &1 + 1})
+
         Agent.get_and_update(admission_samples, fn [sample | rest] -> {sample, rest} end)
         |> Map.merge(%{
           memory_threshold_mb: 2_048,
@@ -903,10 +1001,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           load_threshold: 1.0,
           build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
           provider_backends: [],
-          cpu_snapshot: :unavailable,
+          cpu_snapshot: %{total: 1_000 + 200 * cycle, idle: 700 + 10 * cycle, nice: 100, runnable: 20},
           target: nil
         })
       end
+
+      cpu_baseline = %{total: 1_000, idle: 700, nice: 100, runnable: 20}
 
       ready = issue("persistent-load")
 
@@ -921,7 +1021,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       end
 
       waiting =
-        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+        %State{
+          max_concurrent_agents: 1,
+          effective_concurrent_agents: 1,
+          load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: cpu_baseline, bootstrap_complete?: true}
+        }
         |> sample.()
         |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
 
@@ -1153,7 +1257,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
     end
 
-    test "a repeated load hold drops stale CPU corroboration when the next sample is unavailable" do
+    # #2089: an unmeasurable CPU window cannot keep a load hold alive. The hold
+    # is released, the queued work is admitted, and the hold is re-asserted as
+    # soon as a measured window shows contention again — so a held fleet always
+    # holds on evidence, never on the absence of it.
+    test "a load hold is released, not retained uncorroborated, when the next CPU sample is unavailable" do
       test_pid = self()
       previous_cpu = %{total: 1_000, idle: 700, nice: 100, runnable: 20}
       current_cpu = %{total: 1_200, idle: 710, nice: 100, runnable: 20}
@@ -1189,18 +1297,35 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       assert %{reclaimable_cpu_percent: 5.0, reclaimable_cpu_threshold: 60.0} = held.capacity_hold
+      assert map_size(held.running) == 0
 
       unavailable =
         Dispatcher.maybe_choose_under_load(
-          held,
+          %{held | load_envelope_state: %{held.load_envelope_state | cpu_snapshot: nil}},
           [issue("cpu-evidence")],
-          noop_choose(),
+          &consume_available_slots/2,
           capacity_opts(test_pid, 2_000) ++
             [admission_probes_fun: fn -> Map.put(base_probes, :cpu_snapshot, :unavailable) end]
         )
 
-      refute Map.has_key?(unavailable.capacity_hold, :reclaimable_cpu_percent)
-      refute Map.has_key?(unavailable.capacity_hold, :reclaimable_cpu_threshold)
+      assert unavailable.capacity_hold == nil
+      assert map_size(unavailable.running) == 1
+
+      recorroborated =
+        Dispatcher.maybe_choose_under_load(
+          %{
+            unavailable
+            | running: %{},
+              load_envelope_state: %{unavailable.load_envelope_state | cpu_snapshot: previous_cpu}
+          },
+          [issue("cpu-evidence")],
+          &consume_available_slots/2,
+          capacity_opts(test_pid, 3_000) ++
+            [admission_probes_fun: fn -> Map.put(base_probes, :cpu_snapshot, current_cpu) end]
+        )
+
+      assert %{signal: :load, reclaimable_cpu_percent: 5.0} = recorroborated.capacity_hold
+      assert map_size(recorroborated.running) == 0
     end
 
     test "dependency-paused agents do not prevent a queued keystone from reaching dispatch selection" do

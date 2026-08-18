@@ -101,8 +101,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     view = %{ready_view() | state: :stale, retained?: true, freshness: %{status: :stale, label: "Stale"}}
     html = render(view)
 
-    assert html =~ "Stale summary"
-    assert html =~ "last known-good"
+    assert html =~ "Not live."
+    assert html =~ "Showing the values we last read for this run"
     assert html =~ "run-summary-grid"
     assert html =~ ~s(class="run-summary-progress-fill is-stale")
 

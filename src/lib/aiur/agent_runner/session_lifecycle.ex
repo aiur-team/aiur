@@ -73,7 +73,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       :headless_wrapper ->
         case headless_os_pid(session) do
           nil -> nil
-          pid -> %{headless_os_pid: pid}
+          pid -> %{headless_os_pid: pid, headless_process_group_id: process_group_id(session)}
         end
 
       nil ->

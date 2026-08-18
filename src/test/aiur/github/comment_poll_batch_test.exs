@@ -24,10 +24,6 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       refute body["query"] =~ ~r/pullRequests\(states:\s*OPEN/
       refute body["query"] =~ ~r/pullRequests\(first:/
       assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
-      # Comment tails are read newest-first so a >100-comment target does not
-      # overflow into a permanent per-cycle REST fallback.
-      refute body["query"] =~ "comments(first: 100)"
-      assert body["query"] =~ "comments(last: 100)"
       assert body["variables"] == %{"owner" => "owner", "repo" => "repo"}
 
       {:ok,
@@ -36,10 +32,10 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "target_0" => issue([comment(1, "issue comment")]),
+               "target_0" => issue(),
                "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
-                 "nodes" => [pull_request(77, "aiur/42-comment-batch", [comment(2, "PR comment")])]
+                 "nodes" => [pull_request(77, "aiur/42-comment-batch")]
                }
              }
            }
@@ -54,74 +50,36 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
                since: %{"42" => "2026-07-30T00:00:00Z"}
              )
 
-    assert [%{"body" => "issue comment"}] = batch.issue_comments
     assert %{"number" => 77, "head" => %{"ref" => "aiur/42-comment-batch"}} = batch.open_pull_request
-    assert [%{"body" => "PR comment"}] = batch.pr_issue_comments
-    assert batch.review_thread_comments == []
   end
 
-  # The batch reads `comments(last: 100)`, so "more comments exist" is only a
-  # problem when more than 100 arrived inside one poll interval. A long-running
-  # ticket with 500 comments must stay in the batch, or the savings evaporate on
-  # exactly the busiest targets.
-  defp overflowing_issue_request_fun(comments) do
-    fn %{method: :post} ->
+  # The load-bearing cost assertion for #2069. Comments were the batch's largest
+  # node contribution and they are now read over conditional REST, where an
+  # unchanged list answers 304 and costs nothing. If a `comments` connection
+  # ever returns to this query, the poller silently stops using its ETag cache
+  # for that target and the steady-state cycle stops being free — so this is
+  # asserted on the query text rather than inferred from the result.
+  test "never requests comments: they are read over conditional REST instead" do
+    request_fun = fn %{method: :post, body: body} ->
+      refute body["query"] =~ "comments(last: 100)"
+      refute body["query"] =~ "comments(first: 100)"
+
       {:ok,
        %{
          status: 200,
          body: %{
            "data" => %{
              "repository" => %{
-               "target_0" =>
-                 comments
-                 |> issue()
-                 |> put_in(["comments", "pageInfo"], %{"hasPreviousPage" => true}),
-               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "target_0" => issue(),
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request(77, "aiur/42-comment-batch")]
+               }
              }
            }
          }
        }}
     end
-  end
-
-  test "keeps a target with more than 100 comments when the newest-100 window covers the cursor" do
-    request_fun =
-      overflowing_issue_request_fun([
-        comment(1, "older than cursor", "2026-07-30T11:00:00Z"),
-        comment(2, "newer than cursor", "2026-07-30T13:00:00Z")
-      ])
-
-    assert {:ok, %{"42" => batch}} =
-             CommentPollBatch.fetch(["42"],
-               request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
-               since: %{"42" => "2026-07-30T12:00:00Z"}
-             )
-
-    # Not omitted: the window reaches back past the cursor, so it is complete
-    # for the poller's purposes even though older comments exist.
-    assert Map.has_key?(batch, :issue_comments)
-    assert [%{"body" => "newer than cursor"}] = batch.issue_comments
-  end
-
-  test "omits a target when every comment in the window is newer than the cursor" do
-    request_fun = overflowing_issue_request_fun([comment(1, "newer than cursor", "2026-07-30T13:00:00Z")])
-
-    assert {:ok, %{"42" => batch}} =
-             CommentPollBatch.fetch(["42"],
-               request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
-               since: %{"42" => "2026-07-30T12:00:00Z"}
-             )
-
-    refute Map.has_key?(batch, :issue_comments)
-  end
-
-  # Without a cursor the batch cannot bound the window, while the REST path
-  # still applies the poller's default `since`. Trusting the raw window would
-  # replay a target's whole comment history after an orchestrator restart.
-  test "omits a target's comments when no cursor is known" do
-    request_fun = overflowing_issue_request_fun([comment(1, "first page", "2026-07-30T12:00:00Z")])
 
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"],
@@ -129,7 +87,110 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
                branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
              )
 
-    refute Map.has_key?(batch, :issue_comments)
+    # The poller reads `:missing` for every comment key and takes the conditional
+    # REST path. Asserting the exact key set rather than refuting two names is
+    # what makes this fail if any comment key comes back: a refute of a name the
+    # batch cannot emit passes against every implementation, including a broken
+    # one.
+    #
+    # The cursor window this call used to pass (`since:`) moved with the comment
+    # read itself: `Aiur.GitHub.Comments.comment_query/1` owns it now, and
+    # `Aiur.GitHub.CommentsTest` asserts it reaches the URL.
+    assert batch |> Map.keys() |> Enum.sort() == [:open_pull_request]
+  end
+
+  # The other half of the cost claim. A branch alias asks for up to five
+  # candidate pull requests per branch and up to two branches per target, so
+  # attaching `reviewThreads(first: 100) { comments(last: 20) }` to those nodes
+  # bought the complete inline-review contents of up to ten pull requests in
+  # order to learn one number.
+  test "branch alias candidates carry identity only, never review threads" do
+    request_fun = fn %{method: :post, body: body} ->
+      [_before, branch_section] = String.split(body["query"], "branch_0_0:", parts: 2)
+      refute branch_section =~ "reviewThreads"
+      assert branch_section =~ "number state headRefName"
+      # Review context is identity-cheap and the rework gate needs it, so it
+      # stays on the candidate.
+      assert branch_section =~ "reviewDecision"
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue(),
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request(77, "aiur/42-comment-batch")]
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => _batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+  end
+
+  # An empty list would read as "this pull request has no unaddressed threads"
+  # and drop every inline review comment on it. Omitting the key sends the
+  # poller to a per-pull-request read for the one PR that actually resolved.
+  test "omits review threads for a branch-discovered pull request rather than claiming none" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue(),
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request(77, "aiur/42-comment-batch")]
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
+    assert %{"number" => 77} = batch.open_pull_request
+    refute Map.has_key?(batch, :review_thread_comments)
+  end
+
+  # The direct node is not speculative — it is the target itself — so it keeps
+  # the full field set and its threads are answered here.
+  test "answers review threads for a target that is itself the pull request" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => pull_request(77, "feature/watched"),
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
+
+    assert %{"number" => 77, "head" => %{"ref" => "feature/watched"}} = batch.open_pull_request
+    assert batch.review_thread_comments == []
   end
 
   test "omits a target whose legacy branch guess finds no PR so REST can resolve it" do
@@ -142,7 +203,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "target_0" => issue([comment(1, "issue comment")]),
+               "target_0" => issue(),
                "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
@@ -154,64 +215,10 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     refute Map.has_key?(batch, "42")
   end
 
-  test "uses the direct pull request node when the target number is the PR itself" do
-    request_fun = fn %{method: :post} ->
-      {:ok,
-       %{
-         status: 200,
-         body: %{
-           "data" => %{
-             "repository" => %{
-               "target_0" => pull_request(77, "feature/watched", [comment(3, "watched PR comment")]),
-               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
-             }
-           }
-         }
-       }}
-    end
-
-    assert {:ok, %{"77" => batch}} =
-             CommentPollBatch.fetch(["77"], request_fun: request_fun, since: %{"77" => "2026-07-30T00:00:00Z"})
-
-    assert %{"number" => 77, "head" => %{"ref" => "feature/watched"}} = batch.open_pull_request
-    assert [%{"body" => "watched PR comment"}] = batch.pr_issue_comments
-  end
-
-  test "filters the batch window to comments at or after the since cursor" do
-    request_fun = fn %{method: :post} ->
-      {:ok,
-       %{
-         status: 200,
-         body: %{
-           "data" => %{
-             "repository" => %{
-               "target_0" =>
-                 issue([
-                   comment(1, "already seen", "2026-07-30T11:00:00Z"),
-                   comment(2, "new", "2026-07-30T13:00:00Z")
-                 ]),
-               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
-             }
-           }
-         }
-       }}
-    end
-
-    assert {:ok, %{"42" => batch}} =
-             CommentPollBatch.fetch(["42"],
-               request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
-               since: %{"42" => "2026-07-30T12:00:00Z"}
-             )
-
-    # Without this filter the batch republishes the whole newest-100 window
-    # every cycle and leans entirely on publisher dedup.
-    assert [%{"body" => "new"}] = batch.issue_comments
-  end
-
   # #1756: the rework gate reads the review decision and the head commit's
   # authored date off the published comment event. The batch is the only place
-  # those two facts are fetched, so they must survive normalization.
+  # those two facts are fetched, so they must survive normalization — including
+  # on a branch-discovered candidate, whose field set is otherwise minimal.
   test "carries the review decision and head commit date into the pull request payload" do
     request_fun = fn %{method: :post, body: body} ->
       assert body["query"] =~ "reviewDecision"
@@ -219,7 +226,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
       pull_request =
         77
-        |> pull_request("aiur/42-comment-batch", [])
+        |> pull_request("aiur/42-comment-batch")
         |> Map.put("reviewDecision", "CHANGES_REQUESTED")
         |> Map.put("commits", %{"nodes" => [%{"commit" => %{"committedDate" => "2026-08-10T04:29:00Z"}}]})
 
@@ -229,7 +236,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "target_0" => issue([]),
+               "target_0" => issue(),
                "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request]}
              }
            }
@@ -255,10 +262,10 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "target_0" => issue([]),
+               "target_0" => issue(),
                "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
-                 "nodes" => [pull_request(77, "aiur/42-comment-batch", [])]
+                 "nodes" => [pull_request(77, "aiur/42-comment-batch")]
                }
              }
            }
@@ -276,28 +283,45 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert batch.open_pull_request["head_committed_at"] == nil
   end
 
-  defp issue(comments), do: %{"comments" => %{"nodes" => comments}}
+  # The normalized payload is handed to the poller as the PR object, so the
+  # batch's own bookkeeping keys must not leak into it.
+  test "strips batch-internal keys from the pull request payload" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => pull_request(77, "feature/watched"),
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
 
-  defp pull_request(number, branch, comments) do
+    assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
+
+    # The whole key set, not a list of three names. Naming the keys that must be
+    # absent only guards the ones somebody remembered: `:review_threads_page_info`
+    # is dropped by the same `Map.drop/2` and was not among them, so a leak of it
+    # was uncaught. An exact set fails on any key that starts or stops being
+    # stripped.
+    assert batch.open_pull_request |> Map.keys() |> Enum.sort() ==
+             ["base", "head", "head_committed_at", "number", "review_decision", "state"]
+  end
+
+  defp issue, do: %{}
+
+  defp pull_request(number, branch) do
     %{
       "number" => number,
       "state" => "OPEN",
       "headRefName" => branch,
       "headRefOid" => "head-#{number}",
       "baseRefName" => "develop",
-      "comments" => %{"nodes" => comments},
       "reviewThreads" => %{"nodes" => []}
-    }
-  end
-
-  defp comment(id, body, created_at \\ "2026-07-30T12:00:00Z") do
-    %{
-      "databaseId" => id,
-      "body" => body,
-      "createdAt" => created_at,
-      "updatedAt" => created_at,
-      "url" => "https://example.test/comments/#{id}",
-      "author" => %{"login" => "its-everdred"}
     }
   end
 end

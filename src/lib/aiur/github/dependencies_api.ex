@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.DependenciesApi do
   GitHub native Issue Dependencies REST API domain.
   """
 
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.{Errors, Transport, WriteThrough}
 
   # ---------------------------------------------------------------------------
   # Issue Dependencies REST API helpers
@@ -110,6 +110,10 @@ defmodule Aiur.GitHub.DependenciesApi do
           {:ok, :removed}
 
         {:ok, %{status: status, body: body}} when status in [200, 201] and is_map(body) ->
+          # A dependency add answers with the blocking issue itself. Deposited
+          # only when it really is an issue — the endpoint is newer than the
+          # rest of this client and its shape is not something to assume.
+          WriteThrough.issue(body)
           {:ok, body}
 
         {:ok, %{status: _status} = response} ->

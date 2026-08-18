@@ -6,7 +6,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DecisionStore, DispatchBudgetStore, Issue, RepoBase, SystemCpu, Tracker}
+  alias Aiur.{
+    AgentRunner,
+    AlertFeed,
+    Alerts,
+    CodingAgent,
+    Config,
+    DecisionStore,
+    DispatchBudgetStore,
+    Issue,
+    PollCadence,
+    RepoBase,
+    SystemCpu,
+    Tracker
+  }
+
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
@@ -48,6 +62,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Lifecycle.schedule_tick(schedule.delay_ms)
       |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
+
+    # Every freshness threshold is a multiple of the cadence actually in force,
+    # so the scheduled delay — idle backoff, webhook widening and GitHub's own
+    # floors already composed in — is published where any reader can derive
+    # from it. See `Aiur.PollCadence`.
+    :ok = PollCadence.publish_effective_interval_ms(schedule.delay_ms)
 
     state = %{state | poll_check_in_progress: false}
 
@@ -2239,6 +2259,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             repl_pane_id: nil,
             repl_os_pid: nil,
             headless_os_pid: nil,
+            headless_process_group_id: nil,
             agent_input_tokens: 0,
             agent_output_tokens: 0,
             agent_total_tokens: 0,

@@ -1025,6 +1025,46 @@ defmodule AiurEngineTest do
     assert out =~ "build_order: Base.decode64!"
   end
 
+  test "github-cost routes the budget selection through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --budget core --json|,
+        []
+      )
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "core", json: true])|
+  end
+
+  test "github-cost defaults to the GraphQL budget, which is the one that runs out" do
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost|, [])
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql"])|
+  end
+
+  test "github-cost passes an output format through as an atom" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_cost --format records|,
+        []
+      )
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_cost([budget: "graphql", format: :records])|
+  end
+
+  test "github-cost rejects malformed launcher arguments before an RPC" do
+    for {argv, message} <- [
+          {~s|--budget points|, "github-cost --budget accepts graphql, core or all"},
+          {~s|--budget|, "github-cost --budget requires a value"},
+          {~s|--format wide|, "github-cost --format accepts auto, table or records"},
+          {~s|--format|, "github-cost --format requires a value"},
+          {~s|--unknown|, "github-cost received an unknown option"},
+          {~s|extra|, "github-cost does not accept positional arguments"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_github_cost #{argv}", [])
+      assert out =~ message
+    end
+  end
+
   test "analytics rejects malformed launcher arguments before an RPC" do
     for {argv, message} <- [
           {~s|--range week|, "analytics --range accepts run or full"},

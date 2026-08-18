@@ -29,6 +29,14 @@ defmodule Aiur.Config.Schema.Polling do
     field(:idle_widen_factor, :float, default: 5.0)
     # Usage endpoint allows ~1 request/2min, per account. Measured floor 120s.
     field(:usage_interval_seconds, :integer, default: 300)
+    # The single view-state reconciliation sweep. It exists only to recover a
+    # webhook delivery that was lost — measured at 9 of 100 during a restart,
+    # with no GitHub retry and no late arrival — so it is a recovery bound, not a
+    # freshness knob: a delivery that arrives is already free and instant, and
+    # shortening this makes nothing fresher. 15 minutes bounds the worst-case
+    # blind spot to well inside an operator's attention span while costing a
+    # fraction of what the three per-source cadences it replaced did.
+    field(:view_state_sweep_seconds, :integer, default: 900)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -40,8 +48,9 @@ defmodule Aiur.Config.Schema.Polling do
     end
 
     schema
-    |> cast(attrs, [:interval_seconds, :idle_widen_factor, :usage_interval_seconds], empty_values: [])
+    |> cast(attrs, [:interval_seconds, :idle_widen_factor, :usage_interval_seconds, :view_state_sweep_seconds], empty_values: [])
     |> validate_number(:interval_seconds, greater_than: 0)
+    |> validate_number(:view_state_sweep_seconds, greater_than: 0)
     |> validate_number(:idle_widen_factor,
       greater_than_or_equal_to: 1.0,
       less_than_or_equal_to: @max_idle_widen_factor,

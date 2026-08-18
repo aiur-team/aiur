@@ -5225,6 +5225,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
       issue_id = "issue-stall-working"
       identifier = "STALL-W"
 
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.#{identifier}.agent.stalled")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
       stale_at = DateTime.add(DateTime.utc_now(), -600, :second)
 
       worker_pid = spawn(fn -> Process.sleep(:infinity) end)
@@ -5252,6 +5260,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert %{identifier: ^identifier, error: "stalled" <> _} =
                Map.get(next.retry_attempts, issue_id)
+
+      assert_receive {:event, %{topic: "ticket.STALL-W.agent.stalled"} = event}, 500
+      assert event["needs_attention"] == true
+      assert event["reason"] =~ "no-progress window"
     end
 
     test "claude-hook activity refreshes liveness so an active RC-claude entry is NOT stall-restarted" do

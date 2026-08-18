@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, Config, DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Config, DecisionMetrics, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
@@ -394,7 +394,10 @@ defmodule AiurWeb.StreamdeckProjection do
   defp datetime(_value), do: nil
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
-  defp snapshot_timeout_ms, do: endpoint_config(:snapshot_timeout_ms) || 15_000
+  # The configured value is the floor, not the tolerance: a fixed 15s window
+  # against a 120s poll marks a healthy fleet stale for most of every cycle.
+  # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
+  defp snapshot_timeout_ms, do: PollCadence.snapshot_tolerance_ms(endpoint_config(:snapshot_timeout_ms) || 15_000)
 
   defp safe_call(fun, fallback) when is_function(fun, 0) do
     fun.()

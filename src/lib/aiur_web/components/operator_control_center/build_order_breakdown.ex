@@ -269,16 +269,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   defp degraded_role(:structurally_invalid), do: "alert"
   defp degraded_role(_status), do: "status"
 
-  defp degraded_title(:provider_stale), do: "Plan distribution is stale"
+  defp degraded_title(:provider_stale), do: "Plan distribution is not live"
   defp degraded_title(:provider_unavailable), do: "Plan distribution unavailable"
-  defp degraded_title(:structurally_invalid), do: "Plan distribution is structurally invalid"
+  defp degraded_title(:structurally_invalid), do: "Plan distribution is unreadable"
 
   defp degraded_message(:provider_stale),
-    do: "Showing no breakdown while the planning graph is a stale last-known-good snapshot."
+    do: "No breakdown while the plan is out of date."
 
   defp degraded_message(:provider_unavailable),
-    do: "The planning graph is unavailable, so the plan breakdown cannot be computed."
+    do: "The plan is unavailable, so the breakdown cannot be worked out."
 
   defp degraded_message(:structurally_invalid),
-    do: "The planning graph is structurally invalid, so the plan breakdown cannot be computed."
+    do: "The plan is unreadable, so the breakdown cannot be worked out."
 end

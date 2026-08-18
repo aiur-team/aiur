@@ -8,11 +8,22 @@ defmodule Aiur.OpenTicketSource do
   Tickets panel needs the whole open backlog — including the tickets nobody has
   routed yet — which is exactly the set no other provider holds.
 
-  This poller lists open issues on a slow cadence, keeps the last successful
-  listing as last-known-good, and reports a named stale/unavailable status on
-  failure rather than presenting an empty list as fresh truth. It is modelled on
+  This source lists open issues, keeps the last successful listing as
+  last-known-good, and reports a named stale/unavailable status on failure rather
+  than presenting an empty list as fresh truth. It is modelled on
   `Aiur.BuildOrder.AdHocSource`, which solves the same problem for the Ad Hoc
   overlay.
+
+  It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
+  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
+  between. Three sources each running their own interval against one API is what
+  this ticket exists to remove, and this listing in particular was the fastest
+  unconditional full-backlog read in the system.
+
+  It does not yet read the store or subscribe to its change events, so the sweep
+  is currently the only thing that refreshes it and a change made outside Aiur
+  surfaces within one sweep interval. That latency is what the store
+  subscription removes; this module's job here was removing the cost.
   """
 
   use GenServer
@@ -24,9 +35,6 @@ defmodule Aiur.OpenTicketSource do
   alias Aiur.OpenTicketSource.Snapshot
 
   @topic "open_tickets:changed"
-  # The open backlog changes far more slowly than fleet state, and this listing
-  # is unconditional (no ETag), so it polls well inside the REST rate budget.
-  @default_interval :timer.minutes(2)
   @max_pages 10
   # Issue bodies are large on a planning-heavy repository, so the response is
   # bounded rather than decoded in full.
@@ -81,7 +89,6 @@ defmodule Aiur.OpenTicketSource do
     state = %{
       snapshot: %Snapshot{},
       inflight: nil,
-      interval: Keyword.get(opts, :poll_interval, @default_interval),
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
@@ -107,7 +114,10 @@ defmodule Aiur.OpenTicketSource do
   def handle_cast(:refresh, state), do: {:noreply, ensure_fetch(state)}
 
   @impl true
-  def handle_info(:poll, state), do: {:noreply, state |> ensure_fetch() |> schedule_next()}
+  # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
+  # asks this source to reconcile; `:poll` remains so a boot fill and an explicit
+  # sweep both land on the same path.
+  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state)}
 
   def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -128,11 +138,6 @@ defmodule Aiur.OpenTicketSource do
     request = Map.take(state, [:repo_fun, :token_fun, :request_fun, :github_fun, :label_prefix])
     task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> fetch(request) end)
     %{state | inflight: task.ref}
-  end
-
-  defp schedule_next(state) do
-    Process.send_after(self(), :poll, state.interval)
-    state
   end
 
   @spec fetch(map()) :: {:ok, [Snapshot.ticket()], boolean()} | {:error, term()} | :unsupported

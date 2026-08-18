@@ -1,5 +1,15 @@
 # Daemon read-budget projection — 20-agent steady state (2026-07-30)
 
+> **Superseded for the comment path (2026-08-17, #2069).** Everything below
+> about comments travelling in the GraphQL batch is now history. The batch no
+> longer fetches comments at all: it resolves pull request identity only, and
+> comments are read over conditional REST where an unchanged list answers 304.
+> The "Comment fan-out … 720 GraphQL calls/hr" row and the `comments(last: 100)`
+> design notes describe the old shape. See
+> [2026-08-17-comment-poll-webhook-reconciliation.md](2026-08-17-comment-poll-webhook-reconciliation.md)
+> for the current model and for GitHub-priced before/after numbers. The CI batch,
+> the fixed issue lists, and the command scan are unchanged by that work.
+
 This records the before/after request budget for the incident configuration:
 20 active agents and a five-second poll interval (720 cycles/hour). The
 baseline is the call-budget audit on #678.

@@ -71,7 +71,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
         announcement: Presenter.announcement(view)
       )
 
-    assert html =~ "Stale outcomes"
+    assert html =~ "Not live."
     assert html =~ "PR #1"
   end
 

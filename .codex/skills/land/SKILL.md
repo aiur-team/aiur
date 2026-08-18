@@ -62,7 +62,9 @@ description:
 branch=$(git branch --show-current)
 pr_number=$(gh pr view --json number -q .number)
 pr_title=$(gh pr view --json title -q .title)
-pr_body=$(gh pr view --json body -q .body)
+pr_body_file=$(mktemp "${TMPDIR:-/tmp}/aiur-land-body.XXXXXX")
+trap 'rm -f "$pr_body_file"' EXIT
+gh pr view --json body -q .body > "$pr_body_file"
 
 # Check mergeability and conflicts
 mergeable=$(gh pr view --json mergeable -q .mergeable)
@@ -95,7 +97,7 @@ if ! gh pr checks --watch; then
 fi
 
 # Squash-merge (remote branches auto-delete on merge in this repo)
-gh pr merge --squash --subject "$pr_title" --body "$pr_body"
+gh pr merge --squash --subject "$pr_title" --body-file "$pr_body_file"
 ```
 
 ## Async Watch Helper
@@ -159,8 +161,11 @@ Exit codes:
     ```
   - Reply to a specific review comment:
     ```
+    reply_body_file=$(mktemp "${TMPDIR:-/tmp}/aiur-review-reply.XXXXXX")
+    printf '%s\n' '[codex] <response>' > "$reply_body_file"
     gh api -X POST /repos/{owner}/{repo}/pulls/<pr_number>/comments \
-      -f body='[codex] <response>' -F in_reply_to=<comment_id>
+      -F "body=@$reply_body_file" -F in_reply_to=<comment_id>
+    rm -f "$reply_body_file"
     ```
 - `in_reply_to` must be the numeric review comment id (e.g., `2710521800`), not
   the GraphQL node id (e.g., `PRRC_...`), and the endpoint must include the PR

@@ -54,10 +54,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
       <div class="decision-list">
         <div :if={@provider_health != :ok or @page_health == :unavailable} class="empty-state">
-          Command projection is currently unavailable. Unit state remains live.
+          Commands are unavailable right now. Unit state is still live.
         </div>
         <div :if={@page_health == :partial} class="empty-state compact" role="status">
-          Retained Commands are partial; showing the last validated audit prefix.
+          Showing a partial list of Commands.
         </div>
         <div :if={@provider_health == :ok and @page_health != :unavailable and @visible_decisions == []} class="empty-state">
           {empty_message(@filter)}
