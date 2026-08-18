@@ -913,8 +913,6 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp matrix_combinations(_job), do: []
-
   defp expand_matrix_combinations(matrix) do
     axes = Map.drop(matrix, ["include", "exclude"])
 
@@ -943,21 +941,28 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp apply_matrix_includes(combinations, includes) do
-    combinations =
-      Enum.reduce(includes, combinations, fn entry, acc ->
-        matching_indices =
-          acc
-          |> Enum.with_index()
-          |> Enum.filter(fn {combo, _index} -> include_matches?(combo, entry) end)
-          |> Enum.map(fn {_combo, index} -> index end)
+    includes
+    |> Enum.reduce(combinations, &merge_include_entry(&2, &1))
+    |> Enum.reverse()
+    |> Enum.uniq()
+  end
 
-        case matching_indices do
-          [] -> [entry | acc]
-          indices -> Enum.reduce(indices, acc, fn index, list -> List.update_at(list, index, &Map.merge(&1, entry)) end)
-        end
-      end)
+  defp merge_include_entry(combinations, entry) do
+    case matching_include_indices(combinations, entry) do
+      [] -> [entry | combinations]
+      indices -> Enum.reduce(indices, combinations, &merge_include_index(&2, &1, entry))
+    end
+  end
 
-    combinations |> Enum.reverse() |> Enum.uniq()
+  defp matching_include_indices(combinations, entry) do
+    combinations
+    |> Enum.with_index()
+    |> Enum.filter(fn {combination, _index} -> include_matches?(combination, entry) end)
+    |> Enum.map(fn {_combination, index} -> index end)
+  end
+
+  defp merge_include_index(combinations, index, entry) do
+    List.update_at(combinations, index, &Map.merge(&1, entry))
   end
 
   defp include_matches?(combination, entry) when is_map(combination) and is_map(entry) do
