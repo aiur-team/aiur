@@ -3921,42 +3921,41 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-width: 0;
 }
 
-/* A provider meter is a single logo-height line. Models need only the flexible
-   bar and its status text; API windows retain their Core/GraphQL/Credits label
-   because one API can expose more than one independent budget. */
+/* A provider meter is a standard progress bar with its label and meta on the
+   line directly above the bar. The label line and the thin bar share the same
+   fixed row height, so restoring the label-above-bar design does not expand the
+   row: the label rides close above the bar inside the one logo-height line. */
 .rs-provider-row .rs-limit {
   display: grid;
-  align-items: center;
-  gap: 0.45rem;
+  gap: 0.1rem;
   height: var(--rs-provider-row-height);
   min-width: 0;
 }
 
-.rs-model .rs-limit {
-  grid-template:
-    "meter meta" var(--rs-provider-row-height) /
-    minmax(0, 1fr) 9rem;
-}
-
+.rs-model .rs-limit,
 .rs-api .rs-limit {
   grid-template:
-    "label meter meta" var(--rs-provider-row-height) /
-    3.5rem minmax(0, 1fr) 7rem;
+    "label meta" minmax(0, 1fr)
+    "meter meter" var(--rs-meter-height, 0.34rem) /
+    minmax(0, 1fr) 9rem;
 }
 
 .rs-provider-row .rs-meter {
   grid-area: meter;
+  align-self: end;
   width: 100%;
-  height: var(--rs-provider-row-height);
+  height: var(--rs-meter-height, 0.34rem);
 }
 
 .rs-provider-row .rs-limit-label {
   grid-area: label;
+  align-self: start;
 }
 
 .rs-provider-row .rs-limit-meta {
   grid-area: meta;
   justify-self: end;
+  align-self: start;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3966,8 +3965,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-provider-row .rs-limit-meta,
 .rs-provider-row .rs-stat-label,
 .rs-provider-row .rs-stat-val {
-  height: var(--rs-provider-row-height);
-  line-height: var(--rs-provider-row-height);
+  line-height: 1;
 }
 
 .rs-provider-row .rs-limit-meta {
@@ -4301,15 +4299,12 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   }
 
   .rs-provider-row .rs-limit {
-    gap: 0.3rem;
+    gap: 0.15rem;
   }
 
-  .rs-model .rs-limit {
-    grid-template-columns: minmax(0, 1fr) 6.5rem;
-  }
-
+  .rs-model .rs-limit,
   .rs-api .rs-limit {
-    grid-template-columns: 3rem minmax(0, 1fr) 5.8rem;
+    grid-template-columns: minmax(0, 1fr) 6.5rem;
   }
 
   .rs-provider-row .rs-limit-label,
