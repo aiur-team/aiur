@@ -136,7 +136,7 @@ defmodule Aiur.GitHub.CIPollBatch do
                   pageInfo { hasNextPage endCursor }
                   nodes {
                     __typename
-                    ... on CheckRun { name status conclusion detailsUrl startedAt completedAt output { summary text } }
+                    ... on CheckRun { name status conclusion detailsUrl startedAt completedAt }
                     ... on StatusContext { context state targetUrl createdAt description }
                   }
                 }
