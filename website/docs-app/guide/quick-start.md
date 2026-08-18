@@ -50,7 +50,7 @@ Continue with the [Dashboard](/guide/executor-control-center) guide.
 | `aiur restart` | Stop the session, refresh the release, and start it again detached. Add `--no-build` to bounce on the release already on disk. |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |
 | `aiur set max-agents <n>` | Change the concurrent-agent cap while the run is active. |
-| `aiur message <id> "<text>"` | Send an Executor message through the agent’s native queue. |
+| `aiur message <id> "<text>"` | Queue an Executor message on the agent’s native queue. It reports whether the agent claimed the message or it is still queued. |
 | `aiur --todo <ids…> [--only]` | Queue selected tickets; `--only` dequeues other pending tickets. |
 
 See [CLI and control commands](/reference/cli) for the complete operational surface.
