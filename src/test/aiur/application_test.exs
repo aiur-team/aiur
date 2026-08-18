@@ -333,6 +333,14 @@ defmodule Aiur.ApplicationTest do
       refute Aiur.Events.LsRemoteTicker in mods
     end
 
+    test "the booted test application supervises BranchRefStore without a ticker writing to it" do
+      # The flake this guards (#1745): a live ticker replaces the singleton
+      # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
+      # vanishes before that test asserts on it.
+      assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
+      refute Process.whereis(Aiur.Events.LsRemoteTicker)
+    end
+
     test "production child specs enable the remote ref ticker by default" do
       ticker_enabled? = Application.fetch_env!(:aiur, :ls_remote_ticker_enabled?)
       on_exit(fn -> Application.put_env(:aiur, :ls_remote_ticker_enabled?, ticker_enabled?) end)
