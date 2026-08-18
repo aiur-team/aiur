@@ -41,6 +41,12 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | `.aiur/alerts` | Maps event-topic patterns to messages and optional sounds. |
 | `emit_alert` | Lets agents raise milestone alerts for the Executor. |
 | Dashboard and TUI | Show active attention and failure states. |
+| Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
+
+Background runs write the daemon dump beneath the durable run-log root by
+default. Operators may override its location with `ERL_CRASH_DUMP` and bound
+the write with `ERL_CRASH_DUMP_SECONDS`; Aiur removes both variables from agent
+and build children so only the daemon owns that evidence.
 
 ## Usage and account meters
 

@@ -74,8 +74,8 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
   end
 
   test "preserves shareable retained-page state without exposing it to non-All filters" do
-    assert DecisionPath.inbox(:all, %{search: "AIUR-42", cursor: "opaque"}) ==
-             "/commands?cursor=opaque&search=AIUR-42"
+    assert DecisionPath.inbox(:all, %{search: "AIUR-42", cursor: "opaque", sort: "command-history:result:desc"}) ==
+             "/commands?cursor=opaque&search=AIUR-42&sort=command-history%3Aresult%3Adesc"
 
     assert DecisionPath.detail("dec /42", :blocking, %{cursor: "opaque"}) ==
              "/commands/dec%20%2F42?cursor=opaque&filter=blocking"

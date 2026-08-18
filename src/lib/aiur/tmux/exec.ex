@@ -10,6 +10,10 @@ defmodule Aiur.Tmux.Exec do
   alias Aiur.Tmux.MockTransport
 
   @spec run_command(map(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def run_command(%{transport: {:mock, pid, response_timeout}}, cmd) do
+    MockTransport.request(pid, cmd, response_timeout)
+  end
+
   def run_command(%{transport: {:mock, pid}}, cmd) do
     MockTransport.request(pid, cmd)
   end
@@ -19,6 +23,10 @@ defmodule Aiur.Tmux.Exec do
   end
 
   @spec run_args(map(), [String.t()]) :: {:ok, [String.t()]} | {:error, term()}
+  def run_args(%{transport: {:mock, pid, response_timeout}}, args) do
+    MockTransport.request(pid, Enum.join(args, " "), response_timeout)
+  end
+
   def run_args(%{transport: {:mock, pid}}, args) do
     MockTransport.request(pid, Enum.join(args, " "))
   end
@@ -50,6 +58,7 @@ defmodule Aiur.Tmux.Exec do
   # the test pid rather than Logger, so only the shell path needs a
   # value-free variant; on error it logs the subcommand and status only.
   @spec run_args_silent(map(), [String.t()]) :: {:ok, [String.t()]} | {:error, term()}
+  def run_args_silent(%{transport: {:mock, _, _}} = state, args), do: run_args(state, args)
   def run_args_silent(%{transport: {:mock, _}} = state, args), do: run_args(state, args)
 
   def run_args_silent(%{transport: :shell}, args) do

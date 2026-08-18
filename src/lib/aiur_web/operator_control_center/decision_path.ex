@@ -2,7 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPath do
   @moduledoc false
 
   @filters [:open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
-  @query_keys [:cursor, :search, :ticket]
+  @query_keys [:cursor, :search, :sort, :ticket]
 
   @spec inbox(atom()) :: String.t()
   def inbox(filter), do: inbox(filter, %{})

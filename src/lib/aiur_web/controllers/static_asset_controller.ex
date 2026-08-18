@@ -20,6 +20,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec time_brush_hook(Conn.t(), map()) :: Conn.t()
   def time_brush_hook(conn, _params), do: serve(conn, "/time-brush-hook.js", revalidate?: true)
 
+  @spec sortable_table_hook(Conn.t(), map()) :: Conn.t()
+  def sortable_table_hook(conn, _params), do: serve(conn, "/sortable-table-hook.js", revalidate?: true)
+
   @spec streamdeck_emulator_hook(Conn.t(), map()) :: Conn.t()
   def streamdeck_emulator_hook(conn, _params), do: serve(conn, "/streamdeck-emulator-hook.js", revalidate?: true)
 

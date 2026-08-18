@@ -531,6 +531,11 @@ defmodule Aiur.Orchestrator do
   def ensure_remote_control_trust(server, workspace),
     do: RC.ensure_remote_control_trust(server, workspace)
 
+  @spec operator_message_status(GenServer.server(), integer(), timeout()) ::
+          {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
+  def operator_message_status(server \\ Aiur.Orchestrator, item_id, timeout \\ 5_000),
+    do: OM.operator_message_status(server, item_id, timeout)
+
   @spec claim_next_queue_item(GenServer.server(), String.t()) ::
           {:ok, map()} | :empty | {:error, term()}
   def claim_next_queue_item(server, identifier),
@@ -785,6 +790,10 @@ defmodule Aiur.Orchestrator do
   def handle_call({:set_global_pause, on?, source}, _from, state)
       when is_boolean(on?) and is_binary(source),
       do: GlobalPause.set_global_pause_call(state, on?, source)
+
+  def handle_call({:operator_message_status, item_id}, _from, state)
+      when is_integer(item_id),
+      do: OM.operator_message_status_call(state, item_id)
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

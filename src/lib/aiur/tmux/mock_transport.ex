@@ -7,19 +7,21 @@ defmodule Aiur.Tmux.MockTransport do
 
   @doc """
   Runs the blocking selective receive in the caller's process (the `Aiur.Tmux`
-  GenServer); tests inject `{:tmux_mock_data, chunk}` to that pid.
+  GenServer); tests inject `{:tmux_mock_data, chunk}` to that pid. Pass
+  `:infinity` when the test itself drives every response and should not race a
+  transport deadline.
   """
-  @spec request(pid(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
-  def request(pid, command) do
+  @spec request(pid(), String.t(), timeout()) :: {:ok, [String.t()]} | {:error, term()}
+  def request(pid, command, response_timeout \\ 1_000) do
     send(pid, {:tmux_mock_out, command})
-    receive_mock_response()
+    receive_mock_response(response_timeout)
   end
 
-  defp receive_mock_response do
+  defp receive_mock_response(response_timeout) do
     receive do
       {:tmux_mock_data, "%begin " <> _ = chunk} -> parse_mock_response(chunk)
     after
-      1_000 -> {:error, :no_mock_response}
+      response_timeout -> {:error, :no_mock_response}
     end
   end
 

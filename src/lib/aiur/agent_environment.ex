@@ -15,7 +15,8 @@ defmodule Aiur.AgentEnvironment do
   # live outer run. AIUR_REPO_ROOT is the root the key is hashed from — if it leaks the
   # inner recomputes the *outer's* key, so scrub it too (defense in depth: the dev shim
   # does not export it today, but any wrapping harness might).
-  @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
+  @erlang_distribution_env_names ~w(ERL_AFLAGS ERL_LIBS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
+  @daemon_dump_env_names ~w(ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   # `aiurdev` exports AIUR_RESTART_BUILD_CMD for the duration of an `aiur restart`
   # so the engine can run this checkout's rebuild between the stop and the start.
@@ -93,6 +94,7 @@ defmodule Aiur.AgentEnvironment do
     ("unset " <>
        Enum.join(
          @erlang_distribution_env_names ++
+           @daemon_dump_env_names ++
            @restart_build_env_names ++
            @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
          " "
@@ -191,7 +193,7 @@ defmodule Aiur.AgentEnvironment do
   def workspace_env(workspace, opts \\ [])
 
   def workspace_env(workspace, opts) when is_binary(workspace) do
-    {hex, mix, npm_cache} = sidecar_paths(opts)
+    [hex, mix, npm_cache] = package_cache_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
@@ -202,7 +204,9 @@ defmodule Aiur.AgentEnvironment do
 
     unset_inherited_env =
       Enum.map(
-        @restart_build_env_names ++
+        @erlang_distribution_env_names ++
+          @daemon_dump_env_names ++
+          @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
@@ -459,6 +463,14 @@ defmodule Aiur.AgentEnvironment do
   defp configured_base_branch(opts), do: Config.base_branch(opts)
   defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
 
+  @doc false
+  @spec package_cache_paths(keyword()) :: [Path.t()]
+  def package_cache_paths(opts \\ []) do
+    root = repo_url(opts) |> RepoBase.repo_path()
+
+    RepoBase.cache_sidecar_paths(root)
+  end
+
   # `false` unsets the variable for the child, which is what a non-GitHub
   # tracker or an unconfigured repo should produce: the guard then resolves no
   # resource identity and caches nothing, rather than filing responses under a
@@ -480,19 +492,13 @@ defmodule Aiur.AgentEnvironment do
     end
   end
 
-  defp sidecar_paths(opts) do
-    root = repo_url(opts) |> RepoBase.repo_path()
-
-    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
-  end
-
   # Remote workers have their own home directories, so shell launches must
   # transmit a stable, home-relative state-node identity rather than the
   # daemon host's absolute cache path.
   defp remote_sidecar_paths(opts) do
     root = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
 
-    {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
+    root |> RepoBase.cache_sidecar_paths() |> List.to_tuple()
   end
 
   @doc """

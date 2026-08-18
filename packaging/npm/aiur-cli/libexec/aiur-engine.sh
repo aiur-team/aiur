@@ -458,6 +458,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
+       aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
@@ -763,6 +764,19 @@ run_session() {
     export ERL_CRASH_DUMP_SECONDS="${ERL_CRASH_DUMP_SECONDS:-30}"
   fi
 
+  # Crash recording needs two launcher/BEAM handoffs: the canonical alert
+  # ledger path and the launch-time identity of the configured dump path. Keep
+  # these for foreground launches too: their external watchdog is also the only
+  # process left to surface a dump after an unexpected daemon death.
+  export AIUR_ALERT_LEDGER_PATH_FILE=""
+  local crash_dump_baseline_file=""
+  if [ -n "${ERL_CRASH_DUMP:-}" ]; then
+    AIUR_ALERT_LEDGER_PATH_FILE="${session_root}/aiur-${$}-alert-ledger"
+    : >"$AIUR_ALERT_LEDGER_PATH_FILE"
+    crash_dump_baseline_file="${session_root}/aiur-${$}-crash-dump-baseline"
+    crash_dump_identity "${ERL_CRASH_DUMP:-}" >"$crash_dump_baseline_file" 2>/dev/null || : >"$crash_dump_baseline_file"
+  fi
+
   # Capture sink for BEAM startup (and, in background mode, the whole run's
   # boot stdout/stderr). Foreground uses a throwaway tempfile; background points
   # at a durable file in the run log dir. The dir/file is created lazily just
@@ -788,7 +802,7 @@ run_session() {
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
-      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
+      AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
       AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
@@ -803,12 +817,21 @@ run_session() {
   local inner_cmd
   printf -v inner_cmd '%q; rc=$?; rm -f %q; exit $rc' "$launcher" "$launcher"
 
+  local launch_tempfiles=(
+    "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE"
+    "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE"
+  )
+  [ -n "$AIUR_ALERT_LEDGER_PATH_FILE" ] && launch_tempfiles+=("$AIUR_ALERT_LEDGER_PATH_FILE")
+  [ -n "$crash_dump_baseline_file" ] && launch_tempfiles+=("$crash_dump_baseline_file")
+
   if [ "$mode" = "foreground" ]; then
     _session_socket="$socket" _session_name="$session" _session_conf="$conf" \
       _session_tmpfile="$AIUR_SESSION_TMPFILE" _session_capture="$startup_capture" \
       _session_argv="$argv_file" _session_release="$release_dir" _session_tmux="$tmux_bin" \
       _session_node="$AIUR_RELEASE_NODE" _session_pidfile="$AIUR_AGENT_TMPFILE" \
-      _session_workspace_root_file="$AIUR_WORKSPACE_ROOT_FILE"
+      _session_workspace_root_file="$AIUR_WORKSPACE_ROOT_FILE" \
+      _session_alert_ledger_path_file="$AIUR_ALERT_LEDGER_PATH_FILE" \
+      _session_crash_dump_baseline_file="$crash_dump_baseline_file"
     install_foreground_traps
   fi
 
@@ -824,7 +847,7 @@ run_session() {
       echo "aiur is already running in the background (tmux session ${session})." >&2
       echo "Use: aiur status   # inspect agents" >&2
       echo "Use: aiur stop     # stop it before starting a fresh session" >&2
-      rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
+      rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
       return 0
     fi
 
@@ -862,7 +885,7 @@ run_session() {
     -x "${COLUMNS:-200}" -y "${LINES:-50}" "$inner_cmd"; then
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
-    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
+    rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     exit 1
   fi
 
@@ -878,13 +901,18 @@ run_session() {
   local require_control=1
   if ! wait_for_session_startup "$tmux_bin" "$socket" "$conf" "$session" "$startup_capture" "$require_control"; then
     print_config_status "$startup_capture"
+    # The application can write the ledger handoff and then crash before its
+    # control plane becomes ready. Inspect the completed dump before launcher
+    # cleanup removes that handoff; this path intentionally writes no generic
+    # crash marker when there is no new completed dump.
+    record_new_crash_dump_alert "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file"
     if [ "$mode" = "background" ]; then
       "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
       reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
       kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
     fi
     [ "$mode" = "foreground" ] && return 1
-    rm -f "$startup_capture" "$argv_file" "$launcher" "$AIUR_SESSION_TMPFILE" "$AIUR_AGENT_TMPFILE" "$AIUR_WORKSPACE_ROOT_FILE" 2>/dev/null || true
+    rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     exit 1
   fi
 
@@ -905,7 +933,8 @@ run_session() {
     background_watchdog_pid="$(start_beam_death_watchdog \
       "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 1 \
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
-      "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
+      "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE" \
+      "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file")"
     disown "$background_watchdog_pid" 2>/dev/null || true
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
@@ -922,7 +951,8 @@ run_session() {
   # captured pid, so another Aiur instance from the same release cannot hold it open.
   _session_watchdog_pid="$(start_beam_death_watchdog \
     "-name ${AIUR_RELEASE_NODE}" "$socket" "$AIUR_AGENT_TMPFILE" 1 0 \
-    "" "" "" "" "$AIUR_WORKSPACE_ROOT_FILE")"
+    "$AIUR_RELEASE_NODE" "" "" "" "$AIUR_WORKSPACE_ROOT_FILE" \
+    "$AIUR_ALERT_LEDGER_PATH_FILE" "$crash_dump_baseline_file")"
 
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   # Avoid process substitution here: some sandboxed non-TTY launchers reject
@@ -1321,18 +1351,74 @@ aiur_stop_sentinel_path() {
   printf '%s/%s.stopping' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
 }
 
+json_escape_alert_field() {
+  LC_ALL=C printf '%s' "$1" | tr -d '\000-\037' | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+crash_dump_identity() {
+  local dump_path="${1:-}"
+  [ -n "$dump_path" ] && [ -f "$dump_path" ] || return 0
+  # Constant-time and replacement-sensitive. GNU stat supplies nanosecond
+  # timestamps; BSD/macOS stat still includes device + inode, so an atomic
+  # replacement with byte-identical contents cannot match the launch baseline.
+  stat -Lc '%d:%i:%s:%y:%z' "$dump_path" 2>/dev/null || \
+    stat -f '%d:%i:%z:%m:%c:%B' "$dump_path" 2>/dev/null || true
+}
+
+new_completed_crash_dump_slogan() {
+  local dump_path="${1:-}" baseline_file="${2:-}" baseline="" current_identity="" slogan=""
+  [ -n "$baseline_file" ] && [ -r "$baseline_file" ] && IFS= read -r baseline <"$baseline_file" || true
+  current_identity="$(crash_dump_identity "$dump_path")"
+  [ -n "$current_identity" ] && [ "$current_identity" != "$baseline" ] || return 0
+  tail -n 1 "$dump_path" 2>/dev/null | grep -q '^=end$' || return 0
+  slogan="$(LC_ALL=C awk '/^Slogan: / { sub(/^Slogan: /, ""); print substr($0, 1, 512); exit }' "$dump_path" 2>/dev/null || true)"
+  LC_ALL=C printf '%s' "$slogan" | tr -d '\000-\037'
+}
+
+write_crash_dump_alert() {
+  local ledger_path_file="$1" timestamp="$2" dump_path="$3" slogan="$4" ledger_path=""
+  local escaped_timestamp escaped_path escaped_slogan escaped_message escaped_reason
+  [ -n "$ledger_path_file" ] && [ -s "$ledger_path_file" ] || return 0
+  # File.write/2 handoffs are valid without a trailing newline. `read` returns
+  # nonzero at EOF in that case but still assigns the complete path.
+  IFS= read -r ledger_path <"$ledger_path_file" || true
+  [ -n "$ledger_path" ] || return 0
+
+  escaped_timestamp="$(json_escape_alert_field "$timestamp")"
+  escaped_path="$(json_escape_alert_field "$dump_path")"
+  escaped_slogan="$(json_escape_alert_field "$slogan")"
+  escaped_message="$(json_escape_alert_field "BEAM crash dump: $slogan")"
+  escaped_reason="$(json_escape_alert_field "Unexpected daemon exit wrote $dump_path")"
+
+  mkdir -p "$(dirname "$ledger_path")" 2>/dev/null || return 0
+  printf '{"event":"alert","agent":"system","timestamp":"%s","name":"system.beam.crash_dump","topic":"system.beam.crash_dump","message":"%s","reason":"%s","severity":"warning","needs_attention":true,"dump_path":"%s","slogan":"%s"}\n' \
+    "$escaped_timestamp" "$escaped_message" "$escaped_reason" "$escaped_path" "$escaped_slogan" \
+    >>"$ledger_path" 2>/dev/null || true
+}
+
+record_new_crash_dump_alert() {
+  local ledger_path_file="${1:-}" baseline_file="${2:-}" crash_dump_path="${ERL_CRASH_DUMP:-}"
+  local crash_dump_slogan="" ts=""
+  crash_dump_slogan="$(new_completed_crash_dump_slogan "$crash_dump_path" "$baseline_file")"
+  [ -n "$crash_dump_slogan" ] || return 0
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+  write_crash_dump_alert "$ledger_path_file" "${ts:-unknown}" "$crash_dump_path" "$crash_dump_slogan"
+}
+
 # Write a durable record that the background BEAM exited unexpectedly. Two sinks:
 # the run log dir (full record next to aiur.log, for forensics) and the stable
 # per-instance marker (for `status` to surface). Best-effort throughout — this
 # runs in the disowned watchdog after the BEAM is already gone, so it must never
 # fail loudly or block the reap that follows.
 record_beam_crash() {
-  local node="$1" run_log_dir="$2" marker="$3"
-  local ts boot_tail=""
+  local node="$1" run_log_dir="$2" marker="$3" ledger_path_file="${4:-}" baseline_file="${5:-}"
+  local ts boot_tail="" crash_dump_path="" crash_dump_slogan=""
   ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
   if [ -n "$run_log_dir" ] && [ -r "$run_log_dir/log/boot.out.log" ]; then
     boot_tail="$(tail -n 20 "$run_log_dir/log/boot.out.log" 2>/dev/null || true)"
   fi
+  crash_dump_path="${ERL_CRASH_DUMP:-}"
+  crash_dump_slogan="$(new_completed_crash_dump_slogan "$crash_dump_path" "$baseline_file")"
 
   local body
   body="$(
@@ -1341,6 +1427,10 @@ record_beam_crash() {
     printf 'node: %s\n' "${node:-unknown}"
     printf 'run_log_dir: %s\n' "${run_log_dir:-unknown}"
     printf 'detected_by: background BEAM-death watchdog (no clean stop sentinel)\n'
+    if [ -n "$crash_dump_slogan" ]; then
+      printf 'crash_dump_path: %s\n' "$crash_dump_path"
+      printf 'crash_dump_slogan: %s\n' "$crash_dump_slogan"
+    fi
     if [ -n "$boot_tail" ]; then
       printf -- '--- last 20 lines of boot.out.log ---\n%s\n' "$boot_tail"
     fi
@@ -1352,6 +1442,9 @@ record_beam_crash() {
   fi
   if [ -n "$marker" ]; then
     printf '%s\n' "$body" >"$marker" 2>/dev/null || true
+  fi
+  if [ -n "$crash_dump_slogan" ]; then
+    write_crash_dump_alert "$ledger_path_file" "${ts:-unknown}" "$crash_dump_path" "$crash_dump_slogan"
   fi
 }
 
@@ -1470,13 +1563,15 @@ workspace_root_file_from_instance_record() {
 #
 #   $1 beam_pattern  $2 socket  $3 pidfile  $4 interval_s  $5 initial_seen
 #   $6 node  $7 run_log_dir  $8 stop_sentinel  $9 crash_marker
-#   $10 workspace_root_file
-# Args 6-9 arm crash recording (background mode). Omit them (foreground) and the
-# watchdog only reaps — a foreground BEAM death is already visible at the UI.
+#   $10 workspace_root_file  $11 alert_ledger_path_file  $12 dump_baseline_file
+# Any of args 6-9 or 11 arm crash recording. Foreground supplies only the node
+# and alert-ledger handoff, so it can alert on a new dump without writing the
+# background-only run marker.
 # Prints the watchdog's own pid so the caller can kill it on a clean teardown.
 start_beam_death_watchdog() {
   local beam_pattern="$1" socket="$2" pidfile="$3" interval="${4:-1}" initial_seen="${5:-0}"
   local node="${6:-}" run_log_dir="${7:-}" stop_sentinel="${8:-}" crash_marker="${9:-}" workspace_root_file="${10:-}"
+  local alert_ledger_path_file="${11:-}" dump_baseline_file="${12:-}"
   # Redirect the subshell's stdout so a command-substitution caller
   # (`pid=$(start_beam_death_watchdog ...)`) returns immediately instead of
   # blocking on the still-open pipe until the watchdog finishes.
@@ -1495,11 +1590,12 @@ start_beam_death_watchdog() {
     # Anything else is an unexpected exit worth a durable record before reaping.
     if [ -n "$stop_sentinel" ] && [ -f "$stop_sentinel" ]; then
       rm -f "$stop_sentinel" 2>/dev/null || true
-    elif [ -n "$crash_marker" ] || [ -n "$run_log_dir" ]; then
-      record_beam_crash "$node" "$run_log_dir" "$crash_marker"
+    elif [ -n "$crash_marker" ] || [ -n "$run_log_dir" ] || [ -n "$alert_ledger_path_file" ]; then
+      record_beam_crash "$node" "$run_log_dir" "$crash_marker" "$alert_ledger_path_file" "$dump_baseline_file"
     fi
     reap_aiur_agents "$socket" "$pidfile"
     reap_workspace_cwd_from_file "$workspace_root_file"
+    rm -f "$alert_ledger_path_file" "$dump_baseline_file" 2>/dev/null || true
   ) >/dev/null 2>&1 &
   printf '%s\n' "$!"
 }
@@ -1627,6 +1723,7 @@ wait_for_session_startup() {
 _session_socket="" _session_name="" _session_conf="" _session_tmpfile=""
 _session_capture="" _session_argv="" _session_release="" _session_tmux="" _session_node=""
 _session_pidfile="" _session_watchdog_pid="" _session_workspace_root_file=""
+_session_alert_ledger_path_file="" _session_crash_dump_baseline_file=""
 _cleanup_ran=0
 session_cleanup() {
   [ "$_cleanup_ran" = 1 ] && return 0
@@ -1688,7 +1785,9 @@ session_cleanup() {
   # tempfiles are spared (fresh + live pid) before the explicit rm below clears them.
   sweep_stale_tmp_artifacts || true
 
-  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" "$_session_workspace_root_file" 2>/dev/null || true
+  rm -f "$_session_tmpfile" "$_session_capture" "$_session_argv" "$_session_pidfile" \
+    "$_session_workspace_root_file" "$_session_alert_ledger_path_file" \
+    "$_session_crash_dump_baseline_file" 2>/dev/null || true
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
   return $code
 }
@@ -2393,6 +2492,45 @@ cmd_executor_escalate() {
   run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
 }
 
+cmd_executor_moot() {
+  local decision_id="${1:-}" expected_version="" reason_class="" reason="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-moot expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --reason-class) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --reason-class requires a value" >&2; exit 64; }; shift; reason_class="$1" ;;
+      --reason-class=*) reason_class="${arg#--reason-class=}" ;;
+      --reason) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --reason requires a value" >&2; exit 64; }; shift; reason="$1" ;;
+      --reason=*) reason="${arg#--reason=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-moot received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-moot expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-moot --expected-version expects a positive integer" >&2; exit 64; }
+  [ -n "$reason_class" ] || { echo "aiur: executor-moot --reason-class is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-moot --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  opts="$opts, reason_class: Base.decode64!(\"$(encode_control_value "$reason_class")\")"
+  if [ -n "$reason" ]; then
+    opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
+  fi
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
+  run_control_rpc "Aiur.AgentControlCLI.executor_moot([$opts])"
+}
+
 # `aiur units` — read the dashboard Units catalog through its own projection,
 # including non-running tickets in current-run membership.
 cmd_units() {
@@ -2771,8 +2909,8 @@ sweep_dead_tmux_sockets() {
 #     0 value disables the sweep.
 #   * Ownership-gated: if anything in the tree is not owned by the effective user,
 #     the whole tree is spared.
-#   * A live run's `aiur-<pid>-sessions|-agents` bookkeeping is kept while its pid
-#     is alive, regardless of age.
+#   * A live run's pid-named session, agent, crash-ledger, and dump-baseline
+#     handoffs are kept while its launcher pid is alive, regardless of age.
 is_aiur_tmp_artifact_candidate() {
   local base="$1" pid
   case "$base" in
@@ -2781,9 +2919,12 @@ is_aiur_tmp_artifact_candidate() {
       aiur-rc | aiur-claude-hooks | aiur-debug)
       return 0
       ;;
-    aiur-*-sessions | aiur-*-agents)
+    aiur-*-sessions | aiur-*-agents | aiur-*-alert-ledger | aiur-*-crash-dump-baseline)
       pid="${base#aiur-}"
-      pid="${pid%-*}"
+      pid="${pid%-sessions}"
+      pid="${pid%-agents}"
+      pid="${pid%-alert-ledger}"
+      pid="${pid%-crash-dump-baseline}"
       [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ]
       return
       ;;
@@ -2836,11 +2977,14 @@ sweep_stale_tmp_artifacts() {
       if [ -n "$found" ]; then
         continue
       fi
-      # Spare a live run's session/agent bookkeeping (name is aiur-<pid>-<kind>).
+      # Spare a live run's pid-named bookkeeping and crash handoffs.
       case "$base" in
-        aiur-*-sessions | aiur-*-agents)
+        aiur-*-sessions | aiur-*-agents | aiur-*-alert-ledger | aiur-*-crash-dump-baseline)
           pid="${base#aiur-}"
-          pid="${pid%-*}"
+          pid="${pid%-sessions}"
+          pid="${pid%-agents}"
+          pid="${pid%-alert-ledger}"
+          pid="${pid%-crash-dump-baseline}"
           if [ -n "$pid" ] && [ -z "${pid//[0-9]/}" ] && kill -0 "$pid" 2>/dev/null; then
             continue
           fi
@@ -3266,6 +3410,10 @@ aiur_engine_main() {
     executor-escalate)
       shift
       cmd_executor_escalate "$@"
+      ;;
+    executor-moot)
+      shift
+      cmd_executor_moot "$@"
       ;;
     units)
       shift

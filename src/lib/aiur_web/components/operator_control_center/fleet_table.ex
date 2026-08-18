@@ -26,15 +26,15 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
       <div :if={@total_rows == 0} class="empty-state">No tracker-active tickets are in the fleet projection.</div>
       <div :if={@total_rows > 0 and @rows == []} class="empty-state">No units match the selected fleet filters.</div>
       <div :if={@rows != []} class="table-wrap">
-        <table class="fleet-table">
+        <table id="fleet-table" class="fleet-table" phx-hook="SortableTable" data-sort-table="fleet">
           <thead>
             <tr>
-              <th>Ticket</th>
-              <th>State</th>
-              <th>Waiting</th>
-              <th>Latest</th>
-              <th>Elapsed</th>
-              <th>Commands</th>
+              <th data-sort-key="ticket">Ticket</th>
+              <th data-sort-key="state">State</th>
+              <th data-sort-key="waiting">Waiting</th>
+              <th data-sort-key="latest">Latest</th>
+              <th data-sort-key="elapsed" data-sort-type="number">Elapsed</th>
+              <th data-sort-key="commands" data-sort-type="number">Commands</th>
               <th><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -42,10 +42,11 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
             <tr
               :for={row <- @rows}
               class={["fleet-row", row_class(row)]}
+              data-sort-id={row.issue_identifier}
               phx-click={row.bucket == :running && "show-agent-log"}
               phx-value-issue={row.bucket == :running && row.issue_identifier}
             >
-              <td data-label="Ticket">
+              <td data-label="Ticket" data-sort-value={row.title || row.issue_identifier}>
                 <div class="fleet-ticket">
                   <span class="fleet-state-glyph" title={humanize(row.work_state)}>{state_glyph(row)}</span>
                   <span>
@@ -54,17 +55,17 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                   </span>
                 </div>
               </td>
-              <td data-label="State">
+              <td data-label="State" data-sort-value={row.state || row.bucket}>
                 <span class={state_chip_class(row.state)}>{humanize(row.state || row.bucket)}</span>
                 <span class="fleet-latest-meta">{ci_review(row)}</span>
               </td>
-              <td data-label="Waiting"><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
-              <td data-label="Latest">
+              <td data-label="Waiting" data-sort-value={row.waiting_reason || ""}><span class={waiting_chip_class(row.waiting_reason)}>{humanize(row.waiting_reason)}</span></td>
+              <td data-label="Latest" data-sort-value={row[:last_event_at] || ""}>
                 <span class="fleet-latest" title={latest(row)}>{latest(row)}</span>
                 <span :if={row[:last_event_at]} class="fleet-latest-meta mono">{row.last_event_at}</span>
               </td>
-              <td class="mono num" data-label="Elapsed">{runtime(row, @now)}</td>
-              <td class="num" data-label="Commands">
+              <td class="mono num" data-label="Elapsed" data-sort-value={row[:runtime_seconds] || ""}>{runtime(row, @now)}</td>
+              <td class="num" data-label="Commands" data-sort-value={row.open_decision_count}>
                 <span :if={row.open_decision_count > 0} class="chip attention">! {row.open_decision_count}</span>
                 <span :if={row.open_decision_count == 0} class="muted">—</span>
               </td>
