@@ -651,21 +651,13 @@ defmodule Aiur.AgentControlCLI do
   # synchronous call will queue behind it. The note rides the RPC stdout the
   # launcher prints, so the operator sees why the command has not returned.
   defp announce_if_orchestrator_busy do
-    case Process.whereis(Orchestrator) do
-      nil ->
-        :ok
-
-      pid ->
-        case Process.info(pid, :message_queue_len) do
-          {:message_queue_len, depth} when is_integer(depth) ->
-            if depth > orchestrator_busy_mailbox_threshold() do
-              IO.puts("aiur: waiting for the orchestrator to become available (it is busy; mailbox=#{depth})…")
-            end
-
-          _ ->
-            :ok
-        end
+    with pid when is_pid(pid) <- Process.whereis(Orchestrator),
+         {:message_queue_len, depth} when is_integer(depth) <- Process.info(pid, :message_queue_len),
+         true <- depth > orchestrator_busy_mailbox_threshold() do
+      IO.puts("aiur: waiting for the orchestrator to become available (it is busy; mailbox=#{depth})…")
     end
+
+    :ok
   end
 
   defp orchestrator_busy_mailbox_threshold do
