@@ -2674,11 +2674,18 @@ defmodule Aiur.CoreTest do
           "InterruptOperator#{Macro.camelize(outcome_name)}Orchestrator"
         )
 
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      {:ok, orchestrator_pid} =
+        Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
       on_exit(fn ->
-        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        stop_test_orchestrator(orchestrator_pid)
       end)
+
+      assert %{
+               next_poll_due_at_ms: nil,
+               poll_check_in_progress: false,
+               tick_timer_ref: nil
+             } = :sys.get_state(orchestrator_pid)
 
       issue_id = "issue-interrupt-operator-#{outcome_name}"
       identifier = "MT-INTERRUPT-OPERATOR-#{String.upcase(outcome_name)}"
@@ -3764,7 +3771,10 @@ defmodule Aiur.CoreTest do
 
       expected_turn_sandbox_policy = %{
         "type" => "workspaceWrite",
-        "writableRoots" => [canonical_workspace, Aiur.BuildGate.gate_dir()],
+        "writableRoots" =>
+          [canonical_workspace] ++
+            Aiur.AgentEnvironment.package_cache_paths() ++
+            [Aiur.BuildGate.gate_dir()],
         "readOnlyAccess" => %{"type" => "fullAccess"},
         "networkAccess" => true,
         "excludeTmpdirEnvVar" => false,
@@ -3982,6 +3992,9 @@ defmodule Aiur.CoreTest do
       expected_writable_roots =
         [Path.expand(workspace), workspace_cache]
         |> then(fn roots -> if canonical_workspace in roots, do: roots, else: roots ++ [canonical_workspace] end)
+        |> then(fn roots ->
+          Enum.uniq(roots ++ Aiur.AgentEnvironment.package_cache_paths())
+        end)
         |> then(fn roots ->
           gate_dir = Aiur.BuildGate.gate_dir()
           if gate_dir in roots, do: roots, else: roots ++ [gate_dir]

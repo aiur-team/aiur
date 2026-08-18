@@ -238,9 +238,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "OpenRouter"
     refute html =~ "$0.00"
 
-    # A locked usage is an unknown token count: the card keeps its token glyph
-    # alone instead of a "Tokens N/A" row, while the Limits row still names the
-    # unavailable standing.
+    # A locked usage is an unknown token count: the row keeps its token glyph
+    # alone instead of a "Tokens N/A" value, while the meter metadata names the
+    # unavailable standing without the old Limits heading.
     assert html =~ "N/A"
     refute html =~ "Tokens"
     assert html =~ "rs-token-na"
@@ -294,7 +294,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "$8.75"
   end
 
-  test "partial current facts show a qualified percentage and distinguish settling from degradation" do
+  test "partial current facts keep the aggregate percentage without refresh diagnostics" do
     partial_progress = %{
       kind: :partial,
       percent: 40,
@@ -332,18 +332,18 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert settling_html =~ "40%"
-    assert settling_html =~ "1 of 2 members current"
-    assert settling_html =~ "Still settling"
     assert settling_html =~ ~s(style="width:40%")
     refute settling_html =~ "Unavailable"
     refute settling_html =~ "weight facts"
+    refute settling_html =~ "1 of 2 members current"
+    refute settling_html =~ "Still settling"
 
     assert degraded_html =~ "40%"
-    assert degraded_html =~ "Not updating"
+    refute degraded_html =~ "Not updating"
     refute degraded_html =~ "Still settling"
   end
 
-  test "no current facts show a status-bearing pending figure without projection jargon" do
+  test "unknown aggregate progress keeps a flat inert meter without refresh diagnostics" do
     pending = %{
       kind: :pending,
       percent: nil,
@@ -365,9 +365,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "Progress not computed yet"
-    assert html =~ "0 of 2 members current"
-    assert html =~ "Still settling"
+    assert html =~ ~s(<span class="rs-limit-label">Progress</span>)
+    assert html =~ ~s(<span class="rs-limit-meta">—</span>)
+    assert html =~ ~s(class="rs-meter is-unknown")
+    assert html =~ ~s(role="progressbar")
+    assert html =~ ~s(aria-label="Progress unavailable")
+    refute html =~ "aria-valuenow"
+    refute html =~ ~s(class="rs-meter is-unknown"><i)
+    refute html =~ "Progress not computed yet"
+    refute html =~ "0 of 2 members current"
+    refute html =~ "Still settling"
+    refute html =~ "Refresh degraded"
     refute html =~ "weight facts"
     refute html =~ ~s(style="width:40%")
   end
@@ -972,7 +980,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    [_, codex_row, claude_row | _] = String.split(html, ~s(<div class="rs-model">))
+    [_, codex_row, claude_row | _] = String.split(html, ~s(<div class="rs-model rs-provider-row">))
     assert codex_row =~ "/provider-assets/codex-color.svg"
     refute codex_row =~ "/provider-assets/claude-symbol.svg"
     assert claude_row =~ "/provider-assets/claude-symbol.svg"
@@ -980,7 +988,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   end
 
   # Rule 6: an unknown token count hides the label and the "N/A", leaving the
-  # token glyph alone at logo size in the top-right head stats.
+  # token glyph alone at logo size in the row's fixed token column.
   test "an unknown token count renders the token glyph alone" do
     usage = %{state: :ready, providers: %{codex: %{}, claude: %{}}}
 
@@ -1141,6 +1149,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         assert html =~ "0% · resets in 30m"
         # GitHub keeps its own remaining/limit and reset in its pane.
         assert html =~ "3750/5000 left · resets in 30m"
+
+        [_, models_html] = String.split(html, "rs-models", parts: 2)
+        refute models_html =~ ">Limits<"
+        refute models_html =~ ">Primary<"
       end)
     end)
   end

@@ -6,6 +6,9 @@ import {
   provisionTmux,
   tmuxSatisfiesMin,
   MIN_TMUX,
+  platformSupported,
+  unsupportedPlatformReason,
+  platformGuardExitCode,
 } from "../scripts/postinstall.mjs";
 
 test("opencode is pinned to a specific version, not floating to latest", () => {
@@ -185,4 +188,52 @@ test("tmux: a failed install prints a platform-appropriate hint and does not thr
   });
   expect(linuxResult).toBe("failed");
   expect(linuxLogs.some((line) => line.includes("apt install tmux"))).toBe(true);
+});
+
+// --- supported-platform guard ----------------------------------------------
+
+test("platformSupported accepts every published platform", () => {
+  expect(platformSupported("linux", "x64")).toBe(true);
+  expect(platformSupported("linux", "arm64")).toBe(true);
+  expect(platformSupported("darwin", "arm64")).toBe(true);
+});
+
+test("platformSupported rejects darwin-x64 (Intel Mac) and other unsupported hosts", () => {
+  // The #2110 regression: darwin-x64 was pinned but never published, so an
+  // install succeeded silently into a runtime with no binary. It must be
+  // rejected at install time, not at runtime.
+  expect(platformSupported("darwin", "x64")).toBe(false);
+  expect(platformSupported("win32", "x64")).toBe(false);
+  expect(platformSupported("linux", "ia32")).toBe(false);
+  expect(platformSupported("darwin", "ppc64")).toBe(false);
+});
+
+test("unsupportedPlatformReason explains darwin-x64 is unavailable and how to track it", () => {
+  const reason = unsupportedPlatformReason("darwin", "x64");
+  expect(reason).not.toBeNull();
+  expect(reason).toContain("Intel Mac");
+  expect(reason).toContain("darwin/x64");
+  expect(reason).toContain("issues/2110");
+});
+
+test("unsupportedPlatformReason lists the supported set for other platforms", () => {
+  const reason = unsupportedPlatformReason("win32", "x64");
+  expect(reason).not.toBeNull();
+  expect(reason).toContain("linux/x64");
+  expect(reason).toContain("darwin/arm64");
+  expect(unsupportedPlatformReason("linux", "x64")).toBeNull();
+});
+
+test("platformGuardExitCode fails loudly (non-zero) and writes the reason", () => {
+  // Proves the install-time failure: npm aborts the install on a non-zero
+  // postinstall exit, so an Intel Mac never gets a silent broken install.
+  const chunks = [];
+  const code = platformGuardExitCode("darwin", "x64", (s) => chunks.push(s));
+  expect(code).toBe(1);
+  expect(chunks.join("")).toContain("Intel Mac");
+});
+
+test("platformGuardExitCode returns 0 on supported platforms", () => {
+  expect(platformGuardExitCode("linux", "x64")).toBe(0);
+  expect(platformGuardExitCode("darwin", "arm64")).toBe(0);
 });

@@ -95,6 +95,15 @@ jobs:
       - name: Every config key has a documentation entry
         working-directory: .
         run: python3 scripts/check-config-docs.py
+      # Platform publish/pin drift (#2110): the platform packages the release
+      # workflow publishes must equal the packages aiur-cli pins as
+      # optionalDependencies, and both must match the shared PUBLISH_TARGETS
+      # source. A pin with no published package is a silent broken install —
+      # exactly the aiur-cli-darwin-x64 defect — so this lives in the required
+      # lint job and runs on every PR.
+      - name: Platform publish/pin drift check
+        working-directory: .
+        run: node packaging/scripts/check-platform-drift.mjs
 
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)

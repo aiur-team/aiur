@@ -189,6 +189,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
+    assert html =~ ~s(phx-hook="SortableTable")
+    assert html =~ "data-sort-client-only"
     assert html =~ "Root forty-two"
 
     calls = FakeDataSource.calls(source)
@@ -291,7 +293,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
            |> Enum.all?(
              &(Floki.find(
                  &1,
-                 ~s(.bo-catalog-progress-unresolved.bo-catalog-count-unresolved[data-count-state="unresolved"])
+                 ~s(.bo-catalog-count-unresolved[data-count-state="unresolved"])
                ) != [])
            )
 

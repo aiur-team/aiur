@@ -21,7 +21,7 @@ Run `aiur init` in the repository Aiur should operate.
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-Add `agent:todo` to the issues you want worked.
+Add `agent:todo` to the issues you want worked. Prefer GitHub App installation-token authentication over a personal access token; see [GitHub](/apis/github#github-app-authentication) to set it up.
 
 ## First run
 
@@ -50,7 +50,7 @@ Continue with the [Dashboard](/guide/executor-control-center) guide.
 | `aiur restart` | Stop the session, refresh the release, and start it again detached. Add `--no-build` to bounce on the release already on disk. |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |
 | `aiur set max-agents <n>` | Change the concurrent-agent cap while the run is active. |
-| `aiur message <id> "<text>"` | Send an Executor message through the agent’s native queue. |
+| `aiur message <id> "<text>"` | Queue an Executor message on the agent’s native queue. It reports whether the agent claimed the message or it is still queued. |
 | `aiur --todo <ids…> [--only]` | Queue selected tickets; `--only` dequeues other pending tickets. |
 
 See [CLI and control commands](/reference/cli) for the complete operational surface.

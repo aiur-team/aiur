@@ -105,10 +105,14 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp open_pull_request(context) do
     key = ResourceStore.key_for_repo(:branch_pull_request, repo_full_name(), context.issue_number)
 
-    # Unconditional, and it stays that way here: this is a paginated *search* of
-    # open pull requests by head branch, not a read of one resource, so a
-    # validator for it would belong to the query rather than to the pull request
-    # the answer names. It costs one request per gate check.
+    # Unconditional, and it stays that way here (#2126): this is a paginated
+    # *search* of open pull requests by head branch, not a read of one resource,
+    # so a validator for it would belong to the query rather than to the pull
+    # request the answer names. It costs one request per gate check. The deposit
+    # still makes this key worth holding: `Aiur.Events.GithubWebhook.Deposit`
+    # files the same PR body here under the ticket number (so `etag/1` answers),
+    # and the derived validator keeps the entry revalidatable — the mechanism a
+    # conditional strict reader uses, proven at the `ResourceFetch` level.
     fetcher = fn _opts ->
       case PullRequests.fetch_open_pull_request_for_branch(context.issue_number,
              request_fun: context.request_fun,

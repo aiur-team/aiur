@@ -43,6 +43,27 @@ defmodule Aiur.ExecutorCommandCLI do
   def escalate(_params, deps), do: usage_error("escalate expects command options", deps)
 
   @doc false
+  @spec moot(keyword(), keyword()) :: 0 | 1 | 64
+  def moot(params, deps \\ [])
+
+  def moot(params, deps) when is_list(params) and is_list(deps) do
+    with {:ok, normalized} <- normalize_mooting(params),
+         {:ok, result} <- call_mooting(normalized, deps) do
+      IO.puts(
+        "aiur: Executor #{normalized.executor_id} mooted Command #{normalized.decision_id} " <>
+          "(#{Map.get(result, :status, :accepted)})"
+      )
+
+      0
+    else
+      {:usage, message} -> usage_error(message, deps)
+      {:error, reason} -> command_error("moot", reason, deps)
+    end
+  end
+
+  def moot(_params, deps), do: usage_error("moot expects command options", deps)
+
+  @doc false
   @spec escalation_topic(String.t(), String.t()) :: String.t()
   defdelegate escalation_topic(decision_id, ticket_id), to: ExecutorCommandAttention, as: :topic
 
@@ -79,6 +100,23 @@ defmodule Aiur.ExecutorCommandCLI do
        %{
          decision_id: decision_id,
          expected_version: expected_version,
+         reason: reason,
+         executor_id: executor_id
+       }}
+    end
+  end
+
+  defp normalize_mooting(params) do
+    with {:ok, decision_id} <- present(params, :decision_id),
+         {:ok, expected_version} <- positive_integer(params, :expected_version),
+         {:ok, reason_class} <- present(params, :reason_class),
+         {:ok, reason} <- optional_present(params, :reason, nil),
+         {:ok, executor_id} <- optional_present(params, :executor_id, @default_executor_id) do
+      {:ok,
+       %{
+         decision_id: decision_id,
+         expected_version: expected_version,
+         reason_class: reason_class,
          reason: reason,
          executor_id: executor_id
        }}
@@ -129,6 +167,28 @@ defmodule Aiur.ExecutorCommandCLI do
     escalate_fun.(
       normalized.decision_id,
       payload,
+      Keyword.get(deps, :decision_store, DecisionStore)
+    )
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  defp call_mooting(normalized, deps) do
+    payload = %{
+      expected_version: normalized.expected_version,
+      reason_class: normalized.reason_class,
+      reason: normalized.reason
+    }
+
+    moot_fun =
+      Keyword.get(deps, :moot_fun, fn decision_id, moot_payload, opts, store ->
+        DecisionStore.moot(decision_id, moot_payload, opts, store)
+      end)
+
+    moot_fun.(
+      normalized.decision_id,
+      payload,
+      [actor: %{kind: :executor, id: normalized.executor_id}],
       Keyword.get(deps, :decision_store, DecisionStore)
     )
   catch
@@ -233,6 +293,21 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp command_error("answer", {:answer_invalid, {field, reason}}, deps) when is_atom(field) do
     write_error(deps, "aiur: cannot answer Command: answer field #{field} is #{invalid_detail(reason)}; correct the answer and retry")
+    1
+  end
+
+  defp command_error("moot", {:moot_invalid, {:reason_class, :missing}}, deps) do
+    write_error(deps, "aiur: cannot moot Command: --reason-class is required (e.g. ticket_closed, origin_agent_gone)")
+    1
+  end
+
+  defp command_error("moot", {:moot_invalid, {field, reason}}, deps) do
+    write_error(deps, "aiur: cannot moot Command: --#{field} is #{invalid_detail(reason)}; correct the flag and retry")
+    1
+  end
+
+  defp command_error(action, {:conflict, status}, deps) do
+    write_error(deps, "aiur: cannot #{action} Command because it is #{inspect(status)}")
     1
   end
 

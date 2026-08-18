@@ -154,14 +154,36 @@ defmodule Aiur.ApplicationTest do
       assert length(headless) < length(interactive)
     end
 
-    test "the Executor listener starts only for an --executor (Executor-owned) run" do
-      plain = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: false))
-      refute Aiur.ExecutorListener in plain, "a non-Executor launch must not acquire a Command inbox"
-      refute Aiur.ExecutorWakeInbox in plain, "a non-Executor launch must not acquire a wake inbox"
+    test "Executor recording is armed on every run, with or without --executor" do
+      plain =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            executor_mode?: false,
+            recording?: true
+          )
+        )
 
-      executor = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false, executor_mode?: true))
-      assert Aiur.ExecutorListener in executor, "an --executor launch must start the Command inbox"
-      assert Aiur.ExecutorWakeInbox in executor, "an --executor launch must start the wake inbox"
+      assert Aiur.ExecutorListener in plain, "a run without --executor must still record its wake stream"
+      assert Aiur.ExecutorWakeInbox in plain, "a run without --executor must still record its wake stream"
+      assert Aiur.Executor.Claims in plain, "consumption is a claim, so the claim store is always present"
+
+      executor =
+        modules(
+          AiurApp.child_specs(
+            interactive_cli?: false,
+            headless?: true,
+            dashboard?: false,
+            executor_mode?: true,
+            recording?: true
+          )
+        )
+
+      assert Aiur.ExecutorListener in executor
+      assert Aiur.ExecutorWakeInbox in executor
+      assert Aiur.Executor.Claims in executor
     end
 
     test "headless run starts the dashboard by default without reviving panes" do
@@ -318,6 +340,39 @@ defmodule Aiur.ApplicationTest do
       assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 
+    test "the shared test application does not start the remote ref ticker" do
+      ticker_enabled? = Application.fetch_env!(:aiur, :ls_remote_ticker_enabled?)
+
+      mods =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: false
+        )
+        |> modules()
+
+      refute ticker_enabled?
+      refute Aiur.Events.LsRemoteTicker in mods
+    end
+
+    test "the booted test application supervises BranchRefStore without a ticker writing to it" do
+      # The flake this guards (#1745): a live ticker replaces the singleton
+      # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
+      # vanishes before that test asserts on it.
+      assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
+      refute Process.whereis(Aiur.Events.LsRemoteTicker)
+    end
+
+    test "production child specs enable the remote ref ticker by default" do
+      ticker_enabled? = Application.fetch_env!(:aiur, :ls_remote_ticker_enabled?)
+      on_exit(fn -> Application.put_env(:aiur, :ls_remote_ticker_enabled?, ticker_enabled?) end)
+      Application.delete_env(:aiur, :ls_remote_ticker_enabled?)
+
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
+
+      assert Aiur.Events.LsRemoteTicker in mods
+    end
+
     test "current-run membership starts before the orchestrator and reconciles after it" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -340,7 +395,7 @@ defmodule Aiur.ApplicationTest do
             [interactive_cli?: false, headless?: true, dashboard?: true],
             [interactive_cli?: false, headless?: true, dashboard?: false]
           ] do
-        mods = modules(AiurApp.child_specs(opts))
+        mods = modules(AiurApp.child_specs(Keyword.put(opts, :ls_remote_ticker?, true)))
         reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
         projection = Enum.find_index(mods, &(&1 == Aiur.CurrentRunProjections))
         merge_ticker = Enum.find_index(mods, &(&1 == Aiur.Events.LsRemoteTicker))

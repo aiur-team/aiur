@@ -59,7 +59,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Styles do
     .an-chip.on{color:var(--fg);border-color:var(--line-strong)}
     .an-chip.on i{opacity:1}
     .an-chip:hover{border-color:var(--accent-line)}
-    .an-empty{border:1px dashed var(--line-strong);border-radius:var(--radius);background:var(--surface);padding:2.4rem;text-align:center;color:var(--muted)}
+    .an-empty{border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--surface);padding:2.4rem;text-align:center;color:var(--muted)}
     .an-empty b{color:var(--fg)}
     @media(max-width:1080px){.an-kpis{grid-template-columns:repeat(3,1fr)}.an-grid{grid-template-columns:1fr}.an-card.wide{grid-column:auto}}
     @media(max-width:560px){.an-kpis{grid-template-columns:repeat(2,1fr)}.an-card-head{flex-direction:column}}

@@ -77,6 +77,48 @@ defmodule Aiur.WorkflowStoreTest do
     assert %Aiur.Config.Schema{} = Config.settings!()
   end
 
+  # Regression for #2133: the singleton's cache can be re-pointed at a *different*
+  # config by a reload that lands between a case's `write_workflow_file!/2`
+  # (write + awaited `force_reload`) and its read. Reads are fenced to their own
+  # current path, so such a reload must not be observable: `current/0` refuses a
+  # cache entry whose path differs and falls back to reading the caller's path
+  # from disk instead.
+  test "reads are fenced to the configured path and ignore a reload from another path" do
+    ensure_workflow_store_running()
+    store = Process.whereis(WorkflowStore)
+    path = Workflow.workflow_file_path()
+
+    write_workflow_file!(path, prompt: "Fenced prompt")
+    assert {:ok, %{prompt: "Fenced prompt"}} = WorkflowStore.current()
+
+    other = Path.join(Path.dirname(path), "fenced-other-config.yaml")
+    write_workflow_file!(other, prompt: "Other prompt")
+
+    # Re-point the singleton at `other` and reload it, then move the env path
+    # back to `path` WITHOUT a reload — the clobbered state a concurrent reload
+    # leaves behind. Suspending the store keeps its own poll from healing the
+    # stale cache mid-assertion, so the fence path is exercised deterministically.
+    Workflow.set_workflow_file_path(other)
+    :ok = WorkflowStore.force_reload()
+    assert {:ok, %{prompt: "Other prompt"}} = WorkflowStore.current()
+    :sys.suspend(store)
+
+    on_exit(fn ->
+      if Process.alive?(store), do: :sys.resume(store)
+      Workflow.set_workflow_file_path(path)
+      :ok = ensure_workflow_store_running()
+      :ok = WorkflowStore.force_reload()
+    end)
+
+    Application.put_env(:aiur, :workflow_file_path, path)
+
+    # The cache still holds `other`; a reader at `path` must not observe it.
+    assert {:ok, %{prompt: "Fenced prompt"}} = WorkflowStore.current()
+    assert {:ok, %{prompt: "Fenced prompt"}, :unknown} = WorkflowStore.current_with_generation()
+    assert %Aiur.Config.Schema{} = Config.settings!()
+    assert Config.workflow_prompt() == "Fenced prompt"
+  end
+
   # The store is a supervised singleton, so it can die between `force_reload/1`
   # checking the registered name and issuing its call. That window turned a
   # sibling test's restart into an EXIT inside an unrelated test — the failure

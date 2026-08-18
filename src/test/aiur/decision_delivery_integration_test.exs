@@ -277,7 +277,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     {:ok, pid} = DecisionStore.start_link(Keyword.merge(defaults, opts))
 
     on_exit(fn ->
-      stop_if_alive(pid)
+      Aiur.TestSupport.safe_stop(pid)
     end)
 
     pid
@@ -301,8 +301,8 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
       )
 
     on_exit(fn ->
-      stop_if_alive(metrics)
-      stop_if_alive(writer)
+      Aiur.TestSupport.safe_stop(metrics)
+      Aiur.TestSupport.safe_stop(writer)
     end)
 
     {metrics, path}
@@ -329,7 +329,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
     end)
 
     on_exit(fn ->
-      stop_if_alive(pid)
+      Aiur.TestSupport.safe_stop(pid)
       if Process.alive?(worker_pid), do: Process.exit(worker_pid, :normal)
     end)
 
@@ -408,12 +408,6 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   end
 
   defp audit_type(%DecisionEvent{type: type}), do: type
-
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
-  end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)

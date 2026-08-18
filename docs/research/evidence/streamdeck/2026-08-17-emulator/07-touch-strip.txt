@@ -1,0 +1,18 @@
+Step 7 — touch strip, read at the same instant as the grid above.
+SUMMARY segment: 1 live · 18 left
+emulator keys bucketed st-running: 1
+
+provider segments (provider / meter / percent / observed / freshness):
+codex  session  50  true  fresh
+codex  weekly  75  true  fresh
+claude  session  30  true  fresh
+claude  weekly  47  true  fresh
+kimi  session  null  false  unknown
+kimi  weekly  null  false  unknown
+openrouter  session  null  false  unknown
+openrouter  weekly  null  false  unknown
+
+NOT CAPTURED HERE: the numeric comparison against the dashboard header
+meters. In this browser fixture the header-meter routes render their own
+hardcoded usage rather than the run the emulator reads, so comparing them
+would prove nothing. That comparison needs a live daemon — see run.md.

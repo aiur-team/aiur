@@ -23,7 +23,7 @@ Run the command from the repository that owns the run. An instance is keyed to t
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost` | Read-only reports from the running daemon. |
 | Operate the fleet | `set max-agents`, `pause`, `resume`, `message`, `reset-budget`, `stop`, `restart` | Steers a live run. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `analytics` | Read-only terminal forms of the dashboard pages. |
-| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-emit`, `executor-listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
+| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-moot`, `executor-emit`, `executor-listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
 | Guard a repository | `guard-pr-deletions` | Refuses a PR with excessive untouched deletions. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
@@ -44,7 +44,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
 | `aiur --interactive` | Requests the terminal UI, including from a background launch. | `aiur --bg --interactive` |
 | `aiur --headless` | Requests no terminal UI. Background launch injects it unless `--interactive` is present. | `aiur run --headless` |
-| `aiur --executor` | Marks the run as Executor-owned: the daemon starts the supervised `executor.#` listener (the Command inbox) as part of launch, surfacing created/deferred Commands as needs-attention alerts. An Executor launch omitting it has no Command inbox and `status` reports `LISTENER absent`. | `aiur --bg --executor` |
+| `aiur --executor` | Marks the run as Executor-owned. Recording is **not** gated on this flag: every run arms the supervised `executor.#` listener and the wake inbox, so PR-lifecycle, CI and attention records exist for a later agent to replay. What the flag adds is authority — created and deferred Commands are raised as needs-attention alerts only on an Executor-owned run. `LISTENER absent` is therefore always a fault. | `aiur --bg --executor` |
 | `aiur --no-dashboard` | Suppresses the dashboard listener in foreground or background mode. It is rejected for Remote Control because its lifecycle hooks need the listener. | `aiur --bg --no-dashboard` |
 | `aiur --host 127.0.0.1` | Overrides the dashboard bind host. A non-loopback host requires dashboard credentials. | `aiur --host 127.0.0.1` |
 | `aiur --port 4000` | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |
@@ -66,7 +66,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur help` | Prints the current launcher usage. | `aiur help` |
-| `aiur status` | Shows daemon and capacity status, including `AGENTS occupied/max (binding: ...)`. A CPU-corroborated load or run-queue hold includes both the pressure and reclaimable-CPU thresholds; a high local load sample alone says the daemon still corroborates CPU contention. A GitHub quota hold includes its resource, measured remaining/limit, and observation time, and becomes `github_quota stale` after two missed probes. Other bindings include `config max_concurrent_agents`, `AIMD envelope`, `paused reservations`, `ticket supply`, `session max_concurrent_agents`, or `none`; `ticket supply` means no queued ticket is available. | `aiur status` |
+| `aiur status` | Shows daemon and capacity status, including `AGENTS occupied/max (binding: ...)`. A CPU-corroborated load or run-queue hold includes both the pressure and reclaimable-CPU thresholds; a high local load sample alone says the daemon still corroborates CPU contention. A GitHub quota hold includes its resource, measured remaining/limit, and observation time, and becomes `github_quota stale` after two missed probes. Other bindings include `config max_concurrent_agents`, `AIMD envelope`, `paused reservations`, `ticket supply`, `session max_concurrent_agents`, or `none`; `ticket supply` means no queued ticket is available. When a build-gate lease is held or queued, `status` also prints `BUILD GATE HOLDER slot=… pid=… command="…" held=…` (and `BUILD GATE QUEUED … waiting=…`) so a pinned lease is attributable without reading process trees. | `aiur status` |
 | `aiur usage` | Prints the current provider-meter observations and their known headroom. | `aiur usage` |
 | `aiur github-cost` | Ranks GitHub API spend by the call site that caused it, in points and points per hour, and prints the reconciliation against the credential's own window beside it. Reads the meter the daemon already keeps and issues no GitHub request of its own. Defaults to the `graphql` budget. | `aiur github-cost` |
 | `aiur github-cost --budget core` | Selects one budget: `graphql`, `core`, or `all`. The two budgets are never summed into one number because GitHub bills them separately, on separate windows. | `aiur github-cost --budget core` |
@@ -91,7 +91,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur resume 142` | Resumes a paused ticket, or starts an idle eligible ticket. | `aiur resume 142` |
 | `aiur resume --all` | Resumes every individually paused ticket. | `aiur resume --all` |
 | `aiur reset-budget 142` | Clears a named ticket's dispatch-budget latch. It does not accept `--all`; `resume` cannot clear this latch. | `aiur reset-budget 142` |
-| `aiur message 142 "Check review"` | Delivers Executor text through the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. Text must be nonblank and at most 8,000 characters. | `aiur message 142 "Check the latest review"` |
+| `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. Text must be nonblank and at most 8,000 characters. The command reports what it observed: `delivered message to #142` once the agent has claimed it, otherwise `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0 — a queued message is normally claimed at the agent's next checkpoint. | `aiur message 142 "Check the latest review"` |
 | `aiur stop` | Stops the BEAM and its tmux lifetime session. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
 | `aiur restart --no-build` | Bounces the daemon on whatever release is already on disk. Use it for a fast restart, or to bounce without taking uncommitted source edits live. It has no effect on the installed `aiur`, which never builds. It cannot rescue a failed development rebuild: that removes the incomplete release, so there is nothing left to start, and `restart` says so instead of suggesting it. | `aiur restart --no-build` |
@@ -174,6 +174,12 @@ Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, an
 | `aiur executor-answer DECISION-ID --executor-id exec-1` | Optional attribution for the answering Executor. It must not be empty when present. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1 --executor-id exec-1` |
 | `aiur executor-escalate DECISION-ID` | Hands a decision back to the human Executor instead of answering it. It requires `--expected-version` and `--reason`. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
 | `aiur executor-escalate DECISION-ID --reason "Text"` | Required. It records why the supervising Executor declined to answer. | `aiur executor-escalate dec_123 --expected-version 1 --reason "Needs the release owner"` |
+| `aiur executor-moot DECISION-ID` | Retires a Command whose question is void — its ticket closed or its originating agent is gone — recording why and by whom, without fabricating an answer. It requires `--expected-version` and `--reason-class`. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed` |
+| `aiur executor-moot DECISION-ID --reason-class ticket_closed` | Required. A bounded class such as `ticket_closed` or `origin_agent_gone` that explains why the Command was voided. | `aiur executor-moot dec_123 --expected-version 1 --reason-class origin_agent_gone --reason "Agent no longer runs"` |
+| `aiur executor-moot DECISION-ID --reason "Text"` | Optional free-text detail explaining why the Command was retired. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --reason "Folded into #2073"` |
+| `aiur executor-moot DECISION-ID --executor-id exec-1` | Optional attribution for the Executor retiring the Command. It must not be empty when present. | `aiur executor-moot dec_123 --expected-version 1 --reason-class ticket_closed --executor-id exec-1` |
+
+A mooted Command leaves `aiur commands --blocking` and the open/blocking counts, stays visible under `--filter resolved`, and keeps its answer unset in the audit history.
 
 Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly.
 
@@ -183,8 +189,13 @@ A stopped daemon is reported separately with the command needed to start it; a l
 
 | `aiur executor-listen` | Persists the requested subscription, then streams all persisted-pattern events after the saved cursor before live events as JSON lines. It intentionally does not use the ten-second one-shot RPC timeout. | `aiur executor-listen` |
 | `aiur executor-listen --topic 'executor.#'` | Adds that validated AMQP topic pattern before listening; the default is `executor.#`. Empty segments and malformed patterns are rejected. | `aiur executor-listen --topic 'executor.#'` |
-| `aiur executor-wait` | Returns immediately when durable Executor wake records are pending; otherwise blocks for up to 300 seconds. Exit `0` means woken, `75` means quiet timeout, and the wake cursor advances only on exit `0`. | `aiur executor-wait` |
-| `aiur executor-wait --timeout 60 --json` | Sets the positive timeout in seconds and emits the identifier-only wake batch as JSON. Non-Executor wakes contain validated IDs and typed flags, never source free text. | `aiur executor-wait --timeout 60 --json` |
+| `aiur executor-wait` | Returns immediately when durable Executor wake records are pending; otherwise blocks for up to 300 seconds. Exit `0` means woken, `75` means quiet timeout. It auto-claims the wake stream when nobody holds it, and the shared cursor advances only for the owner. | `aiur executor-wait` |
+| `aiur executor-wait --timeout 60 --json` | Sets the positive timeout in seconds and emits the identifier-only wake batch as JSON, alongside this consumer's `role`. Non-Executor wakes contain validated IDs and typed flags, never source free text. | `aiur executor-wait --timeout 60 --json` |
+| `aiur executor-wait --as agent-b` | Names the consumer explicitly instead of using `AIUR_EXECUTOR_ID` or the derived host identity. Refused by a live owner, it reads the same records as an observer and does not advance the cursor. | `aiur executor-wait --as agent-b` |
+| `aiur executor-roster` | Lists every Executor consumer with the evidence behind its state: role, host, pid, `claimed_at`, `last_renewed_at`, `last_acknowledged_at`, `pending_count`, cursor position, and whether the cursor moved since the previous observation. | `aiur executor-roster --json` |
+| `aiur executor-claim` | Claims the wake stream. Refused when a live, renewing owner holds it; the refusal names that owner so a takeover is an operator decision, never a silent steal. | `aiur executor-claim --as agent-a` |
+| `aiur executor-release` | Gives up this consumer's claim so a successor can take over immediately. | `aiur executor-release --as agent-a` |
+| `aiur executor-revoke <consumer-id>` | Operator-only revoke of the named live owner. Requires the owner's id, read from the roster first. | `aiur executor-revoke agent-a` |
 | `aiur executor-emit executor.note --payload '{"text":"ready"}'` | Publishes JSON on a nonempty `executor.` topic. Empty segments and other namespaces are rejected. | `aiur executor-emit executor.note --payload '{"text":"ready"}'` |
 | `aiur executor-subscribe 'executor.#'` | Adds a persistent Executor event binding. Bindings accept `executor.*` and reviewed ticket/system patterns only; broader wildcards are rejected. | `aiur executor-subscribe 'executor.#'` |
 | `aiur executor-unsubscribe 'executor.#'` | Removes that exact persistent binding. | `aiur executor-unsubscribe 'executor.#'` |
@@ -195,6 +206,51 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --scope repo` | Filters to `aiur` or `repo` scope. | `aiur findings --scope repo` |
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
+
+### Wake ledger bound and lease TTL
+
+The wake ledger is capped at 10,000 records. Consumed records are evicted first.
+
+Past the cap the **oldest unread wakes are evicted too**. The shared cursor is
+advanced past them and an `executor.wakes.overflow` alert names the count and id
+range; those wakes are never delivered.
+
+In practice that only happens when a run records for a long time with no
+consumer, or with a stalled one. The roster's `stalled` state is the earlier
+warning.
+
+A claim is a lease with a 10-minute TTL, renewed while `executor-wait` blocks and
+on every claim, acknowledgement, or roster touch. A consumer that stops renewing
+is reported `expired` after the TTL lapses, and a successor may take over with no
+operator action.
+
+### Executor roster states
+
+A stalled consumer still holds a claim and still renews its lease, so a
+presence-based list reports it as fine.
+
+`aiur executor-roster` derives state from evidence, never from presence.
+
+| State | Meaning |
+| --- | --- |
+| `active` | Positive evidence of consumption: it acknowledged inside the stall window, or the shared cursor moved since the previous observation. |
+| `idle` | Lease live, nothing pending, cursor legitimately still. |
+| `stalled` | Lease renewing, but acknowledgements are frozen while `pending_count` grows. The "backgrounded stuck" case. |
+| `expired` | Lease lapsed. A successor may take over with no operator action. |
+| `unknown` | The evidence needed to decide is missing. Never reported as `active`. |
+
+Multiple executors are a supported configuration, so a healthy peer is listed
+plainly and is not a fault. An agent reports what it finds and recommends; it
+never revokes a live peer's claim on its own.
+
+Records — the journal, wake inbox, cursor, and subscriptions — are created
+automatically on first use beneath the per-repository state node
+(`~/.aiur/repo/<owner>/<repo>/executor`), so they survive a daemon restart and a
+successor resumes from the durable cursor.
+
+`AIUR_EXECUTOR_ID` names this consumer when `--as` is omitted. Nothing infers
+consumer identity from the terminal, parent process, or any other environment
+signal.
 
 Executor subscriptions are the Executor's half of the event system; see [Message Bus](/concepts/message-bus). Agents do not need these commands: every agent is auto-subscribed to its own comment, review, and CI topics, and to both directions of every blocker edge.
 

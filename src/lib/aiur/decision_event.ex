@@ -38,6 +38,7 @@ defmodule Aiur.DecisionEvent do
     :decision_expired,
     :decision_dismissed,
     :decision_deferred,
+    :decision_mooted,
     :executor_escalated,
     :answer_recorded,
     :revision_recorded,
@@ -63,6 +64,7 @@ defmodule Aiur.DecisionEvent do
           | :decision_expired
           | :decision_dismissed
           | :decision_deferred
+          | :decision_mooted
           | :executor_escalated
           | :answer_recorded
           | :revision_recorded
@@ -308,6 +310,20 @@ defmodule Aiur.DecisionEvent do
          {:ok, actor} <- normalize_actor(get(raw, :actor)),
          :ok <- require_system_actor(actor) do
       {:ok, %{reason_class: reason_class, actor: actor}}
+    end
+  end
+
+  # Retiring a Command whose ticket closed or whose originating agent is gone.
+  # Unlike an expiry (system-only, no prose) and unlike a dismissal (no reason,
+  # refused for agent-filed blocking Commands), a moot records who retired it,
+  # a bounded reason class, and optional free-text detail — and it deliberately
+  # carries no answer, so the durable record can never be mistaken for a real
+  # decision. Any actor may retire a Command; the attribution stays the actor's.
+  defp normalize_data(:decision_mooted, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, reason_class} <- bounded_required(get(raw, :reason_class), @reason_max, :reason_class),
+         {:ok, detail} <- bounded_optional(get(raw, :detail), @detail_max, :detail),
+         {:ok, actor} <- normalize_actor(get(raw, :actor)) do
+      {:ok, %{reason_class: reason_class, detail: detail, actor: actor}}
     end
   end
 
@@ -559,6 +575,18 @@ defmodule Aiur.DecisionEvent do
       "reason_class" => data.reason_class,
       "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}
     }
+  end
+
+  defp data_to_json_safe(:decision_mooted, data) do
+    base = %{
+      "reason_class" => data.reason_class,
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}
+    }
+
+    case data.detail do
+      nil -> base
+      detail -> Map.put(base, "detail", detail)
+    end
   end
 
   defp data_to_json_safe(:revision_recorded, %DecisionRevision{} = revision),

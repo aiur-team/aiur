@@ -96,7 +96,7 @@ defmodule Aiur.AgentResourceGuardTest do
         ]
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     send(pid, :tick)
     assert_receive :guard_enforced

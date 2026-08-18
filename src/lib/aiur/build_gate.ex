@@ -22,8 +22,22 @@ defmodule Aiur.BuildGate do
           required(:capacity) => non_neg_integer(),
           required(:active) => non_neg_integer(),
           required(:queued) => non_neg_integer(),
+          optional(:holders) => [holder()],
           optional(:degraded?) => boolean(),
           optional(:issues) => [map()]
+        }
+
+  @type holder :: %{
+          required(:kind) => :slot | :queue,
+          required(:slot) => pos_integer() | nil,
+          required(:pid) => pos_integer() | nil,
+          required(:pgid) => pos_integer() | nil,
+          required(:holder_pid) => pos_integer() | nil,
+          required(:command_pgid) => pos_integer() | nil,
+          required(:phase) => String.t() | nil,
+          required(:command) => String.t() | nil,
+          required(:started_at) => pos_integer() | nil,
+          required(:held_for_seconds) => non_neg_integer() | nil
         }
 
   @spec shell_env(keyword()) :: [{String.t(), String.t()}]
@@ -130,20 +144,28 @@ defmodule Aiur.BuildGate do
       if linux_lock_strategy?(opts) do
         linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
       else
-        %{
-          enabled?: true,
-          capacity: capacity,
-          active: if(capacity > 0, do: active_count(gate_dir, capacity), else: 0),
-          queued: queue_count(gate_dir)
-        }
+        pid_status(gate_dir, capacity)
       end
     else
-      %{enabled?: false, capacity: 0, active: 0, queued: 0}
+      %{enabled?: false, capacity: 0, active: 0, queued: 0, holders: []}
     end
   end
 
+  defp pid_status(gate_dir, capacity) do
+    {active, active_holders} = if(capacity > 0, do: active_count(gate_dir, capacity), else: {0, []})
+    {queued, queue_holders} = queue_count(gate_dir)
+
+    %{
+      enabled?: true,
+      capacity: capacity,
+      active: active,
+      queued: queued,
+      holders: active_holders ++ queue_holders
+    }
+  end
+
   defp linux_status(gate_dir, lock_dir, capacity) do
-    base = %{enabled?: true, capacity: capacity, active: 0, queued: 0}
+    base = %{enabled?: true, capacity: capacity, active: 0, queued: 0, holders: []}
 
     cond do
       not File.exists?(gate_dir) ->
@@ -160,13 +182,13 @@ defmodule Aiur.BuildGate do
   defp do_linux_status(base, gate_dir, lock_dir, capacity) do
     with flock when is_binary(flock) <- System.find_executable("flock"),
          shell when is_binary(shell) <- System.find_executable("sh") do
-      {active, slot_issues} = linux_active_count(gate_dir, lock_dir, capacity, shell, flock)
-      {queued, queue_issues} = linux_queue_count(gate_dir, shell, flock)
+      {active, slot_issues, slot_holders} = linux_active_count(gate_dir, lock_dir, capacity, shell, flock)
+      {queued, queue_issues, queue_holders} = linux_queue_count(gate_dir, shell, flock)
       phase_issues = cleanup_phase_metadata(gate_dir, lock_dir, shell, flock)
       issues = legacy_issues(gate_dir) ++ slot_issues ++ queue_issues ++ phase_issues
 
       base
-      |> Map.merge(%{active: active, queued: queued})
+      |> Map.merge(%{active: active, queued: queued, holders: slot_holders ++ queue_holders})
       |> degraded(issues)
     else
       nil -> degraded(base, [status_issue(:flock_unavailable, gate_dir)])
@@ -174,20 +196,25 @@ defmodule Aiur.BuildGate do
   end
 
   defp linux_active_count(_gate_dir, _lock_dir, capacity, _shell, _flock) when capacity <= 0,
-    do: {0, []}
+    do: {0, [], []}
 
   defp linux_active_count(gate_dir, lock_dir, capacity, shell, flock) do
-    Enum.reduce(1..capacity, {0, []}, fn slot, {active, issues} ->
+    Enum.reduce(1..capacity, {0, [], []}, fn slot, {active, issues, holders} ->
       lock_path = Path.join(lock_dir, "slot-#{slot}.lock")
       owner_path = Path.join(gate_dir, "slot-#{slot}.owner")
 
       case probe_lock(lock_path, owner_path, shell, flock) do
-        :locked -> {active + 1, maybe_metadata_issue(issues, owner_path)}
-        :unlocked -> {active, issues}
-        {:error, reason} -> {active, [status_issue(:lock_probe_failed, lock_path, reason) | issues]}
+        :locked ->
+          {active + 1, maybe_metadata_issue(issues, owner_path), maybe_holder(holders, owner_path, :slot, slot)}
+
+        :unlocked ->
+          {active, issues, holders}
+
+        {:error, reason} ->
+          {active, [status_issue(:lock_probe_failed, lock_path, reason) | issues], holders}
       end
     end)
-    |> then(fn {active, issues} -> {active, Enum.reverse(issues)} end)
+    |> then(fn {active, issues, holders} -> {active, Enum.reverse(issues), Enum.reverse(holders)} end)
   end
 
   defp linux_queue_count(gate_dir, shell, flock) do
@@ -197,24 +224,24 @@ defmodule Aiur.BuildGate do
       {:ok, entries} ->
         entries
         |> Enum.filter(&String.starts_with?(&1, "lease-v2-"))
-        |> Enum.reduce({0, []}, &count_queue_entry(&1, &2, queue_dir, shell, flock))
-        |> then(fn {queued, issues} -> {queued, Enum.reverse(issues)} end)
+        |> Enum.reduce({0, [], []}, &count_queue_entry(&1, &2, queue_dir, shell, flock))
+        |> then(fn {queued, issues, holders} -> {queued, Enum.reverse(issues), Enum.reverse(holders)} end)
 
       {:error, :enoent} ->
-        {0, []}
+        {0, [], []}
 
       {:error, reason} ->
-        {0, [status_issue(:queue_unreadable, queue_dir, reason)]}
+        {0, [status_issue(:queue_unreadable, queue_dir, reason)], []}
     end
   end
 
-  defp count_queue_entry(entry, {queued, issues}, queue_dir, shell, flock) do
+  defp count_queue_entry(entry, {queued, issues, holders}, queue_dir, shell, flock) do
     path = Path.join(queue_dir, entry)
 
     case probe_lock(path, path, shell, flock) do
-      :locked -> {queued + 1, maybe_metadata_issue(issues, path)}
-      :unlocked -> {queued, issues}
-      {:error, reason} -> {queued, [status_issue(:lock_probe_failed, path, reason) | issues]}
+      :locked -> {queued + 1, maybe_metadata_issue(issues, path), maybe_holder(holders, path, :queue, nil)}
+      :unlocked -> {queued, issues, holders}
+      {:error, reason} -> {queued, [status_issue(:lock_probe_failed, path, reason) | issues], holders}
     end
   end
 
@@ -257,21 +284,95 @@ defmodule Aiur.BuildGate do
     read_metadata_issue(issues, path)
   end
 
+  defp maybe_holder(holders, path, kind, slot) do
+    case read_metadata(path) do
+      {:ok, contents} ->
+        case parse_v2_record(contents) do
+          {:ok, fields} -> [holder_from_fields(fields, kind, slot) | holders]
+          _ -> holders
+        end
+
+      _ ->
+        holders
+    end
+  end
+
   defp read_metadata_issue(issues, path) do
+    case read_metadata(path) do
+      {:ok, "version=2\n" <> _rest} -> issues
+      {:ok, _contents} -> [status_issue(:metadata_unreadable, path, {:reader_status, 0}) | issues]
+      {:error, :safe_reader_unavailable} -> [status_issue(:metadata_unreadable, path, :safe_reader_unavailable) | issues]
+      {:error, :missing} -> issues
+      {:error, :not_regular} -> [status_issue(:metadata_not_regular, path) | issues]
+      {:error, reason} -> [status_issue(:metadata_unreadable, path, reason) | issues]
+    end
+  end
+
+  # Safe, non-blocking read of a lease metadata record via the holder's regular
+  # reader (rejects FIFOs/symlinks and never blocks on a hostile path). Returns
+  # the raw record contents for version + holder parsing.
+  defp read_metadata(path) do
     case System.find_executable("python3") do
       nil ->
-        [status_issue(:metadata_unreadable, path, :safe_reader_unavailable) | issues]
+        {:error, :safe_reader_unavailable}
 
       python ->
         case System.cmd(python, [holder_path(), "--read-regular", path], stderr_to_stdout: true) do
-          {"version=2\n" <> _rest, 0} -> issues
-          {_contents, 1} -> issues
-          {_contents, 125} -> [status_issue(:metadata_not_regular, path) | issues]
-          {_contents, status} -> [status_issue(:metadata_unreadable, path, {:reader_status, status}) | issues]
+          {contents, 0} -> {:ok, contents}
+          {_contents, 1} -> {:error, :missing}
+          {_contents, 125} -> {:error, :not_regular}
+          {_contents, status} -> {:error, {:reader_status, status}}
         end
     end
   rescue
-    error -> [status_issue(:metadata_unreadable, path, Exception.message(error)) | issues]
+    error -> {:error, Exception.message(error)}
+  end
+
+  defp parse_v2_record(contents) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.reduce_while({:ok, %{}}, fn line, {:ok, acc} ->
+      case String.split(line, "=", parts: 2) do
+        [key, value] -> {:cont, {:ok, Map.put(acc, key, value)}}
+        _ -> {:halt, :error}
+      end
+    end)
+    |> case do
+      {:ok, fields} when map_size(fields) > 0 -> {:ok, fields}
+      _ -> :error
+    end
+  end
+
+  defp holder_from_fields(fields, kind, slot) do
+    now = System.os_time(:second)
+    started_at = int_field(fields, "started_at")
+    held_for_seconds = if is_integer(started_at) and started_at > 0 and now >= started_at, do: now - started_at, else: nil
+
+    %{
+      kind: kind,
+      slot: slot,
+      pid: int_field(fields, "pid"),
+      pgid: int_field(fields, "pgid"),
+      holder_pid: int_field(fields, "holder_pid"),
+      command_pgid: int_field(fields, "command_pgid"),
+      phase: Map.get(fields, "phase"),
+      command: Map.get(fields, "command"),
+      started_at: started_at,
+      held_for_seconds: held_for_seconds
+    }
+  end
+
+  defp int_field(fields, key) do
+    case Map.get(fields, key) do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {integer, ""} -> integer
+          _ -> nil
+        end
+    end
   end
 
   defp regular_or_missing(path) do
@@ -336,14 +437,32 @@ defmodule Aiur.BuildGate do
   end
 
   defp active_count(gate_dir, capacity) do
-    1..capacity
-    |> Enum.count(fn slot ->
+    Enum.reduce(1..capacity, {0, []}, fn slot, {active, holders} ->
       slot_path = Path.join(gate_dir, "slot-#{slot}")
+      owner_path = slot_owner_path(slot_path)
 
-      slot_path
-      |> slot_owner_path()
-      |> owner_record_alive?()
+      cond do
+        owner_record_alive?(owner_path) ->
+          {active + 1, maybe_holder(holders, owner_path, :slot, slot)}
+
+        stale_owner_record?(slot_path) ->
+          # A lease whose holder has exited is reaped here so the slot becomes
+          # available without operator action, mirroring the Linux status
+          # reclaim of unlocked v2 metadata. Mirrors the Bash admission-time
+          # `aiur_build_gate_reclaim_stale_slot`.
+          File.rm_rf(slot_path)
+          {active, holders}
+
+        true ->
+          {active, holders}
+      end
     end)
+    |> then(fn {active, holders} -> {active, Enum.reverse(holders)} end)
+  end
+
+  defp stale_owner_record?(slot_path) do
+    owner_path = slot_owner_path(slot_path)
+    File.exists?(owner_path) and not owner_record_alive?(owner_path)
   end
 
   defp slot_owner_path(slot_path) do
@@ -351,16 +470,26 @@ defmodule Aiur.BuildGate do
   end
 
   defp queue_count(gate_dir) do
-    gate_dir
-    |> Path.join("queue")
-    |> records_in()
-    |> Enum.count(&owner_alive?/1)
+    queue_dir = Path.join(gate_dir, "queue")
+
+    case File.ls(queue_dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.reduce({0, []}, &count_queue_entry_pid(&1, &2, queue_dir))
+        |> then(fn {queued, holders} -> {queued, Enum.reverse(holders)} end)
+
+      _ ->
+        {0, []}
+    end
   end
 
-  defp records_in(path) do
-    case File.ls(path) do
-      {:ok, entries} -> Enum.map(entries, &owner_pid(Path.join(path, &1)))
-      _ -> []
+  defp count_queue_entry_pid(entry, {queued, holders}, queue_dir) do
+    path = Path.join(queue_dir, entry)
+
+    if owner_alive?(owner_pid(path)) do
+      {queued + 1, maybe_holder(holders, path, :queue, nil)}
+    else
+      {queued, holders}
     end
   end
 
