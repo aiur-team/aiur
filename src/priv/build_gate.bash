@@ -317,6 +317,14 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     printf '%s\n' "$now"
   }
 
+  # Acquisition time stamped into every v2 lease record so an operator surface
+  # can report how long a lease has been held. Best effort only: a missing clock
+  # writes 0 (unknown) rather than failing the build — the timestamp is
+  # advisory, never part of admission.
+  aiur_build_gate_started_at() {
+    aiur_build_gate_now_seconds || printf '0\n'
+  }
+
   aiur_build_gate_phase_hold_log() {
     local phase=$1 wait_seconds=$2
     printf 'aiur_perf phase_stagger_hold surface=build phase=%s wait_seconds=%s\n' \
@@ -435,8 +443,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     lease_token=${lease_path##*/}
     lease_token=${lease_token#.active-lease.}
 
-    if ! printf 'version=2\ntoken=%s\nphase=%s\ncommand=%s\n' \
-      "$lease_token" "$phase" "$*" >"$lease_path"; then
+    if ! printf 'version=2\ntoken=%s\nphase=%s\ncommand=%s\nstarted_at=%s\n' \
+      "$lease_token" "$phase" "$*" "$(aiur_build_gate_started_at)" >"$lease_path"; then
       rm -f "$lease_path" 2>/dev/null || true
       aiur_build_gate_fail "lease_marker_write_failed" "$lease_path"
       return 125
@@ -720,7 +728,9 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   aiur_build_gate_publish_owner_v2() {
     local gate_dir=$1 owner_path=$2 token=$3 phase=$4 owner_pid=$5 owner_pgid=$6 command=$7
     local holder_pid=${8:-0} command_pgid=${9:-0}
-    local owner_candidate
+    local owner_candidate started_at
+
+    started_at=$(aiur_build_gate_started_at)
 
     owner_candidate=$(mktemp "$gate_dir/.owner-v2.XXXXXXXXXX" 2>/dev/null) || {
       aiur_build_gate_fail "owner_candidate_failed" "$gate_dir"
@@ -728,8 +738,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     }
 
     if ! printf \
-      'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\nphase=%s\ncommand=%s\n' \
-      "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$phase" "$command" \
+      'version=2\ntoken=%s\npid=%s\npgid=%s\nholder_pid=%s\ncommand_pgid=%s\nphase=%s\ncommand=%s\nstarted_at=%s\n' \
+      "$token" "$owner_pid" "$owner_pgid" "$holder_pid" "$command_pgid" "$phase" "$command" "$started_at" \
       >"$owner_candidate"; then
       rm -f "$owner_candidate" 2>/dev/null || true
       aiur_build_gate_fail "owner_write_failed" "$owner_path"
@@ -1001,7 +1011,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     fi
 
     queue_file="$queue_dir/$$"
-    if ! printf 'pid=%s\ncommand=%s\n' "$$" "$*" >"$queue_file"; then
+    if ! printf 'pid=%s\ncommand=%s\nstarted_at=%s\n' \
+      "$$" "$*" "$(aiur_build_gate_started_at)" >"$queue_file"; then
       aiur_build_gate_fail "queue_record_failed" "$queue_file"
       return 125
     fi
@@ -1087,8 +1098,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
         token="$owner_pid.$slot.$RANDOM.$SECONDS"
 
-        if ! printf 'pid=%s\npgid=%s\nversion=2\ntoken=%s\ncommand=%s\n' \
-          "$owner_pid" "$owner_pgid" "$token" "$*" >"$owner_candidate"; then
+        if ! printf 'pid=%s\npgid=%s\nversion=2\ntoken=%s\ncommand=%s\nstarted_at=%s\n' \
+          "$owner_pid" "$owner_pgid" "$token" "$*" "$(aiur_build_gate_started_at)" >"$owner_candidate"; then
           rm -f "$owner_candidate"
           rm -f "$queue_file"
           aiur_build_gate_fail "owner_write_failed" "$owner_candidate"
@@ -1289,8 +1300,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     queue_token=${queue_candidate##*/}
     queue_token=${queue_token#.queue-v2.}
 
-    if ! printf 'version=2\ntoken=%s\npid=%s\npgid=%s\nphase=%s\ncommand=%s\n' \
-      "$queue_token" "$owner_pid" "$owner_pgid" "$phase" "$*" >&"$queue_fd"; then
+    if ! printf 'version=2\ntoken=%s\npid=%s\npgid=%s\nphase=%s\ncommand=%s\nstarted_at=%s\n' \
+      "$queue_token" "$owner_pid" "$owner_pgid" "$phase" "$*" "$(aiur_build_gate_started_at)" >&"$queue_fd"; then
       exec {queue_fd}>&-
       rm -f "$queue_candidate" 2>/dev/null || true
       aiur_build_gate_fail "queue_record_failed" "$queue_candidate"
