@@ -85,24 +85,28 @@ defmodule Aiur.Upgrade do
         :nightly
 
       {:ok, _stable} ->
-        next = Map.get(dist_tags, "next")
-        latest = Map.get(dist_tags, "latest")
-
-        cond do
-          Map.get(dist_tags, "next") == installed ->
-            :next
-
-          is_binary(next) and is_binary(latest) and Version.newer?(next, installed) and
-              Version.newer?(installed, latest) ->
-            :next
-
-          true ->
-            :latest
-        end
+        stable_channel(installed, dist_tags)
 
       _ ->
         :latest
     end
+  end
+
+  # A stable install is `next` when it matches the `next` dist-tag or sits
+  # strictly between `latest` and `next`; otherwise it is `latest`.
+  defp stable_channel(installed, dist_tags) do
+    if next_user?(installed, dist_tags), do: :next, else: :latest
+  end
+
+  defp next_user?(installed, dist_tags) do
+    next = Map.get(dist_tags, "next")
+    latest = Map.get(dist_tags, "latest")
+    Map.get(dist_tags, "next") == installed or in_next_range?(installed, next, latest)
+  end
+
+  defp in_next_range?(installed, next, latest) do
+    is_binary(next) and is_binary(latest) and Version.newer?(next, installed) and
+      Version.newer?(installed, latest)
   end
 
   @doc """
@@ -186,12 +190,7 @@ defmodule Aiur.Upgrade do
   end
 
   defp run_check(transport, state_file) do
-    state =
-      case State.read(state_file) do
-        {:ok, parsed} -> parsed
-        :error -> State.default()
-      end
-
+    state = read_state(state_file)
     notified_marker = notified_file(state_file)
 
     if cache_fresh?(state) do
@@ -199,22 +198,34 @@ defmodule Aiur.Upgrade do
       announce_pending(state, State.read_notified(notified_marker))
       :ok
     else
-      case Registry.fetch_dist_tags(transport) do
-        {:ok, tags} ->
-          pending = notice(installed_version(), tags, State.read_notified(notified_marker))
-          updated = %{state | last_check_ms: now_ms(), dist_tags: tags, notice: notice_to_map(pending)}
-          State.write(updated, state_file)
-          if pending != :none, do: announce(pending)
-          :ok
+      refresh_check(transport, state_file, state, notified_marker)
+    end
+  end
 
-        {:error, _reason} ->
-          # Fail open: stamp the check so an offline host does not retry on
-          # every run, and keep any notice a prior successful check computed.
-          updated = %{state | last_check_ms: now_ms()}
-          State.write(updated, state_file)
-          announce_pending(state, State.read_notified(notified_marker))
-          :ok
-      end
+  defp read_state(state_file) do
+    case State.read(state_file) do
+      {:ok, parsed} -> parsed
+      :error -> State.default()
+    end
+  end
+
+  defp refresh_check(transport, state_file, state, notified_marker) do
+    case Registry.fetch_dist_tags(transport) do
+      {:ok, tags} ->
+        notified = State.read_notified(notified_marker)
+        pending = notice(installed_version(), tags, notified)
+        updated = %{state | last_check_ms: now_ms(), dist_tags: tags, notice: notice_to_map(pending)}
+        State.write(updated, state_file)
+        if pending != :none, do: announce(pending)
+        :ok
+
+      {:error, _reason} ->
+        # Fail open: stamp the check so an offline host does not retry on
+        # every run, and keep any notice a prior successful check computed.
+        updated = %{state | last_check_ms: now_ms()}
+        State.write(updated, state_file)
+        announce_pending(state, State.read_notified(notified_marker))
+        :ok
     end
   end
 

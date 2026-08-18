@@ -35,7 +35,6 @@ defmodule Aiur.Upgrade.Registry.Transport.Req do
   # Req decodes JSON bodies into maps; stay defensive against a raw binary.
   defp decode_body(body) when is_map(body), do: body
   defp decode_body(body) when is_binary(body), do: Jason.decode!(body)
-  defp decode_body(_other), do: %{}
 
   # The `/-/package/aiur-cli/dist-tags` endpoint returns a flat tag→version map.
   # Accept a nested `"dist-tags"` too so a full package-doc URL keeps working.

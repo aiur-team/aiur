@@ -441,11 +441,10 @@ agent:
 ## upgrade
 
 The `aiur run` upgrade-version notice. Like every outbound integration in Aiur,
-the check is optional and opt-out: it caches with a TTL (the registry is
-contacted at most once a day), fails open and silent when the registry is
-unreachable, and never runs under the `aiurdev` development launcher. It is
-channel-aware — a user on the `nightly` or `next` channel is never offered the
-`latest` dist-tag when that is lower.
+it is optional and opt-out: it caches with a TTL (the registry is contacted at
+most once a day), fails open and silent when unreachable, and never runs under
+`aiurdev`. It is channel-aware: a `nightly` or `next` user is never offered a
+lower `latest`.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
