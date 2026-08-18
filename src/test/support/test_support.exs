@@ -219,6 +219,7 @@ defmodule Aiur.TestSupport do
           write_workflow_file!: 2,
           write_workflow_file_async!: 1,
           write_workflow_file_async!: 2,
+          write_workflow_file_atomic!: 2,
           receive_barrier: 1,
           restore_env: 2,
           stop_default_http_server: 0,
@@ -373,6 +374,21 @@ defmodule Aiur.TestSupport do
     :ok
   end
 
+  @doc """
+  Writes raw YAML to a workflow fixture atomically (temp file + rename) and
+  does not reload the store.
+
+  Use for intentionally-invalid fixture content, which must land as a single
+  unit: a plain `File.write!/2` truncates before writing, so the
+  `WorkflowStore` background poll can read the empty intermediate — empty YAML
+  parses successfully — and commit those defaults as last-known-good before the
+  test's own `force_reload/1` runs (#1635).
+  """
+  @spec write_workflow_file_atomic!(Path.t(), String.t()) :: :ok
+  def write_workflow_file_atomic!(path, content) when is_binary(content) do
+    atomic_write!(path, content)
+  end
+
   defp write_workflow_content!(path, overrides) do
     {config_yaml, prompt} = workflow_content(overrides)
 
@@ -385,8 +401,25 @@ defmodule Aiur.TestSupport do
         config_yaml
       end
 
-    File.write!(path, config_yaml)
+    atomic_write!(path, config_yaml)
     write_default_alerts_file!(path)
+  end
+
+  # `File.write!/2` truncates before writing, so a `WorkflowStore` poll (or an
+  # unrelated restart) can observe an empty intermediate file and commit it as
+  # a valid last-known-good workflow (empty YAML parses successfully). Write to
+  # a sibling temp file and rename so the active config only ever exists as a
+  # complete unit (#1635).
+  defp atomic_write!(path, content) do
+    tmp =
+      Path.join(
+        Path.dirname(path),
+        ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp"
+      )
+
+    File.write!(tmp, content)
+    File.rename!(tmp, path)
+    :ok
   end
 
   defp active_workflow_file?(path) do
