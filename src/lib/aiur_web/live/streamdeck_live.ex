@@ -24,8 +24,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias AiurWeb.{
     Endpoint,
-    StreamDeckGrid,
     StreamdeckCommands,
+    StreamDeckGrid,
     StreamdeckKeyFaceContract,
     StreamdeckLogs,
     StreamdeckProjection,

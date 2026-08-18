@@ -7,6 +7,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   alias Aiur.{AgentEvents, DecisionValidation, IssueLog}
   alias Aiur.AgentPubSub
+  alias Aiur.DecisionQuery.Cursor
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckChannel, StreamdeckProjection, StreamdeckSocket}
@@ -551,7 +552,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       # The cursor is the opaque encoding the store hands back on the previous
       # page; a client passes it through untouched.
       cursor =
-        Aiur.DecisionQuery.Cursor.encode(%{
+        Cursor.encode(%{
           created_at: ~U[2026-07-12 10:00:00Z],
           decision_id: command_decision("AIUR-1").decision_id
         })

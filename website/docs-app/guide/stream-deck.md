@@ -243,7 +243,7 @@ PipeWire and PulseAudio microphones are supported, including ALSA, USB, and Blue
 
 ## Answer agent Commands
 
-The Commands key on the agent row opens the focused agent's Command history — past Commands newest-first, active ones highlighted. It is always present, not a conditional alert button, so its absence can never be mistaken for "no Commands". The deck answers Commands without the Dashboard; answers are recorded as the operator's own.
+The Commands key on the agent row opens the focused agent's Command history — past Commands newest-first, active ones highlighted — and is always present, so its absence can never be mistaken for "no Commands".
 
 | Key | Meaning |
 | --- | --- |
@@ -270,6 +270,8 @@ The Approve state is unmistakable: when an answer is armed the strip shows a gre
 
 ### Attribution
 
-An answer given on the deck is recorded with operator attribution (`operator` / `streamdeck`), the same authoritative path as a Dashboard answer — never an Executor answer with an operator flavour in free text. That is also what lets the deck answer `human_required` Commands an Executor cannot. Answers are only accepted for the agent currently focused on the deck.
+An answer given on the deck is recorded with operator attribution (`operator` / `streamdeck`) — the same authoritative path as a Dashboard answer. It is never an Executor answer with an operator flavour in free text.
+
+That is also what lets the deck answer `human_required` Commands an Executor cannot. Answers are only accepted for the agent currently focused on the deck.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.

@@ -232,10 +232,10 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({:decision_changed, decision_id, _version}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) do
-    socket = push_decisions(socket)
+    socket = push(socket, "decisions", StreamdeckProjection.decisions())
 
     if focused_command?(socket, decision_id, identifier) do
-      push(socket, "commands", commands_projection(identifier))
+      socket = push(socket, "commands", commands_projection(identifier))
       {:noreply, socket}
     else
       {:noreply, socket}

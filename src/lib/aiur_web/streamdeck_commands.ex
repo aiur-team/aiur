@@ -120,8 +120,6 @@ defmodule AiurWeb.StreamdeckCommands do
     end)
   end
 
-  defp actor(_actor), do: nil
-
   defp kind_string(kind) when is_atom(kind), do: Atom.to_string(kind)
   defp kind_string(kind) when is_binary(kind), do: kind
 
