@@ -40,7 +40,7 @@ defmodule Aiur.Events.GithubWebhook do
 
   require Logger
 
-  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer}
+  alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ThreadResolver}
   alias Aiur.Events.{Publisher, Sanitizer}
   alias Aiur.Webhooks
 
@@ -67,10 +67,14 @@ defmodule Aiur.Events.GithubWebhook do
     * `:reconcile_fun` — 1-arity override for the orchestrator nudge
     * `:orchestrator` — process name or pid to nudge; defaults to
       `Aiur.Orchestrator`
+    * `:request_fun` — transport seam for `Aiur.Events.GithubWebhook.ThreadResolver`,
+      which resolves the review thread a `pull_request_review_comment` delivery
+      belongs to (test seam; defaults to the live GitHub transport)
     * `:at` / `:server` — passed through to `Aiur.Webhooks.record_delivery/2`
   """
   @spec handle_delivery(term(), term(), keyword()) :: outcome()
   def handle_delivery(event_type, payload, opts \\ []) do
+    payload = maybe_resolve_review_thread(event_type, payload, opts)
     record_tracked_delivery(event_type, payload, opts)
 
     case Normalizer.normalize(event_type, payload, opts) do
@@ -125,6 +129,31 @@ defmodule Aiur.Events.GithubWebhook do
         :ok
     end
   end
+
+  # A `pull_request_review_comment` delivery carries the comment's own GraphQL
+  # node id but not its thread's. The poller keys thread comments on the thread
+  # node id, so the webhook must resolve it too or the two pipes key the same
+  # event differently and wake the agent twice for one comment (#2081). The
+  # resolved id is stamped onto the delivery's comment, where the normalizer
+  # reads it and keys on the thread.
+  #
+  # Best-effort: a delivery with no `node_id`, or a lookup that fails, is left
+  # untouched and the normalizer falls back to per-comment keying — today's
+  # behaviour. A duplicate wake is recoverable; a dropped delivery is not.
+  defp maybe_resolve_review_thread("pull_request_review_comment", payload, opts) when is_map(payload) do
+    case get_in(payload, ["comment", "node_id"]) do
+      node_id when is_binary(node_id) and node_id != "" ->
+        case ThreadResolver.resolve(node_id, opts) do
+          {:ok, thread_id} -> put_in(payload, ["comment", "review_thread_id"], thread_id)
+          :not_resolvable -> payload
+        end
+
+      _other ->
+        payload
+    end
+  end
+
+  defp maybe_resolve_review_thread(_event_type, payload, _opts), do: payload
 
   defp publish_all(triples, opts) do
     publish_fun = Keyword.get(opts, :publish_fun, &Publisher.publish/3)

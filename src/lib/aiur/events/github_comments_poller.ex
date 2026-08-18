@@ -633,18 +633,16 @@ defmodule Aiur.Events.GithubCommentsPoller do
     )
   end
 
-  # Deliberately mirrors `pr_review_comment_dedup_key/3`'s granularity rather
-  # than improving on it. On the GraphQL batch path this poller dedups per
-  # *thread*, a webhook delivery can only dedup per *comment*, and that
-  # divergence is a known, pinned one (see `Normalizer`'s note and
-  # `github_webhook_equivalence_test.exs`). Naming a comment resource on a
-  # thread-keyed publish would silently reconcile the two at one granularity —
-  # a real change to when an agent wakes, and not this ticket's to make. Where
-  # the poller already keys per comment, the resource matches the delivery's
-  # and the durable layer closes the restart gap the ETS window leaves open.
-  defp pr_review_comment_resource(_repo, %{"review_thread_id" => thread_id})
-       when is_binary(thread_id) and thread_id != "",
-       do: nil
+  # The resource is the *thread* when the comment carries a thread id, matching
+  # the webhook pipe's `Normalizer.review_comment_keys/3`: both name
+  # `{:pr_review_thread, owner, repo, thread_id}` so the durable store closes
+  # the cross-pipe, cross-restart gap for review threads the way it does for
+  # comments (#2081). Where this poller keys per comment (no thread id), the
+  # resource is the comment and matches the delivery's per-comment fallback.
+  defp pr_review_comment_resource(repo, %{"review_thread_id" => thread_id})
+       when is_binary(thread_id) and thread_id != "" do
+    ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)
+  end
 
   defp pr_review_comment_resource(repo, comment) when is_map(comment) do
     ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
