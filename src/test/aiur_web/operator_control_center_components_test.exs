@@ -427,7 +427,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         }
       })
 
-    assert html =~ "Retained Command counts unavailable"
+    assert html =~ "Command counts unavailable"
     assert html =~ "cannot show how many units are awaiting commands"
 
     # This banner is on Analytics, Build Order and Stream Deck too, and none of
@@ -491,7 +491,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "distinguishes degraded decision history from an unavailable provider" do
     html = render_component(&History.history/1, %{rows: [], provider_health: :degraded})
 
-    assert html =~ "Command history is degraded"
+    assert html =~ "Showing a partial Command history"
     refute html =~ "currently unavailable"
   end
 
@@ -915,9 +915,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         latency: %{status: :unavailable, snapshot: nil}
       })
 
-    assert missing =~ "No latency sample has been retained for this Command yet."
+    assert missing =~ "No latency recorded for this Command yet."
     refute missing =~ "provider is unavailable"
-    assert unavailable =~ "Command latency provider is unavailable."
+    assert unavailable =~ "Command latency is unavailable right now."
   end
 
   test "renders an append-only revision chain and gates its parent follow-up" do
@@ -1113,9 +1113,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     {:ok, document} = Floki.parse_document(html)
 
     assert [_card] = Floki.find(document, ".bo-state-card")
-    assert html =~ "Could not fetch planning graph"
+    assert html =~ "Could not read the plan"
     assert html =~ ~s(phx-hook="CopyToClipboard")
-    assert html =~ "Investigate why Build Order #1567&#39;s planning graph could not be fetched."
+    assert html =~ "Investigate why Build Order #1567&#39;s plan could not be read."
     assert html =~ "`provider_unavailable`"
     assert html =~ "graph counts are unresolved"
 
@@ -1140,8 +1140,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     {:ok, document} = Floki.parse_document(html)
 
     assert [_card] = Floki.find(document, ".bo-state-card")
-    assert html =~ "Fetched planning graph is malformed"
-    assert html =~ "Investigate why Build Order #1567&#39;s fetched planning graph is malformed."
+    assert html =~ "The plan is unreadable"
+    assert html =~ "Investigate why Build Order #1567&#39;s plan is unreadable."
     assert html =~ "`invalid_root`"
     assert html =~ "`members: 0`"
     refute html =~ "Build Order graph summary"
@@ -1157,7 +1157,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "a malformed Build Order with no structural diagnostic falls back to the structural verdict" do
     html = render_selected(%{unresolved_model(:structurally_invalid) | summary: resolved_summary()})
 
-    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "The plan is unreadable"
     assert html =~ "`structurally_invalid`"
   end
 
@@ -1180,7 +1180,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert [card] = Floki.find(document, ".bo-state-card")
     card_text = Floki.text(card)
 
-    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "The plan is unreadable"
     # The code shown is the observed structural defect, not the fetch fault.
     assert card_text =~ "Reported fault: duplicate_identity"
     assert html =~ "The selected-root provider reports `duplicate_identity`"

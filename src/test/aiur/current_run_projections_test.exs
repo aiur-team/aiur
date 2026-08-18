@@ -264,8 +264,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert degraded.progress.current_facts.value == %{numerator: 2, denominator: 5}
 
     degraded_view = RunSummaryPresenter.present(degraded)
-    assert degraded_view.progress.fact_status_label == "Refresh degraded"
-    assert degraded_view.eta.label == "ETA unavailable — progress refresh degraded"
+    assert degraded_view.progress.fact_status_label == "Not updating"
+    assert degraded_view.eta.label == "ETA unavailable — progress is not updating"
     refute degraded_view.eta.label =~ "weight facts"
   end
 
@@ -303,7 +303,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     assert degraded_view.progress.kind == :pending
     assert degraded_view.progress.progress_status_label == "Progress unavailable"
-    assert degraded_view.progress.fact_status_label == "Refresh degraded"
+    assert degraded_view.progress.fact_status_label == "Not updating"
   end
 
   test "terminal retained facts remain current progress inputs" do
@@ -387,7 +387,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     issue_view = RunSummaryPresenter.present(issue_stale)
     assert issue_view.progress.kind == :pending
     assert issue_view.progress.progress_status_label == "Progress unavailable"
-    assert issue_view.progress.fact_status_label == "Refresh degraded"
+    assert issue_view.progress.fact_status_label == "Not updating"
     assert issue_stale.last_known_good.generation == good.generation
     assert Process.alive?(owner)
   end

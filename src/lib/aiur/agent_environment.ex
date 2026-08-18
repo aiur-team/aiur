@@ -30,6 +30,7 @@ defmodule Aiur.AgentEnvironment do
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY\z/
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
+  @neutral_zdotdir "/dev/null"
 
   @spec erlang_distribution_env_name?(String.t()) :: boolean()
   def erlang_distribution_env_name?(name) when is_binary(name) do
@@ -39,7 +40,52 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_command(String.t(), keyword()) :: String.t()
   def scrub_shell_command(command, opts \\ []) when is_binary(command) do
     exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
-    "#{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+    "#{shell_startup_prefix(opts)}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+  end
+
+  @doc """
+  Startup-file suppression for every shell that Aiur starts on an agent's
+  behalf. These values are deliberately applied at the process boundary, before
+  the shell gets a chance to interpret an operator-controlled startup variable.
+  """
+  @spec shell_startup_env() :: [{String.t(), String.t() | false}]
+  def shell_startup_env, do: [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", @neutral_zdotdir}]
+
+  @spec shell_startup_env_name?(String.t() | charlist()) :: boolean()
+  def shell_startup_env_name?(name) when is_binary(name),
+    do: Enum.any?(shell_startup_env(), fn {startup_name, _value} -> startup_name == name end)
+
+  def shell_startup_env_name?(name) when is_list(name),
+    do: shell_startup_env_name?(List.to_string(name))
+
+  def shell_startup_env_name?(_name), do: false
+
+  @doc """
+  Same suppression as `shell_startup_env/0`, in the shape `System.cmd/3`
+  accepts. `System.cmd` spells "remove this variable" as `nil`; `Port.open`
+  and tmux spell it `false`. Passing `false` to `System.cmd` raises a
+  `FunctionClauseError` inside `System.validate_env/1`.
+  """
+  @spec system_shell_startup_env() :: [{String.t(), String.t() | nil}]
+  def system_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {name, nil}
+      {name, value} -> {name, value}
+    end)
+  end
+
+  @spec port_shell_startup_env() :: [{charlist(), charlist() | false}]
+  def port_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {String.to_charlist(name), false}
+      {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+    end)
+  end
+
+  @spec shell_startup_prefix(keyword()) :: String.t()
+  def shell_startup_prefix(opts \\ []) do
+    unset_names = if Keyword.get(opts, :trusted_bash_env, false), do: "ENV", else: "BASH_ENV ENV"
+    "unset #{unset_names}; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
   end
 
   @spec scrub_shell_prefix() :: String.t()
@@ -162,6 +208,14 @@ defmodule Aiur.AgentEnvironment do
         fn name -> {String.to_charlist(name), false} end
       )
 
+    port_startup_env =
+      shell_startup_env()
+      |> replace_bash_env(build_gate_env)
+      |> Enum.map(fn
+        {name, false} -> {String.to_charlist(name), false}
+        {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
+      end)
+
     workspace_env =
       [
         {~c"HEX_HOME", String.to_charlist(hex)},
@@ -214,9 +268,7 @@ defmodule Aiur.AgentEnvironment do
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
         build_gate_bin_env(workspace, build_gate_env) ++
-        Enum.map(build_gate_env, fn {name, value} ->
-          {String.to_charlist(name), String.to_charlist(value)}
-        end)
+        port_startup_env
 
     unset_inherited_env ++ workspace_env
   end
@@ -243,6 +295,19 @@ defmodule Aiur.AgentEnvironment do
       [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}]
     else
       _unavailable -> []
+    end
+  end
+
+  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
+  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
+  # operator value, and is only present when admission is enabled.
+  defp replace_bash_env(startup_env, build_gate_env) do
+    case List.keyfind(build_gate_env, "BASH_ENV", 0) do
+      {"BASH_ENV", _hook_path} ->
+        Enum.reject(startup_env, fn {name, _value} -> name == "BASH_ENV" end) ++ build_gate_env
+
+      nil ->
+        startup_env ++ build_gate_env
     end
   end
 

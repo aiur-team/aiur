@@ -313,7 +313,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     degraded =
       settling
       |> put_in([:progress, :fact_status], :degraded)
-      |> put_in([:progress, :fact_status_label], "Refresh degraded")
+      |> put_in([:progress, :fact_status_label], "Not updating")
 
     settling_html =
       render_component(&RunSummaryStrip.run_summary_compact/1, %{
@@ -339,7 +339,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute settling_html =~ "Still settling"
 
     assert degraded_html =~ "40%"
-    refute degraded_html =~ "Refresh degraded"
+    refute degraded_html =~ "Not updating"
     refute degraded_html =~ "Still settling"
   end
 
@@ -1469,7 +1469,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   defp model_cards do
     [
       model_card(:codex, "Codex", :healthy, "Healthy", [model_window("Session", 40, remaining: 3000, limit: 5000)]),
-      model_card(:claude, "Claude", :stale, "Stale (last known-good)", [
+      model_card(:claude, "Claude", :stale, "Not live", [
         model_window("Session", 62, remaining: 1900, limit: 5000, freshness: :stale)
       ]),
       model_card(:deepseek, "DeepSeek", :healthy, "Healthy", [model_window("Session", 0, remaining: 5000, limit: 5000)]),
