@@ -166,7 +166,7 @@ defmodule AiurWeb.AnalyticsLive do
             <div class="an-card-head">
               <div>
                 <h3 class="an-card-title">Per-unit CPU</h3>
-                <p class="an-card-sub">Stacked CPU across the daemon/executor baseline and each unit ticket. The dashed line is the machine ceiling.</p>
+                <p class="an-card-sub">Stacked CPU across the daemon/executor baseline and each unit ticket. The ceiling line marks machine capacity.</p>
               </div>
             </div>
             <div id="analytics-cpu-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.cpu_stack(@chart_model, @selected))}</div>

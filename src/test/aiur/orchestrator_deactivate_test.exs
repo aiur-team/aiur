@@ -3,6 +3,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
+  alias Aiur.AgentResourceGuard
   alias Aiur.CIApprovalStore
   alias Aiur.Events.{BranchRefStore, Exchange, Publisher, SubscriptionStore}
   alias Aiur.GitHub.CodeOwners
@@ -283,7 +284,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, "821", "ci-wait"}
+      receive_barrier({:ci_watcher_update, "821", "ci-wait"})
       assert state.running == %{}
     end
 
@@ -335,7 +336,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      refute_receive {:ci_watcher_update, ^identifier, "ci-wait"}, 100
+      # poll_github_ci/2 is synchronous, so its return is the barrier for every
+      # tracker update this result could have attempted.
+      refute_received {:ci_watcher_update, ^identifier, "ci-wait"}
       assert next.running[identifier].issue.state == "rework"
       assert next.running[identifier].control.status == :working
 
@@ -362,8 +365,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      refute_receive {:ci_wait_control, {:pause_agent, _request_id}}
-      refute_receive {:ci_watcher_update, ^identifier, "ci-wait"}
+      # poll_github_ci/2 is the barrier for both the control and tracker paths.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:pause_agent, _request_id}}
+      refute_received {:ci_watcher_update, ^identifier, "ci-wait"}
 
       entry = Map.fetch!(state.running, identifier)
       assert get_in(entry, [:control, :status]) == :working
@@ -386,7 +391,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, ^identifier, "ci-wait"}
+      receive_barrier({:ci_watcher_update, ^identifier, "ci-wait"})
       assert state.ci_lifecycle.approved_heads == %{}
     end
 
@@ -401,7 +406,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, "822", "in-progress"}
+      receive_barrier({:ci_watcher_update, "822", "in-progress"})
       assert state.ci_lifecycle.approved_heads == %{"822" => "new-head"}
     end
 
@@ -434,7 +439,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update_opts, ^identifier, "in-progress", [expected_state: "ci-wait"]}
+      receive_barrier({:ci_watcher_update_opts, ^identifier, "in-progress", [expected_state: "ci-wait"]})
 
       assert state.ci_lifecycle.approved_heads == %{}
       assert state.running == %{}
@@ -452,7 +457,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, ^identifier, "in-progress"}
+      receive_barrier({:ci_watcher_update, ^identifier, "in-progress"})
       assert state.ci_lifecycle.approved_heads == %{"ci-restart" => "approved-head"}
 
       persisted = CIApprovalStore.load()
@@ -472,7 +477,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      refute_receive {:ci_watcher_update, ^identifier, "ci-wait"}
+      # The second synchronous poll has completed its tracker decision.
+      refute_received {:ci_watcher_update, ^identifier, "ci-wait"}
       assert state.ci_lifecycle.approved_heads == %{"ci-restart" => "approved-head"}
     end
 
@@ -590,17 +596,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-        assert_receive {:ci_watcher_update, ^identifier, "rework"}
+        receive_barrier({:ci_watcher_update, ^identifier, "rework"})
 
-        assert_receive {:event,
-                        %{
-                          topic: ^topic,
-                          source: :github,
-                          message: message,
-                          failure_excerpt: excerpt,
-                          checks: [_, %{name: "lint &lt;unsafe&gt;"}]
-                        }},
-                       500
+        receive_barrier(
+          {:event,
+           %{
+             topic: ^topic,
+             source: :github,
+             message: message,
+             failure_excerpt: excerpt,
+             checks: [_, %{name: "lint &lt;unsafe&gt;"}]
+           }}
+        )
 
         assert excerpt =~ "[REDACTED:ghp]"
         assert message =~ "lint &lt;unsafe&gt;"
@@ -648,7 +655,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       ci_failure_topic = "ticket.#{identifier}.ci.failed"
 
       assert ci_failure_topic in topics
-      assert_receive {:ci_failure_enqueued, ^identifier, %{topic: ^ci_failure_topic}}, 500
+      receive_barrier({:ci_failure_enqueued, ^identifier, %{topic: ^ci_failure_topic}})
     end
 
     test "stale repeated CI failures publish one wake event per head" do
@@ -696,10 +703,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       try do
         poll.()
-        assert_receive {:event, %{topic: ^topic}}, 500
+        receive_barrier({:event, %{topic: ^topic}})
 
         poll.()
-        refute_receive {:event, %{topic: ^topic}}, 200
+        # The second poll returns only after the deduplication decision and any
+        # resulting publish have completed.
+        refute_received {:event, %{topic: ^topic}}
       after
         if Process.whereis(Exchange), do: Exchange.unsubscribe(topic)
         SubscriptionStore.stop(identifier)
@@ -768,8 +777,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      assert_receive {:ci_wait_control, {:resume_agent, _request_id, 101}}
-      assert_receive {:ci_watcher_update, ^identifier, "rework"}
+      receive_barrier({:ci_wait_control, {:resume_agent, _request_id, 101}})
+      receive_barrier({:ci_watcher_update, ^identifier, "rework"})
 
       entry = Map.fetch!(state.running, identifier)
       assert get_in(entry, [:control, :status]) == :paused
@@ -816,8 +825,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = poll.(state)
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
-      refute_receive {:ci_watcher_update, ^identifier, "rework"}
+      # poll/1 returns after both the resume and tracker-update decisions.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
+      refute_received {:ci_watcher_update, ^identifier, "rework"}
       assert state.ci_lifecycle.test_failure_heads == %{identifier => "test-retry-head"}
 
       entry = Map.fetch!(state.running, identifier)
@@ -830,8 +841,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       state = poll.(state)
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
-      assert_receive {:ci_watcher_update, ^identifier, "rework"}
+      # The second synchronous poll has completed its resume decision.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
+      receive_barrier({:ci_watcher_update, ^identifier, "rework"})
       assert state.ci_lifecycle.test_failure_heads == %{}
     end
 
@@ -881,8 +894,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
           end
         )
 
-      assert_receive {:ci_watcher_update, ^identifier, "rework"}
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      receive_barrier({:ci_watcher_update, ^identifier, "rework"})
+      # poll_github_ci/2 returns after reconciling the fresh pause.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
 
       entry = Map.fetch!(state.running, identifier)
       assert get_in(entry, [:control, :status]) == :paused
@@ -947,7 +962,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      # handle_info/2 synchronously completes event handling.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
       assert get_in(next_state.running[identifier], [:control, :status]) == :paused
       assert next_state.running[identifier].paused_reason == :label_override
     end
@@ -981,7 +998,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      assert_receive {:ci_wait_control, {:resume_agent, _request_id, 101}}
+      receive_barrier({:ci_wait_control, {:resume_agent, _request_id, 101}})
       assert get_in(next_state.running[identifier], [:control, :status]) == :paused
       assert next_state.running[identifier].paused_reason == :ci_wait
     end
@@ -1009,7 +1026,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      # handle_info/2 synchronously completes the fresh-pause gate.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
       assert get_in(next_state.running[identifier], [:control, :status]) == :paused
       assert next_state.running[identifier].paused_reason == :ci_wait
     end
@@ -1038,7 +1057,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      # handle_info/2 synchronously completes the terminal-state gate.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
       assert next_state.running[identifier].control.status == :paused
       assert next_state.running[identifier].issue.state == "done"
     end
@@ -1067,7 +1088,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      # handle_info/2 synchronously completes the assignment gate.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
       assert next_state.running[identifier].control.status == :paused
       refute next_state.running[identifier].issue.assigned_to_worker
     end
@@ -1107,7 +1130,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                  state
                )
 
-      refute_receive {:ci_wait_control, {:resume_agent, _request_id}}
+      # handle_info/2 synchronously completes the capacity decision.
+      control_agent_barrier(agent_pid)
+      refute_received {:ci_wait_control, {:resume_agent, _request_id}}
       assert deferred_state.running[identifier].control.status == :paused
 
       resumed_state =
@@ -1115,7 +1140,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         |> update_in([Access.key(:running)], &Map.delete(&1, other_issue.id))
         |> Reconciler.maybe_reactivate_or_refresh(active_issue)
 
-      assert_receive {:ci_wait_control, {:resume_agent, _request_id, 101}}
+      receive_barrier({:ci_wait_control, {:resume_agent, _request_id, 101}})
       assert resumed_state.running[identifier].control.status == :paused
       assert resumed_state.running[identifier].paused_reason == :ci_wait
     end
@@ -1325,8 +1350,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
-        assert_receive {:human_review_verify, ^issue_id}
-        assert_receive {:human_review_update, ^issue_id, "rework"}
+        receive_barrier({:human_review_verify, ^issue_id})
+        receive_barrier({:human_review_update, ^issue_id, "rework"})
         assert Process.alive?(agent_pid)
 
         entry = Map.fetch!(updated_state.running, issue_id)
@@ -1409,7 +1434,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
-        assert_receive {:human_review_verify, ^issue_id}
+        receive_barrier({:human_review_verify, ^issue_id})
         refute_received {:human_review_update, ^issue_id, "rework"}
         assert Process.alive?(agent_pid)
 
@@ -1478,7 +1503,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
             updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
-            assert_receive {:human_review_verify, ^issue_id}
+            receive_barrier({:human_review_verify, ^issue_id})
             refute_received {:human_review_update, ^issue_id, "rework"}
             assert Process.alive?(agent_pid)
 
@@ -1542,8 +1567,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
-        assert_receive {:human_review_verify, ^issue_id}
-        assert_receive {:human_review_update, ^issue_id, "rework"}
+        receive_barrier({:human_review_verify, ^issue_id})
+        receive_barrier({:human_review_update, ^issue_id, "rework"})
         assert Process.alive?(agent_pid)
 
         entry = Map.fetch!(updated_state.running, issue_id)
@@ -1621,8 +1646,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         _ = Reconciler.reconcile_running_issue_states([issue], state)
 
-        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_a, :terminal}, 500
-        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_b, :terminal}, 500
+        receive_barrier({:aiur_turn_done, ^issue_identifier, ^turn_a, :terminal})
+        receive_barrier({:aiur_turn_done, ^issue_identifier, ^turn_b, :terminal})
 
         assert {:closed, :terminal} = ActiveTurns.lookup(issue_identifier, turn_a)
         assert {:closed, :terminal} = ActiveTurns.lookup(issue_identifier, turn_b)
@@ -1695,8 +1720,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
         _ = Reconciler.reconcile_running_issue_states([issue], state)
 
         # Both streams receive the close broadcast.
-        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_a, :deactivated}, 500
-        assert_receive {:aiur_turn_done, ^issue_identifier, ^turn_b, :deactivated}, 500
+        receive_barrier({:aiur_turn_done, ^issue_identifier, ^turn_a, :deactivated})
+        receive_barrier({:aiur_turn_done, ^issue_identifier, ^turn_b, :deactivated})
 
         # The ActiveTurns entries are marked closed so any late SSE
         # subscribe finalizes with the same reason instead of waiting
@@ -1974,9 +1999,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       next = Reconciler.reconcile_running_issue_states([paused_issue], state)
 
-      assert_receive {:event, %{topic: ^divergence_topic} = event}
+      receive_barrier({:event, %{topic: ^divergence_topic} = event})
       assert event["reason"] =~ "local=working tracker=agent:paused"
-      assert_receive {:pause_agent, request_id, 101}
+      receive_barrier({:pause_agent, request_id, 101})
       assert get_in(next.running, [issue_id, :control, :status]) == :working
       assert next.running[issue_id].pending_pause_reason == %{request_id: request_id, reason: :label_override}
       refute Map.has_key?(next.running[issue_id], :paused_reason)
@@ -2041,10 +2066,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       next = Reconciler.reconcile_running_issue_states([unpaused_issue], state)
 
-      assert_receive {:event, %{topic: ^divergence_topic} = event}
+      receive_barrier({:event, %{topic: ^divergence_topic} = event})
       assert event["reason"] =~ "local=paused(label_override) tracker=agent:in-progress"
 
-      assert_receive {:resume_agent, request_id, 101}
+      receive_barrier({:resume_agent, request_id, 101})
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
       assert get_in(next.running, [issue_id, :paused_reason]) == :label_override
       assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == false
@@ -2107,8 +2132,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
-      assert_receive {:memory_tracker_remove_label, ^identifier, "agent:paused"}
-      assert_receive {:resume_agent, request_id, 101}
+      receive_barrier({:memory_tracker_remove_label, ^identifier, "agent:paused"})
+      receive_barrier({:resume_agent, request_id, 101})
       resumed = next.running[issue_id]
       assert resumed.control.status == :paused
       assert resumed.paused_reason == :operator_pause
@@ -2125,7 +2150,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert reconciled.running[issue_id].control.status == :working
       refute Map.has_key?(reconciled.running[issue_id], :paused_reason)
-      refute_receive {:pause_agent, _request_id, _generation}, 100
+      # The reconcile call is synchronous and has completed every control send
+      # caused by the worker-state acknowledgement.
+      refute_received {:pause_agent, _request_id, _generation}
     end
 
     test "resume leaves the worker paused when clearing the override fails" do
@@ -2174,8 +2201,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert {:reply, {:error, {:pause_override_clear_failed, :unavailable}}, next} =
                Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
 
-      assert_receive {:pause_override_remove_label, ^identifier, "agent:paused"}
-      refute_receive {:resume_agent, _request_id}
+      receive_barrier({:pause_override_remove_label, ^identifier, "agent:paused"})
+      # handle_call/3 returns after the failed override-clear path.
+      refute_received {:resume_agent, _request_id}
       assert next.running[issue_id].control.status == :paused
       assert next.running[issue_id].issue.paused
     end
@@ -2221,7 +2249,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       refute next.initial_dispatch_cycle
       assert next.running == %{}
       assert next.claimed == MapSet.new()
-      refute_receive {:memory_tracker_remove_label, _, "agent:paused"}
+      # maybe_dispatch/1 synchronously completes the paused-ticket scan.
+      refute_received {:memory_tracker_remove_label, _, "agent:paused"}
 
       for issue <- issues do
         assert recovered = next.last_polled_issues[issue.id]
@@ -2287,7 +2316,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       next = Reconciler.reconcile_running_issue_states([unpaused_issue], state)
 
-      refute_receive {:resume_agent, _request_id}, 100
+      # reconcile_running_issue_states/2 returns after deciding whether the
+      # unpaused tracker snapshot requires a resume command.
+      refute_received {:resume_agent, _request_id}
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
       assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == false
     end
@@ -2576,7 +2607,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
 
-        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+        receive_barrier({:memory_tracker_state_update, ^issue_id, "rework"})
 
         entry = Map.fetch!(next.running, issue_id)
         assert entry.issue.state == "rework"
@@ -2668,7 +2699,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             state
           )
 
-        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+        receive_barrier({:memory_tracker_state_update, ^issue_id, "rework"})
 
         entry = Map.fetch!(next.running, issue_id)
         assert entry.issue.state == "rework"
@@ -2773,9 +2804,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
             )
           end)
 
-        assert_receive {:noreply, next}
+        receive_barrier({:noreply, next})
 
-        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+        receive_barrier({:memory_tracker_state_update, ^issue_id, "rework"})
 
         entry = Map.fetch!(next.running, issue_id)
         assert entry.issue.state == "rework"
@@ -2933,7 +2964,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
             state
           )
 
-        refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 100
+        # handle_info/2 synchronously completes the transition decision.
+        refute_received {:memory_tracker_state_update, ^issue_id, "rework"}
         assert get_in(after_comment.running[issue_id], [:control, :status]) == :deactivated
 
         {:noreply, after_review_comment} =
@@ -2947,7 +2979,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
             after_comment
           )
 
-        refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 100
+        # handle_info/2 synchronously completes the transition decision.
+        refute_received {:memory_tracker_state_update, ^issue_id, "rework"}
         assert get_in(after_review_comment.running[issue_id], [:control, :status]) == :deactivated
 
         {:noreply, after_merge} =
@@ -2968,7 +3001,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         # adapter resolve to a non-memory kind and the notification never be
         # sent. That TOCTOU is fixed in production (WorkflowStore.force_reload
         # now absorbs a dying store), so no budget bump is needed.
-        assert_receive {:memory_tracker_state_update, ^issue_id, "done"}
+        receive_barrier({:memory_tracker_state_update, ^issue_id, "done"})
         refute Map.has_key?(after_merge.running, issue_id)
         refute MapSet.member?(after_merge.claimed, issue_id)
       after
@@ -3040,7 +3073,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             )
           end)
 
-        assert_receive {:noreply, next}
+        receive_barrier({:noreply, next})
         entry = Map.fetch!(next.running, issue_id)
         assert get_in(entry, [:control, :status]) == :deactivated
         assert entry.pid == nil
@@ -3109,7 +3142,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             )
           end)
 
-        assert_receive {:noreply, next}
+        receive_barrier({:noreply, next})
         entry = Map.fetch!(next.running, issue_id)
         assert get_in(entry, [:control, :status]) == :deactivated
         assert entry.pid == nil
@@ -3163,8 +3196,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                    state
                  )
 
-        assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
-        refute_receive {:memory_tracker_state_update, ^issue_id, "rework"}, 50
+        receive_barrier({:memory_tracker_state_update, ^issue_identifier, "rework"})
+        # The preceding handle_info/2 return is the barrier for tracker writes.
+        refute_received {:memory_tracker_state_update, ^issue_id, "rework"}
 
         assert [
                  %{
@@ -3180,7 +3214,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         topics = Enum.map(subscribed_to, & &1["topic"])
         assert "ticket.#{issue_identifier}.issue.commented" in topics
         assert "ticket.#{issue_identifier}.pr.review_comment" in topics
-        assert_receive :run_poll_cycle, 100
+        receive_barrier(:run_poll_cycle)
       after
         :ok = SubscriptionStore.stop(issue_identifier)
 
@@ -3270,8 +3304,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
         # a verdict on, so the label must be left alone. The comment still has
         # to reach the digest the dispatched agent reads on its first turn —
         # skipping the transition must not mean losing operator input.
-        refute_receive {:direct_dispatch_update, ^issue_identifier, _state}, 100
-        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
+        # handle_info/2 returns after the direct-dispatch state decision.
+        refute_received {:direct_dispatch_update, ^issue_identifier, _state}
+        receive_barrier({:direct_dispatch_fetch, [^issue_identifier]})
         refute_received :run_poll_cycle
 
         assert [
@@ -3285,13 +3320,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
         assert entry.issue.state == "todo"
         assert MapSet.member?(next_state.claimed, issue_identifier)
 
-        assert_receive {:lifecycle, :lifecycle,
-                        %{
-                          event: "agent_resume",
-                          cause: "rework_dispatch",
-                          attempt_id: attempt_id
-                        }, []},
-                       2_000
+        receive_barrier(
+          {:lifecycle, :lifecycle,
+           %{
+             event: "agent_resume",
+             cause: "rework_dispatch",
+             attempt_id: attempt_id
+           }, []}
+        )
 
         assert is_binary(attempt_id)
 
@@ -3361,16 +3397,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         assert {:noreply, next_state} = Orchestrator.handle_info({:event, event}, state)
 
-        assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
+        receive_barrier({:direct_dispatch_update, ^issue_identifier, "rework"})
 
         # Two reads, and only two: the #1971 parking gate resolves the ticket's
         # labels before writing `rework`, then dispatch admission re-reads it so
         # a concurrently terminal issue is not admitted. A third read would mean
         # the comment path had started looping.
-        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
-        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
-        refute_receive {:direct_dispatch_fetch, [^issue_identifier]}, 100
-        assert_receive :run_poll_cycle, 100
+        receive_barrier({:direct_dispatch_fetch, [^issue_identifier]})
+        receive_barrier({:direct_dispatch_fetch, [^issue_identifier]})
+        # The handle_info/2 call above synchronously performs both admissibility
+        # reads before returning, so there cannot be a later third fetch.
+        refute_received {:direct_dispatch_fetch, [^issue_identifier]}
+        receive_barrier(:run_poll_cycle)
         assert next_state.running == %{}
         assert next_state.claimed == MapSet.new()
       after
@@ -3434,11 +3472,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         assert {:noreply, failed_state} = Orchestrator.handle_info({:event, event}, state)
 
-        assert_receive {:flaky_rework_update, ^issue_identifier, "rework"}
+        receive_barrier({:flaky_rework_update, ^issue_identifier, "rework"})
         assert [] = AgentQueueStore.list_pending(failed_state.queue_store, issue_identifier)
 
-        assert_receive {:retry_comment_rework, ^issue_identifier, "PR review comment", ^event, 2},
-                       100
+        receive_barrier({:retry_comment_rework, ^issue_identifier, "PR review comment", ^event, 2})
 
         assert {:noreply, retry_state} =
                  Orchestrator.handle_info(
@@ -3446,7 +3483,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                    failed_state
                  )
 
-        assert_receive {:flaky_rework_update, ^issue_identifier, "rework"}
+        receive_barrier({:flaky_rework_update, ^issue_identifier, "rework"})
 
         assert [
                  %{
@@ -3462,7 +3499,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         topics = Enum.map(subscribed_to, & &1["topic"])
         assert "ticket.#{issue_identifier}.issue.commented" in topics
         assert "ticket.#{issue_identifier}.pr.review_comment" in topics
-        assert_receive :run_poll_cycle, 100
+        receive_barrier(:run_poll_cycle)
       after
         :ok = SubscriptionStore.stop(issue_identifier)
 
@@ -3534,13 +3571,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
 
-      assert_receive {:event,
-                      %{
-                        topic: "ticket.57.pr.review_comment",
-                        source: :github,
-                        message: "same-whale transfers should stay sequential"
-                      }},
-                     500
+      receive_barrier(
+        {:event,
+         %{
+           topic: "ticket.57.pr.review_comment",
+           source: :github,
+           message: "same-whale transfers should stay sequential"
+         }}
+      )
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -3597,13 +3635,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comments_since == %{"63" => "2026-06-24T11:59:59Z"}
 
-      assert_receive {:event,
-                      %{
-                        topic: "ticket.63.issue.commented",
-                        source: :github,
-                        message: "hold the merge — please revert the rename"
-                      }},
-                     500
+      receive_barrier(
+        {:event,
+         %{
+           topic: "ticket.63.issue.commented",
+           source: :github,
+           message: "hold the merge — please revert the rename"
+         }}
+      )
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -3694,10 +3733,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
                "57" => "2026-06-24T11:00:00Z"
              }
 
-      assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "running target comment"}}, 500
+      receive_barrier({:event, %{topic: "ticket.42.issue.commented", message: "running target comment"}})
 
-      assert_receive {:event, %{topic: "ticket.57.pr.review_comment", message: "human-review target comment"}},
-                     500
+      receive_barrier({:event, %{topic: "ticket.57.pr.review_comment", message: "human-review target comment"}})
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -3757,14 +3795,15 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrency: 1
         )
 
-      assert_receive {:issue_comments_requested, "13"}, 500
-      assert_receive {:issue_comments_requested, "11"}, 500
-      refute_receive {:issue_comments_requested, _}, 100
-      assert_receive {:pulls_requested, pulls_13}, 500
-      assert_receive {:pulls_requested, readable_pulls_13}, 500
-      assert_receive {:pulls_requested, pulls_11}, 500
-      assert_receive {:pulls_requested, readable_pulls_11}, 500
-      refute_receive {:pulls_requested, _}, 100
+      receive_barrier({:issue_comments_requested, "13"})
+      receive_barrier({:issue_comments_requested, "11"})
+      # poll_github_comments/2 synchronously completes the bounded target scan.
+      refute_received {:issue_comments_requested, _}
+      receive_barrier({:pulls_requested, pulls_13})
+      receive_barrier({:pulls_requested, readable_pulls_13})
+      receive_barrier({:pulls_requested, pulls_11})
+      receive_barrier({:pulls_requested, readable_pulls_11})
+      refute_received {:pulls_requested, _}
 
       assert String.contains?(pulls_13, "aiur%2F13")
       assert String.contains?(pulls_11, "aiur%2F11")
@@ -3827,7 +3866,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
       assert next.github_comment_issue_updated_at == %{"57" => updated_at}
-      refute_receive {:unexpected_comment_request, _url}, 100
+      # The synchronous poll return proves all eligible requests were issued.
+      refute_received {:unexpected_comment_request, _url}
     end
 
     test "direct comment poll checks unchanged human-review issue when open PR changed" do
@@ -3888,8 +3928,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
         )
 
-      assert_receive :issue_comments_requested, 500
-      refute_receive {:unexpected_pull_request_lookup, _url}, 100
+      receive_barrier(:issue_comments_requested)
+      # The synchronous poll return proves target discovery is complete.
+      refute_received {:unexpected_pull_request_lookup, _url}
 
       assert next.github_comment_issue_updated_at == %{
                "57" => "issue=#{issue_updated_at};pr=#{pr_updated_at}"
@@ -3948,11 +3989,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrency: 1
         )
 
-      assert_receive {:pulls_requested, pulls_11}, 500
-      assert_receive {:pulls_requested, readable_pulls_11}, 500
-      assert_receive {:issue_comments_requested, "11"}, 500
-      refute_receive {:pulls_requested, _}, 100
-      refute_receive {:issue_comments_requested, _}, 100
+      receive_barrier({:pulls_requested, pulls_11})
+      receive_barrier({:pulls_requested, readable_pulls_11})
+      receive_barrier({:issue_comments_requested, "11"})
+      # The synchronous poll return is the barrier for both request streams.
+      refute_received {:pulls_requested, _}
+      refute_received {:issue_comments_requested, _}
 
       assert String.contains?(pulls_11, "aiur%2F11")
       refute String.contains?(readable_pulls_11, "head=")
@@ -4034,7 +4076,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comment_issue_updated_at == %{}
       assert next.github_poll_delays == %{}
-      assert_receive {:event, %{topic: "ticket.42.issue.commented", message: "running target still advances"}}, 500
+      receive_barrier({:event, %{topic: "ticket.42.issue.commented", message: "running target still advances"}})
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -4090,8 +4132,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       assert next.github_comments_since == "2026-06-24T11:00:00Z"
-      refute_receive {:unexpected_comment_request, _url}, 100
-      refute_receive {:event, _event}, 100
+      # The synchronous poll return proves both request and publish paths have
+      # finished for this cycle.
+      refute_received {:unexpected_comment_request, _url}
+      refute_received {:event, _event}
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -4160,7 +4204,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         assert item.delivery.priority == :now
         assert item.delivery.interrupt_requested == true
         assert item.body.events == [event]
-        assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+        receive_barrier({:memory_tracker_state_update, ^issue_id, "rework"})
       after
         if previous_memory_recipient do
           Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
@@ -4224,7 +4268,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           empty_orchestrator_state()
         )
 
-      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+      receive_barrier({:memory_tracker_state_update, ^issue_identifier, "rework"})
     end
 
     test "a trusted comment on a merging ticket transitions it to rework" do
@@ -4254,7 +4298,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           empty_orchestrator_state()
         )
 
-      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+      receive_barrier({:memory_tracker_state_update, ^issue_identifier, "rework"})
     end
 
     test "an untrusted comment is ignored (no transition)" do
@@ -4282,7 +4326,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # `^issue_identifier`): a stray `rework` transition for an unrelated issue
       # leaked from another test in the suite must not be read as this idle
       # untrusted comment self-triggering a promotion (#708 CI flake).
-      refute_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}, 100
+      # handle_info/2 returns after the transition gate has completed.
+      refute_received {:memory_tracker_state_update, ^issue_identifier, "rework"}
       assert log =~ "issue comment ignored for idle issue"
       assert log =~ ":untrusted_author"
     end
@@ -4310,7 +4355,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       # Scope to the issue under test so a stray `rework` for an unrelated issue
       # (leaked from another suite test) can't masquerade as a self-trigger.
-      refute_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}, 100
+      # handle_info/2 returns after the transition gate has completed.
+      refute_received {:memory_tracker_state_update, ^issue_identifier, "rework"}
       assert log =~ ":benign_review_pass_comment"
     end
 
@@ -4347,7 +4393,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           empty_orchestrator_state()
         )
 
-      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+      receive_barrier({:memory_tracker_state_update, ^issue_identifier, "rework"})
     end
 
     test "a trusted CHANGES_REQUESTED review wakes a :deactivated human-review entry into rework" do
@@ -4401,7 +4447,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           state
         )
 
-      assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+      receive_barrier({:memory_tracker_state_update, ^issue_id, "rework"})
       entry = Map.fetch!(next.running, issue_id)
       refute get_in(entry, [:control, :status]) == :deactivated
     end
@@ -4471,15 +4517,17 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comments_since == %{"314" => "2026-06-25T00:00:00Z"}
 
-      assert_receive {:event,
-                      %{
-                        topic: "ticket.314.pr.review_comment",
-                        source: :github,
-                        message: "watched PR feedback"
-                      }},
-                     500
+      receive_barrier(
+        {:event,
+         %{
+           topic: "ticket.314.pr.review_comment",
+           source: :github,
+           message: "watched PR feedback"
+         }}
+      )
 
-      refute_receive {:unexpected_pull_request_lookup, _url}, 100
+      # The synchronous poll return proves target resolution is complete.
+      refute_received {:unexpected_pull_request_lookup, _url}
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -4661,8 +4709,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert put_in(next.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
                put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
 
-      refute_receive :unexpected_watch_fetch, 100
-      refute_receive {:unexpected_request, _url}, 100
+      # poll_github_comments/2 returns after its feature gate, so neither
+      # callback can run later for this invocation.
+      refute_received :unexpected_watch_fetch
+      refute_received {:unexpected_request, _url}
     after
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
@@ -4706,15 +4756,16 @@ defmodule Aiur.OrchestratorDeactivateTest do
           command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
         )
 
-      assert_receive {:event,
-                      %{
-                        topic: "ticket.733.pr.review_comment",
-                        source: :github,
-                        author_trusted?: true,
-                        message: "/aiur fix the nil case",
-                        issue_number: "733"
-                      }},
-                     500
+      receive_barrier(
+        {:event,
+         %{
+           topic: "ticket.733.pr.review_comment",
+           source: :github,
+           author_trusted?: true,
+           message: "/aiur fix the nil case",
+           issue_number: "733"
+         }}
+      )
 
       # The scan cursor advanced past the handled comment (−1s rewind), so the
       # same comment will not re-fire next cycle — the one-off guarantee.
@@ -4760,7 +4811,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         command_scan_issue_comment_fetcher: fn _opts -> {:ok, [mention_comment]} end
       )
 
-      assert_receive {:event, %{topic: "ticket.734.pr.review_comment", source: :github}}, 500
+      receive_barrier({:event, %{topic: "ticket.734.pr.review_comment", source: :github}})
     after
       restore_trust!(codeowners_state())
 
@@ -4805,8 +4856,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
       )
       |> tap(fn _ -> send(parent, :scan_done) end)
 
-      refute_receive {:event, %{topic: "ticket.736.pr.review_comment"}}, 200
-      assert_receive :scan_done, 500
+      receive_barrier(:scan_done)
+      # scan_done is sent after scan_pr_commands/2 returns, which is the
+      # publication barrier for this synchronous command scan.
+      refute_received {:event, %{topic: "ticket.736.pr.review_comment"}}
     after
       restore_trust!(codeowners_state())
 
@@ -4860,8 +4913,10 @@ defmodule Aiur.OrchestratorDeactivateTest do
       |> tap(fn _ -> send(parent, :scan_done) end)
 
       # Neither the untrusted /aiur nor the bot's own /aiur produces a dispatch.
-      refute_receive {:event, %{topic: "ticket.735.pr.review_comment"}}, 200
-      assert_receive :scan_done, 500
+      receive_barrier(:scan_done)
+      # scan_done follows the completed synchronous scan and therefore proves
+      # the ignored commands cannot publish later.
+      refute_received {:event, %{topic: "ticket.735.pr.review_comment"}}
     after
       restore_trust!(codeowners_state())
 
@@ -4899,7 +4954,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       # Feature off: the fetchers are never invoked and state is untouched.
       assert next == state
-      refute_receive :unexpected_command_scan_fetch, 100
+      # scan_pr_commands/2 returned through the disabled feature gate.
+      refute_received :unexpected_command_scan_fetch
     end
 
     test "the command scan is bounded by distinct commanded PRs and the drop is logged" do
@@ -4942,10 +4998,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         end)
 
       # The two lowest-numbered PRs fire; the other two are capped out.
-      assert_receive {:event, %{topic: "ticket.1.pr.review_comment"}}, 500
-      assert_receive {:event, %{topic: "ticket.2.pr.review_comment"}}, 500
-      refute_receive {:event, %{topic: "ticket.3.pr.review_comment"}}, 100
-      refute_receive {:event, %{topic: "ticket.4.pr.review_comment"}}, 100
+      receive_barrier({:event, %{topic: "ticket.1.pr.review_comment"}})
+      receive_barrier({:event, %{topic: "ticket.2.pr.review_comment"}})
+      # capture_log/1 returns after the synchronous bounded scan and all of its
+      # publications, so capped targets cannot arrive after this point.
+      refute_received {:event, %{topic: "ticket.3.pr.review_comment"}}
+      refute_received {:event, %{topic: "ticket.4.pr.review_comment"}}
 
       assert log =~ "scan_pr_commands capped"
       assert log =~ "dropped=2"
@@ -5261,7 +5319,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert %{identifier: ^identifier, error: "stalled" <> _} =
                Map.get(next.retry_attempts, issue_id)
 
-      assert_receive {:event, %{topic: "ticket.STALL-W.agent.stalled"} = event}, 500
+      receive_barrier({:event, %{topic: "ticket.STALL-W.agent.stalled"} = event})
       assert event["needs_attention"] == true
       assert event["reason"] =~ "no-progress window"
     end
@@ -6360,9 +6418,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       {:os_pid, bash_pid} = :erlang.port_info(port, :os_pid)
-      assert_receive {^port, {:data, {:eol, "up"}}}, 2_000
 
-      child_pid = shutdown_wait_for_child(bash_pid, 2_000)
+      receive do
+        {^port, {:data, {:eol, "up"}}} -> :ok
+      end
+
+      child_pid = shutdown_child(bash_pid)
 
       on_exit(fn ->
         for p <- [bash_pid, child_pid], is_integer(p) do
@@ -6395,37 +6456,52 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert :ok = Orchestrator.terminate(:shutdown, state)
 
+      shutdown_wait_until_dead(bash_pid)
+      shutdown_wait_until_dead(child_pid)
       refute shutdown_os_alive?(bash_pid)
       refute shutdown_os_alive?(child_pid)
     end
 
-    defp shutdown_wait_for_child(parent, budget_ms) do
-      deadline = System.monotonic_time(:millisecond) + budget_ms
-      do_shutdown_wait_for_child(parent, deadline)
+    defp shutdown_child(parent) do
+      # The shell prints "up" only after spawning the child, so the port line
+      # received above is the causal barrier for this descendant snapshot.
+      parent
+      |> AgentResourceGuard.collect_descendants()
+      |> List.first()
     end
 
-    defp do_shutdown_wait_for_child(parent, deadline) do
-      first_child =
-        case System.cmd("pgrep", ["-P", Integer.to_string(parent)], stderr_to_stdout: true) do
-          {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1) |> List.first()
-          _ -> nil
-        end
-
-      cond do
-        is_integer(first_child) ->
-          first_child
-
-        System.monotonic_time(:millisecond) >= deadline ->
-          nil
-
-        true ->
-          Process.sleep(25)
-          do_shutdown_wait_for_child(parent, deadline)
+    defp shutdown_os_alive?(pid) do
+      case File.read("/proc/#{pid}/stat") do
+        {:ok, stat} -> not Regex.match?(~r/\)\s+Z(?:\s|$)/, stat)
+        {:error, :enoent} -> false
+        {:error, _reason} -> true
       end
     end
 
-    defp shutdown_os_alive?(pid),
-      do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
+    defp shutdown_wait_until_dead(pid) do
+      # A pidfd becomes readable when its process exits, including while the
+      # exited process is briefly a zombie awaiting its parent. select/3 has no
+      # deadline here: kernel readiness is the causal barrier.
+      python = System.find_executable("python3") || flunk("python3 is required for pidfd exit barrier")
+
+      script = ~S"""
+      import os
+      import select
+      import sys
+
+      try:
+          fd = os.pidfd_open(int(sys.argv[1]))
+      except ProcessLookupError:
+          raise SystemExit(0)
+
+      select.select([fd], [], [])
+      """
+
+      {_output, 0} =
+        System.cmd(python, ["-c", script, Integer.to_string(pid)], stderr_to_stdout: true)
+
+      :ok
+    end
   end
 
   describe "branch-push topic parser (subscriber wiring)" do
@@ -6634,7 +6710,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
 
-      assert_receive {:pr_anchored_dispatched, %Issue{} = unit}
+      receive_barrier({:pr_anchored_dispatched, %Issue{} = unit})
 
       # Identity: keyed by PR number (resume key + comment topic), NOT a tracker id.
       assert unit.identifier == "77"
@@ -6701,7 +6777,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       {:noreply, _next} = Orchestrator.handle_info({:event, event}, empty_orchestrator_state())
 
-      assert_receive {:fetcher_called, 55}
+      receive_barrier({:fetcher_called, 55})
       refute_received {:pr_anchored_dispatched, _unit}
     end
 
@@ -6842,7 +6918,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
       refute Map.has_key?(next.retry_attempts, "pr-77")
 
       # Agent task was killed.
-      assert_receive {:DOWN, ^ref, :process, ^agent_pid, :killed}, 500
+      receive do
+        {:DOWN, ^ref, :process, ^agent_pid, :killed} -> :ok
+      end
 
       # The pr-<pr#> workspace is gone — no orphan left behind.
       refute File.exists?(pr_workspace)
@@ -7058,6 +7136,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   defp control_test_agent(test_pid) do
     spawn(fn -> control_test_agent_loop(test_pid) end)
+  end
+
+  defp control_agent_barrier(agent_pid) do
+    ref = make_ref()
+    send(agent_pid, {:control_agent_barrier, ref})
+    receive_barrier({:ci_wait_control, {:control_agent_barrier, ^ref}})
   end
 
   defp confirmed_control(status) do

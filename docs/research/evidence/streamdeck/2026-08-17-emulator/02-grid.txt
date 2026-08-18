@@ -1,0 +1,16 @@
+Step 2 (part 1) — the grid the run opened on.
+fleet size (emulator data-grid-total): 19
+windows: 3
+
+slot  identifier  bucket  (column-major, top-left first; blank slots omitted)
+0  1331  st-alert
+1  1352  st-running
+2  1350  st-queued
+3  1361  st-queued
+4  1338  st-stuck
+5  1345  st-paused
+6  1360  st-queued
+7  1362  st-queued
+
+Part 2 (`02-grid-units-parity.txt`) compares this projection against the
+Units page after a live fleet change.

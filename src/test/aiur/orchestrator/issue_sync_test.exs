@@ -32,7 +32,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
     previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
@@ -59,20 +59,22 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:resume_agent, _request_id}
-    assert_receive {:event, %{topic: ^cleared_topic} = alert}, 2_000
+    control_agent_barrier(agent)
+    assert_received {:resume_agent, _request_id}
+    assert_received {:event, %{topic: ^cleared_topic} = alert}
     assert alert["reason"] =~ "Blocker its-everdred/aiur#blocker reached terminal state done"
     assert alert["needs_attention"] in [false, nil]
     assert get_in(resumed.running, [previous.id, :control, :status]) == :working
     refute Map.has_key?(resumed.running[previous.id], :paused_reason)
-    assert_receive {:event, %{topic: ^resolved_pause_topic}}, 2_000
-    refute_receive {:event, %{topic: ^pause_topic}}, 200
+    assert_received {:event, %{topic: ^resolved_pause_topic}}
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^pause_topic}}
   end
 
   test "keeps a dependency-paused agent parked while its recorded blocker remains active" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
     previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
@@ -102,7 +104,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:resume_agent, _}, 100
+    control_agent_barrier(agent)
+    refute_received {:resume_agent, _}
     assert get_in(unchanged.running, [previous.id, :control, :status]) == :paused
     assert unchanged.running[previous.id].paused_reason == :blocker_dependency
   end
@@ -123,7 +126,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
     previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
@@ -157,17 +160,19 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:resume_agent, _request_id}
-    assert_receive {:event, %{"reason" => reason, topic: ^cleared_topic}}, 2_000
+    control_agent_barrier(agent)
+    assert_received {:resume_agent, _request_id}
+    assert_received {:event, %{"reason" => reason, topic: ^cleared_topic}}
     assert reason =~ "Dependency on blocker its-everdred/aiur#blocker was removed"
     assert get_in(resumed.running, [previous.id, :control, :status]) == :working
-    refute_receive {:event, %{topic: ^pause_topic}}, 200
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^pause_topic}}
   end
 
   test "keeps a dependency-paused agent parked while another blocker remains active" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
     other_blocker = %{id: "other-blocker", identifier: "its-everdred/aiur#other-blocker", state: "rework"}
@@ -195,14 +200,15 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:resume_agent, _}, 100
+    control_agent_barrier(agent)
+    refute_received {:resume_agent, _}
     assert get_in(unchanged.running, [previous.id, :control, :status]) == :paused
   end
 
   test "rechecks a dependency pause when its blocker is absent from the active poll" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blockee = issue("blockee", "in-progress")
     blocker = issue("blocker", "done")
@@ -231,7 +237,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:resume_agent, _request_id}
+    control_agent_barrier(agent)
+    assert_received {:resume_agent, _request_id}
     assert get_in(resumed.running, [blockee.id, :control, :status]) == :working
 
     {_queue_store, event} = AgentQueueStore.claim_next_deliverable(resumed.queue_store, blockee.identifier)
@@ -242,7 +249,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   test "keeps a cleared blocker event off every agent that was not parked on that blocker" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blockee = issue("blockee", "in-progress")
     blocker = issue("blocker", "done")
@@ -292,7 +299,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   test "does not resume on a stale blocker set when the blockee is absent from the active poll" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
     other_blocker = %{id: "other-blocker", identifier: "its-everdred/aiur#other-blocker", state: "in-progress"}
@@ -330,7 +337,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:resume_agent, _}, 100
+    control_agent_barrier(agent)
+    refute_received {:resume_agent, _}
     assert get_in(unchanged.running, [stored_blockee.id, :control, :status]) == :paused
     assert unchanged.running[stored_blockee.id].paused_reason == :blocker_dependency
 
@@ -354,7 +362,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
     previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
@@ -387,20 +395,22 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:resume_agent, _}, 100
+    control_agent_barrier(agent)
+    refute_received {:resume_agent, _}
     assert deferred.running[previous.id].pending_auto_resume.resume_kind == :cleared_dependency
 
-    assert_receive {:event, %{topic: ^deferred_topic} = alert}, 2_000
+    assert_received {:event, %{topic: ^deferred_topic} = alert}
     assert alert["reason"] =~ "waiting for a dispatch slot"
     assert alert["needs_attention"] in [false, nil]
 
-    refute_receive {:event, %{topic: ^pause_topic}}, 200
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^pause_topic}}
   end
 
   test "retries a cleared dependency resume when a later slot becomes available" do
     parent = self()
     agent = spawn_link(fn -> control_agent(parent) end)
-    assert_receive {:agent_started, ^agent}
+    receive_barrier({:agent_started, ^agent})
 
     blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
     previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
@@ -433,14 +443,16 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:resume_agent, _}, 100
+    control_agent_barrier(agent)
+    refute_received {:resume_agent, _}
     assert deferred.running[previous.id].pending_auto_resume.resume_kind == :cleared_dependency
 
     resumed =
       %{deferred | running: %{previous.id => deferred.running[previous.id]}}
       |> PushRouting.reconcile_pending_auto_resumes()
 
-    assert_receive {:resume_agent, _request_id}
+    control_agent_barrier(agent)
+    assert_received {:resume_agent, _request_id}
     assert get_in(resumed.running, [previous.id, :control, :status]) == :working
     refute Map.has_key?(resumed.running[previous.id], :pending_auto_resume)
   end
@@ -455,7 +467,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     test "keeps a dependency-paused agent parked when hydration reveals a second open blocker" do
       parent = self()
       agent = spawn_link(fn -> control_agent(parent) end)
-      assert_receive {:agent_started, ^agent}
+      receive_barrier({:agent_started, ^agent})
 
       github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
       blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
@@ -492,7 +504,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           hydrator
         )
 
-      refute_receive {:resume_agent, _}, 100
+      control_agent_barrier(agent)
+      refute_received {:resume_agent, _}
       assert get_in(result.running, [github_blockee.id, :control, :status]) == :paused
       assert result.running[github_blockee.id].paused_reason == :blocker_dependency
     end
@@ -500,7 +513,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     test "resumes when hydration reveals only the cleared blocker" do
       parent = self()
       agent = spawn_link(fn -> control_agent(parent) end)
-      assert_receive {:agent_started, ^agent}
+      receive_barrier({:agent_started, ^agent})
 
       github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
       blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
@@ -528,7 +541,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           hydrator
         )
 
-      assert_receive {:resume_agent, _request_id}
+      control_agent_barrier(agent)
+      assert_received {:resume_agent, _request_id}
       assert get_in(result.running, [github_blockee.id, :control, :status]) == :working
       refute Map.has_key?(result.running[github_blockee.id], :paused_reason)
     end
@@ -536,7 +550,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     test "keeps a dependency-paused agent parked when hydration fails (fail-closed)" do
       parent = self()
       agent = spawn_link(fn -> control_agent(parent) end)
-      assert_receive {:agent_started, ^agent}
+      receive_barrier({:agent_started, ^agent})
 
       github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
       blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
@@ -564,7 +578,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
               fn _issue -> {:error, :dependencies_unavailable} end
             )
 
-          refute_receive {:resume_agent, _}, 100
+          control_agent_barrier(agent)
+          refute_received {:resume_agent, _}
           assert get_in(result.running, [github_blockee.id, :control, :status]) == :paused
         end)
 
@@ -574,7 +589,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     test "recheck path keeps a dependency-paused agent parked when hydration reveals a second blocker" do
       parent = self()
       agent = spawn_link(fn -> control_agent(parent) end)
-      assert_receive {:agent_started, ^agent}
+      receive_barrier({:agent_started, ^agent})
 
       github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
       blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
@@ -613,7 +628,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           hydrator
         )
 
-      refute_receive {:resume_agent, _}, 100
+      control_agent_barrier(agent)
+      refute_received {:resume_agent, _}
       assert get_in(result.running, [github_blockee.id, :control, :status]) == :paused
       assert result.running[github_blockee.id].paused_reason == :blocker_dependency
     end
@@ -673,7 +689,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
              alerted: waiting.capacity_starvation.signature
            }
 
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "Ready tickets=1"
     assert event["reason"] =~ "effective cap=4, configured cap=4"
     assert event["reason"] =~ "load-envelope limit"
@@ -684,15 +700,16 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute event["reason"] =~ "cold-start"
 
     assert IssueSync.sync_capacity_starvation_alert(alerted, [ready], 122_000) == alerted
-    refute_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
 
     recovered = IssueSync.sync_capacity_starvation_alert(alerted, [], 122_000)
     assert recovered.capacity_starvation == %{since_ms: %{}, alert_active: false, signature: [], alerted: []}
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved.resolved"}}, 500
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved.resolved"}}
 
     rearmed = IssueSync.sync_capacity_starvation_alert(recovered, [ready], 200_000)
     _ = IssueSync.sync_capacity_starvation_alert(rearmed, [ready], 260_000)
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 500
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"}}
   end
 
   test "emits a fleet starvation alert after one configured poll interval" do
@@ -716,16 +733,18 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     waiting = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 1_000)
     refute waiting.fleet_capacity_starvation.alert_active
-    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
 
     almost_due = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 5_999)
     refute almost_due.fleet_capacity_starvation.alert_active
-    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
 
     alerted = IssueSync.sync_fleet_capacity_starved_alert(almost_due, ready, 6_000)
     assert alerted.fleet_capacity_starvation.alert_active
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
     assert event["needs_attention"] == true
     assert event["reason"] =~ "Ready tickets=1, live agents=15"
     assert event["reason"] =~ "load=15.0/16.0"
@@ -758,27 +777,31 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     waiting = IssueSync.sync_dependency_circular_wait_alert(state, [keystone], 1_000)
     refute waiting.dependency_circular_wait[keystone.id].alerted?
-    refute_receive {:event, %{topic: ^topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^topic}}
 
     alerted = IssueSync.sync_dependency_circular_wait_alert(waiting, [keystone], 61_000)
     assert alerted.dependency_circular_wait[keystone.id].alerted?
 
-    assert_receive {:event, %{topic: ^topic} = event}, 500
+    assert_received {:event, %{topic: ^topic} = event}
     assert event["needs_attention"] == true
     assert event["reason"] =~ keystone.identifier
     assert event["reason"] =~ "2 parked agent(s)"
 
     repeated = IssueSync.sync_dependency_circular_wait_alert(alerted, [keystone], 122_000)
     assert repeated == alerted
-    refute_receive {:event, %{topic: ^topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^topic}}
 
     held = %{repeated | capacity_hold: %{signal: :load}}
     assert IssueSync.sync_dependency_circular_wait_alert(held, [keystone], 123_000) == held
-    refute_receive {:event, %{topic: ^resolved_topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^resolved_topic}}
 
     resumed = %{held | capacity_hold: nil}
     assert IssueSync.sync_dependency_circular_wait_alert(resumed, [keystone], 124_000).dependency_circular_wait == repeated.dependency_circular_wait
-    refute_receive {:event, %{topic: ^topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^topic}}
 
     dispatched = %{
       resumed
@@ -790,7 +813,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     recovered = IssueSync.sync_dependency_circular_wait_alert(dispatched, [keystone], 123_000)
     assert recovered.dependency_circular_wait == %{}
-    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert_received {:event, %{topic: ^resolved_topic}}
   end
 
   test "does not report circular waits while dispatch is intentionally held" do
@@ -816,7 +839,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert IssueSync.sync_dependency_circular_wait_alert(state, [keystone], 61_000).dependency_circular_wait == %{}
     end
 
-    refute_receive {:event, %{topic: ^topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^topic}}
   end
 
   test "does not alert while a low-load fleet is normally ramping its envelope" do
@@ -842,7 +866,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       %{second | effective_concurrent_agents: 3}
       |> IssueSync.sync_fleet_capacity_starved_alert(ready, 121_000)
 
-    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
   end
 
   test "reports a static load envelope as the binding constraint" do
@@ -867,7 +892,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
     assert event["reason"] =~ "binding constraint=load envelope (effective cap=3)"
   end
 
@@ -894,7 +919,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
     assert event["reason"] =~ "binding constraint=per-state limit (todo=3/3)"
   end
 
@@ -932,7 +957,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
     assert event["reason"] =~ "per-state limit (in-progress=1/1)"
     assert event["reason"] =~ "per-state limit (todo=1/1)"
   end
@@ -961,7 +986,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
     assert event["reason"] =~ "binding constraint=run-queue gate (runnable=8 threshold=4)"
   end
 
@@ -988,7 +1013,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
     |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = event}
 
     assert event["reason"] =~
              "binding constraint=dispatch authorization denials (all fallback backends usage-limited for 8 ready ticket(s))"
@@ -1018,15 +1043,15 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
       |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
 
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"}}
 
     recovered = IssueSync.sync_fleet_capacity_starved_alert(alerted, [], 62_000)
     assert recovered.fleet_capacity_starvation == %{since_ms: nil, alert_active: false, effective_cap: nil}
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved.resolved"}}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved.resolved"}}
 
     rearmed = IssueSync.sync_fleet_capacity_starved_alert(recovered, ready, 100_000)
     _ = IssueSync.sync_fleet_capacity_starved_alert(rearmed, ready, 160_000)
-    assert_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 500
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"}}
   end
 
   test "does not report deliberate global dispatch pauses as starvation" do
@@ -1049,7 +1074,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     }
 
     _ = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 61_000)
-    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
   end
 
   test "purges released claims once the ticket is confirmed terminal or gone (#1475)" do
@@ -1140,7 +1166,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert state.last_polled_issues == %{paused.id => paused}
 
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused"} = event}, 500
+    assert_received {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused"} = event}
 
     assert event["reason"] =~ "tracker pause override"
     assert event["reason"] =~ "clears when the operator removes agent:paused"
@@ -1157,11 +1183,11 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.unpaused"} = event}, 500
+    assert_received {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.unpaused"} = event}
 
     assert event["reason"] =~ "No operator action is needed"
     assert event["needs_attention"] == false
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused.resolved"}}, 500
+    assert_received {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused.resolved"}}
   end
 
   test "persists a reason-carrying fallback when polling observes an ordinary error transition" do
@@ -1190,7 +1216,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert MapSet.member?(state.observed_error_alerts, previous.id)
 
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error"} = event}, 500
+    assert_received {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error"} = event}
     assert event["reason"] =~ "without a specialized local cause"
     assert event["reason"] =~ "will not clear on its own"
     assert event["needs_attention"] == true
@@ -1209,7 +1235,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     refute MapSet.member?(recovered_state.observed_error_alerts, previous.id)
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error.resolved"}}, 500
+    assert_received {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error.resolved"}}
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -1222,7 +1248,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error"}}, 500
+    assert_received {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error-observed_tracker_error"}}
   end
 
   test "does not resolve an observed error while its lifetime latch remains active" do
@@ -1257,7 +1283,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert MapSet.member?(recovered.observed_error_alerts, issue.id)
     assert recovered.observed_error_alert_causes[issue.id] == :lifetime_latch
-    refute_receive {:event, %{topic: ^resolved_topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^resolved_topic}}
   end
 
   test "re-evaluates a latched error after recovery while tracker state stays unchanged" do
@@ -1290,7 +1317,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     refute MapSet.member?(recovered.observed_error_alerts, issue.id)
     refute Map.has_key?(recovered.observed_error_alert_causes, issue.id)
-    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert_received {:event, %{topic: ^resolved_topic}}
   end
 
   test "rediscovers and resolves a persisted lifetime latch attention after restart" do
@@ -1318,7 +1345,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     refute MapSet.member?(recovered.observed_error_alerts, issue.id)
-    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert_received {:event, %{topic: ^resolved_topic}}
   end
 
   test "retains a persisted lifetime latch attention when its budget store is unreadable" do
@@ -1357,7 +1384,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert MapSet.member?(recovered.observed_error_alerts, issue.id)
     assert recovered.observed_error_alert_causes[issue.id] == :lifetime_latch
-    refute_receive {:event, %{topic: ^resolved_topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^resolved_topic}}
   end
 
   test "resolves and rearms a persisted observed error after restart" do
@@ -1385,7 +1413,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert_received {:event, %{topic: ^resolved_topic}}
     assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
 
     _ =
@@ -1399,7 +1427,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: ^topic}}, 500
+    assert_received {:event, %{topic: ^topic}}
   end
 
   test "resolves a persisted retry-exhaustion error with its own cause after restart" do
@@ -1426,7 +1454,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert_received {:event, %{topic: ^resolved_topic}}
   end
 
   test "resolves and rearms a persisted tracker pause after restart" do
@@ -1456,7 +1484,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: ^topic}}, 500
+    assert_received {:event, %{topic: ^topic}}
 
     assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), &(&1["topic"] == topic))
 
@@ -1471,7 +1499,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:event, %{topic: ^topic}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: ^topic}}
 
     recovered =
       IssueSync.sync_polled_issue_state(
@@ -1484,7 +1513,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+    assert_received {:event, %{topic: ^resolved_topic}}
     assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
 
     _ =
@@ -1498,7 +1527,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:event, %{topic: ^topic}}, 500
+    assert_received {:event, %{topic: ^topic}}
   end
 
   test "does not duplicate an error alert already emitted by a specialized producer" do
@@ -1524,7 +1553,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:event, %{topic: "ticket.its-everdred/aiur#specialized-error.agent.attention.error-observed_tracker_error"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "ticket.its-everdred/aiur#specialized-error.agent.attention.error-observed_tracker_error"}}
   end
 
   test "does not count an issue claimed in the same dispatch cycle as ready work" do
@@ -1571,11 +1601,12 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     reset = IssueSync.sync_capacity_starvation_alert(changed, [ready], 61_000)
     assert reset.capacity_starvation.since_ms == %{"memory" => 61_000}
     refute reset.capacity_starvation.alert_active
-    refute_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 100
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
 
     alerted = IssueSync.sync_capacity_starvation_alert(reset, [ready], 121_000)
     assert alerted.capacity_starvation.alert_active
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "memory gate"
   end
 
@@ -1602,7 +1633,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert alerted.capacity_starvation.alert_active
     assert alerted.capacity_starvation.signature == ["load"]
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "load=9.7"
   end
 
@@ -1660,7 +1691,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     alerted = IssueSync.sync_capacity_starvation_alert(waiting, [ready], 61_000)
 
     assert alerted.capacity_starvation.alert_active
-    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
     assert event["reason"] =~ "budget latch (lifetime=20)"
   end
 
@@ -1684,7 +1715,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-42"}, :completed}
+    assert_received {:membership_observed, %TrackerIdentity{provider_id: "node-42"}, :completed}
     assert refreshed_state.last_polled_issues == %{}
   end
 
@@ -1708,7 +1739,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-43"}, :cancelled}
+    assert_received {:membership_observed, %TrackerIdentity{provider_id: "node-43"}, :cancelled}
     assert refreshed_state.last_polled_issues == %{}
   end
 
@@ -1731,7 +1762,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    refute_receive {:membership_observed, _, _}
+    mailbox_barrier()
+    refute_received {:membership_observed, _, _}
     assert refreshed_state.last_polled_issues == %{"44" => previous_issue}
   end
 
@@ -1751,7 +1783,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive :membership_freshness_unavailable
+    assert_received :membership_freshness_unavailable
     assert unavailable.last_polled_issues == %{"45" => previous_issue}
 
     recovered =
@@ -1768,7 +1800,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:membership_observed, %TrackerIdentity{provider_id: "node-45"}, :completed}
+    assert_received {:membership_observed, %TrackerIdentity{provider_id: "node-45"}, :completed}
     assert recovered.last_polled_issues == %{}
   end
 
@@ -1791,7 +1823,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         end
       )
 
-    assert_receive {:freshness, :unavailable}
+    assert_received {:freshness, :unavailable}
     assert pending.last_polled_issues == %{"46" => previous_issue}
 
     resolved =
@@ -1851,7 +1883,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         fn _identity, _pending? -> :ok end
       )
 
-    assert_receive {:verified_ids, ids}
+    assert_received {:verified_ids, ids}
     assert length(ids) == 25
     assert map_size(result.last_polled_issues) == 250
   end
@@ -2029,6 +2061,28 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       message ->
         send(parent, message)
         control_agent_loop(parent)
+    end
+  end
+
+  # The fake agent forwards messages in receive order. A marker sent after the
+  # code under test therefore proves every earlier resume request was observed.
+  defp control_agent_barrier(agent) do
+    ref = make_ref()
+    send(agent, {:control_agent_barrier, ref})
+
+    receive do
+      {:control_agent_barrier, ^ref} -> :ok
+    end
+  end
+
+  # IssueSync and Exchange publish synchronously from the test process. A
+  # self-sent marker is ordered after every callback/event they emitted.
+  defp mailbox_barrier do
+    ref = make_ref()
+    send(self(), {:mailbox_barrier, ref})
+
+    receive do
+      {:mailbox_barrier, ^ref} -> :ok
     end
   end
 

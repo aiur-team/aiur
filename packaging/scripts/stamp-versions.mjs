@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 // Stamp every aiur npm package to a single version and pin the launcher's
 // optionalDependencies to that exact version. Run in the publish job so all
-// five packages (launcher + four platform packages) move in lockstep.
+// packages (launcher + every published platform package) move in lockstep.
+//
+// The pinned platform set comes from PUBLISH_TARGETS (packaging/scripts/
+// platforms.mjs) — the single source of truth shared with the release workflow
+// and the drift check. Never hardcode a second list here: a pin to a platform
+// the workflow does not publish is exactly the silent-broken-install bug from
+// #2110.
 //
 // Usage: stamp-versions.mjs <version>
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { PUBLISH_TARGETS } from "./platforms.mjs";
 
-const TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"];
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
 function die(message) {
@@ -32,12 +38,12 @@ if (!existsSync(launcherPkgPath)) die(`launcher package.json missing at ${launch
 const launcher = JSON.parse(readFileSync(launcherPkgPath, "utf8"));
 launcher.version = version;
 launcher.optionalDependencies = Object.fromEntries(
-  TARGETS.map((t) => [`aiur-cli-${t}`, version]),
+  PUBLISH_TARGETS.map((t) => [`aiur-cli-${t}`, version]),
 );
 writeFileSync(launcherPkgPath, JSON.stringify(launcher, null, 2) + "\n");
 process.stdout.write(`aiur-cli -> ${version}\n`);
 
-for (const target of TARGETS) {
+for (const target of PUBLISH_TARGETS) {
   const pkgPath = path.join(platformDir, `aiur-cli-${target}`, "package.json");
   if (!existsSync(pkgPath)) continue; // generated separately in CI; skip if not assembled here
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));

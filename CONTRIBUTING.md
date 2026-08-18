@@ -51,11 +51,26 @@ not fail a build on line count alone.
   a test that would have caught it is incomplete.
 - **A test encodes WHY behavior matters, not just what it does.** A test that
   cannot fail when the business logic changes is not pulling its weight.
-- **Flaky tests are fixed or deleted — never retried, never ignored.** No
-  `Process.sleep` for synchronization (use `assert_receive`, monitors, or
-  `:sys.get_state`); never assert exact counts on shared singletons; keep
-  `assert_receive` windows ≥ 2000 ms. A test that flakes is a defect in the
-  test.
+- **Flaky tests are fixed or deleted — never retried, never ignored.** Wall-clock
+  waits are not synchronization primitives: do not use finite `Process.sleep`
+  calls or explicit timeouts on `assert_receive` / `refute_receive` to wait for
+  concurrent work. Drive periodic work with explicit tick messages, then cross
+  a causal barrier such as `:sys.get_state/1`, another synchronous call, or a
+  process monitor. When the expected message is itself the rendezvous, use the
+  unbounded `receive_barrier/1` test helper. After another barrier has proved the
+  work complete, use `assert_receive` without an explicit timeout and use
+  `refute_received` instead of `refute_receive`. Never assert exact counts on
+  shared singletons. A test that flakes is a defect in the test.
+- **Shared global state is the other flake mechanism, and barriers do not fix
+  it.** A suite can be fully barrier-based and still be order-dependent. Pin and
+  restore any VM-global cache a test reads through — a `:persistent_term` entry
+  survives every test, so a test that reads one passes only until ordering
+  changes or the cache flushes. Refute on the narrowest topic you actually mean:
+  a namespace-wide `refute_receive`/`refute_received` on a shared bus asserts
+  about the whole system, so any other test publishing into that namespace can
+  fail it. And never call `self()` inside `on_exit` — the callback runs in a
+  different process, so the binding, monitor, or subscription you meant to clean
+  up leaks into later tests.
 - **Quarantine only while fixing.** Tag a confirmed flaky test with
   `@tag :quarantine`, open or link its repair issue, and leave a short reason
   beside the tag. Ordinary local and required CI runs exclude quarantined

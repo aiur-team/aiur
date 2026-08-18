@@ -205,13 +205,13 @@ defmodule Aiur.GitHub.ResourceStore do
   Deliberately recorded so a later unit does not assume more than exists.
   Writers: `Aiur.Events.GithubCommentsPoller` deposits each watched target's
   comment *lists* as bodies with the endpoint's validator,
-  `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels and pull
-  requests, `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation
-  write-through merges its own responses, and `Aiur.Events.Publisher` marks
-  individual comment resources processed. Readers: the poller serves its own
-  `304` from the held list, `Aiur.GitHub.Issues` and the dashboard read bodies,
-  and `Aiur.Orchestrator.CommandScan` is the one change-detection-only reader —
-  it keeps no body and uses `change_validator/1` deliberately.
+  `Aiur.Orchestrator.CommandScan` deposits the two repo-wide comment streams the
+  same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels
+  and pull requests, `Aiur.GitHub.ResourceFetch` deposits what it fetches,
+  mutation write-through merges its own responses, and `Aiur.Events.Publisher`
+  marks individual comment resources processed. Readers: the poller and the
+  command scan both serve their own `304` from the held list, `Aiur.GitHub.Issues`
+  and the dashboard read bodies.
 
   ## Two versions, deliberately kept apart
 

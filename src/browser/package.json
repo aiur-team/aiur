@@ -26,6 +26,7 @@
     "test:streamdeck": "node scripts/run-browser-tests.mjs tests/streamdeck-emulator.browser.spec.mjs",
     "test:streamdeck-flow": "node scripts/run-browser-tests.mjs tests/streamdeck-operator-flow.browser.spec.mjs",
     "test:harness": "node scripts/run-browser-tests.mjs tests/harness-failures.spec.mjs",
+    "proof:streamdeck": "node scripts/run-browser-tests.mjs tests/streamdeck-proof-capture.spec.mjs",
     "test:layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/layout-worker.browser.spec.mjs tests/dom-svg-layout-adapter.browser.spec.mjs",
     "verify:failure-artifacts": "npm run fixture:preflight && node scripts/verify-failure-artifacts.mjs",
     "vendor:elk": "node scripts/vendor-elk.mjs"

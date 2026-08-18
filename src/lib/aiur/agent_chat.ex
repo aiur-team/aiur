@@ -43,6 +43,20 @@ defmodule Aiur.AgentChat do
     if byte_size(text) > 500, do: binary_part(text, 0, 500) <> "…", else: text
   end
 
+  @doc """
+  Observe what became of a message `send/3` enqueued.
+
+  `send/3` answers with a queue handle the moment the message is accepted, so
+  a successful send proves acceptance only. This is the delivery half of that
+  receipt: `:pending` is still queued, `:delivered` was claimed by the agent,
+  `:consumed` was acted on.
+  """
+  @spec delivery_status(integer(), timeout()) ::
+          {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
+  def delivery_status(request_id, timeout \\ 5_000) when is_integer(request_id) do
+    Orchestrator.operator_message_status(Orchestrator, request_id, timeout)
+  end
+
   @spec interrupt(String.t()) :: :ok | {:error, term()}
   def interrupt(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.interrupt_agent(issue_identifier)

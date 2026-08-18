@@ -128,8 +128,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     stale = render(%{view([row()]) | status: :stale, message: "last known membership"})
 
     # An unavailable current-run membership renders the empty catalog table
-    # (column headings + a single "No active agents" row) rather than an error.
-    assert unavailable =~ "No active agents"
+    # (column headings + a single "No active units" row) rather than an error.
+    assert unavailable =~ "No active units"
     assert unavailable =~ "units-table"
     # The placeholder is not a unit: `#units-rows` stays empty so every row
     # selector keyed on it still counts only real units.
@@ -181,10 +181,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # The headings are the table's shape: they stay put at zero units so the
     # operator reads an empty catalog rather than a vanished one.
     assert html =~ ~s(<thead>)
-    assert html =~ ~s(<th class="ut-col-id">ID</th>)
-    assert html =~ ~s(<th class="ut-col-unit">Unit</th>)
-    assert html =~ ~s(<th class="ut-col-ticket">Ticket</th>)
-    assert html =~ ~s(<th class="ut-col-latest">Latest</th>)
+    assert html =~ ~s(<th class="ut-col-id" data-sort-key="id" data-sort-type="number">ID</th>)
+    assert html =~ ~s(<th class="ut-col-unit" data-sort-key="unit">Unit</th>)
+    assert html =~ ~s(<th class="ut-col-ticket" data-sort-key="ticket">Ticket</th>)
+    assert html =~ ~s(<th class="ut-col-latest" data-sort-key="latest" data-sort-type="number">Latest</th>)
+
+    # The Command column holds actions, so it carries no sort affordance.
     assert html =~ ~s(<th class="ut-col-cmd">Command</th>)
 
     # The empty state sits below the table in the dashboard's shared
@@ -203,8 +205,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute loading =~ "No live units."
 
     unavailable = render(%{status: :unavailable, message: "membership failed", rows: [], zero_result?: false})
-    assert unavailable =~ "No active agents"
-    refute unavailable =~ ~s(units-empty-cell\" colspan=\"5\">No live units.)
+    assert unavailable =~ "No active units"
+    refute unavailable =~ ~s(units-empty-cell" colspan="5">No live units.)
   end
 
   test "renders a named, reachable pause control for a running unit when writable" do

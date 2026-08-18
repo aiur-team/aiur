@@ -11,7 +11,9 @@ defmodule Aiur.Tmux do
   Targets the session named by `AIUR_TMUX_SESSION` (set by the `aiur`
   wrapper). Tests inject a `:transport` of `{:mock, pid}` and observe outbound
   command strings as `{:tmux_mock_out, command}` messages while
-  injecting responses (currently unused) via `{:tmux_mock_data, chunk}`.
+  injecting responses via `{:tmux_mock_data, chunk}`. A three-element mock
+  transport accepts a response timeout, including `{:mock, pid, :infinity}`
+  for barrier-driven tests.
   """
 
   use GenServer

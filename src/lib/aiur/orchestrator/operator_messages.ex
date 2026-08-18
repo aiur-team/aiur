@@ -41,6 +41,19 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   def send_correlated_operator_message(server, issue_identifier, payload),
     do: control_api_call(server, {:send_correlated_operator_message, issue_identifier, payload}, 5_000)
 
+  @doc """
+  Read the queue status of one enqueued operator message by its request id.
+
+  `send_operator_message/2` answers with a queue handle, not a delivery
+  receipt. This is the correlation read that turns that handle into an
+  observed outcome: `:pending` means still queued, `:delivered` means the
+  agent claimed it, `:consumed` means the agent finished acting on it.
+  """
+  @spec operator_message_status(GenServer.server(), integer(), timeout()) ::
+          {:ok, Aiur.AgentQueueItem.status()} | {:error, term()}
+  def operator_message_status(server, item_id, timeout \\ 5_000) when is_integer(item_id),
+    do: control_api_call(server, {:operator_message_status, item_id}, timeout)
+
   @spec control_capabilities(String.t()) :: {:ok, map()} | {:error, term()}
   def control_capabilities(issue_identifier),
     do: control_capabilities(Aiur.Orchestrator, issue_identifier)
@@ -321,6 +334,15 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       )
 
     queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec operator_message_status_call(State.t(), integer()) ::
+          {:reply, {:ok, Aiur.AgentQueueItem.status()} | {:error, :unknown_message}, State.t()}
+  def operator_message_status_call(%State{} = state, item_id) when is_integer(item_id) do
+    case AgentQueueStore.get(state.queue_store, item_id) do
+      nil -> {:reply, {:error, :unknown_message}, state}
+      item -> {:reply, {:ok, item.status}, state}
+    end
   end
 
   @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}

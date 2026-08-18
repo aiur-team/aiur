@@ -130,6 +130,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
   defp lifecycle(%{decision_status: :expired}), do: :expired
   defp lifecycle(%{decision_status: :deferred}), do: :deferred
   defp lifecycle(%{decision_status: :dismissed}), do: :resolved
+  defp lifecycle(%{decision_status: :moot}), do: :moot
   defp lifecycle(%{decision_status: :resolved}), do: :resolved
   defp lifecycle(%{decision_status: :acknowledged}), do: :acknowledged
   defp lifecycle(%{delivery_status: status}) when status in [:delivered, :consumed], do: :delivered

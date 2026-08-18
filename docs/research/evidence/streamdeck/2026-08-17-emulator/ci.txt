@@ -1,0 +1,23 @@
+Package and browser results for run 2026-08-17-emulator
+commit 3f3155b227dda36da1d7171705666e4ee9cad41a (plus this run's own changes)
+
+packages/streamdeck
+  npm test   pass — 73 test files, 1045 tests
+             coverage 100% statements / branches / functions / lines
+  npm run lint    pass
+  npm run build   pass
+
+src/browser
+  npm run test:harness          pass — 5 tests
+  npm run test:streamdeck       pass — 31 tests
+  npm run test:streamdeck-flow  pass — 1 test (steps 2-6 as one session)
+  npm run proof:streamdeck      pass — this evidence run
+
+  npm test                      not run here — its first step, `check:elk`,
+                                shells out to `git checkout --force HEAD`,
+                                which the agent-workspace git wrapper refuses.
+                                Pre-existing and unrelated to this change; the
+                                targeted scripts above are the scoped gate.
+
+These are local results. The authoritative run is the PR's CI, which executes
+the full lint and test suite through `make ci`.

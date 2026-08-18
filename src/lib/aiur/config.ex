@@ -3,6 +3,7 @@ defmodule Aiur.Config do
   Runtime configuration loaded from the aiur config file (`.aiur/config`).
   """
 
+  alias Aiur.AgentEnvironment
   alias Aiur.BuildGate
   alias Aiur.BuildOrder.Cadence
   alias Aiur.Config.RoutingValue
@@ -1058,12 +1059,27 @@ defmodule Aiur.Config do
 
   defp codex_runtime_turn_sandbox_policy(settings, workspace, opts) do
     with {:ok, turn_sandbox_policy} <-
-           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-      maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts)
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts),
+         {:ok, turn_sandbox_policy} <-
+           maybe_add_package_manager_roots(turn_sandbox_policy, opts) do
+      maybe_add_build_gate_root(turn_sandbox_policy, settings, opts)
     end
   end
 
-  defp maybe_add_build_gate_root(turn_sandbox_policy, settings, workspace, opts) do
+  defp maybe_add_package_manager_roots(turn_sandbox_policy, opts) do
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy}
+
+      true ->
+        Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, AgentEnvironment.package_cache_paths(opts))
+    end
+  end
+
+  defp maybe_add_build_gate_root(turn_sandbox_policy, settings, opts) do
     gate_opts = [
       slots: settings.agent.max_concurrent_builds,
       stagger_seconds: settings.agent.build_start_stagger_seconds,
@@ -1081,12 +1097,10 @@ defmodule Aiur.Config do
         {:ok, turn_sandbox_policy}
 
       true ->
-        with {:ok, additional_roots} <- additional_writable_roots(opts),
-             {:ok, effective_roots} <- policy_writable_roots(turn_sandbox_policy),
+        with {:ok, effective_roots} <- policy_writable_roots(turn_sandbox_policy),
              {:ok, gate_dir} <-
                BuildGate.prepare_writable_root(Keyword.put(gate_opts, :writable_roots, effective_roots)) do
-          sandbox_opts = Keyword.put(opts, :additional_writable_roots, additional_roots ++ [gate_dir])
-          Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, sandbox_opts)
+          Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, [gate_dir])
         end
     end
   end
@@ -1097,13 +1111,6 @@ defmodule Aiur.Config do
 
   defp policy_writable_roots(policy) do
     case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
-      roots when is_list(roots) -> {:ok, roots}
-      roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
-    end
-  end
-
-  defp additional_writable_roots(opts) do
-    case Keyword.get(opts, :additional_writable_roots, []) do
       roots when is_list(roots) -> {:ok, roots}
       roots -> {:error, {:unsafe_turn_sandbox_policy, {:invalid_writable_roots, roots}}}
     end
