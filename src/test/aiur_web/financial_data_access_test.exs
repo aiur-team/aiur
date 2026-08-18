@@ -119,6 +119,9 @@ defmodule AiurWeb.FinancialDataAccessTest do
              "/build-orders",
              "/build-orders/:root_number",
              "/analytics",
+             "/github-cache",
+             "/github-cache/:resource_type",
+             "/github-cache/:resource_type/:identity",
              "/streamdeck"
            ]
 

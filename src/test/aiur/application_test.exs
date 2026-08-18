@@ -103,7 +103,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.AgentResourceGuard,
       Aiur.CoordinationTasks,
       Aiur.DecisionDispatchTasks,
-      Aiur.BuildOrder.TicketDetailCache,
+      Aiur.BuildOrder.TicketDetailCoordinator,
       Aiur.BuildOrder.GraphProjection,
       Aiur.AppServer.ToolCallLedger,
       Aiur.ProviderAccountGeneration,
@@ -215,7 +215,7 @@ defmodule Aiur.ApplicationTest do
         AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
         |> modules()
 
-      detail = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketDetailCache))
+      detail = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketDetailCoordinator))
       activity = Enum.find_index(modules, &(&1 == Aiur.TicketActivity))
       history = Enum.find_index(modules, &(&1 == Aiur.BuildOrder.TicketHistoryProvider))
       orchestrator = Enum.find_index(modules, &(&1 == Aiur.Orchestrator))
@@ -233,7 +233,7 @@ defmodule Aiur.ApplicationTest do
         mods = modules(AiurApp.child_specs(opts))
         task_supervisor = Enum.find_index(mods, &(&1 == Task.Supervisor))
         workflow_store = Enum.find_index(mods, &(&1 == Aiur.WorkflowStore))
-        detail_cache = Enum.find_index(mods, &(&1 == Aiur.BuildOrder.TicketDetailCache))
+        detail_cache = Enum.find_index(mods, &(&1 == Aiur.BuildOrder.TicketDetailCoordinator))
 
         assert task_supervisor < detail_cache, "Task.Supervisor must precede ticket detail cache for #{inspect(opts)}"
         assert workflow_store < detail_cache, "WorkflowStore must precede ticket detail cache for #{inspect(opts)}"

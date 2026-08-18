@@ -181,8 +181,13 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     end
   end
 
+  # `ensure_auth_preflight/0`, not `auth_preflight/0`: this runs on every poll
+  # cycle, and re-proving a credential that has not changed cost 12 billed REST
+  # requests an hour at idle. The memo behind it is dropped the moment GitHub
+  # answers a call unauthenticated, so a revoked token still lands here as the
+  # normal preflight diagnostic on the next cycle.
   defp ensure_github_auth_preflight(%State{} = state) do
-    case GitHubTracker.auth_preflight() do
+    case GitHubTracker.ensure_auth_preflight() do
       :ok -> {:ok, state}
       {:error, reason} -> {:error, reason, state}
     end

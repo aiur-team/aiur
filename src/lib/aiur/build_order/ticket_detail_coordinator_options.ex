@@ -1,4 +1,4 @@
-defmodule Aiur.BuildOrder.TicketDetailCache.Options do
+defmodule Aiur.BuildOrder.TicketDetailCoordinator.Options do
   @moduledoc false
 
   alias Aiur.BuildOrder.TicketDetail
@@ -57,7 +57,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache.Options do
 
   defp runtime_options(opts) do
     case Keyword.pop(opts, :runtime_config?, false) do
-      {true, opts} -> Keyword.merge(Aiur.Config.build_order_ticket_detail_cache_options(), opts)
+      {true, opts} -> Keyword.merge(Aiur.Config.build_order_ticket_detail_coordinator_options(), opts)
       {_runtime_config?, opts} -> opts
     end
   end

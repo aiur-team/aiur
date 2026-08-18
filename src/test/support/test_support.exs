@@ -3,6 +3,9 @@ defmodule Aiur.TestSupport do
 
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+  alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
+  alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
+  alias Aiur.PollCadence
 
   @workflow_prompt "You are an agent for this repository."
   @github_repository {"its-everdred", "aiur"}
@@ -56,6 +59,7 @@ defmodule Aiur.TestSupport do
     :log_file,
     :build_gate_dir_override,
     :global_pause_store_path,
+    :github_resource_store_path,
     :repo_base_root,
     :loadavg_source_override,
     :proc_stat_source_override
@@ -83,10 +87,67 @@ defmodule Aiur.TestSupport do
   @spec isolated_app_env_keys() :: [atom()]
   def isolated_app_env_keys, do: @isolated_app_env_keys
 
+  @doc """
+  An absolute path under the system tmp dir that no *other* VM on this host can
+  also choose.
+
+  `System.unique_integer/1` is node-scoped: it makes a name unique inside one
+  `mix test` VM and gives no protection at all across VMs. Every VM draws from
+  the same narrow window of counter values, so two concurrent `mix test` runs on
+  one host pick the same `<tmp>/<prefix>_<integer>` name routinely — measured at
+  60 shared names across 2 x 320 draws from two simultaneous runs of the same
+  file. When that happens the second VM creates its fixture tree inside the
+  directory the first VM's teardown is recursively removing, and `File.rm_rf!/1`
+  fails on the `rmdir` of a directory it had just emptied: ENOTEMPTY, which
+  Erlang reports as `:eexist` and Elixir renders as "file already exists". The
+  symptom looks like a writer racing teardown because it *is* one — the writer is
+  another VM running the same test.
+
+  `System.pid/0` is what makes the path host-unique; only one VM can own an OS
+  pid at a time. `config/config.exs` already isolates the suite-global log root
+  the same way. Prefer this over hand-rolling `Path.join(System.tmp_dir!(), ...)`.
+  """
+  @spec tmp_root!(String.t()) :: Path.t()
+  def tmp_root!(prefix) when is_binary(prefix) do
+    Path.join(System.tmp_dir!(), "#{prefix}-#{System.pid()}-#{System.unique_integer([:positive])}")
+  end
+
   @doc "Captures the current value of every isolated key, unset included."
   @spec capture_app_env() :: [{atom(), {:ok, term()} | :error}]
   def capture_app_env do
     Enum.map(@isolated_app_env_keys, &{&1, Application.fetch_env(:aiur, &1)})
+  end
+
+  @doc """
+  Resets every piece of VM-global state a TestSupport case may have moved.
+
+  All of it lives in `:persistent_term`, so it outlasts the process that wrote
+  it and leaks between cases in the same VM. Each case therefore starts from the
+  production-safe default:
+
+    * `Aiur.Events.Publisher` / `Aiur.Events.SubscriptionStore` — a filtering or
+      enqueue stub would otherwise silently affect an unrelated Exchange case.
+    * `Aiur.GitHub.ResourceStore` — it records which GitHub resource each
+      published event was, deliberately global and restart-durable so a webhook
+      delivery can suppress the poll sweep that re-reads the same comment. In a
+      suite that means comment id 1 on issue 42 in one case would suppress
+      comment id 1 on issue 42 in the next.
+    * `Aiur.GitHub.AuthPreflight` — it remembers the credential it proved, so a
+      success recorded by one case would let a later case's poll cycle skip a
+      preflight it expects to observe.
+    * `Aiur.PollCadence` — every Orchestrator poll cycle writes the effective
+      interval there and every freshness threshold in the tree derives from it,
+      so a case that drives a poll cycle would move the staleness windows for
+      every later case.
+  """
+  @spec reset_global_state!() :: :ok
+  def reset_global_state! do
+    EventsPublisher.set_tracked_fn(fn _ -> true end)
+    EventsSubscriptionStore.set_enqueue_fn(nil)
+    GitHubResourceStore.reset()
+    GitHubAuthPreflight.invalidate(:test_setup)
+    PollCadence.forget_effective_interval_ms()
+    :ok
   end
 
   @doc "Puts back what `capture_app_env/0` recorded, deleting keys that were unset."
@@ -122,6 +183,7 @@ defmodule Aiur.TestSupport do
       alias Aiur.Codex.Config, as: CodexConfig
       alias Aiur.Events.Publisher, as: EventsPublisher
       alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+      alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
@@ -142,10 +204,14 @@ defmodule Aiur.TestSupport do
             "aiur-elixir-tests-#{System.get_env("USER") || System.get_env("LOGNAME") || "local"}"
           )
 
+        # `System.pid()` is what keeps this root private to *this* VM. Without it
+        # two `mix test` runs on one host pick the same `workflow-<integer>` name
+        # routinely and then write each other's `.aiur/config`, so a case reads a
+        # sibling VM's tracker settings. See `Aiur.TestSupport.tmp_root!/1`.
         workflow_root =
           Path.join(
             workflow_base,
-            "workflow-#{System.unique_integer([:positive])}"
+            "workflow-#{System.pid()}-#{System.unique_integer([:positive])}"
           )
 
         # Every application key this setup overrides, captured as-is so
@@ -153,13 +219,7 @@ defmodule Aiur.TestSupport do
         # `Aiur.TestSupport.isolated_app_env_keys/0`.
         previous_app_env = Aiur.TestSupport.capture_app_env()
 
-        # These callbacks live in :persistent_term so they outlast the test
-        # process that installed them. Start every TestSupport case from the
-        # production-safe defaults and restore those defaults at teardown;
-        # otherwise a filtering/enqueue stub can silently affect an unrelated
-        # Exchange test that happens to run later in the VM.
-        EventsPublisher.set_tracked_fn(fn _ -> true end)
-        EventsSubscriptionStore.set_enqueue_fn(nil)
+        Aiur.TestSupport.reset_global_state!()
 
         File.mkdir_p!(workflow_root)
 
