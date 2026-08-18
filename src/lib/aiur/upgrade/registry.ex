@@ -24,9 +24,6 @@ defmodule Aiur.Upgrade.Registry.Transport.Req do
 
       {:error, reason} ->
         {:error, reason}
-
-      _ ->
-        {:error, :malformed_response}
     end
   rescue
     error -> {:error, error}
