@@ -19,6 +19,7 @@ test-sandbox/
 .aiur-agent-ir/
 .aiur-runtime/
 logs/
+erl_crash.dump
 
 # Per-workspace package-manager caches populated by Aiur prewarm hooks.
 /.aiur-hex/

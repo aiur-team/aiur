@@ -15,7 +15,8 @@ defmodule Aiur.AgentEnvironment do
   # live outer run. AIUR_REPO_ROOT is the root the key is hashed from — if it leaks the
   # inner recomputes the *outer's* key, so scrub it too (defense in depth: the dev shim
   # does not export it today, but any wrapping harness might).
-  @erlang_distribution_env_names ~w(ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
+  @erlang_distribution_env_names ~w(ERL_AFLAGS ERL_LIBS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT)
+  @daemon_dump_env_names ~w(ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS)
   @aiur_distribution_env_pattern ~r/\AAIUR(?:_.*)?_(?:NODE_NAME|COOKIE)\z/
   # `aiurdev` exports AIUR_RESTART_BUILD_CMD for the duration of an `aiur restart`
   # so the engine can run this checkout's rebuild between the stop and the start.
@@ -93,6 +94,7 @@ defmodule Aiur.AgentEnvironment do
     ("unset " <>
        Enum.join(
          @erlang_distribution_env_names ++
+           @daemon_dump_env_names ++
            @restart_build_env_names ++
            @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
          " "
@@ -202,7 +204,9 @@ defmodule Aiur.AgentEnvironment do
 
     unset_inherited_env =
       Enum.map(
-        @restart_build_env_names ++
+        @erlang_distribution_env_names ++
+          @daemon_dump_env_names ++
+          @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
