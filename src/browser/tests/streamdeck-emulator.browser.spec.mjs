@@ -235,13 +235,14 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   // #1607 deleted the standalone #sd-cmd-view and fills the cmd-mode grid with
-  // the four command keys instead, so the grid is no longer empty here; that PR
-  // owns the grid, this one owns the strip below.
+  // the five command keys instead (pause, logs, mic, settings, commands), so
+  // the grid is no longer empty here; that PR owns the grid, this one owns the
+  // strip below.
   await expect(page.locator('#sd-keys[data-mode-view="cmd"]')).toBeVisible()
-  await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(4)
-  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(4)
+  await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(5)
+  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(5)
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
-  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(4)
+  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(5)
   await expect(page.locator('.sd-strip-cmd')).toBeVisible()
   await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
   await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
@@ -341,11 +342,11 @@ test('command keys render real state-derived controls, flash on click, and emit 
 
   await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
   const commands = page.locator('[data-streamdeck-command]')
-  await expect(commands).toHaveCount(4)
+  await expect(commands).toHaveCount(5)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
-  await expect(page.locator('#sd-keys button:disabled')).toHaveCount(4)
-  await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
+  await expect(page.locator('#sd-keys button:disabled')).toHaveCount(3)
+  await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(3)
 
   await page.evaluate(() => {
     const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
@@ -418,15 +419,15 @@ test('command mic deactivates on pointerleave (not stuck on drag-exit)', async (
   await page.mouse.up()
 })
 
-test('cmd mode renders the design\'s four command keys with Mic excluded from the click path', async ({ page }) => {
+test('cmd mode renders the design\'s five command keys with Mic excluded from the click path', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
-  await expect(buttons).toHaveCount(4)
-  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Logs', 'Mic', 'Settings'])
-  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN'])
+  await expect(buttons).toHaveCount(5)
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Logs', 'Mic', 'Settings', 'Commands'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN', 'OPEN'])
 
   // Mic is the only press-and-hold key; the hook drives it from pointer events
   // rather than the click handler it binds to the others.

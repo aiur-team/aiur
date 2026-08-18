@@ -9,9 +9,10 @@ Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
 | --- | --- | --- | --- | --- |
 | **Grid** | Initial view | Up to eight agent keys | Fleet summary, provider meters, page | A: no action. B: scroll physical provider panel. C: no action. D: page agents; press for next window. |
-| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
+| **Command** | Press an agent key | Pause/Play, Logs, Mic, Settings, Commands, plus Send and Cancel once dictation has text | Selected agent status and progress, or the voice panel while dictating | A: Grid. B/C: no action. D: press for Logs. |
 | **Settings** | Press Settings in Command | One key per detected microphone, then TestMic and a paging key; text pane in the emulator | Selected microphone, or the voice panel while TestMic is held | A: Command. |
 | **Logs** | Press Logs or dial D | Up to seven event keys plus LIVE | Five transcript rows | A: scroll transcript; press for Command. B/C: no action. D: scroll event keys. |
+| **Commands** | Press Commands in Command | History keys; then option keys, Mic, and Approve/Cancel | Command question, reading, OPEN/ANSWERED status | A: back a view. D: page history or options; press to approve. |
 
 | Control state | Behavior |
 | --- | --- |
@@ -115,8 +116,9 @@ Voice lives in the agent view, reached by pressing an agent key in Grid.
 | Logs | Second | Opens the Logs surface. |
 | Mic | Third | Press-and-hold; live only while held. |
 | Settings | Fourth | Opens the microphone picker on the deck, or a text pane in the emulator; dial A backs out of either. |
-| Send | Fifth, once dictation has text | Delivers the accumulated text to the agent. |
-| Cancel | Sixth, once dictation has text | Discards the accumulated text. |
+| Commands | Fifth | Opens the agent's Command history; always present, so its absence can never be mistaken for "no Commands". |
+| Send | Sixth, once dictation has text | Delivers the accumulated text to the agent. |
+| Cancel | Seventh, once dictation has text | Discards the accumulated text. |
 
 The emulator shows a text pane because the microphones are attached to the machine running the sidecar, which a browser tab cannot see.
 
@@ -238,5 +240,36 @@ This is the one part of Aiur that sends operator data to a third party.
 ### Supported microphones
 
 PipeWire and PulseAudio microphones are supported, including ALSA, USB, and Bluetooth devices. Output-monitor sources are not offered as microphones.
+
+## Answer agent Commands
+
+The Commands key on the agent row opens the focused agent's Command history — past Commands newest-first, active ones highlighted. It is always present, not a conditional alert button, so its absence can never be mistaken for "no Commands". The deck answers Commands without the Dashboard; answers are recorded as the operator's own.
+
+| Key | Meaning |
+| --- | --- |
+| Command key | One Command; an amber `OPEN` badge marks an answerable one, a muted `ANSWERED` badge a completed one. |
+| Mic | Always present in an open Command's detail; press-and-hold to dictate. |
+| Approve | Appears while dictated text is held; sending it is a deliberate second action. |
+| Cancel | Appears while dictated text is held; discards it. |
+
+### Answer one Command
+
+Press a Command key to enter its detail: the description paints the bottom panel and the options paint the key row, four to a page.
+
+| Step | What happens |
+| --- | --- |
+| Press an option key | Reads that option's detail in the bottom panel. Selecting is reading, never committing. |
+| Dial D | Pages the options (or the history, on the history view). |
+| Press dial D | Approves the selected option — the deliberate second action that turns a read into an answer. |
+| Hold Mic | Dictates a free-text response, shown building in the bottom panel. |
+| Approve | Sends the spoken text as the answer; it takes precedence over any listed option ("none of the above"). |
+| Cancel | Discards the spoken text. |
+| Back (dial A) | Leaves the detail for history, then returns to the agent row. |
+
+The Approve state is unmistakable: when an answer is armed the strip shows a green `APPROVE` label, the one strip element that commits a durable operator decision. Completed Commands are read-only — they show what was asked and what was decided, with no Approve affordance.
+
+### Attribution
+
+An answer given on the deck is recorded with operator attribution (`operator` / `streamdeck`), the same authoritative path as a Dashboard answer — never an Executor answer with an operator flavour in free text. That is also what lets the deck answer `human_required` Commands an Executor cannot. Answers are only accepted for the agent currently focused on the deck.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.
