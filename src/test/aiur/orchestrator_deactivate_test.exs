@@ -5319,7 +5319,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert %{identifier: ^identifier, error: "stalled" <> _} =
                Map.get(next.retry_attempts, issue_id)
 
-      assert_receive {:event, %{topic: "ticket.STALL-W.agent.stalled"} = event}, 500
+      receive_barrier({:event, %{topic: "ticket.STALL-W.agent.stalled"} = event})
       assert event["needs_attention"] == true
       assert event["reason"] =~ "no-progress window"
     end
