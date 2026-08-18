@@ -146,24 +146,25 @@ defmodule Aiur.Events.GithubWebhook do
   # behaviour. A duplicate wake is recoverable; a dropped delivery is not.
   defp maybe_resolve_review_thread("pull_request_review_comment", payload, opts) when is_map(payload) do
     case Normalizer.tracked_repo(payload, opts) do
-      {:ok, _repo} ->
-        case get_in(payload, ["comment", "node_id"]) do
-          node_id when is_binary(node_id) and node_id != "" ->
-            case ThreadResolver.resolve(node_id, opts) do
-              {:ok, thread_id} -> put_in(payload, ["comment", "review_thread_id"], thread_id)
-              :not_resolvable -> payload
-            end
-
-          _other ->
-            payload
-        end
-
-      _untracked_or_malformed ->
-        payload
+      {:ok, _repo} -> resolve_review_thread(payload, opts)
+      _untracked_or_malformed -> payload
     end
   end
 
   defp maybe_resolve_review_thread(_event_type, payload, _opts), do: payload
+
+  # Best-effort resolution of the comment's thread id: a delivery with no
+  # `node_id`, or a lookup that fails, falls through to the per-comment key the
+  # normalizer already uses — a duplicate wake is recoverable, a dropped
+  # delivery is not.
+  defp resolve_review_thread(payload, opts) do
+    with node_id when is_binary(node_id) and node_id != "" <- get_in(payload, ["comment", "node_id"]),
+         {:ok, thread_id} <- ThreadResolver.resolve(node_id, opts) do
+      put_in(payload, ["comment", "review_thread_id"], thread_id)
+    else
+      _other -> payload
+    end
+  end
 
   defp publish_all(triples, opts) do
     publish_fun = Keyword.get(opts, :publish_fun, &Publisher.publish/3)

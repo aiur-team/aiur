@@ -54,23 +54,22 @@ defmodule Aiur.Events.GithubWebhook.ThreadResolver do
   def resolve(_node_id, _opts), do: :not_resolvable
 
   defp do_resolve(node_id, opts) do
-    case Transport.require_token(opts) do
-      {:ok, token} ->
-        request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
-        case Transport.github_graphql(request_fun, token, @resolve_query, %{"id" => node_id}, caller: :webhook_review_thread) do
-          {:ok, body} ->
-            case get_in(body, ["data", "node", "pullRequestReviewThread", "id"]) do
-              thread_id when is_binary(thread_id) and thread_id != "" -> {:ok, thread_id}
-              _other -> :not_resolvable
-            end
-
-          {:error, _reason} ->
-            :not_resolvable
-        end
-
-      {:error, _reason} ->
-        :not_resolvable
+    with {:ok, token} <- Transport.require_token(opts),
+         {:ok, body} <-
+           Transport.github_graphql(
+             request_fun,
+             token,
+             @resolve_query,
+             %{"id" => node_id},
+             caller: :webhook_review_thread
+           ),
+         thread_id when is_binary(thread_id) and thread_id != "" <-
+           get_in(body, ["data", "node", "pullRequestReviewThread", "id"]) do
+      {:ok, thread_id}
+    else
+      _other -> :not_resolvable
     end
   end
 end
