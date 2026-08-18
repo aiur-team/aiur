@@ -24,6 +24,63 @@ Where a webhook is proven, the comment sweep becomes a reconciliation pass rathe
 | Unresolvable CODEOWNERS | Raises a degraded-trust alert instead of silently widening authority. |
 | The bot identity | Cannot trigger its own work. |
 
+## GitHub App authentication
+
+The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise. Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+
+### Set up the App
+
+Create a GitHub App under **Settings → Developer settings → GitHub Apps** and install it on the target repository with only these repository permissions.
+
+| Permission | Grant |
+| --- | --- |
+| Contents | Read and write |
+| Issues | Read and write |
+| Pull requests | Read and write |
+| Administration, Actions, Secrets, Workflows | Never |
+
+GitHub always adds `Metadata: Read-only` implicitly. Generate and download a private key (`.pem`); it can mint installation tokens for every repository the App is installed on, so keep it in a secure store.
+
+### Configure the daemon
+
+The daemon reads App credentials from the same `.env` the launcher sources; they are never written to `.aiur/config`.
+
+| Variable | Purpose |
+| --- | --- |
+| `GITHUB_APP_ID` | The App's numeric id. |
+| `GITHUB_APP_INSTALLATION_ID` | The installation id from the installation URL. |
+| `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
+| `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
+
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`; the token remains the fallback when no App credentials are present.
+
+### Token lifecycle
+
+At boot the daemon signs an `RS256` JWT with the App private key and exchanges it at `POST /app/installations/{installation_id}/access_tokens`.
+
+| Condition | Result |
+| --- | --- |
+| Refresh failure | Needs-attention `system.github_app_token.refresh_failed` alert with capped backoff retries. |
+| Recovery | `system.github_app_token.refresh_recovered` clears the attention. |
+| Grant beyond least-privilege | Needs-attention `system.github_app_token.permission_violation` alert. |
+
+A supervised refresher re-acquires a fresh token before the hour-long expiry (5-minute safety margin) for the life of the daemon. The last known-good token keeps being used until it expires.
+
+### Identity under App auth
+
+An installation token authenticates as the App's bot user, `<app-slug>[bot]`, so every API-created comment, label, review, and pull request is attributed to that login.
+
+| Setup | Requirement |
+| --- | --- |
+| `tracker.github.bot_account` | Set to the App's bot login, `<app-slug>[bot]`. |
+| Unset or non-bot login | Needs-attention `system.github_app_token.identity_mismatch` alert at boot. |
+
+Self-loop suppression, PR command handling, and the CODEOWNERS self-include all key off `bot_account`, so a wrong login means the daemon does not recognize its own writes.
+
+Git commits keep their configured author; only GitHub API objects are authored by the App bot. Add the App bot login to `trusted_accounts` if any gate needs to trust it beyond the `bot_account` self-include.
+
+See `docs/security/daemon-token-posture.md` in this repository for the full setup narrative.
+
 ## Poll cadence
 
 Poll spend still scales inversely with the interval, so `polling.interval_seconds` defaults to 120.

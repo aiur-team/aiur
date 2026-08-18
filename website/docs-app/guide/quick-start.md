@@ -21,7 +21,7 @@ Run `aiur init` in the repository Aiur should operate.
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-Add `agent:todo` to the issues you want worked.
+Add `agent:todo` to the issues you want worked. Prefer GitHub App installation-token authentication over a personal access token; see [GitHub](/apis/github#github-app-authentication) to set it up.
 
 ## First run
 
