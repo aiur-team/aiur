@@ -523,6 +523,33 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert ResourceStore.fetch(ResourceStore.key(:issue, "owner", "repo", 5156)) != :miss,
              "a body inside the retention window must still reload"
     end
+
+    # The nil edge of the same agreement. `fetch/1` reads a body with no
+    # `fetched_at_ms` as expired (`nil` is treated as the epoch, long past the
+    # window), so a boot filter that kept such an entry would hold a body the
+    # read can never serve — "stale" forever, at the one age no record exists
+    # for. A corrupt or hand-written checkpoint is exactly where this lands, and
+    # the module's fail-open contract says that must degrade, not linger.
+    test "a body with no fetched_at_ms is not reloaded", %{path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5157" => %{
+              "data" => %{"number" => 5157},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "recorded_at_ms" => System.system_time(:millisecond)
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      assert :ets.lookup(ResourceStore.Table, ResourceStore.key(:issue, "owner", "repo", 5157)) == [],
+             "a body with no fetched_at_ms must be dropped at boot, matching fetch/1's decline"
+    end
   end
 
   describe "degrading" do
