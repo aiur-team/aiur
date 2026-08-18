@@ -1971,6 +1971,67 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     end
   end
 
+  describe "reconcile_contradictory_state_labels (#2075)" do
+    test "heals a polled ticket carrying todo+rework to the resolved single state" do
+      dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
+      parent = self()
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      # `todo` wins the pair (a ticket that is also `todo` has no work for a
+      # `rework` verdict to mean anything about), and the winner is written
+      # through the tracker so GitHub stops carrying both labels.
+      assert_receive {:heal, "its-everdred/aiur#dual", "todo"}
+
+      assert [healed] = healed_issues
+      assert healed.state == "todo"
+      assert healed.state_labels == ["todo"]
+      assert healed_state.last_polled_issues[dual.id].state == "todo"
+    end
+
+    test "passes through issues with a single or no state label" do
+      single = %{issue("single", "rework") | state_labels: ["rework"]}
+      none = issue("none", "todo")
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [single, none],
+          fn _id, _target -> flunk("must not rewrite single-labelled issues") end
+        )
+
+      assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
+      assert healed_state.last_polled_issues == %{}
+    end
+
+    test "keeps the resolved issue dispatchable even when the heal write fails" do
+      dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn _id, _target -> {:error, :unavailable} end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "todo"
+      assert healed.state_labels == ["todo"]
+
+      # A failed heal write must not strand the ticket this cycle: it stays
+      # dispatchable on the resolved state and the next poll retries the heal.
+      assert healed_state.last_polled_issues == %{}
+    end
+  end
+
   defp issue(id, state) do
     %Issue{
       id: id,
