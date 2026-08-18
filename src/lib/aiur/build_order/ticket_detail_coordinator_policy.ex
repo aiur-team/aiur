@@ -1,4 +1,4 @@
-defmodule Aiur.BuildOrder.TicketDetailCache.Policy do
+defmodule Aiur.BuildOrder.TicketDetailCoordinator.Policy do
   @moduledoc false
 
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}

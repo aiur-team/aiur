@@ -5244,12 +5244,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-height: 44px;
 }
 
-.ticket-context-fresh-chip {
-  color: var(--fg);
-  background: var(--good-soft);
-  border-color: var(--good-line);
-}
-
 .ticket-context-description {
   min-width: 0;
 }
@@ -6026,11 +6020,19 @@ html[data-theme="light"] .rs-elevenlabs-mark {
     max-width: 26rem;
     margin-inline: auto;
     display: grid;
-    /* Five equal route cells plus one auto cell for the control cluster, so the
-       pause toggle rides along in the nav instead of vanishing with the hidden
-       sidebar. `auto` keeps it at its natural icon width rather than stealing
-       space from the route labels. */
-    grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+    /* One row, however many routes there are. Equal route cells plus the
+       control cluster at its natural icon width, so the pause toggle rides
+       along in the nav instead of vanishing with the hidden sidebar.
+
+       This was `repeat(5, minmax(0, 1fr)) auto`, which silently broke the
+       moment a sixth route was added: the extra cell wrapped onto an implicit
+       second row, the bar grew past the `7rem` the shell reserves for it, and
+       the nav covered page content at 320px and 390px. Deriving the track
+       count from the items makes adding a route a layout no-op rather than a
+       tripwire nobody remembers. `.shell-nav-controls` opts itself back out to
+       `auto` below. */
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
     gap: 0.2rem;
     padding: 0.3rem;
     border: 1px solid var(--line-strong);
@@ -6066,8 +6068,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
     width: auto;
   }
 
+  /* Truncated, never wrapped. A label long enough to take two lines would grow
+     the whole bar past the space the shell reserves for it, which is the same
+     failure as an extra row — and it would be caused by naming a route rather
+     than by adding one. */
   .shell-nav-mobile .shell-nav-label {
     font-size: clamp(0.55rem, 2vw, 0.68rem);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .shell-nav-mobile .shell-nav-state {
@@ -6081,6 +6091,10 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   }
 
   .shell-nav-controls {
+    /* Natural icon width rather than an equal share, so the controls never
+       steal space from the route labels. */
+    grid-column: auto / auto;
+    width: max-content;
     display: flex;
     align-items: center;
     gap: 0.25rem;

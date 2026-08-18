@@ -116,7 +116,7 @@ defmodule Aiur.GitHub.ReviewThreads do
       %{"owner" => owner, "repo" => repo, "number" => number}
       |> Transport.maybe_put_query("cursor", cursor)
 
-    case Transport.github_graphql(request_fun, token, @unaddressed_review_threads_query, variables) do
+    case Transport.github_graphql(request_fun, token, @unaddressed_review_threads_query, variables, caller: :review_threads_unaddressed) do
       {:ok, body} ->
         with {:ok, {threads, page_info}} <- review_threads_page(body),
              {:ok, comments} <- unaddressed_thread_comments_result(threads, opts) do
@@ -276,7 +276,7 @@ defmodule Aiur.GitHub.ReviewThreads do
 
   @spec fetch_review_thread(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_review_thread(request_fun, token, thread_id) do
-    Transport.github_graphql(request_fun, token, @review_thread_query, %{"id" => thread_id})
+    Transport.github_graphql(request_fun, token, @review_thread_query, %{"id" => thread_id}, caller: :review_threads_verify)
   end
 
   @spec review_thread_from_body(map()) :: map()

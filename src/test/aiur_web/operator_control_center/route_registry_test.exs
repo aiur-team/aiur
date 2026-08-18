@@ -11,6 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
              :commands,
              :build_order,
              :analytics,
+             :github_cache,
              :streamdeck
            ]
 
