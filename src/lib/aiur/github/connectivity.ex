@@ -1,4 +1,6 @@
 defmodule Aiur.GitHub.Connectivity do
+  require Logger
+
   @moduledoc """
   Backoff + escalation policy keyed off the `Aiur.GitHub.Client` error
   taxonomy (`{:github, classification, detail}`).
@@ -148,7 +150,8 @@ defmodule Aiur.GitHub.Connectivity do
 
     * `:rate_limited` — wait until `reset_at` if present, else use
       `retry_after` (seconds), `poll_interval`, or the capped exponential
-      default. Reset waits deliberately exceed the ordinary transport cap.
+      default. Reset waits may exceed the ordinary transport cap, but are
+      bounded to one hour.
     * `:dns` / `:timeout` / `:tls` / `:transport` / `:http` — capped exponential
       backoff that grows with `attempt`.
     * `:auth` — `:escalate` (don't retry an expired/invalid token).
@@ -179,14 +182,22 @@ defmodule Aiur.GitHub.Connectivity do
   defp reset_delay_ms(detail) do
     now = Map.get(detail, :now, DateTime.utc_now())
 
-    with reset_at when is_binary(reset_at) <- Map.get(detail, :reset_at),
-         {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset_at),
+    with raw_reset_at when is_binary(raw_reset_at) <- Map.get(detail, :reset_at),
+         {:ok, reset_at, _offset} <- DateTime.from_iso8601(raw_reset_at),
          delay_ms when delay_ms > 0 <- DateTime.diff(reset_at, now, :millisecond) do
-      min(delay_ms, @max_reset_backoff_ms)
+      cap_reset_backoff(delay_ms, raw_reset_at)
     else
       _missing_or_expired -> nil
     end
   end
+
+  defp cap_reset_backoff(delay_ms, raw_reset_at) when delay_ms > @max_reset_backoff_ms do
+    Logger.warning("github_reset_backoff_clamped raw_reset_at=#{inspect(raw_reset_at)} computed_delay_ms=#{delay_ms} max_delay_ms=#{@max_reset_backoff_ms}")
+
+    @max_reset_backoff_ms
+  end
+
+  defp cap_reset_backoff(delay_ms, _raw_reset_at), do: delay_ms
 
   defp exponential(attempt) when is_integer(attempt) and attempt >= 1 do
     cap_backoff(@base_backoff_ms * 2 ** (attempt - 1))
