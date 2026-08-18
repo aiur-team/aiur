@@ -88,11 +88,11 @@ defmodule Aiur.DaemonLifecycle do
       :ok
   end
 
+  # `:inet.gethostname/0` is documented "never fails" and typed to return
+  # only `{:ok, hostname}`, so there is no error branch to handle here.
   defp hostname do
-    case :inet.gethostname() do
-      {:ok, hostname} -> List.to_string(hostname)
-      _ -> nil
-    end
+    {:ok, hostname} = :inet.gethostname()
+    List.to_string(hostname)
   end
 
   defp parent_pid do
@@ -109,13 +109,15 @@ defmodule Aiur.DaemonLifecycle do
   end
 
   defp parent_comm do
-    with pid when is_binary(pid) <- parent_pid() do
-      case File.read("/proc/#{pid}/comm") do
-        {:ok, comm} -> String.trim(comm)
-        _ -> nil
-      end
-    else
-      _ -> nil
+    case parent_pid() do
+      pid when is_binary(pid) ->
+        case File.read("/proc/#{pid}/comm") do
+          {:ok, comm} -> String.trim(comm)
+          _ -> nil
+        end
+
+      _ ->
+        nil
     end
   end
 end
