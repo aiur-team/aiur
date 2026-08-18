@@ -1,0 +1,8 @@
+run id: 2026-08-17-emulator
+capture: headless — src/browser, `npm run proof:streamdeck`
+aiur commit: 3f3155b227dda36da1d7171705666e4ee9cad41a (plus this run's own
+  changes, which are the commit this directory lands in)
+browser/package commit: same as aiur commit
+sidecar version: packages/streamdeck 0.0.0 (not exercised — this is an
+  emulator-only run; the sidecar drives hardware, which is N/A per #1342)
+kernel: 7.1.4-arch1-1

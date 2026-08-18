@@ -6,8 +6,17 @@ import { promisify } from 'node:util'
 const sensitiveEnvironmentNames = ['AIUR_DASHBOARD_PASSWORD', 'AIUR_DASHBOARD_USERNAME', 'AIUR_SUPERVISOR_TOKEN', 'GITHUB_TOKEN']
 const textExtensions = new Set(['.json', '.log', '.md', '.txt'])
 const retainedBinaryExtensions = new Set(['.png', '.zip'])
+// Aiur agent workspaces prepend a `git` wrapper to PATH that exits 127 unless
+// AIUR_REAL_GIT names the real binary. `mix` shells out to git to check the
+// heroicons git dependency before it will boot, so a child that loses this
+// variable cannot start the fixture server at all. It is a path to a system
+// binary, not a credential, so both allowlists below forward it.
+const realGitName = 'AIUR_REAL_GIT'
 const inheritedRuntimeNames = [
-  'AIUR_REAL_GIT',
+  realGitName,
+  // Names the evidence directory for a #1358 proof run so a re-run can be
+  // written back into the same committed directory instead of a new timestamp.
+  'AIUR_STREAMDECK_PROOF_RUN',
   'CI',
   'HEX_HOME',
   'HOME',
@@ -49,6 +58,34 @@ export function browserRuntimeEnvironment(environment = process.env) {
 
 export function browserChildEnvironment(environment = process.env, overrides = {}) {
   return { ...browserRuntimeEnvironment(environment), ...syntheticFixtureEnvironment(environment), ...overrides }
+}
+
+// The fixture server is a `mise exec -- mix run` child, not a Playwright child,
+// so it inherits a narrower list: no CI (which changes Mix behaviour) and no
+// browser download path. It lives here rather than in start-fixture.mjs so it
+// can be asserted without spawning the server that module starts on import.
+const fixtureRuntimeNames = [
+  realGitName,
+  'HOME',
+  'PATH',
+  'TMPDIR',
+  'LANG',
+  'LC_ALL',
+  'SSL_CERT_FILE',
+  'HEX_HOME',
+  'MIX_HOME',
+  'MISE_TRUSTED_CONFIG_PATHS',
+  'MISE_CACHE_DIR',
+  'MISE_CONFIG_ROOT',
+  'MISE_DATA_DIR'
+]
+
+export function fixtureServerEnvironment(environment = process.env) {
+  const runtimeEnvironment = Object.fromEntries(
+    fixtureRuntimeNames.flatMap((name) => environment[name] ? [[name, environment[name]]] : [])
+  )
+
+  return { ...runtimeEnvironment, ...syntheticFixtureEnvironment(environment) }
 }
 
 export function sanitizeDiagnostic(value, environment = process.env) {
