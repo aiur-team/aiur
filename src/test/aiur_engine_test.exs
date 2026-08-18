@@ -647,6 +647,64 @@ defmodule AiurEngineTest do
     end
   end
 
+  test "canonical_workspace_root expands a leading tilde" do
+    home = Path.join(System.tmp_dir!(), "aiur-tilde-canon-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(home)
+
+    on_exit(fn -> File.rm_rf(home) end)
+
+    {out, 0} =
+      run_sourced_engine(
+        """
+        printf '%s\\n' "$(canonical_workspace_root '~/rel/path')"
+        printf '%s\\n' "$(canonical_workspace_root '~')"
+        printf '%s\\n' "$(canonical_workspace_root '/abs/path')"
+        """,
+        [{"HOME", home}]
+      )
+
+    lines = out |> String.split("\n", trim: true)
+    assert lines == [Path.join(home, "rel/path"), home, "/abs/path"]
+  end
+
+  test "workspace cwd sweep reaps a ~-rooted workspace process (config root handed off verbatim)" do
+    # `Config.workspace_root()` is handed off to the launcher verbatim, so a config
+    # such as `workspace.root: ~/code/aiur-workspaces` reaches the cwd sweep as a
+    # literal `~...` path. The sweep must expand it or it matches no /proc cwd and
+    # silently reaps nothing — the exact gap that let stop orphan workspace-rooted
+    # agents. `run_sourced_engine` overrides HOME so `~` resolves inside the test.
+    if File.dir?("/proc") do
+      home = Path.join(System.tmp_dir!(), "aiur-tilde-home-#{System.unique_integer([:positive])}")
+      root = Path.join(home, "code/aiur-workspaces")
+      inside = Path.join(root, "repo/468")
+      outside = Path.join(System.tmp_dir!(), "aiur-tilde-spared-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(inside)
+      File.mkdir_p!(outside)
+
+      inside_pid = spawn_sleeper(inside)
+      outside_pid = spawn_sleeper(outside)
+
+      on_exit(fn ->
+        kill_pid(inside_pid)
+        kill_pid(outside_pid)
+        File.rm_rf(home)
+        File.rm_rf(outside)
+      end)
+
+      {out, 0} =
+        run_sourced_engine(
+          """
+          AIUR_WORKSPACE_REAP_SWEEPS=2 reap_workspace_cwd_agents '~/code/aiur-workspaces'
+          """,
+          [{"HOME", home}]
+        )
+
+      assert out == ""
+      assert wait_dead(inside_pid), "expected the ~-rooted workspace process to be reaped"
+      assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"
+    end
+  end
+
   test "workspace root handoff comes from the instance record" do
     script = """
     aiur_instance_record_path() { printf '%s' "$RECORD"; }
@@ -2456,6 +2514,82 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     {out, 0} = run_sourced_engine(script, [{"AIUR_BG_STATE_DIR", state}, {"EVENTS", events}])
 
     assert out =~ "KILL_BEAM:-name aiur-enginetest-"
+  end
+
+  test "cmd_stop gives the BEAM a generous TERM grace so its own agent reap completes" do
+    # The stop path must not SIGKILL the BEAM at the 3s startup-reclaim default:
+    # the BEAM's graceful shutdown (ProcessReaper reaping the agent tree plus the
+    # BEAM-side workspace sweep) takes longer than 3s, and a SIGKILL mid-cleanup is
+    # what orphaned agent processes on `aiur stop` / `aiur restart`. Assert the
+    # stop grace (default 300 ticks = 30s) is passed through to kill_beams_matching.
+    state = tmp_state()
+    events = Path.join(System.tmp_dir!(), "aiur-stop-grace-#{System.unique_integer([:positive])}")
+    File.write!(events, "")
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm(events)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    aiur_resolve_identity() {
+      : "${AIUR_SESSION_PREFIX:=aiur}"
+      : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
+    }
+    resolve_control_identity_from_records() { AIUR_CONTROL_ADOPTED_RECORD=0; AIUR_CONTROL_CURRENT_NODE_STATE=up; }
+    workspace_root_file_from_instance_record() { return 1; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    reap_aiur_agents() { :; }
+    reap_workspace_cwd_agents() { :; }
+    cmd_stop
+    cat "$EVENTS"
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"AIUR_BG_STATE_DIR", state}, {"EVENTS", events}])
+
+    assert out =~ ~r/KILL_BEAM:-name aiur-enginetest-.* 300/
+  end
+
+  @tag skip: @pgrep_skip_reason
+  test "kill_beams_matching honors a caller-supplied TERM grace" do
+    # A fake BEAM that traps TERM and refuses to exit proves the grace parameter is
+    # honored as the pre-SIGKILL window: with a short grace it is SIGKILLed after
+    # roughly that window rather than at the 3s default. The stop path passes 300
+    # ticks precisely so a healthy-but-slow BEAM can finish its own agent reap
+    # before SIGKILL would land.
+    marker = "aiur-grace-#{System.unique_integer([:positive])}@127.0.0.1"
+    on_exit(fn -> System.cmd("pkill", ["-f", marker], stderr_to_stdout: true) end)
+
+    script = """
+    source "$AIUR_ENGINE"
+    set +e
+    # trap '' TERM: the fake beam only dies on SIGKILL, so the short grace is what
+    # bounds the kill (10 ticks = 1s, versus the 30-tick default).
+    bash -c 'trap "" TERM; exec -a "beam.smp #{marker}" sleep 30' >/dev/null 2>&1 &
+    seen=0
+    for _ in $(seq 1 20); do
+      if pgrep -f -- '#{marker}' >/dev/null 2>&1; then seen=1; break; fi
+      sleep 0.1
+    done
+    if [ "$seen" -ne 1 ]; then echo SETUP_FAILED; exit 0; fi
+    start=$(date +%s)
+    kill_beams_matching '#{marker}' 10
+    elapsed=$(( $(date +%s) - start ))
+    if pgrep -f -- '#{marker}' >/dev/null 2>&1; then echo STILL_ALIVE; else echo KILLED_AFTER_${elapsed}s; fi
+    """
+
+    path = Path.join(System.tmp_dir!(), "aiur-grace-#{System.unique_integer([:positive])}.sh")
+    File.write!(path, script)
+    on_exit(fn -> File.rm(path) end)
+
+    {out, _} = System.cmd("bash", [path], env: [{"AIUR_ENGINE", @engine}], stderr_to_stdout: true)
+    refute out =~ "SETUP_FAILED"
+    # 10 ticks = 1s: the kill must land within 2s, not after the 3s default — that
+    # is what proves the caller-supplied grace (not the startup default) was used.
+    assert out =~ ~r/KILLED_AFTER_[12]s/
   end
 
   test "cmd_stop fails loud instead of no-oping for an unmatched global-config cwd" do
