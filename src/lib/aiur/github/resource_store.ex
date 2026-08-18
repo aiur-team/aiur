@@ -1534,9 +1534,18 @@ defmodule Aiur.GitHub.ResourceStore do
   # validator or a processed mark — so its whole useful life is `recorded_at_ms`
   # and that is what it is judged on.
   defp evictable?(entry, cutoff) do
+    # The `|| 0` is the same nil-safe idiom `fetch/1` uses, not a redundant
+    # default: `Map.get/3`'s default only covers an *absent* key, so a body with
+    # `fetched_at_ms: nil` — a corrupt checkpoint, a hand-written entry — would
+    # otherwise compare `nil < cutoff`, sort after every number under Elixir's
+    # term ordering, and read as *not* evictable while `fetch/1` declines it.
+    # That is the unbounded "stale" accumulation this predicate exists to stop,
+    # surviving at the nil edge. Treating it as `0` (long past retention) makes
+    # sweep, read and restart agree that a body whose age nothing records is
+    # gone.
     case Map.get(entry, :data) do
-      nil -> Map.get(entry, :recorded_at_ms, 0) < cutoff
-      _body -> Map.get(entry, :fetched_at_ms, 0) < cutoff
+      nil -> (Map.get(entry, :recorded_at_ms, 0) || 0) < cutoff
+      _body -> (Map.get(entry, :fetched_at_ms, 0) || 0) < cutoff
     end
   end
 
