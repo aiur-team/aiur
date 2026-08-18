@@ -159,6 +159,7 @@ defmodule Aiur.Application do
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+    ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
 
     cli_children =
       if interactive_cli? do
@@ -279,7 +280,7 @@ defmodule Aiur.Application do
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
-      Aiur.Events.LsRemoteTicker,
+      maybe_ls_remote_ticker(ls_remote_ticker?),
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
@@ -318,6 +319,9 @@ defmodule Aiur.Application do
 
   defp maybe_add_remote_control_source(sources, true, source), do: sources ++ [source]
   defp maybe_add_remote_control_source(sources, false, _source), do: sources
+
+  defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil
+  defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
   @impl true
   def prep_stop(state) do
