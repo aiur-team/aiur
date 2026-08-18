@@ -192,15 +192,11 @@ Aiur therefore records each comment it has processed by its identity, and both p
 | A comment is edited | The agent wakes again. The record stores the comment's `updated_at`, so an edit is a new state of that comment rather than a repeat of it. |
 | No webhook installed | Nothing is ever recorded by a delivery, so nothing is ever suppressed. Polling behaves exactly as it did before. |
 
-Inline review comments on a pull request coalesce per **review thread**, not per
-comment. A review thread is one finding plus its replies, so a reviewer adding
-several comments to one thread wakes the agent once, not once per comment. The
-webhook resolves a delivered comment's thread from the comment's own node id, so
-both pipes key inline feedback the same way. A follow-up comment on an
-already-woken thread within the one-hour replay window does not wake a second
-time; it wakes once the thread is re-read after the window passes. If the
-delivery cannot be resolved to a thread, it is keyed on its own comment id as
-before — a duplicate wake is recoverable, a dropped delivery is not.
+Inline review comments on a pull request coalesce per **review thread**, not per comment. A review thread is one finding plus its replies, so a reviewer adding several comments to one thread wakes the agent once.
+
+The webhook resolves a delivered comment's thread from the comment's own node id, so both pipes key inline feedback the same way. A follow-up comment on an already-woken thread within the one-hour replay window does not wake a second time; it wakes once the thread is re-read after the window passes.
+
+If the delivery cannot be resolved to a thread, it is keyed on its own comment id as before — a duplicate wake is recoverable, a dropped delivery is not.
 
 If the record is unavailable or unreadable, Aiur behaves as though it were absent: it publishes, and the existing one-hour replay window catches short-range duplicates. A duplicate wake is recoverable; a dropped comment is not.
 
