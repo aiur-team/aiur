@@ -139,7 +139,7 @@ defmodule Aiur.DecisionMetricsWriterTest do
         seed_fun: seed_fun
       )
 
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
     assert_receive {:seed_blocked, seed_task}, 1_000
 
     assert :ok = DecisionMetrics.observe(request_event(3, "dec-live"), metrics)
@@ -160,7 +160,7 @@ defmodule Aiur.DecisionMetricsWriterTest do
         seed_fun: fn _store, _limit -> raise "seed unavailable" end
       )
 
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
     assert {:error, {:exception, "seed unavailable"}} = DecisionMetrics.await_seed(metrics)
     assert :ok = DecisionMetrics.observe(request_event(4, "dec-after-failed-seed"), metrics)
     assert {:ok, _snapshot} = DecisionMetrics.snapshot("dec-after-failed-seed", metrics)
@@ -168,7 +168,7 @@ defmodule Aiur.DecisionMetricsWriterTest do
 
   defp start_writer!(path, opts) do
     {:ok, writer} = Writer.start_link(Keyword.merge(opts, name: nil, path: path))
-    on_exit(fn -> stop_if_alive(writer) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(writer) end)
     writer
   end
 
@@ -176,7 +176,7 @@ defmodule Aiur.DecisionMetricsWriterTest do
     {:ok, metrics} =
       DecisionMetrics.start_link(name: nil, writer: writer, subscribe?: false, seed?: false)
 
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
     metrics
   end
 
@@ -205,11 +205,5 @@ defmodule Aiur.DecisionMetricsWriterTest do
       blocking: true,
       created_at: DateTime.to_iso8601(@requested_at)
     }
-  end
-
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
   end
 end

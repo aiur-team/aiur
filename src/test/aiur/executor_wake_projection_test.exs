@@ -148,7 +148,7 @@ defmodule Aiur.ExecutorWakeProjectionTest do
   end
 
   defp restore_codeowners({:owned, pid, path}) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
+    Aiur.TestSupport.safe_stop(pid)
     File.rm(path)
   end
 end

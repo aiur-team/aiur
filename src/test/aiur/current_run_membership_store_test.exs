@@ -768,9 +768,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     path
   end
 
-  defp stop(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  end
+  defp stop(pid), do: Aiur.TestSupport.safe_stop(pid)
 
   defp crash(pid) do
     ref = Process.monitor(pid)

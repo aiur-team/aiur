@@ -80,7 +80,17 @@ defmodule Aiur.AgentGitHubGuard do
     |> Enum.find(&real_gh_path?/1)
   end
 
-  @doc "Installs an opt-in wrapper for Executor shells outside the shared budget state."
+  @doc """
+  Installs an opt-in wrapper for Executor shells outside the shared budget state.
+
+  The `git` wrapper is installed here too, so any plain-shell caller whose
+  `PATH` reaches `~/.aiur/bin` — an operator shell, a CI step, a coordinating
+  assistant — is covered by the `git worktree remove` protection (#2094): the
+  wrapper refuses removing a worktree that still has a live process rooted in
+  it, or one holding uncommitted work. The host wrapper passes every other git
+  command through untouched, so the Executor keeps the full git authority it
+  holds today (mirroring how the host `gh` wrapper keeps merge authority).
+  """
   @spec install_host() :: :ok | {:error, term()}
   def install_host do
     bin = host_bin_dir()
@@ -89,6 +99,7 @@ defmodule Aiur.AgentGitHubGuard do
          :ok <- ensure_directory(Path.dirname(bin)),
          :ok <- ensure_directory(bin),
          :ok <- atomic_install(Path.join(bin, "gh"), @gh_script),
+         :ok <- atomic_install(Path.join(bin, "git"), @git_script),
          :ok <- atomic_install(Path.join(bin, "aiur-github-budget"), @broker),
          :ok <- retire_legacy_host_guard() do
       :ok

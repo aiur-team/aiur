@@ -181,6 +181,57 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     end
   end
 
+  # `etag: :derive` is the writer's answer to "I have no validator of my own" —
+  # a webhook delivery is exactly that writer (#2126). The store derives a
+  # content-based validator from the body being deposited, keeps a held validator
+  # when the body is unchanged, and never leaves "body, no validator" behind —
+  # the state in which `etag/1` answers nothing and every strict read pays full
+  # price instead of a free `304`.
+  describe ":derive — a validator derived from the deposited body" do
+    test "a first deposit derives a validator from the body" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8600)
+
+      assert :ok = ResourceStore.put_resource(key, %{"state" => "open"}, source: :webhook, version: "v1", etag: :derive)
+
+      assert {:ok, %{data: %{"state" => "open"}, etag: etag}} = ResourceStore.fetch(key)
+      assert is_binary(etag) and etag != ""
+    end
+
+    test "an unchanged body keeps the held validator" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8601)
+      ResourceStore.put_resource(key, %{"state" => "open"}, etag: ~s("github-real"))
+
+      ResourceStore.put_resource(key, %{"state" => "open"}, source: :webhook, version: "v1", etag: :derive)
+
+      assert ResourceStore.etag(key) == ~s("github-real"),
+             "a re-deposit of the same body must not knock out a GitHub ETag a fetch recorded"
+    end
+
+    test "a changed body re-derives a validator that describes it" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8602)
+      ResourceStore.put_resource(key, %{"state" => "open"}, source: :webhook, version: "v1", etag: :derive)
+      {:ok, %{etag: before}} = ResourceStore.fetch(key)
+
+      ResourceStore.put_resource(key, %{"state" => "closed"}, source: :webhook, version: "v2", etag: :derive)
+
+      assert {:ok, %{data: %{"state" => "closed"}, etag: later}} = ResourceStore.fetch(key)
+      assert is_binary(later) and later != ""
+      assert later != before, "a validator describing a different body is a stale one"
+    end
+
+    test "a nil body derives nothing" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8603)
+      ResourceStore.put_resource(key, %{"state" => "open"}, source: :webhook, version: "v1", etag: :derive)
+
+      ResourceStore.put_resource(key, nil, source: :webhook, version: "v2", etag: :derive)
+
+      # A nil body is not a body, so it earns no validator — and a reader of
+      # bodies is not offered the one left behind.
+      assert ResourceStore.fetch(key) == :miss
+      assert ResourceStore.etag(key) == nil
+    end
+  end
+
   # The finding this closes: `etag/1` had no retention check at all while
   # `fetch/1` had one, so past 72 hours the store handed out a validator for a
   # body it had already stopped serving. A caller reading it raw — U4's issue

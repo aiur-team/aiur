@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
-  alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
@@ -39,7 +39,7 @@ defmodule Aiur.AgentControlCLITest do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
     output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
-    cursor_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.cursor.json")
+    cursor_path = StatePaths.cursor_path()
 
     assert output =~ "__AIUR_CONTROL_EXIT__:75"
     refute output =~ "WAKE"
@@ -650,8 +650,11 @@ defmodule Aiur.AgentControlCLITest do
     assert degraded =~ "LISTENER degraded (#{length(defaults) - 1}/#{length(defaults)} bindings; MISSING: executor.#)"
 
     Application.put_env(:aiur, :executor_listener_alive_fun, fn -> [] end)
+    # Recording is armed on every run now, so absence is no longer a mode the
+    # operator could have chosen — it is a fault, and the line has to say so.
     absent = capture_io(fn -> AgentControlCLI.status() end)
-    assert absent =~ "LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)"
+    assert absent =~ "LISTENER absent (FAULT:"
+    assert absent =~ "are not being recorded"
   end
 
   test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
@@ -1225,7 +1228,10 @@ defmodule Aiur.AgentControlCLITest do
     slot_lock = Path.join(lock_dir, "slot-1.lock")
     slot_owner = Path.join(gate_dir, "slot-1.owner")
     queue_path = Path.join(gate_dir, "queue/lease-v2-status")
-    metadata = "version=2\ntoken=status\npid=2\npgid=1\nphase=test\ncommand=test\n"
+
+    metadata =
+      "version=2\ntoken=status\npid=2\npgid=1\nphase=test\ncommand=test\n" <>
+        "started_at=#{System.os_time(:second) - 90}\n"
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
     assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
@@ -1286,6 +1292,8 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ "AGENTS 0/10 (binding: none)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
+    assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
+    assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000
   end

@@ -26,10 +26,37 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   delivered comment from a polled one, and a REST delivery carries roughly twice
   the keys the poller's GraphQL batch produces.
 
-  Whole resources — an issue, a pull request, a check run — are deposited as
-  GitHub's own object, because that is what both a conditional re-read and a
-  mutation response return for them, and a consumer that later reconciles one
-  against upstream must be comparing like with like.
+  Whole resources — an issue, a pull request — are deposited as GitHub's own
+  object, because that is what both a conditional re-read and a mutation
+  response return for them, and a consumer that later reconciles one against
+  upstream must be comparing like with like. A pull request is additionally
+  deposited under `:branch_pull_request`, keyed by the ticket its head branch
+  belongs to, because that is the identity the one pull-request consumer reads
+  by (#2126).
+
+  ## What a deposit never makes servable
+
+  **`:pr_review` and `:pr_review_comment` must never gain a cache-serving
+  reader** (R10). Their bodies describe merge decisions and CI verdicts, and a
+  serving reader would answer a decision from a cache. Requirement R10 says
+  merge decisions, CI verdicts and dispatch gating must never be silently
+  served stale, so `Aiur.GitHub.HumanReviewGate` reads them with
+  `ResourceFetch.decision()` (`:strict`), where `held(_key, :strict) -> :miss`
+  and the store is never consulted for an answer. That is deliberate, and it is
+  recorded here so a later pass does not "complete" this work by wiring a
+  serving reader for either type and breaking R10.
+
+  For those types the prize is **"revalidates for free"**, never "served free":
+  a strict read may still send `If-None-Match` — a `304` is GitHub asserting
+  *right now* that the resource has not changed, a fresh answer obtained for
+  free, not a cached one. Holding the body is what permits that, because
+  `ResourceStore.etag/1` answers only beside a held body.
+
+  **`:check_run` is not deposited at all** (#2126). No store reader addresses a
+  check run, and it is deliberately excluded from the agent cache on the
+  grounds that a CI verdict must never be served from a cache at any age, so a
+  deposit of one bought nothing. It was removed rather than kept as a dead
+  write.
 
   ## What this module deliberately does not do
 
@@ -76,6 +103,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.TicketBranch
 
   @typedoc """
   One unit of work this module produces from a delivery: either a body to
@@ -154,19 +182,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
-  # A check run is deposited under its own id, which is the only identity a
-  # single delivery can honestly claim: it says nothing about the other runs on
-  # the same head, so a consumer aggregating a head's checks must still read.
-  defp bodies("check_run", payload) do
-    run = Map.get(payload, "check_run")
-
-    if is_map(run) do
-      [{:check_run, Map.get(run, "id"), run, check_run_version(run)}]
-    else
-      []
-    end
-  end
-
   defp bodies(_event_type, _payload), do: []
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
@@ -226,8 +241,35 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     [{:issue, number, issue, issue_version}] ++ label_deposits
   end
 
-  defp pull_request_deposits(pr) when is_map(pr), do: [{:pull_request, Map.get(pr, "number"), pr, version(pr)}]
+  # A pull request is deposited under BOTH keys a consumer can address it by
+  # (#2126):
+  #
+  #   * `:pull_request`, keyed by the PR's own number — the identity a mutation
+  #     write-through and the agent-cache bridge use, and the only one a
+  #     delivery can honestly claim for itself.
+  #   * `:branch_pull_request`, keyed by the TICKET its head branch belongs to —
+  #     the exact key `Aiur.GitHub.HumanReviewGate.open_pull_request/1` reads.
+  #     The gate reads strictly (R10), so this body is never served for its
+  #     answer; holding it is what lets `ResourceStore.etag/1` answer, which is
+  #     what permits the read to revalidate with `If-None-Match` instead of
+  #     paying full price.
+  #
+  # A head branch that is not an Aiur ticket branch (`main`, a watched PR's own
+  # branch) derives no ticket id, so it is deposited only under its PR number —
+  # there is no ticket key for the gate to have read.
+  defp pull_request_deposits(pr) when is_map(pr) do
+    version = version(pr)
+    [{:pull_request, Map.get(pr, "number"), pr, version}] ++ branch_pull_request_deposits(pr, version)
+  end
+
   defp pull_request_deposits(_pr), do: []
+
+  defp branch_pull_request_deposits(pr, version) do
+    case TicketBranch.ticket_id(get_in(pr, ["head", "ref"])) do
+      nil -> []
+      ticket_id -> [{:branch_pull_request, ticket_id, pr, version}]
+    end
+  end
 
   # ---------------------------------------------------------------------------
   # Writing
@@ -257,14 +299,20 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # guard's own call site. Keep the comparison in `accept/4`; hoisting it back out
   # to a separate read restores the defect and nothing here would say so.
   #
-  # No `:etag`: a delivery carries no validator, and the store refuses a new
-  # validator that arrives without the body it validates anyway.
+  # `:derive`: a delivery carries no GitHub ETag, so the store derives a
+  # content-based validator from the body it deposits. A body without a
+  # validator is exactly the state in which a strict read pays full price —
+  # `ResourceStore.etag/1` answers only beside a held body, and without one
+  # every later conditional read is a 200 instead of a free `304`. The store
+  # keeps a held validator when the body is unchanged, so a re-delivery of the
+  # same body never knocks out a GitHub ETag a fetch already recorded (#2126).
   defp deposit_unless_older(key, body, version) do
     ResourceStore.update_resource(
       key,
       &accept(&1, &2, body, version),
       source: :webhook,
-      version: version
+      version: version,
+      etag: :derive
     )
   end
 
@@ -333,17 +381,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     do: submitted_at
 
   defp version(_resource), do: nil
-
-  # A check run has no `updated_at`. `completed_at` moves when the run finishes,
-  # which is the only transition that changes what the run *says*. A run that has
-  # not finished is deposited as "version unknown" rather than under
-  # `started_at`, which does not move across `queued` → `in_progress`.
-  defp check_run_version(run) do
-    case Map.get(run, "completed_at") do
-      completed when is_binary(completed) and completed != "" -> completed
-      _other -> nil
-    end
-  end
 
   # A store that is not running accepts every write into nothing and would then
   # be reported as a refusal by `confirm/1` for every body in the delivery.

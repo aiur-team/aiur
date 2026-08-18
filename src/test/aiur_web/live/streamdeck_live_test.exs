@@ -55,8 +55,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous_endpoint)
-      if Process.alive?(snapshot_agent), do: Agent.stop(snapshot_agent)
-      if Process.alive?(meter_agent), do: Agent.stop(meter_agent)
+      Aiur.TestSupport.safe_stop(snapshot_agent)
+      Aiur.TestSupport.safe_stop(meter_agent)
     end)
 
     {:ok, snapshot_agent: snapshot_agent, meter_agent: meter_agent}

@@ -152,8 +152,8 @@ alerts --needs-attention`; read the Command's payload with `aiur commands
 <decision-id>`. This listener is the command inbox: do not discover new
 Commands by polling or sweeping the decision store. Periodic monitoring remains
 necessary for runtime health, but it is not a parallel decision-discovery
-mechanism. Verify the listener is live with `aiur status` (`LISTENER present
-(executor.#)`) and report the subscription to the human at launch ("Listening
+mechanism. The listener runs on every run, so `LISTENER absent` is always a fault, not a
+mode. Verify it is live with `aiur status` (`LISTENER present (executor.#)`) and report the subscription to the human at launch ("Listening
 for Executor events on `executor.#`."), and again if it is later confirmed dead
 or restarted.
 

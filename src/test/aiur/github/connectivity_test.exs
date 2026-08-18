@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.ConnectivityTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.Connectivity
 
   # WHY: #617 — flaky GitHub DNS/auth failures used to only Logger.warning
@@ -115,6 +117,46 @@ defmodule Aiur.GitHub.ConnectivityTest do
              }) == 3_600_000
 
       assert 3_600_000 > Connectivity.max_backoff_ms()
+    end
+
+    test "rate_limited bounds malformed reset_at (wrong unit, far future, negative)" do
+      now = ~U[2026-08-09 21:00:00Z]
+
+      # Wrong unit: a numeric value is not an ISO-8601 string, so the reset wait
+      # is ignored and the ordinary capped exponential fallback applies instead
+      # of parking polling on the malformed value.
+      assert Connectivity.backoff_ms(:rate_limited, 1, %{reset_at: 3_600_000, now: now}) ==
+               Connectivity.backoff_ms(:dns, 1, %{})
+
+      # Far future: a seconds-intended reset read as milliseconds (~41 days out)
+      # is clamped to the one-hour reset cap, not honored for weeks.
+      assert Connectivity.backoff_ms(:rate_limited, 1, %{
+               reset_at: "2026-09-19T21:00:00Z",
+               now: now
+             }) == 3_600_000
+
+      # Negative: the reset already passed, so the capped exponential fallback
+      # applies rather than a pathological wait.
+      assert Connectivity.backoff_ms(:rate_limited, 1, %{
+               reset_at: "2026-08-09T20:00:00Z",
+               now: now
+             }) == Connectivity.backoff_ms(:dns, 1, %{})
+    end
+
+    test "rate_limited logs the raw reset value when the wait is clamped" do
+      now = ~U[2026-08-09 21:00:00Z]
+      raw_reset_at = "2026-09-19T21:00:00Z"
+
+      log =
+        capture_log(fn ->
+          assert Connectivity.backoff_ms(:rate_limited, 1, %{
+                   reset_at: raw_reset_at,
+                   now: now
+                 }) == 3_600_000
+        end)
+
+      assert log =~ "github_reset_backoff_clamped"
+      assert log =~ "raw_reset_at=#{inspect(raw_reset_at)}"
     end
 
     test "rate_limited honors retry_after when present" do
