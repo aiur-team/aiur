@@ -46,11 +46,14 @@ defmodule Aiur.ExecutorWakeInbox do
   does not move, so two consumers cannot silently split the stream; a non-owner
   reads through `wait/2` or `pending/1` instead, which never move the cursor.
 
-  The ownership check and the cursor advance happen in one call, inside the
-  claim store's lock, so a revoke or an expiry cannot land between them. It also
-  writes the roster's consumption evidence: `last_acknowledged_at` has to come
-  from the path that actually consumes, or the real consumer looks permanently
-  `unknown` while a stalled one looks identical.
+  The ownership check runs inside the claim store's lock, so a revoke or an
+  expiry cannot land between the check and the roster evidence write. The
+  cursor advance happens right after, in this GenServer, outside that lock —
+  serialized here by the single inbox process, not by a cross-process critical
+  section spanning both. It also writes the roster's consumption evidence:
+  `last_acknowledged_at` has to come from the path that actually consumes, or
+  the real consumer looks permanently `unknown` while a stalled one looks
+  identical.
   """
   @spec acknowledge_as(String.t(), [map()], GenServer.server()) :: :ok | {:error, term()}
   def acknowledge_as(consumer_id, records, server \\ __MODULE__) when is_binary(consumer_id) and is_list(records) do
