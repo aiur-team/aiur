@@ -90,8 +90,8 @@ The GitHub auth check runs once per credential, not once per sweep. It is re-run
 Comments, review submissions, and watch-target discovery are read over
 conditional REST with `If-None-Match`. An unchanged answer returns `304`, which
 does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
-tickets is free rather than merely cheap. The validators are kept on disk, so a
-daemon restart does not force a full-price re-read.
+tickets is free rather than merely cheap. Validators are kept on disk, so a
+restart does not force a full-price re-read.
 
 GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
 

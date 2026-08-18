@@ -267,31 +267,47 @@ defmodule Aiur.GitHub.PullRequests do
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       etag = Keyword.get(opts, :etag)
-      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
-      request = %{method: :get, url: url, token: token}
-      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+      request = labeled_open_pull_requests_request(owner, repo, token, etag)
+      fetch_labeled_open_pull_requests_conditional(request_fun, request, label, etag)
+    end
+  end
 
-      case request_fun.(request) do
-        {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
-          matched = Enum.filter(body, &pull_request_has_label?(&1, label))
-          next = Transport.parse_next_page_url(headers)
-          first_etag = Transport.header(headers, "etag") || etag
+  defp labeled_open_pull_requests_request(owner, repo, token, etag) do
+    query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
+    request = %{method: :get, url: url, token: token}
 
-          case fetch_labeled_open_pull_requests(request_fun, token, next, label, matched) do
-            {:ok, pull_requests} -> {:ok, pull_requests, first_etag}
-            {:error, _reason} = error -> error
-          end
+    if is_binary(etag) and etag != "" do
+      Map.put(request, :etag, etag)
+    else
+      request
+    end
+  end
 
-        {:ok, %{status: 304} = response} ->
-          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+  defp fetch_labeled_open_pull_requests_conditional(request_fun, request, label, etag) do
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        match_labeled_open_pull_requests(request_fun, request, body, headers, label, etag)
 
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
+      {:ok, %{status: 304} = response} ->
+        {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
 
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp match_labeled_open_pull_requests(request_fun, request, body, headers, label, etag) do
+    matched = Enum.filter(body, &pull_request_has_label?(&1, label))
+    next = Transport.parse_next_page_url(headers)
+    first_etag = Transport.header(headers, "etag") || etag
+
+    case fetch_labeled_open_pull_requests(request_fun, request.token, next, label, matched) do
+      {:ok, pull_requests} -> {:ok, pull_requests, first_etag}
+      {:error, _reason} = error -> error
     end
   end
 
