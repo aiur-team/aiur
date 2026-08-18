@@ -65,6 +65,8 @@ The page is strictly view-only. There is no refresh, no invalidate, no eviction 
 
 That is the store's own rule applied to its inspector: looking at cached state never costs a GitHub call, so a page that could trigger a fetch would break the property it exists to demonstrate.
 
+Truly outdated entries do not linger: the store's own sweep deletes an entry once its cached body is past the 72-hour retention window, so `expired` rows clear themselves rather than accumulating.
+
 Its headline tile, **Fetches caused by viewing**, therefore reads `0`. Beside it the page prints how many calls the quota meter attributed in total, so the zero reads as a measurement rather than a reassurance.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
