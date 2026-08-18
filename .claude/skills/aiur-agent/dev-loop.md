@@ -106,6 +106,23 @@ blocking finding is the only enforcement they have.
    Do not gate PR-opening on a clean full-suite `mix test` run or loop on
    unrelated suite flakes; CI runs the full `make ci` on every PR and is the
    authoritative full-suite gate.
+
+   **Before you diagnose a failure that looks impossible, rule out a stale test
+   build.** `mix compile --force` rebuilds `dev`, **not** `test`, so a stale
+   artifact in `_build/test` survives it. Use:
+
+   ```bash
+   cd src && MIX_ENV=test mix compile --force
+   ```
+
+   This bites hardest after integrating a base that changed a schema, because
+   `Aiur.Config.Schema` bakes structs such as `%BuildOrder{}` in at compile time.
+   The signature is a failure that contradicts the source you are reading — most
+   often `KeyError` for a config key that is plainly defined, or assertions
+   passing against defaults that no longer exist. Four agents lost time to this in
+   a single run, and one nearly filed a false bug report against a healthy base.
+   If a failure disagrees with the code in front of you, force the **test** env
+   before believing it.
 6. Commit using short, 3–7 word messages, keeping your machine's git identity as
    the author. **When that author is `its-applekid` (email
    `its.applekid@gmail.com`)**, add GitHub's co-author trailer crediting the

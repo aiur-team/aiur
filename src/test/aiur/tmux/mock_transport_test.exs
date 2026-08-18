@@ -2,6 +2,7 @@ defmodule Aiur.Tmux.MockTransportTest do
   use ExUnit.Case, async: false
 
   alias Aiur.Tmux.MockTransport
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   test "request/2 emits {:tmux_mock_out, command} to the given pid" do
     parent = self()
@@ -67,5 +68,16 @@ defmodule Aiur.Tmux.MockTransportTest do
     assert_receive {:tmux_mock_out, _}, 1_000
 
     assert {:error, :no_mock_response} = Task.await(task, 2_000)
+  end
+
+  test "request/3 can wait for an explicit response without a wall-clock deadline" do
+    parent = self()
+
+    task = Task.async(fn -> MockTransport.request(parent, "list-panes", :infinity) end)
+
+    receive_barrier({:tmux_mock_out, "list-panes"})
+    send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert {:ok, []} = Task.await(task, :infinity)
   end
 end

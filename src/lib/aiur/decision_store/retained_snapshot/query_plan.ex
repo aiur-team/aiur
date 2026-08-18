@@ -4,10 +4,10 @@ defmodule Aiur.DecisionStore.RetainedSnapshot.QueryPlan do
   alias Aiur.Decision
   alias Aiur.DecisionStore.RetainedIndex
 
-  @lifecycle_statuses [:deferred, :expired, :dismissed, :decided, :acknowledged, :resolved]
+  @lifecycle_statuses [:deferred, :expired, :dismissed, :moot, :decided, :acknowledged, :resolved]
   @open_statuses [:open, :deferred]
   @awaiting_statuses [:open]
-  @historic_statuses [:expired, :dismissed, :decided, :acknowledged, :resolved]
+  @historic_statuses [:expired, :dismissed, :moot, :decided, :acknowledged, :resolved]
   # Command history as the operator reads it: everything they have finished
   # with. A deferral is finished for them — the Executor owns the answer — so it
   # belongs here and not in the queue they still have to work.

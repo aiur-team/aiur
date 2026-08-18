@@ -3,7 +3,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
 
   alias Aiur.Decision
 
-  @lifecycle_statuses [:open, :deferred, :expired, :dismissed, :decided, :acknowledged, :resolved]
+  @lifecycle_statuses [:open, :deferred, :expired, :dismissed, :moot, :decided, :acknowledged, :resolved]
   @search_bucket_width 3
 
   @type t :: %{

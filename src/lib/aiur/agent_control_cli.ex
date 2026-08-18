@@ -61,6 +61,16 @@ defmodule Aiur.AgentControlCLI do
   @resume_confirm_timeout_ms 4_000
   @resume_confirm_poll_ms 100
 
+  # `aiur message` has the same shape: `{:ok, request_id}` is a queue handle,
+  # not a delivery receipt (#1824). One target means a much smaller budget than
+  # `resume --all` needs, and an operator nudge to a busy agent is normally
+  # claimed at its next checkpoint rather than inside any window we could
+  # afford to wait — so this window exists to catch the fast claim, not to
+  # decide the outcome. Anything still pending when it elapses is reported as
+  # queued, which is what actually happened.
+  @message_confirm_timeout_ms 1_500
+  @message_confirm_poll_ms 100
+
   # RepoBase phases that mean the warm base is still becoming dispatchable
   # (the gate holds new work). Anything else with prewarm enabled — :ready
   # (normal), {:error, _} (fail-open cold clone), :idle — is not a "warming"
@@ -303,6 +313,11 @@ defmodule Aiur.AgentControlCLI do
   @spec executor_escalate(keyword()) :: :ok
   def executor_escalate(opts) when is_list(opts) do
     guarded("executor-escalate", fn -> opts |> ExecutorCommandCLI.escalate(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
+  @spec executor_moot(keyword()) :: :ok
+  def executor_moot(opts) when is_list(opts) do
+    guarded("executor-moot", fn -> opts |> ExecutorCommandCLI.moot(error_fun: &control_error/1) |> exit_marker() end)
   end
 
   @spec units(keyword()) :: :ok
@@ -826,8 +841,8 @@ defmodule Aiur.AgentControlCLI do
   # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
   defp deliver_message(status, text) do
     case send_message(canonical_identifier(status), text) do
-      {:ok, _request_id} ->
-        IO.puts("aiur: messaged #{display_identifier(status)}")
+      {:ok, request_id} ->
+        report_message_outcome(status, request_id, await_message_delivery(request_id))
         0
 
       {:error, reason} ->
@@ -836,11 +851,81 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  # A successful send returns a queue handle, not a delivery receipt: the
+  # message is enqueued for the agent and is claimed later, and with
+  # `fallback: :queue_next` deferred delivery is the expected case rather than
+  # the exception (#1824). So poll the queue item this invocation created for a
+  # short window and say only what was observed — "delivered" once the agent
+  # has claimed it, "queued" otherwise. Both are successful enqueues, so both
+  # exit 0; only the claim about what happened differs.
+  defp await_message_delivery(request_id) when is_integer(request_id) do
+    deadline = System.monotonic_time(:millisecond) + message_confirm_timeout_ms()
+    poll_message_delivery(request_id, deadline)
+  end
+
+  defp await_message_delivery(_request_id), do: :unobserved
+
+  defp poll_message_delivery(request_id, deadline) do
+    case message_delivery_status(request_id, max(remaining_ms(deadline), @message_confirm_poll_ms)) do
+      # The agent has the message: claimed (`:delivered`) or already acted on
+      # it (`:consumed`). This is the only outcome that may claim delivery.
+      {:ok, status} when status in [:delivered, :consumed] ->
+        :delivered
+
+      # Settled without reaching the agent — no point spending the rest of the
+      # budget, and "unconfirmed" would understate a known non-delivery.
+      {:ok, status} when status in [:failed, :superseded] ->
+        {:undelivered, status}
+
+      # Still `:pending`, or the status is unreadable (the daemon is busy, the
+      # item is not visible yet). Neither proves anything, so keep waiting.
+      {:ok, _pending} ->
+        retry_message_delivery(request_id, deadline)
+
+      {:error, _reason} ->
+        retry_message_delivery(request_id, deadline)
+    end
+  end
+
+  defp retry_message_delivery(request_id, deadline) do
+    if remaining_ms(deadline) <= @message_confirm_poll_ms do
+      :queued
+    else
+      Process.sleep(@message_confirm_poll_ms)
+      poll_message_delivery(request_id, deadline)
+    end
+  end
+
+  defp report_message_outcome(status, request_id, :delivered) do
+    IO.puts("aiur: delivered message to #{display_identifier(status)} (request #{request_id})")
+  end
+
+  defp report_message_outcome(status, request_id, {:undelivered, queue_status}) do
+    IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); not delivered (#{queue_status})")
+  end
+
+  defp report_message_outcome(status, request_id, _queued) do
+    IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); delivery is unconfirmed")
+  end
+
   defp send_message(identifier, text) do
     Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/2).(
       identifier,
       text
     )
+  end
+
+  # The read never outlives the confirmation budget, so `message` cannot walk
+  # past the launcher's control-RPC timeout waiting for an answer.
+  defp message_delivery_status(request_id, timeout_ms) do
+    Application.get_env(:aiur, :agent_control_cli_message_status_fun, &AgentChat.delivery_status/2).(
+      request_id,
+      timeout_ms
+    )
+  end
+
+  defp message_confirm_timeout_ms do
+    Application.get_env(:aiur, :agent_control_cli_message_confirm_timeout_ms, @message_confirm_timeout_ms)
   end
 
   defp control(action, targets) when action in [:pause, :resume] do
