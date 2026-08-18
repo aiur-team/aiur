@@ -1622,6 +1622,9 @@ budget_acquire() {
         ;;
       "wait "*)
         budget_wait_ms=${budget_result#wait }
+        # An actor-ceiling hold is `wait actor <ms>`; the `actor` token is the
+        # Elixir side's cue for the hold reason and is not part of the delay.
+        budget_wait_ms=${budget_wait_ms#actor }
         if ! budget_sleep_ms "$budget_wait_ms"; then
           printf '%s\n' 'aiur: GitHub budget broker returned an invalid or unusable wait response' >&2
           return 75
