@@ -118,8 +118,41 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     %{delay_ms: delay_ms, idle_backoff?: idle_backoff?, idle_widen_factor: idle_factor}
   end
 
-  defp idle_fleet?(%State{running: running}), do: State.active_running_count(running) == 0
+  # The fleet is only actually idle when it has nothing to do AND has observed
+  # that. Three conditions, all required:
+  #
+  #   * at least one poll cycle has completed (`poll_cycles_completed > 0`) — a
+  #     freshly restarted daemon has observed no idleness, so it polls at the
+  #     base interval first (#2138);
+  #   * no agent is actively running;
+  #   * either the daemon is globally paused or there is no queued dispatch
+  #     demand — a live fleet with claimable tickets is not idle, it simply has
+  #     not looked yet, and backing off there is exactly the "idles up to 20
+  #     minutes with work waiting" defect this gates against (#2138).
+  #
+  # A globally paused fleet is treated as idle even with tickets waiting: it
+  # cannot dispatch anyway, and unpausing wakes a prompt poll
+  # (`GlobalPause.maybe_wake_after_unpause`).
+  defp idle_fleet?(%State{} = state) do
+    State.active_running_count(state.running) == 0 and
+      state.poll_cycles_completed > 0 and
+      (state.globally_paused == true or not queued_dispatch_demand?(state))
+  end
+
   defp idle_fleet?(_state), do: false
+
+  # Reuses the same dispatch-eligibility scan as the capacity snapshot so the
+  # backoff never widens the poll while dispatchable work is waiting. Matches
+  # `idle_widen_factor/1`'s tolerance: if the config cannot be read, treat the
+  # fleet as having no demand rather than crashing the poll loop.
+  defp queued_dispatch_demand?(%State{} = state) do
+    Aiur.Orchestrator.DispatchPolicy.queued_dispatch_demand?(
+      Map.values(state.last_polled_issues),
+      state
+    )
+  rescue
+    ArgumentError -> false
+  end
 
   defp idle_widen_factor(opts) do
     factor =

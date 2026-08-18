@@ -600,6 +600,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = %State{
       poll_interval_ms: 5_000,
       candidate_snapshot_fresh?: false,
+      poll_cycles_completed: 1,
       ci_lifecycle: %{
         approved_heads: %{},
         test_failure_heads: %{},

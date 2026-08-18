@@ -104,6 +104,10 @@ Freshness thresholds follow this cadence. You do not set them separately.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+- The idle widening only applies once the daemon has observed an idle cycle:
+  a freshly restarted fleet starts at the base interval, and a live fleet with
+  dispatchable tickets keeps the base interval so work is not left waiting
+  behind a backed-off sweep (#2138).
 
 ## webhooks
 

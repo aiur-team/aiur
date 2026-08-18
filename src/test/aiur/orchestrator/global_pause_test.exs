@@ -158,6 +158,28 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       assert applied_state.running[individual].paused_reason == :operator_pause
     end
 
+    # Criterion 1 of #2138: lifting a global pause after a long deliberate pause
+    # (the fleet idle-backed-off at the widened ceiling, next poll many minutes
+    # away) must cancel that timer and schedule a prompt poll, so dispatch
+    # happens within one base interval rather than one backed-off interval.
+    test "unpausing an idle-backed-off fleet schedules a prompt poll" do
+      state =
+        base_state(
+          globally_paused: true,
+          poll_cycles_completed: 10,
+          idle_poll_backoff: %{active?: true, factor: 5.0},
+          effective_poll_interval_ms: 600_000,
+          next_poll_due_at_ms: System.monotonic_time(:millisecond) + 590_000
+        )
+
+      {:reply, {:ok, %{globally_paused: false}}, resumed_state} =
+        GlobalPause.set_global_pause_call(state, false)
+
+      refute resumed_state.globally_paused
+      assert is_reference(resumed_state.tick_timer_ref)
+      assert resumed_state.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+    end
+
     test "preserves a tracker pause added while an agent is globally held" do
       held = unique_id("gp-tracker-held")
 
