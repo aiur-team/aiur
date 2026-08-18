@@ -18,6 +18,61 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 // ---------------------------------------------------------------------------
+// Supported-platform guard
+// ---------------------------------------------------------------------------
+
+// aiur ships prebuilt platform packages for these targets only. darwin-x64
+// (Intel Mac) is deliberately unsupported: no CI runner can build its OTP
+// release, so no aiur-cli-darwin-x64 package is published. npm's os/cpu fields
+// cannot express "darwin but not x64" — a darwin-x64 install would pass npm's
+// check and then succeed silently into a runtime with no binary. That is the
+// exact defect from #2110, so we fail loudly here instead.
+const SUPPORTED_PLATFORMS = {
+  linux: ["x64", "arm64"],
+  darwin: ["arm64"],
+};
+
+// True when this os/arch is one aiur publishes a platform package for.
+export function platformSupported(platform = process.platform, arch = process.arch) {
+  const archs = SUPPORTED_PLATFORMS[platform];
+  return Array.isArray(archs) && archs.includes(arch);
+}
+
+// A clear, actionable explanation for an unsupported os/arch, or null when the
+// platform is supported. Kept separate so the entry point and tests share it.
+export function unsupportedPlatformReason(platform = process.platform, arch = process.arch) {
+  if (platformSupported(platform, arch)) return null;
+  if (platform === "darwin" && arch === "x64") {
+    return (
+      `aiur-cli does not support ${platform}/${arch} (Intel Mac). ` +
+      "No aiur binary is published for it, so an install here would have " +
+      "nothing to run. Support is tracked in https://github.com/aiur-team/aiur/issues/2110."
+    );
+  }
+  const supported = Object.entries(SUPPORTED_PLATFORMS)
+    .flatMap(([os, archs]) => archs.map((a) => `${os}/${a}`))
+    .join(", ");
+  return (
+    `aiur-cli does not support ${platform}/${arch}. Supported platforms: ${supported}. ` +
+    "See https://github.com/aiur-team/aiur"
+  );
+}
+
+// Exit code for the install-time platform guard: 0 when supported, 1 (with the
+// reason written to stderr) when not. npm aborts the install on the non-zero
+// exit, so an unsupported platform fails loudly instead of installing broken.
+export function platformGuardExitCode(
+  platform = process.platform,
+  arch = process.arch,
+  write = (s) => process.stderr.write(s),
+) {
+  const reason = unsupportedPlatformReason(platform, arch);
+  if (reason === null) return 0;
+  write(`\n${reason}\n`);
+  return 1;
+}
+
+// ---------------------------------------------------------------------------
 // opencode
 // ---------------------------------------------------------------------------
 
@@ -166,9 +221,12 @@ export function provisionTmux({
 // ---------------------------------------------------------------------------
 
 // Run only when invoked directly as the postinstall step, not when a test
-// imports the helpers above. tmux is provisioned first — it is the hard
-// requirement — then opencode for the optional panes.
+// imports the helpers above. The platform guard runs first so an unsupported
+// platform aborts the install before we provision anything; then tmux (the
+// hard requirement), then opencode for the optional panes.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const guardCode = platformGuardExitCode();
+  if (guardCode !== 0) process.exit(guardCode);
   provisionTmux();
   provisionOpencode();
 }
