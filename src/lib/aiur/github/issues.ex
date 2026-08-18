@@ -18,6 +18,13 @@ defmodule Aiur.GitHub.Issues do
   }
 
   @max_issue_response_bytes 65_536
+  # The open-issue list (`issues?state=open&per_page=100`) can be an order of
+  # magnitude larger than any single issue: 44+ open issues plus their labels,
+  # assignees, and bodies measured ~390 KiB, which the single-issue cap
+  # truncates. The list endpoint gets its own, larger bound so a growing
+  # backlog does not silently fail the candidate fetch as `{:github, :http,
+  # %{status: 200}}` (#2140).
+  @max_issue_list_response_bytes 1_048_576
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -569,7 +576,7 @@ defmodule Aiur.GitHub.Issues do
     cached_page = Map.get(cached_pages, url, %{})
     etag = Map.get(cached_page, :etag)
 
-    case conditional_get(ctx, url, etag) do
+    case conditional_get(ctx, url, etag, @max_issue_list_response_bytes) do
       {:ok, body, retained_etag, response} when is_list(body) ->
         page = %{
           etag: retained_etag,
@@ -879,8 +886,8 @@ defmodule Aiur.GitHub.Issues do
   # could deposit an issue larger than `fetch_issue_raw_conditional/2` is willing
   # to accept, and the detail path would then be served — from the shared entry —
   # a body it would have rejected had it fetched the same URL itself.
-  defp conditional_get(ctx, url, etag) do
-    request = %{method: :get, url: url, token: ctx.token, max_response_bytes: @max_issue_response_bytes}
+  defp conditional_get(ctx, url, etag, max_response_bytes \\ @max_issue_response_bytes) do
+    request = %{method: :get, url: url, token: ctx.token, max_response_bytes: max_response_bytes}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     case ctx.request_fun.(request) do
