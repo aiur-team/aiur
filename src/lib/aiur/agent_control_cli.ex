@@ -2009,7 +2009,7 @@ defmodule Aiur.AgentControlCLI do
         queued: queued,
         degraded?: true,
         issues: [issue | remaining]
-      } ->
+      } = status ->
         suffix = if remaining == [], do: "", else: " (+#{length(remaining)} more)"
 
         IO.puts(
@@ -2018,14 +2018,61 @@ defmodule Aiur.AgentControlCLI do
             "recovery=#{issue.recovery}"
         )
 
-      %{enabled?: true, capacity: capacity, active: active, queued: queued}
+        print_build_gate_holders(Map.get(status, :holders, []))
+
+      %{enabled?: true, capacity: capacity, active: active, queued: queued} = status
       when active > 0 or queued > 0 ->
         IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
+        print_build_gate_holders(Map.get(status, :holders, []))
 
       _ ->
         :ok
     end
   end
+
+  # Name every lease currently held or queued so an operator can tell a
+  # correctly-busy gate from one pinned by a leaked process (#2116). The
+  # metadata is advisory: a record that cannot be parsed still leaves the
+  # `active`/`queued` summary intact.
+  defp print_build_gate_holders(holders) do
+    Enum.each(holders, &print_build_gate_holder/1)
+  end
+
+  defp print_build_gate_holder(%{kind: :slot} = holder) do
+    identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
+    print_build_gate_line("HOLDER", identifiers, holder, "held")
+  end
+
+  defp print_build_gate_holder(%{kind: :queue} = holder) do
+    print_build_gate_line("QUEUED", ["pid=#{Map.get(holder, :pid)}"], holder, "waiting")
+  end
+
+  defp print_build_gate_holder(_holder), do: :ok
+
+  defp print_build_gate_line(kind, identifiers, holder, duration_label) do
+    with pid when is_integer(pid) <- Map.get(holder, :pid),
+         command when is_binary(command) <- Map.get(holder, :command) do
+      IO.puts(
+        "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
+          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}"
+      )
+    else
+      _ -> :ok
+    end
+  end
+
+  defp format_gate_hold(nil), do: "unknown"
+
+  defp format_gate_hold(seconds) when is_integer(seconds) and seconds >= 3_600 do
+    "#{div(seconds, 3_600)}h#{div(rem(seconds, 3_600), 60)}m"
+  end
+
+  defp format_gate_hold(seconds) when is_integer(seconds) and seconds >= 60 do
+    "#{div(seconds, 60)}m#{rem(seconds, 60)}s"
+  end
+
+  defp format_gate_hold(seconds) when is_integer(seconds) and seconds >= 0, do: "#{seconds}s"
+  defp format_gate_hold(_seconds), do: "unknown"
 
   defp print_supervision_health do
     health_status =
