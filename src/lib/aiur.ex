@@ -40,6 +40,11 @@ defmodule Aiur.Application do
     :ok = log_base_branch(settings)
     :ok = log_route_credentials(settings)
     log_process_identity()
+    # Durable daemon-lifecycle journal: record this boot's start (and its
+    # invoking process) before any child can fail, so an incident's journal
+    # always names the instance that started. Best-effort — a journal write
+    # failure must never crash boot.
+    Aiur.DaemonLifecycle.record_start()
     Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
     maybe_start_distribution()
