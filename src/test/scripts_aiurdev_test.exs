@@ -316,6 +316,23 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "already inside a tmux session"
   end
 
+  test "refuses aiur upgrade (a dev checkout cannot install a published release)" do
+    root = fake_repo()
+
+    {out, code} =
+      run_shim(["upgrade"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil}
+      ])
+
+    assert code == 64
+    assert out =~ "cannot run under aiurdev"
+    assert out =~ "a development checkout"
+    assert out =~ "Install aiur from npm"
+    refute out =~ "rebuilding"
+  end
+
   test "AIUR_SKIP_BUILD short-circuits the rebuild" do
     root = fake_repo()
 

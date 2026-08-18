@@ -436,6 +436,22 @@ agent:
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
 
+## upgrade
+
+The `aiur run` upgrade-version notice. Like every outbound integration in Aiur,
+the check is optional and opt-out: it caches with a TTL (the registry is
+contacted at most once a day), fails open and silent when the registry is
+unreachable, and never runs under the `aiurdev` development launcher. It is
+channel-aware — a user on the `nightly` or `next` channel is never offered the
+`latest` dist-tag when that is lower.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `upgrade.check_enabled` | boolean | true | Enables the `aiur run` version notice and its registry check. Set false to suppress the check entirely (zero outbound calls). |
+
+`AIUR_UPGRADE_CHECK_DISABLED` (and the legacy `AIUR_NO_UPDATE_NOTIFIER`) are the
+environment-variable equivalents; the check also stays silent in CI runs.
+
 ## alerts
 
 | Key | Type | Default | Controls |

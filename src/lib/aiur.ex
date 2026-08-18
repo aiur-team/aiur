@@ -68,7 +68,28 @@ defmodule Aiur.Application do
         strategy: :one_for_one,
         name: Aiur.Supervisor
       )
+      |> tap(fn _ -> start_upgrade_check() end)
     end
+  end
+
+  # The `aiur run` version notice is deliberately out-of-band: it runs in a
+  # fire-and-forget task so it never delays boot or the first dispatch, fails
+  # open and silent, caches with a TTL, and honors the `upgrade.check_enabled`
+  # config key / `AIUR_UPGRADE_CHECK_DISABLED` env var. Under a development
+  # launcher (`aiurdev`) it does nothing at all. The launcher surfaces the
+  # resulting notice to the operator from the shared state file.
+  #
+  # The shared test app must not phone home: `:upgrade_check_refresh?` is set
+  # false in the test env (config/config.exs), so a plain `mix test` boots the
+  # supervisor tree without spawning a registry fetch. Tests of the check
+  # itself drive `Aiur.Upgrade.check_and_announce/1` with an injected transport.
+  @spec start_upgrade_check() :: :ok
+  def start_upgrade_check do
+    if Application.get_env(:aiur, :upgrade_check_refresh?, true) do
+      Task.start(fn -> Aiur.Upgrade.check_and_announce() end)
+    end
+
+    :ok
   end
 
   @doc false

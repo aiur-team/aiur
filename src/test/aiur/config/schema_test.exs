@@ -714,6 +714,16 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_retention_prune_interval_bytes == 128
     end
 
+    test "Upgrade section parses with defaults" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.upgrade.check_enabled == true
+    end
+
+    test "Upgrade section accepts an explicit opt-out" do
+      {:ok, settings} = Schema.parse(%{"upgrade" => %{"check_enabled" => false}})
+      assert settings.upgrade.check_enabled == false
+    end
+
     test "Server section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.server.port == 0

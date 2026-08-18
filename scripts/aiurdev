@@ -634,6 +634,19 @@ fi
 # a refusal would only strand the fleet on a decision already made.
 guard_checkout_target "$@"
 
+# `aiur upgrade` installs a published npm release. It can never make sense
+# under a development launcher, and the acceptance contract is that it changes
+# nothing on disk here — so refuse before anything is built, started, or
+# touched. The shared engine refuses dev release dirs too; this is the launcher
+# check that fires even before a build would be considered (#2109).
+if [ "${1:-}" = "upgrade" ]; then
+  echo "❌ aiur upgrade cannot run under aiurdev (a development checkout)." >&2
+  echo "   aiurdev runs code built from the local tree; aiur upgrade installs a published" >&2
+  echo "   npm release and would not touch this working tree. Nothing has been changed." >&2
+  echo "   Install aiur from npm and run \`aiur upgrade\` from the installed CLI instead." >&2
+  exit 64
+fi
+
 # aiur spawns its own tmux on a dedicated socket and does not nest cleanly.
 if [ -n "${TMUX:-}" ]; then
   echo "❌ already inside a tmux session (\$TMUX is set)" >&2
