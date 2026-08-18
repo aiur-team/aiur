@@ -1,0 +1,11 @@
+Step 4 — agent #1352 paused from the emulator key.
+emulator key bucket: st-paused
+emulator key control action: resume
+The key press went through the agent control facade — the writable gate
+is what makes it a real pause rather than a local relabel — and the
+server re-bucketed the agent in the next render.
+
+NOT CAPTURED HERE: the two third-party confirmations the ticket asks for,
+`aiurdev status` and the dashboard, agreeing at this same instant. Both
+read a running Aiur daemon; an agent workspace must not start one
+(`scripts/aiurdev --test` is Executor-root only). See run.md.

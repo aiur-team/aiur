@@ -27,6 +27,37 @@ Do not include credentials, tokens, private issue text, raw provider responses,
 agent transcripts, serial numbers, or machine-local paths in committed or
 attached evidence.
 
+## Headless evidence run
+
+Before the Executor-root run, capture the reproducible half of the proof. From
+`src/browser`:
+
+```bash
+AIUR_STREAMDECK_PROOF_RUN=<run-id> npm run proof:streamdeck
+```
+
+`tests/streamdeck-proof-capture.spec.mjs` drives the real `/streamdeck`
+LiveView over the browser fixture fleet and writes
+`docs/research/evidence/streamdeck/<run-id>/`: a screenshot and a values file
+per numbered step, a `session.webm` of the whole run, and a `run.md` index. It
+is not part of `npm test` — it writes into the repository, so it runs only when
+an operator asks for a proof run.
+
+Its assertions are the proof, not decoration: it fails rather than
+screenshotting a surface that no longer agrees with itself. Two confirmations
+are outside its reach, and each run's `run.md` says so:
+
+- **Step 4, `aiurdev status`.** It reads a running Aiur daemon.
+- **Step 7, the dashboard header meters.** In the browser fixture the
+  header-meter routes render their own hardcoded usage rather than the run the
+  emulator reads, so comparing the two numbers would prove nothing.
+
+Both close only in the live run below. Step 2's Units comparison *is* captured
+headlessly, but only after a live fleet change: the Units fixture pushes its
+projected fleet into the Stream Deck snapshot when a unit is removed, so before
+that push the two surfaces are reading different fixture fleets and a
+comparison would measure the harness rather than the product.
+
 ## Emulator setup
 
 From the Executor repository root:
@@ -68,12 +99,18 @@ timestamp and run id to each file.
 | # | Action | Pass condition | Evidence |
 |---:|---|---|---|
 | 1 | Start Aiur with the fixture fleet and open `/streamdeck`. | The route loads with live agent keys and no fixture-only placeholder identity. | `01-start.png` |
-| 2 | Compare the Stream Deck grid with Units for the same fleet. | Agent membership, bucket, canonical sort, provider, status, and priority agree. Repeat after a fleet update. | `02-grid-units-parity.png`, `02-grid-update.mp4` |
-| 3 | Page with dial D using drag, wheel, and keyboard input; press D to cycle windows. | Each input changes the same page state; pager dots move to the selected window and never show an impossible page. | `03-paging.png`, `03-paging-inputs.mp4` |
-| 4 | Press an agent key, pause it, then resume it. Pause and resume are the *same* command key — the server resolves the direction from orchestrator state, so do not look for a separate Resume key. | The key enters command mode; pause is reflected by the key, dashboard, and `aiurdev status`; pressing the same key again returns the live state. | `04-pause-dashboard-status.png`, `04-resume.png` |
-| 5 | Enter logs mode. Scroll events with dial D and the transcript with dial A. | Event/transcript windows move only within real bounds and the hint arrows correctly enable/disable at both ends. | `05-logs-bounds.mp4` |
+| 2 | Compare the Stream Deck grid with Units for the same fleet. | Agent membership, bucket, canonical sort, provider, status, and priority agree. Repeat after a fleet update. | `02-grid.png`, `02-units.png`, `02-grid-units-parity.txt` |
+| 3 | Page with dial D using drag, wheel, and keyboard input; press D to cycle windows. | Each input changes the same page state; pager dots move to the selected window and never show an impossible page. | `03-paging.png` |
+| 4 | Press an agent key, pause it, then resume it. Pause and resume are the *same* command key — the server resolves the direction from orchestrator state, so do not look for a separate Resume key. | The key enters command mode; pause is reflected by the key, dashboard, and `aiurdev status`; pressing the same key again returns the live state. | `04-pause-cmd.png`, `04-pause-grid.png`, `04-pause.txt`, `04-resume.png` |
+| 5 | Enter logs mode. Scroll events with dial D and the transcript with dial A. | Event/transcript windows move only within real bounds and the hint arrows correctly enable/disable at both ends. | `05-logs-live-end.png`, `05-logs-bounds.png`, `05-logs-bounds.txt` |
 | 6 | Press dial A to back out from logs to command mode, then to grid. | The mode sequence is exactly `logs → cmd → grid`; the focused agent and page are not silently replaced. | `06-back-navigation.png` |
-| 7 | Inspect the touch strip Summary, Claude, and Codex segments. | Summary counts are live; provider segments show the same real usage values as the dashboard header meters. | `07-touch-strip-dashboard.png`, `07-usage-update.mp4` |
+| 7 | Inspect the touch strip Summary, Claude, and Codex segments. | Summary counts are live; provider segments show the same real usage values as the dashboard header meters. | `07-touch-strip.png`, `07-touch-strip.txt` |
+
+The headless run writes exactly these names, plus `session.webm` covering the
+whole session, so a live run's directory and a headless one can be read the same
+way. The live run's job is the columns the headless one records as open:
+`aiurdev status` for step 4, the dashboard header meters for step 7, and
+per-agent state parity with Units for step 2.
 
 For step 4, keep the dashboard and `aiurdev status` visible in the same frame
 or capture them at the same timestamp. For steps 2 and 7, record the values
@@ -82,12 +119,18 @@ alone should not require guessing which agent or meter was checked.
 
 ## Browser coverage audit
 
-Run the targeted streamdeck browser spec (added by #1353) from `src/browser`:
+Run the two targeted streamdeck browser specs from `src/browser` — the
+per-mode spec added by #1353, and the composed operator-flow spec added by
+#1742, which drives steps 2–6 as one uninterrupted session:
 
 ```bash
 cd src/browser
 node scripts/run-browser-tests.mjs tests/streamdeck-emulator.browser.spec.mjs
+node scripts/run-browser-tests.mjs tests/streamdeck-operator-flow.browser.spec.mjs
 ```
+
+Both are wired into the suite as `npm run test:streamdeck` and
+`npm run test:streamdeck-flow`, so `npm test` below covers them too.
 
 Then run the full suite to confirm nothing regressed:
 
@@ -106,12 +149,12 @@ rg -n -i 'streamdeck|stream deck|dial|pager|logs mode|pause|resume' \
 
 | Step | Headless coverage |
 |------|-------------------|
-| 2 | Grid fleet display / bucketing | The browser fixture covers live grid projection and paging, and a regression asserts the emulator's rendered key membership and column-major slot order match the Units page after a live fleet-size change. Bucket-class parity with Units is not compared headlessly and remains part of the live proof |
+| 2 | Grid fleet display / bucketing | The browser fixture covers live grid projection and paging, and a regression asserts the emulator's rendered key membership and column-major slot order match the Units page after a live fleet-size change. `streamdeck-operator-flow.browser.spec.mjs` additionally asserts the canonical bucket *classes* (`st-alert`, `st-stuck`, `st-paused`, `st-running`) on named fixture agents in the opening window. What no headless test does is read those buckets off the Units page and compare the two renderings, so Units parity for bucket class remains part of the live proof |
 | 3 | Dial D paging — wheel + pager dots | Covered by `streamdeck-emulator.browser.spec.mjs` (wheel pages the fleet, pager dots follow) |
-| 3 | Dial D paging — drag / keyboard; press D to cycle windows | Covered by `streamdeck-emulator.browser.spec.mjs` after the #1515 merge: the "dial D pages live fleet keys and pager dots" test asserts drag, wheel, keyboard ArrowDown, and press-D-to-cycle headlessly (page state, pager dots, and knob marker angle unchanged on press). Live proof still confirms the end-to-end driver interaction |
-| 4 | Key → cmd mode; pause/resume agent | Key → cmd is covered; writable pause/resume is verified by LiveView control-boundary tests and remains part of the live proof |
-| 5 | Logs mode scroll; hint arrow bounds | Covered by `streamdeck-emulator.browser.spec.mjs` (classified feed events + flattened transcript, both bounds) |
-| 6 | Back-navigation logs → cmd → grid | Covered by `streamdeck-emulator.browser.spec.mjs`: "mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back" asserts the exact mode sequence, and "CONTROLLING relabel rides the cmd page and the pager dots return on back" asserts the focused agent survives the logs → cmd back press (the pager still reads `#<identifier>`) and that the grid pager dots return on the second back press. Only the returned grid page *index* is unasserted headlessly and remains part of the live proof |
+| 3 | Dial D paging — drag / keyboard; press D to cycle windows | Covered by `streamdeck-emulator.browser.spec.mjs` after the #1515 merge: the "dial D pages live fleet keys and pager dots" test asserts drag, wheel, keyboard ArrowDown, and press-D-to-cycle headlessly (page state, pager dots, and knob marker angle unchanged on press). `streamdeck-operator-flow.browser.spec.mjs` also asserts the server's echo (`data-grid-dial-value`) moves for both the wheel and the arrow key, so each input is proven to reach the LiveView rather than only redraw the knob. Live proof still confirms the end-to-end driver interaction |
+| 4 | Key → cmd mode; pause/resume agent | Covered by `streamdeck-operator-flow.browser.spec.mjs`, which opens a writable fixture and takes a *real* control from the key: the press enters cmd and pauses the agent, the first command slot reads `Play` while the agent is paused and `Pause` once it is resumed (so the label tracks real state rather than a fixed list), backing out shows the key re-bucketed `st-paused` with `data-control-action="resume"`, and pressing the same key again resumes it back to `st-running` / `pause`. Only the third-party confirmations in the live table — the dashboard and `aiurdev status` agreeing at the same timestamp — remain part of the live proof |
+| 5 | Logs mode scroll; hint arrow bounds | Covered by `streamdeck-emulator.browser.spec.mjs` (classified feed events + flattened transcript, both bounds) and again by `streamdeck-operator-flow.browser.spec.mjs`, which overshoots each dial past its own clamp and asserts the up/down transcript hints flip `aria-hidden` at the real bounds |
+| 6 | Back-navigation logs → cmd → grid | Covered by `streamdeck-emulator.browser.spec.mjs`: "mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back" asserts the exact mode sequence, and "CONTROLLING relabel rides the cmd page and the pager dots return on back" asserts the focused agent survives the logs → cmd back press (the pager still reads `#<identifier>`) and that the grid pager dots return on the second back press. `streamdeck-operator-flow.browser.spec.mjs` closes the last gap: after backing out it asserts the returned `data-grid-page`, the active pager dot, and the exact visible key identifiers all match the window the operator started on |
 
 If any of steps 2–6 still lacks a headless test when you run the proof, record
 each gap as a separate non-blocking issue and link it from #1358. Do not add
@@ -161,3 +204,13 @@ artifacts contains:
 Attach the evidence index to #1358 and link any non-blocking browser or device
 finding as a separate issue. Do not mark a step passed from logs, an HTTP API
 response, or a unit test alone.
+
+### Runs on record
+
+| Run | Kind | Covers |
+|---|---|---|
+| `evidence/streamdeck/2026-08-17-emulator/` | headless | steps 1–7 with the three items its `run.md` records as open; hardware 8–11 N/A — #1342 no-go |
+
+A live Executor-root run has not been recorded yet. Until one is, the three
+open items in that run's `run.md` are the remaining emulator work on this
+ticket, and they are the reason a green CI run is not the proof.
