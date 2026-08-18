@@ -89,7 +89,7 @@ defmodule AiurWeb.DashboardLive do
   # What "the operator is finished with it" means, mirrored from the retained
   # store's `history` lifecycle. A deferral belongs here: the Executor owns the
   # answer from that point, so the card leaves the operator's queue.
-  @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :expired, :deferred]
+  @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :moot, :expired, :deferred]
   @decision_events DecisionEvents.events()
   @table_sort_columns %{
     "units" => ~w(id unit ticket latest),

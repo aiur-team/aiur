@@ -13,6 +13,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
     :history,
     :expired,
     :dismissed,
+    :moot,
     :decided,
     :acknowledged,
     :resolved
