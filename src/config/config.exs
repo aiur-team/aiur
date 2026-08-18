@@ -86,5 +86,19 @@ if config_env() == :test do
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
 
-  config :aiur, :workflow_file_path, Path.expand("../test/fixtures/test.yaml", __DIR__)
+  # Suite-global :workflow_file_path baseline isolation. The :aiur app boots
+  # BEFORE test/test_helper.exs runs, so this config block is the only hook
+  # early enough to keep the baseline out of the checked-out repo. Every path
+  # the code derives from Path.dirname(workflow_file_path()) — model-usage.json,
+  # model-catalog.json, ci-readiness.json, the alerts dir — lands beside the
+  # active workflow config, so a baseline pointing at src/test/fixtures/test.yaml
+  # dirties the working tree with durable cross-run state (#2134). Copy the
+  # fixture into the same per-VM tmp root as :log_file / :decision_state_dir:
+  # the fixture stays readable while every derived path resolves outside the
+  # checkout. Per-test overrides (Aiur.TestSupport) still win.
+  File.mkdir_p!(test_log_root)
+  test_workflow_file_path = Path.join(test_log_root, "test.yaml")
+  File.cp!(Path.expand("../test/fixtures/test.yaml", __DIR__), test_workflow_file_path)
+
+  config :aiur, :workflow_file_path, test_workflow_file_path
 end
