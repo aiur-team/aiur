@@ -1976,7 +1976,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
       parent = self()
 
-      {healed_issues, healed_state} =
+      {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
           [dual],
@@ -2001,7 +2001,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       single = %{issue("single", "rework") | state_labels: ["rework"]}
       none = issue("none", "todo")
 
-      {healed_issues, healed_state} =
+      {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
           [single, none],
@@ -2015,7 +2015,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     test "keeps the resolved issue dispatchable even when the heal write fails" do
       dual = %{issue("dual", "todo") | state_labels: ["todo", "rework"]}
 
-      {healed_issues, healed_state} =
+      {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
           [dual],

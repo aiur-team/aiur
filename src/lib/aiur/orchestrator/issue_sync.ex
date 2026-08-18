@@ -68,7 +68,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         end
       end)
 
-    {Enum.reverse(healed_issues), state}
+    {state, Enum.reverse(healed_issues)}
   end
 
   def reconcile_contradictory_state_labels(%State{} = state, _issues, _update_state_fun), do: {state, []}

@@ -29,7 +29,11 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
     def fetch_classified_issue_comments(_issue_id), do: {:ok, []}
 
-    def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
+    # These hermetic scenarios model trusted rework feedback on a GitHub ticket
+    # that is actively being reworked, so the open-PR precondition (#2075)
+    # holds: rework is legitimate because an open PR exists. A `nil` here would
+    # refuse the rework transition the tests are actually exercising.
+    def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, %{}}
 
     defp agent, do: Application.fetch_env!(:aiur, :hermetic_rework_agent)
     defp issues, do: Application.get_env(:aiur, :hermetic_rework_issues, [])
