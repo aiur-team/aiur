@@ -591,7 +591,8 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
-      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT=\"$(command -v git"
+      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT='"
+      refute prefix =~ "command -v git"
       assert prefix =~ "AIUR_GITHUB_LABEL_PREFIX='agent'"
       # A remote worker keeps its own budget root, and therefore its own state
       # cache shared with the other agents on that host — the same sharing

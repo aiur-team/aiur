@@ -333,6 +333,7 @@ defmodule Aiur.AgentEnvironment do
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
     github_budget = Budget.guard_settings()
     build_gate_exports = build_gate_export_prefix(workspace, opts)
+    real_git = System.find_executable("git")
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -358,7 +359,7 @@ defmodule Aiur.AgentEnvironment do
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
     "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\n" <>
-      "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
+      "AIUR_REAL_GIT=#{if real_git, do: Aiur.Shell.escape(real_git), else: ""}\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       remote_repo_slug_export() <>
