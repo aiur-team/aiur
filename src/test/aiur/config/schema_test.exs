@@ -184,6 +184,40 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.tracker.github.stagger_ms == 125
     end
 
+    test "defaults per-actor hourly ceilings and accepts explicit tuning" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.daemon_core_limit_per_hour == 3000
+      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 2000
+      assert defaults.tracker.github.agent_core_limit_per_hour == 1000
+      assert defaults.tracker.github.agent_graphql_limit_per_hour == 500
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{
+                     "daemon_core_limit_per_hour" => 2000,
+                     "daemon_graphql_limit_per_hour" => 1500,
+                     "agent_core_limit_per_hour" => 600,
+                     "agent_graphql_limit_per_hour" => 300
+                   }
+                 }
+               })
+
+      assert settings.tracker.github.daemon_core_limit_per_hour == 2000
+      assert settings.tracker.github.daemon_graphql_limit_per_hour == 1500
+      assert settings.tracker.github.agent_core_limit_per_hour == 600
+      assert settings.tracker.github.agent_graphql_limit_per_hour == 300
+    end
+
+    test "rejects a negative per-actor hourly ceiling" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 "tracker" => %{"github" => %{"agent_core_limit_per_hour" => -1}}
+               })
+
+      assert message =~ "tracker.github.agent_core_limit_per_hour"
+    end
+
     test "rejects an endpoint ceiling above the shared ceiling" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"tracker" => %{"github" => %{"max_inflight" => 2, "max_inflight_per_endpoint" => 3}}})

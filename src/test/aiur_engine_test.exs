@@ -1065,6 +1065,32 @@ defmodule AiurEngineTest do
     end
   end
 
+  test "github-usage routes through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_usage --json|,
+        []
+      )
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_usage([json: true])|
+  end
+
+  test "github-usage defaults to a plain per-actor report" do
+    {out, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_github_usage|, [])
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.github_usage([])|
+  end
+
+  test "github-usage rejects malformed launcher arguments before an RPC" do
+    for {argv, message} <- [
+          {~s|--unknown|, "github-usage received an unknown option"},
+          {~s|extra|, "github-usage does not accept positional arguments"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_github_usage #{argv}", [])
+      assert out =~ message
+    end
+  end
+
   test "analytics rejects malformed launcher arguments before an RPC" do
     for {argv, message} <- [
           {~s|--range week|, "analytics --range accepts run or full"},

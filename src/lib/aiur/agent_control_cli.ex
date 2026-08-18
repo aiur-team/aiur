@@ -15,6 +15,7 @@ defmodule Aiur.AgentControlCLI do
     ExecutorListener,
     ExecutorWakeInbox,
     GitHubCostCLI,
+    GitHubUsageCLI,
     Issue,
     Orchestrator,
     PauseContainment,
@@ -339,6 +340,11 @@ defmodule Aiur.AgentControlCLI do
   @spec github_cost(keyword()) :: :ok
   def github_cost(opts \\ []) do
     guarded("github-cost", fn -> GitHubCostCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec github_usage(keyword()) :: :ok
+  def github_usage(opts \\ []) do
+    guarded("github-usage", fn -> GitHubUsageCLI.run(opts) |> exit_marker() end)
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
