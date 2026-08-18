@@ -77,6 +77,15 @@ Three layers, each addressable and each reachable from the one above:
 | Group | `/github-cache/:resource_type` | That type's entries, searchable by identity and filterable by freshness, writer and body state. |
 | Entry | `/github-cache/:resource_type/:identity` | One record in full: key, `fetched_at`, processed version, body version, ETag, last writer, and the cached body. |
 
+Above the map, two **history charts** show the same cache as a time-series rather than a snapshot:
+
+| Chart | Shows |
+| --- | --- |
+| Entries over time | Total entries, how many hold a body, how many are validator-only — so a cache that grew and then dropped reads as a shape. |
+| Freshness over time | The same totals stacked by freshness (fresh / stale / expired / unknown) — so a cache quietly going stale is a band that grows, not a number to compare. |
+
+The charts are fed by a sampler that reads the same store the page reads — never GitHub — every 30 seconds and keeps a bounded, in-memory ring of the last hour. The ring starts again at each daemon boot, and the page says so, because drawing a flat zero over a span the sampler never observed would be the same silent-subset lie the rest of the page refuses. When the ring is too new to draw, the page says it is collecting.
+
 Filters are carried in the query string, so a filtered view such as `/github-cache/issue_comment?writer=webhook` can be pasted into a ticket as evidence. A deep link to an entry keeps meaning the same thing after a restart, because the identity is the resource's own `(type, owner, repo, id)` rather than a position in a list.
 
 ### Read "validator only, no body" carefully

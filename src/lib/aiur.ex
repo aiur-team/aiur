@@ -224,6 +224,12 @@ defmodule Aiur.Application do
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
       Aiur.GitHub.ResourceStore,
+      # The bounded time-series the `/github-cache` history charts draw. Starts
+      # after the store it samples, so its first sample never races the store's
+      # boot fill; it reads ETS only, so it changes nothing about the page's
+      # zero-fetch property. Gated on the dashboard like the HTTP server that
+      # serves the page — there is no point sampling a cache nobody can view.
+      if(dashboard?, do: Aiur.GitHub.CacheHistory),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
