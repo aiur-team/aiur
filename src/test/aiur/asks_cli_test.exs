@@ -4,7 +4,8 @@ defmodule Aiur.AsksCLITest do
   alias Aiur.{Asks, AsksCLI}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur_asks_cli_#{System.unique_integer([:positive])}")
+    # Host-unique, not just VM-unique: see `Aiur.TestSupport.tmp_root!/1`.
+    root = Aiur.TestSupport.tmp_root!("aiur_asks_cli")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     Application.put_env(:aiur, :repo_base_root, root)
 

@@ -4,16 +4,38 @@ defmodule Aiur.AsksTest do
   alias Aiur.{Asks, RepoBase}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur_asks_#{System.unique_integer([:positive])}")
+    # Host-unique, not just VM-unique: another `mix test` VM on this host used to
+    # pick the same name and build its state tree inside the directory this
+    # teardown was removing. See `Aiur.TestSupport.tmp_root!/1`.
+    root = Aiur.TestSupport.tmp_root!("aiur_asks")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     Application.put_env(:aiur, :repo_base_root, root)
 
     on_exit(fn ->
+      # Restore the global first, so nothing new can resolve into `root`, and
+      # only then remove it.
       if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
-      File.rm_rf!(root)
+      remove_state_root!(root)
     end)
 
     {:ok, repo: "https://github.com/owner/repo.git"}
+  end
+
+  # `File.rm_rf!/1` reports only the reason and the path it gave up on, which is
+  # what made the original failure ("file already exists" on a recursive remove)
+  # read as a mystery for three separate investigations. Name the entries that
+  # survived: they identify the writer.
+  defp remove_state_root!(root) do
+    case File.rm_rf(root) do
+      {:ok, _removed} ->
+        :ok
+
+      {:error, reason, path} ->
+        survivors = root |> Path.join("**") |> Path.wildcard(match_dot: true) |> Enum.map(&Path.relative_to(&1, root))
+
+        raise "could not remove the state root #{root}: #{inspect(reason)} at #{path}. " <>
+                "Surviving entries (something wrote into the tree while it was being removed): #{inspect(survivors)}"
+    end
   end
 
   test "persists a blocking ask with its command block and executor attribution", %{repo: repo} do

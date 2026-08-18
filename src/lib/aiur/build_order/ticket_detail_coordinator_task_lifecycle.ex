@@ -1,10 +1,10 @@
-defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
+defmodule Aiur.BuildOrder.TicketDetailCoordinator.TaskLifecycle do
   @moduledoc false
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot}
   alias Aiur.BuildOrder.TicketDetail.Repository
-  alias Aiur.BuildOrder.TicketDetailCache.Policy
+  alias Aiur.BuildOrder.TicketDetailCoordinator.Policy
 
   @spec start_refresh(Policy.entry(), map(), Aiur.TrackerIdentity.repository()) :: {Policy.entry(), map(), list()}
   def start_refresh(entry, state, repository) do
@@ -163,7 +163,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
     {:ok,
      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
        receive do
-         {:ticket_detail_cache_start, ^owner} -> read(state, identity, repository)
+         {:ticket_detail_coordinator_start, ^owner} -> read(state, identity, repository)
        end
      end)}
     |> link_and_start(owner)
@@ -174,7 +174,7 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
 
   defp link_and_start({:ok, task}, owner) do
     Process.link(task.pid)
-    send(task.pid, {:ticket_detail_cache_start, owner})
+    send(task.pid, {:ticket_detail_coordinator_start, owner})
     {:ok, task}
   end
 
@@ -184,6 +184,11 @@ defmodule Aiur.BuildOrder.TicketDetailCache.TaskLifecycle do
     TicketDetail.fetch(identity,
       configured_repo: repository,
       max_description_bytes: state.max_description_bytes,
+      # The same freshness requirement this coordinator applies to its own last
+      # success, handed down so the shared store can satisfy it from another
+      # reader's read. Without it a refresh that the tracker poll had already
+      # paid for one second earlier would be paid for a second time.
+      freshness_ms: state.freshness_ms,
       now: now(state)
     )
   end

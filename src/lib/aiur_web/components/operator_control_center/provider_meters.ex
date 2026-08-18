@@ -99,7 +99,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
       <div :if={@card.state == :error} class="provider-meter-state error-card" role="alert">
         <h4>Provider meter error</h4>
         <p>
-          {@card.health.failure_label || "The provider meter could not be read."} No last
+          {@card.health.failure_label || "The provider meter could not be read."} No earlier
           known-good values are available for this account.
         </p>
       </div>
@@ -113,7 +113,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         <span aria-hidden="true">◉</span>
         <span>
           <b>Stale meters.</b>
-          Showing the last known-good values for this account.
+          Showing the values we last read for this account.
           <span :if={@card.health.age_label}>Observation is {@card.health.age_label}.</span>
           <span :if={@card.health.failure_label}>Last refresh {String.downcase(@card.health.failure_label)}.</span>
         </span>

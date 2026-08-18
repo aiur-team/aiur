@@ -27,7 +27,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProvider do
           {:ok,
            %{
              decision: DecisionPresenter.attach_latency([decision], snapshots, latency_health) |> hd(),
-             scope: Map.put(result.scope, :label, "Exact retained Decision detail"),
+             scope: Map.put(result.scope, :label, "Exact Command detail"),
              health: result.health
            }}
 

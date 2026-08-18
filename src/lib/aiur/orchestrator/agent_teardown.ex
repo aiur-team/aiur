@@ -197,10 +197,37 @@ defmodule Aiur.Orchestrator.AgentTeardown do
     # orphan and keep working on a single-pid kill, so reap the subtree.
     RemoteControl.graceful_kill_tree(os_pid)
 
-    # The headless fallback has no pane; its `bash -lc` wrapper leaves
+    # The headless fallback has no pane; its `bash -c` wrapper leaves
     # claude/node grandchildren that reparent to init, so reap the subtree.
     RemoteControl.graceful_kill_tree(Map.get(running_entry, :headless_os_pid))
 
     :ok
+  end
+
+  @doc false
+  @spec reap_orphaned_agent_shell(map()) :: :gone | :reaped
+  def reap_orphaned_agent_shell(running_entry) when is_map(running_entry) do
+    process_group_id = Map.get(running_entry, :headless_process_group_id)
+    root_pid = Map.get(running_entry, :headless_os_pid) || Map.get(running_entry, :repl_os_pid)
+
+    if RemoteControl.process_group_alive?(process_group_id) do
+      case RemoteControl.graceful_kill_process_group(process_group_id) do
+        {:ok, :reaped} -> :reaped
+        _other -> reap_orphaned_root(root_pid)
+      end
+    else
+      reap_orphaned_root(root_pid)
+    end
+  end
+
+  def reap_orphaned_agent_shell(_running_entry), do: :gone
+
+  defp reap_orphaned_root(root_pid) do
+    if RemoteControl.process_alive?(root_pid) do
+      RemoteControl.graceful_kill_tree(root_pid)
+      :reaped
+    else
+      :gone
+    end
   end
 end

@@ -35,6 +35,7 @@ defmodule Aiur.GitHub.Quota do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
@@ -55,6 +56,15 @@ defmodule Aiur.GitHub.Quota do
   @refresh_interval_ms 60_000
   @shell_refresh_interval_seconds 60
   @unattributed "unattributed"
+  @agent_shell_caller "agent-shell:gh"
+  # How far the per-caller breakdown may sit from what GitHub says the window
+  # actually cost before it stops being evidence. Aiur cannot see calls made on
+  # the credential outside this process, so a shortfall is expected; the margin
+  # is what turns "roughly agrees" into a testable claim.
+  @reconciliation_margin 0.05
+  # The shortest window slice a per-hour rate may be extrapolated from. One
+  # second of evidence multiplied by 3,600 is not a rate, it is an artefact.
+  @min_rate_sample_seconds 60
 
   # GitHub does not always say how long a secondary limit lasts. Its own
   # guidance is to wait at least a minute, and the ceiling keeps a hostile or
@@ -63,7 +73,15 @@ defmodule Aiur.GitHub.Quota do
   @max_secondary_backoff_seconds 60 * 60
 
   @empty_coverage %{resources: %{}, estimated?: false}
-  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], coverage: @empty_coverage, backoffs: []}
+  @unknown_snapshot %{
+    state: :unknown,
+    windows: %{},
+    attribution: [],
+    callers: [],
+    coverage: @empty_coverage,
+    reconciliation: %{},
+    backoffs: []
+  }
 
   @type request :: map()
   @type hold :: %{
@@ -164,11 +182,15 @@ defmodule Aiur.GitHub.Quota do
 
     in_window = observations_in_window(state, now)
 
+    coverage = coverage(in_window, state.windows, now)
+
     snapshot = %{
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
       windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
       attribution: summarize_attribution(in_window),
-      coverage: coverage(in_window, state.windows, now),
+      callers: summarize_callers(in_window, state.windows, now),
+      coverage: coverage,
+      reconciliation: reconciliation(coverage),
       backoffs: present_backoffs(state, now)
     }
 
@@ -482,6 +504,7 @@ defmodule Aiur.GitHub.Quota do
 
       observation = %{
         consumer: request_consumer(request),
+        caller: GraphQLCost.derive(request),
         direction: request_direction(request),
         resource: resource,
         cost: cost,
@@ -507,16 +530,13 @@ defmodule Aiur.GitHub.Quota do
   defp request_cost(_resource, 304, _response), do: {0, :reported}
 
   defp request_cost("graphql", _status, response) do
-    case graphql_reported_cost(response) do
-      cost when is_integer(cost) and cost >= 0 -> {cost, :reported}
+    case GraphQLCost.reported(response) do
+      %{cost: cost} when is_integer(cost) and cost >= 0 -> {cost, :reported}
       _unreported -> {1, :assumed}
     end
   end
 
   defp request_cost(_resource, _status, _response), do: {1, :reported}
-
-  defp graphql_reported_cost(%{body: %{"data" => %{"rateLimit" => %{"cost" => cost}}}}), do: cost
-  defp graphql_reported_cost(_response), do: nil
 
   defp prune_observations(state, now) do
     cutoff = DateTime.add(now, -@attribution_window_seconds, :second)
@@ -576,6 +596,126 @@ defmodule Aiur.GitHub.Quota do
     end)
     |> Enum.sort_by(&{-&1.cost, -&1.total, &1.consumer})
   end
+
+  # Points per hour by call site, ranked, for one budget's live window.
+  #
+  # This is the answer to "where does the budget go", and it is deliberately a
+  # different question from `summarize_attribution/1`'s "which ticket is
+  # expensive". A batch query names 33 tickets and belongs to one poller; ranking
+  # it by ticket splits its cost 33 ways and hides it under the noise floor.
+  #
+  # The rate is extrapolated from the elapsed part of the window, not the whole
+  # hour, so a caller measured 6 minutes into a window reports the per-hour rate
+  # it is *running at* rather than a tenth of it. That is the figure that compares
+  # against the 5,000/hour ceiling, which is the only comparison anyone makes
+  # here: the daemon's measured ~250 points/minute is only alarming once it is
+  # stated as ~15,000/hour against 5,000.
+  defp summarize_callers(observations, windows, now) do
+    observations
+    |> Enum.group_by(&{observation_resource(&1), Map.get(&1, :caller) || @unattributed})
+    |> Enum.map(fn {{resource, caller}, entries} ->
+      points = total_cost(entries)
+      reads = Enum.count(entries, &(&1.direction == :read))
+      elapsed = elapsed_seconds(windows, resource, now)
+
+      %{
+        caller: caller,
+        resource: resource,
+        calls: length(entries),
+        reads: reads,
+        writes: length(entries) - reads,
+        points: points,
+        points_per_hour: per_hour(points, elapsed),
+        elapsed_seconds: elapsed,
+        estimated?: estimated?(entries)
+      }
+    end)
+    |> Enum.sort_by(&{&1.resource, -&1.points, -&1.calls, &1.caller})
+  end
+
+  # An hour of window has not necessarily elapsed. Dividing by a full hour
+  # regardless would report a caller burning the budget in ten minutes as if it
+  # were spending at a sixth of its real rate — an understatement precisely
+  # where the number matters most.
+  defp elapsed_seconds(windows, resource, now) do
+    start = window_start(windows, resource, now)
+    now |> DateTime.diff(start, :second) |> max(0) |> min(@quota_window_seconds)
+  end
+
+  # Below the minimum sample the rate is unknown rather than enormous. One point
+  # observed one second into a fresh window extrapolates to 3,600/hour, which
+  # would rank a trivial call above the real leader and be printed against the
+  # 5,000 ceiling as if it meant something.
+  defp per_hour(points, elapsed) when is_integer(points) and is_integer(elapsed) and elapsed >= @min_rate_sample_seconds,
+    do: Float.round(points * 3600 / elapsed, 1)
+
+  defp per_hour(_points, _elapsed), do: nil
+
+  @doc """
+  Does the per-caller breakdown add up to what GitHub says the window cost?
+
+  A breakdown that does not reconcile is not evidence, it is a guess with a
+  table around it. `spend` is `limit - remaining` from the credential's own
+  `/rate_limit` window — the number the operator sees drop — and `attributed`
+  is the sum of every row in the ranking. `reconciled?` is the claim that the
+  two agree closely enough to act on.
+
+  The two ways it can fail are not the same fact, so `direction` separates them:
+
+    * `:shortfall` — Aiur attributed less than the window spent. This is the
+      normal, expected case: calls made on the same credential by anything
+      outside this process are real spend Aiur never saw. It bounds how much of
+      the ranking is the whole story; it is not a defect.
+    * `:excess` — Aiur attributed more than the window spent. Points cannot be
+      counted twice, so this is a bug in the accounting and is the only case
+      worth alarming on.
+    * `:agrees` — inside the margin.
+
+  Collapsing both into one boolean would print an alarm during normal operation,
+  and an operator who learns to ignore the alarm cannot see the double count
+  when it happens. `reconciled?` is kept for the inside-the-margin claim.
+  """
+  @spec reconciliation(map()) :: %{optional(String.t()) => map()}
+  def reconciliation(%{resources: resources}) when is_map(resources) do
+    Map.new(resources, fn {resource, figures} ->
+      attributed = Map.get(figures, :attributed)
+      spend = Map.get(figures, :spend)
+
+      {resource,
+       %{
+         attributed: attributed,
+         spend: spend,
+         delta: delta(attributed, spend),
+         margin: @reconciliation_margin,
+         reconciled?: reconciled?(attributed, spend),
+         direction: direction(attributed, spend),
+         estimated?: Map.get(figures, :estimated?, false)
+       }}
+    end)
+  end
+
+  def reconciliation(_coverage), do: %{}
+
+  defp delta(attributed, spend) when is_integer(attributed) and is_integer(spend), do: attributed - spend
+  defp delta(_attributed, _spend), do: nil
+
+  # Nothing spent is trivially reconciled; nothing observed is not reconciled,
+  # it is unmeasured, and saying so is the difference between the two.
+  defp reconciled?(attributed, spend) when is_integer(attributed) and is_integer(spend) and spend > 0,
+    do: abs(attributed - spend) / spend <= @reconciliation_margin
+
+  defp reconciled?(attributed, 0) when is_integer(attributed), do: attributed == 0
+  defp reconciled?(_attributed, _spend), do: nil
+
+  defp direction(attributed, spend) when is_integer(attributed) and is_integer(spend) do
+    cond do
+      reconciled?(attributed, spend) -> :agrees
+      attributed < spend -> :shortfall
+      true -> :excess
+    end
+  end
+
+  defp direction(_attributed, _spend), do: nil
 
   # What the ranking above is worth — stated per budget, never combined.
   #
@@ -724,6 +864,13 @@ defmodule Aiur.GitHub.Quota do
 
       %{
         consumer: consumer,
+        # Every row in this file was written by the agent `gh` wrapper, so the
+        # call site is known exactly even though the ticket varies. Naming it
+        # keeps the fleet's own spend as one ranked row rather than scattering
+        # it across a row per ticket, which is what makes "daemon or agents?"
+        # answerable at a glance — the question a wrong answer was already given
+        # to once.
+        caller: @agent_shell_caller,
         direction: String.to_existing_atom(direction),
         resource: resource,
         cost: 1,

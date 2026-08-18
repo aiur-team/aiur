@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   import Phoenix.Component, only: [assign: 3]
 
+  alias Aiur.PollCadence
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
   alias AiurWeb.OperatorControlCenter.{DecisionProvider, TicketsPresenter, UnitsPresenter}
 
@@ -158,7 +159,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       Endpoint.config(:decision_store) || Aiur.DecisionStore,
       Endpoint.config(:decision_metrics) || Aiur.DecisionMetrics,
       Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore,
-      Endpoint.config(:snapshot_timeout_ms) || 15_000
+      PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000)
     }
   end
 
@@ -230,7 +231,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
         status: :unavailable,
         partial?: true,
         reason: :retained_store_unavailable,
-        label: "Retained Decision counts unavailable"
+        label: "Command counts unavailable"
       }
     }
   end

@@ -59,6 +59,7 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
             }} = GraphProjection.selected(projection, identity)
 
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
     reader = await_reader({:selected, identity})
     malformed = malformed_selected(identity)
     finish(reader, {:ok, ProviderResult.complete(malformed)})
@@ -88,10 +89,11 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
   test "selected structural failure retains prior LKG as stale degraded data" do
     identity = identity(1, "I1")
     clock = supervised_agent(%{now: @now, ms: 0})
-    projection = start_projection(clock: clock, demand_refresh_ms: 5_000)
+    projection = start_projection(clock: clock)
     publish_catalog(projection, [root(identity)])
 
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
     first_reader = await_reader({:selected, identity})
     last_known_good = selected(identity)
     finish(first_reader, {:ok, ProviderResult.complete(last_known_good)})
@@ -112,7 +114,9 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
       %{now: DateTime.add(@now, 5_001, :millisecond), ms: 5_001}
     end)
 
+    # Time passing is no longer what buys the second read — an explicit need is.
     assert {:ok, %Snapshot{data: ^last_known_good}} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
     refresh_reader = await_reader({:selected, identity})
     finish(refresh_reader, {:ok, ProviderResult.complete(malformed_selected(identity))})
 
@@ -141,7 +145,6 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
   defp start_projection(opts \\ []) do
     parent = self()
     clock = Keyword.get(opts, :clock)
-    demand_refresh_ms = Keyword.get(opts, :demand_refresh_ms, 5_000)
 
     task_supervisor =
       start_supervised!(%{
@@ -157,7 +160,7 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
            [
              name: nil,
              task_supervisor: task_supervisor,
-             authority_snapshot: fn -> authority(demand_refresh_ms) end,
+             authority_snapshot: &authority/0,
              configuration_subscriber: fn _pid -> :ok end,
              catalog_reader: blocking_reader(parent, :catalog),
              selected_reader: fn identity, _reader_opts ->
@@ -201,7 +204,7 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
 
   defp finish(reader, result), do: send(reader, {:finish, result})
 
-  defp authority(demand_refresh_ms) do
+  defp authority do
     %{
       repository: @repository,
       generation: 1,
@@ -210,8 +213,6 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
       call_budget: 4,
       options: [
         catalog_refresh_ms: 60_000,
-        selected_refresh_ms: 60_000,
-        demand_refresh_ms: demand_refresh_ms,
         refresh_timeout_ms: 30_000,
         max_selected_roots: 4,
         max_inflight: 4

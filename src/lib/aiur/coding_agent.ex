@@ -166,7 +166,7 @@ defmodule Aiur.CodingAgent do
         # the resolved model). Declared here so dispatch code never
         # hard-codes the swap.
         remote_transport: "claude-repl",
-        # The headless `bash -lc` wrapper does not exec; report its os pid so
+        # The headless `bash -c` wrapper does not exec; report its os pid so
         # brutal-kill teardown can tree-reap the reparented claude/node children.
         runtime_report: :headless_wrapper,
         # Headless claude runs through the external `aiur-claude` app-server,

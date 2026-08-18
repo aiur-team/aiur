@@ -535,9 +535,9 @@ defmodule Aiur.RepoBase do
     scrubbed = AgentEnvironment.scrub_shell_command(command)
 
     {out, status} =
-      System.cmd("sh", ["-lc", scrubbed],
+      System.cmd("sh", ["-c", scrubbed],
         cd: base_path,
-        env: base_env(base_path),
+        env: base_env(base_path) ++ AgentEnvironment.system_shell_startup_env(),
         stderr_to_stdout: true
       )
 

@@ -4388,7 +4388,6 @@ defmodule Aiur.OrchestratorStatusTest do
            } = state.retry_attempts[issue_id]
 
     assert is_integer(due_at_ms)
-
     # Attempt 1 schedules a fixed 10s base backoff (@failure_retry_base_ms).
     # `due_at_ms` was set to (monotonic_at_schedule + 10_000) at some instant
     # between the tick send and our state read, so it is bounded by those two
