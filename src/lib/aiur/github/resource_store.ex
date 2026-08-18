@@ -80,6 +80,15 @@ defmodule Aiur.GitHub.ResourceStore do
   the envelope inside which GitHub will still retry a delivery, so it is the
   window in which a duplicate can still legitimately arrive.
 
+  What "expired" means is judged on the field that owns the answer: a held body
+  by its own `fetched_at_ms` (the same field `fetch/1` declines on), and a
+  bodyless entry — a validator or a processed mark — by `recorded_at_ms`.
+  Judging a body by `recorded_at_ms` would be wrong, because every write
+  touches that field: a poll republish re-marking a processed comment keeps a
+  three-day-old body looking current, and the eviction sweep would never delete
+  it. The sweep, the read and the restart filter all use the same decision, so
+  truly outdated data is deleted rather than merely hidden on read.
+
   ## Holding the resource, not only the validator
 
   An entry may also hold the resource's own `:data` — the object GitHub
@@ -1509,6 +1518,28 @@ defmodule Aiur.GitHub.ResourceStore do
   # before asking, so a second catch-all clause here would be unreachable.
   defp expired?(at) when is_integer(at), do: now_ms() - at > @retention_ms
 
+  # An entry is truly outdated when nothing it holds can be served any more,
+  # and the field that says so depends on what the entry holds.
+  #
+  # A body is judged by `fetched_at_ms` — the same field `fetch/1` refuses an
+  # expired body on — never by `recorded_at_ms`, because every write touches
+  # that field. A poll republish re-marking a processed comment, or a `304`
+  # re-recording a validator, refreshes `recorded_at_ms` while leaving a body
+  # three days old; a sweep that judged the entry by that field would keep the
+  # body in the table forever, answering `:miss` from `fetch/1` while the page
+  # shows it as expired — the unbounded "stale" accumulation this predicate
+  # exists to stop.
+  #
+  # An entry holding no body has no `fetched_at_ms` to be old by — it is a
+  # validator or a processed mark — so its whole useful life is `recorded_at_ms`
+  # and that is what it is judged on.
+  defp evictable?(entry, cutoff) do
+    case Map.get(entry, :data) do
+      nil -> Map.get(entry, :recorded_at_ms, 0) < cutoff
+      _body -> Map.get(entry, :fetched_at_ms, 0) < cutoff
+    end
+  end
+
   # A versioned mark rides the retention window; an identity-only mark rides the
   # much tighter bound, because nothing but the clock can ever release it.
   defp within_suppression_bound?(at, nil), do: now_ms() - at <= @unversioned_suppression_ms
@@ -1524,12 +1555,18 @@ defmodule Aiur.GitHub.ResourceStore do
   defp sweep(table) do
     cutoff = now_ms() - @retention_ms
 
-    # One atomic operation per object: the guard is re-evaluated against the entry
-    # as it stands at the instant of deletion, so an entry a writer refreshed in
-    # the meantime no longer matches and survives.
-    :ets.select_delete(table, [
-      {{:_, %{recorded_at_ms: :"$1"}}, [{:<, :"$1", cutoff}], [true]}
-    ])
+    # One atomic decision per object: an entry is deleted only while it is still
+    # the one the decision was made about. A writer refreshing it between the
+    # snapshot and the deletion changes the object, so the pinned
+    # `select_delete` stops matching and the entry survives — the same pin and
+    # the same guarantee the ceiling eviction below uses. What makes an entry
+    # evictable is decided once, in `evictable?/2`, and it is the same decision
+    # the boot-time load filter makes, so sweep, read and restart cannot
+    # disagree about when an entry is truly past retention.
+    table
+    |> :ets.tab2list()
+    |> Enum.filter(fn {_key, entry} -> evictable?(entry, cutoff) end)
+    |> Enum.each(fn {key, entry} -> :ets.select_delete(table, [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [true]}]) end)
 
     # A hard backstop far above real volume. Crossing it means the retention
     # window alone is not bounding the set, so drop the oldest rather than let
@@ -1698,7 +1735,7 @@ defmodule Aiur.GitHub.ResourceStore do
     Enum.reduce(entries, [], fn {encoded, value}, acc ->
       with key when not is_nil(key) <- decode_key(encoded),
            %{} = entry <- decode_entry(value),
-           true <- Map.get(entry, :recorded_at_ms, 0) >= cutoff do
+           true <- not evictable?(entry, cutoff) do
         [{key, entry} | acc]
       else
         _other -> acc
