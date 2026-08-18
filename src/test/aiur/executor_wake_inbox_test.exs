@@ -174,7 +174,12 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert Process.alive?(Process.whereis(__MODULE__))
   end
 
-  test "trims oldest consumed records without deleting unread wakes", %{opts: opts} do
+  # Consumed records are evicted before any unread one, so a consumer that keeps
+  # up never loses a wake. Beyond the bound the oldest unread is evicted too:
+  # recording is unconditional now, so an unattended run appends records nobody
+  # will ever acknowledge, and preserving every unread record made the ledger
+  # unbounded in exactly that case (#1661).
+  test "evicts consumed records first, then bounds unread growth", %{opts: opts} do
     opts = Keyword.merge(opts, debounce_ms: 20, max_records: 3)
     start_supervised!({ExecutorWakeInbox, opts})
 
@@ -184,19 +189,29 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert Enum.map(records, & &1["event_id"]) == [1, 2, 3]
     assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
 
-    for id <- 4..8, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    # Three unread records fit inside the bound, and none of them is dropped to
+    # make room for the already-consumed ones.
+    for id <- 4..6, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
     Process.sleep(30)
     assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
-    assert Enum.map(records, & &1["event_id"]) == [4, 5, 6, 7, 8]
+    assert Enum.map(records, & &1["event_id"]) == [4, 5, 6]
+    assert journal_ids(opts) == [4, 5, 6]
+
+    # Two more push the unread set past the bound: the oldest unread go.
+    for id <- 7..8, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    Process.sleep(30)
+    assert {:ok, records} = ExecutorWakeInbox.wait(100, __MODULE__)
+    assert Enum.map(records, & &1["event_id"]) == [6, 7, 8]
     assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
 
-    journal_ids =
-      opts[:path]
-      |> File.read!()
-      |> String.split("\n", trim: true)
-      |> Enum.map(&Jason.decode!(&1)["event_id"])
+    assert journal_ids(opts) == [6, 7, 8]
+  end
 
-    assert journal_ids == [6, 7, 8]
+  defp journal_ids(opts) do
+    opts[:path]
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.map(&Jason.decode!(&1)["event_id"])
   end
 
   defp record(id, ticket) do

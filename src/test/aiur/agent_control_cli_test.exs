@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
-  alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
@@ -39,7 +39,7 @@ defmodule Aiur.AgentControlCLITest do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
     output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
-    cursor_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.cursor.json")
+    cursor_path = StatePaths.cursor_path()
 
     assert output =~ "__AIUR_CONTROL_EXIT__:75"
     refute output =~ "WAKE"
@@ -650,8 +650,11 @@ defmodule Aiur.AgentControlCLITest do
     assert degraded =~ "LISTENER degraded (#{length(defaults) - 1}/#{length(defaults)} bindings; MISSING: executor.#)"
 
     Application.put_env(:aiur, :executor_listener_alive_fun, fn -> [] end)
+    # Recording is armed on every run now, so absence is no longer a mode the
+    # operator could have chosen — it is a fault, and the line has to say so.
     absent = capture_io(fn -> AgentControlCLI.status() end)
-    assert absent =~ "LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)"
+    assert absent =~ "LISTENER absent (FAULT:"
+    assert absent =~ "are not being recorded"
   end
 
   test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
