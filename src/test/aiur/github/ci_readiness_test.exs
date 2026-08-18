@@ -1082,6 +1082,35 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert "test (ubuntu 18)" not in readiness.workflow_check_names
   end
 
+  test "merges a matrix include into every matching combination" do
+    workflow = """
+    on:
+      pull_request:
+    jobs:
+      test:
+        name: test (${{ matrix.os }} ${{ matrix.mode }})
+        strategy:
+          matrix:
+            os: [ubuntu, macos]
+            node: [16, 18]
+            include:
+              - os: ubuntu
+                mode: fast
+              - os: macos
+                mode: slow
+        runs-on: ubuntu-latest
+    """
+
+    readiness =
+      CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], [
+        "test (ubuntu fast)",
+        "test (macos slow)"
+      ])
+
+    assert readiness.ready?
+    assert Enum.sort(readiness.workflow_check_names) == ["test (macos slow)", "test (ubuntu fast)"]
+  end
+
   test "keeps an unresolvable matrix job name literal" do
     workflow = """
     on:

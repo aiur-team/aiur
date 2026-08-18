@@ -945,9 +945,15 @@ defmodule Aiur.GitHub.CiReadiness do
   defp apply_matrix_includes(combinations, includes) do
     combinations =
       Enum.reduce(includes, combinations, fn entry, acc ->
-        case Enum.find_index(acc, &include_matches?(&1, entry)) do
-          nil -> [entry | acc]
-          index -> List.update_at(acc, index, &Map.merge(&1, entry))
+        matching_indices =
+          acc
+          |> Enum.with_index()
+          |> Enum.filter(fn {combo, _index} -> include_matches?(combo, entry) end)
+          |> Enum.map(fn {_combo, index} -> index end)
+
+        case matching_indices do
+          [] -> [entry | acc]
+          indices -> Enum.reduce(indices, acc, fn index, list -> List.update_at(list, index, &Map.merge(&1, entry)) end)
         end
       end)
 
