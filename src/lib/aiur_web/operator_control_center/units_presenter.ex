@@ -10,13 +10,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   alias AiurWeb.OperatorControlCenter.{RowToken, UnitsPolicy, UnitsPresentation, UnitsRow}
   alias AiurWeb.OperatorControlCenter.UnitsRow.Sources
 
-  # A fleet view only counts as "stale" once it is genuinely old; a snapshot
-  # marked stale a few seconds after its last publish is still effectively
-  # current and must not demote the catalog to last-known-good. The row
-  # projection admits rows on the same window, so the catalog's status and its
-  # contents can never disagree about which fleet views still count.
-  @fleet_stale_after_seconds Sources.fleet_stale_after_seconds()
-
   @type catalog_status :: :ready | :empty | :stale | :unavailable
 
   @spec load(map(), keyword()) :: map()
@@ -294,6 +287,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       fleet_freshness_degraded?(snapshot)
   end
 
+  # A fleet view only counts as "stale" once it is genuinely old; a snapshot
+  # marked stale a few seconds after its last publish is still effectively
+  # current and must not demote the catalog to last-known-good. The row
+  # projection admits rows on the same window, so the catalog's status and its
+  # contents can never disagree about which fleet views still count.
+  #
+  # `Sources.fleet_stale_after_seconds/0` is read at call time rather than
+  # captured into a module attribute: the window derives from the effective poll
+  # cadence, which changes at runtime with idle backoff, and a compile-time
+  # capture would freeze it at whatever the cadence was when this module built.
+  #
   # A `:stale` freshness is only a degradation once the view is actually old;
   # `:unknown`/`:unavailable` have no age to compare and stay degraded. A stale
   # view with no age at all cannot be judged against the window, and the row
@@ -301,7 +305,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   # call itself ready over the rows that disappeared.
   defp fleet_freshness_degraded?(snapshot) do
     case {fleet_freshness_status(snapshot), fleet_age_seconds(snapshot)} do
-      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds >= @fleet_stale_after_seconds
+      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds >= Sources.fleet_stale_after_seconds()
       {:stale, _no_age} -> true
       {status, _age_seconds} when status in [:unknown, :unavailable] -> true
       _freshness -> false

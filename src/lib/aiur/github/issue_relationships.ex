@@ -73,7 +73,8 @@ defmodule Aiur.GitHub.IssueRelationships do
            token,
            @linked_pull_requests_query,
            variables,
-           max_response_bytes: @max_response_bytes
+           max_response_bytes: @max_response_bytes,
+           caller: :issue_relationships
          ) do
       {:ok, response, _transport_response} -> {:ok, response}
       {:error, reason, _transport_response} -> {:error, reason}

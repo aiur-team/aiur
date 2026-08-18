@@ -42,14 +42,38 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
 
   def fetchable_identity(_identity, _opts), do: {:error, %Failure{kind: :nonfetchable_repository}}
 
-  @spec fetch_issue(TrackerIdentity.t(), TrackerIdentity.repository(), keyword()) :: {:ok, map()} | {:error, term()}
+  @doc """
+  Reads the issue behind a ticket-detail request through the shared store.
+
+  Build Order used to reach `Issues.fetch_issue_raw/2` directly, so every detail
+  read was a full-price `200` even when the tracker's dispatch poll had fetched
+  the same issue seconds earlier — the same URL, into a different cache. Going
+  through `fetch_issue_raw_conditional/2` keys the read on the issue instead of on
+  Build Order, so the three readers of an issue share one entry.
+
+  Freshness moved with the body. `ticket_detail_freshness_ms` used to decide only
+  whether *this* subsystem's cache entry was still good; it is now handed to the
+  shared store as the staleness this reader tolerates, so "who already satisfied
+  it" includes every other reader of the same issue. The number is unchanged in
+  meaning — one requirement, applied once — and it must be passed on: without it
+  the store declines to serve and the read becomes a conditional request every
+  time. `:revalidate` passes an operator's explicit refresh through as a
+  conditional request regardless of what is held.
+
+  The cost of the read is returned alongside the body so that a caller — and a
+  test — can tell a served body from a revalidation from a paid fetch. Asserting
+  on that is the only way to prove a refresh spent nothing, because latency
+  cannot distinguish a `304` from a `200`.
+  """
+  @spec fetch_issue(TrackerIdentity.t(), TrackerIdentity.repository(), keyword()) ::
+          {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
   def fetch_issue(identity, configured_repository, opts) do
     issue_opts =
       opts
-      |> Keyword.take([:request_fun])
+      |> Keyword.take([:request_fun, :revalidate, :freshness_ms])
       |> Keyword.put(:repository, configured_repository)
 
-    Issues.fetch_issue_raw(identity.identifier, issue_opts)
+    Issues.fetch_issue_raw_conditional(identity.identifier, issue_opts)
   end
 
   @spec fetch_linked_pull_requests(TrackerIdentity.t(), TrackerIdentity.repository(), keyword()) ::

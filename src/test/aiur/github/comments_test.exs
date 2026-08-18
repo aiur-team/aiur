@@ -134,5 +134,61 @@ defmodule Aiur.GitHub.CommentsTest do
       assert query =~ "per_page=50"
       assert query =~ "page=2"
     end
+
+    # The poller's cursor. `since` is the only thing that keeps a steady-state
+    # comment read from asking for the entire history every cycle, and it is a
+    # query parameter — invisible unless the query string itself is asserted.
+    # The GraphQL batch used to window on it and no longer fetches comments at
+    # all, so this REST query is now the only place the cursor has an effect.
+    test "carries the caller's since cursor" do
+      assert Comments.comment_query(since: "2026-07-30T12:00:00Z") =~ "since=2026-07-30T12%3A00%3A00Z"
+    end
+
+    # Paired with the case above on purpose: an omission assertion alone would
+    # pass against a build that had lost the parameter entirely.
+    test "omits since when the caller has no cursor" do
+      refute Comments.comment_query([]) =~ "since"
+      refute Comments.comment_query(since: nil) =~ "since"
+    end
+  end
+
+  describe "repo_comment_stream_query/1" do
+    test "carries the caller's since cursor" do
+      assert Comments.repo_comment_stream_query(since: "2026-07-30T12:00:00Z") =~ "since=2026-07-30T12%3A00%3A00Z"
+    end
+
+    test "omits since when the caller has no cursor" do
+      refute Comments.repo_comment_stream_query([]) =~ "since"
+    end
+  end
+
+  # End to end rather than on the query builder alone: the cursor is only worth
+  # anything if it survives all the way onto the URL the poller actually sends.
+  describe "the since cursor reaches GitHub" do
+    test "the conditional issue-comment read sends it" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "since=2026-07-30T12%3A00%3A00Z"
+        {:ok, %{status: 200, body: [], headers: []}}
+      end
+
+      assert {:ok, [], nil} =
+               Comments.fetch_issue_comments_conditional(3,
+                 since: "2026-07-30T12:00:00Z",
+                 request_fun: request_fun
+               )
+    end
+
+    test "the conditional repo review-comment stream sends it" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "since=2026-07-30T12%3A00%3A00Z"
+        {:ok, %{status: 200, body: [], headers: []}}
+      end
+
+      assert {:ok, [], nil} =
+               Comments.fetch_recent_repo_review_comments_conditional(
+                 since: "2026-07-30T12:00:00Z",
+                 request_fun: request_fun
+               )
+    end
   end
 end

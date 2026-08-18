@@ -31,7 +31,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
       phase_count: metrics.phase_count,
       progress: metrics.progress,
       progress_resolution: metrics.progress_resolution,
-      progress_resolved_count: metrics.progress_resolved_count
+      progress_resolved_count: metrics.progress_resolved_count,
+      member_state_digest: metrics.member_state_digest
     })
     |> append_diagnostics([
       identity_diagnostic,
@@ -136,7 +137,15 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
   end
 
   defp metrics_from_members([], 0) do
-    %{member_count: 0, epic_count: 0, phase_count: 0, progress: 0, progress_resolution: :resolved, progress_resolved_count: 0}
+    %{
+      member_count: 0,
+      epic_count: 0,
+      phase_count: 0,
+      progress: 0,
+      progress_resolution: :resolved,
+      progress_resolved_count: 0,
+      member_state_digest: nil
+    }
   end
 
   # Progress comes from `state`/`stateReason`; lane and phase counts come from
@@ -167,8 +176,43 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
       phase_count: metric_count(metadata, & &1.phase),
       progress: progress,
       progress_resolution: progress_resolution,
-      progress_resolved_count: resolved_count
+      progress_resolved_count: resolved_count,
+      member_state_digest: member_state_digest(lifecycles)
     }
+  end
+
+  # The whole point of this value, and it is free: the catalog query already asks
+  # every member for `state`/`stateReason`, and every consumer so far reduced them
+  # to a rounded percentage and threw the rest away.
+  #
+  # A rounded percentage is not a change signal. A member closing on a 200-member
+  # root can leave it identical, and a member closing as `not_planned` does not
+  # move it at all — yet both are exactly the change a Build Order page exists to
+  # show. GitHub does not bump the *root* issue's `updatedAt` when a sub-issue
+  # closes either, so without this there is no free signal that anything happened.
+  #
+  # Sorted, because it is a multiset over states rather than a sequence: the
+  # catalog's `subIssues` nodes carry no id, so this cannot be keyed per member,
+  # and it must not move merely because GitHub returned the same members in a
+  # different order. The cost of having no ids is that one member closing while
+  # another reopens in the same window is invisible; the next real change corrects
+  # it.
+  #
+  # `nil` means "not resolved", which is deliberately not the same as a digest
+  # that differs — a caller must not read the absence of a signal as change.
+  defp member_state_digest([]), do: nil
+
+  defp member_state_digest(lifecycles) do
+    case Enum.filter(lifecycles, &Lifecycle.valid?/1) do
+      [] ->
+        nil
+
+      resolved ->
+        resolved
+        |> Enum.map(&{&1.state, &1.state_reason})
+        |> Enum.sort()
+        |> :erlang.phash2()
+    end
   end
 
   defp unresolved_metrics(member_count) do
@@ -178,7 +222,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
       phase_count: nil,
       progress: nil,
       progress_resolution: :unresolved,
-      progress_resolved_count: 0
+      progress_resolved_count: 0,
+      member_state_digest: nil
     }
   end
 
