@@ -1977,10 +1977,10 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
   end
 end
 
-# The provider meter row above Units collapses into a single grouped table once
-# it would otherwise render more than four panes. The threshold is what this
-# fixture exists to exercise, so it carries five panes — the GitHub pane plus
-# four model providers — which is the first configuration that trips it.
+# The provider meter row above Units carries today's four model providers and
+# can add one hypothetical provider through `?extra=true`. Browser coverage uses
+# both shapes to prove another provider adds one fixed-height row without
+# changing the existing rows' columns or measurements.
 defmodule Aiur.BrowserHarness.MeterRowLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
@@ -1990,7 +1990,9 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
   @reset ~U[2026-07-18 12:00:00Z]
 
   @impl true
-  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+  def mount(params, _session, socket) do
+    {:ok, socket |> assign(:now, @now) |> assign(:extra_provider?, Map.get(params, "extra") == "true")}
+  end
 
   @impl true
   def render(assigns) do
@@ -2000,7 +2002,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
       <RunSummaryStrip.run_summary_strip
         run={run()}
         usage={usage()}
-        meters={meters()}
+        meters={meters(@extra_provider?)}
         github_quota={github_quota()}
         elevenlabs_quota={elevenlabs_quota()}
         now={@now}
@@ -2024,15 +2026,24 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
   # One provider per freshness state the compressed row has to keep
   # distinguishable: a fresh reading, a fresh zero, a stale last-known-good, and
   # a provider that reported nothing at all.
-  defp meters do
+  defp meters(extra_provider?) do
+    cards = [
+      card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
+      card(:claude, "Claude", :stale, "Stale (last known-good)", [window("Session", 62, 1_900, 5_000, :stale)]),
+      card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
+      card(:kimi, "Kimi", :unavailable, "Unavailable", [])
+    ]
+
+    cards =
+      if extra_provider? do
+        cards ++ [card(:kimi, "Nova", :healthy, "Healthy", [window("Session", 25, 3_750, 5_000, :fresh)])]
+      else
+        cards
+      end
+
     %{
       state: :authorized,
-      cards: [
-        card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
-        card(:claude, "Claude", :stale, "Not live", [window("Session", 62, 1_900, 5_000, :stale)]),
-        card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
-        card(:kimi, "Kimi", :unavailable, "Unavailable", [])
-      ]
+      cards: cards
     }
   end
 
@@ -2073,7 +2084,7 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
           "graphql" => %{attributed: 78, named: 78, spend: 4_500, fraction: 0.0173, named_fraction: 0.0173, estimated?: false}
         }
       },
-      backoffs: []
+      backoffs: [%{resource: "core", until: DateTime.add(@now, 45, :second), seconds_remaining: 45}]
     }
   end
 

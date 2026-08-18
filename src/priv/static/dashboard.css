@@ -3749,33 +3749,45 @@ html[data-theme="light"] .toggle-icon .moon {
   grid-column: span 2;
 }
 
-.rs-models-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.rs-models-rows,
+.rs-apis-rows {
+  --rs-provider-row-height: 1.2rem;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem 0.8rem;
+  min-width: 0;
 }
 
 /* The APIS pane holds one row per non-model API (GitHub, and ElevenLabs when an
    account is configured), stacked with the same rhythm the models pane uses so
    the two panes read as one strip. */
-.rs-apis-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+/* Provider wrappers disappear into the parent grid so every identity shares
+   one intrinsic-width column and every meter starts at the same x-position.
+   There is intentionally no heading above the identity track: the logos and
+   names explain it, while the rest of each pane belongs to the meters. */
+.rs-provider-row {
+  display: contents;
 }
 
-.rs-api {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
+.rs-provider-row > .rs-head {
+  align-items: center;
+  align-self: start;
+  flex-wrap: nowrap;
+  height: var(--rs-provider-row-height);
   min-width: 0;
 }
 
-/* One model per row, reusing the head + limits vocabulary the provider cards
-   used. Rows are separated by the container's gap, not hairlines, so the pane
-   reads as one continuous block. */
-.rs-model {
+.rs-provider-row > .rs-provider-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem 4.5rem;
+  align-items: start;
+  gap: 0.55rem;
   min-width: 0;
+}
+
+.rs-api > .rs-provider-body {
+  grid-template-columns: minmax(0, 1fr) 2.5rem;
 }
 
 /* The stats cluster must be able to drop below the name and shrink: at the
@@ -3814,6 +3826,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-name {
   font-weight: 700;
   font-size: 0.92rem;
+  line-height: 1.2rem;
+  white-space: nowrap;
 }
 
 .rs-head-stats {
@@ -3861,8 +3875,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .rs-token-ic {
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1.2rem;
+  height: 1.2rem;
   flex: none;
   object-fit: contain;
   margin: 0 0 0 0.15rem;
@@ -3879,7 +3893,100 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-limits {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* A provider meter is a single logo-height line. Models need only the flexible
+   bar and its status text; API windows retain their Core/GraphQL/Credits label
+   because one API can expose more than one independent budget. */
+.rs-provider-row .rs-limit {
+  display: grid;
+  align-items: center;
+  gap: 0.45rem;
+  height: var(--rs-provider-row-height);
+  min-width: 0;
+}
+
+.rs-model .rs-limit {
+  grid-template:
+    "meter meta" var(--rs-provider-row-height) /
+    minmax(0, 1fr) 9rem;
+}
+
+.rs-api .rs-limit {
+  grid-template:
+    "label meter meta" var(--rs-provider-row-height) /
+    3.5rem minmax(0, 1fr) 7rem;
+}
+
+.rs-provider-row .rs-meter {
+  grid-area: meter;
+  width: 100%;
+  height: var(--rs-provider-row-height);
+}
+
+.rs-provider-row .rs-limit-label {
+  grid-area: label;
+}
+
+.rs-provider-row .rs-limit-meta {
+  grid-area: meta;
+  justify-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-provider-row .rs-limit-label,
+.rs-provider-row .rs-limit-meta,
+.rs-provider-row .rs-stat-label,
+.rs-provider-row .rs-stat-val {
+  height: var(--rs-provider-row-height);
+  line-height: var(--rs-provider-row-height);
+}
+
+.rs-provider-row .rs-limit-meta {
+  white-space: nowrap;
+}
+
+.rs-limit-meta-compact {
+  display: none;
+}
+
+.rs-api .rs-limit-meta-wide {
+  display: none;
+}
+
+.rs-api .rs-limit-meta-compact {
+  display: inline;
+}
+
+.rs-provider-body > .rs-head-stats {
+  align-items: center;
+  align-self: start;
+  flex-wrap: nowrap;
+  gap: 0.55rem;
+  height: var(--rs-provider-row-height);
+  margin-left: 0;
+}
+
+.rs-provider-body .rs-stat {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+  height: var(--rs-provider-row-height);
+  white-space: nowrap;
+}
+
+.rs-provider-body > .rs-spend {
+  align-self: start;
+}
+
+/* The due amount remains visible and labelled for assistive technology; the
+   long visual label would take more width than the ElevenLabs meter itself. */
+.rs-elevenlabs .rs-head-stats .rs-stat-label {
+  display: none;
 }
 
 .rs-limit-top {
@@ -3941,8 +4048,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .github-quota-attribution,
-.github-quota-coverage,
-.github-quota-backoff {
+.github-quota-coverage {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -3952,7 +4058,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 /* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
    the same warning colour the meters use as they approach their ceiling. */
-.github-quota-backoff {
+.github-quota-backoff .rs-limit-label,
+.github-quota-backoff .rs-limit-meta {
   color: var(--warning, #d08a2a);
 }
 
@@ -4153,6 +4260,57 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
   .rs-name {
     font-size: 0.82rem;
+  }
+
+  .rs-models-rows,
+  .rs-apis-rows {
+    gap: 0.55rem 0.55rem;
+  }
+
+  .rs-provider-row > .rs-provider-body {
+    grid-template-columns: minmax(0, 1fr) 3.2rem 2.5rem;
+    gap: 0.35rem;
+  }
+
+  .rs-api > .rs-provider-body {
+    grid-template-columns: minmax(0, 1fr) 2.5rem;
+  }
+
+  .rs-provider-row .rs-limit {
+    gap: 0.3rem;
+  }
+
+  .rs-model .rs-limit {
+    grid-template-columns: minmax(0, 1fr) 6.5rem;
+  }
+
+  .rs-api .rs-limit {
+    grid-template-columns: 3rem minmax(0, 1fr) 5.8rem;
+  }
+
+  .rs-provider-row .rs-limit-label,
+  .rs-provider-row .rs-limit-meta,
+  .rs-provider-row .rs-stat-label {
+    font-size: 0.6rem;
+  }
+
+  .rs-provider-row .rs-stat-val {
+    font-size: 0.72rem;
+  }
+
+  /* At the dashboard's existing phone width the values and decorative token
+     glyphs remain, while their repeated headings move to the aria-label on the
+     containing stat. This keeps every meter on one fixed-height line. */
+  .rs-model .rs-stat-label {
+    display: none;
+  }
+
+  .rs-provider-row .rs-limit-meta-wide {
+    display: none;
+  }
+
+  .rs-provider-row .rs-limit-meta-compact {
+    display: inline;
   }
 }
 
