@@ -33,7 +33,10 @@ pre_warmed_sessions: 3
 # Cap (MB) on total ~/.aiur/logs size; oldest sessions swept every 5 min once exceeded. See Aiur.Logs.Retention.
 max_log_history_mb: 1000
 server:
-  host: 0.0.0.0
+  # Loopback only: external access arrives via Tailscale serve
+  # (https://orangekid.tailee0e71.ts.net) and the Cloudflare tunnel, so the
+  # dashboard is not exposed on the raw tailnet IPv4 over plain HTTP.
+  host: 127.0.0.1
   port: 4000
 workspace:
   root: ~/code/aiur-workspaces
@@ -41,8 +44,9 @@ hooks_file: hooks
 agent:
   # Ordered dispatch preference: presence enables a backend, the first available
   # entry is the default, and aiur falls back to the next one when a token or
-  # usage limit hits. DeepSeek first for the remaining Build Order #1567 work.
-  priority: [codex, deepseek, claude]
+  # usage limit hits. DeepSeek only (operator directive); codex/claude commented
+  # out below.
+  priority: [deepseek]
   # Required: deepseek is dispatch-disabled by default, so `priority` alone is ignored.
   deepseek:
     enabled: true
@@ -90,16 +94,17 @@ agent:
   #   3: "codex:terra:high"
   #   4: "codex:terra:xhigh"
   #   5: "codex:sol:max"
-  codex:
-    command: codex app-server
-    approval_policy: never
-    thread_sandbox: workspace-write
-    turn_sandbox_policy:
-      type: workspaceWrite
-      writableRoots:
-        - /home/orangekid/code/aiur-workspaces
-        - /tmp
-      networkAccess: true
+  # codex (commented out per operator directive — deepseek-only for now):
+  # codex:
+  #   command: codex app-server
+  #   approval_policy: never
+  #   thread_sandbox: workspace-write
+  #   turn_sandbox_policy:
+  #     type: workspaceWrite
+  #     writableRoots:
+  #       - /home/orangekid/code/aiur-workspaces
+  #       - /tmp
+  #     networkAccess: true
 opencode:
   command: opencode
   bridge_host: 127.0.0.1
