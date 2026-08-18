@@ -9,6 +9,11 @@ AGENTS.local.md
 .agent-label-restore.sh
 src/WORKFLOW.md
 
+# A test run can leave its durable rate-limit ledger beside the checked-in test
+# workflow fixture (src/test/fixtures/test.yaml); nothing else ignores that path,
+# so `git add -A` would commit it by accident (#2132).
+src/test/fixtures/model-usage.json
+
 # Per-machine scratch folder agents create while exercising opencode/codex.
 # Created by ad hoc smoke tests, not tracked.
 test-sandbox/

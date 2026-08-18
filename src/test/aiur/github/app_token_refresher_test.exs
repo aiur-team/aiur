@@ -76,7 +76,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
 
       name = unique_name()
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       assert AppTokenRefresher.current_token() == "ghs_installation_token_ok"
 
@@ -101,7 +101,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
           emit_fun: emit_fun
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       assert AppTokenRefresher.current_token() == nil
       refute_received {:alert, _, _, _}
@@ -133,7 +133,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
 
       name = unique_name()
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       # The cache is populated, so init only schedules; drive one refresh deterministically.
       send(pid, :refresh)
@@ -162,7 +162,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
 
       name = unique_name()
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       send(pid, :refresh)
       assert_receive {:alert, "system.github_app_token.refresh_failed", _, _}, 2_000
@@ -196,7 +196,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
 
       name = unique_name()
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       assert_receive {:alert, "system.github_app_token.permission_violation", message, opts}, 2_000
       assert opts[:needs_attention] == true
@@ -236,7 +236,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
 
       name = unique_name()
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       # init acquire fails -> one needs-attention alert.
       assert_receive {:alert, "system.github_app_token.refresh_failed", _, opts}, 2_000

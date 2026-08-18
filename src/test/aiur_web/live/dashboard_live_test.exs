@@ -532,7 +532,7 @@ defmodule AiurWeb.DashboardLiveTest do
         CountingOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot, publish?: false)
 
       on_exit(fn ->
-        if Process.alive?(restarted), do: GenServer.stop(restarted, :normal)
+        Aiur.TestSupport.safe_stop(restarted)
       end)
 
       generation = SnapshotStore.begin_generation(orchestrator_name)
