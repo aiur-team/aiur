@@ -19,6 +19,7 @@ defmodule Aiur.GitHub.CiReadiness do
   @default_timeout_ms 30_000
   @github_actions_app_id 15_368
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
+  @matrix_ref_regex ~r/\$\{\{\s*matrix\.([A-Za-z0-9_.-]+)\s*\}\}/
 
   @type issue ::
           :base_branch_missing
@@ -885,14 +886,114 @@ defmodule Aiur.GitHub.CiReadiness do
     with {:ok, workflow} <- YamlElixir.read_from_string(source), jobs when is_map(jobs) <- Map.get(workflow, "jobs") do
       jobs
       |> Enum.filter(fn {_id, job} -> job_runs_on_pull_request?(job) end)
-      |> Enum.map(&workflow_check_name/1)
+      |> Enum.flat_map(&job_check_names/1)
     else
       _ -> []
     end
   end
 
-  defp workflow_check_name({id, job}) do
-    if valid_name?(Map.get(job, "name")), do: Map.get(job, "name"), else: to_string(id)
+  # GitHub runs one check per matrix combination, each named by substituting the
+  # combination's values into the job `name` template. Without this expansion a
+  # `coverage (${{ matrix.partition }}/4)` job would never match the required
+  # `coverage (1/4)`..`(4/4)` checks and every repository using a named matrix
+  # job would be assessed as permanently not ready.
+  defp job_check_names({id, job}) do
+    name = if valid_name?(Map.get(job, "name")), do: Map.get(job, "name"), else: to_string(id)
+
+    case matrix_combinations(job) do
+      [] -> [name]
+      combinations -> Enum.map(combinations, &substitute_matrix(name, &1))
+    end
+  end
+
+  defp matrix_combinations(job) when is_map(job) do
+    case get_in(job, ["strategy", "matrix"]) do
+      matrix when is_map(matrix) and map_size(matrix) > 0 -> expand_matrix_combinations(matrix)
+      _ -> []
+    end
+  end
+
+  defp matrix_combinations(_job), do: []
+
+  defp expand_matrix_combinations(matrix) do
+    axes = Map.drop(matrix, ["include", "exclude"])
+
+    axes
+    |> cartesian_product()
+    |> reject_matrix_excludes(List.wrap(Map.get(matrix, "exclude")))
+    |> apply_matrix_includes(List.wrap(Map.get(matrix, "include")))
+  end
+
+  defp cartesian_product(axes) when map_size(axes) == 0, do: [%{}]
+
+  defp cartesian_product(axes) do
+    Enum.reduce(axes, [%{}], fn {key, values}, combinations ->
+      for combination <- combinations, value <- List.wrap(values), do: Map.put(combination, key, value)
+    end)
+  end
+
+  defp reject_matrix_excludes(combinations, excludes) do
+    Enum.reject(combinations, fn combination ->
+      Enum.any?(excludes, &matrix_entry_matches?(combination, &1))
+    end)
+  end
+
+  defp apply_matrix_includes(combinations, []) do
+    combinations
+  end
+
+  defp apply_matrix_includes(combinations, includes) do
+    combinations =
+      Enum.reduce(includes, combinations, fn entry, acc ->
+        case Enum.find_index(acc, &include_matches?(&1, entry)) do
+          nil -> [entry | acc]
+          index -> List.update_at(acc, index, &Map.merge(&1, entry))
+        end
+      end)
+
+    combinations |> Enum.reverse() |> Enum.uniq()
+  end
+
+  defp include_matches?(combination, entry) when is_map(combination) and is_map(entry) do
+    Enum.all?(Map.keys(combination), fn key ->
+      case Map.fetch(entry, key) do
+        {:ok, expected} -> Map.fetch!(combination, key) == expected
+        :error -> true
+      end
+    end)
+  end
+
+  defp include_matches?(_combination, _entry), do: false
+
+  defp matrix_entry_matches?(combination, entry) when is_map(combination) and is_map(entry) do
+    Enum.all?(entry, fn {key, expected} ->
+      case Map.fetch(combination, key) do
+        {:ok, actual} -> actual == expected
+        :error -> false
+      end
+    end)
+  end
+
+  defp matrix_entry_matches?(_combination, _entry), do: false
+
+  defp substitute_matrix(name, combination) do
+    Regex.replace(@matrix_ref_regex, name, fn
+      match, key ->
+        case resolve_matrix_value(combination, key) do
+          nil -> match
+          value when is_map(value) -> match
+          value -> to_string(value)
+        end
+    end)
+  end
+
+  defp resolve_matrix_value(combination, key) do
+    Enum.reduce_while(String.split(key, "."), combination, fn part, acc ->
+      case acc do
+        %{^part => value} -> {:cont, value}
+        _ -> {:halt, nil}
+      end
+    end)
   end
 
   defp job_runs_on_pull_request?(job) when is_map(job) do
