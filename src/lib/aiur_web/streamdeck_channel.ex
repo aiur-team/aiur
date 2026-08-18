@@ -6,7 +6,7 @@ defmodule AiurWeb.StreamdeckChannel do
   alias Aiur.{AgentChat, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
   alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
   # One captured frame is 100 ms of 16 kHz mono s16le PCM: 3,200 bytes, or 4,272
   # base64 characters. The ceiling is set an order of magnitude above that so a
@@ -51,6 +51,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
     socket = assign(socket, focused_agent: identifier, transcript_relay: relay)
     push(socket, "logs", logs_projection(identifier))
+    push(socket, "commands", commands_projection(identifier))
     {:reply, {:ok, %{"focused" => identifier}}, socket}
   end
 
@@ -83,6 +84,50 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   def handle_in("control", _payload, socket), do: {:reply, {:error, %{reason: "invalid_control"}}, socket}
+
+  # The Commands page pages through the focused agent's history with an opaque
+  # server cursor, so a device that reconnects mid-scroll resumes where it was
+  # without the client ever interpreting the store's cursor encoding.
+  def handle_in("commands_page", %{"cursor" => cursor}, %{assigns: %{focused_agent: identifier}} = socket)
+      when is_binary(identifier) and is_binary(cursor) and cursor != "" do
+    case StreamdeckCommands.history(identifier, cursor, store: command_store(socket)) do
+      {:ok, page} -> {:reply, {:ok, Map.put(page, "identifier", identifier)}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  def handle_in("commands_page", _payload, socket),
+    do: {:reply, {:error, %{reason: "invalid_commands_page"}}, socket}
+
+  # Records an operator answer given on the device.
+  #
+  # Attribution is the load-bearing decision: the operator physically pressing
+  # their own deck is the operator answering, so the durable record carries an
+  # `%{kind: :operator, id: "streamdeck"}` actor — never an Executor answer with
+  # an operator flavour. That is what lets the device answer `human_required`
+  # Commands the Executor cannot, while the dashboard shows a true operator
+  # answer. The device may only answer a Command for the agent it is currently
+  # focused on (focused-ticket enforcement), and it answers the exact `version`
+  # it read, so a retry after a dropped reply is an idempotent replay of the
+  # durable action rather than a second decision.
+  def handle_in(
+        "answer_command",
+        %{"decision_id" => decision_id, "idempotency_key" => idempotency_key, "version" => version} = payload,
+        %{assigns: %{focused_agent: identifier}} = socket
+      )
+      when is_binary(identifier) and is_binary(decision_id) and decision_id != "" and
+             is_binary(idempotency_key) and idempotency_key != "" and is_integer(version) and version > 0 do
+    with {:ok, answer} <- build_answer_payload(payload),
+         :ok <- validate_focused_command(socket, decision_id, identifier, version),
+         {:ok, result} <- record_command_answer(decision_id, answer) do
+      {:reply, {:ok, answer_result(result)}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  def handle_in("answer_command", _payload, socket),
+    do: {:reply, {:error, %{reason: "invalid_answer"}}, socket}
 
   # Delivers a spoken (device-transcribed) message to an agent through the same
   # `AgentChat.send/2` facade the dashboard chat box uses, so voice and typed
@@ -183,6 +228,18 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({:provider_meter_changed, %ProviderMeterSnapshot{} = snapshot}, socket) do
     push(socket, "usage", StreamdeckProjection.provider_meters(snapshot))
     {:noreply, socket}
+  end
+
+  def handle_info({:decision_changed, decision_id, _version}, %{assigns: %{focused_agent: identifier}} = socket)
+      when is_binary(identifier) do
+    socket = push_decisions(socket)
+
+    if focused_command?(socket, decision_id, identifier) do
+      push(socket, "commands", commands_projection(identifier))
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:decision_changed, _decision_id, _version}, socket), do: push_decisions(socket)
@@ -357,4 +414,106 @@ defmodule AiurWeb.StreamdeckChannel do
   defp logs_projection(identifier) do
     identifier |> StreamdeckLogs.load() |> StreamdeckLogs.wire()
   end
+
+  # The focused agent's Commands page. An unreadable store is projected as
+  # explicitly unavailable rather than as an empty history, so the device says
+  # "Commands unavailable" instead of silently showing no Commands for an agent
+  # that has them. It reads through the same endpoint-configured store as the
+  # interactive `commands_page`/`answer_command` handlers, so a configured
+  # (or injected) store is honoured on the focus push too.
+  defp commands_projection(identifier) do
+    case StreamdeckCommands.history(identifier, nil, store: command_store()) do
+      {:ok, page} -> Map.put(page, "identifier", identifier)
+      {:error, _reason} -> %{"identifier" => identifier, "unavailable" => true}
+    end
+  end
+
+  # A `decision_changed` broadcast carries only the decision id; the focused
+  # Command surface must be refreshed only when that decision belongs to the
+  # agent being watched, so the device is not repainted for every Command in
+  # the fleet.
+  defp focused_command?(socket, decision_id, identifier) do
+    case StreamdeckCommands.detail(decision_id, store: command_store(socket)) do
+      {:ok, item} -> get_in(item, ["ticket", "identifier"]) == identifier
+      {:error, _reason} -> false
+    end
+  rescue
+    _error -> false
+  catch
+    _kind, _reason -> false
+  end
+
+  # The device may only answer a Command that belongs to the agent it is
+  # currently focused on, and only the exact version it read. Fetching the
+  # decision here both enforces the boundary and lets the store's replay
+  # semantics decide duplicate-versus-conflict for a retried answer.
+  defp validate_focused_command(socket, decision_id, identifier, version) do
+    case StreamdeckCommands.detail(decision_id, store: command_store(socket)) do
+      {:ok, item} ->
+        cond do
+          get_in(item, ["ticket", "identifier"]) != identifier ->
+            {:error, :command_not_focused}
+
+          Map.get(item, "version") != version ->
+            {:error, {:stale_version, version, Map.get(item, "version")}}
+
+          Map.get(item, "status") in ["expired", "resolved"] ->
+            {:error, {:not_answerable, Map.get(item, "status")}}
+
+          true ->
+            :ok
+        end
+
+      {:error, :not_found} ->
+        {:error, :not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp record_command_answer(decision_id, answer) do
+    store = command_store()
+    actor = StreamdeckCommands.actor()
+
+    # `store` is the decision server — a module or a pid — so the answer must
+    # go through `Aiur.DecisionStore.answer/5` with the server passed as the
+    # fourth argument, exactly as the dashboard's decision commands do. Calling
+    # `store.answer/4` would `apply/3` a pid as a module and fail.
+    case Aiur.DecisionStore.answer(decision_id, answer, [actor: actor], store) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    error -> {:error, {:answer_failed, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:store_unavailable, reason}}
+  end
+
+  defp answer_result(%{status: status, decision: decision}) do
+    %{"status" => Atom.to_string(status), "decision" => StreamdeckCommands.item(decision)}
+  end
+
+  defp answer_result(result), do: result
+
+  # Exactly one of option_id or custom_response, mirroring the CLI's
+  # `executor-answer --option|--custom-response` contract so the custom-response
+  # path maps onto an already-supported operation.
+  defp build_answer_payload(%{"option_id" => option_id, "version" => version, "idempotency_key" => key})
+       when is_binary(option_id) and option_id != "" do
+    {:ok, %{"idempotency_key" => key, "expected_version" => version, "option_id" => option_id}}
+  end
+
+  defp build_answer_payload(%{"custom_response" => text, "version" => version, "idempotency_key" => key})
+       when is_binary(text) do
+    case String.trim(text) do
+      "" -> {:error, :empty_custom_response}
+      text -> {:ok, %{"idempotency_key" => key, "expected_version" => version, "custom_response" => text}}
+    end
+  end
+
+  defp build_answer_payload(_payload), do: {:error, :invalid_answer}
+
+  defp command_store(_socket), do: command_store()
+  defp command_store, do: Endpoint.config(:decision_store) || Aiur.DecisionStore
 end
