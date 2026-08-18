@@ -212,9 +212,8 @@ defmodule AiurWeb.GithubCacheLive do
   # when the sampler is absent, so the double exists for determinism, not for
   # safety.
   defp history do
-    :aiur
-    |> Application.get_env(:github_cache_history_provider, CacheHistory)
-    |> apply(:samples, [])
+    provider = Application.get_env(:aiur, :github_cache_history_provider, CacheHistory)
+    provider.samples()
   rescue
     _unavailable -> []
   catch
