@@ -1780,6 +1780,42 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.dir?(worktree)
   end
 
+  test "git worktree remove still removes an idle, clean worktree", context do
+    # The guard must not refuse the legitimate case: an idle worktree with no
+    # uncommitted work is safe to remove, so the protection is a refusal of the
+    # dangerous cases, not a blanket ban on `worktree remove`.
+    worktree = make_workspace_worktree(context, "wt-clean")
+
+    assert {_output, 0} =
+             run_git_guard(context, ["-C", context.workspace, "worktree", "remove", worktree])
+
+    refute File.dir?(worktree)
+  end
+
+  test "git's own --force cannot bypass the uncommitted-changes refusal", context do
+    # The override is deliberately a distinct flag. git requires `--force` for
+    # a dirty removal anyway, so if `--force` also satisfied the guard, a
+    # coordinator reflexively passing it would bypass the protection entirely.
+    # Only the guard's own `--aiur-remove-dirty` acknowledges the irreversible
+    # loss of uncommitted work.
+    worktree = make_workspace_worktree(context, "wt-force")
+    File.write!(Path.join(worktree, "tracked.txt"), "dirty\n")
+
+    assert {output, 64} =
+             run_git_guard(context, [
+               "-C",
+               context.workspace,
+               "worktree",
+               "remove",
+               worktree,
+               "--force"
+             ])
+
+    assert output =~ "has uncommitted changes"
+    assert output =~ "--aiur-remove-dirty"
+    assert File.dir?(worktree)
+  end
+
   test "git worktree remove refuses a worktree with a live process rooted in it, naming the pid", context do
     if match?({:unix, :linux}, :os.type()) do
       worktree = make_workspace_worktree(context, "wt-live")
@@ -1813,14 +1849,15 @@ defmodule Aiur.AgentGitHubGuardTest do
   end
 
   test "the worktree protection applies to a plain-shell caller outside .aiur-runtime/bin", context do
-    host_wrapper = install_host_wrapper(context)
+    host_bin = install_host_wrapper(context)
     {main, worktree} = make_host_worktree(context)
     File.write!(Path.join(worktree, "tracked.txt"), "dirty\n")
 
-    # A plain shell resolves `git` straight from PATH: no AIUR_REAL_GIT, no
-    # workspace marker. The host wrapper resolves the real executable itself
-    # and still refuses the removal.
-    assert {output, 64} = run_host_guard(host_wrapper, main, ["worktree", "remove", worktree])
+    # A plain operator shell resolves the bare `git` through PATH: `~/.aiur/bin`
+    # prepended, no AIUR_REAL_GIT, no workspace marker. The host wrapper
+    # resolves the real executable from the rest of PATH itself and still
+    # refuses the removal.
+    assert {output, 64} = run_host_guard(host_bin, main, ["worktree", "remove", worktree])
     assert output =~ "has uncommitted changes"
     assert output =~ "--aiur-remove-dirty"
     assert File.dir?(worktree)
@@ -1828,13 +1865,13 @@ defmodule Aiur.AgentGitHubGuardTest do
 
   test "a plain-shell caller cannot remove a live worktree either", context do
     if match?({:unix, :linux}, :os.type()) do
-      host_wrapper = install_host_wrapper(context)
+      host_bin = install_host_wrapper(context)
       {main, worktree} = make_host_worktree(context)
       {port, pid} = spawn_rooted_sibling(worktree, "sleep 60")
       on_exit(fn -> stop_rooted_sibling(port, pid) end)
       :ok = wait_rooted(pid, worktree)
 
-      assert {output, 64} = run_host_guard(host_wrapper, main, ["worktree", "remove", worktree])
+      assert {output, 64} = run_host_guard(host_bin, main, ["worktree", "remove", worktree])
       assert output =~ "pid #{pid} is rooted in"
       assert File.dir?(worktree)
       stop_rooted_sibling(port, pid)
@@ -1844,11 +1881,11 @@ defmodule Aiur.AgentGitHubGuardTest do
   end
 
   test "the host wrapper passes every non-worktree command through untouched", context do
-    host_wrapper = install_host_wrapper(context)
+    host_bin = install_host_wrapper(context)
     {main, _worktree} = make_host_worktree(context)
 
-    assert {"tracked\n", 0} = run_host_guard(host_wrapper, main, ["show", "HEAD:tracked.txt"])
-    assert {_output, 0} = run_host_guard(host_wrapper, main, ["status", "--short"])
+    assert {"tracked\n", 0} = run_host_guard(host_bin, main, ["show", "HEAD:tracked.txt"])
+    assert {_output, 0} = run_host_guard(host_bin, main, ["status", "--short"])
   end
 
   # #1793: 29 tickets were filed mid-run with no `agent:*` label. Each one was
@@ -2739,14 +2776,15 @@ defmodule Aiur.AgentGitHubGuardTest do
 
   # A wrapper installed outside `<workspace>/.aiur-runtime/bin`, the shape the
   # host-level install (`~/.aiur/bin/git`, alongside `aiurdev`) takes for a
-  # plain-shell caller.
+  # plain-shell caller. Returns the host bin directory so the caller can prepend
+  # it to PATH exactly as an operator shell would.
   defp install_host_wrapper(context) do
     host_bin = Path.join(context.workspace, "host-bin")
     File.mkdir_p!(host_bin)
     host_wrapper = Path.join(host_bin, "git")
     File.cp!(context.git_wrapper, host_wrapper)
     File.chmod!(host_wrapper, 0o755)
-    host_wrapper
+    host_bin
   end
 
   defp make_host_worktree(context) do
@@ -2763,14 +2801,25 @@ defmodule Aiur.AgentGitHubGuardTest do
     {main, worktree}
   end
 
-  # Invoke the host wrapper the way a plain shell would: no AIUR_REAL_GIT, no
-  # workspace marker. The wrapper resolves the real git from PATH on its own.
-  defp run_host_guard(host_wrapper, main, args) do
-    System.cmd(host_wrapper, args,
+  # Invoke `git` the way a plain operator shell would: the host bin directory
+  # prepended to PATH so the bare `git` resolves to the host wrapper, and no
+  # AIUR_REAL_GIT or workspace marker. The wrapper resolves the real executable
+  # from the rest of PATH on its own.
+  defp run_host_guard(host_bin, main, args) do
+    script = "exec git " <> Enum.map_join(args, " ", &shell_quote/1)
+
+    System.cmd("sh", ["-c", script],
       cd: main,
-      env: [{"AIUR_REAL_GIT", nil}],
+      env: [
+        {"PATH", host_bin <> ":" <> (System.get_env("PATH") || "")},
+        {"AIUR_REAL_GIT", nil}
+      ],
       stderr_to_stdout: true
     )
+  end
+
+  defp shell_quote(arg) do
+    "'" <> String.replace(arg, "'", "'\\''") <> "'"
   end
 
   # A "sibling wrapper" process rooted in a worktree: the spawned command line
