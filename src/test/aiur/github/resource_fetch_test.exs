@@ -388,10 +388,11 @@ defmodule Aiur.GitHub.ResourceFetchTest do
   end
 
   # Since #2106 the webhook pipe deposits bodies for `:issue`, `:pull_request`,
-  # comments and `:check_run` on every delivery, so a revalidation and a delivery
-  # now contend on exactly the same keys. A `304` confirms the validator this
-  # caller sent against the body this caller held — it says nothing about a body
-  # somebody else deposited a microsecond ago, and must not roll it back.
+  # comments, `:branch_pull_request` and `:pr_review` on every delivery, so a
+  # revalidation and a delivery now contend on exactly the same keys. A `304`
+  # confirms the validator this caller sent against the body this caller held —
+  # it says nothing about a body somebody else deposited a microsecond ago, and
+  # must not roll it back.
   describe "a revalidation racing a concurrent deposit" do
     test "never rolls the held body backwards, and never loses a deposit" do
       key = key(30)

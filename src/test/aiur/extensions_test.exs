@@ -201,7 +201,12 @@ defmodule Aiur.ExtensionsTest do
     assert {:ok, %{prompt: "Second prompt"}, ^generation} =
              WorkflowStore.current_with_generation()
 
-    File.write!(Workflow.workflow_file_path(), "tracker: [\n")
+    # Write the malformed config atomically: a plain `File.write!/2` truncates
+    # first, and the store's background poll could read and commit the empty
+    # intermediate (empty YAML parses to valid defaults) before the synchronous
+    # reload below sees the malformed bytes — replacing last-known-good and
+    # failing the "keeps last good workflow" guarantee (#1635).
+    write_workflow_file_atomic!(Workflow.workflow_file_path(), "tracker: [\n")
     assert {:error, _reason} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
 
@@ -255,7 +260,7 @@ defmodule Aiur.ExtensionsTest do
     path = Workflow.workflow_file_path()
     valid_config = File.read!(path)
 
-    File.write!(path, "tracker: [\n")
+    write_workflow_file_atomic!(path, "tracker: [\n")
 
     writer =
       Task.async(fn ->
@@ -320,7 +325,7 @@ defmodule Aiur.ExtensionsTest do
     assert Process.alive?(manual_pid)
 
     state = :sys.get_state(manual_pid)
-    File.write!(manual_path, "tracker: [\n")
+    write_workflow_file_atomic!(manual_path, "tracker: [\n")
     assert {:noreply, returned_state} = WorkflowStore.handle_info(:poll, state)
     assert returned_state.workflow.prompt == "Manual workflow prompt"
     refute returned_state.stamp == nil

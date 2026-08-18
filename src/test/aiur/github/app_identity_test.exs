@@ -111,7 +111,7 @@ defmodule Aiur.GitHub.AppIdentityTest do
 
       name = :"app_identity_test_#{System.unique_integer([:positive])}"
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       assert_receive {:alert, "system.github_app_token.identity_mismatch", message, opts}, 2_000
       assert Keyword.get(opts, :needs_attention) == true
@@ -130,7 +130,7 @@ defmodule Aiur.GitHub.AppIdentityTest do
 
       name = :"app_identity_test_#{System.unique_integer([:positive])}"
       {:ok, pid} = AppTokenRefresher.start_link(name: name, request_fun: request_fun, emit_fun: emit_fun)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       refute_receive {:alert, "system.github_app_token.identity_mismatch", _, _}, 300
     end
@@ -151,7 +151,7 @@ defmodule Aiur.GitHub.AppIdentityTest do
           emit_fun: emit_fun
         )
 
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       refute_receive {:alert, "system.github_app_token.identity_mismatch", _, _}, 300
     end

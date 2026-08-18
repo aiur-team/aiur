@@ -1,7 +1,7 @@
 defmodule Aiur.ExecutorBindingsTest do
   use Aiur.TestSupport
 
-  alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorBindings
   alias Aiur.ExecutorEvents
   alias Aiur.JsonStore
@@ -29,7 +29,7 @@ defmodule Aiur.ExecutorBindingsTest do
   end
 
   test "reconciliation prunes stale auto entries but preserves manual entries" do
-    path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.subscriptions.json")
+    path = StatePaths.subscriptions_path()
 
     JsonStore.write!(path, %{
       "subscribed_to" => [

@@ -720,8 +720,8 @@ defmodule Aiur.Regression.GithubIngestionTest do
         publisher: publisher
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(agent) end)
     {pid, repo}
   end
 
@@ -752,7 +752,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
   end
 
   defp stop_codeowners(%{pid: pid, path: path, owned?: true}) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
+    Aiur.TestSupport.safe_stop(pid)
     File.rm(path)
   end
 

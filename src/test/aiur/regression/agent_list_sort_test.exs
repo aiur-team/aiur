@@ -50,7 +50,7 @@ defmodule Aiur.Regression.AgentListSortTest do
     ]
 
     {:ok, app} = App.start_link(app_opts)
-    on_exit(fn -> if Process.alive?(app), do: GenServer.stop(app) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(app) end)
     %{app: app}
   end
 

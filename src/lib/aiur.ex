@@ -181,8 +181,17 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
-    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+    _executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
+
+    # Always true for a real run. The unit-test singleton turns it off so the
+    # shared app process does not hold a VM-wide inbox and listener that every
+    # case would then contend on; cases that exercise recording supervise their
+    # own pair against their own isolated state directory.
+    recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
+
+    recording_children =
+      if recording?, do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener], else: []
 
     cli_children =
       if interactive_cli? do
@@ -308,12 +317,16 @@ defmodule Aiur.Application do
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
       Aiur.Logs.Retention,
-      # The daemon-resident Executor listener (the Command inbox) is started only
-      # for an Executor-owned run (`--executor`). It must come after the Exchange
-      # and the Publisher it subscribes to and alerts through, so it sits at the
-      # end of the always-on block.
-      if(executor_mode?, do: Aiur.ExecutorWakeInbox),
-      if(executor_mode?, do: Aiur.ExecutorListener),
+      # The daemon-resident Executor recording path is armed on EVERY run, with
+      # or without `--executor`. Recording is the only part that cannot be added
+      # after the fact: a run that did not record leaves an agent arriving later
+      # with nothing to replay, and that cost is invisible when it is incurred.
+      # `--executor` now governs authority (and Command alerting), not whether
+      # anything is written down. These come after the Exchange and the
+      # Publisher they subscribe to, so they sit at the end of the always-on
+      # block. `Claims` starts first: it arbitrates who may advance the shared
+      # cursor the inbox owns.
+      recording_children,
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
@@ -326,6 +339,7 @@ defmodule Aiur.Application do
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor
     ]
+    |> List.flatten()
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
   end
