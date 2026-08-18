@@ -1499,9 +1499,15 @@ defmodule Aiur.AgentControlCLI do
   # polled and found no work. Idle backoff active or a failed candidate fetch
   # both mean the fleet has not looked recently enough to see work that
   # appeared — and blaming ticket supply there is the false explanation #2138
-  # is about. Say what is actually true instead.
-  defp capacity_binding_label({:has_not_polled, %{next_poll_in_ms: next_ms}}) when is_integer(next_ms),
-    do: "has not polled yet (POLL backed off, next poll in #{poll_seconds(next_ms)}s)"
+  # is about. Say what is actually true instead, and keep the ceiling source
+  # visible so a restart that dropped a live `set max-agents` reads as
+  # config-sourced rather than as the operator's last command (#2138).
+  defp capacity_binding_label({:has_not_polled, %{next_poll_in_ms: next_ms, ceiling: ceiling}})
+       when is_integer(next_ms),
+       do: "has not polled yet (POLL backed off, next poll in #{poll_seconds(next_ms)}s; ceiling: #{ceiling})"
+
+  defp capacity_binding_label({:has_not_polled, %{ceiling: ceiling}}),
+    do: "has not polled yet (ceiling: #{ceiling})"
 
   defp capacity_binding_label({:has_not_polled, _detail}), do: "has not polled yet"
 
@@ -1621,10 +1627,10 @@ defmodule Aiur.AgentControlCLI do
         {:ticket_supply, %{ceiling: capacity_ceiling_label(capacity)}}
 
       {:backed_off, next_poll_in_ms} ->
-        {:has_not_polled, %{next_poll_in_ms: next_poll_in_ms}}
+        {:has_not_polled, %{next_poll_in_ms: next_poll_in_ms, ceiling: capacity_ceiling_label(capacity)}}
 
       :fetch_failed ->
-        {:has_not_polled, %{}}
+        {:has_not_polled, %{ceiling: capacity_ceiling_label(capacity)}}
     end
   end
 

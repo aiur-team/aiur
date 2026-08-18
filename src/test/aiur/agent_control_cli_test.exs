@@ -674,7 +674,9 @@ defmodule Aiur.AgentControlCLITest do
         AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
       end)
 
-    assert output =~ "AGENTS 0/2 (binding: has not polled yet (POLL backed off, next poll in 590s))"
+    assert output =~
+             "AGENTS 0/2 (binding: has not polled yet (POLL backed off, next poll in 590s; ceiling: config max_concurrent_agents))"
+
     refute output =~ "binding: ticket supply"
   end
 
@@ -700,7 +702,7 @@ defmodule Aiur.AgentControlCLITest do
         AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
       end)
 
-    assert output =~ "AGENTS 0/2 (binding: has not polled yet)"
+    assert output =~ "AGENTS 0/2 (binding: has not polled yet (ceiling: config max_concurrent_agents))"
     refute output =~ "binding: ticket supply"
   end
 
