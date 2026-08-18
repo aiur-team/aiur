@@ -278,7 +278,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter do
   end
 
   defp caveat_sentence(:partial), do: "Results may be incomplete."
-  defp caveat_sentence(:stale), do: "Showing the last validated snapshot; refresh unconfirmed."
+  defp caveat_sentence(:stale), do: "Showing the outcomes we last read; the refresh did not confirm."
   defp caveat_sentence(_state), do: ""
 
   defp reasons_sentence(view) do

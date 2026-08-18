@@ -48,7 +48,19 @@ defmodule Aiur.ConfigurationReferenceTest do
     agent.rate_limit_primary
     alerts.alerts_file
     server.host
+    build_order.ticket_detail_freshness_ms
+    build_order.graph_catalog_refresh_ms
+    build_order.graph_catalog_labels_refresh_ms
   )
+
+  # The three `build_order` rows above are here for the reason this list exists:
+  # their default is `nil` in the struct precisely because it is resolved
+  # elsewhere — `Aiur.BuildOrder.Cadence` derives it from
+  # `polling.interval_seconds`. Comparing the documented value against
+  # `struct!(module)` would only ever assert that the reference says "nil", which
+  # is the one thing an operator does not need to read. The derivation itself is
+  # checked against the reference in `Aiur.BuildOrder.CadenceTest`, so removing it
+  # from here does not remove the machine check.
 
   @documented_defaults for {prefix, module} <- @schema_sections,
                            field <- module.__schema__(:fields) -- module.__schema__(:embeds),
@@ -67,6 +79,28 @@ defmodule Aiur.ConfigurationReferenceTest do
                  "schema default is #{inspect(actual)}"
       end
     end
+  end
+
+  # Moving a key into `@contextual_defaults` removes it from the comparison
+  # above — and the comparison's own `flunk` branch went with it, so the row
+  # could be deleted from the reference with nothing failing. That is how three
+  # `build_order` rows became unchecked. The value cannot be compared with
+  # `struct!/1` for these keys, but its presence can, and presence is what the
+  # dropped `flunk` used to guarantee.
+  describe "contextually defaulted keys" do
+    for key <- @contextual_defaults do
+      test "the reference still documents #{key}" do
+        assert documented_row_count(unquote(key)) == 1,
+               "configuration reference has #{documented_row_count(unquote(key))} rows for " <>
+                 "#{unquote(key)}; a contextually defaulted key is still a documented key"
+      end
+    end
+  end
+
+  defp documented_row_count(key) do
+    ~r/^\| `#{Regex.escape(key)}` \|/m
+    |> Regex.scan(@configuration_reference)
+    |> length()
   end
 
   defp documented_default(key) do

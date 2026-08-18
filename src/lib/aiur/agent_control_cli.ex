@@ -14,6 +14,7 @@ defmodule Aiur.AgentControlCLI do
     ExecutorEvents,
     ExecutorListener,
     ExecutorWakeInbox,
+    GitHubCostCLI,
     Issue,
     Orchestrator,
     PauseContainment,
@@ -317,6 +318,11 @@ defmodule Aiur.AgentControlCLI do
   @spec analytics(keyword()) :: :ok
   def analytics(opts \\ []) do
     guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec github_cost(keyword()) :: :ok
+  def github_cost(opts \\ []) do
+    guarded("github-cost", fn -> GitHubCostCLI.run(opts) |> exit_marker() end)
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
@@ -1439,9 +1445,13 @@ defmodule Aiur.AgentControlCLI do
   # short-window CPU sample before it can identify real contention.
   defp print_load_status(%{load: load, load_threshold: threshold, schedulers: schedulers})
        when is_number(load) and is_number(threshold) and is_integer(schedulers) and schedulers > 0 do
+    # The bare threshold check, deliberately: this line reports whether the
+    # LOCAL sample is over the local ceiling. It must not call the admission
+    # reason, which needs the daemon's short-window CPU measurement and
+    # dispatches without one (#2089).
     suffix =
-      case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
-        {:hold, _reason} ->
+      case DispatchPolicy.load_gate(load, threshold, schedulers) do
+        :hold ->
           " (local host sample; over load threshold, daemon corroborates CPU contention before holding)"
 
         :dispatch ->

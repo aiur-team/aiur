@@ -240,7 +240,7 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
       root_limit: 100,
       page_budget: 4,
       call_budget: 4,
-      options: [catalog_refresh_ms: 60_000, selected_refresh_ms: 15_000, demand_refresh_ms: 5_000]
+      options: [catalog_refresh_ms: 60_000]
     }
   end
 

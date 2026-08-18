@@ -25,7 +25,7 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
     awaiting: nil,
     awaiting_blocking: nil,
     deferred: nil,
-    health: %{status: :unavailable, label: "Retained Command counts unavailable"}
+    health: %{status: :unavailable, label: "Command counts unavailable"}
   }
 
   @tick_ms 10_000

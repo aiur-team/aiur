@@ -33,6 +33,23 @@ def connection(path):
     os.chmod(directory, 0o700)
     conn = sqlite3.connect(path, timeout=5, isolation_level=None)
     os.chmod(path, 0o600)
+    # The daemon and up to sixteen agents open this file at once, and the claim
+    # check added for #2073 U6 puts every cacheable agent read through it. Under
+    # the rollback journal a reader blocks a writer and a writer blocks every
+    # reader, so admission latency grows with fleet size for no reason.
+    #
+    # Attempted with NO busy timeout, and before the real one is installed.
+    # Converting the journal takes a brief exclusive lock, so against a database
+    # somebody else is holding this would otherwise wait the full timeout on
+    # every single open — and the orchestrator, whose whole request deadline is
+    # shorter than that, would be stranded by a lock it is not even contending
+    # for. Failing instantly is the correct answer: the journal mode is a
+    # throughput preference, and a database already open elsewhere either is
+    # already in WAL or will be converted by whoever opens it uncontended.
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+    except sqlite3.DatabaseError:
+        pass
     conn.execute("PRAGMA busy_timeout = 5000")
     conn.executescript(
         """
@@ -72,6 +89,14 @@ def connection(path):
           PRIMARY KEY (token_key, consumer_key)
         );
         CREATE INDEX IF NOT EXISTS policies_token_observed ON policies(token_key, observed_at_ms);
+        CREATE TABLE IF NOT EXISTS cache_claims (
+          token_key TEXT NOT NULL,
+          cache_key TEXT NOT NULL,
+          lease_id TEXT NOT NULL,
+          expires_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (token_key, cache_key)
+        );
+        CREATE INDEX IF NOT EXISTS cache_claims_lease ON cache_claims(lease_id);
         """
     )
     return conn
@@ -82,6 +107,10 @@ def cleanup(conn, now):
     conn.execute("DELETE FROM admissions WHERE admitted_at_ms < ?", (now - 120000,))
     conn.execute("DELETE FROM resource_holds WHERE until_ms <= ?", (now,))
     conn.execute("DELETE FROM policies WHERE observed_at_ms < ?", (now - POLICY_TTL_MS,))
+    # A claim outlives its holder only until it expires. A leader killed between
+    # taking the claim and publishing its answer must not wedge the followers, so
+    # the claim is a lease with a deadline rather than a lock with an owner.
+    conn.execute("DELETE FROM cache_claims WHERE expires_at_ms <= ?", (now,))
 
 
 def acquire(args):
@@ -126,6 +155,26 @@ def acquire(args):
             resource_hold = conn.execute(
                 "SELECT until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
             ).fetchone()
+        # SINGLE FLIGHT (#2073 U6). Thirteen agents asking for one pull request in
+        # the same moment are thirteen separate processes with nothing between
+        # them but this transaction, so this is where they are made into one
+        # upstream call. The first to arrive claims the resource and fetches it;
+        # the others are told to wait and, because the leader writes its answer to
+        # the shared response store before releasing, they find that answer on
+        # their next look and never reach GitHub at all.
+        #
+        # A follower is refused BEFORE any admission accounting: it takes no
+        # lease, burns no request-per-minute slot and does not move the stagger.
+        # Otherwise twelve followers would still consume the concurrency the
+        # coalescing exists to give back.
+        cache_key = getattr(args, "cache_key", None)
+        cache_claim = None
+        if cache_key and not args.cache_ignore_claim:
+            cache_claim = conn.execute(
+                "SELECT expires_at_ms FROM cache_claims WHERE token_key = ? AND cache_key = ?",
+                (args.token_key, cache_key),
+            ).fetchone()
+
         token_hold = 0 if args.ignore_token_cooldown else cooldown
         hold_until = max(token_hold, resource_hold[0] if resource_hold and resource_hold[0] else 0)
 
@@ -138,6 +187,19 @@ def acquire(args):
         if hold_until > now:
             conn.execute("COMMIT")
             print(f"wait {hold_until - now}")
+            return
+
+        # Checked AFTER the cooldown branch above, so a follower waiting behind
+        # another agent's identical fetch is never given the claim's short wait in
+        # place of the hold's long one. Answered the other way round, a fleet in a
+        # rate-limit backoff would re-enter this transaction every ~100 ms per
+        # follower — dozens of SQLite writes a second during exactly the incident
+        # the backoff exists to quieten.
+        if cache_claim and cache_claim[0] > now:
+            # Short so the follower notices the leader's answer promptly, and
+            # never longer than the claim itself can live.
+            conn.execute("COMMIT")
+            print(f"wait {jitter_wait(min(100, cache_claim[0] - now))}")
             return
 
         total = conn.execute("SELECT COUNT(*) FROM leases WHERE token_key = ?", (args.token_key,)).fetchone()[0]
@@ -196,6 +258,14 @@ def acquire(args):
         conn.execute(
             "UPDATE budgets SET next_admission_ms = ? WHERE token_key = ?", (now + stagger, args.token_key)
         )
+        if cache_key:
+            # `REPLACE` rather than `INSERT`: `--cache-ignore-claim` deliberately
+            # overtakes a claim whose leader a follower has already waited out, and
+            # that follower becomes the new leader for everybody behind it.
+            conn.execute(
+                "INSERT OR REPLACE INTO cache_claims(token_key, cache_key, lease_id, expires_at_ms) VALUES (?, ?, ?, ?)",
+                (args.token_key, cache_key, lease_id, now + args.cache_claim_ttl_ms),
+            )
         conn.execute("COMMIT")
         print(f"granted {lease_id}")
     except Exception:
@@ -214,6 +284,10 @@ def release(args):
     conn = connection(args.db)
     try:
         conn.execute("DELETE FROM leases WHERE lease_id = ?", (args.lease_id,))
+        # The claim goes with the lease. The caller releases only after its answer
+        # is in the shared response store, so a follower admitted by this release
+        # finds the answer rather than paying for it again.
+        conn.execute("DELETE FROM cache_claims WHERE lease_id = ?", (args.lease_id,))
     finally:
         conn.close()
 
@@ -315,6 +389,10 @@ def parser():
     acquire_parser.add_argument("--requests-per-minute", type=lambda value: clamp(value, 1, 10000), required=True)
     acquire_parser.add_argument("--stagger-ms", type=lambda value: clamp(value, 0, 5000), required=True)
     acquire_parser.add_argument("--lease-ttl-ms", type=lambda value: clamp(value, 1000, 3600000), required=True)
+    # Coalescing (#2073 U6). Absent, admission behaves exactly as it did before.
+    acquire_parser.add_argument("--cache-key", default=None)
+    acquire_parser.add_argument("--cache-claim-ttl-ms", type=lambda value: clamp(value, 1000, 600000), default=35000)
+    acquire_parser.add_argument("--cache-ignore-claim", action="store_true")
     acquire_parser.set_defaults(fun=acquire)
 
     release_parser = commands.add_parser("release", parents=[common])

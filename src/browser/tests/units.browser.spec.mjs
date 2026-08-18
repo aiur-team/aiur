@@ -654,7 +654,7 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.locator(`#${agentLogId}`)).toBeFocused()
   await expect(page.getByText('Responsive Units interface · updated')).toBeVisible()
   await expect(page.locator('#units-status')).not.toHaveText(announcementBefore)
-  await expect(page.locator('#units-status')).toContainText(/Catalog update [a-f0-9]{10}/)
+  await expect(page.locator('#units-status')).toContainText(/Update [a-f0-9]{10}/)
   // The catalog owns exactly one announcement channel. The Tickets panel has
   // its own, which stays silent unless the operator searches, so this is scoped
   // to the catalog's rather than counting every polite region on the page.

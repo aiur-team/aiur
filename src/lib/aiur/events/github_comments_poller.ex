@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   require Logger
 
   alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, ResourceStore}
 
   @type target :: String.t() | integer()
   @default_max_concurrency 4
@@ -196,14 +196,18 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
+        resource = ResourceStore.key_for_repo(:issue_comments, repo, target)
+        {etag, provenance} = request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(target, request_opts) do
           {:ok, comments, next_etag} ->
-            {publish_issue_comments(target, comments, repo), newest_comment_datetime(comments), :ok, next_etag}
+            count = publish_issue_comments(target, comments, repo)
+            remember_list(resource, comments, next_etag)
+            {count, newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
-            {0, nil, :ok, next_etag}
+            unchanged_issue_comments(target, resource, provenance, next_etag, repo)
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller issue comments failed: issue=#{target} reason=#{inspect(reason)}")
@@ -211,6 +215,107 @@ defmodule Aiur.Events.GithubCommentsPoller do
             {0, nil, {:error, {:issue_comments, reason}}, etag}
         end
     end
+  end
+
+  # The cycle's own map wins when it has an entry — it is the newest thing this
+  # daemon knows. The store answers only for a target the in-memory map has
+  # never seen, which after a restart is every target: without it the first
+  # sweep of every boot re-reads every watched ticket's whole comment list at
+  # full price, and restarts here are routine rather than rare.
+  #
+  # Where the validator came from is returned with it, because it decides what a
+  # `304` against it is allowed to mean. A `:cycle` validator was minted by a
+  # `200` this daemon already published, so "unchanged" is the truth and there is
+  # nothing to recover. A `:store` validator may have outlived the publish it was
+  # recorded beside, so "unchanged" alone is not enough — see `unchanged_list/2`.
+  defp request_etag(_resource, etag) when is_binary(etag) and etag != "", do: {etag, :cycle}
+  defp request_etag(resource, _etag), do: {ResourceStore.etag(resource), :store}
+
+  # The list *and* its validator, deposited together and only after the comments
+  # in it were published.
+  #
+  # A validator on its own is not safe to hold here. It is an endpoint-level
+  # validator, so GitHub answering `304` to it suppresses the whole list at once
+  # and no per-comment reconciliation can see inside that answer. Recording one
+  # before publishing therefore had a routine loss: `ResourceStore` starts before
+  # `Publisher` and this poller, so on SIGTERM the poller dies first while the
+  # store checkpoints last, and a comment read but not yet published came back to
+  # a validator GitHub was right to answer `304` to and a store holding nothing.
+  # No exception was needed for that.
+  #
+  # Depositing the body closes it from the other side: the next `304` is served
+  # from the store and publishes exactly what a `200` would have, so a cycle that
+  # dies between the read and the publish loses nothing, and the recovery costs
+  # no request. Publishing first as well means the crash window contains no
+  # validator at all, and the sweep after it is unconditional.
+  defp remember_list(resource, comments, etag) when is_list(comments) do
+    ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
+    etag
+  end
+
+  defp remember_list(_resource, _comments, etag), do: etag
+
+  defp unchanged_issue_comments(target, resource, provenance, next_etag, repo) do
+    case unchanged_list(resource, provenance) do
+      {:ok, comments} ->
+        count = publish_issue_comments(target, comments, repo)
+        remember_list(resource, comments, next_etag)
+        {count, nil, :ok, next_etag}
+
+      :nothing_to_recover ->
+        {0, nil, :ok, next_etag}
+
+      :unusable_validator ->
+        {0, nil, :ok, forget_validator(resource)}
+    end
+  end
+
+  defp unchanged_pr_issue_comments(target, pr_number, resource, {provenance, next_etag}, repo, review_context) do
+    case unchanged_list(resource, provenance) do
+      {:ok, comments} ->
+        count = publish_pr_issue_comments(target, pr_number, comments, repo, review_context)
+        remember_list(resource, comments, next_etag)
+        {count, nil, :ok, next_etag}
+
+      :nothing_to_recover ->
+        {0, nil, :ok, next_etag}
+
+      :unusable_validator ->
+        {0, nil, :ok, forget_validator(resource)}
+    end
+  end
+
+  # What a `304` is worth, decided by what the store holds and where the
+  # validator came from.
+  #
+  #   * the list itself — republish it. Every comment in it is either already
+  #     marked processed, and suppressed for free, or was never published, and
+  #     is recovered. That is what makes a `304` produce the same events a `200`
+  #     would have.
+  #   * no list, but the validator is this daemon's own from an earlier cycle —
+  #     nothing to recover: the `200` that minted it was published first. Keep
+  #     the validator, because dropping it would make every steady-state cycle a
+  #     full-price read, which is the cost this whole path exists to remove.
+  #   * no list, and the validator came out of the store — it may have outlived
+  #     the publish it was recorded beside, and it is an *endpoint* validator, so
+  #     GitHub's `304` suppressed the entire list and no per-comment
+  #     reconciliation can see inside it. Unusable.
+  defp unchanged_list(resource, provenance) do
+    case ResourceStore.fetch(resource) do
+      {:ok, %{data: comments}} when is_list(comments) -> {:ok, comments}
+      _other when provenance == :cycle -> :nothing_to_recover
+      _other -> :unusable_validator
+    end
+  end
+
+  # A `304` against a durable validator with no body behind it spent a request
+  # and learned nothing recoverable. So the validator goes, here and in the
+  # cycle's own map, and the next sweep reads unconditionally. That is the
+  # reader's half of the store's validator/body contract; see
+  # `Aiur.GitHub.ResourceStore`.
+  defp forget_validator(resource) do
+    ResourceStore.drop_etag(resource)
+    nil
   end
 
   defp publish_issue_comments(target, comments, repo) do
@@ -300,14 +405,18 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
+        resource = ResourceStore.key_for_repo(:pr_issue_comments, repo, pr_number)
+        {etag, provenance} = request_etag(resource, etag)
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(pr_number, request_opts) do
           {:ok, comments, next_etag} ->
-            {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, next_etag}
+            count = publish_pr_issue_comments(target, pr_number, comments, repo, review_context)
+            remember_list(resource, comments, next_etag)
+            {count, newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
-            {0, nil, :ok, next_etag}
+            unchanged_pr_issue_comments(target, pr_number, resource, {provenance, next_etag}, repo, review_context)
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller PR conversation comments failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
@@ -474,7 +583,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: review, pull_request: review_context},
       actor,
       issue_number: target,
-      dedup_key: dedup_key
+      dedup_key: dedup_key,
+      resource: ResourceStore.key_for_repo(:pr_review, repo, review_id),
+      resource_version: resource_version(review)
     )
   end
 
@@ -487,7 +598,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", parent_number, Map.get(comment, "id")),
+      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
+      resource_version: resource_version(comment)
     )
   end
 
@@ -499,7 +612,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
-      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
+      dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id")),
+      resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, "id")),
+      resource_version: resource_version(comment)
     )
   end
 
@@ -512,9 +627,40 @@ defmodule Aiur.Events.GithubCommentsPoller do
       %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
-      dedup_key: dedup_key
+      dedup_key: dedup_key,
+      resource: pr_review_comment_resource(repo, comment),
+      resource_version: resource_version(comment)
     )
   end
+
+  # Deliberately mirrors `pr_review_comment_dedup_key/3`'s granularity rather
+  # than improving on it. On the GraphQL batch path this poller dedups per
+  # *thread*, a webhook delivery can only dedup per *comment*, and that
+  # divergence is a known, pinned one (see `Normalizer`'s note and
+  # `github_webhook_equivalence_test.exs`). Naming a comment resource on a
+  # thread-keyed publish would silently reconcile the two at one granularity —
+  # a real change to when an agent wakes, and not this ticket's to make. Where
+  # the poller already keys per comment, the resource matches the delivery's
+  # and the durable layer closes the restart gap the ETS window leaves open.
+  defp pr_review_comment_resource(_repo, %{"review_thread_id" => thread_id})
+       when is_binary(thread_id) and thread_id != "",
+       do: nil
+
+  defp pr_review_comment_resource(repo, comment) when is_map(comment) do
+    ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
+  end
+
+  # Pairs with the resource key to say *which version* of that resource was
+  # processed. The sweep's `?since=` filter is on `updated_at`, so an edited
+  # comment comes back around; without a version, identity alone would treat it
+  # as a redelivery of the original and the edit would never reach the agent.
+  # Mirrors `Normalizer.resource_version/1` so both pipes agree on the marker.
+  defp resource_version(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
+
+  defp resource_version(%{"submitted_at" => submitted_at}) when is_binary(submitted_at) and submitted_at != "",
+    do: submitted_at
+
+  defp resource_version(_resource), do: nil
 
   defp pr_review_comment_dedup_key(repo, pr_number, %{"review_thread_id" => thread_id})
        when is_binary(thread_id) and thread_id != "" do
@@ -531,6 +677,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
     publish_opts =
       publish_opts
       |> Keyword.put(:actor, actor)
+      |> Keyword.put(:resource_source, :poll)
       |> Keyword.put(:bypass_contamination, true)
 
     Publisher.publish(topic, sanitized, publish_opts)

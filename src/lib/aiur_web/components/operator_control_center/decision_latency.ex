@@ -34,10 +34,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionLatency do
       <h4 id="decision-latency-title">Command latency</h4>
 
       <p :if={@status == :missing} class="empty-state compact">
-        No latency sample has been retained for this Command yet.
+        No latency recorded for this Command yet.
       </p>
       <p :if={@status not in [:available, :missing]} class="empty-state compact" role="status">
-        Command latency provider is unavailable.
+        Command latency is unavailable right now.
       </p>
 
       <div :if={@status == :available and is_map(@snapshot)}>

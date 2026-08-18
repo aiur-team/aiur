@@ -144,7 +144,7 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
       :ok
     end
 
-    opts = [ticket_detail_cache: DetailSpy, ticket_history_provider: HistorySpy, unsubscribe: unsubscribe]
+    opts = [ticket_detail_coordinator: DetailSpy, ticket_history_provider: HistorySpy, unsubscribe: unsubscribe]
 
     assert DataSource.subscribe_context(:ticket, opts) == :ok
 

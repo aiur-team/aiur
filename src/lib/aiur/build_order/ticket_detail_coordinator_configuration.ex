@@ -1,9 +1,9 @@
-defmodule Aiur.BuildOrder.TicketDetailCache.Configuration do
+defmodule Aiur.BuildOrder.TicketDetailCoordinator.Configuration do
   @moduledoc false
 
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.BuildOrder.TicketDetail.{Failure, Repository}
-  alias Aiur.BuildOrder.TicketDetailCache.{Policy, TaskLifecycle}
+  alias Aiur.BuildOrder.TicketDetailCoordinator.{Policy, TaskLifecycle}
 
   @spec reconcile(map()) ::
           {:ok, Aiur.TrackerIdentity.repository(), map(), [Aiur.BuildOrder.TicketDetail.State.t()]}
