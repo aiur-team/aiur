@@ -47,7 +47,13 @@ defmodule Aiur.Workspace.Materialize do
   end
 
   defp materialize(workspace, prepare) do
-    case Reconstruction.run(workspace, prepare) do
+    prepare_and_filter = fn stage ->
+      with :ok <- prepare.(stage) do
+        remove_ignored_crash_dumps(stage)
+      end
+    end
+
+    case Reconstruction.run(workspace, prepare_and_filter) do
       :ok ->
         :ok
 
@@ -64,6 +70,35 @@ defmodule Aiur.Workspace.Materialize do
     case :os.type() do
       {:unix, :darwin} -> System.cmd("cp", ["-Rc", Path.join(base, "."), workspace], stderr_to_stdout: true)
       _ -> System.cmd("cp", ["-a", "--reflink=auto", Path.join(base, "."), workspace], stderr_to_stdout: true)
+    end
+  end
+
+  defp remove_ignored_crash_dumps(workspace) do
+    case System.cmd(
+           "git",
+           ["-C", workspace, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", "erl_crash.dump", ":(glob)**/erl_crash.dump"],
+           stderr_to_stdout: true
+         ) do
+      {output, 0} -> remove_listed_crash_dumps(workspace, output)
+      other -> {:error, other}
+    end
+  end
+
+  defp remove_listed_crash_dumps(workspace, output) do
+    output
+    |> String.split(<<0>>, trim: true)
+    |> Enum.reduce_while(:ok, fn relative, :ok -> remove_crash_dump(workspace, relative) end)
+  end
+
+  defp remove_crash_dump(workspace, relative) do
+    if Path.basename(relative) == "erl_crash.dump" do
+      case File.rm(Path.join(workspace, relative)) do
+        :ok -> {:cont, :ok}
+        {:error, :enoent} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:remove_crash_dump, relative, reason}}}
+      end
+    else
+      {:halt, {:error, {:unexpected_crash_dump_path, relative}}}
     end
   end
 end

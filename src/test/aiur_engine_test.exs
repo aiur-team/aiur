@@ -1689,6 +1689,8 @@ cmd_executor_wait --timeout 2 --json|,
     tmp = Path.join(System.tmp_dir!(), "aiur-bg-fail-#{System.unique_integer([:positive])}")
     events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
     tmux_state = Path.join(tmp, "tmux-session")
+    dump = Path.join(tmp, "erl_crash.dump")
+    ledger = Path.join(tmp, "alerts.ndjson")
     File.mkdir_p!(tmp)
     File.write!(events, "")
 
@@ -1723,18 +1725,24 @@ cmd_executor_wait --timeout 2 --json|,
       printf '%s\\n' "$path"
     }
     sleep() { :; }
-    probe_control_liveness() { printf down; }
+    probe_control_liveness() {
+      printf '%s\n' "$LEDGER" > "$AIUR_ALERT_LEDGER_PATH_FILE"
+      printf '=erl_crash_dump:0.5\nSlogan: startup exploded\n=end\n' > "$ERL_CRASH_DUMP"
+      printf down
+    }
     reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
     kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
     expected_session="$TMP_ROOT/aiur-$$-sessions"
     expected_agents="$TMP_ROOT/aiur-$$-agents"
     expected_workspace_root="$TMP_ROOT/aiur-$$-workspace-root"
+    expected_alert_ledger="$TMP_ROOT/aiur-$$-alert-ledger"
+    expected_dump_baseline="$TMP_ROOT/aiur-$$-crash-dump-baseline"
     set +e
     ( run_session background )
     code=$?
     set -e
     echo "CODE=$code"
-    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents" "$expected_workspace_root"; do
+    for path in "$TMP_ROOT/argv" "$TMP_ROOT/startup" "$TMP_ROOT/launcher" "$expected_session" "$expected_agents" "$expected_workspace_root" "$expected_alert_ledger" "$expected_dump_baseline"; do
       if [ -e "$path" ]; then echo "LEFT:${path##*/}"; else echo "REMOVED:${path##*/}"; fi
     done
     cat "$EVENTS"
@@ -1748,6 +1756,8 @@ cmd_executor_wait --timeout 2 --json|,
         {"AIUR_BG_STATE_DIR", state},
         {"AIUR_NODE_GRACE_TICKS", "2"},
         {"EVENTS", events},
+        {"ERL_CRASH_DUMP", dump},
+        {"LEDGER", ledger},
         {"PATH", path},
         {"TMP_ROOT", tmp}
       ])
@@ -1761,6 +1771,10 @@ cmd_executor_wait --timeout 2 --json|,
     assert out =~ "REMOVED:launcher"
     assert out =~ "REMOVED:aiur-"
     refute out =~ "LEFT:"
+
+    [alert] = ledger |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    assert alert["topic"] == "system.beam.crash_dump"
+    assert alert["slogan"] == "startup exploded"
   end
 
   test "foreground startup failure before control readiness exits nonzero and preserves output" do
@@ -1873,6 +1887,206 @@ cmd_executor_wait --timeout 2 --json|,
     refute out =~ "DEFAULT_REAPED"
   end
 
+  test "crash recording emits a bounded needs-attention alert for a completed dump" do
+    root = Path.join(System.tmp_dir!(), "aiur-crash-alert-#{System.unique_integer([:positive])}")
+    run_log_dir = Path.join(root, "run")
+    dump = Path.join(root, "erl_crash.dump")
+    marker = Path.join(root, "last-crash")
+    ledger = Path.join(root, "aiur.alerts.ndjson")
+    ledger_path_file = Path.join(root, "alert-ledger-path")
+    slogan = ~s(Failed to read from erl_child_setup: 104 "quoted" \\ #{String.duplicate("x", 700)})
+    File.mkdir_p!(root)
+    File.write!(dump, "=erl_crash_dump:0.5\nSlogan: #{slogan}\n=end\n")
+    File.write!(ledger_path_file, ledger)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert {_out, 0} =
+             run_sourced_engine(
+               ~S|record_beam_crash "aiur-test@127.0.0.1" "$RUN_LOG_DIR" "$CRASH_MARKER" "$LEDGER_PATH_FILE"|,
+               [
+                 {"RUN_LOG_DIR", run_log_dir},
+                 {"CRASH_MARKER", marker},
+                 {"ERL_CRASH_DUMP", dump},
+                 {"LEDGER_PATH_FILE", ledger_path_file}
+               ]
+             )
+
+    [alert] =
+      ledger
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+
+    assert alert["event"] == "alert"
+    assert alert["agent"] == "system"
+    assert alert["topic"] == "system.beam.crash_dump"
+    assert alert["needs_attention"] == true
+    assert alert["severity"] == "warning"
+    assert alert["dump_path"] == dump
+    assert alert["message"] =~ "Failed to read from erl_child_setup: 104"
+    assert alert["slogan"] =~ ~s("quoted" \\)
+    assert byte_size(alert["slogan"]) <= 512
+    assert Enum.any?(Aiur.AlertFeed.list(ledger_paths: [ledger]), &(&1["topic"] == "system.beam.crash_dump"))
+    assert File.read!(Path.join(run_log_dir, "log/aiur.crash")) =~ "crash_dump_slogan:"
+  end
+
+  test "crash recording does not alert for an incomplete dump" do
+    root = Path.join(System.tmp_dir!(), "aiur-incomplete-dump-#{System.unique_integer([:positive])}")
+    run_log_dir = Path.join(root, "run")
+    dump = Path.join(root, "erl_crash.dump")
+    ledger = Path.join(root, "aiur.alerts.ndjson")
+    ledger_path_file = Path.join(root, "alert-ledger-path")
+    File.mkdir_p!(root)
+    File.write!(dump, "=erl_crash_dump:0.5\nSlogan: still being written\n")
+    File.write!(ledger_path_file, ledger)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert {_out, 0} =
+             run_sourced_engine(
+               ~S|record_beam_crash "aiur-test@127.0.0.1" "$RUN_LOG_DIR" "" "$LEDGER_PATH_FILE"|,
+               [
+                 {"RUN_LOG_DIR", run_log_dir},
+                 {"ERL_CRASH_DUMP", dump},
+                 {"LEDGER_PATH_FILE", ledger_path_file}
+               ]
+             )
+
+    refute File.exists?(ledger)
+  end
+
+  test "crash recording does not alert when the configured dump is missing" do
+    root = Path.join(System.tmp_dir!(), "aiur-missing-dump-#{System.unique_integer([:positive])}")
+    ledger = Path.join(root, "aiur.alerts.ndjson")
+    ledger_path_file = Path.join(root, "alert-ledger-path")
+    File.mkdir_p!(root)
+    File.write!(ledger_path_file, ledger)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert {_out, 0} =
+             run_sourced_engine(
+               ~S|record_beam_crash "aiur-test@127.0.0.1" "" "" "$LEDGER_PATH_FILE"|,
+               [
+                 {"ERL_CRASH_DUMP", Path.join(root, "missing.dump")},
+                 {"LEDGER_PATH_FILE", ledger_path_file}
+               ]
+             )
+
+    refute File.exists?(ledger)
+  end
+
+  test "crash recording ignores a completed dump unchanged since launch" do
+    root = Path.join(System.tmp_dir!(), "aiur-stale-dump-#{System.unique_integer([:positive])}")
+    run_log_dir = Path.join(root, "run")
+    dump = Path.join(root, "erl_crash.dump")
+    ledger = Path.join(root, "aiur.alerts.ndjson")
+    ledger_path_file = Path.join(root, "alert-ledger-path")
+    baseline_file = Path.join(root, "dump-baseline")
+    File.mkdir_p!(root)
+    File.write!(dump, "=erl_crash_dump:0.5\nSlogan: stale evidence\n=end\n")
+    File.write!(ledger_path_file, ledger)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert {_out, 0} =
+             run_sourced_engine(
+               ~S|crash_dump_identity "$ERL_CRASH_DUMP" >"$BASELINE_FILE"; record_beam_crash test "$RUN_LOG_DIR" "" "$LEDGER_PATH_FILE" "$BASELINE_FILE"|,
+               [
+                 {"RUN_LOG_DIR", run_log_dir},
+                 {"ERL_CRASH_DUMP", dump},
+                 {"LEDGER_PATH_FILE", ledger_path_file},
+                 {"BASELINE_FILE", baseline_file}
+               ]
+             )
+
+    refute File.exists?(ledger)
+    refute File.read!(Path.join(run_log_dir, "log/aiur.crash")) =~ "crash_dump_slogan:"
+  end
+
+  test "watchdog still reaps when the alert ledger cannot be written" do
+    root = Path.join(System.tmp_dir!(), "aiur-alert-failure-#{System.unique_integer([:positive])}")
+    events = Path.join(root, "events")
+    dump = Path.join(root, "erl_crash.dump")
+    ledger_path_file = Path.join(root, "alert-ledger-path")
+    File.mkdir_p!(root)
+    File.write!(events, "")
+    File.write!(dump, "=erl_crash_dump:0.5\nSlogan: write failure\n=end\n")
+    File.write!(ledger_path_file, root)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    script = """
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    reap_workspace_cwd_from_file() { echo "SWEEP:$*" >> "$EVENTS"; }
+    pattern="aiur-watchdog-${$}-absent"
+    pid="$(start_beam_death_watchdog "$pattern" sock pidfile 0.05 1 test "$RUN_LOG_DIR" "" "$CRASH_MARKER" "" "$LEDGER_PATH_FILE" "")"
+    for _ in $(seq 1 20); do
+      grep -q '^SWEEP:' "$EVENTS" && break
+      sleep 0.05
+    done
+    kill "$pid" 2>/dev/null || true
+    cat "$EVENTS"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"EVENTS", events},
+        {"RUN_LOG_DIR", Path.join(root, "run")},
+        {"CRASH_MARKER", Path.join(root, "marker")},
+        {"ERL_CRASH_DUMP", dump},
+        {"LEDGER_PATH_FILE", ledger_path_file}
+      ])
+
+    assert out =~ "REAP:sock pidfile"
+    assert out =~ "SWEEP:"
+  end
+
+  test "foreground watchdog alerts for a byte-identical replacement and removes handoffs" do
+    root = Path.join(System.tmp_dir!(), "aiur-foreground-crash-#{System.unique_integer([:positive])}")
+    events = Path.join(root, "events")
+    dump = Path.join(root, "erl_crash.dump")
+    ledger = Path.join(root, "aiur.alerts.ndjson")
+    ledger_path_file = Path.join(root, "alert-ledger-path")
+    baseline_file = Path.join(root, "dump-baseline")
+    File.mkdir_p!(root)
+    File.write!(events, "")
+    File.write!(dump, "=erl_crash_dump:0.5\nSlogan: recurring crash\n=end\n")
+    File.write!(ledger_path_file, ledger)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    script = """
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    reap_workspace_cwd_from_file() { echo "SWEEP:$*" >> "$EVENTS"; }
+    crash_dump_identity "$ERL_CRASH_DUMP" > "$BASELINE_FILE"
+    cp "$ERL_CRASH_DUMP" "$ERL_CRASH_DUMP.replacement"
+    mv "$ERL_CRASH_DUMP.replacement" "$ERL_CRASH_DUMP"
+    pattern="aiur-watchdog-${$}-absent"
+    pid="$(start_beam_death_watchdog "$pattern" sock pidfile 0.05 1 foreground-node "" "" "" "" "$LEDGER_PATH_FILE" "$BASELINE_FILE")"
+    for _ in $(seq 1 20); do
+      [ -s "$LEDGER" ] && [ ! -e "$LEDGER_PATH_FILE" ] && [ ! -e "$BASELINE_FILE" ] && break
+      sleep 0.05
+    done
+    kill "$pid" 2>/dev/null || true
+    cat "$EVENTS"
+    [ -s "$LEDGER" ] && echo ALERTED
+    [ ! -e "$LEDGER_PATH_FILE" ] && echo LEDGER_HANDOFF_REMOVED
+    [ ! -e "$BASELINE_FILE" ] && echo BASELINE_REMOVED
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"EVENTS", events},
+        {"ERL_CRASH_DUMP", dump},
+        {"LEDGER", ledger},
+        {"LEDGER_PATH_FILE", ledger_path_file},
+        {"BASELINE_FILE", baseline_file}
+      ])
+
+    assert out =~ "REAP:sock pidfile"
+    assert out =~ "ALERTED"
+    assert out =~ "LEDGER_HANDOFF_REMOVED"
+    assert out =~ "BASELINE_REMOVED"
+    [alert] = ledger |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    assert alert["slogan"] == "recurring crash"
+  end
+
   test "background run arms the detached BEAM watchdog before success" do
     rel = fake_release()
     state = tmp_state()
@@ -1934,7 +2148,10 @@ cmd_executor_wait --timeout 2 --json|,
 
     events_log = File.read!(events)
     assert events_log =~ "PROBE\nWATCHDOG:-name aiur-"
-    assert events_log =~ ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root\n/
+
+    assert events_log =~
+             ~r/ 1 1 aiur-\S+ \S+ \S+\.stopping \S+\.last-crash \S+-workspace-root \S+-alert-ledger \S+-crash-dump-baseline\n/
+
     assert events_log =~ "DISOWN:424242"
   end
 
@@ -1992,6 +2209,9 @@ cmd_executor_wait --timeout 2 --json|,
     rel = fake_release()
     state = tmp_state()
     tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
+    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    dump = Path.join(System.tmp_dir!(), "aiur-dump-#{System.unique_integer([:positive])}")
+    File.write!(events, "")
 
     tmux =
       fake_tmux_script("""
@@ -2008,12 +2228,19 @@ cmd_executor_wait --timeout 2 --json|,
       File.rm_rf(rel)
       File.rm_rf(state)
       File.rm(tmux_state)
+      File.rm(events)
+      File.rm(dump)
     end)
 
     script = """
     sleep() { :; }
     probe_control_liveness() { printf up; }
-    start_beam_death_watchdog() { printf '424242\\n'; }
+    start_beam_death_watchdog() {
+      printf 'WATCHDOG' >> "$EVENTS"
+      printf '<%s>' "$@" >> "$EVENTS"
+      printf '\n' >> "$EVENTS"
+      printf '424242\\n'
+    }
     set +e
     ( run_session foreground --no-dashboard )
     code=$?
@@ -2027,6 +2254,8 @@ cmd_executor_wait --timeout 2 --json|,
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"ERL_CRASH_DUMP", dump},
+        {"EVENTS", events},
         {"PATH", path}
       ])
 
@@ -2034,6 +2263,9 @@ cmd_executor_wait --timeout 2 --json|,
     assert out =~ "Dashboard disabled by --no-dashboard."
     assert out =~ "real attach error"
     refute out =~ "[server exited]"
+
+    assert File.read!(events) =~
+             ~r/WATCHDOG<-name aiur-[^>]+><[^>]+><[^>]+><1><0><aiur-[^>]+><><><><[^>]+-workspace-root><[^>]+-alert-ledger><[^>]+-crash-dump-baseline>/
   end
 
   test "stop does not terminate sibling instances from the same release dir" do
@@ -2330,8 +2562,12 @@ cmd_executor_wait --timeout 2 --json|,
     mkdir -p "$T/aiur100-hex"; touch -t "$OLD" "$T/aiur100-hex/c"; touch -t "$OLD" "$T/aiur100-hex"
     touch -t "$OLD" "$T/aiur-user-note.txt"
     touch -t "$OLD" "$T/aiur-4000000000-agents"
+    touch -t "$OLD" "$T/aiur-4000000000-alert-ledger"
+    touch -t "$OLD" "$T/aiur-4000000000-crash-dump-baseline"
     sleep 30 & LIVE=$!
     touch -t "$OLD" "$T/aiur-$LIVE-agents"
+    touch -t "$OLD" "$T/aiur-$LIVE-alert-ledger"
+    touch -t "$OLD" "$T/aiur-$LIVE-crash-dump-baseline"
     touch -t "$OLD" "$T/unrelated.txt"
 
     TMPDIR="$T" XDG_RUNTIME_DIR="$T" AIUR_TMP_REAP_MINUTES=60 sweep_stale_tmp_artifacts
@@ -2346,7 +2582,11 @@ cmd_executor_wait --timeout 2 --json|,
     chk aiur100-hex present
     chk aiur-user-note.txt present
     chk aiur-4000000000-agents gone
+    chk aiur-4000000000-alert-ledger gone
+    chk aiur-4000000000-crash-dump-baseline gone
     chk "aiur-$LIVE-agents" present
+    chk "aiur-$LIVE-alert-ledger" present
+    chk "aiur-$LIVE-crash-dump-baseline" present
     chk unrelated.txt present
     kill "$LIVE" 2>/dev/null || true
     rm -rf "$T"
@@ -2359,12 +2599,15 @@ cmd_executor_wait --timeout 2 --json|,
     # Each outcome asserted by name so a regression names exactly what drifted.
     for name <- ~w(aiur-argv.STALE aiur-argv.FRESH aiur-rc aiur-debug aiur_workspaces
                    aiur-pr123 aiur100-hex aiur-user-note.txt aiur-4000000000-agents
+                   aiur-4000000000-alert-ledger aiur-4000000000-crash-dump-baseline
                    unrelated.txt) do
       assert out =~ "PASS #{name}", "missing PASS #{name} in:\n#{out}"
     end
 
     # The live-pid pidfile (name carries a runtime pid) was spared.
     assert out =~ ~r/PASS aiur-\d+-agents/
+    assert out =~ ~r/PASS aiur-\d+-alert-ledger/
+    assert out =~ ~r/PASS aiur-\d+-crash-dump-baseline/
   end
 
   test "sweep_stale_tmp_artifacts default window spares artifacts younger than 24h" do

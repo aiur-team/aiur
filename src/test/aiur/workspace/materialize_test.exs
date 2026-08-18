@@ -53,6 +53,27 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert File.exists?(Path.join(workspace, "README.md"))
   end
 
+  test "materialization drops ignored crash dumps while preserving warm artifacts", %{tmp: tmp, base: base} do
+    workspace = Path.join(tmp, "dump-free")
+    root_dump = Path.join(base, "erl_crash.dump")
+    nested_dump = Path.join([base, "packages", "tool", "erl_crash.dump"])
+    warm_artifact = Path.join([base, "src", "_build", "warm.sentinel"])
+
+    File.write!(Path.join(base, ".gitignore"), "**/erl_crash.dump\n**/_build/\n")
+    System.cmd("git", ["-C", base, "add", ".gitignore"])
+    System.cmd("git", ["-C", base, "commit", "--quiet", "-m", "ignore runtime artifacts"])
+
+    for path <- [root_dump, nested_dump, warm_artifact] do
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, "artifact\n")
+    end
+
+    assert :ok = Materialize.materialize_from_base(base, workspace)
+    refute File.exists?(Path.join(workspace, "erl_crash.dump"))
+    refute File.exists?(Path.join([workspace, "packages", "tool", "erl_crash.dump"]))
+    assert File.read!(Path.join([workspace, "src", "_build", "warm.sentinel"])) == "artifact\n"
+  end
+
   test "materialization atomically replaces a logs-only workspace without losing the event stream", %{
     tmp: tmp,
     base: base

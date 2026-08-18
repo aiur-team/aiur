@@ -10,6 +10,7 @@ defmodule Aiur.AgentEnvironmentTest do
 
   test "identifies inherited Erlang distribution environment names" do
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_AFLAGS")
+    assert AgentEnvironment.erlang_distribution_env_name?("ERL_LIBS")
     assert AgentEnvironment.erlang_distribution_env_name?("RELEASE_NODE")
     assert AgentEnvironment.erlang_distribution_env_name?("RELEASE_COOKIE")
     assert AgentEnvironment.erlang_distribution_env_name?("AIUR_NODE_NAME")
@@ -37,13 +38,16 @@ defmodule Aiur.AgentEnvironmentTest do
   test "scrub_shell_command clears Erlang distribution environment before exec" do
     command =
       AgentEnvironment.scrub_shell_command(
-        "env | grep -E '^(ERL_AFLAGS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
+        "env | grep -E '^(ERL_AFLAGS|ERL_LIBS|ERL_CRASH_DUMP|ERL_CRASH_DUMP_SECONDS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
       )
 
     {output, 0} =
       System.cmd("bash", ["-lc", command],
         env: [
           {"ERL_AFLAGS", "-name aiur@test"},
+          {"ERL_LIBS", "/outer/release/lib"},
+          {"ERL_CRASH_DUMP", "/outer/log/erl_crash.dump"},
+          {"ERL_CRASH_DUMP_SECONDS", "30"},
           {"RELEASE_NODE", "aiur@test"},
           {"RELEASE_COOKIE", "secret"},
           {"AIUR_NODE_NAME", "aiur@test"},
@@ -442,16 +446,25 @@ defmodule Aiur.AgentEnvironmentTest do
     test "exposes repository-node hex/mix homes and the agent-workspace marker" do
       repo_url = "https://github.com/owner/project.git"
       env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration", repo_url: repo_url)
+      repo_state = Aiur.RepoBase.repo_path(repo_url)
+      hex_home = Path.join(repo_state, ".aiur-hex")
+      mix_home = Path.join(repo_state, ".aiur-mix")
+      npm_cache = Path.join(repo_state, ".aiur-npm-cache")
 
       assert {~c"HEX_HOME", hex} =
                List.keyfind(env, ~c"HEX_HOME", 0)
 
-      assert to_string(hex) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-hex")
+      assert to_string(hex) == hex_home
 
       assert {~c"MIX_HOME", mix} =
                List.keyfind(env, ~c"MIX_HOME", 0)
 
-      assert to_string(mix) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-mix")
+      assert to_string(mix) == mix_home
+
+      assert {~c"npm_config_cache", npm} =
+               List.keyfind(env, ~c"npm_config_cache", 0)
+
+      assert to_string(npm) == npm_cache
 
       assert {~c"AIUR_REPO_STATE_PATH", state_path} =
                List.keyfind(env, ~c"AIUR_REPO_STATE_PATH", 0)
@@ -553,6 +566,10 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_CI_READINESS_TOKEN", false} =
                List.keyfind(env, ~c"AIUR_CI_READINESS_TOKEN", 0)
+
+      for name <- ~w(ERL_LIBS ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS) do
+        assert {String.to_charlist(name), false} in env
+      end
 
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/697"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
