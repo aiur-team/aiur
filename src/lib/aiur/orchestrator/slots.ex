@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.Slots do
   """
 
   alias Aiur.{Config, Issue}
-  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, State, StatusReport}
 
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: max_concurrent_agents(Aiur.Orchestrator)
@@ -64,11 +64,18 @@ defmodule Aiur.Orchestrator.Slots do
   end
 
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
-    state =
-      state
-      |> Map.put(:session_max_concurrent_agents, next)
-      |> Lifecycle.request_refresh_state()
-      |> elem(0)
+    # The cap applies to state immediately. Do NOT force an immediate full poll
+    # from here: `Lifecycle.request_refresh_state/1` used to schedule a 0ms tick
+    # that runs the whole poll cycle — firehose, CI and candidate-fetch GitHub
+    # requests, each bounded to the 10s orchestrator request deadline — inline in
+    # this process. That wedged the orchestrator mailbox for ~10s after every
+    # `set max-agents`, so the write (and any control call that landed meanwhile)
+    # contended with the busy state and could either time out at the 5s
+    # `GenServer.call` budget (the first-write-after-restart failure, since the
+    # initial poll is equally slow) or race the launcher's 10s control-RPC
+    # watchdog (#2137). Re-dispatch still happens on the normal poll cadence; the
+    # cap and its status read take effect immediately.
+    state = Map.put(state, :session_max_concurrent_agents, next)
 
     StatusReport.notify_dashboard(state)
     {:reply, {:ok, max_concurrent_agent_status(state)}, state}

@@ -83,7 +83,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur watch --interval 5` | Re-renders until interrupted. The interval must be a positive number of seconds. | `aiur watch --interval 5` |
 | `aiur alerts` | Shows the structured alert feed. | `aiur alerts` |
 | `aiur alerts --needs-attention` | Filters to unresolved alerts requiring Executor action. | `aiur alerts --needs-attention` |
-| `aiur set max-agents 6` | Changes the live session cap without editing config. It takes effect immediately and does not rewrite the next launch's config. | `aiur set max-agents 6` |
+| `aiur set max-agents 6` | Changes the live session cap without editing config. The new cap applies to live state at once (`status` reflects it), and dispatch reconciles to it on the next poll cadence; it does not rewrite the next launch's config. | `aiur set max-agents 6` |
 | `aiur pause` | Turns on the global pause switch. It stops new provisioning and cooperatively holds the fleet. The switch is persisted with its source and survives restart; a failed persisted-state read starts paused. | `aiur pause` |
 | `aiur resume` | Turns off that global switch. | `aiur resume` |
 | `aiur pause 142 143` | Requests a safe-boundary pause for named tickets. | `aiur pause 142,143` |
