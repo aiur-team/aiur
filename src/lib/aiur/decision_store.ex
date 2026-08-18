@@ -71,6 +71,20 @@ defmodule Aiur.DecisionStore do
   # Kept as explicit allowlists so an unknown or missing value fails closed.
   @executor_answerable_authorities [:supervisor_allowed, :supervisor_preferred]
   @executor_answerable_reversibilities [:reversible]
+  # Creation-time dedup (#2099): two Commands from one agent on one ticket inside
+  # a short window with substantially the same question collapse to one at
+  # creation. An exact-after-normalization match is an unambiguous duplicate and
+  # is trusted across the full window; a paraphrase is only trusted across a much
+  # shorter window (the rapid-fire re-file shape), and only when both questions
+  # are long enough that a high token overlap means real substance rather than a
+  # tiny shared template (e.g. "Untouched open decision 1?" vs "…2?").
+  @creation_dedup_window_seconds 60
+  @creation_fuzzy_dedup_window_seconds 5
+  @creation_fuzzy_min_tokens 12
+  # Sørensen–Dice token-overlap floor for paraphrases. The #2099 paraphrases
+  # score ~0.59–0.79; 0.5 collapses them while leaving genuinely different
+  # questions alone.
+  @creation_question_similarity_threshold 0.5
   @recent_audit_limit 50
   @recent_decision_limit 50
   @maximum_legacy_page_limit 200
@@ -182,6 +196,27 @@ defmodule Aiur.DecisionStore do
   def expire(decision_id, reason_class, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_binary(reason_class) and is_list(opts) do
     GenServer.call(server, {:expire, decision_id, reason_class, opts}, timeout)
+  end
+
+  @doc """
+  Durably retires a still-undecided Command whose question is moot — its ticket
+  closed or its originating agent is gone.
+
+  Unlike `dismiss`, this is the disposition for a question that is void, so a
+  blocking Command may be retired here: a closed ticket or a gone agent makes
+  the block moot too, and a moot record delivers nothing to a waiting agent
+  (there is none). No answer is ever recorded, so a mooted Command stays
+  distinguishable in the durable record from a real decision.
+
+  `opts[:actor]` is trusted runtime identity and is attributed in the event.
+  `payload` carries a bounded `reason_class` (required) and an optional
+  free-text `reason`/`detail` explaining why it was voided.
+  """
+  @spec moot(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def moot(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:moot, decision_id, payload, opts}, timeout)
   end
 
   @doc "Durably records an ordered correction to the active Decision action."
@@ -772,6 +807,14 @@ defmodule Aiur.DecisionStore do
     handle_expire(decision_id, reason_class, opts, state)
   end
 
+  def handle_call({:moot, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:moot, decision_id, payload, opts}, _from, state) do
+    handle_moot(decision_id, payload, opts, state)
+  end
+
   def handle_call({:revise, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -1176,7 +1219,7 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp require_answerable(%Decision{decision_status: status}) when status in [:expired, :resolved],
+  defp require_answerable(%Decision{decision_status: status}) when status in [:expired, :moot, :resolved],
     do: {:error, {:conflict, status}}
 
   defp require_answerable(%Decision{}), do: :ok
@@ -1395,6 +1438,93 @@ defmodule Aiur.DecisionStore do
 
   defp normalized_question(_question), do: nil
 
+  # Creation-time dedup candidate search (#2099). Returns the newest live Command
+  # from the same agent on the same ticket whose question is substantially the
+  # same as the incoming one and whose creation time is within the short window.
+  # Deliberately mirrors the conservative matching of `normalized_question/1` and
+  # widens it with a token-overlap floor so paraphrases (the #2099 shape) also
+  # collapse, while a genuinely different question still creates its own row.
+  defp find_creation_duplicate(decision, state) do
+    case decision.source.agent_id do
+      agent_id when is_binary(agent_id) and agent_id != "" ->
+        state.current
+        |> Map.values()
+        |> Enum.filter(&creation_duplicate_of?(&1, decision, agent_id))
+        |> Enum.max_by(& &1.created_at, DateTime, fn -> nil end)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp creation_duplicate_of?(candidate, decision, agent_id) do
+    # A blocking Command gates dispatch and a non-blocking one does not, so the
+    # two are not interchangeable duplicates even when the question matches
+    # (#1965): an agent that files a blocking Command after a non-blocking
+    # notice must not have the gate silently dropped, and vice versa.
+    candidate.decision_id != decision.decision_id and
+      candidate.decision_status in [:open, :deferred] and
+      candidate.ticket.identifier == decision.ticket.identifier and
+      candidate.source.agent_id == agent_id and
+      candidate.blocking == decision.blocking and
+      creation_duplicate_match?(candidate, decision)
+  end
+
+  defp creation_duplicate_match?(candidate, decision) do
+    case {normalized_question(candidate.question), normalized_question(decision.question)} do
+      {nil, _} ->
+        false
+
+      {_, nil} ->
+        false
+
+      {normalized_a, normalized_b} ->
+        cond do
+          normalized_a == normalized_b ->
+            within_creation_window?(candidate.created_at, decision.created_at, @creation_dedup_window_seconds)
+
+          creation_paraphrase?(normalized_a, normalized_b) ->
+            within_creation_window?(
+              candidate.created_at,
+              decision.created_at,
+              @creation_fuzzy_dedup_window_seconds
+            )
+
+          true ->
+            false
+        end
+    end
+  end
+
+  defp creation_paraphrase?(normalized_a, normalized_b) do
+    tokens_a = tokens(normalized_a)
+    tokens_b = tokens(normalized_b)
+
+    length(tokens_a) + length(tokens_b) >= @creation_fuzzy_min_tokens and
+      dice_similarity(tokens_a, tokens_b) >= @creation_question_similarity_threshold
+  end
+
+  defp within_creation_window?(%DateTime{} = candidate, %DateTime{} = incoming, window_seconds) do
+    abs(DateTime.diff(incoming, candidate)) <= window_seconds
+  end
+
+  defp within_creation_window?(_candidate, _incoming, _window_seconds), do: false
+
+  defp tokens(question) do
+    question
+    |> String.downcase()
+    |> String.split(~r/[^a-z0-9]+/u, trim: true)
+  end
+
+  defp dice_similarity(tokens_a, tokens_b) do
+    a_set = MapSet.new(tokens_a)
+    b_set = MapSet.new(tokens_b)
+    intersection = MapSet.intersection(a_set, b_set) |> MapSet.size()
+    denominator = MapSet.size(a_set) + MapSet.size(b_set)
+
+    if denominator == 0, do: 0.0, else: 2 * intersection / denominator
+  end
+
   defp handle_dismiss(decision_id, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts) do
@@ -1519,6 +1649,73 @@ defmodule Aiur.DecisionStore do
     data = %{reason_class: reason_class, actor: @system_follow_up_actor}
 
     case build_and_persist_event(:decision_expired, decision, data, occurred_at, state) do
+      {:ok, next_state, updated} ->
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  # A Command is moot when its ticket closed or its originating agent is gone.
+  # Retiring it must stay attributed to whoever did it and must never look like
+  # an answer, so the payload requires a bounded `reason_class` and the event
+  # carries the caller's actor plus optional free-text `detail` — and `answer`
+  # is deliberately left untouched. A moot Command may be blocking: the block
+  # described a live question, and a void question has no waiting agent.
+  defp handle_moot(decision_id, payload, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, actor} <- fetch_actor(opts),
+         {:ok, reason_class} <- moot_reason_class(payload),
+         {:ok, detail} <- moot_detail(payload) do
+      case decision.decision_status do
+        :open ->
+          persist_mooting(decision, reason_class, detail, actor, state)
+
+        :deferred ->
+          persist_mooting(decision, reason_class, detail, actor, state)
+
+        :moot ->
+          {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+        status ->
+          {:reply, {:error, {:conflict, status}}, state}
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp moot_reason_class(payload) do
+    case payload_value(payload, :reason_class) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {:moot_invalid, {:reason_class, :missing}}}
+          trimmed -> {:ok, trimmed}
+        end
+
+      _other ->
+        {:error, {:moot_invalid, {:reason_class, :missing}}}
+    end
+  end
+
+  defp moot_detail(payload) do
+    case payload_value(payload, :reason) || payload_value(payload, :detail) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:ok, nil}
+          trimmed -> {:ok, trimmed}
+        end
+
+      _other ->
+        {:ok, nil}
+    end
+  end
+
+  defp persist_mooting(decision, reason_class, detail, actor, state) do
+    data = %{reason_class: reason_class, detail: detail, actor: actor}
+
+    case build_and_persist_event(:decision_mooted, decision, data, DateTime.utc_now(), state) do
       {:ok, next_state, updated} ->
         {:reply, {:ok, %{status: :accepted, decision: updated}}, next_state}
 
@@ -1670,8 +1867,14 @@ defmodule Aiur.DecisionStore do
 
       :new ->
         case Map.get(state.current, decision.decision_id) do
-          nil -> accept(%{decision | version: 1}, state)
-          existing -> apply_attention_projection(existing, decision, opts, state)
+          nil ->
+            case find_creation_duplicate(decision, state) do
+              nil -> accept(%{decision | version: 1}, state)
+              existing -> {:reply, {:ok, %{status: :duplicate, decision: existing}}, state}
+            end
+
+          existing ->
+            apply_attention_projection(existing, decision, opts, state)
         end
     end
   end
@@ -1849,13 +2052,26 @@ defmodule Aiur.DecisionStore do
 
   defp evaluate(decision, requested_version, state) do
     case Map.get(state.current, decision.decision_id) do
-      nil -> evaluate_fresh(decision, requested_version)
+      nil -> evaluate_fresh(decision, requested_version, state)
       existing -> evaluate_against_existing(decision, requested_version, existing)
     end
   end
 
-  defp evaluate_fresh(decision, 1), do: {:accept, %{decision | version: 1}}
-  defp evaluate_fresh(_decision, requested_version), do: {:reject, {:version_gap, requested_version, nil}}
+  # A fresh Command is still deduplicated at creation (#2099): the same agent
+  # on the same ticket may file several phrasings of one question within a short
+  # window, and each would otherwise land as its own row (different `source_id`
+  # → different `decision_id`). If a live Command from the same agent on the
+  # same ticket asks substantially the same question within the window, reject
+  # the new one as a duplicate of the existing Command rather than appending it.
+  defp evaluate_fresh(decision, 1, state) do
+    case find_creation_duplicate(decision, state) do
+      nil -> {:accept, %{decision | version: 1}}
+      existing -> {:duplicate, existing}
+    end
+  end
+
+  defp evaluate_fresh(_decision, requested_version, _state),
+    do: {:reject, {:version_gap, requested_version, nil}}
 
   defp evaluate_against_existing(decision, requested_version, existing) do
     cond do
@@ -2024,7 +2240,7 @@ defmodule Aiur.DecisionStore do
       notify_deferred_executor(decision)
     end
 
-    if event.type in [:answer_recorded, :decision_dismissed, :decision_expired] do
+    if event.type in [:answer_recorded, :decision_dismissed, :decision_expired, :decision_mooted] do
       resolve_executor_escalation(decision)
     end
 
@@ -2092,6 +2308,7 @@ defmodule Aiur.DecisionStore do
 
   defp lifecycle_slug(:answer_recorded), do: "answered"
   defp lifecycle_slug(:decision_expired), do: "expired"
+  defp lifecycle_slug(:decision_mooted), do: "mooted"
   defp lifecycle_slug(:decision_dismissed), do: "dismissed"
   defp lifecycle_slug(:decision_deferred), do: "deferred"
   defp lifecycle_slug(:executor_escalated), do: "executor-escalated"
@@ -3728,7 +3945,7 @@ defmodule Aiur.DecisionStore do
 
   defp recent_decision_sort_key(%Decision{} = decision) do
     {
-      decision.decision_status in [:expired, :dismissed, :resolved],
+      decision.decision_status in [:expired, :dismissed, :moot, :resolved],
       not decision.blocking,
       -urgency_rank(decision.urgency),
       -datetime_sort_key(decision.created_at),

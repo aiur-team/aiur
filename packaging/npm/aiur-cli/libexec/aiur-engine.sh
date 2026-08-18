@@ -458,6 +458,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
+       aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
@@ -2393,6 +2394,45 @@ cmd_executor_escalate() {
   run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
 }
 
+cmd_executor_moot() {
+  local decision_id="${1:-}" expected_version="" reason_class="" reason="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-moot expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --reason-class) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --reason-class requires a value" >&2; exit 64; }; shift; reason_class="$1" ;;
+      --reason-class=*) reason_class="${arg#--reason-class=}" ;;
+      --reason) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --reason requires a value" >&2; exit 64; }; shift; reason="$1" ;;
+      --reason=*) reason="${arg#--reason=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-moot --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-moot received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-moot expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-moot --expected-version expects a positive integer" >&2; exit 64; }
+  [ -n "$reason_class" ] || { echo "aiur: executor-moot --reason-class is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-moot --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  opts="$opts, reason_class: Base.decode64!(\"$(encode_control_value "$reason_class")\")"
+  if [ -n "$reason" ]; then
+    opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
+  fi
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
+  run_control_rpc "Aiur.AgentControlCLI.executor_moot([$opts])"
+}
+
 # `aiur units` — read the dashboard Units catalog through its own projection,
 # including non-running tickets in current-run membership.
 cmd_units() {
@@ -3266,6 +3306,10 @@ aiur_engine_main() {
     executor-escalate)
       shift
       cmd_executor_escalate "$@"
+      ;;
+    executor-moot)
+      shift
+      cmd_executor_moot "$@"
       ;;
     units)
       shift
