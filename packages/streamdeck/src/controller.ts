@@ -1,6 +1,20 @@
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
-import { chatKind, rowKindOfRole, type DiffLine, type StreamDeckChannel, type StreamDeckGrid, type StreamDeckLogs, type TranscriptRow } from "./channel.js";
+import { chatKind, rowKindOfRole, type DiffLine, type StreamDeckChannel, type StreamDeckCommand, type StreamDeckCommandAnswerResult, type StreamDeckCommandsPage, type StreamDeckGrid, type StreamDeckLogs, type TranscriptRow } from "./channel.js";
+import {
+  clampHistoryOffset,
+  clampOptionOffset,
+  commandIdempotencyKey,
+  COMMANDS_APPROVE_SLOT,
+  COMMANDS_CANCEL_SLOT,
+  COMMANDS_MIC_SLOT,
+  COMMANDS_MORE_SLOT,
+  hasMoreHistory,
+  hasMoreOptions,
+  HISTORY_PER_PAGE,
+  isAnswerable,
+  OPTIONS_PER_PAGE,
+} from "./commands.js";
 import { agentIndexForKey } from "./keys.js";
 import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./touchStrip/chatLog.js";
 import { createTypewriter } from "./touchStrip/typewriter.js";
@@ -8,7 +22,7 @@ import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/provide
 import { micAtSlot, MICS_PER_PAGE, nextMicPage } from "./settings.js";
 import type { AudioDevice } from "./audio/index.js";
 
-export type ControllerMode = "grid" | "cmd" | "logs" | "settings";
+export type ControllerMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 
 /* Command-mode key indices. Named because three of them are also handled in
  * `handleReport`'s key-up pass, and a bare number there silently drifts from
@@ -17,12 +31,22 @@ const CMD_PAUSE = 0;
 const CMD_LOGS = 1;
 const CMD_MIC = 2;
 const CMD_SETTINGS = 3;
-const CMD_SEND = 4;
-const CMD_CANCEL = 5;
+const CMD_COMMANDS = 4;
+const CMD_SEND = 5;
+const CMD_CANCEL = 6;
 
 /* Settings-mode key indices; 0..5 are the microphones. */
 const SETTINGS_TEST_MIC = 6;
 const SETTINGS_NEXT_PAGE = 7;
+
+/* Commands-mode key indices. Option slots and the mic/approve/cancel/paging
+ * slots are shared with `commands.ts` so the key face and the press cannot
+ * drift. */
+const COMMANDS_OPTION_SLOTS = OPTIONS_PER_PAGE;
+const COMMANDS_MIC = COMMANDS_MIC_SLOT;
+const COMMANDS_APPROVE = COMMANDS_APPROVE_SLOT;
+const COMMANDS_CANCEL = COMMANDS_CANCEL_SLOT;
+const COMMANDS_MORE = COMMANDS_MORE_SLOT;
 
 /**
  * What the controller needs from the host's voice stack.
@@ -175,11 +199,29 @@ export interface ControllerState {
    * every other key change, or the deck keeps painting keys that are gone.
    */
   readonly hasTranscript: boolean;
+  /** The focused agent's Command history, from the last `commands` push. */
+  readonly commandsPage: StreamDeckCommandsPage;
+  /** Whether the Commands page is showing history or one Command's detail. */
+  readonly commandsView: "history" | "detail";
+  /** First Command shown on the history window; dial D pages it. */
+  readonly historyOffset: number;
+  /** Index into the history window of the focused key, or null. */
+  readonly historySelection: number | null;
+  /** The Command the detail view is reading, or null on the history view. */
+  readonly selectedCommand: StreamDeckCommand | null;
+  /** First option shown on the detail window; dial D pages it. */
+  readonly optionOffset: number;
+  /** Index into the selected Command's options, or null when none is selected. */
+  readonly selectedOption: number | null;
+  /** True while the Commands dictation buffer holds settled text. */
+  readonly commandDictation: boolean;
+  /** An answer error from the channel, shown on the detail strip. */
+  readonly commandsError: string | null;
 }
 
 export interface PhysicalControllerOptions {
   grid(): StreamDeckGrid;
-  channel(): Pick<StreamDeckChannel, "focus" | "control" | "say"> | null;
+  channel(): Pick<StreamDeckChannel, "focus" | "control" | "say" | "commandsPage" | "answerCommand"> | null;
   /** The voice stack, or null on a host with no audio. */
   voice?(): ControllerVoice | null;
   /**
@@ -226,6 +268,15 @@ const initialState: ControllerState = {
   micOffset: 0,
   selectedMicId: null,
   hasTranscript: false,
+  commandsPage: { items: [] },
+  commandsView: "history",
+  historyOffset: 0,
+  historySelection: null,
+  selectedCommand: null,
+  optionOffset: 0,
+  selectedOption: null,
+  commandDictation: false,
+  commandsError: null,
 };
 
 const agentAt = (grid: StreamDeckGrid, offset: number, key: number): Readonly<Record<string, unknown>> | undefined =>
@@ -398,6 +449,69 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   /** True while the voice buffer holds text worth a Send key. */
   const transcriptPresent = (): boolean => voice()?.hasMessage() === true;
 
+  /** True while the Commands dictation buffer holds text worth Approve/Cancel keys. */
+  const commandDictationPresent = (): boolean => voice()?.hasMessage() === true;
+
+  /**
+   * Opens the Commands page for the focused agent, at its history.
+   *
+   * The Commands key is always present on the agent row — it is a destination,
+   * not an alert — so this never depends on whether a Command exists. A
+   * leftover chat dictation from the agent row is cleared on entry: words said
+   * about a ticket's conversation must not silently become a Command answer.
+   */
+  const enterCommands = (): void => {
+    leaveVoice();
+    publish({
+      ...state,
+      mode: "commands",
+      micHeld: false,
+      commandsView: "history",
+      historyOffset: 0,
+      historySelection: null,
+      selectedCommand: null,
+      optionOffset: 0,
+      selectedOption: null,
+      commandDictation: false,
+      commandsError: null,
+    });
+  };
+
+  /**
+   * Enters the detail view for one Command.
+   *
+   * Dictation is addressed to exactly one Command: entering another Command
+   * discards any text held for the previous one, so an answer can never be
+   * sent to the wrong decision.
+   */
+  const enterCommandDetail = (command: StreamDeckCommand): void => {
+    leaveVoice();
+    publish({
+      ...state,
+      commandsView: "detail",
+      selectedCommand: command,
+      historySelection: null,
+      optionOffset: 0,
+      selectedOption: null,
+      commandDictation: false,
+      commandsError: null,
+    });
+  };
+
+  /** Returns to the history view from a Command's detail. */
+  const leaveCommandDetail = (): void => {
+    leaveVoice();
+    publish({
+      ...state,
+      commandsView: "history",
+      selectedCommand: null,
+      selectedOption: null,
+      optionOffset: 0,
+      commandDictation: false,
+      commandsError: null,
+    });
+  };
+
   const back = (): void => {
     if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptRows: [], micHeld: false });
     else if (state.mode === "settings") {
@@ -406,6 +520,19 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       // with nothing on screen to say so.
       stopVoice();
       publish({ ...state, mode: "cmd", micHeld: false });
+    } else if (state.mode === "commands") {
+      if (state.commandsView === "detail") leaveCommandDetail();
+      else {
+        leaveVoice();
+        publish({
+          ...state,
+          mode: "cmd",
+          micHeld: false,
+          commandsView: "history",
+          selectedCommand: null,
+          commandDictation: false,
+        });
+      }
     } else if (state.mode === "cmd") {
       // The buffer is addressed to the agent that is being left, so it goes
       // with the focus. Carrying it to the next agent would put words the
@@ -462,6 +589,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       pressSettingsKey(index);
       return;
     }
+    if (state.mode === "commands") {
+      pressCommandsKey(index);
+      return;
+    }
     if (state.mode === "cmd") {
       const agent = focusedAgent();
       const identifier = state.focusedIdentifier;
@@ -477,12 +608,101 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         holdMic();
       } else if (index === CMD_SETTINGS) {
         enterSettings();
+      } else if (index === CMD_COMMANDS) {
+        enterCommands();
       } else if (index === CMD_SEND) {
         sendTranscript(identifier);
       } else if (index === CMD_CANCEL) {
         cancelTranscript();
       }
     }
+  };
+
+  /**
+   * One key press on the Commands page.
+   *
+   * On the history view, pressing a Command enters its detail (answering for an
+   * open one, read-only for a completed one). On the detail view, an option key
+   * selects for reading and never commits, the mic starts a dictation, and
+   * Approve/Cancel settle a spoken custom response.
+   */
+  const pressCommandsKey = (index: number): void => {
+    if (state.commandsView === "history") {
+      const command = state.commandsPage.items[state.historyOffset + index];
+      if (command === undefined) return;
+      // Focus the key and show its detail; entering the detail is what happens
+      // next, and read-only versus answerable is decided by the detail view.
+      enterCommandDetail(command);
+      return;
+    }
+    const command = state.selectedCommand;
+    if (command === null) return;
+    if (index < COMMANDS_OPTION_SLOTS) {
+      // Selecting an option is reading, not committing — the deliberate
+      // second action (dial D) is what turns it into the answer.
+      const optionIndex = state.optionOffset + index;
+      if (optionIndex >= command.options.length) return;
+      publish({ ...state, selectedOption: optionIndex, commandsError: null });
+      return;
+    }
+    if (index === COMMANDS_MIC && isAnswerable(command.status)) {
+      holdMic();
+      return;
+    }
+    if (index === COMMANDS_APPROVE && state.commandDictation && isAnswerable(command.status)) {
+      approveCommand(command);
+      return;
+    }
+    if (index === COMMANDS_CANCEL && state.commandDictation) {
+      cancelCommandDictation();
+      return;
+    }
+    if (index === COMMANDS_MORE) {
+      pageOptions();
+    }
+  };
+
+  /** Discards the Commands dictation buffer and hides Approve/Cancel. */
+  const cancelCommandDictation = (): void => {
+    voice()?.clear();
+    publish({ ...state, commandDictation: false });
+  };
+
+  /**
+   * Turns the reading into the answer and sends it to the Command.
+   *
+   * Approving is always the deliberate second action: the operator either read
+   * an option (dial D) or dictated a custom response (dial D or the Approve
+   * key). The custom response wins when both exist — it is the "none of the
+   * above" path, and a spoken instruction must override a stale selection. The
+   * idempotency key is derived from the Command and the answer content, so a
+   * dropped reply that is retried records a replay, never a second decision.
+   */
+  const approveCommand = (command: StreamDeckCommand): void => {
+    const port = voice();
+    const response = port?.hasMessage() === true ? port.message() : null;
+    const answer =
+      response !== null && response !== ""
+        ? { custom_response: response }
+        : state.selectedOption !== null
+          ? { option_id: command.options[state.selectedOption]?.id ?? "" }
+          : null;
+    if (answer === null || answer.option_id === "") return;
+    const idempotencyKey = commandIdempotencyKey(command.decision_id, answer);
+    options.channel()?.answerCommand(command.decision_id, command.version, idempotencyKey, answer);
+    // The buffer is consumed by the answer; it must not also sit in the cmd
+    // surface's Send buffer later.
+    port?.clear();
+    publish({ ...state, commandDictation: false, selectedOption: null, commandsError: null });
+  };
+
+  /** Pages the detail view's options forward, wrapping back to the first page. */
+  const pageOptions = (): void => {
+    if (state.selectedCommand === null) return;
+    const count = state.selectedCommand.options.length;
+    if (count <= COMMANDS_OPTION_SLOTS) return;
+    const next = state.optionOffset + COMMANDS_OPTION_SLOTS;
+    publish({ ...state, optionOffset: hasMoreOptions(state.optionOffset, count) ? clampOptionOffset(next, count) : 0, selectedOption: null });
   };
 
   /**
@@ -538,7 +758,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const releaseMic = (): void => {
     if (!state.micHeld) return;
     voice()?.release();
-    publish({ ...state, micHeld: false, hasTranscript: transcriptPresent() });
+    // Both buffers read the same settled text: the agent row's Send/Cancel and
+    // the Commands detail view's Approve/Cancel. Whichever surface is showing
+    // gets the key refresh.
+    publish({ ...state, micHeld: false, hasTranscript: transcriptPresent(), commandDictation: commandDictationPresent() });
   };
 
   /**
@@ -564,6 +787,18 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     } else if (input.index === 3 && state.mode === "logs") {
       const next = clamp(state.eventOffset + steps, eventMaxOffset);
       setLogsOffsets(next, state.chatOffset, false);
+    } else if (input.index === 3 && state.mode === "commands") {
+      // Dial D pages the Commands page: the history window on the history view,
+      // the option window on the detail view.
+      if (state.commandsView === "detail" && state.selectedCommand !== null) {
+        const count = state.selectedCommand.options.length;
+        const next = clampOptionOffset(state.optionOffset + steps, count);
+        publish({ ...state, optionOffset: next, selectedOption: null });
+      } else {
+        const count = state.commandsPage.items.length;
+        const next = clampHistoryOffset(state.historyOffset + steps, count);
+        publish({ ...state, historyOffset: next, historySelection: null });
+      }
     } else if (input.index === 3) {
       const next = clamp(state.columnOffset + steps, maxColumnOffset(grid.total));
       setGridOffset(next);
@@ -592,6 +827,29 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const next = cycleEventPage(state.eventOffset, eventMaxOffset + EVENTS_PER_PAGE + 1);
       return setLogsOffsets(next.eventOffset, state.chatOffset, false);
     }
+    if (state.mode === "commands") {
+      if (
+        state.commandsView === "detail" &&
+        state.selectedCommand !== null &&
+        isAnswerable(state.selectedCommand.status) &&
+        (state.selectedOption !== null || state.commandDictation)
+      ) {
+        // The knob becomes Approve: pressing it is the deliberate second action
+        // that turns a read option or a dictated response into the answer. It
+        // does nothing while nothing is armed, so it can never commit by
+        // accident.
+        return approveCommand(state.selectedCommand);
+      }
+      if (state.commandsView === "detail" && state.selectedCommand !== null) {
+        return pageOptions();
+      }
+      // History view: cycle the page, wrapping, exactly as dial D cycles the
+      // event window in logs.
+      const count = state.commandsPage.items.length;
+      const next = hasMoreHistory(state.historyOffset, count) ? state.historyOffset + HISTORY_PER_PAGE : 0;
+      publish({ ...state, historyOffset: clampHistoryOffset(next, count), historySelection: null });
+      return;
+    }
     if (state.mode === "cmd") {
       return enterLogs();
     }
@@ -608,12 +866,13 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     for (const input of decoded) if (input.type === "encoder-turn") turn(input);
     // Key-up is handled before the rising-edge pass, and from the report's own
     // state rather than from an edge: a release must end the capture even when
-    // it shares a report with another press. The two hold keys are on different
+    // it shares a report with another press. The hold keys are on different
     // surfaces, so each mode listens to exactly one index.
     for (const input of decoded) {
       if (input.type !== "key" || input.pressed) continue;
       if (state.mode === "cmd" && input.index === CMD_MIC) releaseMic();
       else if (state.mode === "settings" && input.index === SETTINGS_TEST_MIC) releaseMic();
+      else if (state.mode === "commands" && input.index === COMMANDS_MIC) releaseMic();
     }
     const edges = risingEdges(decoded, pressed);
     pressed = new Set(edges.pressed);
@@ -740,14 +999,61 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
      * so a call that changes nothing costs nothing.
      */
     refreshVoice: (): void => {
-      publish({ ...state, hasTranscript: transcriptPresent() });
+      publish({ ...state, hasTranscript: transcriptPresent(), commandDictation: commandDictationPresent() });
     },
     cancel: (): void => {
       pressed = new Set();
       // The device went away mid-hold. Stop capture, or `parec` keeps recording
       // against a deck that is no longer there.
       stopVoice();
-      if (state.micHeld) publish({ ...state, micHeld: false, hasTranscript: transcriptPresent() });
+      if (state.micHeld) publish({ ...state, micHeld: false, hasTranscript: transcriptPresent(), commandDictation: commandDictationPresent() });
+    },
+    /**
+     * Applies a `commands` push: a fresh history page for the focused agent.
+     *
+     * A push can arrive while the operator is reading a detail view (a decision
+     * elsewhere changed). The detail is re-read from the pushed page if the
+     * Command is still in it, so the strip does not describe a Command that is
+     * no longer current; a Command that left the page drops back to history.
+     */
+    setCommands: (page: StreamDeckCommandsPage): void => {
+      let next: ControllerState = { ...state, commandsPage: page, commandsError: null };
+      if (state.commandsView === "detail" && state.selectedCommand !== null) {
+        const refreshed = page.items.find((item) => item.decision_id === state.selectedCommand?.decision_id);
+        if (refreshed !== undefined) next = { ...next, selectedCommand: refreshed };
+        else next = { ...next, commandsView: "history" };
+      }
+      publish(next);
+    },
+    /**
+     * Applies an `answer_command` reply: the durable answer was recorded.
+     *
+     * The refreshed Command carries its new status (decided/acknowledged), so
+     * the detail view becomes read-only: the strip shows what was decided and
+     * no Approve affordance remains. The page is also updated in place so the
+     * history list reflects the answer.
+     */
+    commandAnswered: (result: StreamDeckCommandAnswerResult): void => {
+      const answered = result.decision;
+      const page: StreamDeckCommandsPage = {
+        ...state.commandsPage,
+        items: state.commandsPage.items.map((item) => (item.decision_id === answered.decision_id ? answered : item)),
+      };
+      publish({
+        ...state,
+        commandsPage: page,
+        selectedCommand: state.selectedCommand?.decision_id === answered.decision_id ? answered : state.selectedCommand,
+        commandDictation: false,
+        selectedOption: null,
+        commandsError: null,
+      });
+    },
+    /**
+     * Applies a channel error for the Commands page or an answer: the strip
+     * shows the reason instead of silently doing nothing.
+     */
+    commandsError: (reason: string): void => {
+      publish({ ...state, commandsError: reason });
     },
   };
 };

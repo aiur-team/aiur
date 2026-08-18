@@ -34,6 +34,7 @@ import {
   type DirectionBadge,
 } from "../key-face-contract.js";
 import { VOICE_HOLD_PROMPT, VOICE_LISTENING } from "../voicePanel.js";
+import type { CommandsPanelModel } from "../commands.js";
 import { createPaint } from "./gradient.js";
 import { activityFragment, drawIcon, iconFragment } from "./icons.js";
 import { drawBrandMark, drawVendorMark } from "./vendorMark.js";
@@ -1000,6 +1001,97 @@ const drawSettingsPanel = (context: SKRSContext2D, width: number, content: Segme
   context.fillText(hint, width - PAD - context.measureText(hint).width, HEIGHT - 6);
 };
 
+/** Amber used for an answerable (OPEN) Command's status. */
+export const OPEN_AMBER = "#ffcf87";
+/** Green used for the Approve affordance — the one strip element that commits. */
+const APPROVE_GREEN = ACCENT_LIVE;
+/** Red used for a Commands error: a failed page load or a refused answer. */
+export const COMMANDS_ERROR = "#e06c75";
+
+/**
+ * The Commands page readout: a full-width Command question with its reading
+ * and status, and — when an answer is armed — the unmistakable green APPROVE
+ * label.
+ */
+const drawCommandsPanel = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "commands" }): void => {
+  const model: CommandsPanelModel = content.model;
+  const right = width - PAD;
+
+  // A channel error (a refused answer, a failed page) is shown instead of the
+  // reading: silently doing nothing after a deliberate approve action is worse
+  // than a loud failure the operator can see.
+  if (model.error !== undefined && model.error !== null && model.error !== "") {
+    caption(context, "ERROR", PAD, 22, COMMANDS_ERROR);
+    context.font = "700 18px sans-serif";
+    context.fillStyle = COMMANDS_ERROR;
+    context.fillText(fit(context, model.error, width - PAD * 2), PAD, 46);
+    drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
+    return;
+  }
+
+  if (model.view === "history") {
+    caption(context, "commands", PAD, 22);
+    context.font = "700 22px sans-serif";
+    context.fillStyle = TEXT;
+    context.fillText(fit(context, model.description, width - PAD * 2 - 120), PAD, 50);
+
+    context.font = "700 12px monospace";
+    context.fillStyle = model.activeCount === 0 ? LABEL : OPEN_AMBER;
+    const count = `${model.activeCount} open`;
+    const page = model.page === "" ? "" : ` · page ${model.page}`;
+    context.fillText(count, PAD, 72);
+    context.fillText(page, PAD + context.measureText(count).width, 72);
+
+    drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
+    context.font = "700 9px monospace";
+    context.fillStyle = LABEL;
+    const hint = "PRESS A KEY TO READ IT";
+    context.fillText(hint, right - context.measureText(hint).width, HEIGHT - 6);
+    return;
+  }
+
+  // Detail: the question, the reading, the status, and the approval state.
+  const statusColour = model.answerable ? OPEN_AMBER : APPROVE_GREEN;
+  caption(context, model.status, PAD, 22, statusColour);
+  context.font = "700 9px monospace";
+  context.fillStyle = LABEL;
+  context.textAlign = "right";
+  context.fillText(fit(context, model.ticketId, 180), right, 22);
+  context.textAlign = "left";
+
+  context.font = "700 20px sans-serif";
+  context.fillStyle = TEXT;
+  context.fillText(fit(context, model.title, width - PAD * 2), PAD, 46);
+
+  context.font = "600 14px sans-serif";
+  context.fillStyle = MUTED;
+  context.fillText(fit(context, model.description, width - PAD * 2), PAD, 64);
+
+  if (model.recorded !== null) {
+    // Read-only: what was decided, with no Approve affordance on a settled Command.
+    context.font = "700 12px monospace";
+    context.fillStyle = APPROVE_GREEN;
+    context.fillText(fit(context, model.recorded, width - PAD * 2), PAD, 82);
+    drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
+    return;
+  }
+
+  // Answerable: the green approval affordance when an answer is armed, or the
+  // path hint. The approve state must be unmistakable — it commits a durable
+  // operator decision that a normal dial does not.
+  drawHint(context, "BACK", PAD, HEIGHT - 6, true, false);
+  context.font = "700 11px monospace";
+  if (model.approving) {
+    context.fillStyle = APPROVE_GREEN;
+    const label = "DIAL D · APPROVE";
+    context.fillText(label, right - context.measureText(label).width, HEIGHT - 6);
+  } else {
+    context.fillStyle = LABEL;
+    const hint = "READ AN OPTION OR HOLD MIC";
+    context.fillText(hint, right - context.measureText(hint).width, HEIGHT - 6);
+  }
+};
+
 /** Renders one panel's content onto a `width` x 100 context. */
 export const drawSegmentContent = (
   context: SKRSContext2D,
@@ -1033,6 +1125,8 @@ export const drawSegmentContent = (
       return drawVoicePanel(context, width, content);
     case "settings":
       return drawSettingsPanel(context, width, content);
+    case "commands":
+      return drawCommandsPanel(context, width, content);
     case "blank":
       // A panel with no provider configured for it. Bare background only: an
       // "Awaiting data" label here would claim a provider exists.

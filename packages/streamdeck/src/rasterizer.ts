@@ -282,7 +282,11 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
  * feedback the operator has that the hold registered.
  */
 const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
-  const live = face.icon === "mic" && face.subLabel.toUpperCase() === "LIVE";
+  // The mic turns green while held — the only feedback the operator has that
+  // the hold registered — and the Commands Approve key is permanently green
+  // because it commits: a dial that silently does nothing and a green key that
+  // sends must never read alike.
+  const live = (face.icon === "mic" && face.subLabel.toUpperCase() === "LIVE") || face.icon === "approve";
   roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
   context.fillStyle = live
     ? createPaint(context, "linear-gradient(180deg,#37d97e,#1f9c56)", 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE)
