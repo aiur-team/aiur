@@ -318,6 +318,39 @@ defmodule Aiur.ApplicationTest do
       assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 
+    test "the shared test application does not start the remote ref ticker" do
+      ticker_enabled? = Application.fetch_env!(:aiur, :ls_remote_ticker_enabled?)
+
+      mods =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: false
+        )
+        |> modules()
+
+      refute ticker_enabled?
+      refute Aiur.Events.LsRemoteTicker in mods
+    end
+
+    test "the booted test application supervises BranchRefStore without a ticker writing to it" do
+      # The flake this guards (#1745): a live ticker replaces the singleton
+      # BranchRefStore's refs mid-test, so a synthetic ref recorded by one test
+      # vanishes before that test asserts on it.
+      assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
+      refute Process.whereis(Aiur.Events.LsRemoteTicker)
+    end
+
+    test "production child specs enable the remote ref ticker by default" do
+      ticker_enabled? = Application.fetch_env!(:aiur, :ls_remote_ticker_enabled?)
+      on_exit(fn -> Application.put_env(:aiur, :ls_remote_ticker_enabled?, ticker_enabled?) end)
+      Application.delete_env(:aiur, :ls_remote_ticker_enabled?)
+
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
+
+      assert Aiur.Events.LsRemoteTicker in mods
+    end
+
     test "current-run membership starts before the orchestrator and reconciles after it" do
       for opts <- [
             [interactive_cli?: true, headless?: false, dashboard?: true],
@@ -340,7 +373,7 @@ defmodule Aiur.ApplicationTest do
             [interactive_cli?: false, headless?: true, dashboard?: true],
             [interactive_cli?: false, headless?: true, dashboard?: false]
           ] do
-        mods = modules(AiurApp.child_specs(opts))
+        mods = modules(AiurApp.child_specs(Keyword.put(opts, :ls_remote_ticker?, true)))
         reconciler = Enum.find_index(mods, &(&1 == Aiur.CurrentRunMembership.Reconciler))
         projection = Enum.find_index(mods, &(&1 == Aiur.CurrentRunProjections))
         merge_ticker = Enum.find_index(mods, &(&1 == Aiur.Events.LsRemoteTicker))

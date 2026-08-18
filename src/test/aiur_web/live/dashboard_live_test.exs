@@ -752,7 +752,7 @@ defmodule AiurWeb.DashboardLiveTest do
     payload = Presenter.state_payload(orchestrator_name, 1_000)
     html = render_payload(payload)
 
-    assert html =~ "No active agents"
+    assert html =~ "No active units"
     refute html =~ "MT-900"
     refute html =~ "Idle review"
   end
@@ -3942,6 +3942,17 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_patch(view, "/?v=1")
     refute has_element?(view, ~s(button[phx-value-scope="unfinished"][aria-pressed="true"]))
     refute has_element?(view, ~s(button[phx-value-condition="finished"][aria-pressed="true"]))
+
+    render_hook(view, "table-sort-changed", %{"sort" => "units:latest:desc"})
+
+    view
+    |> element(~s(button[phx-value-condition="active"]))
+    |> render_click()
+
+    assert_patch(view, "/?v=1&conditions=active&sort=units%3Alatest%3Adesc")
+
+    render_patch(view, "/?v=1&sort=units%3Acommand%3Adesc")
+    assert_patch(view, "/?v=1")
   end
 
   test "keeps valid Units selection and stable typed row identity across catalog updates" do
@@ -4649,7 +4660,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, _view, html} = live(build_conn(), "/")
 
-    assert html =~ "No active agents"
+    assert html =~ "No active units"
     refute html =~ "Observed and selected-scope counts unavailable"
     assert html =~ "Count unavailable"
     assert html =~ ~s(aria-label="Count unavailable")
@@ -4676,10 +4687,10 @@ defmodule AiurWeb.DashboardLiveTest do
     {:ok, _view, html} = live(build_conn(), "/")
 
     # The same title/count pair the APIs and Models panels use.
-    assert html =~ ~s(<span class="rs-group-title" id="units-agents-title">Agents</span>)
-    assert html =~ ~s(<span class="rs-group-count">1 agent</span>)
+    assert html =~ ~s(<span class="rs-group-title" id="units-title">Units</span>)
+    assert html =~ ~s(<span class="rs-group-count">1 unit</span>)
 
-    [_before, after_header] = String.split(html, "units-agents-title", parts: 2)
+    [_before, after_header] = String.split(html, "units-title", parts: 2)
     assert after_header =~ "units-filter-list"
   end
 

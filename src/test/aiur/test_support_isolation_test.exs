@@ -18,6 +18,7 @@ defmodule Aiur.TestSupportIsolationTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Paths
+  alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.GlobalPauseStore
 
   test "log_root_dir is isolated to the per-test workflow root, not <cwd>/log" do
@@ -44,6 +45,24 @@ defmodule Aiur.TestSupportIsolationTest do
              })
 
     assert {:ok, %{globally_paused: true, source: "test"}} = GlobalPauseStore.load()
+  end
+
+  test "ModelAvailability reads and writes its default ledger store in the per-test workflow root" do
+    workflow_dir = Path.dirname(Aiur.Workflow.workflow_file_path())
+    default = ModelAvailability.path()
+
+    # The default ledger path is derived from the active workflow directory —
+    # the store this case actually reads and writes. This is deliberately wired
+    # through the default path options (no explicit `path:` overrides), so a
+    # mutation that stops reading this store — a constant path, an in-memory
+    # copy, or a load that ignores the file — breaks the assertions below.
+    assert default == Path.join(workflow_dir, "model-usage.json")
+    refute String.contains?(default, "src/test/fixtures")
+
+    assert :ok = ModelAvailability.observe("codex", %{weekly: %{used: 100, limit: 100}})
+
+    assert File.regular?(default)
+    assert %{"backends" => %{"codex" => %{"weekly" => %{"used" => 100}}}} = ModelAvailability.load()
   end
 
   test "process lifecycle waits synchronize on DOWN instead of polling" do

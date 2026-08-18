@@ -6,7 +6,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const realScript = fileURLToPath(new URL("../stamp-versions.mjs", import.meta.url));
-const TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"];
+const realPlatforms = fileURLToPath(new URL("../platforms.mjs", import.meta.url));
+// The published/pinned set — single source of truth. Kept in sync with the
+// real platforms.mjs; the drift check enforces it.
+const TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"];
 
 let root;
 let scriptCopy;
@@ -28,6 +31,8 @@ function setup({ withPlatform = true } = {}) {
   mkdirSync(path.join(root, "packaging", "scripts"), { recursive: true });
   scriptCopy = path.join(root, "packaging", "scripts", "stamp-versions.mjs");
   copyFileSync(realScript, scriptCopy);
+  // stamp-versions imports the shared platform set; the fixture needs a copy.
+  copyFileSync(realPlatforms, path.join(root, "packaging", "scripts", "platforms.mjs"));
 
   launcherPkg = path.join(root, "packaging", "npm", "aiur-cli", "package.json");
   writeJson(launcherPkg, {
@@ -36,7 +41,6 @@ function setup({ withPlatform = true } = {}) {
     optionalDependencies: {
       "aiur-cli-linux-x64": "0.0.0",
       "aiur-cli-linux-arm64": "0.0.0",
-      "aiur-cli-darwin-x64": "0.0.0",
       "aiur-cli-darwin-arm64": "0.0.0",
     },
   });
@@ -59,7 +63,7 @@ function run(version) {
 beforeEach(() => setup());
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-test("sets all five versions and pins optionalDependencies exactly", () => {
+test("sets the launcher and every published platform version, pinning exactly", () => {
   const result = run("0.1.0");
   expect(result.status).toBe(0);
 
@@ -72,6 +76,19 @@ test("sets all five versions and pins optionalDependencies exactly", () => {
     );
     expect(platform.version).toBe("0.1.0");
   }
+});
+
+test("never pins a platform the workflow does not publish (darwin-x64 regression)", () => {
+  // #2110: aiur-cli pinned aiur-cli-darwin-x64, which the release workflow does
+  // not publish. The pin set must come from PUBLISH_TARGETS, never a second
+  // hardcoded list, so a release cannot silently re-add the dead pin.
+  const result = run("0.1.0");
+  expect(result.status).toBe(0);
+  const launcher = readJson(launcherPkg);
+  expect(launcher.optionalDependencies["aiur-cli-darwin-x64"]).toBeUndefined();
+  expect(Object.keys(launcher.optionalDependencies).sort()).toEqual(
+    TARGETS.map((t) => `aiur-cli-${t}`).sort(),
+  );
 });
 
 test("empty version errors and mutates nothing", () => {

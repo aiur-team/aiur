@@ -217,6 +217,22 @@ defmodule Aiur.AgentControlCLITest do
     Application.delete_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms)
   end
 
+  defp with_message_confirm_timeout(timeout_ms, fun) do
+    Application.put_env(:aiur, :agent_control_cli_message_confirm_timeout_ms, timeout_ms)
+    fun.()
+  after
+    Application.delete_env(:aiur, :agent_control_cli_message_confirm_timeout_ms)
+  end
+
+  # Stub the delivery-status read `message` polls after a successful enqueue.
+  defp stub_message_delivery_status(result) do
+    Application.put_env(:aiur, :agent_control_cli_message_status_fun, fn _request_id, _timeout ->
+      result
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_status_fun) end)
+  end
+
   defp queued_issue(issue_id \\ "issue-queued") do
     %Issue{id: issue_id, identifier: "repo##{issue_id}", state: "In Progress", title: "Queued"}
   end
@@ -2310,26 +2326,112 @@ defmodule Aiur.AgentControlCLITest do
     assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached)"
   end
 
-  test "message delivers operator text to a running agent and reports success", %{orchestrator: pid} do
+  # The message is accepted into the queue and the agent never claims it inside
+  # the confirmation window — the ordinary `fallback: :queue_next` case. The
+  # enqueue succeeded, so the exit stays 0, but the output must not say the
+  # agent got it (#1824).
+  test "message reports an unclaimed message as queued without claiming delivery", %{orchestrator: pid} do
     parent = self()
 
     Application.put_env(:aiur, :agent_control_cli_message_fun, fn identifier, text ->
-      send(parent, {:messaged, identifier, text})
+      send(parent, {:send_requested, identifier, text})
       {:ok, 7}
     end)
 
     on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+    stub_message_delivery_status({:ok, :pending})
 
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
     end)
 
-    output = capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+    output =
+      with_message_confirm_timeout(150, fn ->
+        capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+      end)
 
-    assert output =~ "aiur: messaged #44"
+    assert output =~ "aiur: queued message for #44 (request 7); delivery is unconfirmed"
+    refute output =~ "aiur: messaged"
+    refute output =~ "delivered"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
-    # Delivered through the canonical identifier, not the bare issue number.
-    assert_receive {:messaged, "repo#44", "ship it"}, 500
+    # Enqueued through the canonical identifier, not the bare issue number.
+    assert_receive {:send_requested, "repo#44", "ship it"}, 500
+  end
+
+  test "message reports delivery only once the agent has claimed the message", %{orchestrator: pid} do
+    parent = self()
+
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text -> {:ok, 7} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+
+    # Pending on the first read, claimed on the second: the poll must observe
+    # the transition rather than settle on its first answer.
+    Application.put_env(:aiur, :agent_control_cli_message_status_fun, fn request_id, _timeout ->
+      send(parent, {:status_read, request_id})
+
+      if Process.get(:message_status_read) do
+        {:ok, :delivered}
+      else
+        Process.put(:message_status_read, true)
+        {:ok, :pending}
+      end
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_status_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    output =
+      with_message_confirm_timeout(1_000, fn ->
+        capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+      end)
+
+    assert output =~ "aiur: delivered message to #44 (request 7)"
+    refute output =~ "queued message"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert_receive {:status_read, 7}, 500
+  end
+
+  test "message reports a settled non-delivery distinctly from an unconfirmed one", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text -> {:ok, 7} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+    stub_message_delivery_status({:ok, :failed})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    output =
+      with_message_confirm_timeout(1_000, fn ->
+        capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+      end)
+
+    assert output =~ "aiur: queued message for #44 (request 7); not delivered (failed)"
+    refute output =~ "delivery is unconfirmed"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  # An unreadable status is not evidence of delivery. The enqueue still
+  # succeeded, so this reports as queued rather than as a failure.
+  test "message reports queued when the delivery status cannot be read", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text -> {:ok, 7} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+    stub_message_delivery_status({:error, :unavailable})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    output =
+      with_message_confirm_timeout(150, fn ->
+        capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+      end)
+
+    assert output =~ "aiur: queued message for #44 (request 7); delivery is unconfirmed"
+    refute output =~ "delivered"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
   test "message to a non-running issue fails with a clear error" do

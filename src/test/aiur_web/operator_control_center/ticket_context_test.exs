@@ -42,7 +42,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     assert html =~ "Last activity"
     assert html =~ "0 linked tickets"
     assert html =~ "Logs are truncated to the newest safe entries."
-    assert html =~ ~s(<table class="ticket-context-logs")
+    assert html =~ ~s(<table id="ticket-context-42-title-logs-table" class="ticket-context-logs")
     assert html =~ "Activity"
     assert html =~ "Detail"
     assert html =~ "40% complete"
