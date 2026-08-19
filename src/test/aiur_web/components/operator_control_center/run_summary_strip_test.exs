@@ -1034,7 +1034,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(class="is-critical" style="width:100%")
   end
 
-  test "a non-critical bar at 99% used stays default" do
+  test "a bar at 99% used renders warning (orange), not critical" do
     meters = %{
       state: :authorized,
       cards: [
@@ -1057,8 +1057,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ ~s(<i class="" style="width:99%">)
+    assert html =~ ~s(<i class="is-warning" style="width:99%">)
     refute html =~ "is-critical"
+  end
+
+  test "meter stages: yellow from 80%, orange from 90%, red at 100%" do
+    render = fn percent ->
+      meters = %{
+        state: :authorized,
+        cards: [
+          %{
+            provider: :codex,
+            provider_label: "Codex",
+            state: :ready,
+            status_label: "Healthy",
+            auth_mode: %{value: :api_key},
+            windows: [scoped_window("codex:primary", percent)]
+          }
+        ]
+      }
+
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+    end
+
+    assert render.(50) =~ ~s(<i class="" style="width:50%">)
+    assert render.(80) =~ ~s(<i class="is-caution" style="width:80%">)
+    assert render.(90) =~ ~s(<i class="is-warning" style="width:90%">)
+    assert render.(100) =~ ~s(<i class="is-critical" style="width:100%">)
   end
 
   test "the run progress bar at 100% renders red in the compact summary" do

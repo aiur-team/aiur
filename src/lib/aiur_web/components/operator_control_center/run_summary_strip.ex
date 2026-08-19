@@ -68,8 +68,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-apis-rows">
         <div class="rs-api rs-provider-row">
           <div class="rs-head">
-            <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
-            <span class="rs-name">Github</span>
+            <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="Github" title="Github - for ticket state" />
           </div>
           <div class="rs-provider-body">
             <div class="rs-limits">
@@ -82,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
               <div :for={window <- @windows} class="rs-limit">
                 <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
                 <div class="rs-meter">
-                  <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+                  <i class={meter_class(window.used_percent, 80, 90)} style={"width:#{window.used_percent}%"}></i>
                 </div>
                 <span class="rs-limit-meta rs-limit-meta-wide">{github_window_meta(window, @now)}</span>
                 <span class="rs-limit-meta rs-limit-meta-compact">{github_window_compact_meta(window, @now)}</span>
@@ -120,8 +119,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     ~H"""
     <div class="rs-api rs-elevenlabs rs-provider-row">
       <div class="rs-head">
-        <img class="rs-logo rs-elevenlabs-mark" src="/elevenlabs-symbol.svg" alt="" aria-hidden="true" />
-        <span class="rs-name">ElevenLabs</span>
+        <img class="rs-logo rs-elevenlabs-mark" src="/elevenlabs-symbol.svg" alt="ElevenLabs" title="Elevenlabs - for voice to text" />
       </div>
       <div class="rs-provider-body">
         <div class="rs-limits">
@@ -129,7 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
             <div class="rs-meter">
               <i
-                class={meter_class(@meter_percent, 90)}
+                class={meter_class(@meter_percent, 80, 90)}
                 style={"width:#{@meter_percent}%"}
               >
               </i>
@@ -253,7 +251,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div class="rs-limits">
           <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
             <span class="rs-limit-label">Limits</span>
-            <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
+            <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)), 80, 90)} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
             <span class="rs-limit-meta rs-limit-meta-wide">{durable_meta(durable_record(@card), @now)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{durable_compact_meta(durable_record(@card))}</span>
           </div>
@@ -264,7 +262,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
+            <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{meter_percent(window)}%"}></i></div>
             <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now, @standing)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now, @standing)}</span>
           </div>
@@ -757,16 +755,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp meter_percent(_window), do: 0
 
   # A bar that is fully consumed reads as critical: the fill turns red so an
-  # exhausted window is never mistaken for a healthy one. Credit percentages
-  # arrive as floats (e.g. 100.0), so the guard accepts any number at/above 100.
-  defp meter_class(percent, warning_threshold \\ nil)
-  defp meter_class(percent, _warning_threshold) when is_number(percent) and percent >= 100, do: "is-critical"
+  # exhausted window is never mistaken for a healthy one. Three stage colours:
+  # caution (yellow) from 80% used, warning (orange) from 90%, critical (red)
+  # at 100% (operator directive). Credit percentages arrive as floats (e.g.
+  # 100.0), so the guards accept any number at/above 100.
+  defp meter_class(percent, caution_threshold \\ nil, warning_threshold \\ nil)
+  defp meter_class(percent, _caution, _warning) when is_number(percent) and percent >= 100, do: "is-critical"
 
-  defp meter_class(percent, warning_threshold)
-       when is_number(percent) and is_number(warning_threshold) and percent >= warning_threshold,
+  defp meter_class(percent, caution, warning)
+       when is_number(percent) and is_number(warning) and percent >= warning,
        do: "is-warning"
 
-  defp meter_class(_percent, _warning_threshold), do: ""
+  defp meter_class(percent, caution, _warning)
+       when is_number(percent) and is_number(caution) and percent >= caution,
+       do: "is-caution"
+
+  defp meter_class(_percent, _caution, _warning), do: ""
 
   # A credit window is a dollar balance. When a durable baseline exists the
   # window carries a measured `used_percent` and renders a real spend bar

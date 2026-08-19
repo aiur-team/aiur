@@ -4069,6 +4069,11 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   background: var(--warning, #d08a2a);
 }
 
+/* Meter stage colours: yellow from 80%, orange from 90%, red at 100% used. */
+.rs-meter > i.is-caution {
+  background: var(--caution, #d0a92a);
+}
+
 .github-quota-attribution,
 .github-quota-coverage {
   display: flex;
