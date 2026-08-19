@@ -189,6 +189,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_GITHUB_BUDGET_CONSUMER", type: :string, validate: false, example: false, group: :runtime, purpose: "Workspace budget consumer id; set by the launcher."},
     {"AIUR_AGENT_IR_SANDBOX", type: :boolean, validate: false, example: false, group: :runtime, purpose: "Test-reset guard inside an agent IR sandbox."},
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
+    {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},
 
     # --- Development and debugging ---
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},
@@ -200,6 +201,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_BASE_BRANCH", type: :string, group: :dev, purpose: "Authoritative integration branch for PRs and affected-test scoping."},
     {"AIUR_EXECUTOR_ID", type: :string, group: :dev, purpose: "Pins the executor wake-stream owner when multiple daemons share a repository."},
     {"AIUR_BUILD_ORDER_DIRS", type: :string, validate: false, example: false, group: :dev, purpose: "Colon-separated build-order pack dirs; dev/test override."},
+    {"AIUR_REGISTRY_URL", type: :string, validate: false, example: false, group: :dev, purpose: "Upgrade registry endpoint override (tests and mirrors)."},
 
     # --- Ambient (read, not operator-configured) ---
     {"PATH", type: :path, validate: false, example: false, group: :ambient, purpose: "Executable search path inherited by child processes."},
@@ -217,7 +219,8 @@ defmodule Aiur.Env.Schema do
     {"ELIXIR_ERL_OPTIONS", type: :string, validate: false, example: false, group: :ambient, purpose: "Scheduler options inherited by launched BEAMs."},
     {"ERL_EPMD_ADDRESS", type: :string, validate: false, example: false, group: :ambient, purpose: "epmd bind address for distribution."},
     {"GIT_AUTHOR_EMAIL", type: :string, validate: false, example: false, group: :ambient, purpose: "Author email for commits made by agents."},
-    {"GIT_AUTHOR_NAME", type: :string, validate: false, example: false, group: :ambient, purpose: "Author name for commits made by agents."}
+    {"GIT_AUTHOR_NAME", type: :string, validate: false, example: false, group: :ambient, purpose: "Author name for commits made by agents."},
+    {"CI", type: :string, validate: false, example: false, group: :ambient, purpose: "CI runner signal; suppresses the update notifier."}
   ]
 
   # NimbleOptions.validate!/2 returns the declaration as a keyword list with
