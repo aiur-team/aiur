@@ -61,6 +61,26 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
 
   .ghc-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0.75rem; align-items: stretch; }
 
+  .ghc-trends { display: flex; flex-direction: column; gap: 0.6rem; }
+  .ghc-trends-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .ghc-trends-title { margin: 0; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .ghc-trends-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+
+  .ghc-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 0.75rem; }
+  .ghc-chart {
+    margin: 0;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .ghc-chart-title { margin: 0 0 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg); }
+  .ghc-chart-body { min-height: 8rem; }
+  .ghc-chart-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--muted); }
+  .ghc-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .ghc-legend-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
+
   /* Density and freshness, both from data. `--ghc-weight` scales the cell with
      how much the type holds; `--ghc-stale` tints it toward the attention ink so
      a stale region reads before any label does. */
