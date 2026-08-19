@@ -136,12 +136,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-meta rs-limit-meta-compact">{elevenlabs_compact_meta(@quota, @now)}</span>
           </div>
         </div>
-        <div :if={@invoice_due} class="rs-head-stats">
-          <div class="rs-stat" role="group" aria-label={"Next invoice due #{@invoice_due}"}>
-            <span class="rs-stat-label">Next invoice due</span>
-            <span class="rs-stat-val">{@invoice_due}</span>
-          </div>
-        </div>
       </div>
     </div>
     """
@@ -235,9 +229,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:usage, provider_usage(assigns.card))
       |> assign(:windows, meter_windows(assigns.card))
-      |> assign(:show_spend?, provider_spend?(assigns.card))
-      |> assign(:token_count, token_count(assigns.usage_ready?, provider_usage(assigns.card)))
-      |> assign(:token_glyph?, token_glyph?(assigns.card.provider))
       |> assign(:standing, model_standing(assigns.card))
 
     ~H"""
@@ -258,7 +249,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
             <span class="rs-limit-label">Limits</span>
             <div class="rs-meter"><i style="width:0%"></i></div>
-            <span class="rs-limit-meta">{provider_status(@card)}</span>
           </div>
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
@@ -266,24 +256,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now, @standing)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now, @standing)}</span>
           </div>
-        </div>
-        <div class="rs-head-stats">
-          <div :if={@token_count} class="rs-stat" role="group" aria-label={"Tokens #{@token_count}"}>
-            <span class="rs-stat-label">Tokens</span>
-            <span class="rs-stat-val">
-              {@token_count}
-              <%!-- The per-provider token glyph sits to the right of the count. Decorative: the label already says Tokens. --%>
-              <img :if={@token_glyph?} class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
-            </span>
-          </div>
-          <%!-- An unknown token count hides its label and the "N/A" text. On the two rows that carry a token glyph it remains, alone, so the card keeps its shape; the rest simply lose the stat. --%>
-          <img :if={@token_glyph? and is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
-        </div>
-        <%!-- The spend figure closes the row on the right. Its label is deleted
-        (operator directive); the amount keeps its accessible name from the
-        aria-label, the same pattern the ElevenLabs invoice figure uses. --%>
-        <div :if={@show_spend?} class="rs-stat rs-spend" role="group" aria-label={"Spend #{if @usage_ready?, do: money(@usage), else: "N/A"}"}>
-          <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
         </div>
       </div>
     </div>
@@ -294,16 +266,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp model_count_label(1), do: "1 model"
   defp model_count_label(count), do: "#{count} models"
-
-  # A deliberate two-name list, not a registry lookup. Every provider descriptor
-  # defines a token icon, so deriving this would put a second mark on every row
-  # — which is the thing the far-left logo was meant to stop. Claude and Codex
-  # are the pair the operator actually meters token-by-token, so their glyph
-  # earns the right-hand slot; a new provider joins this list by decision, not
-  # by shipping an asset.
-  @token_glyph_providers [:claude, :codex]
-
-  defp token_glyph?(provider), do: provider in @token_glyph_providers
 
   # A card can stand at :stale or :partial while its retained windows are still
   # stamped fresh — an adapter failure, or repeated probe failures over the last
@@ -587,14 +549,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp provider_spend?(%{auth_mode: %{value: :api_key}}), do: true
   defp provider_spend?(_card), do: false
 
-  # An unknown-identity meter used to render no label at all above a 0%-wide
-  # bar, which reads as a real "0% consumed". Name it instead. A card that has
-  # a durable observation renders that from the template (with staleness); the
-  # status clause below is only reached for a card with nothing durable either.
-  defp provider_status(%{state: :unknown}), do: "N/A"
-  defp provider_status(%{status_label: label}) when is_binary(label) and label != "", do: label
-  defp provider_status(_card), do: "N/A"
-
   # Codex reports an account-wide limit alongside per-model ones
   # (`codex:primary` vs `codex_bengalfox:primary`). Only the account-wide bucket
   # is shown: it is the one that governs whether work can proceed at all, and
@@ -724,15 +678,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     |> Enum.map(fn {currency, amount} -> %{currency: currency, amount: Decimal.to_string(amount, :normal)} end)
     |> Enum.sort_by(& &1.currency)
   end
-
-  # A token count is only worth a labelled row when it is a real number; an
-  # unknown count degrades to `nil` so the template drops the label and the
-  # "N/A" and keeps the glyph alone.
-  defp token_count(true, %{tokens: %{total: total}}) when is_integer(total), do: compact_number(total)
-  defp token_count(_ready?, _usage), do: nil
-
-  defp money(%{api_equivalent: amounts}), do: money_list(amounts)
-  defp money(_usage), do: "N/A"
 
   defp money_list([%{currency: currency, amount: amount}]), do: currency_amount(currency, amount)
   defp money_list([]), do: "N/A"
@@ -886,7 +831,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # registry).
   defp provider_logo(provider), do: descriptor_field(provider, :logo, "/aiur-logo.png")
 
-  defp provider_token_icon(provider), do: descriptor_field(provider, :token_icon, "/aiur-logo.png")
   defp provider_label(provider), do: descriptor_field(provider, :label, to_string(provider))
 
   defp descriptor_field(provider, field, fallback) do

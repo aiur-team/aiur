@@ -71,12 +71,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    # Per-provider tokens read number-first, with the glyph to the right.
-    assert html =~ "1.5K"
-    assert compact(html) =~ "1.5K <img class=\"rs-token-ic\""
-    assert html =~ "$2.50"
-    assert html =~ "$6.25"
+    # Token glyphs and the spend figure were removed (operator directive); the
+    # model rows now show only the provider + usage bars.
     assert html =~ "40% · resets in 30m"
+    refute html =~ "rs-token-ic"
+    refute html =~ "rs-spend"
+    refute html =~ "Tokens"
+    refute html =~ "Spend"
 
     # The Live stat was dropped: it duplicated what the Units table already
     # shows, and the extra column pushed the head row past the card's edge at
@@ -238,12 +239,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "OpenRouter"
     refute html =~ "$0.00"
 
-    # A locked usage is an unknown token count: the row keeps its token glyph
-    # alone instead of a "Tokens N/A" value, while the Limits meter names the
-    # unavailable standing.
-    assert html =~ "N/A"
+    # A locked usage means no real reading: the Limits meter names the
+    # unavailable standing, and the removed token glyphs/spend stay absent.
+    refute html =~ "N/A"
     refute html =~ "Tokens"
-    assert html =~ "rs-token-na"
+    refute html =~ "rs-token-na"
+    refute html =~ "rs-spend"
   end
 
   # The compact run summary is hidden whenever the remaining ticket count is
@@ -760,7 +761,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end
   end
 
-  test "keeps N/A for a provider with no durable record either" do
+  test "omits the status label for a provider with no durable record either" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -784,11 +785,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "N/A"
+      refute html =~ "N/A"
+      refute html =~ "—"
     end)
   end
 
-  test "hides spend for subscription accounts" do
+  test "spend figures are removed for every account" do
     meters =
       update_in(meters_view(), [:cards], fn cards ->
         Enum.map(cards, fn
@@ -805,15 +807,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    # Codex is subscription, so its spend figure is dropped; Claude remains an
-    # API-key card and keeps its spend figure (now leading its row).
+    # The spend figure was removed entirely (operator directive): no amount on
+    # any model row, subscription or API-key.
     refute html =~ "$2.50"
-    assert html =~ "$6.25"
+    refute html =~ "$6.25"
+    refute html =~ "rs-spend"
   end
 
   # The provider logo leads the row on the far left and is the row's only mark;
-  # the spend figure closes the row on the right.
-  test "the provider logo leads the model row and the spend figure closes it" do
+  # the spend figure and token glyphs were removed (operator directive).
+  test "the provider logo leads the model row, with no spend or token glyph" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -840,12 +843,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       [before_name, after_name] = String.split(html, "DeepSeek", parts: 2)
 
       assert before_name =~ ~s(<img class="rs-logo" src=)
-      assert after_name =~ "rs-stat-spend"
-
-      # DeepSeek is not Claude or Codex, so it carries no second, right-hand
-      # token glyph — one mark per row, on the far left.
-      refute after_name =~ ~s(<img class="rs-logo" src=)
+      refute after_name =~ "rs-spend"
       refute after_name =~ "rs-token"
+      refute after_name =~ ~s(<img class="rs-logo" src=)
     end)
   end
 
@@ -989,7 +989,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   # Rule 6: an unknown token count hides the label and the "N/A", leaving the
   # token glyph alone at logo size in the row's fixed token column.
-  test "an unknown token count renders the token glyph alone" do
+  test "token glyphs are removed from the model rows" do
     usage = %{state: :ready, providers: %{codex: %{}, claude: %{}}}
 
     html =
@@ -1002,8 +1002,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     refute html =~ "Tokens"
     refute html =~ ~s(<span class="rs-stat-label">Tokens</span>)
-    assert html =~ ~s(<img class="rs-logo rs-token-na" src="/provider-assets/codex-token.svg")
-    assert html =~ ~s(<img class="rs-logo rs-token-na" src="/provider-assets/claude-token.svg")
+    refute html =~ "rs-token-na"
+    refute html =~ "rs-token-ic"
   end
 
   # Rule 9: any meter at exactly 100% used renders red, including rate-limit
@@ -1247,8 +1247,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         # presented as current.
         assert html =~ "62% · resets in 30m (stale)"
 
-        # Kimi reported nothing at all, which is neither healthy nor a zero.
-        assert html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
+        # Kimi reported nothing at all, which is neither healthy nor a zero; its
+        # status label was deleted (operator directive) so the row is just the
+        # empty bar.
+        refute html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
+        refute html =~ "Unavailable"
 
         # The head-row freshness chip is gone (the row leads with the provider
         # logo instead); the meter's own meta line is what keeps the three
@@ -1366,14 +1369,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     row = elevenlabs_row(html)
 
     assert html =~ "2 APIs"
-    assert html =~ "Github"
-    assert row =~ "ElevenLabs"
-    assert row =~ ~s(src="/elevenlabs-symbol.svg")
+    assert html =~ ~s(title="Github - for ticket state")
+    assert html =~ ~s(src="/elevenlabs-symbol.svg")
+    assert html =~ ~s(title="Elevenlabs - for voice to text")
     assert row =~ "Credits"
     assert row =~ "75.0K left · 25% used · resets 3d"
     assert row =~ ~s(style="width:25.0%")
-    assert row =~ "Next invoice due"
-    assert row =~ "$5.00"
+    refute row =~ "Next invoice due"
+    refute row =~ "$5.00"
     refute row =~ "100.0K"
     refute row =~ "credits left"
 
