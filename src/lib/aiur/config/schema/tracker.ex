@@ -10,6 +10,10 @@ defmodule Aiur.Config.Schema.Github do
   @default_max_inflight_per_endpoint 2
   @default_requests_per_minute 120
   @default_stagger_ms 75
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 2000
+  @default_agent_core_limit_per_hour 1000
+  @default_agent_graphql_limit_per_hour 500
 
   @primary_key false
   embedded_schema do
@@ -26,6 +30,15 @@ defmodule Aiur.Config.Schema.Github do
     field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
     field(:requests_per_minute, :integer, default: @default_requests_per_minute)
     field(:stagger_ms, :integer, default: @default_stagger_ms)
+    # Per-actor hourly GitHub ceilings (#2181): how many Core (REST) requests /
+    # GraphQL requests one actor may be admitted for in a rolling hour before its
+    # own requests hold. `0` disables the ceiling. These are request-count
+    # ceilings, not GraphQL point budgets — the broker sees admissions, never
+    # the point price GitHub charged.
+    field(:daemon_core_limit_per_hour, :integer, default: @default_daemon_core_limit_per_hour)
+    field(:daemon_graphql_limit_per_hour, :integer, default: @default_daemon_graphql_limit_per_hour)
+    field(:agent_core_limit_per_hour, :integer, default: @default_agent_core_limit_per_hour)
+    field(:agent_graphql_limit_per_hour, :integer, default: @default_agent_graphql_limit_per_hour)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -46,7 +59,11 @@ defmodule Aiur.Config.Schema.Github do
         :max_inflight,
         :max_inflight_per_endpoint,
         :requests_per_minute,
-        :stagger_ms
+        :stagger_ms,
+        :daemon_core_limit_per_hour,
+        :daemon_graphql_limit_per_hour,
+        :agent_core_limit_per_hour,
+        :agent_graphql_limit_per_hour
       ],
       empty_values: []
     )
@@ -57,7 +74,11 @@ defmodule Aiur.Config.Schema.Github do
       :max_inflight,
       :max_inflight_per_endpoint,
       :requests_per_minute,
-      :stagger_ms
+      :stagger_ms,
+      :daemon_core_limit_per_hour,
+      :daemon_graphql_limit_per_hour,
+      :agent_core_limit_per_hour,
+      :agent_graphql_limit_per_hour
     ])
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
@@ -77,6 +98,10 @@ defmodule Aiur.Config.Schema.Github do
     |> validate_number(:max_inflight_per_endpoint, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:requests_per_minute, greater_than: 0, less_than_or_equal_to: 10_000)
     |> validate_number(:stagger_ms, greater_than_or_equal_to: 0, less_than_or_equal_to: 5_000)
+    |> validate_number(:daemon_core_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:daemon_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:agent_core_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:agent_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_endpoint_concurrency()
   end
 

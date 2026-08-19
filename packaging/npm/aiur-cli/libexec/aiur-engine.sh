@@ -463,6 +463,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -2687,6 +2688,28 @@ cmd_github_cost() {
   run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"
 }
 
+# `aiur github-usage` — per-actor (daemon vs each agent workspace) Core/GraphQL
+# usage and ceilings from the shared admission broker. Read-only; it reads the
+# broker database and issues no GitHub request of its own.
+cmd_github_usage() {
+  local json=0 arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      -*) echo "aiur: github-usage received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: github-usage does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  local opts=""
+  [ "$json" -eq 1 ] && opts="json: true"
+
+  run_control_rpc "Aiur.AgentControlCLI.github_usage([$opts])"
+}
+
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
@@ -3508,6 +3531,10 @@ aiur_engine_main() {
     github-cost)
       shift
       cmd_github_cost "$@"
+      ;;
+    github-usage)
+      shift
+      cmd_github_usage "$@"
       ;;
     alerts)
       shift

@@ -273,6 +273,170 @@ defmodule Aiur.GitHub.BudgetTest do
              |> Path.join("github_budget.py")
   end
 
+  test "an agent hitting its hourly Core ceiling holds only that agent, not the daemon", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/agent-42",
+      agent_core_limit_per_hour: 3,
+      agent_graphql_limit_per_hour: 10
+    ]
+
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+
+    leases =
+      for _ <- 1..3 do
+        assert {:ok, lease} = Budget.acquire(request, opts)
+        lease
+      end
+
+    # The fourth request from the same agent holds because it hit the Core
+    # ceiling, and the hold names the actor budget as the reason.
+    assert {:hold, %{reason: :actor_budget, resource: "core"}} =
+             Budget.acquire(request, Keyword.put(opts, :timeout_ms, 200))
+
+    Enum.each(leases, &Budget.release(&1, opts))
+
+    # A different actor (the daemon) on the same token is not held by the
+    # agent's ceiling: its own admission is far under the daemon limit.
+    daemon_opts = Keyword.drop(opts, [:consumer_key])
+    assert {:ok, daemon_lease} = Budget.acquire(request, daemon_opts)
+    assert :ok = Budget.release(daemon_lease, daemon_opts)
+  end
+
+  test "an actor's Core ceiling does not hold its GraphQL calls and vice versa", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/agent-7",
+      agent_core_limit_per_hour: 2,
+      agent_graphql_limit_per_hour: 1
+    ]
+
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    graphql = request("shared-token", "/graphql")
+
+    assert {:ok, c1} = Budget.acquire(core, opts)
+    assert {:ok, c2} = Budget.acquire(core, opts)
+
+    # Core is at its ceiling of 2.
+    assert {:hold, %{reason: :actor_budget, resource: "core"}} =
+             Budget.acquire(core, Keyword.put(opts, :timeout_ms, 200))
+
+    # GraphQL still has headroom (0 of 1 used), so it is admitted.
+    assert {:ok, g1} = Budget.acquire(graphql, opts)
+
+    # Now GraphQL is at its ceiling of 1, and the hold names the graphql resource.
+    assert {:hold, %{reason: :actor_budget, resource: "graphql"}} =
+             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 200))
+
+    :ok = Budget.release(c1, opts)
+    :ok = Budget.release(c2, opts)
+    :ok = Budget.release(g1, opts)
+  end
+
+  test "a zero per-actor ceiling disables the hold", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/agent-9",
+      agent_core_limit_per_hour: 0,
+      agent_graphql_limit_per_hour: 0
+    ]
+
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+
+    leases =
+      for _ <- 1..5 do
+        assert {:ok, lease} = Budget.acquire(request, opts)
+        lease
+      end
+
+    Enum.each(leases, &Budget.release(&1, opts))
+  end
+
+  test "usage reports each actor's Core/GraphQL used and limit with a reset", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/agent-42",
+      agent_core_limit_per_hour: 3,
+      agent_graphql_limit_per_hour: 5
+    ]
+
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    graphql = request("shared-token", "/graphql")
+
+    assert {:ok, c1} = Budget.acquire(core, opts)
+    assert {:ok, c2} = Budget.acquire(core, opts)
+    assert {:ok, g1} = Budget.acquire(graphql, opts)
+    :ok = Budget.release(c1, opts)
+    :ok = Budget.release(c2, opts)
+    :ok = Budget.release(g1, opts)
+
+    usage = Budget.usage(state_dir: root)
+
+    actor =
+      Enum.find(usage.actors, &(&1.consumer_key == Budget.token_key("workspace:/agent-42")))
+
+    assert actor.consumer_label == "workspace:/agent-42"
+    assert actor.core.used == 2
+    assert actor.core.limit == 3
+    assert is_integer(actor.core.reset_at_ms)
+    assert actor.graphql.used == 1
+    assert actor.graphql.limit == 5
+    assert is_integer(actor.graphql.reset_at_ms)
+  end
+
+  test "usage degrades to an empty actor list when the broker is disabled", %{root: root} do
+    previous = Application.get_env(:aiur, :github_budget_enabled?)
+    Application.put_env(:aiur, :github_budget_enabled?, false)
+    on_exit(fn -> restore_env(:github_budget_enabled?, previous) end)
+
+    assert Budget.usage(state_dir: root) == %{actors: []}
+  end
+
+  test "a stale policy row does not constrain the reconcile but stays in the usage report", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 4,
+      max_inflight_per_endpoint: 4,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/fresh",
+      agent_core_limit_per_hour: 3,
+      agent_graphql_limit_per_hour: 5
+    ]
+
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+    assert {:ok, _} = Budget.acquire(request, opts)
+
+    # A consumer that went idle ten minutes ago keeps a policy row (the usage
+    # report needs its label and limits for the hour), but its old max_inflight
+    # of 1 must not constrain the fleet in the meantime.
+    insert_stale_policy(Budget.database_path(state_dir: root), Budget.token_key("shared-token"))
+
+    assert {:ok, l1} = Budget.acquire(request, opts)
+    assert {:ok, l2} = Budget.acquire(request, opts)
+    :ok = Budget.release(l1, opts)
+    :ok = Budget.release(l2, opts)
+
+    usage = Budget.usage(state_dir: root)
+    assert Enum.any?(usage.actors, &(&1.consumer_label == "workspace:/stale"))
+  end
+
   defp request(token, path), do: %{method: :get, url: "https://api.github.com#{path}", token: token}
 
   defp secondary_response(seconds) do
@@ -303,6 +467,26 @@ defmodule Aiur.GitHub.BudgetTest do
     on_exit(fn -> close_port(port) end)
     assert_receive {^port, {:data, "locked\n"}}, 2_000
     port
+  end
+
+  # Direct injection of a policy row whose `observed_at_ms` is ten minutes in
+  # the past, so the concurrency reconcile must ignore it while the usage report
+  # still retains it (the report's window is an hour, the reconcile's is two
+  # minutes).
+  defp insert_stale_policy(db, token_key) do
+    stale_at = System.system_time(:millisecond) - 10 * 60 * 1_000
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute(\"INSERT INTO policies(token_key, consumer_key, consumer_label, max_inflight, " <>
+        "max_inflight_per_endpoint, requests_per_minute, stagger_ms, core_limit_per_hour, " <>
+        "graphql_limit_per_hour, observed_at_ms) VALUES (?,?,?,1,1,1,0,3,5,?)\", " <>
+        "(sys.argv[2], 'stale', 'workspace:/stale', int(sys.argv[3]))); c.commit()"
+
+    {_output, 0} =
+      System.cmd("python3", ["-c", script, db, token_key, Integer.to_string(stale_at)], stderr_to_stdout: true)
+
+    :ok
   end
 
   defp close_port(port) do
