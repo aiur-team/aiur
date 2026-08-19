@@ -1,10 +1,10 @@
-# Dashboard
+# GUI
 
-The Dashboard is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
+The GUI is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
-## Open the dashboard
+## Open the GUI
 
-| Launch condition | Dashboard result |
+| Launch condition | GUI result |
 | --- | --- |
 | Normal foreground or headless run | Listener requested. |
 | `--no-dashboard` | Listener disabled. |
@@ -22,7 +22,7 @@ Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 
 Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
 
-| Dashboard label | Route and purpose | CLI counterpart |
+| GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Units** | `/` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
@@ -39,7 +39,7 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
-Dashboard data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
+GUI data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
@@ -109,7 +109,7 @@ Cached bodies are redacted on the way out and collapsed by default. A large stor
 | Fleet | Adjust capacity. |
 | Ticket | Apply routing labels. |
 
-The CLI covers Unit and Fleet controls plus initial Command answers. Command revision and ticket-routing preview remain Dashboard-only today.
+The CLI covers Unit and Fleet controls plus initial Command answers. Command revision and ticket-routing preview remain GUI-only today.
 
 Disable mutations for an observation-only surface:
 

@@ -9,7 +9,7 @@ pageClass: cli-reference
 | Design goal | Result |
 | --- | --- |
 | Executor access | An agent can operate a run from a terminal without asking a human to type commands. |
-| Surface parity | The CLI targets feature parity with the [Dashboard](/guide/executor-control-center) and [TUI](/guide/tui). |
+| Surface parity | The CLI targets feature parity with the [GUI](/guide/gui) and [TUI](/guide/tui). |
 
 A human can of course type any of it. Most humans will not: they watch the TUI or the dashboard and let their Executor agent drive.
 
