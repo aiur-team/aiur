@@ -45,8 +45,8 @@ async function providerGeometry(page) {
     const identity = row.querySelector('.rs-head').getBoundingClientRect()
     const meter = row.querySelector('.rs-limit').getBoundingClientRect()
     const track = row.querySelector('.rs-meter').getBoundingClientRect()
-    const meta = Array.from(row.querySelectorAll('.rs-limit-meta')).find((element) => element.getBoundingClientRect().height > 0).getBoundingClientRect()
-    const token = row.querySelector('.rs-token-ic, .rs-token-na')?.getBoundingClientRect()
+    const body = row.querySelector('.rs-provider-body').getBoundingClientRect()
+    const meta = Array.from(row.querySelectorAll('.rs-limit-meta')).find((element) => element.getBoundingClientRect().height > 0)
 
     return {
       name: row.querySelector('.rs-name').textContent.trim(),
@@ -56,8 +56,9 @@ async function providerGeometry(page) {
       meterLeft: meter.left,
       meterHeight: meter.height,
       trackWidth: track.width,
-      metaHeight: meta.height,
-      tokenHeight: token?.height ?? null
+      trackRight: track.right,
+      bodyRight: body.right,
+      metaHeight: meta?.getBoundingClientRect().height ?? null
     }
   }))
 }
@@ -83,11 +84,11 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
 
       const elevenlabs = page.locator('.rs-elevenlabs')
       await expect(elevenlabs).toContainText('75.0K left · 25% used · resets 3d')
-      await expect(elevenlabs.locator('.rs-stat-label')).toHaveText('Next invoice due')
-      await expect(elevenlabs.locator('.rs-stat-val')).toHaveText('$5.00')
       await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:25\.0%/)
       await expect(elevenlabs.locator('img')).toHaveAttribute('src', '/elevenlabs-symbol.svg')
+      await expect(elevenlabs.locator('img')).toHaveAttribute('alt', 'ElevenLabs')
       await expect.poll(() => elevenlabs.locator('img').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0)
+      await expect(elevenlabs.locator('.rs-head-stats, .rs-stat')).toHaveCount(0)
 
       const elevenlabsLine = await elevenlabs.locator('.rs-limit').evaluate((line) => ({
         height: line.getBoundingClientRect().height,
@@ -135,8 +136,10 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
 
       for (const row of geometry) {
         expect(closeEnough(row.identityHeight, row.meterHeight), `${row.name} meter row must equal its logo-height identity at ${width}px`).toBe(true)
-        expect(row.metaHeight, `${row.name} percentage/reset meta must render at ${width}px`).toBeGreaterThan(0)
-        if (row.tokenHeight !== null) expect(closeEnough(row.tokenHeight, row.identityHeight), `${row.name} token image height changed at ${width}px`).toBe(true)
+        if (row.metaHeight !== null) expect(row.metaHeight, `${row.name} percentage/reset meta must render at ${width}px`).toBeGreaterThan(0)
+        // Bars run edge to edge: no right-hand stat/token column remains, so the
+        // track must reach the same right edge as the provider body.
+        expect(closeEnough(row.trackRight, row.bodyRight), `${row.name} bar must reach the right edge at ${width}px`).toBe(true)
       }
 
       // API limits use the same standard bar + label-above geometry and keep
@@ -171,12 +174,15 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       await expect(githubBackoff.locator('.rs-meter > i')).toHaveClass(/is-warning/)
       await expectVisibleMetadata(githubBackoff, 'compact', '45s left')
 
+      // API identities are a bare logo: the label text was removed and the
+      // name now lives in the image alt/title, so no name column breaks the
+      // row out of the aligned grid.
       const apiIdentityGeometry = await page.locator('.rs-api .rs-head').evaluateAll((identities) => identities.map((identity) => ({
         logoLeft: identity.querySelector('.rs-logo').getBoundingClientRect().left,
-        nameLeft: identity.querySelector('.rs-name').getBoundingClientRect().left
+        nameCount: identity.querySelectorAll('.rs-name').length
       })))
       expect(new Set(apiIdentityGeometry.map(({ logoLeft }) => logoLeft)).size).toBe(1)
-      expect(new Set(apiIdentityGeometry.map(({ nameLeft }) => nameLeft)).size).toBe(1)
+      expect(apiIdentityGeometry.every(({ nameCount }) => nameCount === 0)).toBe(true)
       await expect(page.locator('.rs-models-rows, .rs-apis-rows').locator('[role="columnheader"], th')).toHaveCount(0)
 
       // Identity survives the grouping: one logo per row, and it leads the row.
@@ -188,11 +194,9 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
         await expect(row.locator('.rs-head > :first-child')).toHaveClass(/rs-logo/)
       }
 
-      // Only Claude and Codex carry a second, right-hand token glyph.
-      await expect(page.locator('.rs-model').filter({ hasText: 'Codex' }).locator('.rs-token-ic')).toHaveCount(1)
-      await expect(page.locator('.rs-model').filter({ hasText: 'Claude' }).locator('.rs-token-ic')).toHaveCount(1)
-      await expect(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }).locator('.rs-token-ic, .rs-token-na')).toHaveCount(0)
-      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-token-ic, .rs-token-na')).toHaveCount(0)
+      // The right-hand token glyphs are gone: no second mark sits beside any
+      // model's name, so every row is just the logo + bars.
+      await expect(page.locator('.rs-token-ic, .rs-token-na')).toHaveCount(0)
 
       // Every freshness state stays distinguishable on the meter's own meta
       // line, now that the head-row chip is gone.
@@ -201,7 +205,9 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'Claude' }), modelMetaVariant, 'stale')
       await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }), modelMetaVariant, '0%')
       await expectVisibleMetadata(elevenlabs, 'compact', '75.0K')
-      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-meta')).toHaveText('Unavailable')
+      // Kimi reported nothing, so its row is just the "Limits" label over an
+      // empty bar — the status meta was deleted (operator directive).
+      await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-meta')).toHaveCount(0)
 
       // The #2085 label removal is reverted: a label now sits above every model
       // bar, and the SPEND label is deleted from the model rows.
