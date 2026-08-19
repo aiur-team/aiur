@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
