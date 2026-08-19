@@ -58,10 +58,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
 
-  # Phoenix HTML keeps template whitespace between inline elements; collapse
-  # runs of whitespace so assertions on element order are not whitespace-fragile.
-  defp compact(html), do: html |> String.replace(~r/\s+/, " ")
-
   test "renders real run, per-provider usage, and rate-limit values" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
