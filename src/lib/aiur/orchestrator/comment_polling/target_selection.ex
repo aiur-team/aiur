@@ -8,6 +8,8 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
+  alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.Orchestrator.State
   alias Aiur.Tracker
@@ -87,8 +89,44 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   defp watch_pull_request_fetcher(opts) do
     Keyword.get_lazy(opts, :watch_pull_request_fetcher, fn ->
-      fn label -> GitHubClient.fetch_open_pull_requests_by_label(label, opts) end
+      fn label -> conditional_open_pull_requests_by_label(label, opts) end
     end)
+  end
+
+  # One conditional read of the open-pull-request collection per cycle (#2069).
+  # In steady state GitHub answers `304` — a request the primary REST limit does
+  # not bill — and `ResourceFetch` serves the held list back, so watch-target
+  # discovery stops being a full-price re-read of every open PR every cycle. A
+  # `200` means something actually changed and the fresh list replaces the held
+  # one. The key is the watch label because that is the only identity the caller
+  # holds before the lookup answers.
+  defp conditional_open_pull_requests_by_label(label, opts) do
+    key = ResourceStore.key_for_repo(:labelled_pull_requests, repo_full_name(opts), label)
+
+    fetcher = fn fetch_opts ->
+      GitHubClient.fetch_open_pull_requests_by_label_conditional(
+        label,
+        Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag))
+      )
+    end
+
+    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "comment poll watch targets") do
+      {:ok, pull_requests, _meta} -> {:ok, pull_requests}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp repo_full_name(opts) do
+    case Keyword.get(opts, :repo) do
+      repo when is_binary(repo) and repo != "" ->
+        repo
+
+      _other ->
+        case Transport.parse_repo() do
+          {:ok, {owner, repo}} -> "#{owner}/#{repo}"
+          _other -> nil
+        end
+    end
   end
 
   defp build_watch_targets(pull_requests, opts) do
