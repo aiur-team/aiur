@@ -102,6 +102,11 @@ if config_env() == :test do
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
 
+  # The shared test app's `Aiur.Upgrade` boot task must not reach the npm
+  # registry across sequential test boundaries; tests of the check inject a
+  # fake transport.
+  config :aiur, :upgrade_check_refresh?, false
+
   # Suite-global :workflow_file_path baseline isolation. The :aiur app boots
   # BEFORE test/test_helper.exs runs, so this config block is the only hook
   # early enough to keep the baseline out of the checked-out repo. Every path
