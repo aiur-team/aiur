@@ -133,7 +133,7 @@ looking.
 | --- | --- |
 | First startup sweep | Always immediate. |
 | Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
-| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
+| `aiur --todo`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
 
