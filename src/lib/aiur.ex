@@ -30,6 +30,7 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    maybe_validate_environment()
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
@@ -91,6 +92,28 @@ defmodule Aiur.Application do
     end
 
     :ok
+  end
+
+  @doc false
+  @spec maybe_validate_environment() :: :ok
+  def maybe_validate_environment do
+    if Application.get_env(:aiur, :env) == :test do
+      :ok
+    else
+      settings = Aiur.Config.settings_uncached()
+      Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
+      Aiur.Env.warn_disabled_integrations()
+      Aiur.Env.warn_precedence_conflicts()
+    end
+  end
+
+  # The GitHub credential boot requirement only applies when the active tracker
+  # is GitHub; a Linear or memory tracker has no GitHub credential to satisfy.
+  defp github_tracker?(settings) do
+    case settings do
+      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
+      _ -> true
+    end
   end
 
   @doc false
