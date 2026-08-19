@@ -3804,19 +3804,12 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .rs-provider-row > .rs-provider-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5rem 4.5rem;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 0.55rem;
   min-width: 0;
 }
 
-.rs-api > .rs-provider-body {
-  grid-template-columns: minmax(0, 1fr) 2.5rem;
-}
-
-/* The stats cluster must be able to drop below the name and shrink: at the
-   narrow end of the 3-column grid a long value ("Unavailable") is wider than
-   its track, and without wrapping it spilled past the card's rounded edge. */
 /* Top-aligned, not centred: the stat block on a provider card is taller than
    the name, and centring pushed the logo and name down so they no longer lined
    up with Summary's. */
@@ -3898,22 +3891,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--good-ink);
 }
 
-.rs-token-ic {
-  width: 1.2rem;
-  height: 1.2rem;
-  flex: none;
-  object-fit: contain;
-  margin: 0 0 0 0.15rem;
-  vertical-align: -0.15em;
-}
-
-/* An unknown token count keeps only the provider's token glyph, top right at
-   logo size, so the card keeps its footprint without a "Tokens N/A" row. Only
-   Claude and Codex carry that glyph, so only their rows use this. */
-.rs-token-na {
-  align-self: flex-start;
-}
-
 .rs-limits {
   display: flex;
   flex-direction: column;
@@ -3984,33 +3961,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: inline;
 }
 
-.rs-provider-body > .rs-head-stats {
-  align-items: center;
-  align-self: start;
-  flex-wrap: nowrap;
-  gap: 0.55rem;
-  height: var(--rs-provider-row-height);
-  margin-left: 0;
-}
-
-.rs-provider-body .rs-stat {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.25rem;
-  height: var(--rs-provider-row-height);
-  white-space: nowrap;
-}
-
-.rs-provider-body > .rs-spend {
-  align-self: start;
-}
-
-/* The due amount remains visible and labelled for assistive technology; the
-   long visual label would take more width than the ElevenLabs meter itself. */
-.rs-elevenlabs .rs-head-stats .rs-stat-label {
-  display: none;
-}
-
 .rs-limit-top {
   display: flex;
   align-items: baseline;
@@ -4067,6 +4017,11 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .rs-meter > i.is-warning {
   background: var(--warning, #d08a2a);
+}
+
+/* Meter stage colours: yellow from 80%, orange from 90%, red at 100% used. */
+.rs-meter > i.is-caution {
+  background: var(--caution, #d0a92a);
 }
 
 .github-quota-attribution,
@@ -4290,12 +4245,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   }
 
   .rs-provider-row > .rs-provider-body {
-    grid-template-columns: minmax(0, 1fr) 3.2rem 2.5rem;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.35rem;
-  }
-
-  .rs-api > .rs-provider-body {
-    grid-template-columns: minmax(0, 1fr) 2.5rem;
   }
 
   .rs-provider-row .rs-limit {
@@ -4308,20 +4259,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   }
 
   .rs-provider-row .rs-limit-label,
-  .rs-provider-row .rs-limit-meta,
-  .rs-provider-row .rs-stat-label {
+  .rs-provider-row .rs-limit-meta {
     font-size: 0.6rem;
-  }
-
-  .rs-provider-row .rs-stat-val {
-    font-size: 0.72rem;
-  }
-
-  /* At the dashboard's existing phone width the values and decorative token
-     glyphs remain, while their repeated headings move to the aria-label on the
-     containing stat. This keeps every meter on one fixed-height line. */
-  .rs-model .rs-stat-label {
-    display: none;
   }
 
   .rs-provider-row .rs-limit-meta-wide {
