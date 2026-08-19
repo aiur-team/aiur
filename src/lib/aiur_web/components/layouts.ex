@@ -271,7 +271,16 @@ defmodule AiurWeb.Layouts do
 
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
-              params: {_csrf_token: csrfToken}
+              params: {
+                _csrf_token: csrfToken,
+                time_zone: (function () {
+                  try {
+                    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+                  } catch (e) {
+                    return null;
+                  }
+                })()
+              }
             });
 
             liveSocket.connect();

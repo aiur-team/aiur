@@ -183,7 +183,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       )
 
     assert catalog.status == :stale
-    assert catalog.message =~ "Showing the units we last saw"
+    assert catalog.message =~ "Fleet updates are pending"
     assert catalog.message =~ "5m 42s ago"
     refute catalog.message =~ "membership is healthy"
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
@@ -236,7 +236,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert catalog.snapshot.rows == []
     assert catalog.status == :stale
-    assert catalog.message =~ "Fleet updates are running behind"
+    assert catalog.message =~ "Fleet updates are pending"
   end
 
   # The window is exclusive at its boundary, and both surfaces agree there: the
@@ -322,7 +322,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
       )
 
     assert catalog.status == :stale
-    assert catalog.message == "Showing the units we last saw. Fleet data is unavailable."
+    assert catalog.message == "The fleet is still counting units. Fleet data is unavailable."
     refute catalog.message =~ "healthy"
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
   end
@@ -344,7 +344,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert catalog.status == :stale
     assert catalog.snapshot.rows == []
     assert catalog.message == "No live units. Fleet data is unavailable."
-    refute catalog.message =~ "Showing the units we last saw"
+    refute catalog.message =~ "The fleet is still counting units"
   end
 
   test "a reconciling membership is stale without claiming membership is healthy" do
@@ -357,7 +357,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     catalog = UnitsPresenter.load(payload(alpha), membership_fun: reconciling, activity_fun: fn -> %{entries: []} end)
 
     assert catalog.status == :stale
-    assert catalog.message == "Showing the units we last saw. Still counting units for this run."
+    assert catalog.message == "The fleet is still counting units."
     refute catalog.message =~ "healthy"
   end
 

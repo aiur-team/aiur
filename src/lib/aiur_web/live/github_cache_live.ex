@@ -393,7 +393,7 @@ defmodule AiurWeb.GithubCacheLive do
         <span class="ghc-cell-count">{group.count}</span>
         <span class="ghc-cell-label">{group.label}</span>
         <span class="ghc-cell-freshness">
-          {group.freshness.fresh} fresh · {group.freshness.stale} stale · {group.freshness.expired} expired
+          {group.freshness.fresh} fresh · {group.freshness.stale} older · {group.freshness.expired} expired
         </span>
         <span :if={group.bodyless > 0} class="ghc-cell-bodyless">
           {group.bodyless} validator only
@@ -451,7 +451,7 @@ defmodule AiurWeb.GithubCacheLive do
           <div class="ghc-chart-body">{Phoenix.HTML.raw(Charts.freshness_over_time(@history))}</div>
           <figcaption class="ghc-chart-legend">
             <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--good)"></i>fresh</span>
-            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--attention)"></i>stale</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--attention)"></i>older</span>
             <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--blocking)"></i>expired</span>
             <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--faint)"></i>unknown</span>
           </figcaption>
@@ -583,7 +583,7 @@ defmodule AiurWeb.GithubCacheLive do
           data-active={to_string(@freshness == level)}
           class={chip_class(@freshness == level)}
         >
-          {level}
+          {freshness_label(level)}
         </button>
       </div>
 
@@ -787,6 +787,9 @@ defmodule AiurWeb.GithubCacheLive do
 
   defp chip_class(true), do: "ghc-chip ghc-chip-on"
   defp chip_class(_inactive), do: "ghc-chip"
+
+  defp freshness_label(:stale), do: "older"
+  defp freshness_label(level), do: to_string(level)
 
   defp body_filter_label(:held), do: "body held"
   defp body_filter_label(:bodyless), do: "validator only"

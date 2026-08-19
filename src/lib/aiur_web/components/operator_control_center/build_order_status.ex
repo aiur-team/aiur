@@ -36,7 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderStatus do
   defp health_age(_health, _now), do: nil
 
   defp health_label(%{state: :healthy}), do: "Healthy"
-  defp health_label(%{state: :stale}), do: "Stale"
+  defp health_label(%{state: :stale}), do: "Available"
   defp health_label(%{state: :structurally_invalid}), do: "Structurally invalid"
   defp health_label(_health), do: "Unavailable"
 

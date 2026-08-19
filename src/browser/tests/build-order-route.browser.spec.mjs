@@ -140,7 +140,7 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
     await expect(page).toHaveURL(/\/build-orders\/43$/)
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'selected_stale')
-    await expect(page.getByRole('heading', { name: 'Plan is not live' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Build Order plan' })).toBeVisible()
     await expect(page.locator('#selected-build-order-graph [data-bo-card]')).toHaveCount(1)
 
     await page.goBack()

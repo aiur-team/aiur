@@ -53,14 +53,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
         <p>{unavailable_message(@view)}</p>
       </div>
 
-      <div :if={@state == :stale} class="run-summary-state readonly-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span>
-          <b>Not live.</b>
-          Showing the values we last read for this run; refresh is {String.downcase(@view.freshness.label)}.
-        </span>
-      </div>
-
       <div :if={@state in [:ready, :stale]} class="run-summary-grid">
         <section class="run-summary-panel" aria-labelledby="run-summary-counts-title">
           <h3 id="run-summary-counts-title">Units</h3>
@@ -123,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
     >
       <span class="run-summary-progress-track" aria-hidden="true">
         <span
-          class={progress_fill_class(@percent, @state)}
+          class={progress_fill_class(@percent)}
           style={"width: #{@percent}%"}
         >
         </span>
@@ -181,8 +173,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
   defp coverage_text(nil), do: "Coverage unknown."
   defp coverage_text(percent), do: "#{percent}% of eligible weight measured."
 
-  defp progress_fill_class(percent, state) do
-    ["run-summary-progress-fill", if(percent == 100, do: "is-complete"), if(state == :stale, do: "is-stale")]
+  defp progress_fill_class(percent) do
+    ["run-summary-progress-fill", if(percent == 100, do: "is-complete")]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" ")
   end

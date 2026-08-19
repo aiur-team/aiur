@@ -834,12 +834,11 @@ describe("agent detail panel", () => {
     expect(neutral).not.toEqual(pixelAt(zero.pixels, 800, 300, 79));
   });
 
-  it("dims only a stale detail fill while leaving its track unchanged", () => {
+  it("renders a stale detail fill the same as a fresh one", () => {
     const fresh = render(detail({ identifier: "401", bucket: "running", progress_percent: 60, progress_freshness: "fresh" }), 800);
     const stale = render(detail({ identifier: "401", bucket: "running", progress_percent: 60, progress_freshness: "stale" }), 800);
 
-    expect(pixelAt(stale.pixels, 800, 300, 79)).not.toEqual(pixelAt(fresh.pixels, 800, 300, 79));
-    expect(pixelAt(stale.pixels, 800, 700, 79)).toEqual(pixelAt(fresh.pixels, 800, 700, 79));
+    expect(Array.from(stale.pixels)).toEqual(Array.from(fresh.pixels));
   });
 
   it("clips an over-long title rather than running it under the percentage", () => {

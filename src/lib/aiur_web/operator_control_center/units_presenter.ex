@@ -141,7 +141,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
         :loading -> "Loading Units."
         :unavailable -> "No live units."
         :empty -> "No units in this run yet."
-        :stale -> "Showing #{count_phrase(visible, total, view)} from the last update."
         _status -> "Showing #{count_phrase(visible, total, view)}."
       end
 
@@ -348,25 +347,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   defp stale_source_message(snapshot) do
-    lead = stale_lead(snapshot)
-
     cond do
       fleet_health(snapshot) not in [:healthy, :available] ->
-        "#{lead} Fleet data is unavailable."
+        "#{stale_lead(snapshot)} Fleet data is unavailable."
 
       fleet_freshness_degraded?(snapshot) ->
-        "#{lead} Fleet updates are running behind." <> fleet_age_phrase(snapshot)
+        "Fleet updates are pending." <> fleet_age_phrase(snapshot)
 
       true ->
-        "#{lead} Still counting units for this run."
+        stale_lead(snapshot)
     end
   end
 
-  # "Showing the units we last saw" is only true when something is still held to
-  # show. With no rows the same sentence over an empty table is the
-  # confident-wrong-claim shape this module exists to remove.
+  # The stale lead is intentionally plain: the dashboard no longer tells the
+  # operator that a view is out of date, so the message names the current state
+  # without "last saw" vocabulary.
   defp stale_lead(%{rows: []}), do: "No live units."
-  defp stale_lead(_snapshot), do: "Showing the units we last saw."
+  defp stale_lead(_snapshot), do: "The fleet is still counting units."
 
   defp fleet_age_phrase(snapshot) do
     case fleet_age_seconds(snapshot) do
