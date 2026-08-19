@@ -453,6 +453,70 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
+  # #2075: a ticket carrying two `agent:*` state labels is a broken lifecycle
+  # state — the fail-closed dispatch guard used to refuse it, silently dropping
+  # the ticket from every poll with no error and no alert. The guard must
+  # instead resolve the pair to a single deterministic state (`todo` wins: a
+  # ticket that is also `todo` has no work for a `rework` verdict to mean
+  # anything about) and continue the ordinary checks, so the ticket stays
+  # dispatchable.
+  describe "contradictory state labels (#2075)" do
+    test "resolve_state_labels makes todo win over rework, in either label shape" do
+      assert DispatchPolicy.resolve_state_labels(["todo", "rework"]) == "todo"
+      assert DispatchPolicy.resolve_state_labels(["rework", "todo"]) == "todo"
+      assert DispatchPolicy.resolve_state_labels(["agent:todo", "agent:rework"]) == "todo"
+      assert DispatchPolicy.resolve_state_labels(["agent:rework", "agent:todo"]) == "todo"
+      assert DispatchPolicy.resolve_state_labels(["Todo", "Rework"]) == "todo"
+    end
+
+    test "resolve_state_labels resolves other pairs deterministically" do
+      # No `todo` present: the alphabetically-first normalized label wins so the
+      # choice is always deterministic.
+      assert DispatchPolicy.resolve_state_labels(["rework", "in-progress"]) == "in-progress"
+      assert DispatchPolicy.resolve_state_labels(["in-progress", "rework"]) == "in-progress"
+      assert DispatchPolicy.resolve_state_labels(["rework", "ci-wait"]) == "ci-wait"
+    end
+
+    test "resolve_state_labels handles empty, single, and non-list input" do
+      assert DispatchPolicy.resolve_state_labels([]) == nil
+      assert DispatchPolicy.resolve_state_labels(["todo"]) == "todo"
+      assert DispatchPolicy.resolve_state_labels(["rework"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(nil) == nil
+      assert DispatchPolicy.resolve_state_labels("todo") == nil
+    end
+
+    test "a ticket carrying todo+rework resolves to todo and stays dispatchable" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      dual = issue("dual", state: "todo", state_labels: ["todo", "rework"])
+      state = %State{max_concurrent_agents: 5}
+
+      # The guard must not silently refuse the pair (the pre-fix behaviour):
+      # it resolves to `todo` and dispatches like any other todo ticket.
+      assert DispatchPolicy.dispatch_candidate?(dual, state)
+      assert DispatchPolicy.queued_dispatch_demand?([dual], state)
+      assert DispatchPolicy.should_dispatch_issue?(dual, state)
+    end
+
+    test "a ticket carrying rework + a second label still resolves and dispatches" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      dual = issue("dual-rework", state: "rework", state_labels: ["in-progress", "rework"])
+      state = %State{max_concurrent_agents: 5}
+
+      # No `todo` present, so the alphabetically-first label wins
+      # (`in-progress`), which is an active dispatchable state.
+      assert DispatchPolicy.dispatch_candidate?(dual, state)
+      assert DispatchPolicy.queued_dispatch_demand?([dual], state)
+    end
+  end
+
   describe "queued_dispatch_demand?/2" do
     test "finds eligible queued work independently of the current envelope slots" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)

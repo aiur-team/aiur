@@ -30,6 +30,7 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    maybe_validate_environment()
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
@@ -69,6 +70,49 @@ defmodule Aiur.Application do
         strategy: :one_for_one,
         name: Aiur.Supervisor
       )
+      |> tap(fn _ -> start_upgrade_check() end)
+    end
+  end
+
+  # The `aiur run` version notice is deliberately out-of-band: it runs in a
+  # fire-and-forget task so it never delays boot or the first dispatch, fails
+  # open and silent, caches with a TTL, and honors the `upgrade.check_enabled`
+  # config key / `AIUR_UPGRADE_CHECK_DISABLED` env var. Under a development
+  # launcher (`aiurdev`) it does nothing at all. The launcher surfaces the
+  # resulting notice to the operator from the shared state file.
+  #
+  # The shared test app must not phone home: `:upgrade_check_refresh?` is set
+  # false in the test env (config/config.exs), so a plain `mix test` boots the
+  # supervisor tree without spawning a registry fetch. Tests of the check
+  # itself drive `Aiur.Upgrade.check_and_announce/1` with an injected transport.
+  @spec start_upgrade_check() :: :ok
+  def start_upgrade_check do
+    if Application.get_env(:aiur, :upgrade_check_refresh?, true) do
+      Task.start(fn -> Aiur.Upgrade.check_and_announce() end)
+    end
+
+    :ok
+  end
+
+  @doc false
+  @spec maybe_validate_environment() :: :ok
+  def maybe_validate_environment do
+    if Application.get_env(:aiur, :env) == :test do
+      :ok
+    else
+      settings = Aiur.Config.settings_uncached()
+      Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
+      Aiur.Env.warn_disabled_integrations()
+      Aiur.Env.warn_precedence_conflicts()
+    end
+  end
+
+  # The GitHub credential boot requirement only applies when the active tracker
+  # is GitHub; a Linear or memory tracker has no GitHub credential to satisfy.
+  defp github_tracker?(settings) do
+    case settings do
+      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
+      _ -> true
     end
   end
 
@@ -224,6 +268,12 @@ defmodule Aiur.Application do
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
       Aiur.GitHub.ResourceStore,
+      # The bounded time-series the `/github-cache` history charts draw. Starts
+      # after the store it samples, so its first sample never races the store's
+      # boot fill; it reads ETS only, so it changes nothing about the page's
+      # zero-fetch property. Gated on the dashboard like the HTTP server that
+      # serves the page — there is no point sampling a cache nobody can view.
+      if(dashboard?, do: Aiur.GitHub.CacheHistory),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.

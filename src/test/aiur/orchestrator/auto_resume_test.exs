@@ -219,7 +219,14 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
   describe "maybe_resume/3" do
     @tag config: @enabled
-    test "re-dispatches a due agent:error ticket after restoring it to rework" do
+    test "re-dispatches a due agent:error ticket after restoring it to todo, never rework" do
+      # #2075 criterion 3: restoring an `agent:error` ticket to a dispatchable
+      # state must write `todo`, not `rework` — nothing here rejected the work
+      # (a transient infra fault only needs "make this dispatchable again"),
+      # and a `rework` verdict on a ticket with no open PR would strand it in a
+      # state nothing selects. The precondition this writer requires is
+      # "transient fault, no review verdict", which `todo` names and `rework`
+      # would lie about.
       state = due_state(issue())
       now_ms = System.monotonic_time(:millisecond)
       parent = self()
@@ -234,7 +241,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
           dispatch_fun: &claim_fun/2
         )
 
-      assert_receive {:restored, "repo#transient", "rework"}
+      assert_receive {:restored, "repo#transient", "todo"}
       assert MapSet.member?(state.claimed, @issue_id)
       refute Map.has_key?(state.auto_resume, @issue_id)
     end

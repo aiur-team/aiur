@@ -42,6 +42,8 @@ jobs:
         run: make test-rename-preflight
       - name: Test config documentation guard
         run: bash scripts/test-check-config-docs.sh
+      - name: Test env example drift guard
+        run: bash scripts/test-check-env-example.sh
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly dashboard analyzer
@@ -95,6 +97,14 @@ jobs:
       - name: Every config key has a documentation entry
         working-directory: .
         run: python3 scripts/check-config-docs.py
+      # Same rationale as check-config-docs: a drift gate nobody has to
+      # satisfy guards nothing, so the env example guard lives in the required
+      # lint job and runs on every PR. .env.example is generated from the env
+      # schema; a checked-in example that diverges silently omits variables an
+      # operator needs at onboarding.
+      - name: .env.example matches the env-var schema
+        working-directory: .
+        run: python3 scripts/check-env-example.py
       # Platform publish/pin drift (#2110): the platform packages the release
       # workflow publishes must equal the packages aiur-cli pins as
       # optionalDependencies, and both must match the shared PUBLISH_TARGETS

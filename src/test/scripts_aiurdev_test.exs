@@ -316,6 +316,23 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "already inside a tmux session"
   end
 
+  test "refuses aiur upgrade (a dev checkout cannot install a published release)" do
+    root = fake_repo()
+
+    {out, code} =
+      run_shim(["upgrade"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil}
+      ])
+
+    assert code == 64
+    assert out =~ "cannot run under aiurdev"
+    assert out =~ "a development checkout"
+    assert out =~ "Install aiur from npm"
+    refute out =~ "rebuilding"
+  end
+
   test "AIUR_SKIP_BUILD short-circuits the rebuild" do
     root = fake_repo()
 
@@ -1446,6 +1463,27 @@ defmodule ScriptsAiurdevTest do
         )
 
       assert out =~ "ENGINE_ARGS: github-cost --budget graphql"
+    end
+
+    test "github-usage from another checkout reads the daemon instead of being refused" do
+      # `github-usage` reads the broker the daemon already keeps and builds
+      # nothing, so it belongs on the read-only side of the divergence guard
+      # alongside `github-cost`.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["github-usage", "--json"],
+          [{"AIUR_REPO_ROOT", nil}, {"TMUX", nil}],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: github-usage --json"
     end
 
     test "a dev flag before a control command does not make it look like a run" do

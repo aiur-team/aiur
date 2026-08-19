@@ -30,6 +30,67 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   def sync_polled_issue_state(%State{} = state, _issues), do: state
 
+  @doc """
+  Heals polled issues that observe more than one `agent:*` state label.
+
+  A ticket carrying both `agent:todo` and `agent:rework` is a broken lifecycle
+  state: the dispatch guard used to refuse it, silently dropping the ticket
+  from every poll with no error and no alert (#2075). This resolves the pair
+  deterministically via `DispatchPolicy.resolve_state_labels/1` (`todo` wins —
+  a ticket that is also `todo` has no work for a `rework` verdict to mean
+  anything about), writes the winner through the tracker so GitHub stops
+  carrying both labels, and logs the resolution. Transient write failures keep
+  the resolved issue in the returned list so the ticket is still dispatchable
+  this cycle; the next poll retries the heal.
+
+  Returns `{state, healed_issues}` so the caller dispatches against the healed
+  view and stores the healed copies in `last_polled_issues`.
+  """
+  @spec reconcile_contradictory_state_labels(State.t(), list()) :: {State.t(), list()}
+  def reconcile_contradictory_state_labels(%State{} = state, issues) when is_list(issues) do
+    reconcile_contradictory_state_labels(state, issues, &Tracker.update_issue_state/2)
+  end
+
+  @doc false
+  @spec reconcile_contradictory_state_labels(State.t(), list(), (String.t(), String.t() -> :ok | {:error, term()})) ::
+          {State.t(), list()}
+  def reconcile_contradictory_state_labels(%State{} = state, issues, update_state_fun)
+      when is_list(issues) and is_function(update_state_fun, 2) do
+    {healed_issues, state} =
+      Enum.reduce(issues, {[], state}, fn issue, {acc, state_acc} ->
+        case issue do
+          %Issue{state_labels: [_, _ | _] = state_labels} = issue ->
+            {healed_issue, state_acc} = heal_contradictory_state(issue, winner_for(state_labels), state_acc, update_state_fun)
+            {[healed_issue | acc], state_acc}
+
+          _issue ->
+            {[issue | acc], state_acc}
+        end
+      end)
+
+    {state, Enum.reverse(healed_issues)}
+  end
+
+  def reconcile_contradictory_state_labels(%State{} = state, _issues, _update_state_fun), do: {state, []}
+
+  defp winner_for(state_labels), do: DispatchPolicy.resolve_state_labels(state_labels)
+
+  defp heal_contradictory_state(%Issue{} = issue, winner, state, update_state_fun) do
+    healed_issue = %{issue | state: winner, state_labels: [winner]}
+
+    case update_state_fun.(issue.identifier, winner) do
+      :ok ->
+        Logger.warning("Healing contradictory state labels for #{State.issue_context(issue)} labels=#{inspect(issue.state_labels)} -> #{winner}")
+
+        {healed_issue, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, healed_issue)}}
+
+      {:error, reason} ->
+        Logger.warning("Contradictory state label heal failed for #{State.issue_context(issue)}: #{inspect(reason)}; dispatching on resolved state")
+
+        {healed_issue, state}
+    end
+  end
+
   @doc false
   @spec sync_polled_issue_state(
           State.t(),

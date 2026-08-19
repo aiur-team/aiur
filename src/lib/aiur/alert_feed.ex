@@ -3,7 +3,7 @@ defmodule Aiur.AlertFeed do
   Reads persisted structured alert events from the project-scoped alert ledger.
   """
 
-  alias Aiur.AlertLedger
+  alias Aiur.{AlertLedger, AlertTopic}
   alias Aiur.Config
   alias Aiur.Config.Paths
   alias Aiur.Jsonl
@@ -16,7 +16,7 @@ defmodule Aiur.AlertFeed do
   def list(opts \\ []) do
     opts
     |> AlertLedger.paths()
-    |> Enum.flat_map(&read_alerts/1)
+    |> Enum.flat_map(&read_alerts(&1, opts))
     |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
     |> collapse_repeated_resolutions()
     |> resolve_attention_alerts()
@@ -27,6 +27,8 @@ defmodule Aiur.AlertFeed do
   @doc false
   @spec backfill(keyword()) :: :ok
   def backfill(opts \\ []) do
+    _ = AlertLedger.compact(opts)
+
     unless AlertLedger.backfilled?(opts) do
       AlertLedger.with_backfill_lock(opts, fn -> backfill_locked(opts) end)
     end
@@ -38,7 +40,7 @@ defmodule Aiur.AlertFeed do
     existing =
       opts
       |> AlertLedger.paths()
-      |> Enum.flat_map(&read_alerts/1)
+      |> Enum.flat_map(&read_alerts(&1, opts))
       |> MapSet.new(&alert_fingerprint/1)
 
     case append_legacy_alerts(legacy_alert_log_paths(opts), existing, opts) do
@@ -88,7 +90,7 @@ defmodule Aiur.AlertFeed do
 
     opts
     |> AlertLedger.paths()
-    |> Enum.flat_map(&read_alerts/1)
+    |> Enum.flat_map(&read_alerts(&1, opts))
     |> Enum.filter(&(Map.get(&1, "topic") in [topic, resolution]))
     |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
     |> List.last()
@@ -275,9 +277,9 @@ defmodule Aiur.AlertFeed do
     |> Enum.uniq()
   end
 
-  defp read_alerts(path) do
+  defp read_alerts(path, opts) do
     path
-    |> Jsonl.stream()
+    |> AlertLedger.read(opts)
     |> Stream.filter(&(Map.get(&1, "event") == "alert"))
     |> Enum.map(&normalize_alert(&1, agent_from_path(path, &1)))
   rescue
@@ -327,21 +329,21 @@ defmodule Aiur.AlertFeed do
 
   defp resolve_attention_alerts(alerts) do
     Enum.reduce(alerts, [], fn alert, active_alerts ->
-      case resolved_attention_key(alert) do
+      case AlertTopic.resolved_attention_key(alert) do
         nil -> collapse_repeated_attention(alert, active_alerts)
-        key -> [alert | Enum.reject(active_alerts, &(attention_alert_key(&1) == key))]
+        key -> [alert | Enum.reject(active_alerts, &(AlertTopic.attention_key(&1) == key))]
       end
     end)
     |> Enum.reverse()
   end
 
   defp collapse_repeated_attention(%{"needs_attention" => true} = alert, active_alerts) do
-    case attention_alert_key(alert) do
+    case AlertTopic.attention_key(alert) do
       nil ->
         [alert | active_alerts]
 
       key ->
-        {previous, remaining} = Enum.split_with(active_alerts, &(attention_alert_key(&1) == key))
+        {previous, remaining} = Enum.split_with(active_alerts, &(AlertTopic.attention_key(&1) == key))
 
         first_opened_at =
           previous
@@ -354,46 +356,6 @@ defmodule Aiur.AlertFeed do
   end
 
   defp collapse_repeated_attention(alert, active_alerts), do: [alert | active_alerts]
-
-  defp resolved_attention_key(%{"topic" => "ticket." <> rest, "needs_attention" => false}) do
-    case String.split(rest, ".agent.attention.", parts: 2) do
-      [ticket, slug_and_suffix] ->
-        case String.trim_trailing(slug_and_suffix, ".resolved") do
-          ^slug_and_suffix -> nil
-          slug -> {ticket, slug}
-        end
-
-      _ ->
-        resolved_ticket_agent_attention_key(rest)
-    end
-  end
-
-  defp resolved_attention_key(%{"topic" => "system." <> rest, "needs_attention" => false}) do
-    case String.trim_trailing(rest, ".resolved") do
-      ^rest -> nil
-      topic -> {:system, topic}
-    end
-  end
-
-  defp resolved_attention_key(_alert), do: nil
-
-  defp resolved_ticket_agent_attention_key(rest) do
-    case String.trim_trailing(rest, ".resolved") do
-      ^rest -> nil
-      topic -> {:ticket, topic}
-    end
-  end
-
-  defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
-    case String.split(rest, ".agent.attention.", parts: 2) do
-      [ticket, slug] -> {ticket, slug}
-      _ -> {:ticket, rest}
-    end
-  end
-
-  defp attention_alert_key(%{"topic" => "system." <> rest}), do: {:system, rest}
-
-  defp attention_alert_key(_alert), do: nil
 
   defp string_field(map, key) do
     case Map.get(map, key) do

@@ -59,7 +59,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
   end
 
   describe "set_max_concurrent_agents/2 (runtime absolute set)" do
-    test "wakes reconciliation after changing dispatch capacity" do
+    test "applies the cap without forcing an immediate full poll" do
       state = %State{
         max_concurrent_agents: 10,
         next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000
@@ -68,9 +68,16 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       assert {:reply, {:ok, %{max: 5}}, next} =
                Slots.apply_session_max_concurrent_agents(state, 5)
 
-      assert next.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-      assert_receive {:tick, token}
-      assert token == next.tick_token
+      assert next.session_max_concurrent_agents == 5
+
+      # The write must NOT force an immediate full poll: `request_refresh_state`
+      # used to schedule a 0ms tick that ran the whole GitHub-bound poll cycle
+      # (firehose, CI, candidate fetch — each bounded to the 10s orchestrator
+      # request deadline) inline in the orchestrator process, wedging its mailbox
+      # for ~10s after every `set max-agents` (#2137). Re-dispatch stays on the
+      # normal poll cadence and the cap is effective immediately.
+      assert next.next_poll_due_at_ms > System.monotonic_time(:millisecond)
+      refute_receive {:tick, _token}
     end
 
     test "does not wake reconciliation when the cap is unchanged" do
@@ -97,6 +104,41 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
                Orchestrator.set_max_concurrent_agents(name, 5)
 
       assert %{max: 5} = Orchestrator.max_concurrent_agents(name)
+    end
+
+    test "completes in read-speed time against an idle orchestrator (#2137)" do
+      name = Module.concat(__MODULE__, :Latency)
+      start_orchestrator(name)
+
+      # Warm the orchestrator so the first call's one-time work is not what we
+      # measure, then assert the write itself stays well under a second. A write
+      # that regressed to waiting on a 10s GitHub-bound poll cycle would blow
+      # this bound.
+      assert %{max: 10} = Orchestrator.max_concurrent_agents(name)
+
+      {elapsed_us, {:ok, %{max: 4}}} =
+        :timer.tc(fn -> Orchestrator.set_max_concurrent_agents(name, 4) end)
+
+      assert elapsed_us < 1_000_000
+
+      assert %{max: 4} = Orchestrator.max_concurrent_agents(name)
+    end
+
+    test "an idempotent write does not pay the full cost (#2137)" do
+      name = Module.concat(__MODULE__, :IdempotentLatency)
+      start_orchestrator(name)
+
+      assert {:ok, %{max: 6}} = Orchestrator.set_max_concurrent_agents(name, 6)
+
+      # Idempotent set (value already held): no state change, no forced poll,
+      # and the reply must be near-instant rather than contending with any
+      # refresh the write would have scheduled.
+      {elapsed_us, {:ok, %{max: 6}}} =
+        :timer.tc(fn -> Orchestrator.set_max_concurrent_agents(name, 6) end)
+
+      assert elapsed_us < 1_000_000
+      refute_receive {:tick, _token}
+      assert %{max: 6} = Orchestrator.max_concurrent_agents(name)
     end
 
     test "allows a cap below active count and reports drain state" do
