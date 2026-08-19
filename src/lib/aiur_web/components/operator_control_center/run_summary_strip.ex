@@ -762,7 +762,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp meter_class(percent, caution_threshold \\ nil, warning_threshold \\ nil)
   defp meter_class(percent, _caution, _warning) when is_number(percent) and percent >= 100, do: "is-critical"
 
-  defp meter_class(percent, caution, warning)
+  defp meter_class(percent, _caution, warning)
        when is_number(percent) and is_number(warning) and percent >= warning,
        do: "is-warning"
 
