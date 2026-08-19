@@ -147,13 +147,16 @@ and an edit at any point inside them still wakes the agent.
   slowed down by this change — there is no code path that could.
 - **A repo with no webhook.** Nothing ever marks its comments, so nothing is ever
   suppressed. It polls and publishes exactly as before.
-- **The review-thread dedup divergence.** The poller keys thread comments per
-  *thread* on the GraphQL node id; a delivery can only key per *comment*. The
-  keys never match and both pipes wake the agent once each. That is a known,
-  pinned divergence (`github_webhook_equivalence_test.exs`) and reconciling it
-  means choosing one granularity, which changes when agents wake. Left alone
-  deliberately; the durable store mirrors the existing granularity rather than
-  quietly improving on it.
+- **The review-thread dedup granularity.** Inline review comments coalesce per
+  *thread* on the GraphQL thread node id, and the webhook resolves that same id
+  in the delivery path (`Aiur.Events.GithubWebhook.ThreadResolver`), so both
+  pipes key the same event the same way and a single comment wakes the agent
+  once (#2081). The tradeoff, chosen deliberately: a follow-up comment on an
+  already-woken thread within the one-hour replay window does not wake a second
+  time. The durable store names the thread resource for both pipes, so the
+  suppression survives a restart. A delivery that cannot be resolved to a
+  thread falls back to per-comment keying — the safe direction, a duplicate
+  wake over a dropped delivery.
 
 ## How to re-measure
 
