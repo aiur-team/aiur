@@ -557,6 +557,15 @@ describe("provider panel (two providers)", () => {
     expect(drew(render(provider(session(86))).ink, "86%")).toBeDefined();
   });
 
+  // A durable last-known reading (the dashboard's dispatch-limits fallback,
+  // #2185) renders its real used% without staleness wording (operator directive).
+  it("renders a durable provider reading without staleness text", () => {
+    const { ink } = render(provider({ ...session(99), freshness: "stale" }));
+    expect(drew(ink, "Session")).toBeDefined();
+    expect(drew(ink, "99%")).toBeDefined();
+    expect(drew(ink, "stale")).toBeUndefined();
+  });
+
   // "no reading yet" and "zero usage" are different states; rendering both as
   // 0% is the parity bug this panel exists to avoid.
   it("distinguishes a provider with no reading from one at zero", () => {
