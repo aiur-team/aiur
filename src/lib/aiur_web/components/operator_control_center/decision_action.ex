@@ -19,22 +19,19 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
 
     answerable? = status in [:open, :deferred, :dismissed]
 
-    # Only offer the control where dismissal genuinely clears the block:
-    # the dashboard resolves the underlying legacy attention alongside it.
-    # An agent-filed blocking Command has no such path and the store
-    # refuses it, so it must be answered rather than closed.
-    dismissible? =
-      blocking? and
-        not is_nil(Map.get(decision, :legacy_attention)) and
-        status in [:open, :deferred]
+    # Dismiss closes a Command outright: the operator waves it off and, when the
+    # agent is live, the agent is told to proceed under its own judgement. Any
+    # open or deferred Command can be dismissed. The store still refuses to
+    # dismiss an agent-filed blocking Command with no legacy attention, because
+    # nothing would release the block.
+    dismissible? = status in [:open, :deferred]
 
-    acknowledgeable? = decision.options == [] and status == :open and not blocking?
+    acknowledgeable? = decision.options == [] and status == :open and not blocking? and not dismissible?
 
-    # The command footer never renders more than two buttons: the submit button
-    # plus at most one secondary action. Defer is the secondary action that can
-    # otherwise coexist with a dismiss/acknowledge, so it yields to whichever of
-    # those is present rather than crowding the row.
-    deferrable? = status in [:open, :deferred] and not dismissible? and not acknowledgeable?
+    # Defer pushes the Command back to the Executor; dismiss closes it. Both are
+    # secondary actions alongside the submit button, so an open Command can be
+    # deferred, dismissed, or answered.
+    deferrable? = status in [:open, :deferred]
 
     assigns =
       assign(assigns,

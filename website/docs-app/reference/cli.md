@@ -268,6 +268,8 @@ An agent attention is a visibility signal rather than a gate — the agent keeps
 
 Answering a Command also dismisses every other unanswered Command — open or deferred — asking the same question on the same ticket, so a question filed more than once clears in one answer. A blocking Command an agent is genuinely waiting on is never swept up this way, because dismissing it would deliver nothing to that agent.
 
+Dismissing a Command closes it and moves it to history. If the Command's agent is still live, it is told to use its judgement and proceed; an agent that is gone is not notified.
+
 ## Operational facts that change an incident response
 
 | Fact | Response |

@@ -2606,8 +2606,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .chip.cmd-agent {
-  color: var(--provider-command-color, var(--fg));
-  border-color: var(--provider-command-border, var(--line-strong));
+  color: var(--muted);
+  border-color: var(--line);
+  background: var(--pill-bg);
 }
 
 .chip.faint {
@@ -2704,9 +2705,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .recommendation-chip {
-  border-color: var(--super-line);
-  background: var(--super-soft);
-  color: var(--super-ink);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   font-family: inherit;
   font-size: 0.73rem;
 }
@@ -2782,7 +2783,6 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 1rem;
   padding: 1rem 1.05rem 1.15rem 1.25rem;
   border-top: 1px solid var(--hairline);
-  background: var(--bg-2);
   animation: detail-open 0.22s ease both;
 }
 
@@ -2790,10 +2790,9 @@ html[data-theme="light"] .toggle-icon .moon {
   display: grid;
   gap: 0.85rem;
   padding: 0.95rem;
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
 }
 
 .decision-action.compact {
@@ -2843,7 +2842,7 @@ html[data-theme="light"] .toggle-icon .moon {
   margin: 0;
   padding: 0.62rem 0.72rem;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   font-size: 0.78rem;
 }
 
@@ -2880,7 +2879,7 @@ html[data-theme="light"] .toggle-icon .moon {
   min-width: 0;
   padding: 0.72rem;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--surface-2);
   cursor: pointer;
   transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
@@ -2983,7 +2982,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.8rem;
   padding: 0.78rem;
   border: 1px solid var(--good-line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--good-soft);
 }
 
@@ -3035,7 +3034,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .decision-retry-row {
   padding: 0.72rem 0.78rem;
   border: 1px solid var(--blocking-line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--blocking-soft);
   color: var(--blocking-ink);
 }
@@ -3050,11 +3049,8 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.85rem;
   padding: 0.95rem;
   border: 1px solid var(--super-line);
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, var(--super-soft), transparent 42%),
-    var(--surface);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .decision-revision-caution {
@@ -3155,7 +3151,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .markdown-source {
   padding: 0.78rem 0.9rem;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--fg);
   font-size: 0.86rem;
@@ -3166,7 +3162,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .decision-callout {
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--attention-line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--attention-soft);
   color: var(--attention-ink);
   font-size: 0.86rem;
@@ -3180,7 +3176,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .option-card {
   padding: 0.82rem 0.9rem;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
 }
 
@@ -3212,7 +3208,7 @@ html[data-theme="light"] .toggle-icon .moon {
   height: 1.5rem;
   padding: 0 0.25rem;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--surface-3);
   font-size: 0.72rem;
   font-weight: 700;
@@ -3259,7 +3255,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .recommendation {
   padding: 0.8rem 0.9rem;
   border: 1px solid var(--super-line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--super-soft);
   color: var(--super-ink);
 }
@@ -3269,7 +3265,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
 }
 
@@ -5037,12 +5033,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .history-question {
-  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
   margin-top: 0.15rem;
   color: var(--fg);
 }
 
 .history-decision {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
   color: var(--muted);
   overflow-wrap: anywhere;
 }

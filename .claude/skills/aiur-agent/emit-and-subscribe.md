@@ -62,6 +62,13 @@ the problem before choosing.
   behavior readable in under a minute. Remove chronology and investigation
   detail that do not change the choice.
 
+**Be far more concise than feels natural, and write for a reader with no
+knowledge of the code.** Say the product decision and its trade-offs in plain
+terms; leave implementation detail out of the Command. The issue and PR
+numbers are part of the Command's own data — do not restate them in the
+question, options, or context. If an implementation detail does not change
+what the operator should choose, it does not belong here.
+
 Before emitting, perform a cold-read check: could someone answer from these
 fields alone, without knowing the ticket title? If not, rewrite it.
 

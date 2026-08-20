@@ -2985,6 +2985,86 @@ defmodule AiurWeb.DashboardLiveTest do
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
   end
 
+  test "dismissing a Command notifies a live agent to use its judgement, and skips a gone one" do
+    orchestrator_name = Module.concat(__MODULE__, :DismissNotifyOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DismissNotifyDecisionStore)
+    orchestrator = start_queue_orchestrator(orchestrator_name, "987")
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+
+    assert {:ok, %{decision: live_decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => "dashboard-dismiss-notify-live",
+                 "question" => "Should the dashboard ship this change?",
+                 "blocking" => false,
+                 "urgency" => "normal",
+                 "reversibility" => "reversible",
+                 "options" => [%{"id" => "ship", "label" => "Ship it"}]
+               },
+               [
+                 ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-dismiss-notify-live"}
+               ],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands/#{live_decision.decision_id}")
+    assert html =~ ~s(phx-click="dismiss-decision")
+
+    _html =
+      view
+      |> element("#decision-#{live_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert {:ok, dismissed} = DecisionStore.get(live_decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+
+    # The live agent is told the operator dismissed its Command and to proceed
+    # under its own judgement; the message lands on the checkpoint queue.
+    {:ok, item} = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "987")
+    assert item.category == :operator_message
+    assert item.body.text =~ "dismissed by the operator"
+    assert item.body.text =~ "Use your judgement"
+
+    # A Command whose agent is gone closes locally with no message.
+    :sys.replace_state(orchestrator, &%{&1 | running: %{}})
+    assert {:ok, %{decision: gone_decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => "dashboard-dismiss-notify-gone",
+                 "question" => "Should the dashboard ship this change?",
+                 "blocking" => false,
+                 "urgency" => "normal",
+                 "reversibility" => "reversible",
+                 "options" => [%{"id" => "ship", "label" => "Ship it"}]
+               },
+               [
+                 ticket: %{identifier: "988", title: "Operator Control Center", url: nil},
+                 source: %{agent_id: "agent-988", session_id: "session-988", event_id: "event-dismiss-notify-gone"}
+               ],
+               store
+             )
+
+    {:ok, gone_view, _html} = live(build_conn(), "/commands/#{gone_decision.decision_id}")
+
+    _html =
+      gone_view
+      |> element("#decision-#{gone_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert {:ok, gone_dismissed} = DecisionStore.get(gone_decision.decision_id, store)
+    assert gone_dismissed.decision_status == :dismissed
+    assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+  end
+
   test "a deferred detail command remains answerable" do
     orchestrator_name = Module.concat(__MODULE__, :DeferredDetailOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DeferredDetailStore)
