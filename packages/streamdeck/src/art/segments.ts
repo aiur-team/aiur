@@ -876,7 +876,7 @@ const drawAgentDetail = (context: SKRSContext2D, width: number, content: Segment
   }
   // A measured 0% is a solid stub. The unknown branch above remains a full
   // neutral bar, so the strip makes the same no-reading/zero distinction as the key.
-  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true, model.freshness === "stale" ? 0.5 : 1);
+  meter(context, left, 74, right - left, model.percent / 100, progressBarColor(model.percent), 10, true);
 };
 
 /* Voice panel geometry. The trace is the panel; everything else sits around it. */

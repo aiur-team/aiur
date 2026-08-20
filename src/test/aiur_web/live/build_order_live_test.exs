@@ -428,7 +428,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     stale = install_source(catalog: catalog_snapshot([root(identity, "Stale root")], 1, :stale))
     assert {:ok, _view, stale_html} = live(build_conn(), "/build-orders")
     assert stale_html =~ ~s(data-build-order-catalog-state="stale_lkg")
-    assert stale_html =~ "Showing the Build Orders we last saw"
     assert stale_html =~ ~s(href="/build-orders/42")
     assert Process.alive?(stale)
 
@@ -841,7 +840,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert health_html =~ "Ticket 99"
     # Degraded provider states surface as an explicit state card (the always-on
     # health badge was removed from the header).
-    assert health_html =~ "Plan is not live"
+    assert health_html =~ "Showing the last saved plan."
   end
 
   test "collapses structurally invalid selected data into one copyable page-level state", %{

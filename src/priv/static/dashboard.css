@@ -73,6 +73,10 @@
   /* The page's reading width — what the content column is capped at once the
      shell itself runs the full width of the window. */
   --shell-measure: 75rem;
+  /* One height for every progress bar on the dashboard — the meter strip, the
+     run-summary and units-table tracks, the provider-meter tracks, and the
+     Stream Deck bars — so no two bars read as different gauges. */
+  --progress-bar-height: 0.5rem;
 }
 
 html[data-theme="light"] {
@@ -591,7 +595,7 @@ textarea:focus-visible,
 
 .bo-catalog-progress-track {
   flex: 1 1 auto;
-  height: 5px;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface);
   overflow: hidden;
@@ -1923,22 +1927,6 @@ th[data-sort-key]:focus-visible {
 .dashboard-shell[data-nav-collapsed="true"] .shell-nav-toggle {
   right: auto;
   left: 0.28rem;
-}
-
-/* The compact fleet-staleness label rides beside the brand logo. The full
-   explanation (age + reason) lives in the hover popover. */
-.fleet-stale-label {
-  padding: 0.15rem 0.55rem;
-  border: 1px solid var(--attention-line);
-  border-radius: 999px;
-  background: var(--attention-soft);
-  color: var(--attention-ink);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  cursor: help;
 }
 
 /* The global pause switch reads OFF (muted, like its sibling toggles) and flips
@@ -3579,7 +3567,7 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .ut-pbar {
   display: block;
-  height: 5px;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -3589,16 +3577,12 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: 999px;
-  min-width: 5px;
+  min-width: var(--progress-bar-height);
   background: var(--progress-fill);
 }
 
 .ut-pbar > i.is-complete {
   background: var(--progress-complete-fill);
-}
-
-.ut-pbar > i.is-stale {
-  opacity: 0.5;
 }
 
 .ut-pbar.is-unknown {
@@ -3913,7 +3897,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-api .rs-limit {
   grid-template:
     "label meta" minmax(0, 1fr)
-    "meter meter" var(--rs-meter-height, 0.34rem) /
+    "meter meter" var(--rs-meter-height, var(--progress-bar-height)) /
     minmax(0, 1fr) 9rem;
 }
 
@@ -3921,7 +3905,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   grid-area: meter;
   align-self: end;
   width: 100%;
-  height: var(--rs-meter-height, 0.34rem);
+  height: var(--rs-meter-height, var(--progress-bar-height));
 }
 
 .rs-provider-row .rs-limit-label {
@@ -3996,7 +3980,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .rs-meter {
-  height: 0.34rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -4168,7 +4152,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 /* Unknown values remain visibly inert without resembling a measured 0%. */
 .rs-meter-none {
   display: block;
-  height: 0.34rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--line-strong);
 }
@@ -4593,7 +4577,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: block;
   flex: 1 1 auto;
   min-width: 3rem;
-  height: 0.55rem;
+  height: var(--progress-bar-height);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -7041,7 +7025,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .run-summary-progress-track {
   display: block;
-  height: 0.55rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -7051,17 +7035,13 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
-  min-width: 0.55rem;
+  min-width: var(--progress-bar-height);
   background: var(--progress-fill);
   transition: width 0.3s ease;
 }
 
 .run-summary-progress-fill.is-complete {
   background: var(--progress-complete-fill);
-}
-
-.run-summary-progress-fill.is-stale {
-  opacity: 0.5;
 }
 
 .run-summary-progress-value {
@@ -7257,7 +7237,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .provider-meter-track {
   display: block;
-  height: 0.55rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -7793,7 +7773,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-wave-seg-meter {
   display: block;
-  height: 5px;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -8817,7 +8797,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .sd-ag-bar {
   display: block;
-  height: 6px;
+  height: var(--progress-bar-height);
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -8830,10 +8810,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   height: 100%;
   border-radius: inherit;
   background: var(--sd-progress-fill);
-  min-width: 6px;
+  min-width: var(--progress-bar-height);
 }
-
-.sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
 
 .sd-ag-foot.is-progress-unknown .sd-ag-bar {
   background: rgba(255, 255, 255, 0.24);
@@ -9019,7 +8997,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .sd-strip-cmd-progress {
   display: block;
-  height: 0.34rem;
+  height: var(--progress-bar-height);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
@@ -9028,12 +9006,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .sd-strip-cmd-progress > i {
   display: block;
   height: 100%;
-  min-width: 0.34rem;
+  min-width: var(--progress-bar-height);
   border-radius: inherit;
-}
-
-.sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i {
-  opacity: 0.5;
 }
 
 .sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
@@ -9185,7 +9159,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .sd-mini-bar {
-  height: 3px;
+  height: var(--progress-bar-height);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
@@ -9196,17 +9170,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #3f8bff, #8fbcff);
-}
-
-/* A stale reading remains distinct through colour and opacity, without the
-   hatch treatment used by the old unknown-progress state. */
-.sd-mini.is-stale .sd-mini-r {
-  color: var(--attention-ink);
-}
-
-.sd-mini.is-stale .sd-mini-bar > i {
-  background: var(--attention);
-  opacity: 0.6;
 }
 
 .sd-pager {

@@ -73,7 +73,7 @@ Three layers, each addressable and each reachable from the one above:
 
 | Layer | Route | Shows |
 | --- | --- | --- |
-| Map | `/github-cache` | Every resource type as a tile, sized by how many entries it holds and tinted by how stale its worst entry is. |
+| Map | `/github-cache` | Every resource type as a tile, sized by how many entries it holds and tinted by how old its worst entry is. |
 | Group | `/github-cache/:resource_type` | That type's entries, searchable by identity and filterable by freshness, writer and body state. |
 | Entry | `/github-cache/:resource_type/:identity` | One record in full: key, `fetched_at`, processed version, body version, ETag, last writer, and the cached body. |
 
@@ -82,7 +82,7 @@ Above the map, two **history charts** show the same cache as a time-series rathe
 | Chart | Shows |
 | --- | --- |
 | Entries over time | Total entries, how many hold a body, how many are validator-only — so a cache that grew and then dropped reads as a shape. |
-| Freshness over time | The same totals stacked by freshness (fresh / stale / expired / unknown) — so a cache quietly going stale is a band that grows, not a number to compare. |
+| Freshness over time | The same totals stacked by freshness (fresh / older / expired / unknown) — so a cache quietly aging is a band that grows, not a number to compare. |
 
 The charts are fed by a sampler that reads the same store the page reads — never GitHub — every 30 seconds and keeps a bounded, in-memory ring of the last hour.
 
