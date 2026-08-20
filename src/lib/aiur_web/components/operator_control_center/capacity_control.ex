@@ -132,7 +132,7 @@ defmodule AiurWeb.OperatorControlCenter.CapacityControl do
     do: "Enter a whole number of #{CapacityPresenter.min()} or more."
 
   def feedback_message(%{kind: :timeout}),
-    do: "The capacity service did not respond in time. The value shown may be stale; wait a moment and retry."
+    do: "The capacity service did not respond in time. Wait a moment and retry."
 
   def feedback_message(%{kind: :unavailable}),
     do: "Capacity control is unavailable right now. Wait a moment and retry."

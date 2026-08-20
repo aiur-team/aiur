@@ -30,7 +30,7 @@ The Units strip shows non-model APIs beside model-provider meters.
 | GitHub secondary limit | Active abuse-control backoff | [GitHub API budgets](/apis/github#api-budgets) |
 | ElevenLabs credit quota | Account credit pool as percentage used; appears only when a key is configured | [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures) |
 
-Each meter bar runs the full width of its pane. Model rows show the provider logo and usage bars only — the per-provider token count, spend figure, and the ElevenLabs next-invoice amount are not rendered on the strip.
+Every meter bar runs the full width of its pane, and every progress bar on the dashboard shares the same height. Model rows show the provider logo and usage bars only — the per-provider token count, spend figure, and the ElevenLabs next-invoice amount are not rendered on the strip.
 
 A configured meter that cannot refresh names authorization, rate-limit, or connectivity failure without exposing its credential.
 

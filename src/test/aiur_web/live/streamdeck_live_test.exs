@@ -194,12 +194,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s|<i style="width: 0%">|
     assert html =~ ~s|<i style="width: 100%">|
     assert html =~ ~s(class="sd-ag-foot is-progress-unknown")
-    assert html =~ ~s(class="sd-ag-foot is-progress-stale")
+    refute html =~ "is-progress-stale"
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
 
     stale = render_hook(view, "key-press", %{"identifier" => "stale"})
-    assert stale =~ ~r/class="sd-strip-cmd st-running is-progress-stale(?:\s*)"/
+    refute stale =~ "is-progress-stale"
     assert stale =~ ~s(aria-valuenow="40")
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
@@ -1241,7 +1241,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(data-provider="kimi" data-meter="session" data-percent=)
   end
 
-  test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
+  test "renders retained readings without staleness text", %{meter_agent: meter_agent} do
     Agent.update(meter_agent, fn meters ->
       stale_at = DateTime.add(DateTime.utc_now(), -601, :second)
 
@@ -1253,8 +1253,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
-    assert html =~ "47% · Thu 6PM · stale · 10m ago"
-    assert html =~ "Weekly · 47% · Thu 6PM · stale · 10m ago"
+    refute html =~ "stale ·"
+    refute html =~ "10m ago"
   end
 
   test "renders summary build space and pager dots inside touch-strip segments" do

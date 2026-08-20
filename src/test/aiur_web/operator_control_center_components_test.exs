@@ -489,7 +489,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   end
 
   test "distinguishes degraded decision history from an unavailable provider" do
-    html = render_component(&History.history/1, %{rows: [], provider_health: :degraded})
+    html = render_component(&History.history/1, %{rows: [], provider_health: :degraded, time_zone: "Etc/UTC"})
 
     assert html =~ "Showing a partial Command history"
     refute html =~ "currently unavailable"
@@ -550,7 +550,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert [result_cell] = Floki.find(document, ".history-row > td.history-result-cell:has(.history-result):has(.history-when)")
     assert Floki.attribute(result_cell, "data-sort-value") == [timestamp]
     assert Floki.attribute(result_cell, ".history-when time", "datetime") == [timestamp]
-    assert Floki.text(result_cell |> Floki.find(".history-when") |> List.first()) =~ "UTC"
+    assert Floki.text(result_cell |> Floki.find(".history-when") |> List.first()) =~ ~r/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/
     assert render_history([answered], expanded_id: answered.decision_id) =~ ~s(<td colspan="3">)
   end
 
@@ -1339,7 +1339,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       has_more: Keyword.get(opts, :has_more, false),
       provider_health: :ok,
       expanded_id: Keyword.get(opts, :expanded_id),
-      writable: Keyword.get(opts, :writable, false)
+      writable: Keyword.get(opts, :writable, false),
+      time_zone: Keyword.get(opts, :time_zone, "Etc/UTC")
     })
   end
 

@@ -202,12 +202,14 @@ test('Models and APIs use standard bars with labels above, without narrow overfl
       // line, now that the head-row chip is gone.
       await expect(page.locator('.rs-state')).toHaveCount(0)
       const modelMetaVariant = width <= 720 ? 'compact' : 'wide'
-      await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'Claude' }), modelMetaVariant, 'stale')
+      await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'Claude' }), modelMetaVariant, '62%')
       await expectVisibleMetadata(page.locator('.rs-model').filter({ hasText: 'DeepSeek' }), modelMetaVariant, '0%')
       await expectVisibleMetadata(elevenlabs, 'compact', '75.0K')
       // Kimi reported nothing, so its row is just the "Limits" label over an
       // empty bar — the status meta was deleted (operator directive).
       await expect(page.locator('.rs-model').filter({ hasText: 'Kimi' }).locator('.rs-limit-meta')).toHaveCount(0)
+      // No staleness wording remains on the strip.
+      await expect(page.locator('.run-summary')).not.toContainText(/stale/i)
 
       // The #2085 label removal is reverted: a label now sits above every model
       // bar, and the SPEND label is deleted from the model rows.

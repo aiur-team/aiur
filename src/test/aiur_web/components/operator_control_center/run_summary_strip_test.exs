@@ -616,10 +616,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # A credit window whose freshness horizon has passed is not a current reading:
-  # it names its observation time and marks itself stale instead of presenting
-  # the balance as live (issue #1550).
-  test "a credit window past its freshness horizon renders an explicit stale label" do
+  # A credit window whose freshness horizon has passed is no longer a current
+  # reading (issue #1550); the dashboard no longer labels it, so the meta just
+  # keeps the balance.
+  test "a credit window past its freshness horizon keeps its balance without a stale label" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -652,16 +652,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$7.25 · as of 11:54 UTC (stale)"
-      refute html =~ "resets in"
+      assert html =~ "$7.25"
+      refute html =~ "stale"
     end)
   end
 
-  # The regression: a balance observed more than four minutes ago (within the
-  # final minute of its 300s freshness horizon, or past it) must not render as a
-  # fresh current value. The measured spend percentage keeps its row; the meta
-  # gains the explicit staleness label.
-  test "a credit balance observed more than four minutes ago renders stale, not current" do
+  # A balance observed more than four minutes ago (within the final minute of
+  # its 300s freshness horizon, or past it) still shows its measured spend; the
+  # staleness qualifier was removed (operator directive).
+  test "a credit balance observed more than four minutes ago keeps its measured spend" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -695,19 +694,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$49.05 · 1.9% used · as of 11:55 UTC (stale)"
-      # The stale meta is not followed by the fresh "resets in" countdown; the
-      # balance is presented with its age, not as a current reading.
-      refute html =~ "· resets in"
+      assert html =~ "$49.05 · 1.9% used"
+      refute html =~ "stale"
     end)
   end
 
   # A provider that has never been observed this boot reads :unknown — a bare
   # N/A — even when the durable dispatch-limits ledger holds its last standing.
-  # The strip must degrade to that durable record with an explicit staleness
-  # label instead of rendering an empty card. A fully-consumed durable record
-  # also turns the bar red.
-  test "renders the durable last-known standing with a staleness label and red-at-100 bar" do
+  # The strip must degrade to that durable record instead of rendering an empty
+  # card. A fully-consumed durable record also turns the bar red.
+  test "renders the durable last-known standing with a red-at-100 bar" do
     observed_at = ~U[2026-08-02 08:53:00Z]
     dir = Path.join(System.tmp_dir!(), "aiur-strip-durable-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -747,9 +743,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      # A ledger-only standing is stale by construction, and the meta line is the
-      # only place that says so now that the row's head chip is gone.
-      assert html =~ "100% used · as of 08:53 UTC (stale)"
+      assert html =~ "100%"
+      refute html =~ "stale"
       assert html =~ ~s(class="is-critical" style="width:100%")
     after
       restore_app_env(:aiur, :workflow_file_path, previous_path)
@@ -1222,9 +1217,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # The distinction the models pane exists to preserve (issue #1564): a stale
-  # or unavailable reading must never render like a healthy zero.
-  test "the models pane distinguishes stale and unavailable from a healthy zero" do
+  # The models pane shows every provider's reading as a plain percentage; the
+  # staleness qualifier was removed (operator directive), so a stale or
+  # unavailable reading renders like any other rather than carrying a label.
+  test "the models pane renders stale and unavailable readings without labels" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         html =
@@ -1239,9 +1235,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         # DeepSeek is a real, fresh zero-consumed reading.
         assert html =~ "0% · resets in 30m"
 
-        # Claude's window is stale: the reading is labelled rather than
-        # presented as current.
-        assert html =~ "62% · resets in 30m (stale)"
+        # Claude's window renders its percentage without a stale qualifier.
+        assert html =~ "62% · resets in 30m"
+        refute html =~ "stale"
 
         # Kimi reported nothing at all, which is neither healthy nor a zero; its
         # status label was deleted (operator directive) so the row is just the
@@ -1251,18 +1247,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
         # The head-row freshness chip is gone (the row leads with the provider
         # logo instead); the meter's own meta line is what keeps the three
-        # readings apart, so it is the assertion that guards #1564.
+        # readings apart.
         refute html =~ "rs-state"
       end)
     end)
   end
 
-  # The case the chip used to carry alone: an adapter failure (or repeated probe
-  # failures over retained values) leaves the card standing at :stale/:partial
-  # while the windows it kept are still stamped fresh. Without a row-level
-  # qualifier those percentages read as live ones.
-  test "a card standing stale or partial qualifies windows its own freshness calls fresh" do
-    for {state, qualifier} <- [{:stale, "(stale)"}, {:partial, "(partial)"}] do
+  # An adapter failure (or repeated probe failures over retained values) leaves
+  # the card standing at :stale/:partial while the windows it kept are still
+  # stamped fresh. The reading renders as a plain percentage either way.
+  test "a card standing stale or partial renders windows without qualifiers" do
+    for state <- [:stale, :partial] do
       html =
         render_component(&RunSummaryStrip.run_summary_strip/1, %{
           run: %{state: :loading},
@@ -1283,12 +1278,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "40% · resets in 30m #{qualifier}"
+      assert html =~ "40% · resets in 30m"
+      refute html =~ "stale"
+      refute html =~ "partial"
     end
   end
 
-  # ...and it is added once, not twice, when the window already says it.
-  test "a stale window is not qualified twice by a stale card" do
+  test "a stale-stamped window renders its percentage without qualifiers" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         run: %{state: :loading},
@@ -1309,8 +1305,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "40% · resets in 30m (stale)"
-    refute html =~ "(stale) (stale)"
+    assert html =~ "40% · resets in 30m"
+    refute html =~ "stale"
   end
 
   test "a GitHub card still awaiting a response shows the awaiting placeholder" do

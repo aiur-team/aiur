@@ -475,6 +475,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns = %{
       payload: payload,
       now: DateTime.utc_now(),
+      time_zone: "Etc/UTC",
       # This helper renders DashboardLive directly, bypassing mount/3, so it has
       # to seed every assign mount/3 seeds — including the server-owned sidebar
       # collapse state the shell reads.
@@ -814,46 +815,6 @@ defmodule AiurWeb.DashboardLiveTest do
     unknown_fault = render_component(&Overview.error/1, error: %{code: "something_else", message: "Unmapped fault"})
     refute unknown_fault =~ "The Orchestrator is not reachable"
     assert unknown_fault =~ "something_else"
-  end
-
-  test "a stalled orchestrator's stale label names the stall, not a busy mailbox" do
-    html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
-      )
-
-    assert html =~ "Not live"
-    assert html =~ "The Orchestrator has stopped publishing."
-    assert html =~ "2h 4m old"
-    refute html =~ "The Orchestrator is busy."
-  end
-
-  test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
-    html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
-      )
-
-    assert html =~ "Not live"
-    assert html =~ "Showing the fleet as we last saw it"
-    assert html =~ "1m 35s old"
-    # The contradiction the operator reported: never unavailable and healthy at once.
-    refute html =~ "unavailable"
-  end
-
-  test "labels stale timeout and unavailable snapshots differently" do
-    timeout_html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 6}
-      )
-
-    unavailable_html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :orchestrator_unavailable, age_seconds: 6}
-      )
-
-    assert timeout_html =~ "Orchestrator is busy"
-    assert unavailable_html =~ "Orchestrator is unavailable"
   end
 
   test "renders payload-aware document navigation and owner-aware Build Order navigation" do
