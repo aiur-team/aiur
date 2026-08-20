@@ -558,13 +558,12 @@ describe("provider panel (two providers)", () => {
   });
 
   // A durable last-known reading (the dashboard's dispatch-limits fallback,
-  // #2185) is stale by construction and must not read as a live number on the
-  // glanceable surface.
-  it("marks a stale provider reading as stale rather than presenting it live", () => {
+  // #2185) renders its real used% without staleness wording (operator directive).
+  it("renders a durable provider reading without staleness text", () => {
     const { ink } = render(provider({ ...session(99), freshness: "stale" }));
     expect(drew(ink, "Session")).toBeDefined();
-    expect(drew(ink, "99% · stale")).toBeDefined();
-    expect(drew(ink, "99%")).toBeUndefined();
+    expect(drew(ink, "99%")).toBeDefined();
+    expect(drew(ink, "stale")).toBeUndefined();
   });
 
   // "no reading yet" and "zero usage" are different states; rendering both as

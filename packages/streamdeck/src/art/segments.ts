@@ -271,11 +271,7 @@ const sessionReading = (row: ProviderPanelRow, now: number): { readonly text: st
   if (window === null) return { text: "No session window", fraction: null };
   const percent = Math.round(window.usedPercent);
   const reset = resetLabel(window.resetsAt, now);
-  const base = reset === null ? `Session ${percent}%` : `Session ${percent}% · ${reset}`;
-  // A last-known durable reading is stale by construction; without the marker a
-  // glanceable surface would read it as live headroom. The emulator and the
-  // dashboard say the same word.
-  return { text: row.model.freshness === "stale" ? `${base} · stale` : base, fraction: percent / 100 };
+  return { text: reset === null ? `Session ${percent}%` : `Session ${percent}% · ${reset}`, fraction: percent / 100 };
 };
 
 /**
