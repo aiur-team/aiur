@@ -3036,6 +3036,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     # A Command whose agent is gone closes locally with no message.
     :sys.replace_state(orchestrator, &%{&1 | running: %{}})
+
     assert {:ok, %{decision: gone_decision}} =
              DecisionStore.request(
                %{
