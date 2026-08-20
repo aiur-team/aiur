@@ -1674,6 +1674,9 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
   def demand(identity), do: selected_snapshot(identity)
 
   @impl true
+  def refresh(_identity), do: :ok
+
+  @impl true
   def release(_identity), do: :ok
 
   @impl true
