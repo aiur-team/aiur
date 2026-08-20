@@ -30,6 +30,9 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    # Absolute times render in the viewer's timezone via `DateTime.shift_zone!`,
+    # which needs a timezone database installed. `:tz` ships one.
+    :ok = Calendar.put_time_zone_database(Tz.TimeZoneDatabase)
     maybe_validate_environment()
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
