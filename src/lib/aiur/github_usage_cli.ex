@@ -16,6 +16,7 @@ defmodule Aiur.GitHubUsageCLI do
   """
 
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.CredentialUsage
   alias Aiur.JSONSafe
 
   @spec run(keyword()) :: 0 | 1
@@ -58,12 +59,44 @@ defmodule Aiur.GitHubUsageCLI do
   end
 
   defp envelope(actors, opts) do
+    rows = CredentialUsage.rows(Keyword.put(opts, :usage_fun, fn -> %{actors: actors} end))
+
     JSONSafe.normalize(%{
-      schema_version: 1,
+      schema_version: 2,
       page: "github-usage",
       snapshot: %{captured_at: Keyword.get(opts, :now, DateTime.utc_now())},
       data: %{actors: Enum.map(actors, &present_actor/1)}
     })
+    |> put_credential_view(rows, opts)
+  end
+
+  # With one credential — the default — the per-actor table is the whole answer
+  # and the report is unchanged. The credential sections exist to compare
+  # credentials, and there is nothing to compare.
+  defp put_credential_view(envelope, rows, _opts) when length(rows) < 2, do: envelope
+
+  defp put_credential_view(envelope, rows, opts) do
+    view =
+      JSONSafe.normalize(%{
+        credentials: Enum.map(rows, &present_credential/1),
+        pool: CredentialUsage.pool(Keyword.put(opts, :rows, rows))
+      })
+
+    update_in(envelope["data"], &Map.merge(&1, view))
+  end
+
+  defp present_credential(row) do
+    %{
+      id: row.id,
+      kind: row.kind,
+      identity: row.identity,
+      writes: row.writes?,
+      primary: row.primary?,
+      available: row.available?,
+      actors: row.actors,
+      admissions: row.admissions,
+      windows: row.windows
+    }
   end
 
   defp present_actor(actor) do
@@ -102,6 +135,81 @@ defmodule Aiur.GitHubUsageCLI do
         IO.puts("  graphql #{usage_line(actor["graphql"], now)}")
       end)
     end
+
+    print_credentials(envelope["data"]["credentials"])
+    print_pool(envelope["data"]["pool"])
+  end
+
+  # Printed even with one credential: "one credential" is itself the answer to
+  # "why did the whole budget come from one account", and it is the state the
+  # pool exists to change.
+  defp print_credentials(credentials) when is_list(credentials) and credentials != [] do
+    IO.puts("")
+    IO.puts("Credentials (admissions are Aiur's request counts; window is GitHub's own figure for that credential)")
+    IO.puts("")
+
+    Enum.each(credentials, &print_credential/1)
+  end
+
+  defp print_credentials(_credentials), do: :ok
+
+  defp print_credential(credential) do
+    IO.puts("#{credential["id"]}  #{credential_traits(credential)}")
+
+    Enum.each(["core", "graphql"], fn resource ->
+      admissions = get_in(credential, ["admissions", resource]) || %{}
+      IO.puts("  #{String.pad_trailing(resource, 7)} #{admission_line(admissions)}   window #{window_line(get_in(credential, ["windows", resource]))}")
+    end)
+  end
+
+  defp credential_traits(credential) do
+    [
+      credential["kind"],
+      credential["identity"] || "unknown-identity",
+      if(credential["writes"], do: "read+write", else: "read-only"),
+      if(credential["available"], do: "available", else: "TOKEN UNAVAILABLE")
+    ]
+    |> Enum.join(", ")
+    |> then(&"(#{&1})")
+  end
+
+  defp admission_line(admissions) do
+    limit = Map.get(admissions, "limit", 0)
+    "admitted #{Map.get(admissions, "used", 0)}/#{if limit == 0, do: "no ceiling", else: limit}"
+  end
+
+  # `nil` and `0` are different facts. A credential with no window has not been
+  # called this hour; a credential with `remaining: 0` is exhausted.
+  defp window_line(window) when is_map(window) do
+    "#{Map.get(window, "remaining")} of #{Map.get(window, "limit")} left"
+  end
+
+  defp window_line(_window), do: "not observed this window"
+
+  defp print_pool(pool) when is_map(pool) and map_size(pool) > 0 do
+    IO.puts("")
+
+    Enum.each(pool, fn {resource, figures} ->
+      IO.puts("#{resource} pool: #{pool_line(figures)}")
+    end)
+  end
+
+  defp print_pool(_pool), do: :ok
+
+  # A pool total is a ceiling, not a balance: the credentials' hourly windows
+  # reset at different moments, so the pool never holds the sum at any instant.
+  # And a total built from a subset of the pool is a floor, which is worth
+  # saying out loud rather than printing as if it were the figure.
+  defp pool_line(%{"observed_credentials" => 0, "configured_credentials" => configured}),
+    do: "no credential observed yet (#{configured} configured)"
+
+  defp pool_line(figures) do
+    coverage =
+      if figures["complete?"],
+        do: "all #{figures["configured_credentials"]} credentials observed",
+        else: "PARTIAL — #{figures["observed_credentials"]} of #{figures["configured_credentials"]} credentials observed, so this is a floor"
+
+    "#{figures["remaining"]} remaining of #{figures["limit"]} across the pool (#{coverage}; windows reset independently, so the pool never holds this at one instant)"
   end
 
   defp usage_line(figure, now) when is_map(figure) do

@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Config do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Credential, CredentialSelector, Transport}
 
   @default_label_prefix "agent"
 
@@ -52,6 +52,34 @@ defmodule Aiur.GitHub.Config do
         :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
         resolved -> resolved
       end
+    end
+  end
+
+  @doc """
+  The token of the credential with the most headroom for `:resource`.
+
+  `token/0` remains the single-credential resolver and is what the pool's own
+  primary entry delegates to; this is the pooled resolver for callers that know
+  which budget they are about to spend. Options:
+
+    * `:resource` — `"graphql"` or `"core"` (default `"core"`). The two budgets
+      are separate on GitHub and are selected separately here: core sitting idle
+      is not headroom a GraphQL query can spend.
+    * `:intent` — `:read` (default) or `:write`. A write is only ever placed on a
+      credential explicitly marked for writes, so GitHub's attribution on the
+      resulting comment, label or merge stays on the identity that should own it.
+
+  Falls back to `token/0` whenever no credential resolves, so a caller can use
+  this unconditionally.
+  """
+  @spec pooled_token(keyword()) :: String.t() | nil
+  def pooled_token(opts \\ []) do
+    resource = Keyword.get(opts, :resource, "core")
+    intent = Keyword.get(opts, :intent, :read)
+
+    case CredentialSelector.choose(resource, intent, opts) do
+      nil -> token()
+      credential -> Credential.token(credential) || token()
     end
   end
 
