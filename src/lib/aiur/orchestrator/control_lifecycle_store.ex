@@ -117,17 +117,19 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   defp break_stale_lock(lock) do
     with {:ok, %File.Stat{mtime: mtime} = stat} <- File.stat(lock, time: :posix),
          true <- System.os_time(:second) - mtime > @lock_stale_after_seconds do
-      case read_lock_owner(lock) do
-        {:ok, owner} ->
-          if lock_owner_dead?(owner), do: remove_stale_lock(lock, fn -> release_lock(lock, owner) end)
-
-        {:error, :invalid_lock_owner} ->
-          fingerprint = lock_fingerprint(stat)
-          remove_stale_lock(lock, fn -> release_invalid_lock(lock, fingerprint) end)
-      end
+      reclaim_stale_lock(lock, stat, read_lock_owner(lock))
     end
 
     :ok
+  end
+
+  defp reclaim_stale_lock(lock, _stat, {:ok, owner}) do
+    if lock_owner_dead?(owner), do: remove_stale_lock(lock, fn -> release_lock(lock, owner) end)
+  end
+
+  defp reclaim_stale_lock(lock, stat, {:error, :invalid_lock_owner}) do
+    fingerprint = lock_fingerprint(stat)
+    remove_stale_lock(lock, fn -> release_invalid_lock(lock, fingerprint) end)
   end
 
   defp lock_owner do

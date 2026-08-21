@@ -26,66 +26,67 @@ defmodule Aiur.HttpServer do
 
     case Keyword.get(opts, :port, Config.server_port()) do
       port when is_integer(port) and port >= 0 ->
-        host = Keyword.get(opts, :host, Config.server_host())
-        orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
-        snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
-        dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
-        decision_api = Keyword.get(opts, :decision_api, DecisionApi)
-        decision_store = Keyword.get(opts, :decision_store, DecisionStore)
-        decision_policy = Keyword.get(opts, :decision_policy)
-        endpoint_start_fun = Keyword.get(opts, :endpoint_start_fun, &Endpoint.start_link/0)
-
-        with {:ok, ip} <- parse_host(host),
-             :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
-          endpoint_opts = [
-            server: true,
-            http: [ip: ip, port: port],
-            url: [host: normalize_host(host)],
-            orchestrator: orchestrator,
-            snapshot_timeout_ms: snapshot_timeout_ms,
-            dashboard_writable: dashboard_writable,
-            dashboard_auth_required: dashboard_writable or not loopback?(ip),
-            decision_api: decision_api,
-            decision_store: decision_store,
-            decision_policy: decision_policy,
-            secret_key_base: secret_key_base()
-          ]
-
-          endpoint_config =
-            :aiur
-            |> Application.get_env(Endpoint, [])
-            |> Keyword.merge(endpoint_opts)
-
-          Application.put_env(:aiur, Endpoint, endpoint_config)
-
-          case start_endpoint(endpoint_start_fun) do
-            {:endpoint_exit, reason} ->
-              if address_in_use?(reason) do
-                port_in_use(host, ip, port)
-                :ignore
-              else
-                exit(reason)
-              end
-
-            {:error, reason} = error ->
-              if address_in_use?(reason) do
-                port_in_use(host, ip, port)
-                :ignore
-              else
-                error
-              end
-
-            other ->
-              other
-          end
-        else
-          :dashboard_credentials_missing -> :ignore
-          other -> other
-        end
+        start_on_port(opts, port)
 
       _ ->
         :ignore
     end
+  end
+
+  defp start_on_port(opts, port) do
+    host = Keyword.get(opts, :host, Config.server_host())
+    dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
+
+    with {:ok, ip} <- parse_host(host),
+         :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
+      configure_endpoint(opts, host, ip, port, dashboard_writable)
+
+      opts
+      |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0)
+      |> start_endpoint()
+      |> handle_endpoint_start(host, ip, port)
+    else
+      :dashboard_credentials_missing -> :ignore
+      other -> other
+    end
+  end
+
+  defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
+    endpoint_opts = [
+      server: true,
+      http: [ip: ip, port: port],
+      url: [host: normalize_host(host)],
+      orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
+      snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
+      dashboard_writable: dashboard_writable,
+      dashboard_auth_required: dashboard_writable or not loopback?(ip),
+      decision_api: Keyword.get(opts, :decision_api, DecisionApi),
+      decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+      decision_policy: Keyword.get(opts, :decision_policy),
+      secret_key_base: secret_key_base()
+    ]
+
+    endpoint_config =
+      :aiur
+      |> Application.get_env(Endpoint, [])
+      |> Keyword.merge(endpoint_opts)
+
+    Application.put_env(:aiur, Endpoint, endpoint_config)
+  end
+
+  defp handle_endpoint_start({:endpoint_exit, reason}, host, ip, port) do
+    if address_in_use?(reason), do: ignore_port_conflict(host, ip, port), else: exit(reason)
+  end
+
+  defp handle_endpoint_start({:error, reason} = error, host, ip, port) do
+    if address_in_use?(reason), do: ignore_port_conflict(host, ip, port), else: error
+  end
+
+  defp handle_endpoint_start(other, _host, _ip, _port), do: other
+
+  defp ignore_port_conflict(host, ip, port) do
+    port_in_use(host, ip, port)
+    :ignore
   end
 
   defp start_endpoint(endpoint_start_fun) do
