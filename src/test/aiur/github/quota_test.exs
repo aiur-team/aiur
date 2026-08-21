@@ -32,6 +32,41 @@ defmodule Aiur.GitHub.QuotaTest do
     assert snapshot.windows["graphql"].used_percent == 12.0
   end
 
+  # Every instrumented GraphQL response already carries the endpoint's own
+  # answer for the points budget. Reading it is what lets the daemon learn its
+  # real remaining budget from the calls it is already making, rather than
+  # waiting for the next `/rate_limit` refresh to discover it is out.
+  test "learns the GraphQL window from the rateLimit block a response reports" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), reported_graphql_response(1234))
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.windows["graphql"].limit == 5000
+    assert snapshot.windows["graphql"].remaining == 1234
+    assert snapshot.windows["graphql"].reset_at == @reset
+  end
+
+  test "the reported block wins over the headers, being the endpoint's own answer" do
+    quota = start_quota()
+
+    {:ok, headers_only} = response("graphql", 5000, 4400)
+    reported = put_in(headers_only.body, %{"data" => rate_limit_block(77)})
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), {:ok, reported})
+
+    assert Quota.snapshot(quota).windows["graphql"].remaining == 77
+  end
+
+  test "a GraphQL response without a reported block still falls back to its headers" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), response("graphql", 5000, 4400))
+
+    assert Quota.snapshot(quota).windows["graphql"].remaining == 4400
+  end
+
   test "the low-water crossing alerts once per resource window and names the reset" do
     parent = self()
 
@@ -660,6 +695,23 @@ defmodule Aiur.GitHub.QuotaTest do
     {:ok, response} = response("graphql", 5000, remaining)
 
     {:ok, %{response | body: %{"data" => %{"rateLimit" => %{"cost" => cost, "remaining" => remaining, "limit" => 5000}}}}}
+  end
+
+  # The block the transport's injected `rateLimit { limit cost remaining
+  # resetAt }` selection brings back on every instrumented query.
+  defp rate_limit_block(remaining) do
+    %{
+      "rateLimit" => %{
+        "cost" => 1,
+        "limit" => 5000,
+        "remaining" => remaining,
+        "resetAt" => DateTime.to_iso8601(@reset)
+      }
+    }
+  end
+
+  defp reported_graphql_response(remaining) do
+    {:ok, %{status: 200, headers: [], body: %{"data" => rate_limit_block(remaining)}}}
   end
 
   defp not_modified(resource, remaining) do

@@ -549,7 +549,15 @@ defmodule Aiur.GitHub.Transport do
   @doc """
   Issues a GraphQL request and returns the decoded body beside the raw response.
 
-  Two things happen here that no call site has to remember.
+  Three things happen here that no call site has to remember.
+
+  The document is priced before it is sent. `Aiur.GitHub.GraphQLCost.check/2`
+  refuses a fan-out whose *shape* has gone pathological with
+  `{:error, {:graphql_cost_ceiling, details}}`, so such a query fails at the
+  call site instead of being discovered in the ranking an hour later. The
+  ceiling sits far above every document this tree sends — the estimate is a node
+  count and GitHub bills these documents dramatically cheaper — so it never
+  fires on real traffic.
 
   The query is passed through `Aiur.GitHub.GraphQLCost.instrument/1`, which adds
   a `rateLimit { cost }` selection where the document does not already carry
@@ -566,6 +574,13 @@ defmodule Aiur.GitHub.Transport do
   @spec github_graphql_response(function(), String.t(), String.t(), map(), keyword()) ::
           {:ok, map(), map()} | {:error, term(), map() | nil}
   def github_graphql_response(request_fun, token, query, variables, opts \\ []) do
+    case GraphQLCost.check(query, caller: Keyword.get(opts, :caller)) do
+      :ok -> send_graphql(request_fun, token, query, variables, opts)
+      {:error, {:graphql_cost_ceiling, details}} -> refuse_over_budget_graphql(details)
+    end
+  end
+
+  defp send_graphql(request_fun, token, query, variables, opts) do
     body = %{"query" => GraphQLCost.instrument(query), "variables" => variables}
 
     request =
@@ -574,6 +589,18 @@ defmodule Aiur.GitHub.Transport do
       |> maybe_put_caller(opts)
 
     validate_graphql_response(request_fun.(request))
+  end
+
+  # The budget is the reason the call is refused, so the refusal has to be
+  # louder than the spend it prevents: a document this size is a bug in the
+  # query, not a transient condition to retry around.
+  defp refuse_over_budget_graphql(details) do
+    Logger.warning(
+      "Github GraphQL cost ceiling: operation=#{details.operation} caller=#{details.caller || "undeclared"} " <>
+        "points=#{details.points} ceiling=#{details.ceiling_points} nodes=#{details.nodes}"
+    )
+
+    {:error, {:graphql_cost_ceiling, details}, nil}
   end
 
   defp maybe_put_caller(request, opts) do
