@@ -446,7 +446,8 @@ defmodule Aiur.GitHub.BudgetTest do
        headers: [
          {"x-ratelimit-resource", "core"},
          {"x-ratelimit-limit", "5000"},
-         {"x-ratelimit-remaining", "4077"},
+         {"x-ratelimit-remaining", "0"},
+         {"x-ratelimit-reset", Integer.to_string(System.system_time(:second) + 60)},
          {"retry-after", Integer.to_string(seconds)}
        ],
        body: %{"message" => "You have exceeded a secondary rate limit."}

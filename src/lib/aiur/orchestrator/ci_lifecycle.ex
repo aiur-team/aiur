@@ -381,8 +381,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
 
-    poll_opts = put_ci_batch(poll_opts, targets, issues_by_target)
+    case put_ci_batch(poll_opts, targets, issues_by_target) do
+      {:ok, poll_opts} -> poll_github_ci_targets_with_opts(state, targets, issues_by_target, poller, poll_opts, opts)
+      {:skip, _local_hold} -> state
+    end
+  end
 
+  defp poll_github_ci_targets_with_opts(state, targets, issues_by_target, poller, poll_opts, opts) do
     case poller.(targets, poll_opts) do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
         state =
@@ -404,7 +409,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp put_ci_batch(opts, targets, issues_by_target) when is_list(opts) do
-    if Keyword.has_key?(opts, :ci_poller), do: opts, else: put_ci_batch_fetch(opts, targets, issues_by_target)
+    if Keyword.has_key?(opts, :ci_poller), do: {:ok, opts}, else: put_ci_batch_fetch(opts, targets, issues_by_target)
   end
 
   defp put_ci_batch_fetch(opts, targets, issues_by_target) do
@@ -417,15 +422,19 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     case fetcher.(targets, opts) do
       {:ok, batch} when is_map(batch) ->
-        Keyword.put(opts, :ci_batch, batch)
+        {:ok, Keyword.put(opts, :ci_batch, batch)}
+
+      {:error, {:aiur, :locally_held, _hold} = reason} ->
+        Logger.info("Github CI GraphQL batch locally held; skipping REST fallback reason=#{inspect(reason)}")
+        {:skip, reason}
 
       {:error, reason} ->
         Logger.warning("Github CI GraphQL batch failed; falling back to REST reads reason=#{inspect(reason)}")
-        opts
+        {:ok, opts}
 
       other ->
         Logger.warning("Github CI GraphQL batch returned unexpected value; falling back to REST reads value=#{inspect(other)}")
-        opts
+        {:ok, opts}
     end
   end
 
