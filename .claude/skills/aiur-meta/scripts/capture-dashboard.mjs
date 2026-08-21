@@ -321,7 +321,7 @@ export async function inspectPage(page, name) {
         label: group.getAttribute('aria-label') || 'Filters',
         scope: group.getAttribute('data-count-scope'),
         options: Array.from(group.querySelectorAll('button.filter-chip')).map((button) => ({
-          label: button.childNodes[0]?.textContent?.trim() || button.innerText.trim(),
+          label: button.getAttribute('data-count-label') || button.innerText.trim(),
           count: Number.parseInt(button.querySelector('.count')?.innerText.trim(), 10)
         }))
       }))

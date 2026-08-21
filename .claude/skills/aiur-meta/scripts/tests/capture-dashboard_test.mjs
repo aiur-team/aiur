@@ -300,7 +300,8 @@ function fakePage({ elements = [], primarySelectors = [], filterGroups = [], cou
     querySelectorAll: (selector) => selector === 'button.filter-chip'
       ? group.options.map((option) => ({
           innerText: `${option.label} ${option.count}`,
-          childNodes: [{ textContent: option.label }],
+          childNodes: [{ textContent: '\n      ' }, { textContent: option.label }],
+          getAttribute: (name) => name === 'data-count-label' ? option.label : null,
           querySelector: (childSelector) => childSelector === '.count' ? { innerText: String(option.count) } : null
         }))
       : []

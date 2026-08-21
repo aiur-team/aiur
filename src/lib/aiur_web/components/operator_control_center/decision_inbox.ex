@@ -92,6 +92,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       class={["filter-chip", @active && "is-active", @blocking && "blocking"]}
       phx-click="filter-decisions"
       phx-value-filter={@filter}
+      data-count-label={@label}
       aria-pressed={to_string(@active)}
     >
       {@label} <span class="count num">{count_label(@count)}</span>
