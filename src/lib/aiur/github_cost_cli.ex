@@ -21,6 +21,7 @@ defmodule Aiur.GitHubCostCLI do
   """
 
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.ReadCache
   alias Aiur.JSONSafe
 
   @table_min_width 96
@@ -89,9 +90,28 @@ defmodule Aiur.GitHubCostCLI do
       data: %{
         callers: Enum.map(callers, &present_caller(&1, callers)),
         windows: Map.new(windows, fn {resource, window} -> {resource, present_window(window)} end),
-        reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget)
+        reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget),
+        cache: cache_snapshot(opts)
       }
     })
+  end
+
+  # The ranking says where the budget went. This says how much of it did not have
+  # to be spent — and, where the cache refused to help, why. The two belong in
+  # one view: a caller at the top of the ranking with a large `refused` count is
+  # spending deliberately, and a caller at the top with a low hit rate is a
+  # tuning problem. Without this column those two look identical.
+  defp cache_snapshot(opts) do
+    cache_fun = Keyword.get(opts, :cache_fun, &ReadCache.snapshot/0)
+
+    case cache_fun.() do
+      %{} = cache -> cache
+      _unavailable -> %{available?: false}
+    end
+  rescue
+    _error -> %{available?: false}
+  catch
+    :exit, _reason -> %{available?: false}
   end
 
   # `--budget graphql` must not print the core window or the core reconciliation
@@ -145,7 +165,39 @@ defmodule Aiur.GitHubCostCLI do
 
     print_windows(data["windows"])
     print_reconciliation(data["reconciliation"])
+    print_cache(data["cache"])
   end
+
+  # Never a bare `0%`. A cache that has been asked nothing and a cache that
+  # answers nothing print differently, because only one of them is a problem —
+  # the same rule the caller table follows when nothing has been attributed.
+  defp print_cache(%{"available?" => true} = cache) do
+    IO.puts("")
+
+    IO.puts(
+      "read cache: #{hit_rate_line(cache)} — " <>
+        "#{value(cache["entries"])} entries, #{totals_line(cache["totals"])}"
+    )
+
+    print_refusals(cache["refused"])
+  end
+
+  defp print_cache(_cache), do: IO.puts("\nread cache: not running (no measurement)")
+
+  defp hit_rate_line(%{"hit_rate" => rate}) when is_float(rate), do: "#{percent(rate)} of cacheable reads served"
+  defp hit_rate_line(_cache), do: "no cacheable reads observed"
+
+  defp totals_line(%{"hit" => hits, "miss" => misses, "deposit" => deposits}),
+    do: "#{hits} hits, #{misses} misses, #{deposits} deposits"
+
+  defp totals_line(_totals), do: "no totals"
+
+  defp print_refusals(refused) when is_map(refused) and map_size(refused) > 0 do
+    line = Enum.map_join(refused, ", ", fn {reason, count} -> "#{reason} #{count}" end)
+    IO.puts("read cache refusals: #{line}")
+  end
+
+  defp print_refusals(_refused), do: :ok
 
   defp print_rows(rows, format) do
     cells = Enum.map(rows, &row_cells/1)

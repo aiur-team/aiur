@@ -33,6 +33,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.ReadCache
 
   require Logger
 
@@ -120,7 +121,21 @@ defmodule Aiur.GitHub.Transport do
     quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
   end
 
+  # The cache wraps quota, not the other way round. A read the cache answers
+  # never reaches preflight, admission or the socket, which is the entire saving:
+  # a request that is priced and then not sent has cost the budget nothing, but a
+  # request that is sent and then discarded has cost it everything.
+  #
+  # `ReadCache.through/2` is also where a *write* retires what it changed, so a
+  # mutation cannot leave a stale read behind it. Both halves live at this one
+  # call because a read that could be added without passing through here is a
+  # read nobody can account for — the same argument `GraphQLCost` makes for
+  # pricing at the chokepoint.
   defp quota_request(request, request_fun) do
+    ReadCache.through(request, fn -> uncached_quota_request(request, request_fun) end)
+  end
+
+  defp uncached_quota_request(request, request_fun) do
     quota = Application.get_env(:aiur, :github_quota_server, Quota)
 
     case quota_preflight(quota, request) do
