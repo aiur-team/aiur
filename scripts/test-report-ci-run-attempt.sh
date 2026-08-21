@@ -61,6 +61,11 @@ for job in "${jobs[@]}"; do
     exit 1
   fi
 
+  if [[ "$(grep -Fc '        if: ${{ github.run_attempt > 1 }}' <<<"$block")" -ne 1 ]]; then
+    echo "blocking CI job $job must skip rerun disclosure on the first attempt" >&2
+    exit 1
+  fi
+
   grep -Fq '        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"' <<<"$block"
 
   checkout_line="$(grep -n '      - name: Checkout' <<<"$block" | head -1 | cut -d: -f1)"
