@@ -5,11 +5,17 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
 
   @now ~U[2026-08-20 12:00:00Z]
 
+  # The env var name is unique per credential, not per id. These tests are
+  # async and the process environment is global: a fixed name like
+  # `TOKEN_PRIMARY` is shared with every other test in this file and with
+  # `CredentialUsageTest`, so one test's `on_exit` cleanup can delete the
+  # variable another test is mid-way through reading. An unresolvable token
+  # collapses `token_key/1` to nil, which silently makes two credentials look
+  # like one.
   defp credential(id, attrs) do
-    struct!(
-      %Credential{id: id, kind: :machine_user, identity: id, token_env: "TOKEN_#{String.upcase(id)}"},
-      attrs
-    )
+    env = "AIUR_TEST_TOKEN_#{String.upcase(id)}_#{System.unique_integer([:positive])}"
+
+    struct!(%Credential{id: id, kind: :machine_user, identity: id, token_env: env}, attrs)
   end
 
   defp with_token(credential, token) do

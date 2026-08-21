@@ -7,8 +7,13 @@ defmodule Aiur.GitHub.CredentialUsageTest do
 
   @now ~U[2026-08-20 12:00:00Z]
 
+  # Unique per credential: these tests are async and the process environment is
+  # global, so a fixed name is shared with every other test that wants a
+  # credential and one test's cleanup can unset another's token mid-run.
   defp credential(id, attrs) do
-    struct!(%Credential{id: id, kind: :machine_user, identity: id, token_env: "TOKEN_#{String.upcase(id)}"}, attrs)
+    env = "AIUR_TEST_TOKEN_#{String.upcase(id)}_#{System.unique_integer([:positive])}"
+
+    struct!(%Credential{id: id, kind: :machine_user, identity: id, token_env: env}, attrs)
   end
 
   defp export(credential, token) do
