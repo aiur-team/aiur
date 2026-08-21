@@ -54,6 +54,36 @@ defmodule Aiur.Webhooks.ModeRegistry do
     GenServer.call(server, {:record_delivery, repo, at})
   end
 
+  @doc """
+  Records that the poller observed repository activity for `repo`.
+
+  This is the corroboration the silence sweep needs: it never promotes a repo
+  to webhook mode, and its only effect is to let a genuine delivery failure be
+  told apart from an idle repository. See `Aiur.Webhooks.DeliveryMode`.
+  """
+  @spec record_activity(String.t(), keyword()) :: {:ok, DeliveryMode.t()}
+  def record_activity(repo, opts \\ []) when is_binary(repo) do
+    {server, opts} = Keyword.pop(opts, :server, __MODULE__)
+    at = Keyword.get(opts, :at) || DateTime.utc_now()
+    GenServer.call(server, {:record_activity, repo, at})
+  end
+
+  @doc """
+  Records observed activity without waiting for the registry to answer.
+
+  This is what the publish path uses. Activity is bookkeeping for an alert that
+  fires on a 60s sweep, so it is never worth blocking an event publish on a
+  registry round trip — and a synchronous call there would put this process's
+  mailbox on the critical path of every polled event. Ordering is safe without
+  the reply because activity timestamps only ever move forwards.
+  """
+  @spec record_activity_async(String.t(), keyword()) :: :ok
+  def record_activity_async(repo, opts \\ []) when is_binary(repo) do
+    {server, opts} = Keyword.pop(opts, :server, __MODULE__)
+    at = Keyword.get(opts, :at) || DateTime.utc_now()
+    GenServer.cast(server, {:record_activity, repo, at})
+  end
+
   @doc "Current mode for `repo`. Unknown repos read back as never-configured."
   @spec mode(String.t(), server()) :: DeliveryMode.t()
   def mode(repo, server \\ __MODULE__) when is_binary(repo) do
@@ -149,6 +179,13 @@ defmodule Aiur.Webhooks.ModeRegistry do
     {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
   end
 
+  def handle_call({:record_activity, repo, at}, _from, state) do
+    current = fetch(state, repo)
+    {updated, _transition} = DeliveryMode.record_activity(current, at)
+
+    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+  end
+
   def handle_call({:mode, repo}, _from, state), do: {:reply, fetch(state, repo), state}
 
   def handle_call({:configure, repo, configured?}, _from, state) do
@@ -166,6 +203,13 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   def handle_call(:silence_threshold_ms, _from, state), do: {:reply, state.silence_threshold_ms, state}
+
+  @impl true
+  def handle_cast({:record_activity, repo, at}, state) do
+    {updated, _transition} = state |> fetch(repo) |> DeliveryMode.record_activity(at)
+
+    {:noreply, put_in(state.repos[repo], updated)}
+  end
 
   @impl true
   def handle_info(:sweep, state) do
@@ -195,15 +239,41 @@ defmodule Aiur.Webhooks.ModeRegistry do
   defp fetch(state, repo), do: Map.get_lazy(state.repos, repo, fn -> DeliveryMode.new(repo) end)
 
   # The degradation alert names the repo because an operator reading "webhooks
-  # degraded" across a multi-repo fleet cannot act on it otherwise.
-  defp announce(state, %DeliveryMode{repo: repo}, :degraded) do
+  # degraded" across a multi-repo fleet cannot act on it otherwise, and it
+  # carries the evidence that justified it — deliveries seen, when the last one
+  # arrived, and the observed activity that proves one was owed. An alert that
+  # only says "silent" cannot be told apart from an idle weekend, and an
+  # operator who has been shown enough false ones stops reading the true one.
+  defp announce(state, %DeliveryMode{repo: repo} = mode, :degraded) do
     seconds = div(state.silence_threshold_ms, 1_000)
 
     emit(
       state,
       "webhook.degraded",
-      "#{repo} webhook silent for over #{seconds}s — reverting to full polling",
-      reason: "No verified webhook delivery for #{repo} within the silence threshold. Aiur restored full polling for that repo automatically; check the webhook secret, App install, and ingress.",
+      "#{repo} delivered nothing for over #{seconds}s while the poller saw activity — reverting to full polling",
+      reason:
+        "#{repo} had #{mode.delivery_count} verified #{plural(mode.delivery_count, "delivery", "deliveries")}, the last at #{stamp(mode.last_delivery_at)}, " <>
+          "but the poller observed repository activity at #{stamp(mode.last_activity_at)} that no delivery carried. " <>
+          "Aiur restored full polling for that repo automatically. The webhook worked before, so check ingress reachability first (a public URL that has stopped resolving or a tunnel that is down), then the App install.",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  # The state an ingress that was never publicly reachable produces. It is
+  # distinct from degradation — nothing has ever arrived, so there is no
+  # "resumed delivery" to wait for — and distinct from an unconfigured repo,
+  # which is a deliberate choice rather than a broken one.
+  defp announce(state, %DeliveryMode{repo: repo} = mode, :never_delivered) do
+    emit(
+      state,
+      "webhook.never_delivered",
+      "#{repo} is configured for webhooks but has never delivered once",
+      reason:
+        "#{repo} expects webhooks and the poller observed repository activity at #{stamp(mode.last_activity_at)}, " <>
+          "yet not one verified delivery has ever arrived for it. This is a setup that has never worked, not one that stopped: " <>
+          "Aiur is polling this repo at full rate. Confirm the receiver is reachable from the public internet — a tailnet-only or " <>
+          "loopback-bound dashboard cannot receive GitHub deliveries at all — then confirm the App webhook URL and secret.",
       needs_attention: true,
       severity: "warning"
     )
@@ -221,6 +291,12 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   defp announce(_state, _mode, _transition), do: :ok
+
+  defp stamp(%DateTime{} = at), do: DateTime.to_iso8601(at)
+  defp stamp(_never), do: "never"
+
+  defp plural(1, singular, _plural), do: singular
+  defp plural(_count, _singular, plural), do: plural
 
   defp emit(state, name, message, opts) do
     state.alert_fun.(name, message, opts)

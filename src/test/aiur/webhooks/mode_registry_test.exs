@@ -75,16 +75,20 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
   end
 
   describe "degradation and recovery" do
-    test "silence degrades the repo and alerts naming it" do
+    test "silence corroborated by observed activity degrades the repo and alerts naming it" do
       registry = start_registry(configured_repos: [@webhook_repo])
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
 
-      assert {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(901))
+      assert {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
 
       assert_received {:alert, "webhook.degraded", message, opts}
       assert message =~ @webhook_repo
       assert opts[:needs_attention] == true
       assert opts[:reason] =~ @webhook_repo
+
+      assert opts[:reason] =~ "1 verified delivery",
+             "the alert must carry the evidence that justified it, not a blanket guess at the cause"
 
       assert ModeRegistry.transport(@webhook_repo, registry) == :polling
       assert ModeRegistry.polling_reason_for(@webhook_repo, registry) == :degraded_from_silence
@@ -100,21 +104,23 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
     test "the degradation alert fires once, not every sweep" do
       registry = start_registry(configured_repos: [@webhook_repo])
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
 
-      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(901))
+      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
       assert_received {:alert, "webhook.degraded", _message, _opts}
 
-      assert {:ok, []} = ModeRegistry.sweep(registry, at(2000))
+      assert {:ok, []} = ModeRegistry.sweep(registry, at(3000))
       refute_received {:alert, "webhook.degraded", _message, _opts}
     end
 
     test "a resumed delivery restores webhook mode with no operator action" do
       registry = start_registry(configured_repos: [@webhook_repo])
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
-      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(901))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
+      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
       assert_received {:alert, "webhook.degraded", _message, _opts}
 
-      {:ok, recovered} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(1000))
+      {:ok, recovered} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(2000))
 
       assert recovered.state == :webhook_backed
       assert ModeRegistry.transport(@webhook_repo, registry) == :webhook
@@ -129,9 +135,10 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
       registry = start_registry(configured_repos: [@webhook_repo, other])
 
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
-      {:ok, _mode} = ModeRegistry.record_delivery(other, server: registry, at: at(890))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
+      {:ok, _mode} = ModeRegistry.record_delivery(other, server: registry, at: at(1790))
 
-      assert {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(901))
+      assert {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
       assert ModeRegistry.transport(other, registry) == :webhook
     end
 
@@ -144,10 +151,59 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
         )
 
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: name, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: name, at: at(5))
 
       assert {:ok, [@webhook_repo]} = ModeRegistry.sweep(name, at(10))
       assert Process.alive?(pid)
       assert ModeRegistry.transport(@webhook_repo, name) == :polling
+    end
+  end
+
+  describe "an idle repository raises nothing" do
+    test "a proven repo with no observed activity never degrades however long it is silent" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      assert {:ok, []} = ModeRegistry.sweep(registry, at(100_000))
+      refute_received {:alert, "webhook.degraded", _message, _opts}
+      assert ModeRegistry.transport(@webhook_repo, registry) == :webhook
+    end
+  end
+
+  describe "configured but never delivered" do
+    test "observed activity with no delivery ever raises its own alert" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(50))
+
+      assert {:ok, []} = ModeRegistry.sweep(registry, at(901))
+
+      assert_received {:alert, "webhook.never_delivered", message, opts}
+      assert message =~ @webhook_repo
+      assert message =~ "never delivered"
+      assert opts[:needs_attention] == true
+      assert opts[:reason] =~ "reachable from the public internet"
+
+      refute_received {:alert, "webhook.degraded", _message, _opts}
+    end
+
+    test "the never-delivered alert fires once, not every sweep" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(50))
+
+      {:ok, []} = ModeRegistry.sweep(registry, at(901))
+      assert_received {:alert, "webhook.never_delivered", _message, _opts}
+
+      {:ok, []} = ModeRegistry.sweep(registry, at(5000))
+      refute_received {:alert, "webhook.never_delivered", _message, _opts}
+    end
+
+    test "recording activity never promotes a repo to webhook mode" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+
+      {:ok, mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(50))
+
+      assert mode.state == :configured_unproven
+      assert ModeRegistry.transport(@webhook_repo, registry) == :polling
     end
   end
 
@@ -161,6 +217,7 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
         )
 
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: DateTime.add(DateTime.utc_now(), -60, :second))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: DateTime.utc_now())
 
       assert_receive {:alert, "webhook.degraded", _message, _opts}, 1_000
       assert ModeRegistry.transport(@webhook_repo, registry) == :polling

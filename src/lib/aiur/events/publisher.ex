@@ -42,6 +42,7 @@ defmodule Aiur.Events.Publisher do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketObservation
+  alias Aiur.Webhooks
 
   @table __MODULE__.Dedup
   # 1-hour dedup window. GitHub's Events API returns the same event
@@ -160,8 +161,31 @@ defmodule Aiur.Events.Publisher do
     # first would make the same crash suppress the event permanently,
     # because this store is the sweep's own source of suppression.
     mark_resource_processed(opts)
+    record_webhook_activity(opts)
     DebugLog.broadcast(:publish, topic, id: id, body: payload)
     {:ok, id, subscribers}
+  end
+
+  # Corroboration for the webhook silence sweep, and the reason it is recorded
+  # *here* rather than wherever the poller reads GitHub.
+  #
+  # Reaching this line means a poll-sourced GitHub event was published — it
+  # passed the dedup gates above, so no webhook had already delivered it. That
+  # is precisely the evidence `Aiur.Webhooks.DeliveryMode` needs: an event
+  # demonstrably happened and the webhook did not carry it. When the webhook is
+  # working the poller's copy is `:deduped` before it ever gets here, so a
+  # healthy repo records no activity and can never be degraded by an idle
+  # night. When ingress is broken every poll cycle records some, and the repo
+  # degrades on evidence instead of on silence.
+  defp record_webhook_activity(opts) do
+    if Keyword.get(opts, :resource_source, :poll) == :poll and Keyword.get(opts, :resource) do
+      case GitHubConfig.repo() do
+        repo when is_binary(repo) -> Webhooks.record_activity(repo)
+        _unknown -> :ok
+      end
+    end
+
+    :ok
   end
 
   defp resource_processed?(opts) do

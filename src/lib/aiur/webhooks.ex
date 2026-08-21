@@ -27,6 +27,21 @@ defmodule Aiur.Webhooks do
     :ok
   end
 
+  @doc """
+  Records that the poller observed repository activity for `repo`.
+
+  Corroboration for the silence sweep, never proof of a working webhook. Safe
+  to call unconditionally: it returns `:ok` even when no registry is running.
+
+  Fire-and-forget, because the caller is the event publish path and an alert
+  that fires on a 60s sweep must never put a registry round trip on it.
+  """
+  @spec record_activity(String.t(), keyword()) :: :ok
+  def record_activity(repo, opts \\ []) when is_binary(repo) do
+    safely(fn -> ModeRegistry.record_activity_async(repo, opts) end, :ok)
+    :ok
+  end
+
   @doc "Current mode for `repo`, defaulting to a never-configured polling repo."
   @spec mode(String.t(), keyword()) :: DeliveryMode.t()
   def mode(repo, opts \\ []) when is_binary(repo) do

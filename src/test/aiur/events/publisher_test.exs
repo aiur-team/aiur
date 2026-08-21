@@ -3,7 +3,9 @@ defmodule Aiur.Events.PublisherTest do
 
   alias Aiur.AgentRunner.EventsDigest
   alias Aiur.Events.{Exchange, IdGenerator, Publisher}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
+  alias Aiur.Webhooks
   alias Aiur.Workflow
 
   setup do
@@ -311,6 +313,49 @@ defmodule Aiur.Events.PublisherTest do
 
       assert_receive {:event, %{comment: %{id: ^comment_id_1}}}, 500
       assert_receive {:event, %{comment: %{id: ^comment_id_2}}}, 500
+    end
+  end
+
+  # A poll-sourced publish reaching the bus means the dedup gates let it
+  # through, so no webhook had already delivered that event. That is the
+  # corroboration `Aiur.Webhooks.DeliveryMode` degrades on — without this
+  # wiring the silence sweep has no evidence and can never degrade a repo, and
+  # with it firing on the wrong pipe every healthy fleet degrades itself.
+  describe "webhook activity corroboration" do
+    defp resource_for(id), do: ResourceStore.key_for_repo(:issue_comment, "owner/repo", id)
+
+    test "a poll-sourced GitHub publish records repository activity" do
+      comment_id = System.unique_integer([:positive])
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}},
+                 resource: resource_for(comment_id),
+                 resource_source: :poll
+               )
+
+      assert %DateTime{} = Webhooks.mode("owner/repo").last_activity_at
+    end
+
+    test "a webhook-sourced publish records no activity" do
+      comment_id = System.unique_integer([:positive])
+      before = Webhooks.mode("owner/repo").last_activity_at
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}},
+                 resource: resource_for(comment_id),
+                 resource_source: :webhook
+               )
+
+      assert Webhooks.mode("owner/repo").last_activity_at == before,
+             "the webhook pipe proving itself silent would degrade every healthy repo"
+    end
+
+    test "a publish carrying no GitHub resource records no activity" do
+      before = Webhooks.mode("owner/repo").last_activity_at
+
+      assert {:ok, _id, _count} = Publisher.publish("ticket.42.branch.push", %{sha: "abc"})
+
+      assert Webhooks.mode("owner/repo").last_activity_at == before
     end
   end
 end
