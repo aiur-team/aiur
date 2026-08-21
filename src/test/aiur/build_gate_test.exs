@@ -559,6 +559,184 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "status names a live Linux holder and keeps a long-held lease", context do
+    slot_lock = Path.join(context.lock_dir, "slot-1.lock")
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    pid_path = Path.join(context.gate_dir, "holder.pid")
+    release_path = Path.join(context.gate_dir, "holder.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          printf '%s\n' "$$" > "$4"
+          exec 8<>"$1"
+          flock 8
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-holder",
+          slot_lock,
+          owner_path,
+          release_path,
+          pid_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+    end)
+
+    holder_pid = pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    File.write!(
+      owner_path,
+      "version=2\ntoken=live\npid=#{holder_pid}\npgid=1\nholder_pid=0\ncommand_pgid=1\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 120}\n"
+    )
+
+    # The reported holder is a known process (the one created above) and the
+    # lease has been held for the full duration. A long-held lease with a live
+    # holder is NOT reclaimed by time — a blanket timeout would trade a stall
+    # for a corrupted long build.
+    assert %{
+             enabled?: true,
+             active: 1,
+             holders: [%{kind: :slot, slot: 1, pid: reported_pid, command: "mix test", held_for_seconds: held}]
+           } = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    assert reported_pid == holder_pid
+    assert held >= 119
+    assert File.exists?(owner_path)
+  end
+
+  @tag @linux_only
+  test "a Linux lease whose holder has exited is released without operator action", context do
+    slot_lock = Path.join(context.lock_dir, "slot-1.lock")
+    owner_path = Path.join(context.gate_dir, "slot-1.owner")
+    pid_path = Path.join(context.gate_dir, "holder.pid")
+    release_path = Path.join(context.gate_dir, "holder.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          printf '%s\n' "$$" > "$4"
+          exec 8<>"$1"
+          flock 8
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-holder",
+          slot_lock,
+          owner_path,
+          release_path,
+          pid_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+    end)
+
+    holder_pid = pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    File.write!(
+      owner_path,
+      "version=2\ntoken=dead\npid=#{holder_pid}\npgid=1\nholder_pid=0\ncommand_pgid=1\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 60}\n"
+    )
+
+    assert %{active: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The holder exits; the kernel releases its flock with it.
+    System.cmd("kill", ["-KILL", Integer.to_string(holder_pid)], stderr_to_stdout: true)
+    assert_receive {^holder, {:exit_status, _status}}, 2_000
+
+    # The lease is free without operator action and the status surface reclaims
+    # the stale metadata.
+    assert %{active: 0, holders: []} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+    refute File.exists?(owner_path)
+
+    # A later verification command acquires the freed slot.
+    assert {output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
+    assert output =~ "aiur_build_gate acquired slot=1"
+  end
+
+  test "PID status reaps a lease whose holder has exited", %{gate_dir: gate_dir} do
+    slot_path = Path.join(gate_dir, "slot-1")
+    File.mkdir_p!(slot_path)
+    owner_path = Path.join(slot_path, "owner")
+
+    File.write!(owner_path, "pid=999999999\npgid=999999999\nversion=2\ntoken=dead\ncommand=mix test\n")
+
+    assert %{active: 0, holders: []} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    refute File.exists?(owner_path)
+  end
+
+  test "PID status names a live long-running holder and does not reclaim it", %{gate_dir: gate_dir} do
+    slot_path = Path.join(gate_dir, "slot-1")
+    File.mkdir_p!(slot_path)
+    owner_path = Path.join(slot_path, "owner")
+    self_pid = String.to_integer(System.pid())
+
+    File.write!(
+      owner_path,
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=live\n" <>
+        "command=mix test\nstarted_at=#{System.os_time(:second) - 3_600}\n"
+    )
+
+    assert %{
+             enabled?: true,
+             active: 1,
+             holders: [%{kind: :slot, slot: 1, pid: pid, command: "mix test", held_for_seconds: held}]
+           } = build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert pid == self_pid
+    assert held >= 3_599
+    assert File.exists?(owner_path)
+  end
+
+  test "PID status names a live queued holder", %{gate_dir: gate_dir} do
+    queue_dir = Path.join(gate_dir, "queue")
+    File.mkdir_p!(queue_dir)
+    self_pid = String.to_integer(System.pid())
+
+    # Match the PID path's queue record shape: `pid=` leads the record.
+    File.write!(
+      Path.join(queue_dir, "lease-v2-queued"),
+      "pid=#{self_pid}\ncommand=mix compile\nstarted_at=#{System.os_time(:second) - 30}\n"
+    )
+
+    assert %{
+             enabled?: true,
+             queued: 1,
+             holders: [%{kind: :queue, pid: pid, command: "mix compile", held_for_seconds: held}]
+           } = build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert pid == self_pid
+    assert held >= 29
+  end
+
+  @tag @linux_only
   test "status rejects a FIFO queue record without blocking", context do
     queue_dir = Path.join(context.gate_dir, "queue")
     fifo_path = Path.join(queue_dir, "lease-v2-fifo")
@@ -1249,7 +1427,8 @@ defmodule Aiur.BuildGateTest do
       holder_pid=[1-9][0-9]*\n
       command_pgid=[1-9][0-9]*\n
       phase=test\n
-      command=test\n$/x
+      command=test\n
+      started_at=[0-9]+\n$/x
 
     assert File.read!(owner_path) =~ owner_pattern
 
@@ -1782,6 +1961,11 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_MIN_FREE_MEMORY_MB", "0"},
       {"AIUR_MEMINFO_PATH", Map.get(context, :meminfo_path, Path.join(gate_dir, "meminfo"))},
       {"AIUR_BUILD_GATE_LEASE_STRATEGY", "linux"},
+      # A parent agent shell may run gated and hand this real Mix a lease path
+      # into ITS gate directory. This nested Mix must acquire its own lease
+      # under the temp gate, never reuse an inherited one (#2116).
+      {"AIUR_BUILD_GATE_LEASE_PATH", ""},
+      {"AIUR_BUILD_GATE_LEASE_TOKEN", ""},
       {"LEASE_DESCENDANT_STARTED", context.descendant_path},
       {"LEASE_DESCENDANT_RELEASE", context.descendant_release_path},
       {"LEASE_DESCENDANT_DONE", context.descendant_path <> ".done"},

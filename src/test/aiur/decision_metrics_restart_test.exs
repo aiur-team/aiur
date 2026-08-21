@@ -21,7 +21,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
     File.write!(path, "not-json\n", [:append])
 
     replayed = start_metrics!(path)
-    on_exit(fn -> stop_if_alive(replayed) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(replayed) end)
 
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", replayed)
     assert snapshot.request_to_decision_ms == 750
@@ -57,7 +57,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
     assert Exchange.publish("ticket.42.agent.decision.requested", request_event(35)) >= 1
     send(writer, :continue_replay)
     assert {:ok, metrics} = Task.await(starter)
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
 
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", metrics)
     assert snapshot.requested_at == DateTime.to_iso8601(@requested_at)
@@ -85,7 +85,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
     assert OperatorWaitLog.metrics_file() == Path.join([tmp_dir, "run-b", "metrics", "operator_message_wait.ndjson"])
 
     second_run = start_metrics!(decision_path)
-    on_exit(fn -> stop_if_alive(second_run) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(second_run) end)
     assert :ok = DecisionMetrics.observe(lifecycle_event(37, "answered", 750), second_run)
     assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", second_run)
     assert snapshot.request_to_decision_ms == 750
@@ -93,7 +93,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
   test "uses resolution as the blocked-time endpoint when acknowledgement is absent", %{tmp_dir: tmp_dir} do
     metrics = start_metrics!(Path.join(tmp_dir, "resolved-blocked-time.ndjson"))
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
 
     assert :ok = DecisionMetrics.observe(request_event(40), metrics)
     assert :ok = DecisionMetrics.observe(lifecycle_event(41, "resolved", 5_000), metrics)
@@ -109,7 +109,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
     on_exit(fn -> restore_env(:decision_state_dir, previous_state_dir) end)
 
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
-    on_exit(fn -> stop_if_alive(store) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
     ticket = %{identifier: "42", title: "Metrics backfill", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
 
@@ -122,7 +122,7 @@ defmodule Aiur.DecisionMetricsRestartTest do
 
     path = Path.join(tmp_dir, "backfilled-decision-latency.ndjson")
     metrics = start_metrics!(path, seed?: true, decision_store: store)
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
 
     assert :ok = DecisionMetrics.await_seed(metrics)
     assert {:ok, snapshot} = DecisionMetrics.snapshot(decision.decision_id, metrics)
@@ -176,12 +176,6 @@ defmodule Aiur.DecisionMetricsRestartTest do
   end
 
   defp remember_env(keys), do: Map.new(keys, &{&1, Application.get_env(:aiur, &1)})
-
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
-  end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_env(key, value), do: Application.put_env(:aiur, key, value)

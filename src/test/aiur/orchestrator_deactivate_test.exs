@@ -3510,7 +3510,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         restore_application_env(:comment_rework_retry_delay_ms, previous_delay)
         restore_application_env(:comment_rework_max_attempts, previous_max)
 
-        if Process.alive?(agent), do: Agent.stop(agent)
+        Aiur.TestSupport.safe_stop(agent)
       end
     end
 

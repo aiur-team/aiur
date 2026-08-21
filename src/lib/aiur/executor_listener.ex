@@ -12,8 +12,8 @@ defmodule Aiur.ExecutorListener do
   require Logger
 
   alias Aiur.Alerts
-  alias Aiur.Config.Paths
   alias Aiur.Events.{Exchange, Topic}
+  alias Aiur.Executor.StatePaths
   alias Aiur.{ExecutorBindings, ExecutorEvents, ExecutorWakeInbox, ExecutorWakeProjection, JsonStore}
 
   @command_topics ~w(executor.decision.requested executor.decision.deferred)
@@ -43,6 +43,7 @@ defmodule Aiur.ExecutorListener do
 
   @impl true
   def init(opts) do
+    StatePaths.ensure()
     if Keyword.get(opts, :reconcile?, true), do: ExecutorBindings.reconcile()
 
     patterns = Keyword.get(opts, :patterns, ExecutorBindings.patterns())
@@ -56,7 +57,8 @@ defmodule Aiur.ExecutorListener do
       patterns: patterns,
       watermark: watermark,
       resubscribe_interval_ms: interval,
-      health: current_health
+      health: current_health,
+      inbox: Keyword.get(opts, :inbox, ExecutorWakeInbox)
     }
 
     state =
@@ -142,7 +144,7 @@ defmodule Aiur.ExecutorListener do
   defp process_event(event, state) do
     if matching_fresh_event?(event, state) do
       try do
-        :ok = deliver(event)
+        :ok = deliver(event, state.inbox)
 
         if executor_topic?(event) do
           :ok = advance_watermark(event_id(event))
@@ -175,14 +177,14 @@ defmodule Aiur.ExecutorListener do
     end
   end
 
-  defp deliver(event) do
+  defp deliver(event, inbox) do
     if executor_topic?(event) do
       scrubbed = ExecutorEvents.scrub_untrusted_output(event)
-      if command_topic?(scrubbed) and alerting_enabled?(), do: emit_command_alert(scrubbed)
+      if command_topic?(scrubbed) and command_alerting_enabled?(), do: emit_command_alert(scrubbed)
       :ok
     else
       case ExecutorWakeProjection.project(event) do
-        {:ok, record} -> ExecutorWakeInbox.enqueue(record)
+        {:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)
         :ignore -> :ok
       end
     end
@@ -276,6 +278,17 @@ defmodule Aiur.ExecutorListener do
 
   defp alerting_enabled?, do: Application.get_env(:aiur, :executor_listener_alerting?, true)
 
+  # Recording is unconditional; raising a needs-attention Command alert is not.
+  # A Command alert asks a *human* to answer something, and a stale one cannot
+  # yet be retired (#2099) — nine already sit open on this daemon. Firing one on
+  # every unattended run would industrialise that false signal, so the alert
+  # stays bound to an Executor-owned run while the underlying record is written
+  # either way and remains replayable by a late arrival.
+  defp command_alerting_enabled? do
+    alerting_enabled?() and
+      Application.get_env(:aiur, :executor_command_alerts?, Application.get_env(:aiur, :executor_mode, false))
+  end
+
   defp truncate(text, max) when is_binary(text) do
     if String.length(text) > max, do: String.slice(text, 0, max - 1) <> "…", else: text
   end
@@ -301,7 +314,7 @@ defmodule Aiur.ExecutorListener do
     JsonStore.write!(watermark_path(), %{"last_seen_event_id" => id})
   end
 
-  defp watermark_path, do: Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.listener.watermark.json")
+  defp watermark_path, do: StatePaths.watermark_path()
 
   defp log_delivery_failure(event, error) do
     Logger.error("aiur_executor_listener phase=delivery_failed topic=#{inspect(event_topic(event))} id=#{inspect(event_id(event))} error=#{inspect(error)}")

@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, State}
+  alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State}
   alias Aiur.RunTelemetry.Lifecycle
   @transient_github_graphql_error_types ~w(
     INTERNAL
@@ -31,6 +31,13 @@ defmodule Aiur.Orchestrator.HumanReview do
   @doc false
   @spec maybe_deactivate_human_review_issue(State.t(), Issue.t()) :: State.t()
   def maybe_deactivate_human_review_issue(%State{} = state, %Issue{} = issue) do
+    maybe_deactivate_human_review_issue(state, issue, [])
+  end
+
+  @doc false
+  @spec maybe_deactivate_human_review_issue(State.t(), Issue.t(), keyword()) :: State.t()
+  def maybe_deactivate_human_review_issue(%State{} = state, %Issue{} = issue, opts)
+      when is_list(opts) do
     case verify_human_review_ready(issue) do
       :ok ->
         Lifecycle.record(
@@ -47,7 +54,7 @@ defmodule Aiur.Orchestrator.HumanReview do
         if transient_human_review_verification_error?(reason) do
           defer_human_review_transition(state, issue, reason)
         else
-          reject_human_review_transition(state, issue, reason)
+          reject_human_review_transition(state, issue, reason, opts)
         end
     end
   end
@@ -125,17 +132,40 @@ defmodule Aiur.Orchestrator.HumanReview do
     end
   end
 
-  defp reject_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
+  defp reject_human_review_transition(%State{} = state, %Issue{} = issue, reason, opts) do
     issue_key = issue.id || issue.identifier
 
-    Logger.warning("human-review transition rejected; reverting to rework: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
-    case Tracker.update_issue_state(to_string(issue_key), "rework") do
+    # A revert to `rework` is only meaningful against an open pull request: a
+    # human-review ticket with no open PR has nothing a reviewer rejected, so
+    # stamping `rework` would assert a verdict that never happened and strand
+    # the ticket in a state nothing selects (#2075). With an open PR the revert
+    # is the real "reviewer asked for changes" signal; without one the honest
+    # restore is `todo` (make it dispatchable again, no verdict).
+    case ReworkGate.verify_open_pr(issue_key, Keyword.get(opts, :rework_opts, [])) do
       :ok ->
-        Reconciler.maybe_reactivate_or_refresh(state, %{issue | state: "rework"})
+        revert_human_review_state(state, issue, issue_key, "rework", "reverting to rework")
+
+      {:skip, :no_open_pr} ->
+        Logger.warning("human-review transition rejected for a ticket with no open PR; reverting to todo: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+
+        revert_human_review_state(state, issue, issue_key, "todo", "reverting to todo")
+
+      {:error, pr_reason} ->
+        Logger.warning("human-review rework revert deferred; open-PR check failed: #{State.issue_context(issue)} reason=#{inspect(pr_reason)}")
+
+        state
+    end
+  end
+
+  defp revert_human_review_state(%State{} = state, %Issue{} = issue, issue_key, target_state, log_label) do
+    Logger.warning("human-review transition rejected; #{log_label}: #{State.issue_context(issue)}")
+
+    case Tracker.update_issue_state(to_string(issue_key), target_state) do
+      :ok ->
+        Reconciler.maybe_reactivate_or_refresh(state, %{issue | state: target_state})
 
       {:error, update_reason} ->
-        Logger.warning("human-review rework revert failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}")
+        Logger.warning("human-review #{log_label} failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}")
 
         state
     end

@@ -56,7 +56,7 @@ test('Command history uses the Units full-bleed geometry and keeps the combined 
       expect(layout.cardRight - layout.wrapperRight).toBeCloseTo(layout.cardBorderRight, 1)
       expect(layout.decisionWidth).toBeGreaterThan(layout.resultWidth)
       expect(layout.timestampBelowResult).toBe(true)
-      expect(layout.timestampText).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/)
+      expect(layout.timestampText).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
       expect(layout.timestampSortValue).toBe('2026-07-18T11:00:00Z')
       expect(layout.documentScrollWidth).toBeLessThanOrEqual(layout.viewportWidth)
 

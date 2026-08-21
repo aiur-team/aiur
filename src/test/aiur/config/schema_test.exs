@@ -184,6 +184,40 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.tracker.github.stagger_ms == 125
     end
 
+    test "defaults per-actor hourly ceilings and accepts explicit tuning" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.daemon_core_limit_per_hour == 3000
+      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 2000
+      assert defaults.tracker.github.agent_core_limit_per_hour == 1000
+      assert defaults.tracker.github.agent_graphql_limit_per_hour == 500
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{
+                     "daemon_core_limit_per_hour" => 2000,
+                     "daemon_graphql_limit_per_hour" => 1500,
+                     "agent_core_limit_per_hour" => 600,
+                     "agent_graphql_limit_per_hour" => 300
+                   }
+                 }
+               })
+
+      assert settings.tracker.github.daemon_core_limit_per_hour == 2000
+      assert settings.tracker.github.daemon_graphql_limit_per_hour == 1500
+      assert settings.tracker.github.agent_core_limit_per_hour == 600
+      assert settings.tracker.github.agent_graphql_limit_per_hour == 300
+    end
+
+    test "rejects a negative per-actor hourly ceiling" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{
+                 "tracker" => %{"github" => %{"agent_core_limit_per_hour" => -1}}
+               })
+
+      assert message =~ "tracker.github.agent_core_limit_per_hour"
+    end
+
     test "rejects an endpoint ceiling above the shared ceiling" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"tracker" => %{"github" => %{"max_inflight" => 2, "max_inflight_per_endpoint" => 3}}})
@@ -712,6 +746,16 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_retention_max_bytes == 1_024
       assert settings.observability.telemetry_retention_max_age_days == 7
       assert settings.observability.telemetry_retention_prune_interval_bytes == 128
+    end
+
+    test "Upgrade section parses with defaults" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.upgrade.check_enabled == true
+    end
+
+    test "Upgrade section accepts an explicit opt-out" do
+      {:ok, settings} = Schema.parse(%{"upgrade" => %{"check_enabled" => false}})
+      assert settings.upgrade.check_enabled == false
     end
 
     test "Server section parses with defaults" do

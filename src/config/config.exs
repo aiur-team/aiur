@@ -49,6 +49,17 @@ if config_env() == :test do
   # default, but this singleton must not poll across sequential test boundaries.
   config :aiur, :orchestrator_initial_poll?, false
 
+  # Executor recording is unconditional in a real run. The shared test app must
+  # not hold the singleton wake inbox and listener, or every case would contend
+  # on one VM-wide ledger written before per-test path isolation is applied.
+  # Recording cases supervise their own pair against their own state directory.
+  config :aiur, :executor_recording?, false
+
+  # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
+  # a real run. A case that touches it without TestSupport's per-test root would
+  # otherwise write to the developer's own machine-local state.
+  config :aiur, :executor_state_dir, Path.join(System.tmp_dir!(), "aiur-test-executor-state")
+
   # The shared app's Ad Hoc overlay poller must not reach GitHub across
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
@@ -90,6 +101,11 @@ if config_env() == :test do
   config :aiur, :server_port_override, 0
   config :aiur, :opencode_bridge_host_override, "127.0.0.1"
   config :aiur, :opencode_bridge_port_override, 0
+
+  # The shared test app's `Aiur.Upgrade` boot task must not reach the npm
+  # registry across sequential test boundaries; tests of the check inject a
+  # fake transport.
+  config :aiur, :upgrade_check_refresh?, false
 
   # Suite-global :workflow_file_path baseline isolation. The :aiur app boots
   # BEFORE test/test_helper.exs runs, so this config block is the only hook

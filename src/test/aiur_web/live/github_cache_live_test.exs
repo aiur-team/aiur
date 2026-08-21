@@ -19,6 +19,33 @@ defmodule AiurWeb.GithubCacheLiveTest do
   alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
 
+  # A deterministic history double. The page reads whichever provider is
+  # configured (`:github_cache_history_provider`), so a test can hand it exact
+  # samples without depending on the shared app-started sampler's ring.
+  defmodule HistoryProvider do
+    @table __MODULE__.Table
+
+    @spec install([map()]) :: :ok
+    def install(samples) do
+      if :ets.whereis(@table) == :undefined do
+        :ets.new(@table, [:named_table, :public, :set])
+      end
+
+      :ets.insert(@table, {:samples, samples})
+      Application.put_env(:aiur, :github_cache_history_provider, __MODULE__)
+      :ok
+    end
+
+    def samples do
+      case :ets.lookup(@table, :samples) do
+        [{:samples, samples}] -> samples
+        _none -> []
+      end
+    rescue
+      ArgumentError -> []
+    end
+  end
+
   @endpoint Endpoint
   @reset ~U[2030-01-01 12:00:00Z]
 
@@ -42,6 +69,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
     on_exit(fn ->
       Source.uninstall()
+      Application.delete_env(:aiur, :github_cache_history_provider)
       restore_application_env(Endpoint, previous_endpoint)
       restore_application_env(:github_quota_server, previous_quota)
     end)
@@ -146,11 +174,12 @@ defmodule AiurWeb.GithubCacheLiveTest do
     test "no module on the read path can reach a GitHub client" do
       # Scanning only the LiveView would miss a transport introduced one module
       # down, in the projection or the source — which is where a "just fetch it
-      # on a miss" would actually be written.
+      # on a miss" would actually be written. The history sampler is on the same
+      # path (it feeds the charts), so it is scanned with the rest.
       root = Path.expand("../../../lib/aiur/github", __DIR__)
 
       files =
-        ["cache_inspector.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
+        ["cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
 
       for relative <- files do
         code = root |> Path.join(relative) |> File.read!() |> strip_prose()
@@ -313,6 +342,67 @@ defmodule AiurWeb.GithubCacheLiveTest do
       html = view |> element(~s([data-role="clear-filters"])) |> render_click()
 
       refute html =~ ~s(data-role="active-filters")
+    end
+  end
+
+  describe "history charts" do
+    test "render on the overview page once the ring has enough samples" do
+      Source.install(entries(3))
+      HistoryProvider.install(history_samples())
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      assert document |> Floki.find(~s([data-role="trends"])) != []
+      assert document |> Floki.find(~s([data-role="entries-chart"] svg)) != []
+      assert document |> Floki.find(~s([data-role="freshness-chart"] svg)) != []
+
+      # The note says what the charts cover, so a screenshot does not imply the
+      # sampler saw more than it did.
+      assert document |> Floki.find(~s([data-role="history-window"])) |> Floki.text() =~ "since this daemon boot"
+    end
+
+    test "say they are collecting when the ring is too new to draw" do
+      Source.install(entries(3))
+      HistoryProvider.install([hd(history_samples())])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html =~ ~s(data-role="history-collecting")
+      refute html =~ ~s(data-role="entries-chart")
+      refute html =~ ~s(data-role="freshness-chart")
+    end
+
+    test "charts live on the overview only, not on a group page" do
+      Source.install(entries(3))
+      HistoryProvider.install(history_samples())
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment")
+
+      refute html =~ ~s(data-role="trends")
+    end
+
+    test "a sampled notification redraws the charts without costing a fetch" do
+      Source.install(entries(3))
+      quota = install_quota()
+      before = reading(quota)
+      HistoryProvider.install(history_samples(6))
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache")
+
+      # The note spans the retained ring: six 30s samples = "Last 2m".
+      assert render(view) =~ "Last 2m"
+
+      # A new sample lands and the sampler notifies the page. The page must
+      # re-read the ring (now four samples = "Last 1m"), not keep the stale six
+      # it mounted with — otherwise the note would still say 2m.
+      HistoryProvider.install(history_samples(4))
+      send(view.pid, {:cache_history_sampled, 4})
+
+      html = render(view)
+      assert html =~ "Last 1m"
+      assert html =~ ~s(data-role="entries-chart")
+      assert reading(quota) == before
     end
   end
 
@@ -519,6 +609,28 @@ defmodule AiurWeb.GithubCacheLiveTest do
         recorded_at_ms: DateTime.to_unix(now, :millisecond),
         data?: true,
         data: %{"id" => index, "body" => "body-#{index}"}
+      }
+    end
+  end
+
+  # `count` samples so the trends section has enough to draw two charts. Each is
+  # a plausible cache state; the totals rise so the lines are not flat. 30s
+  # spacing means `count` samples span `(count - 1) * 30s`, which the page's note
+  # rounds to minutes — that rounding is what the redraw test asserts on.
+  defp history_samples(count \\ 6) do
+    now = DateTime.utc_now()
+    t0 = DateTime.to_unix(now, :millisecond)
+
+    for i <- 0..(count - 1) do
+      %{
+        t_ms: t0 + i * 30_000,
+        total: 10 + i,
+        with_body: 8 + i,
+        bodyless: 2,
+        fresh: 6 + i,
+        stale: 2,
+        expired: 1,
+        unknown: 1
       }
     end
   end

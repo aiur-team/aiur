@@ -206,10 +206,11 @@ defmodule Aiur.GitHub.ResourceStore do
   Writers: `Aiur.Events.GithubCommentsPoller` deposits each watched target's
   comment *lists* as bodies with the endpoint's validator,
   `Aiur.Orchestrator.CommandScan` deposits the two repo-wide comment streams the
-  same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels
-  and pull requests, `Aiur.GitHub.ResourceFetch` deposits what it fetches,
-  mutation write-through merges its own responses, and `Aiur.Events.Publisher`
-  marks individual comment resources processed. Readers: the poller and the
+  same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels,
+  pull requests and the open pull request for a ticket's head branch,
+  `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
+  merges its own responses, and `Aiur.Events.Publisher` marks individual comment
+  resources processed. Readers: the poller and the
   command scan both serve their own `304` from the held list, `Aiur.GitHub.Issues`
   and the dashboard read bodies.
 
@@ -278,10 +279,6 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
-    # A single check run, as one `check_run` delivery reports it. Keyed on the
-    # run's own id because that is the only identity one delivery can claim: it
-    # says nothing about the other runs on the same head.
-    :check_run,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
@@ -306,7 +303,13 @@ defmodule Aiur.GitHub.ResourceStore do
   # state back. These are the ones a version-less deposit quietly disarms, so
   # they are the ones the store says something about. An endpoint list carries no
   # marker of its own and is not ordered against anything.
-  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :check_run]
+  #
+  # `:branch_pull_request` is written by both the webhook deposit and
+  # `Aiur.GitHub.ResourceFetch` (the human-review gate's strict read stores its
+  # fetch), so a late delivery can roll the held PR back — the same reason
+  # `:pull_request` is here. `:check_run` was removed from the store entirely
+  # when its deposit was ceased (#2126); a CI verdict is never cached.
+  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :branch_pull_request]
 
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}
@@ -588,7 +591,10 @@ defmodule Aiur.GitHub.ResourceStore do
     * `:source` — which writer deposited this (`:mutation`, `:webhook`,
       `:poll`, `:fetch`). Defaults to `:mutation`.
     * `:version` — the resource's own mutation marker, its `updated_at`.
-    * `:etag` — a validator for a later conditional re-read.
+    * `:etag` — a validator for a later conditional re-read, or the atom
+      `:derive` for a writer that has no validator of its own (a webhook
+      delivery). `:derive` makes the store compute a content-based validator
+      from the body, keeping a held validator when the body is unchanged.
     * `:processed` — when `true`, also mark the resource handled *at that
       version*, so the delivery GitHub sends moments later for this same change
       is recognised as already-processed and does not wake anybody twice. Only
@@ -796,9 +802,9 @@ defmodule Aiur.GitHub.ResourceStore do
   `304` confirms **the validator this caller sent, against the body this caller
   was holding**. It says nothing whatsoever about a body some other writer
   deposited in the meantime — and since #2106 the webhook pipe deposits bodies
-  for `:issue`, `:issue_labels`, `:pull_request`, `:pr_review`, comments and
-  `:check_run` on every delivery, so that other writer is real and lands on
-  exactly these keys.
+  for `:issue`, `:issue_labels`, `:pull_request`, `:branch_pull_request`,
+  `:pr_review` and comments on every delivery, so that other writer is real and
+  lands on exactly these keys.
 
   So the decision, made inside the swap where the answer is knowable:
 
@@ -1373,6 +1379,16 @@ defmodule Aiur.GitHub.ResourceStore do
   #
   #   * a validator supplied with the deposit describes the body arriving with
   #     it — record it.
+  #   * `:derive` — the writer has no validator of its own (a webhook delivery
+  #     is that writer). The store derives a content-based one from the body
+  #     being deposited, so the entry is never left "body, no validator" — the
+  #     state in which `etag/1` answers nothing and every strict read pays full
+  #     price. Because the derived validator is content-based it always
+  #     describes the body beside it, so a stale validator beside a new body
+  #     (finding #9) cannot happen; and because the body-unchanged clause below
+  #     comes first, a re-delivery of an unchanged body keeps whatever validator
+  #     is already held — a GitHub ETag a fetch recorded keeps earning its free
+  #     `304`.
   #   * no validator supplied and the body is **unchanged** — the held validator
   #     still describes it, so keeping it keeps the next read free.
   #   * no validator supplied and the body **changed** — the held validator
@@ -1383,6 +1399,10 @@ defmodule Aiur.GitHub.ResourceStore do
   #     of any kind.
   #   * no body at all — nothing to describe either way, so the held validator
   #     stands and only `change_validator/1` will hand it out.
+  defp deposit_etag(entry, _previous, nil, :derive), do: entry
+  defp deposit_etag(entry, previous, data, :derive) when previous == data, do: entry
+  defp deposit_etag(entry, _previous, data, :derive), do: Map.put(entry, :etag, derived_etag(data))
+
   defp deposit_etag(entry, _previous, _data, etag) when is_binary(etag) and etag != "", do: Map.put(entry, :etag, etag)
 
   defp deposit_etag(entry, _previous, nil, _etag), do: entry
@@ -1390,6 +1410,18 @@ defmodule Aiur.GitHub.ResourceStore do
   defp deposit_etag(entry, previous, data, _etag) when previous == data, do: entry
 
   defp deposit_etag(entry, _previous, _data, _etag), do: Map.delete(entry, :etag)
+
+  # A content-based validator for a deposited body. Deterministic — the same
+  # body yields the same validator — and specific to the body, so it can never
+  # describe a different one. It is not a GitHub ETag: GitHub answers such a
+  # validator with `200`, so its role is to keep the entry revalidatable (the
+  # `etag/1` contract) rather than to replace the real ETag a fetch records.
+  defp derived_etag(data) do
+    case Jason.encode(data) do
+      {:ok, json} -> ~s("sha256-#{Base.encode16(:crypto.hash(:sha256, json))}")
+      _error -> nil
+    end
+  end
 
   # What the store will hold as a body, decided once, at deposit time, against
   # exactly what the checkpoint can write back unchanged.

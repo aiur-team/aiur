@@ -3,8 +3,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.TimeFormat
+
   attr(:view, :map, required: true)
   attr(:announcement, :string, default: nil)
+  attr(:time_zone, :string, default: "Etc/UTC")
 
   @spec provider_meters(map()) :: Phoenix.LiveView.Rendered.t()
   def provider_meters(assigns) do
@@ -37,13 +40,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
       </div>
 
       <div :if={@view.state == :authorized} class="provider-meters-grid">
-        <.provider_card :for={card <- @view.cards} card={card} />
+        <.provider_card :for={card <- @view.cards} card={card} time_zone={@time_zone} />
       </div>
     </section>
     """
   end
 
   attr(:card, :map, required: true)
+  attr(:time_zone, :string, default: "Etc/UTC")
 
   defp provider_card(assigns) do
     ~H"""
@@ -68,18 +72,9 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
           <dd class="mono">{@card.identity.generation_label}</dd>
         </div>
         <div><dt>Health</dt><dd>{@card.health.label}</dd></div>
-        <div><dt>Freshness</dt><dd>{@card.freshness.label}</dd></div>
-        <div :if={@card.state in [:stale, :error] && @card.health.age_label}>
-          <dt>Observation age</dt>
-          <dd>{@card.health.age_label}</dd>
-        </div>
-        <div :if={@card.state == :partial && @card.health.failure_label}>
-          <dt>Last refresh</dt>
-          <dd>{@card.health.failure_label}</dd>
-        </div>
         <div :if={@card.observed_at}>
           <dt>Last observation</dt>
-          <dd><.timestamp value={@card.observed_at} /></dd>
+          <dd><.timestamp value={@card.observed_at} time_zone={@time_zone} /></dd>
         </div>
       </dl>
 
@@ -109,24 +104,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         <p>The provider account meters cannot be read right now.</p>
       </div>
 
-      <div :if={@card.state == :stale} class="provider-meter-state readonly-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span>
-          <b>Stale meters.</b>
-          Showing the values we last read for this account.
-          <span :if={@card.health.age_label}>Observation is {@card.health.age_label}.</span>
-          <span :if={@card.health.failure_label}>Last refresh {String.downcase(@card.health.failure_label)}.</span>
-        </span>
-      </div>
-
       <ul :if={@card.windows != []} class="provider-meter-windows">
-        <.window :for={window <- @card.windows} window={window} />
+        <.window :for={window <- @card.windows} window={window} time_zone={@time_zone} />
       </ul>
     </article>
     """
   end
 
   attr(:window, :map, required: true)
+  attr(:time_zone, :string, default: "Etc/UTC")
 
   defp window(assigns) do
     ~H"""
@@ -155,7 +141,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
           <span class="provider-meter-fill" style={"width: #{@window.meter.now}%"}></span>
         </span>
         <span class="provider-meter-value">
-          {@window.meter.now}% used<span :if={@window.freshness == :stale}> (stale observation)</span>
+          {@window.meter.now}% used
         </span>
       </div>
 
@@ -168,10 +154,6 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
 
       <dl class="provider-meter-window-facts compact">
         <div><dt>Coverage</dt><dd>{@window.coverage_label}</dd></div>
-        <div :if={@window.freshness_label}>
-          <dt>Freshness</dt>
-          <dd>{@window.freshness_label}</dd>
-        </div>
         <div :if={is_number(@window.remaining_percent)}>
           <dt>Remaining</dt>
           <dd class="num">{@window.remaining_percent}%</dd>
@@ -190,27 +172,23 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         </div>
         <div :if={@window.resets_at}>
           <dt>Resets</dt>
-          <dd><.timestamp value={@window.resets_at} /></dd>
-        </div>
-        <div :if={@window.expires_at}>
-          <dt>Freshness horizon</dt>
-          <dd><.timestamp value={@window.expires_at} /></dd>
+          <dd><.timestamp value={@window.resets_at} time_zone={@time_zone} /></dd>
         </div>
       </dl>
     </li>
     """
   end
 
-  defp window_meter_aria_label(%{name: name, freshness: :stale}), do: "#{name} usage, stale observation"
   defp window_meter_aria_label(%{name: name}), do: "#{name} usage"
 
   attr(:value, :any, default: nil)
   attr(:class, :string, default: nil)
+  attr(:time_zone, :string, default: "Etc/UTC")
 
   defp timestamp(assigns) do
     ~H"""
-    <time :if={is_struct(@value, DateTime)} class={@class} datetime={DateTime.to_iso8601(@value)}>
-      {DateTime.to_iso8601(@value)}
+    <time :if={is_struct(@value, DateTime)} class={@class} datetime={TimeFormat.iso8601(@value, @time_zone)}>
+      {TimeFormat.iso8601(@value, @time_zone)}
     </time>
     <span :if={!is_struct(@value, DateTime)} class={@class}>Time unknown</span>
     """

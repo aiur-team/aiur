@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, PushRouting, ReviewFreshness, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -918,21 +918,49 @@ defmodule Aiur.Orchestrator.CommentWake do
         {:skip, reason}
 
       true ->
-        case Tracker.update_issue_state(to_string(issue_key), "rework") do
+        # `rework` requires work that exists and was rejected: a ticket with no
+        # open PR has nothing a reviewer rejected, so refuse the transition at
+        # the source instead of stamping a verdict on an absent PR (#2075). A
+        # transient PR-lookup failure returns `{:error, _}` so the existing
+        # retry chain handles it like any other transient tracker fault.
+        case ReworkGate.verify_open_pr(issue_key, rework_open_pr_opts(event)) do
           :ok ->
-            Lifecycle.record(
-              to_string(telemetry_ticket),
-              attempt_id,
-              :rework_start,
-              :point,
-              %{source: source, outcome: :success}
-            )
+            write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id)
 
-            :ok
+          {:skip, reason} ->
+            {:skip, reason}
 
-          {:error, _reason} = error ->
-            error
+          {:error, reason} ->
+            {:error, reason}
         end
+    end
+  end
+
+  # The open-PR lookup is injectable via the event for tests; otherwise it
+  # routes through `ReworkGate`'s default (the tracker's open-PR fetch, which
+  # fails open where no PR notion exists).
+  defp rework_open_pr_opts(event) do
+    case Map.get(event, :open_pr_fetcher) do
+      fun when is_function(fun, 1) -> [open_pr_fetcher: fun]
+      _ -> []
+    end
+  end
+
+  defp write_comment_rework(issue_key, telemetry_ticket, source, _event, attempt_id) do
+    case Tracker.update_issue_state(to_string(issue_key), "rework") do
+      :ok ->
+        Lifecycle.record(
+          to_string(telemetry_ticket),
+          attempt_id,
+          :rework_start,
+          :point,
+          %{source: source, outcome: :success}
+        )
+
+        :ok
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

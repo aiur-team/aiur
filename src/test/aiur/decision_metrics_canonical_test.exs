@@ -14,7 +14,7 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
     on_exit(fn -> restore_env(:decision_state_dir, previous) end)
 
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
-    on_exit(fn -> stop_if_alive(store) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(store) end)
 
     ticket = %{identifier: "42", title: "Canonical metrics", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
@@ -141,7 +141,7 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
         decision_store: store
       )
 
-    on_exit(fn -> stop_if_alive(metrics) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(metrics) end)
     metrics
   end
 
@@ -152,12 +152,6 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
       topic: topic,
       created_at: @requested_at |> DateTime.add(offset_ms, :millisecond) |> DateTime.to_iso8601()
     }
-  end
-
-  defp stop_if_alive(pid) do
-    if Process.alive?(pid), do: GenServer.stop(pid)
-  catch
-    :exit, _reason -> :ok
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)

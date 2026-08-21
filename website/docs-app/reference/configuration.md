@@ -6,6 +6,19 @@ Older root-level config files are rejected. When moving one, also move the files
 
 Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
+## Environment variables
+
+Environment variables are declared once in the env schema (`Aiur.Env.Schema`), which validates them at startup and generates the checked-in `.env.example` (run `mix aiur.env.example` from `src/` to regenerate; a CI check fails when the example drifts from the schema).
+
+- **Layering.** The launcher reads `~/.aiur/.env` then `./.env`, each file filling only unset names, so the home file wins. When both files set the same variable to different values, the repo value is silently dead and the daemon logs a startup warning naming the variable (never its value).
+- **Required vs optional.** The only configuration that aborts a boot is the GitHub credential (`GITHUB_TOKEN`, or the complete GitHub App set — `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and one of `GITHUB_APP_PRIVATE_KEY_PATH` / `GITHUB_APP_PRIVATE_KEY`) and the tracker configuration. Every integration — GitHub App auth, webhooks, Linear, voice, dashboard, Supervisor Decision API, provider keys — is optional; absence disables the feature and is reported once at startup, never a boot failure.
+- **All-or-nothing credential groups.** A partially configured group (one dashboard credential without the other, or some but not all GitHub App credentials) fails at startup naming the missing members; a fully absent group is a supported setup.
+- **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
+- **Secrets never leak.** Secrets render as an empty placeholder in `.env.example` and are excluded from error text and startup warnings. No real value from any `.env` file reaches the generated example, logs, or error output.
+- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [Executor control center](/guide/executor-control-center) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
+
+The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
+
 ## Top-level
 
 | Key | Type | Default | Controls |
@@ -70,6 +83,10 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
 | `tracker.github.requests_per_minute` | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
 | `tracker.github.stagger_ms` | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
+| `tracker.github.daemon_core_limit_per_hour` | integer | 3000 | Hourly Core (REST) request ceiling for the daemon actor. When the daemon hits it, only the daemon's requests hold until the rolling hour rolls back under it. `0` disables the ceiling. Request-count, not points: the broker sees requests, never the GraphQL point price. |
+| `tracker.github.daemon_graphql_limit_per_hour` | integer | 2000 | Hourly GraphQL request ceiling for the daemon actor. `0` disables. |
+| `tracker.github.agent_core_limit_per_hour` | integer | 1000 | Hourly Core (REST) request ceiling for each agent workspace. When one agent hits it, only that agent's requests hold — the daemon and other agents are unaffected. `0` disables. |
+| `tracker.github.agent_graphql_limit_per_hour` | integer | 500 | Hourly GraphQL request ceiling for each agent workspace. `0` disables. |
 | `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: the daemon authenticates with a GitHub App installation token when App credentials are configured (see [GitHub](/apis/github#github-app-authentication)) and falls back to `GITHUB_TOKEN` otherwise. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
@@ -275,6 +292,8 @@ Local Codex turns use Aiur's shared build admission.
 | --- | --- |
 | Admission failure | Mix does not run and the ticket reports status `125`. Repair the reported metadata or lock directory, `flock`, or `python3` dependency, then restart or re-dispatch the agent. |
 | `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the legacy records named in the message. |
+| `BUILD GATE HOLDER` / `BUILD GATE QUEUED` | `aiur status` names every held lease: `slot=`, the owning `pid`, the quoted `command`, and how long it has been `held` (or `waiting` while queued). This tells a correctly-busy gate apart from one pinned by a leaked or dead process. |
+| Dead holder | A lease whose holder has exited is released automatically: Linux releases the flock with the process, and the PID fallback reclaims a slot whose recorded owner and process group are gone. A legitimately long-running build with a live holder keeps its lease — nothing reaps by elapsed time. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
 Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
@@ -439,6 +458,20 @@ agent:
 | `events.block_state_debounce_seconds` | integer | 10 | Debounces blocked/unblocked transitions. |
 | `events.custom_events_per_turn_max` | integer | 5 | Caps custom events per turn. |
 | `events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval. |
+
+## upgrade
+
+The `aiur run` upgrade-version notice is optional and opt-out: it caches with a
+TTL (the registry is contacted at most once a day), fails open and silent when
+unreachable, never runs under `aiurdev`, and is channel-aware — a `nightly` or
+`next` user is never offered a lower `latest`.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `upgrade.check_enabled` | boolean | true | Enables the `aiur run` version notice and its registry check. Set false to suppress the check entirely (zero outbound calls). |
+
+`AIUR_UPGRADE_CHECK_DISABLED` (and the legacy `AIUR_NO_UPDATE_NOTIFIER`) are the
+environment-variable equivalents; the check also stays silent in CI runs.
 
 ## alerts
 

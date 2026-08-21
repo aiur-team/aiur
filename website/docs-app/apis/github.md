@@ -87,7 +87,11 @@ Poll spend still scales inversely with the interval, so `polling.interval_second
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
-Comments are read over conditional REST with `If-None-Match`. An unchanged comment list answers `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. The validators are kept on disk, so a daemon restart does not force a full-price re-read.
+Comments, review submissions, and watch-target discovery are read over
+conditional REST with `If-None-Match`. An unchanged answer returns `304`, which
+does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
+tickets is free rather than merely cheap. Validators are kept on disk, so a
+restart does not force a full-price re-read.
 
 GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
 
@@ -191,6 +195,12 @@ Aiur therefore records each comment it has processed by its identity, and both p
 | Daemon restarts | The record is on disk, so a comment handled before the restart is not re-published after it. |
 | A comment is edited | The agent wakes again. The record stores the comment's `updated_at`, so an edit is a new state of that comment rather than a repeat of it. |
 | No webhook installed | Nothing is ever recorded by a delivery, so nothing is ever suppressed. Polling behaves exactly as it did before. |
+
+Inline review comments on a pull request coalesce per **review thread**, not per comment. A review thread is one finding plus its replies, so a reviewer adding several comments to one thread wakes the agent once.
+
+The webhook resolves a delivered comment's thread from the comment's own node id, so both pipes key inline feedback the same way. A follow-up comment on an already-woken thread within the one-hour replay window does not wake a second time; it wakes once the thread is re-read after the window passes.
+
+If the delivery cannot be resolved to a thread, it is keyed on its own comment id as before — a duplicate wake is recoverable, a dropped delivery is not.
 
 If the record is unavailable or unreadable, Aiur behaves as though it were absent: it publishes, and the existing one-hour replay window catches short-range duplicates. A duplicate wake is recoverable; a dropped comment is not.
 

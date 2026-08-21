@@ -53,6 +53,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     def selected(server, identity), do: invoke(server, :selected, [identity])
     def demand(server, identity), do: invoke(server, :demand, [identity])
+    def refresh(server, identity), do: invoke(server, :refresh, [identity])
     def release(server, identity), do: invoke(server, :release, [identity])
     def subscribe_context(server, identity), do: invoke(server, :subscribe_context, [identity])
 
@@ -116,6 +117,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     defp reply(:unsubscribe_selected, [_identity], _state), do: :ok
     defp reply(:selected, [identity], state), do: selected_reply(state, identity)
     defp reply(:demand, [identity], state), do: selected_reply(state, identity)
+    defp reply(:refresh, [_identity], _state), do: :ok
     defp reply(:release, [_identity], _state), do: :ok
     defp reply(:subscribe_context, [_identity], _state), do: :ok
     defp reply(:unsubscribe_context, [_identity], _state), do: :ok
@@ -428,7 +430,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     stale = install_source(catalog: catalog_snapshot([root(identity, "Stale root")], 1, :stale))
     assert {:ok, _view, stale_html} = live(build_conn(), "/build-orders")
     assert stale_html =~ ~s(data-build-order-catalog-state="stale_lkg")
-    assert stale_html =~ "Showing the Build Orders we last saw"
     assert stale_html =~ ~s(href="/build-orders/42")
     assert Process.alive?(stale)
 
@@ -477,6 +478,28 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert subscribe_index < demand_index
     assert Enum.count(calls, &(&1 == {:demand, [first]})) == 1
     refute Enum.any?(calls, &match?({:selected, _}, &1))
+  end
+
+  test "a cold selected root buys an immediate refresh instead of waiting for the catalog cycle", %{
+    first: first
+  } do
+    source =
+      install_source(
+        catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+        # A root nobody has ever read: demand returns a nil-data snapshot.
+        selected: [selected_snapshot(first, nil, 1, :healthy)]
+      )
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert html =~ ~s(data-build-order-status="selected_loading")
+
+    calls = FakeDataSource.calls(source)
+    demand_index = call_index(calls, {:demand, [first]})
+    refresh_index = call_index(calls, {:refresh, [first]})
+
+    assert demand_index != nil
+    assert refresh_index != nil
+    assert refresh_index > demand_index
   end
 
   test "a healthy complete catalog distinguishes not-found from unavailable", %{first: first} do
@@ -841,7 +864,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert health_html =~ "Ticket 99"
     # Degraded provider states surface as an explicit state card (the always-on
     # health badge was removed from the header).
-    assert health_html =~ "Plan is not live"
+    assert health_html =~ "Showing the last saved plan."
   end
 
   test "collapses structurally invalid selected data into one copyable page-level state", %{

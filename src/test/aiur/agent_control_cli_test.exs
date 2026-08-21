@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
-  alias Aiur.Config.Paths
+  alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
@@ -39,7 +39,7 @@ defmodule Aiur.AgentControlCLITest do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
     output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
-    cursor_path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.executor.wakes.cursor.json")
+    cursor_path = StatePaths.cursor_path()
 
     assert output =~ "__AIUR_CONTROL_EXIT__:75"
     refute output =~ "WAKE"
@@ -769,8 +769,11 @@ defmodule Aiur.AgentControlCLITest do
     assert degraded =~ "LISTENER degraded (#{length(defaults) - 1}/#{length(defaults)} bindings; MISSING: executor.#)"
 
     Application.put_env(:aiur, :executor_listener_alive_fun, fn -> [] end)
+    # Recording is armed on every run now, so absence is no longer a mode the
+    # operator could have chosen — it is a fault, and the line has to say so.
     absent = capture_io(fn -> AgentControlCLI.status() end)
-    assert absent =~ "LISTENER absent (no Executor wake path; Commands and PR events will not wake the Executor)"
+    assert absent =~ "LISTENER absent (FAULT:"
+    assert absent =~ "are not being recorded"
   end
 
   test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
@@ -1351,7 +1354,10 @@ defmodule Aiur.AgentControlCLITest do
     slot_lock = Path.join(lock_dir, "slot-1.lock")
     slot_owner = Path.join(gate_dir, "slot-1.owner")
     queue_path = Path.join(gate_dir, "queue/lease-v2-status")
-    metadata = "version=2\ntoken=status\npid=2\npgid=1\nphase=test\ncommand=test\n"
+
+    metadata =
+      "version=2\ntoken=status\npid=2\npgid=1\nphase=test\ncommand=test\n" <>
+        "started_at=#{System.os_time(:second) - 90}\n"
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
     assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
@@ -1412,6 +1418,8 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
+    assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
+    assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000
   end
@@ -2988,6 +2996,37 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: max-agents must be a positive integer"
       assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    end
+
+    test "a write against a busy orchestrator announces the wait and names what it waited for (#2137)", %{orchestrator: pid} do
+      previous = Application.get_env(:aiur, :agent_control_cli_busy_mailbox_threshold)
+      Application.put_env(:aiur, :agent_control_cli_busy_mailbox_threshold, 0)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :agent_control_cli_busy_mailbox_threshold),
+          else: Application.put_env(:aiur, :agent_control_cli_busy_mailbox_threshold, previous)
+      end)
+
+      # Suspend the orchestrator to stand in for the post-restart initial
+      # GitHub reconciliation poll that can wedge its mailbox past the 5s
+      # control-call budget, and drop a message into its mailbox so the busy
+      # heuristic fires. The CLI must report progress instead of appearing hung,
+      # and the failure must say what the write was waiting on, not just
+      # "orchestrator timed out" (#2137).
+      :sys.suspend(pid)
+      send(pid, :stand_in_for_poll_work)
+
+      try do
+        output = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
+
+        assert output =~ "aiur: waiting for the orchestrator to become available (it is busy; mailbox="
+        assert output =~ "aiur: failed to set max-agents (orchestrator timed out; Orchestrator"
+        assert output =~ "__AIUR_CONTROL_ERROR__:"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+      after
+        :sys.resume(pid)
+      end
     end
   end
 

@@ -266,14 +266,9 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   // paints a visible stub. Skipping the fill there is what made "just started"
   // and "no reading" the same picture.
   const filled = Math.max(Math.round((barWidth * face.footer.percent) / 100), BAR_HEIGHT);
-  // Unknown uses neutral grey and stale uses alpha, so neither can be mistaken
-  // for a measured second segment.
-  const stale = face.footer.freshness === "stale";
-  if (stale) context.globalAlpha = 0.5;
   roundedPath(context, barX, barY, filled, BAR_HEIGHT, BAR_HEIGHT / 2);
   context.fillStyle = face.footer.barColor;
   context.fill();
-  context.globalAlpha = 1;
 };
 
 /**

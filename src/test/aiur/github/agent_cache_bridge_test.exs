@@ -53,13 +53,22 @@ defmodule Aiur.GitHub.AgentCacheBridgeTest do
     assert await_marker(marker(state_dir, issue))
   end
 
-  test "a check run retires nothing, because a verdict is never served", %{state_dir: state_dir} do
-    key = ResourceStore.key(:check_run, "owner", "repo", 55_501)
-    :ok = ResourceStore.put_resource(key, %{"id" => 55_501, "conclusion" => "success"}, source: :webhook, version: "v1")
+  # Acceptance #2126-4: invalidation must still work for every type in
+  # `AgentCacheBridge`'s `@invalidating_types` after the deposit changes. All
+  # four are written by the webhook pipe, so a delivery of each retires the
+  # wrapper's copy of that resource. Mirrors `@invalidating_types` rather than
+  # reading it, so the list cannot change without this table changing too.
+  test "every invalidating type's deposit retires the agent cache", %{state_dir: state_dir} do
+    invalidating = [:issue, :pull_request, :issue_labels, :branch_pull_request]
 
-    Process.sleep(120)
-    refute File.exists?(Path.join([state_dir, "state-cache/v1/owner/repo", ".collections-invalidated"]))
-    refute File.exists?(Path.join([state_dir, "state-cache/v1/owner/repo", ".invalidated"]))
+    for type <- invalidating do
+      key = ResourceStore.key(type, "owner", "repo", 1670)
+      body = if type == :issue_labels, do: [%{"name" => "agent:todo"}], else: %{"number" => 1670}
+      :ok = ResourceStore.put_resource(key, body, source: :webhook, version: "v1")
+
+      assert await_marker(marker(state_dir, key)),
+             "a #{type} deposit must retire the agents' copies of that resource"
+    end
   end
 
   test "a validator re-recorded by a poll retires nothing", %{state_dir: state_dir} do

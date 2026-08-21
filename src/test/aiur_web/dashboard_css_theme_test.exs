@@ -124,16 +124,16 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert root["--progress-complete-fill"] == contract["progress"]["complete_fill"]
 
     assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
-    assert css_rule(".ut-pbar > i") =~ "min-width: 5px"
+    assert css_rule(".ut-pbar > i") =~ "min-width: var(--progress-bar-height)"
     assert css_rule(".ut-pbar > i.is-complete") =~ "var(--progress-complete-fill)"
-    assert css_rule(".ut-pbar > i.is-stale") =~ "opacity: 0.5"
+    refute @css |> File.read!() |> String.contains?(".ut-pbar > i.is-stale")
     refute @css |> File.read!() |> String.contains?(".ut-pbar > i.is-blocked")
     refute @css |> File.read!() |> String.contains?(".ut-pbar > i.has-alert")
     assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
     assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
-    assert css_rule(".run-summary-progress-fill.is-stale") =~ "opacity: 0.5"
-    assert css_rule(".sd-strip-cmd-progress > i") =~ "min-width: 0.34rem"
-    assert css_rule(".sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i") =~ "opacity: 0.5"
+    refute @css |> File.read!() |> String.contains?(".run-summary-progress-fill.is-stale")
+    assert css_rule(".sd-strip-cmd-progress > i") =~ "min-width: var(--progress-bar-height)"
+    refute @css |> File.read!() |> String.contains?(".sd-strip-cmd.is-progress-stale")
     assert css_rule(".sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before") =~ "background: rgba(255, 255, 255, 0.32)"
     assert css_rule(".ut-pbar.is-unknown") =~ "background: var(--line-strong)"
     assert css_rule(".rs-meter.is-unknown") =~ "background: var(--line-strong)"

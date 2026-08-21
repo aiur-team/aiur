@@ -30,6 +30,10 @@ defmodule Aiur.Application do
   @impl true
   def start(_type, _args) do
     :ok = Aiur.Boot.mark()
+    # Absolute times render in the viewer's timezone via `DateTime.shift_zone!`,
+    # which needs a timezone database installed. `:tz` ships one.
+    :ok = Calendar.put_time_zone_database(Tz.TimeZoneDatabase)
+    maybe_validate_environment()
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
@@ -69,6 +73,49 @@ defmodule Aiur.Application do
         strategy: :one_for_one,
         name: Aiur.Supervisor
       )
+      |> tap(fn _ -> start_upgrade_check() end)
+    end
+  end
+
+  # The `aiur run` version notice is deliberately out-of-band: it runs in a
+  # fire-and-forget task so it never delays boot or the first dispatch, fails
+  # open and silent, caches with a TTL, and honors the `upgrade.check_enabled`
+  # config key / `AIUR_UPGRADE_CHECK_DISABLED` env var. Under a development
+  # launcher (`aiurdev`) it does nothing at all. The launcher surfaces the
+  # resulting notice to the operator from the shared state file.
+  #
+  # The shared test app must not phone home: `:upgrade_check_refresh?` is set
+  # false in the test env (config/config.exs), so a plain `mix test` boots the
+  # supervisor tree without spawning a registry fetch. Tests of the check
+  # itself drive `Aiur.Upgrade.check_and_announce/1` with an injected transport.
+  @spec start_upgrade_check() :: :ok
+  def start_upgrade_check do
+    if Application.get_env(:aiur, :upgrade_check_refresh?, true) do
+      Task.start(fn -> Aiur.Upgrade.check_and_announce() end)
+    end
+
+    :ok
+  end
+
+  @doc false
+  @spec maybe_validate_environment() :: :ok
+  def maybe_validate_environment do
+    if Application.get_env(:aiur, :env) == :test do
+      :ok
+    else
+      settings = Aiur.Config.settings_uncached()
+      Aiur.Env.validate_startup!(System.get_env(), require_github_credential: github_tracker?(settings))
+      Aiur.Env.warn_disabled_integrations()
+      Aiur.Env.warn_precedence_conflicts()
+    end
+  end
+
+  # The GitHub credential boot requirement only applies when the active tracker
+  # is GitHub; a Linear or memory tracker has no GitHub credential to satisfy.
+  defp github_tracker?(settings) do
+    case settings do
+      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
+      _ -> true
     end
   end
 
@@ -158,8 +205,17 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
-    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+    _executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
+
+    # Always true for a real run. The unit-test singleton turns it off so the
+    # shared app process does not hold a VM-wide inbox and listener that every
+    # case would then contend on; cases that exercise recording supervise their
+    # own pair against their own isolated state directory.
+    recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
+
+    recording_children =
+      if recording?, do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener], else: []
 
     cli_children =
       if interactive_cli? do
@@ -215,6 +271,12 @@ defmodule Aiur.Application do
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
       Aiur.GitHub.ResourceStore,
+      # The bounded time-series the `/github-cache` history charts draw. Starts
+      # after the store it samples, so its first sample never races the store's
+      # boot fill; it reads ETS only, so it changes nothing about the page's
+      # zero-fetch property. Gated on the dashboard like the HTTP server that
+      # serves the page — there is no point sampling a cache nobody can view.
+      if(dashboard?, do: Aiur.GitHub.CacheHistory),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
@@ -285,12 +347,16 @@ defmodule Aiur.Application do
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
       Aiur.Logs.Retention,
-      # The daemon-resident Executor listener (the Command inbox) is started only
-      # for an Executor-owned run (`--executor`). It must come after the Exchange
-      # and the Publisher it subscribes to and alerts through, so it sits at the
-      # end of the always-on block.
-      if(executor_mode?, do: Aiur.ExecutorWakeInbox),
-      if(executor_mode?, do: Aiur.ExecutorListener),
+      # The daemon-resident Executor recording path is armed on EVERY run, with
+      # or without `--executor`. Recording is the only part that cannot be added
+      # after the fact: a run that did not record leaves an agent arriving later
+      # with nothing to replay, and that cost is invisible when it is incurred.
+      # `--executor` now governs authority (and Command alerting), not whether
+      # anything is written down. These come after the Exchange and the
+      # Publisher they subscribe to, so they sit at the end of the always-on
+      # block. `Claims` starts first: it arbitrates who may advance the shared
+      # cursor the inbox owns.
+      recording_children,
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
@@ -303,6 +369,7 @@ defmodule Aiur.Application do
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor
     ]
+    |> List.flatten()
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
   end

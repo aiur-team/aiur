@@ -50,19 +50,19 @@ and build children so only the daemon owns that evidence.
 
 ## Usage and account meters
 
-Aiur keeps unknown, partial, and stale pricing explicit instead of turning missing evidence into zero.
+Aiur keeps unknown and partial pricing explicit instead of turning missing evidence into zero.
 
 | Provider family | Meter meaning |
 | --- | --- |
 | Codex and Claude | Percentage used in renewing allotment windows. |
 | DeepSeek and OpenRouter | Prepaid dollar or credit balance. |
 | DeepSeek percentage | Spend against a durable prepaid-balance baseline, not a provider quota. |
-| DeepSeek concurrency | Process-local; shown in live CLI and TUI status, omitted from retained provider cards because an instantaneous reading goes stale. |
+| DeepSeek concurrency | Process-local; shown in live CLI and TUI status, omitted from retained provider cards. |
 | Kimi | Session observations only; no account-balance probe. |
 | GitHub | Core REST and GraphQL percentage used. |
-| ElevenLabs | Account credit quota as percentage used, plus the amount due on the next invoice; neither figure tracks speech-to-text audio-minute spend. |
+| ElevenLabs | Account credit quota as percentage used. |
 
-Dashboard provider meters carry the age of each observation.
+Dashboard provider meters render the values as last read.
 
 Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github) and [ElevenLabs](/apis/elevenlabs) for non-model API meaning.
 

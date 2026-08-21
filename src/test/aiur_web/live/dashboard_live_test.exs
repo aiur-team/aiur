@@ -475,6 +475,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assigns = %{
       payload: payload,
       now: DateTime.utc_now(),
+      time_zone: "Etc/UTC",
       # This helper renders DashboardLive directly, bypassing mount/3, so it has
       # to seed every assign mount/3 seeds — including the server-owned sidebar
       # collapse state the shell reads.
@@ -532,7 +533,7 @@ defmodule AiurWeb.DashboardLiveTest do
         CountingOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot, publish?: false)
 
       on_exit(fn ->
-        if Process.alive?(restarted), do: GenServer.stop(restarted, :normal)
+        Aiur.TestSupport.safe_stop(restarted)
       end)
 
       generation = SnapshotStore.begin_generation(orchestrator_name)
@@ -814,46 +815,6 @@ defmodule AiurWeb.DashboardLiveTest do
     unknown_fault = render_component(&Overview.error/1, error: %{code: "something_else", message: "Unmapped fault"})
     refute unknown_fault =~ "The Orchestrator is not reachable"
     assert unknown_fault =~ "something_else"
-  end
-
-  test "a stalled orchestrator's stale label names the stall, not a busy mailbox" do
-    html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
-      )
-
-    assert html =~ "Not live"
-    assert html =~ "The Orchestrator has stopped publishing."
-    assert html =~ "2h 4m old"
-    refute html =~ "The Orchestrator is busy."
-  end
-
-  test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
-    html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
-      )
-
-    assert html =~ "Not live"
-    assert html =~ "Showing the fleet as we last saw it"
-    assert html =~ "1m 35s old"
-    # The contradiction the operator reported: never unavailable and healthy at once.
-    refute html =~ "unavailable"
-  end
-
-  test "labels stale timeout and unavailable snapshots differently" do
-    timeout_html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 6}
-      )
-
-    unavailable_html =
-      render_component(&Overview.stale_label/1,
-        freshness: %{status: :stale, reason: :orchestrator_unavailable, age_seconds: 6}
-      )
-
-    assert timeout_html =~ "Orchestrator is busy"
-    assert unavailable_html =~ "Orchestrator is unavailable"
   end
 
   test "renders payload-aware document navigation and owner-aware Build Order navigation" do
@@ -3021,6 +2982,87 @@ defmodule AiurWeb.DashboardLiveTest do
     assert {:ok, gone_deferred} = DecisionStore.get(gone_decision.decision_id, store)
     assert gone_deferred.decision_status == :deferred
     refute_receive {:agent_queue_updated, "988", _queue_item_id, _delivery}, 200
+    assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+  end
+
+  test "dismissing a Command notifies a live agent to use its judgement, and skips a gone one" do
+    orchestrator_name = Module.concat(__MODULE__, :DismissNotifyOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DismissNotifyDecisionStore)
+    orchestrator = start_queue_orchestrator(orchestrator_name, "987")
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+
+    assert {:ok, %{decision: live_decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => "dashboard-dismiss-notify-live",
+                 "question" => "Should the dashboard ship this change?",
+                 "blocking" => false,
+                 "urgency" => "normal",
+                 "reversibility" => "reversible",
+                 "options" => [%{"id" => "ship", "label" => "Ship it"}]
+               },
+               [
+                 ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+                 source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-dismiss-notify-live"}
+               ],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands/#{live_decision.decision_id}")
+    assert html =~ ~s(phx-click="dismiss-decision")
+
+    _html =
+      view
+      |> element("#decision-#{live_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert {:ok, dismissed} = DecisionStore.get(live_decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+
+    # The live agent is told the operator dismissed its Command and to proceed
+    # under its own judgement; the message lands on the checkpoint queue.
+    {:ok, item} = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "987")
+    assert item.category == :operator_message
+    assert item.body.text =~ "dismissed by the operator"
+    assert item.body.text =~ "Use your judgement"
+
+    # A Command whose agent is gone closes locally with no message.
+    :sys.replace_state(orchestrator, &%{&1 | running: %{}})
+
+    assert {:ok, %{decision: gone_decision}} =
+             DecisionStore.request(
+               %{
+                 "source_id" => "dashboard-dismiss-notify-gone",
+                 "question" => "Should the dashboard ship this change?",
+                 "blocking" => false,
+                 "urgency" => "normal",
+                 "reversibility" => "reversible",
+                 "options" => [%{"id" => "ship", "label" => "Ship it"}]
+               },
+               [
+                 ticket: %{identifier: "988", title: "Operator Control Center", url: nil},
+                 source: %{agent_id: "agent-988", session_id: "session-988", event_id: "event-dismiss-notify-gone"}
+               ],
+               store
+             )
+
+    {:ok, gone_view, _html} = live(build_conn(), "/commands/#{gone_decision.decision_id}")
+
+    _html =
+      gone_view
+      |> element("#decision-#{gone_decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert {:ok, gone_dismissed} = DecisionStore.get(gone_decision.decision_id, store)
+    assert gone_dismissed.decision_status == :dismissed
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
   end
 

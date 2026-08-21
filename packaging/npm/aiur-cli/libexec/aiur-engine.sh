@@ -463,6 +463,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur github-cost [--budget graphql|core|all] [--format auto|table|records] [--json]  rank GitHub API spend by call site
+       aiur github-usage [--json]  per-actor (daemon vs agent) GitHub usage and ceilings
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -470,7 +471,12 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
+       aiur executor-roster [--json]  list Executor consumers with their liveness evidence
+       aiur executor-claim [--as <id>]  claim the wake stream, or refuse and name the live owner
+       aiur executor-release [--as <id>]  give up this consumer's claim
+       aiur executor-revoke <consumer-id>  operator-only revoke of a live owner's claim
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
+       aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
@@ -687,6 +693,12 @@ run_session() {
   scrub_run_only_env
   export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
+  # The daemon's `Aiur.Upgrade` check uses the CLI package version (not the mix
+  # version) as the "installed" version, so an npm install's notice names what
+  # the user actually has. `run_version` sets the same var for `--version`.
+  AIUR_CLI_VERSION="$(cli_package_version || true)"
+  export AIUR_CLI_VERSION
+
   init_argv_file
 
   # Supply the flags a bare `aiur` needs: UI mode and the no-guardrails ack.
@@ -804,7 +816,8 @@ run_session() {
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
-      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
+      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
+      AIUR_BG_STATE_DIR AIUR_CLI_VERSION; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -919,6 +932,12 @@ run_session() {
   write_aiur_instance_record "$session" "$socket"
   print_config_status "$startup_capture"
   print_dashboard_status "$no_dashboard" "$startup_capture"
+  # The `aiur run` version notice: a cheap local state read (the daemon's
+  # `Aiur.Upgrade` check writes it during boot), never a network call, so it
+  # can never delay startup. Silent under a dev launcher and when opted out.
+  # `|| true` keeps a display failure from ever failing the run — the notice
+  # is strictly additive.
+  maybe_surface_upgrade_notice || true
 
   if [ "$mode" = "foreground" ]; then
     echo "aiur foreground tmux socket ${socket}, session ${session}" >&2
@@ -2683,6 +2702,28 @@ cmd_github_cost() {
   run_control_rpc "Aiur.AgentControlCLI.github_cost([$opts])"
 }
 
+# `aiur github-usage` — per-actor (daemon vs each agent workspace) Core/GraphQL
+# usage and ceilings from the shared admission broker. Read-only; it reads the
+# broker database and issues no GitHub request of its own.
+cmd_github_usage() {
+  local json=0 arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      -*) echo "aiur: github-usage received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: github-usage does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  local opts=""
+  [ "$json" -eq 1 ] && opts="json: true"
+
+  run_control_rpc "Aiur.AgentControlCLI.github_usage([$opts])"
+}
+
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
@@ -2766,22 +2807,96 @@ cmd_executor_listen() {
 }
 
 cmd_executor_wait() {
-  local timeout=300 json=0 arg
+  local timeout=300 json=0 as="" arg
   while [ "$#" -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --timeout) shift; timeout="${1:-}" ;;
       --timeout=*) timeout="${arg#--timeout=}" ;;
       --json) json=1 ;;
-      *) echo "aiur: executor-wait accepts --timeout <seconds> and --json" >&2; exit 64 ;;
+      --as) shift; as="${1:-}" ;;
+      --as=*) as="${arg#--as=}" ;;
+      *) echo "aiur: executor-wait accepts --timeout <seconds>, --as <id> and --json" >&2; exit 64 ;;
     esac
     shift
   done
   [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-wait --timeout expects a positive integer" >&2; exit 64; }
+  executor_validate_consumer_id "$as" "executor-wait"
   local json_arg=false
   if [ "$json" -eq 1 ]; then json_arg=true; fi
   AIUR_CONTROL_COMMAND="executor-wait"
-  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg)"
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS=$((timeout + 10)) run_control_rpc "Aiur.AgentControlCLI.executor_wait(timeout_ms: $((timeout * 1000)), json: $json_arg$(executor_as_argument "$as"))"
+}
+
+# The consumer id is an explicit identity, never inferred from the environment.
+executor_validate_consumer_id() {
+  local value="$1" command="$2"
+  [ -n "$value" ] || return 0
+  [[ "$value" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "aiur: $command --as expects [A-Za-z0-9._-]+" >&2; exit 64; }
+}
+
+executor_as_argument() {
+  [ -n "$1" ] || return 0
+  printf ', as: "%s"' "$1"
+}
+
+executor_as_keyword() {
+  [ -n "$1" ] || return 0
+  printf 'as: "%s"' "$1"
+}
+
+cmd_executor_roster() {
+  local json=0 arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      *) echo "aiur: executor-roster accepts only --json" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  local json_arg=false
+  if [ "$json" -eq 1 ]; then json_arg=true; fi
+  run_control_rpc "Aiur.AgentControlCLI.executor_roster(json: $json_arg)"
+}
+
+cmd_executor_claim() {
+  local as="" arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --as) shift; as="${1:-}" ;;
+      --as=*) as="${arg#--as=}" ;;
+      *) echo "aiur: executor-claim accepts only --as <id>" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  executor_validate_consumer_id "$as" "executor-claim"
+  run_control_rpc "Aiur.AgentControlCLI.executor_claim([$(executor_as_keyword "$as")])"
+}
+
+cmd_executor_release() {
+  local as="" arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --as) shift; as="${1:-}" ;;
+      --as=*) as="${arg#--as=}" ;;
+      *) echo "aiur: executor-release accepts only --as <id>" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  executor_validate_consumer_id "$as" "executor-release"
+  run_control_rpc "Aiur.AgentControlCLI.executor_release([$(executor_as_keyword "$as")])"
+}
+
+cmd_executor_revoke() {
+  local owner="${1:-}"
+  [ -n "$owner" ] || { echo "aiur: executor-revoke requires the current owner's consumer id" >&2; exit 64; }
+  shift
+  [ "$#" -eq 0 ] || { echo "aiur: executor-revoke accepts only <consumer-id>" >&2; exit 64; }
+  executor_validate_consumer_id "$owner" "executor-revoke"
+  run_control_rpc "Aiur.AgentControlCLI.executor_revoke(\"$owner\")"
 }
 
 cmd_executor_emit() {
@@ -3324,6 +3439,225 @@ cmd_restart() {
   trap - EXIT INT TERM
 }
 
+# --- upgrade version notice + aiur upgrade -----------------------------------
+
+# Extract a top-level string field from a JSON document. The notice keys we
+# read (`text`, `available`, `channel`, `channel_gone`) are unique to the
+# notice, and the dist-tags keys we read are the tag names themselves, so a
+# plain sed over the document is unambiguous. Handles both quoted strings
+# (`"channel":"nightly"`) and unquoted scalars (`"channel_gone":true`,
+# `"available":null`) — the state file serializes booleans/null without quotes.
+upgrade_state_string() {
+  local file="$1" key="$2"
+  sed -n "s/.*\"$key\": *\"\([^\"]*\)\".*/\1/p; s/.*\"$key\": *\([^,}]*\).*/\1/p" "$file" | head -n 1
+}
+
+# Atomically write the "last told" marker (a single line). The engine owns this
+# file; the daemon only reads it for its no-repeat decision. Best-effort and
+# always succeeds (returns 0) so a read-only/unwritable state dir can never
+# abort the caller — the notice display and `aiur upgrade` must not fail
+# because a marker could not be written.
+upgrade_state_mark_notified() {
+  local value="$1" file="$AIUR_BG_STATE_DIR/upgrade-notified.txt" tmp
+  mkdir -p "$AIUR_BG_STATE_DIR" 2>/dev/null || return 0
+  tmp="$(mktemp "$AIUR_BG_STATE_DIR/upgrade-notified.XXXXXX" 2>/dev/null)" || return 0
+  printf '%s\n' "$value" >"$tmp" 2>/dev/null
+  mv -f "$tmp" "$file" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# Surface the pending upgrade notice, if any, to the operator's terminal. This
+# is a cheap local state read (the daemon's `Aiur.Upgrade` check writes it
+# during boot) — never the registry — so it can never delay startup. It honors
+# the same opt-outs as the check, prints only once per version (the `notified`
+# marker), and is completely silent under a development launcher.
+maybe_surface_upgrade_notice() {
+  aiur_resolve_identity
+
+  # A development launcher (aiurdev) must never suggest an upgrade: the notice
+  # would be wrong (the local tree is routinely ahead of every published
+  # version) and acting on it would overwrite a working tree. Detect the
+  # launcher, never the directory — an installed aiur can be run from inside a
+  # clone and still deserves its notice.
+  case "${AIUR_RELEASE_DIR:-}" in
+    */src/_build/dev/rel/aiur) return 0 ;;
+  esac
+
+  # Env opt-outs, mirroring Aiur.Upgrade.disabled?/0.
+  case "${AIUR_UPGRADE_CHECK_DISABLED:-}" in 1 | true) return 0 ;; esac
+  case "${AIUR_NO_UPDATE_NOTIFIER:-}" in 1 | true) return 0 ;; esac
+  case "${CI:-}" in "" | false | 0) ;; *) return 0 ;; esac
+
+  # Interactive gate: never print into a piped or non-TTY stream.
+  [ -t 2 ] || return 0
+
+  maybe_print_upgrade_notice
+}
+
+# The display half of the notice: read the daemon-written state, decide whether
+# the operator has already been told this version, print it to stderr, and mark
+# it told. Split from `maybe_surface_upgrade_notice` (the env/CI/dev/TTY gates)
+# so the print/decide logic is testable without a pty.
+maybe_print_upgrade_notice() {
+  local state_file="$AIUR_BG_STATE_DIR/upgrade.json"
+  [ -r "$state_file" ] || return 0
+
+  local text available channel channel_gone notified installed
+  text="$(upgrade_state_string "$state_file" text)"
+  [ -n "$text" ] || return 0
+  available="$(upgrade_state_string "$state_file" available)"
+  channel="$(upgrade_state_string "$state_file" channel)"
+  channel_gone="$(upgrade_state_string "$state_file" channel_gone)"
+  notified="$(cat "$AIUR_BG_STATE_DIR/upgrade-notified.txt" 2>/dev/null || true)"
+  installed="$(cli_package_version || true)"
+
+  if [ "$channel_gone" = "true" ]; then
+    # A "channel no longer publishes" notice: say it once, never nag.
+    [ -n "$channel" ] && [ "$notified" = "gone:${channel}" ] && return 0
+    printf '%s\n' "$text" >&2
+    upgrade_state_mark_notified "gone:${channel}"
+    return 0
+  fi
+
+  # A normal notice: only when it is genuinely newer than what is installed
+  # (never a downgrade) and the operator has not already been told this exact
+  # version.
+  [ -n "$available" ] || return 0
+  [ -n "$installed" ] || return 0
+  version_is_older "$installed" "$available" || return 0
+  if [ -n "$notified" ] && ! version_is_older "$notified" "$available"; then
+    return 0
+  fi
+
+  printf '%s\n' "$text" >&2
+  upgrade_state_mark_notified "$available"
+}
+
+# Detect how this `aiur` was installed from the launcher-resolved release dir
+# and the package layout — never from the working directory, so an installed
+# aiur run from inside a clone is still recognized as an npm install.
+aiur_install_method() {
+  case "${AIUR_RELEASE_DIR:-}" in
+    */src/_build/dev/rel/aiur)
+      printf 'dev'
+      return
+      ;;
+  esac
+  if command -v brew >/dev/null 2>&1 && brew list aiur >/dev/null 2>&1; then
+    printf 'brew'
+    return
+  fi
+  if [ -r "$engine_dir/../package.json" ]; then
+    printf 'npm'
+    return
+  fi
+  printf 'unknown'
+}
+
+# `aiur upgrade` — installs the newer aiur-cli on the user's channel and
+# reports what it did. Refuses in a development checkout (nothing to install,
+# tree must stay untouched), refuses Homebrew/unknown installs (aiur releases
+# are npm-only right now), refuses while a daemon is running unless --force,
+# never downgrades across channels, and reports before/after versions with the
+# restart step needed to actually pick the new code up.
+cmd_upgrade() {
+  local force=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --force) force=1 ;;
+      *) echo "aiur: upgrade accepts only --force" >&2; exit 64 ;;
+    esac
+  done
+
+  aiur_resolve_identity
+
+  case "$(aiur_install_method)" in
+    dev)
+      die "aiur upgrade cannot run from a development checkout (aiurdev): the local tree is not a published install, so upgrade would not touch this working tree and nothing has been changed. Install aiur from npm and run \`aiur upgrade\` from the installed CLI."
+      ;;
+    brew)
+      die "aiur upgrade does not support Homebrew installs: aiur releases are npm-only right now (the Homebrew tap is not fed by releases). Reinstall from npm (\`npm install -g aiur-cli\`) and use \`aiur upgrade\` there."
+      ;;
+    unknown)
+      die "aiur could not determine how it was installed, so upgrade refused to guess. Reinstall from npm (\`npm install -g aiur-cli\`) and retry."
+      ;;
+  esac
+
+  resolve_release
+  prepare_distribution || die "distribution setup failed; cannot check for a running daemon"
+
+  # Do not swap the binary underneath a running daemon or a live fleet.
+  if [ "$(probe_control_liveness)" = "up" ]; then
+    if [ "$force" -ne 1 ]; then
+      echo "❌ aiur is running. \`aiur upgrade\` refuses to replace the binary under a live daemon." >&2
+      echo "   Stop it first (\`aiur stop\`), upgrade, then start again; or pass --force to upgrade" >&2
+      echo "   anyway. With --force the running daemon keeps the old code until restarted, and" >&2
+      echo "   in-flight agents are unaffected until then." >&2
+      exit 64
+    fi
+    echo "⚠️  aiur is running; --force upgrades anyway. The running daemon keeps the old" >&2
+    echo "   code until you restart it — in-flight agents are unaffected until then." >&2
+  fi
+
+  local before after channel available tags latest next nightly
+  before="$(cli_package_version || true)"
+  [ -n "$before" ] || die "aiur could not read the installed version; upgrade aborted"
+
+  if ! tags="$(npm view aiur-cli dist-tags --json 2>/dev/null)"; then
+    die "aiur could not reach the npm registry to determine available versions (is npm installed and online?); upgrade aborted"
+  fi
+
+  # Resolve the user's channel from the installed version AND the observed
+  # dist-tags, mirroring Aiur.Upgrade.channel/2. A `next` user must never be
+  # measured against (or "upgraded" to) `latest` when that is lower — today
+  # latest=0.0.3, next=0.0.4, nightly=0.0.5-nightly.<sha>.
+  case "$before" in
+    *-nightly*)
+      channel="nightly"
+      ;;
+    *)
+      next="$(upgrade_state_string <(printf '%s' "$tags") next || true)"
+      latest="$(upgrade_state_string <(printf '%s' "$tags") latest || true)"
+      if [ -n "$next" ] &&
+        { [ "$before" = "$next" ] ||
+          { [ -n "$latest" ] && version_is_older "$before" "$next" && version_is_older "$latest" "$before"; }; }; then
+        channel="next"
+      else
+        channel="latest"
+      fi
+      ;;
+  esac
+
+  available="$(upgrade_state_string <(printf '%s' "$tags") "$channel" || true)"
+  if [ -z "$available" ]; then
+    echo "❌ the ${channel} channel no longer publishes new versions (installed ${before})." >&2
+    echo "   aiur upgrade will not silently fall back to another channel." >&2
+    exit 64
+  fi
+
+  if ! version_is_older "$before" "$available"; then
+    echo "aiur is already up to date on the ${channel} channel (${before})." >&2
+    return 0
+  fi
+
+  echo "aiur: upgrading aiur-cli from ${before} to ${available} on the ${channel} channel..." >&2
+  if ! npm install -g "aiur-cli@${channel}" --no-offline --no-prefer-offline; then
+    die "aiur upgrade failed during \`npm install -g aiur-cli@${channel}\`; the installed version is unchanged"
+  fi
+
+  after="$(cli_package_version || true)"
+  if [ -n "$after" ] && [ "$after" != "$before" ]; then
+    echo "aiur upgraded from ${before} to ${after}." >&2
+  else
+    echo "aiur upgraded on the ${channel} channel (was ${before})." >&2
+  fi
+
+  # Never re-offer the version just installed.
+  upgrade_state_mark_notified "$after"
+  echo "Restart any running aiur to pick up the new version." >&2
+}
+
 # --- dispatch ----------------------------------------------------------------
 
 dispatch_run() {
@@ -3431,6 +3765,10 @@ aiur_engine_main() {
       shift
       cmd_github_cost "$@"
       ;;
+    github-usage)
+      shift
+      cmd_github_usage "$@"
+      ;;
     alerts)
       shift
       cmd_alerts "$@"
@@ -3459,9 +3797,29 @@ aiur_engine_main() {
       shift
       cmd_executor_subscriptions "$@"
       ;;
+    executor-roster)
+      shift
+      cmd_executor_roster "$@"
+      ;;
+    executor-claim)
+      shift
+      cmd_executor_claim "$@"
+      ;;
+    executor-release)
+      shift
+      cmd_executor_release "$@"
+      ;;
+    executor-revoke)
+      shift
+      cmd_executor_revoke "$@"
+      ;;
     set)
       shift
       cmd_set "$@"
+      ;;
+    upgrade)
+      shift
+      cmd_upgrade "$@"
       ;;
     pause | resume)
       shift

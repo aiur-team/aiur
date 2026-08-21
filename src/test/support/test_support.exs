@@ -4,6 +4,7 @@ defmodule Aiur.TestSupport do
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
   alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
+  alias Aiur.GitHub.DispatchAuthorization, as: GitHubDispatchAuthorization
   alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
   alias Aiur.PollCadence
 
@@ -88,6 +89,7 @@ defmodule Aiur.TestSupport do
     :global_pause_store_path,
     :github_resource_store_path,
     :repo_base_root,
+    :executor_state_dir,
     :loadavg_source_override,
     :proc_stat_source_override
   ]
@@ -166,6 +168,12 @@ defmodule Aiur.TestSupport do
       interval there and every freshness threshold in the tree derives from it,
       so a case that drives a poll cycle would move the staleness windows for
       every later case.
+    * `Aiur.GitHub.DispatchAuthorization` — it caches the verified applier of
+      the trigger label per `{id, label, updated_at}`. One case's timeline
+      decision would otherwise be reused by a later case that happens to fetch
+      the same issue id with the same labels and `updated_at`, skipping (or
+      wrongly satisfying) the timeline fetch that later case expected to drive
+      (#2082).
   """
   @spec reset_global_state!() :: :ok
   def reset_global_state! do
@@ -174,6 +182,7 @@ defmodule Aiur.TestSupport do
     GitHubResourceStore.reset()
     GitHubAuthPreflight.invalidate(:test_setup)
     PollCadence.forget_effective_interval_ms()
+    GitHubDispatchAuthorization.clear_cache()
     :ok
   end
 
@@ -219,6 +228,7 @@ defmodule Aiur.TestSupport do
           write_workflow_file!: 2,
           write_workflow_file_async!: 1,
           write_workflow_file_async!: 2,
+          write_workflow_file_atomic!: 2,
           receive_barrier: 1,
           restore_env: 2,
           stop_default_http_server: 0,
@@ -258,6 +268,12 @@ defmodule Aiur.TestSupport do
         Application.put_env(:aiur, :proc_stat_source_override, Aiur.TestSupport.quiet_proc_stat_source())
 
         Application.put_env(:aiur, :repo_base_root, Path.join(workflow_root, "repo"))
+
+        # Durable Executor state (journal, wake ledger, cursor, subscriptions,
+        # claims) lives at a per-repository path that survives a restart. That
+        # is exactly what makes it leak across cases without a per-test root:
+        # one case's journal is another's replay input.
+        Application.put_env(:aiur, :executor_state_dir, Path.join([workflow_root, "executor-state"]))
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
         Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Aiur.TestSupport.prepare_workflow_file_path!(workflow_root)
@@ -373,6 +389,21 @@ defmodule Aiur.TestSupport do
     :ok
   end
 
+  @doc """
+  Writes raw YAML to a workflow fixture atomically (temp file + rename) and
+  does not reload the store.
+
+  Use for intentionally-invalid fixture content, which must land as a single
+  unit: a plain `File.write!/2` truncates before writing, so the
+  `WorkflowStore` background poll can read the empty intermediate — empty YAML
+  parses successfully — and commit those defaults as last-known-good before the
+  test's own `force_reload/1` runs (#1635).
+  """
+  @spec write_workflow_file_atomic!(Path.t(), String.t()) :: :ok
+  def write_workflow_file_atomic!(path, content) when is_binary(content) do
+    atomic_write!(path, content)
+  end
+
   defp write_workflow_content!(path, overrides) do
     {config_yaml, prompt} = workflow_content(overrides)
 
@@ -385,8 +416,25 @@ defmodule Aiur.TestSupport do
         config_yaml
       end
 
-    File.write!(path, config_yaml)
+    atomic_write!(path, config_yaml)
     write_default_alerts_file!(path)
+  end
+
+  # `File.write!/2` truncates before writing, so a `WorkflowStore` poll (or an
+  # unrelated restart) can observe an empty intermediate file and commit it as
+  # a valid last-known-good workflow (empty YAML parses successfully). Write to
+  # a sibling temp file and rename so the active config only ever exists as a
+  # complete unit (#1635).
+  defp atomic_write!(path, content) do
+    tmp =
+      Path.join(
+        Path.dirname(path),
+        ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp"
+      )
+
+    File.write!(tmp, content)
+    File.rename!(tmp, path)
+    :ok
   end
 
   defp active_workflow_file?(path) do
