@@ -44,15 +44,35 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
   | kind | ttl | why |
   | --- | --- | --- |
-  | `:viewer` | 1 hour | The bot's own login. It changes when the credential changes, which restarts the daemon anyway. |
-  | `:code_owners` | 5 min | A file in the default branch. Editing it is a pull request, so it moves on human timescales. |
-  | `:org` | 5 min | Team and membership reads. Same argument. |
-  | `:comments` | 30 s | The read that actually costs. A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
+  | `:comments` | 30 s | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
 
   Every TTL here is an upper bound on staleness only in the absence of news. An
   invalidation retires the entry immediately, so the observed staleness for
   anything Aiur itself changes is zero.
+
+  ## Two rows, because the rest were unreachable
+
+  This table used to carry `:viewer`, `:org` and `:code_owners` as well. All
+  three were dead on arrival and are removed rather than left to imply a saving
+  that never happened:
+
+    * `:viewer` and `:org` cannot be reached **structurally**. Identity here is
+      repository-scoped (`Aiur.GitHub.ReadCache.Identity`), so `bot_identity`'s
+      viewer query (variables `%{}`) and `Aiur.GitHub.Teams`' `/orgs/{org}/…`
+      URL both answer `:no_identity` and refuse before any TTL is consulted.
+      Anything not owned by a repository is uncacheable until identity grows a
+      scope for it, and adding a row will not change that.
+    * `:code_owners` was aimed at a call site that does not exist.
+      `Aiur.GitHub.CodeOwners` reads no `/contents/` URL; the only caller of one
+      is `Aiur.GitHub.CIReadiness` listing `.github/workflows`, which is CI
+      configuration and belongs on the refused list, not on a five-minute TTL.
+
+  `comment_poll_batch` is likewise absent from the caller table below, despite
+  being the single largest GraphQL spender. Its document interleaves comment
+  content with `reviewDecision` and `mergeStateStatus`, so it is refused on
+  content and a row for it would be decoration. Splitting that document is what
+  would make it cacheable; a policy entry is not.
 
   ## A TTL must not outrun the caller's own freshness
 
@@ -79,19 +99,18 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
   alias Aiur.GitHub.ReadCache.Identity
 
-  @type class :: :viewer | :code_owners | :org | :comments | :issue_graph
+  @type class :: :comments | :issue_graph
   @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom()}
 
-  @minute 60_000
-
-  @default_ttls %{viewer: 60 * @minute, code_owners: 5 * @minute, org: 5 * @minute, comments: 30_000, issue_graph: 30_000}
+  @default_ttls %{comments: 30_000, issue_graph: 30_000}
 
   # Declared callers, keyed by the string `Transport` stamps on the request from
   # `opts[:caller]`. A caller absent from this table falls through to the REST
   # shapes below and then to a refusal, which is the default-deny above.
+  #
+  # `comment_poll_batch` is deliberately not here: it is refused on content, so
+  # a row would claim a saving it cannot make. See the moduledoc.
   @callers %{
-    "bot_identity" => :viewer,
-    "comment_poll_batch" => :comments,
     "issue_dependencies" => :issue_graph,
     "issue_relationships" => :issue_graph,
     "build_order_pack_status" => :issue_graph,
@@ -162,13 +181,16 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
+  # One shape, anchored to a numbered issue or pull request. The repo-wide
+  # comment streams (`/repos/o/r/issues/comments`) deliberately do not match:
+  # they are already conditional reads that revalidate for free with an ETag,
+  # and holding a body instead of sending `If-None-Match` would trade a free
+  # `304` for staleness. A cache is only an improvement where no validator
+  # exists.
   defp classify_rest(%{method: :get, url: url}) when is_binary(url) do
-    cond do
-      String.contains?(url, "/contents/") -> cache(:code_owners)
-      String.contains?(url, "/teams") -> cache(:org)
-      Regex.match?(~r{/(?:issues|pulls)/\d+/comments}, url) -> cache(:comments)
-      true -> {:no_cache, :unclassified}
-    end
+    if Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url),
+      do: cache(:comments),
+      else: {:no_cache, :unclassified}
   end
 
   defp classify_rest(_request), do: {:no_cache, :unclassified}

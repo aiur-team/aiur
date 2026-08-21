@@ -51,7 +51,7 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
         method: :post,
         url: Transport.graphql_url(),
         token: "test-gh-token",
-        caller: "comment_poll_batch",
+        caller: "issue_relationships",
         body: %{
           "query" => "query Q($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: 2073) { ... on Issue { title } } } }",
           "variables" => %{"owner" => "aiur-team", "repo" => "aiur"}

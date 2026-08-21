@@ -38,20 +38,29 @@ defmodule Aiur.GitHub.ReadCache do
 
   ## Freshness
 
-  An entry is served only when all of the following hold, which is the same test
-  `priv/github_quota_guard.sh` applies to the agent-side store:
+  An entry is stamped with the moment its fetch **started**, not the moment the
+  response came back, and is served only when all of the following hold — the
+  same test `priv/github_quota_guard.sh` applies to the agent-side store:
 
-    * it was deposited no more than its TTL ago;
-    * it was not deposited in the future — a clock that moved backwards is
-      treated as a miss rather than reasoned about;
-    * it was deposited **after** every invalidation marker that covers it —
+    * it was stamped no more than its TTL ago;
+    * it was not stamped in the future;
+    * it was stamped **after** every invalidation marker that covers it —
       `:root`, its repository, the repository's collections when the entry
       enumerates, and each issue-or-pull-request number the request named.
 
-  Markers are timestamps, not deletions, so a marker written while a slow fetch
-  is in flight still retires the entry that fetch is about to deposit. Deleting
-  entries instead would leave that write-after-invalidate race open, and it is
-  exactly the race that serves stale state after a mutation.
+  The start stamp is what closes the write-after-invalidate race, and it is the
+  whole of it. Markers being timestamps rather than deletions is necessary but
+  not sufficient: with a return-time stamp, a read starting at T0 and landing at
+  T2 buries a marker written at T1, because T1 is older than T2 and the entry
+  looks newer than the news. A real GitHub read takes hundreds of milliseconds,
+  so that window covers essentially every mutation the fleet makes during a poll
+  cycle — the guard would have been inert exactly when it mattered. Dating the
+  entry from T0 makes the marker win, which is correct on its own terms too: a
+  response describes the resource as of when GitHub read it, never later than
+  when the request left.
+
+  This is also why the TTL is measured from T0. A slow read yields a shorter
+  useful life, because its body was already stale when it arrived.
 
   ## Sharing between shapes
 
@@ -65,7 +74,6 @@ defmodule Aiur.GitHub.ReadCache do
 
   use GenServer
 
-  alias Aiur.GitHub
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
 
   require Logger
@@ -78,8 +86,12 @@ defmodule Aiur.GitHub.ReadCache do
   # a memory leak.
   @max_entries 20_000
 
-  # The longest TTL `Policy` hands out. An entry or marker older than this can
-  # neither be served nor retire anything, so it is memory and nothing else.
+  # A retention bound for the sweep, deliberately far above the 30s TTLs
+  # `Policy` currently hands out. It is not the maximum TTL and must not be
+  # tightened to match one: `:github_read_cache_ttls` lets an operator raise a
+  # TTL at runtime, and a sweep that dropped entries still inside their window
+  # would turn a config change into silent cache misses. Freshness is decided on
+  # read, so sweeping late costs memory and sweeping early costs points.
   @max_ttl_ms 60 * 60_000
   @sweep_interval_ms 60_000
 
@@ -243,17 +255,30 @@ defmodule Aiur.GitHub.ReadCache do
 
       :miss ->
         Metrics.miss(class, caller)
+        # Stamped before the fetch, not after it. A response describes the state
+        # of the resource when GitHub read it, which is no later than when the
+        # request left — so that is the moment the entry is evidence about.
+        # Stamping the *return* instead dates the entry to a time it knows
+        # nothing about, and a marker written while the fetch was in flight
+        # would then read as older than the body it is meant to retire.
+        # A real GitHub read takes hundreds of milliseconds, so that window is
+        # every mutation the fleet makes during a poll cycle, not a rare edge.
+        started_at = now_ms()
         result = fetch.()
-        deposit(key, result, class, caller)
+        deposit(key, result, started_at, class, caller)
         result
     end
   end
 
   # A write is not cached and does not consult the cache. What it does is retire
   # what it changed — the free half of the design, and the reason a mutation
-  # cannot leave a stale read behind it. Invalidation is stamped from *before*
-  # the request, so a concurrent read that started earlier and lands later is
-  # still retired.
+  # cannot leave a stale read behind it.
+  #
+  # The marker is stamped from *before* the write, and reads are stamped from
+  # before their fetch, so the two are on the same footing: whichever request
+  # left GitHub first is the older fact. A read that started before this write
+  # is retired by it even if it lands afterwards, which is the ordering the
+  # cache has to get right.
   defp write_through(request, fetch, caller) do
     started_at = now_ms()
     result = fetch.()
@@ -278,21 +303,28 @@ defmodule Aiur.GitHub.ReadCache do
   # repository can be extracted from them and, taken literally, they would
   # retire nothing at all. That is the one direction this must not fail in: a
   # write that leaves its own stale read behind is the bug the cache would be
-  # blamed for. A write whose subject cannot be named therefore retires the
-  # configured repository, which is the same call `Aiur.GitHub.AgentCache`
-  # documents for "a change whose subject cannot be named": one re-fetch rather
-  # than a stale answer for a whole window.
+  # blamed for.
+  #
+  # A write whose subject cannot be named therefore retires `:root` —
+  # everything. The obvious cheaper answer, retiring the *configured*
+  # repository, is wrong rather than merely coarse: a node id says nothing
+  # about which repository it belongs to, so a write against any other
+  # repository would flush the configured one it did not touch and leave the
+  # one it did touch stale. Guessing a repository is the failure mode; not
+  # guessing is the fix.
+  #
+  # `github_quota_guard.sh:1409-1412` warns that retiring a repository per
+  # subresource write would be "correct and ruinous" — but it is describing
+  # agent workpad comments, which are rewritten every few minutes through a
+  # different store. This fallback is reachable only from node-id GraphQL
+  # mutations, which in this daemon means review-thread replies and
+  # resolutions. Every REST write carries `/repos/{owner}/{repo}/` in its URL
+  # and so never arrives here. If that ever stops being true, the metric to
+  # watch is `invalidations.events` against the hit rate.
   defp write_identities(request) do
     case request |> Identity.extract() |> Enum.reject(&(&1 == :root)) do
-      [] -> configured_repo_identity()
+      [] -> [:root]
       identities -> identities
-    end
-  end
-
-  defp configured_repo_identity do
-    case GitHub.Config.repo() |> split_repo() do
-      {owner, repo} -> [{:repo, owner, repo}]
-      nil -> []
     end
   end
 
@@ -322,8 +354,10 @@ defmodule Aiur.GitHub.ReadCache do
   end
 
   # `deposited_at <= now` refuses an entry stamped in the future rather than
-  # reasoning about it, matching the guard the shell wrapper applies for the same
-  # reason: a clock that moved is not something a cache can be correct about.
+  # reasoning about it, matching the guard the shell wrapper applies. With a
+  # monotonic source that should be unreachable, which is exactly why it is kept
+  # cheap and kept: it is the assertion that the clock assumption above still
+  # holds, and an entry from a future that cannot happen is not one to serve.
   defp fresh?(deposited_at, now, ttl_ms), do: deposited_at <= now and now - deposited_at <= ttl_ms
 
   # `>=` rather than `>`: a marker and a deposit that land in the same
@@ -341,11 +375,11 @@ defmodule Aiur.GitHub.ReadCache do
     ArgumentError -> true
   end
 
-  defp deposit(key, result, class, caller) do
+  defp deposit(key, result, started_at, class, caller) do
     with true <- success?(result),
          {:ok, response} <- result,
          true <- room?() do
-      true = :ets.insert(@entries, {key, response, now_ms()})
+      true = :ets.insert(@entries, {key, response, started_at})
       Metrics.deposit(class, caller)
     else
       _skipped -> :ok
@@ -437,5 +471,17 @@ defmodule Aiur.GitHub.ReadCache do
 
   defp parse_number(_number), do: nil
 
-  defp now_ms, do: System.system_time(:millisecond)
+  # Monotonic, not wall clock. Every timestamp here is compared only against
+  # another timestamp from this same source — a deposit against a marker, a
+  # deposit against a TTL — and never rendered or persisted, so the VM's
+  # monotonic clock is the right unit and `System.system_time/1` was the wrong
+  # one. Wall clock can step backwards (NTP correction, a suspend), which would
+  # make a marker read as older than the deposit it must retire: the cache would
+  # go on serving state a mutation had already superseded, and the invalidation
+  # would look like it had run. That is the failure this whole module is built
+  # to prevent, so it must not be reintroduced by the clock.
+  #
+  # The cache is in-memory and dies with the VM, so monotonic time never has to
+  # survive a restart.
+  defp now_ms, do: System.monotonic_time(:millisecond)
 end

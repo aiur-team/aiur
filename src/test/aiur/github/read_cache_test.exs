@@ -15,7 +15,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.Config
   alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
 
@@ -58,13 +57,13 @@ defmodule Aiur.GitHub.ReadCacheTest do
     test "refuses a CI rollup whichever call site sends it" do
       # The refusal is on content, so a new caller cannot acquire a cacheable
       # TTL by not being in the policy table.
-      assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("comment_poll_batch", ci_document()))
+      assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("issue_relationships", ci_document()))
       assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("some_new_caller", ci_document()))
     end
 
     test "does not cache review state or merge gating" do
       for selection <- ["reviewDecision", "mergeStateStatus", "mergeable", "reviewThreads(first: 10) { nodes { id } }"] do
-        request = graphql("comment_poll_batch", "query Q { repository(owner: $o, name: $n) { #{selection} } }")
+        request = graphql("issue_relationships", "query Q { repository(owner: $o, name: $n) { #{selection} } }")
         assert {:no_cache, :unsafe_kind} = Policy.classify(request)
       end
     end
@@ -90,7 +89,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "does not deposit a failed response" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, %{status: 502}} = ReadCache.through(request, fn -> {:ok, %{status: 502, body: %{}}} end)
       assert %{totals: %{deposit: 0}} = Metrics.snapshot()
@@ -98,7 +97,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "does not deposit a GraphQL failure or partial failure arriving as HTTP 200" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
       partial = {:ok, %{status: 200, body: %{"data" => %{"repository" => nil}, "errors" => [%{"type" => "RATE_LIMITED"}]}}}
 
       assert ^partial = ReadCache.through(request, fn -> partial end)
@@ -107,7 +106,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "a write that reached the server retires even when it failed there" do
-      read = graphql("comment_poll_batch", safe_document(2073))
+      read = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       write = %{method: :patch, url: "https://api.github.com/repos/aiur-team/aiur/issues/2073", body: %{}}
@@ -119,7 +118,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
   describe "read-through" do
     test "serves a second identical read without fetching" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, %{body: "first"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
       assert {:ok, %{body: "first"}} = ReadCache.through(request, fn -> flunk("a hit must not fetch") end)
@@ -131,15 +130,15 @@ defmodule Aiur.GitHub.ReadCacheTest do
     test "does not serve one query shape from another shape's response" do
       # Identity decides invalidation; the shape decides which bytes are served.
       # Replaying a different projection would corrupt the caller silently.
-      first = graphql("comment_poll_batch", safe_document(2073))
-      second = graphql("comment_poll_batch", safe_document(2073) <> "\n# a different projection")
+      first = graphql("issue_relationships", safe_document(2073))
+      second = graphql("issue_relationships", safe_document(2073) <> "\n# a different projection")
 
       assert {:ok, _response} = ReadCache.through(first, fn -> {:ok, %{status: 200, body: "first"}} end)
       assert {:ok, %{body: "second"}} = ReadCache.through(second, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
     test "misses once the TTL has passed" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
       age_entries_by(31_000)
@@ -149,7 +148,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "misses an entry stamped in the future rather than reasoning about it" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
       age_entries_by(-60_000)
@@ -160,7 +159,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
   describe "invalidation" do
     test "a number retires every held read that named it" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       ReadCache.invalidate_number(@repo, 2073)
@@ -172,7 +171,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # The reason identity is extracted from the document: the batch builders
       # interpolate numbers into the query text, so a writer that only knew
       # `variables` could retire nothing.
-      batch = graphql("comment_poll_batch", batch_document([2070, 2073, 2099]))
+      batch = graphql("issue_relationships", batch_document([2070, 2073, 2099]))
       assert {:ok, _response} = ReadCache.through(batch, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       ReadCache.invalidate_number(@repo, 2073)
@@ -181,7 +180,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "a number does not retire a read about a different number" do
-      other = graphql("comment_poll_batch", safe_document(2070))
+      other = graphql("issue_relationships", safe_document(2070))
       assert {:ok, _response} = ReadCache.through(other, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       ReadCache.invalidate_number(@repo, 2073)
@@ -201,7 +200,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "a repository mark retires every read of that repository" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       ReadCache.invalidate_repo(@repo)
@@ -213,8 +212,8 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # A document asking `pullRequests(headRefName: ...)` carries both scopes:
       # its answer changes when a pull request is created, which touches none of
       # the numbers it already names.
-      enumerating = graphql("comment_poll_batch", safe_document(2073) <> "\n branch_0: pullRequests(headRefName: \"x\") { nodes { number } }")
-      numbered = graphql("comment_poll_batch", safe_document(2073))
+      enumerating = graphql("issue_relationships", safe_document(2073) <> "\n branch_0: pullRequests(headRefName: \"x\") { nodes { number } }")
+      numbered = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, _one} = ReadCache.through(enumerating, fn -> {:ok, %{status: 200, body: "first"}} end)
       assert {:ok, _two} = ReadCache.through(numbered, fn -> {:ok, %{status: 200, body: "first"}} end)
@@ -226,7 +225,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "a mutation retires what it changed" do
-      read = graphql("comment_poll_batch", safe_document(2073))
+      read = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       mutation = graphql("review_thread_reply", "mutation M { addComment(input: {subjectId: \"x\"}) { clientMutationId } }", %{"owner" => "aiur-team", "repo" => "aiur", "number" => 2073})
@@ -236,7 +235,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     end
 
     test "a failed mutation retires nothing" do
-      read = graphql("comment_poll_batch", safe_document(2073))
+      read = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       mutation = graphql("review_thread_reply", "mutation M { x }", %{"owner" => "aiur-team", "repo" => "aiur", "number" => 2073})
@@ -245,12 +244,19 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a failed write changed nothing") end)
     end
 
-    test "a node-id mutation retires the configured repository rather than nothing" do
+    test "a node-id mutation retires everything rather than guessing a repository" do
       # `resolveReviewThread(threadId:)` names no repository, so taken literally
       # it would retire nothing and leave its own stale read behind it.
-      [owner, repo] = Config.repo() |> String.split("/")
-      read = graphql("comment_poll_batch", safe_document(2073), %{"owner" => owner, "repo" => repo})
-      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+      #
+      # Retiring the *configured* repository instead would be wrong, not merely
+      # coarse: a node id belongs to whichever repository it belongs to, so the
+      # guess flushes one the write never touched while leaving the one it did
+      # touch stale. Two repositories are held here and both must be retired.
+      mine = graphql("issue_relationships", safe_document(2073))
+      other = graphql("issue_relationships", safe_document(2073), %{"owner" => "someone-else", "repo" => "elsewhere"})
+
+      assert {:ok, _one} = ReadCache.through(mine, fn -> {:ok, %{status: 200, body: "first"}} end)
+      assert {:ok, _two} = ReadCache.through(other, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       mutation = %{
         method: :post,
@@ -260,11 +266,13 @@ defmodule Aiur.GitHub.ReadCacheTest do
       }
 
       assert {:ok, _written} = ReadCache.through(mutation, fn -> {:ok, %{status: 200, body: %{"data" => %{}}}} end)
-      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(mine, fn -> {:ok, %{status: 200, body: "second"}} end)
+      assert {:ok, %{body: "second"}} = ReadCache.through(other, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
     test "a REST write retires the number it names" do
-      read = graphql("comment_poll_batch", safe_document(2073))
+      read = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
 
       write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2073/comments", body: %{}}
@@ -273,33 +281,75 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
-    test "an invalidation written during a fetch retires the entry that fetch deposits" do
-      # The write-after-invalidate race. Markers are timestamps rather than
-      # deletions precisely so a slow read cannot re-deposit state a mutation
-      # has already superseded.
-      request = graphql("comment_poll_batch", safe_document(2073))
+    test "an invalidation written during a slow fetch retires the entry that fetch deposits" do
+      # The write-after-invalidate race, and the delay is the whole test.
+      #
+      # An earlier version of this invalidated inside a fetch that returned
+      # instantly, so the marker and the deposit landed in the same millisecond
+      # and `marked_at >= deposited_at` passed for the wrong reason. It went
+      # green against code that stamped entries at fetch *return*, where the
+      # property does not hold at all: a real GitHub read takes hundreds of
+      # milliseconds, so every mutation landing mid-cycle would have been
+      # overwritten by the response that was already in flight.
+      #
+      # The sleep is what separates the marker from the deposit. Without the
+      # fix in `read_through/5` — stamping at fetch start — this serves
+      # "raced".
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, _response} =
                ReadCache.through(request, fn ->
                  ReadCache.invalidate_number(@repo, 2073)
+                 Process.sleep(25)
                  {:ok, %{status: 200, body: "raced"}}
                end)
 
       assert {:ok, %{body: "fresh"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "fresh"}} end)
     end
+
+    test "a slow fetch that races nothing is still deposited and served" do
+      # The guard above must not be bought by refusing to cache slow reads. A
+      # read with no marker against it is a hit however long it took.
+      request = graphql("issue_relationships", safe_document(2088))
+
+      assert {:ok, _response} =
+               ReadCache.through(request, fn ->
+                 Process.sleep(25)
+                 {:ok, %{status: 200, body: "slow"}}
+               end)
+
+      assert {:ok, %{body: "slow"}} = ReadCache.through(request, fn -> flunk("an unraced read must still be cached") end)
+    end
+
+    test "an entry is dated from when its fetch started, not when it returned" do
+      # The TTL measures the age of the data, and the data is as old as the
+      # request that asked for it. A 40ms fetch under a 30s TTL must expire
+      # 40ms sooner than one that answered instantly, not later.
+      request = graphql("issue_relationships", safe_document(2099))
+
+      assert {:ok, _response} =
+               ReadCache.through(request, fn ->
+                 Process.sleep(40)
+                 {:ok, %{status: 200, body: "slow"}}
+               end)
+
+      [{_key, _response, deposited_at}] = :ets.tab2list(:aiur_github_read_cache_entries)
+
+      assert System.monotonic_time(:millisecond) - deposited_at >= 40
+    end
   end
 
   describe "metrics" do
     test "counts hits, misses and deposits by class and by caller" do
-      request = graphql("comment_poll_batch", safe_document(2073))
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
       assert {:ok, _two} = ReadCache.through(request, fn -> flunk("hit") end)
 
       snapshot = Metrics.snapshot()
 
-      assert %{hit: 1, miss: 1, deposit: 1} = snapshot.classes[:comments]
-      assert %{hit: 1, miss: 1, deposit: 1} = snapshot.callers["comment_poll_batch"]
+      assert %{hit: 1, miss: 1, deposit: 1} = snapshot.classes[:issue_graph]
+      assert %{hit: 1, miss: 1, deposit: 1} = snapshot.callers["issue_relationships"]
     end
 
     test "counts a refusal against its caller with a reason, not as a miss" do
@@ -346,12 +396,49 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert :unclassified in Policy.no_cache_reasons()
     end
 
+    test "declares no class that identity cannot reach" do
+      # A TTL row for a resource identity cannot name is a claimed saving that
+      # can never happen. `:viewer` and `:org` were exactly that: repo-less
+      # reads that refuse at `:no_identity` long before a TTL is consulted.
+      # This asserts the table cannot drift back into advertising them.
+      viewer = %{method: :post, url: "https://api.github.com/graphql", body: %{"query" => "query Q { viewer { login } }", "variables" => %{}}, caller: "bot_identity"}
+      teams = rest("https://api.github.com/orgs/aiur-team/teams/reviewers/members?per_page=100")
+
+      assert {:no_cache, :no_identity} = Policy.classify(viewer)
+      assert {:no_cache, :no_identity} = Policy.classify(teams)
+      refute :viewer in Policy.classes()
+      refute :org in Policy.classes()
+    end
+
+    test "a repository file read is not mistaken for a CODEOWNERS read" do
+      # `/contents/` once bought a five-minute TTL for any file in the repo. The
+      # only caller of one is `CIReadiness` listing `.github/workflows`, which
+      # is CI configuration — the family this cache refuses outright.
+      workflows = rest("https://api.github.com/repos/aiur-team/aiur/contents/.github/workflows?ref=main")
+
+      assert {:no_cache, reason} = Policy.classify(workflows)
+      assert reason in [:unsafe_kind, :unclassified]
+      refute :code_owners in Policy.classes()
+    end
+
+    test "caches a numbered comment read but not the repo-wide comment stream" do
+      # The stream already revalidates with an ETag, so holding its body would
+      # trade a free 304 for staleness.
+      assert {:cache, :comments, _ttl} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100"))
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
+    end
+
+    test "a declared cacheable caller is still refused on unsafe content" do
+      assert {:cache, :issue_graph, _ttl} = Policy.classify(graphql("issue_relationships", safe_document(2073)))
+      assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("issue_relationships", ci_document()))
+    end
+
     test "no default TTL outruns the tightest cadence a caller can be polling on" do
       # A cache at the chokepoint overrides freshness the call site thought it
-      # controlled. Everything but the viewer's own login stays at or below the
-      # Build Order detail freshness derived from the default poll interval.
-      for class <- Policy.classes() -- [:viewer] do
-        assert Policy.ttl_ms(class) <= 5 * 60_000
+      # controlled. Every class stays at or below the Build Order detail
+      # freshness derived from the default poll interval.
+      for class <- Policy.classes() do
+        assert Policy.ttl_ms(class) <= 30_000
       end
 
       assert Policy.ttl_ms(:issue_graph) <= 30_000
@@ -362,8 +449,8 @@ defmodule Aiur.GitHub.ReadCacheTest do
       previous = Application.get_env(:aiur, :github_read_cache_ttls)
       on_exit(fn -> if previous, do: Application.put_env(:aiur, :github_read_cache_ttls, previous), else: Application.delete_env(:aiur, :github_read_cache_ttls) end)
 
-      Application.put_env(:aiur, :github_read_cache_ttls, %{comments: 0})
-      request = graphql("comment_poll_batch", safe_document(2073))
+      Application.put_env(:aiur, :github_read_cache_ttls, %{issue_graph: 0})
+      request = graphql("issue_relationships", safe_document(2073))
 
       assert {:no_cache, :disabled} = Policy.classify(request)
       assert 2 = counted_fetches(request)
