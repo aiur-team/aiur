@@ -765,10 +765,15 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert {:ok,
             %{
               results: [
+                # `draft?` is pinned here on purpose. It is read off the listing
+                # entry (`pr_draft?/1`), never off the PATCH response, so a
+                # fixture losing `"draft" => true` would otherwise flip this to
+                # false with every assertion still green.
                 %{
                   decision: :pending,
                   head_sha: "unchanged-head",
-                  pending_reason: :base_repair_ci_revalidation_required
+                  pending_reason: :base_repair_ci_revalidation_required,
+                  draft?: true
                 }
               ]
             }} =
@@ -786,7 +791,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 %{
                   decision: :passed,
                   head_sha: "unchanged-head",
-                  base_repair_revalidated: true
+                  base_repair_revalidated: true,
+                  draft?: true
                 }
               ]
             }} =
