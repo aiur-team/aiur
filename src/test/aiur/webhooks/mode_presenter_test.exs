@@ -11,7 +11,8 @@ defmodule Aiur.Webhooks.ModePresenterTest do
   end
 
   defp degraded(repo) do
-    {mode, :degraded} = repo |> proven() |> DeliveryMode.sweep(DateTime.add(@delivered_at, 3_600, :second), 900_000)
+    {corroborated, :none} = repo |> proven() |> DeliveryMode.record_activity(DateTime.add(@delivered_at, 1_800, :second))
+    {mode, :degraded} = DeliveryMode.sweep(corroborated, DateTime.add(@delivered_at, 3_600, :second), 900_000)
     mode
   end
 

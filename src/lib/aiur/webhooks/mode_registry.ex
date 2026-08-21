@@ -54,6 +54,36 @@ defmodule Aiur.Webhooks.ModeRegistry do
     GenServer.call(server, {:record_delivery, repo, at})
   end
 
+  @doc """
+  Records that the poller observed repository activity for `repo`.
+
+  This is the corroboration the silence sweep needs: it never promotes a repo
+  to webhook mode, and its only effect is to let a genuine delivery failure be
+  told apart from an idle repository. See `Aiur.Webhooks.DeliveryMode`.
+  """
+  @spec record_activity(String.t(), keyword()) :: {:ok, DeliveryMode.t()}
+  def record_activity(repo, opts \\ []) when is_binary(repo) do
+    {server, opts} = Keyword.pop(opts, :server, __MODULE__)
+    at = Keyword.get(opts, :at) || DateTime.utc_now()
+    GenServer.call(server, {:record_activity, repo, Keyword.get(opts, :observation), at})
+  end
+
+  @doc """
+  Records observed activity without waiting for the registry to answer.
+
+  This is what the publish path uses. Activity is bookkeeping for an alert that
+  fires on a 60s sweep, so it is never worth blocking an event publish on a
+  registry round trip — and a synchronous call there would put this process's
+  mailbox on the critical path of every polled event. Ordering is safe without
+  the reply because activity timestamps only ever move forwards.
+  """
+  @spec record_activity_async(String.t(), keyword()) :: :ok
+  def record_activity_async(repo, opts \\ []) when is_binary(repo) do
+    {server, opts} = Keyword.pop(opts, :server, __MODULE__)
+    at = Keyword.get(opts, :at) || DateTime.utc_now()
+    GenServer.cast(server, {:record_activity, repo, Keyword.get(opts, :observation), at})
+  end
+
   @doc "Current mode for `repo`. Unknown repos read back as never-configured."
   @spec mode(String.t(), server()) :: DeliveryMode.t()
   def mode(repo, server \\ __MODULE__) when is_binary(repo) do
@@ -111,6 +141,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       silence_threshold_ms: Keyword.get(opts, :silence_threshold_ms) || settings.silence_threshold_seconds * 1_000,
       sweep_interval_ms: Keyword.get(opts, :sweep_interval_ms) || settings.sweep_interval_seconds * 1_000,
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      observed: %{},
       sweep_timer: nil
     }
 
@@ -121,10 +152,24 @@ defmodule Aiur.Webhooks.ModeRegistry do
     opts
     |> Keyword.get(:configured_repos, settings.repos)
     |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
+    |> Enum.map(&normalize/1)
     |> Enum.reject(&(&1 == ""))
     |> Map.new(&{&1, DeliveryMode.new(&1, configured?: true)})
   end
+
+  # GitHub repository names are case-insensitive, and the two pipes that feed
+  # this registry disagree on case: a delivery is keyed by the payload's
+  # `repository.full_name` (whatever case GitHub sent) while configuration and
+  # the poller supply their own. `Normalizer.tracked_repo/2` already downcases
+  # *to compare*, which is the codebase acknowledging these strings differ.
+  #
+  # Without one canonical key the same repository becomes two entries, and they
+  # fail in opposite directions: the delivery-cased one is webhook_backed and
+  # never sees activity so it can never degrade, while the config-cased one has
+  # zero deliveries and accumulating activity so it raises a false
+  # `webhook.never_delivered`. Every key crossing this process is therefore
+  # normalized here, at the one boundary all of them pass through.
+  defp normalize(repo) when is_binary(repo), do: repo |> String.trim() |> String.downcase()
 
   # Config is unavailable in some boot and test contexts. Falling back to the
   # schema defaults keeps the registry startable there, and the defaults are
@@ -142,6 +187,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   @impl true
   def handle_call({:record_delivery, repo, at}, _from, state) do
+    repo = normalize(repo)
     current = fetch(state, repo)
     {updated, transition} = DeliveryMode.record_delivery(current, at)
     announce(state, updated, transition)
@@ -149,9 +195,20 @@ defmodule Aiur.Webhooks.ModeRegistry do
     {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
   end
 
-  def handle_call({:mode, repo}, _from, state), do: {:reply, fetch(state, repo), state}
+  def handle_call({:record_activity, repo, observation, at}, _from, state) do
+    repo = normalize(repo)
+
+    case record_activity_on_known_repo(state, repo, observation, at) do
+      {:ok, updated, state} -> {:reply, {:ok, updated}, state}
+      {:replay, state} -> {:reply, {:ok, fetch(state, repo)}, state}
+      :unknown -> {:reply, {:ok, fetch(state, repo)}, state}
+    end
+  end
+
+  def handle_call({:mode, repo}, _from, state), do: {:reply, state |> fetch(normalize(repo)), state}
 
   def handle_call({:configure, repo, configured?}, _from, state) do
+    repo = normalize(repo)
     {updated, _transition} = state |> fetch(repo) |> DeliveryMode.configure(configured?)
     {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
   end
@@ -166,6 +223,62 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   def handle_call(:silence_threshold_ms, _from, state), do: {:reply, state.silence_threshold_ms, state}
+
+  @impl true
+  def handle_cast({:record_activity, repo, observation, at}, state) do
+    case record_activity_on_known_repo(state, normalize(repo), observation, at) do
+      {:ok, _updated, state} -> {:noreply, state}
+      {:replay, state} -> {:noreply, state}
+      :unknown -> {:noreply, state}
+    end
+  end
+
+  # Activity corroborates a mode; it never creates one. The publish path offers
+  # activity for every polled resource, so recording through `fetch/2`'s
+  # `Map.get_lazy` would mint a `never_configured` row for any repo the poller
+  # touches and fill `list/1` and the CLI table with entries that can never
+  # alert. A repo the registry has never heard of has no webhook expectation to
+  # corroborate — config seeds the configured ones, and a delivery creates the
+  # proven ones, so anything still unknown here is genuinely not our business.
+  #
+  # Novelty is decided here rather than in the publish path because this is the
+  # only place that is structurally able to decide it. The poller re-offers old
+  # resources on every sweep by design, and the traffic that matters most —
+  # events the fleet filters — is never published, so it is never marked
+  # processed and never enters the publish dedup window. Both of those stores
+  # are therefore blind to exactly the traffic that needs deduplicating, and
+  # inferring novelty from a store that the path in question never writes to is
+  # the mistake this guard exists to stop repeating.
+  defp record_activity_on_known_repo(state, repo, observation, at) do
+    case Map.fetch(state.repos, repo) do
+      {:ok, mode} ->
+        record_novel_activity(state, repo, mode, observation, at)
+
+      :error ->
+        :unknown
+    end
+  end
+
+  # A `nil` observation has no stable identity to compare, so it always counts.
+  defp record_novel_activity(state, repo, mode, nil, at) do
+    {updated, _transition} = DeliveryMode.record_activity(mode, at)
+    {:ok, updated, put_in(state.repos[repo], updated)}
+  end
+
+  defp record_novel_activity(state, repo, mode, observation, at) do
+    key = {repo, observation}
+    seen? = Map.has_key?(state.observed, key)
+    # Refreshed on every sighting, so a resource the poller keeps re-offering
+    # never ages out and never gets counted a second time.
+    state = put_in(state.observed[key], System.monotonic_time(:millisecond))
+
+    if seen? do
+      {:replay, state}
+    else
+      {updated, _transition} = DeliveryMode.record_activity(mode, at)
+      {:ok, updated, put_in(state.repos[repo], updated)}
+    end
+  end
 
   @impl true
   def handle_info(:sweep, state) do
@@ -184,7 +297,18 @@ defmodule Aiur.Webhooks.ModeRegistry do
         {Map.put(acc, repo, updated), if(transition == :degraded, do: [repo | degraded], else: degraded)}
       end)
 
-    {%{state | repos: repos}, Enum.sort(degraded)}
+    {%{state | repos: repos, observed: prune_observed(state)}, Enum.sort(degraded)}
+  end
+
+  # Observation memory only has to outlive the window a replay could span, so
+  # it is dropped a full silence threshold after a resource was last offered.
+  # Anything the poller is still re-offering refreshes on every sighting and so
+  # never reaches this, which bounds the map to what the fleet is actively
+  # looking at rather than everything it has ever seen.
+  defp prune_observed(state) do
+    horizon = System.monotonic_time(:millisecond) - 2 * state.silence_threshold_ms
+
+    Map.reject(state.observed, fn {_key, seen_at} -> seen_at < horizon end)
   end
 
   defp schedule_sweep(state) do
@@ -195,15 +319,41 @@ defmodule Aiur.Webhooks.ModeRegistry do
   defp fetch(state, repo), do: Map.get_lazy(state.repos, repo, fn -> DeliveryMode.new(repo) end)
 
   # The degradation alert names the repo because an operator reading "webhooks
-  # degraded" across a multi-repo fleet cannot act on it otherwise.
-  defp announce(state, %DeliveryMode{repo: repo}, :degraded) do
+  # degraded" across a multi-repo fleet cannot act on it otherwise, and it
+  # carries the evidence that justified it — deliveries seen, when the last one
+  # arrived, and the observed activity that proves one was owed. An alert that
+  # only says "silent" cannot be told apart from an idle weekend, and an
+  # operator who has been shown enough false ones stops reading the true one.
+  defp announce(state, %DeliveryMode{repo: repo} = mode, :degraded) do
     seconds = div(state.silence_threshold_ms, 1_000)
 
     emit(
       state,
       "webhook.degraded",
-      "#{repo} webhook silent for over #{seconds}s — reverting to full polling",
-      reason: "No verified webhook delivery for #{repo} within the silence threshold. Aiur restored full polling for that repo automatically; check the webhook secret, App install, and ingress.",
+      "#{repo} delivered nothing for over #{seconds}s while the poller saw activity — reverting to full polling",
+      reason:
+        "#{repo} had #{mode.delivery_count} verified #{plural(mode.delivery_count, "delivery", "deliveries")}, the last at #{stamp(mode.last_delivery_at)}, " <>
+          "but the poller observed repository activity at #{stamp(mode.last_activity_at)} that no delivery carried. " <>
+          "Aiur restored full polling for that repo automatically. The webhook worked before, so check ingress reachability first (a public URL that has stopped resolving or a tunnel that is down), then the App install.",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  # The state an ingress that was never publicly reachable produces. It is
+  # distinct from degradation — nothing has ever arrived, so there is no
+  # "resumed delivery" to wait for — and distinct from an unconfigured repo,
+  # which is a deliberate choice rather than a broken one.
+  defp announce(state, %DeliveryMode{repo: repo} = mode, :never_delivered) do
+    emit(
+      state,
+      "webhook.never_delivered",
+      "#{repo} is configured for webhooks but has never delivered once",
+      reason:
+        "#{repo} expects webhooks and the poller observed repository activity at #{stamp(mode.last_activity_at)}, " <>
+          "yet not one verified delivery has ever arrived for it. This is a setup that has never worked, not one that stopped: " <>
+          "Aiur is polling this repo at full rate. Confirm the receiver is reachable from the public internet — a tailnet-only or " <>
+          "loopback-bound dashboard cannot receive GitHub deliveries at all — then confirm the App webhook URL and secret.",
       needs_attention: true,
       severity: "warning"
     )
@@ -221,6 +371,12 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   defp announce(_state, _mode, _transition), do: :ok
+
+  defp stamp(%DateTime{} = at), do: DateTime.to_iso8601(at)
+  defp stamp(_never), do: "never"
+
+  defp plural(1, singular, _plural), do: singular
+  defp plural(_count, _singular, plural), do: plural
 
   defp emit(state, name, message, opts) do
     state.alert_fun.(name, message, opts)

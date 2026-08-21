@@ -27,11 +27,38 @@ defmodule Aiur.Webhooks do
     :ok
   end
 
+  @doc """
+  Records that the poller observed repository activity for `repo`.
+
+  Corroboration for the silence sweep, never proof of a working webhook. Safe
+  to call unconditionally: it returns `:ok` even when no registry is running.
+
+  `:observation` identifies *which* event was seen — normally the resource key.
+  The poller re-offers the same resources on every sweep by design, so the
+  registry counts each distinct observation once and treats the repeats as the
+  replays they are. An omitted observation has no stable identity to compare
+  and is always counted.
+
+  Fire-and-forget, because the caller is the event publish path and an alert
+  that fires on a 60s sweep must never put a registry round trip on it.
+  """
+  @spec record_activity(String.t(), keyword()) :: :ok
+  def record_activity(repo, opts \\ []) when is_binary(repo) do
+    safely(fn -> ModeRegistry.record_activity_async(repo, opts) end, :ok)
+    :ok
+  end
+
   @doc "Current mode for `repo`, defaulting to a never-configured polling repo."
   @spec mode(String.t(), keyword()) :: DeliveryMode.t()
   def mode(repo, opts \\ []) when is_binary(repo) do
     server = Keyword.get(opts, :server, ModeRegistry)
-    safely(fn -> ModeRegistry.mode(repo, server) end, DeliveryMode.new(repo))
+
+    # The fallback is built here rather than taken from the registry, so it has
+    # to canonicalize the repo itself or a registry-down read would report a
+    # `.repo` in a different case than the same read with the registry up.
+    fallback = repo |> String.trim() |> String.downcase() |> DeliveryMode.new()
+
+    safely(fn -> ModeRegistry.mode(repo, server) end, fallback)
   end
 
   @doc "Transport serving `repo`. Always `:polling` unless the repo is proven."
