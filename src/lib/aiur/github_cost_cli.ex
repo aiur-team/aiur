@@ -18,6 +18,11 @@ defmodule Aiur.GitHubCostCLI do
   Nothing here is a percentage of success. A caller either accounts for spend or
   it does not, and an unmeasured remainder is named as unmeasured rather than
   averaged into the rows that were measured.
+
+  `schema_version` is `2` on every envelope, including the single-credential
+  default where the payload is byte-identical to version 1. The version states
+  what this command's schema *can* contain, not what one payload happens to
+  contain. Consumers should branch on whether `data.credentials` is present.
   """
 
   alias Aiur.GitHub.CredentialUsage

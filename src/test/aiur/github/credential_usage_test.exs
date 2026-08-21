@@ -139,6 +139,49 @@ defmodule Aiur.GitHub.CredentialUsageTest do
     end
   end
 
+  describe "single-credential reports are unchanged" do
+    setup %{opts: opts} do
+      [primary, _spare] = Keyword.fetch!(opts, :credentials)
+
+      %{solo: Keyword.put(opts, :credentials, [primary])}
+    end
+
+    test "github-usage omits the credential and pool sections entirely", %{solo: solo, actors: actors} do
+      {:ok, envelope} = Aiur.GitHubUsageCLI.build(Keyword.put(solo, :usage_fun, fn -> %{actors: actors} end))
+
+      refute Map.has_key?(envelope["data"], "credentials")
+      refute Map.has_key?(envelope["data"], "pool")
+      assert Map.has_key?(envelope["data"], "actors")
+    end
+
+    test "github-usage prints no pool line", %{solo: solo, actors: actors} do
+      output = capture_io(fn -> Aiur.GitHubUsageCLI.run(Keyword.put(solo, :usage_fun, fn -> %{actors: actors} end)) end)
+
+      refute output =~ "pool"
+      refute output =~ "Credentials ("
+    end
+
+    test "github-cost omits the credential and pool-reconciliation sections", %{solo: solo} do
+      snapshot = %{state: :observed, windows: %{}, callers: [], reconciliation: %{}}
+
+      {:ok, envelope} = Aiur.GitHubCostCLI.build(Keyword.put(solo, :snapshot_fun, fn -> snapshot end))
+
+      refute Map.has_key?(envelope["data"], "credentials")
+      refute Map.has_key?(envelope["data"], "pool_reconciliation")
+    end
+
+    # The pre-existing guarantee this whole feature had to preserve: an
+    # unobserved meter says nothing observed and never mentions reconciliation.
+    test "github-cost on an unobserved meter still says nothing observed", %{solo: solo} do
+      snapshot = %{state: :unknown, windows: %{}, callers: [], reconciliation: %{}}
+
+      output = capture_io(fn -> Aiur.GitHubCostCLI.run(Keyword.put(solo, :snapshot_fun, fn -> snapshot end)) end)
+
+      assert output =~ "No GitHub API calls have been attributed in the current window."
+      refute output =~ "reconcil"
+    end
+  end
+
   describe "aiur github-cost" do
     test "refuses a pool delta while any credential is unobserved", %{opts: opts} do
       snapshot = %{

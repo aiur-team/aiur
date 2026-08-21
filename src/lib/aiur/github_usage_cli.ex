@@ -13,6 +13,14 @@ defmodule Aiur.GitHubUsageCLI do
   `used`/`limit` here count admissions. Point-accurate attribution stays with
   `aiur github-cost`; the per-actor report is the coarser guard that stops one
   actor from exhausting the shared hourly budget and 429ing everyone else.
+
+  `schema_version` is `2` on every envelope, including the single-credential
+  default where the payload is byte-identical to version 1. The version states
+  what this command's schema *can* contain, not what one payload happens to
+  contain — making it track the operator's credential count would mean one
+  binary emitting two versions of one schema, and a consumer watching the number
+  flip when someone edits a config file. Consumers should branch on whether
+  `data.credentials` is present, which is the honest signal.
   """
 
   alias Aiur.GitHub.Budget
@@ -140,9 +148,9 @@ defmodule Aiur.GitHubUsageCLI do
     print_pool(envelope["data"]["pool"])
   end
 
-  # Printed even with one credential: "one credential" is itself the answer to
-  # "why did the whole budget come from one account", and it is the state the
-  # pool exists to change.
+  # Absent unless the envelope carries a credential section, which `envelope/2`
+  # adds only when more than one credential is configured. With one credential
+  # the per-actor table above is the whole answer and this prints nothing.
   defp print_credentials(credentials) when is_list(credentials) and credentials != [] do
     IO.puts("")
     IO.puts("Credentials (admissions are Aiur's request counts; window is GitHub's own figure for that credential)")

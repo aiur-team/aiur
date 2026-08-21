@@ -52,7 +52,7 @@ defmodule Aiur.GitHub.CredentialRegistry do
   def configured(opts \\ []) do
     case Keyword.fetch(opts, :credentials) do
       {:ok, credentials} when is_list(credentials) -> credentials
-      _absent -> [legacy_credential() | Enum.map(configured_entries(), &from_schema/1)]
+      _absent -> [legacy_credential(opts) | Enum.map(configured_entries(opts), &from_schema/1)]
     end
   end
 
@@ -96,28 +96,54 @@ defmodule Aiur.GitHub.CredentialRegistry do
   so a report can distinguish an App installation from a PAT even when no
   `credentials:` list exists.
   """
-  @spec legacy_credential() :: Credential.t()
-  def legacy_credential do
+  @spec legacy_credential(keyword()) :: Credential.t()
+  def legacy_credential(opts \\ []) do
+    identity_fun = Keyword.get(opts, :identity_fun, &GitHubConfig.bot_account/0)
+
     %Credential{
       id: @legacy_id,
       kind: if(AppCredentials.configured?(), do: :app_installation, else: :machine_user),
-      identity: GitHubConfig.bot_account(),
+      # Reporting only — nothing selects on it — so a config read that cannot
+      # answer right now yields `nil` rather than taking the request with it.
+      identity: safely(identity_fun, nil),
       source: :legacy,
       writes?: true,
       primary?: true
     }
   end
 
-  defp configured_entries do
-    case Config.settings() do
+  defp configured_entries(opts) do
+    settings_fun = Keyword.get(opts, :settings_fun, &Config.settings/0)
+
+    safely(fn -> credentials_from_config(settings_fun) end, [])
+  end
+
+  defp credentials_from_config(settings_fun) do
+    case settings_fun.() do
       {:ok, %{tracker: %{github: %{credentials: credentials}}}} when is_list(credentials) ->
         Enum.reject(credentials, &(&1.enabled == false))
 
       _unavailable ->
         []
     end
+  end
+
+  # Both failure modes, deliberately. `Aiur.Config.settings/0` reaches a
+  # `GenServer.call` into `Aiur.WorkflowStore`, which throws an **exit** on
+  # timeout rather than raising, and `Aiur.GitHub.Config.bot_account/0` goes
+  # through `settings!/0`, which **raises** when the config is unavailable. A
+  # guard that catches one and not the other reads as safe and is not.
+  #
+  # This matters more than it looks: the registry is consulted on every GitHub
+  # request through `pooled?/1`, so an unguarded config read here would turn a
+  # transiently unreadable config into a failed API call rather than into a
+  # degraded credential list.
+  defp safely(fun, default) do
+    fun.()
   rescue
-    _unavailable -> []
+    _unavailable -> default
+  catch
+    :exit, _reason -> default
   end
 
   defp from_schema(entry) do
@@ -146,6 +172,14 @@ defmodule Aiur.GitHub.CredentialRegistry do
         false
     end
   end
+
+  # A missing token on the legacy credential is not news from here. It is the
+  # ordinary state of a host that has not configured GitHub at all, and
+  # `Aiur.GitHub.Config.validate!/0` already reports it precisely at boot. This
+  # module exists to explain why a *pooled* credential is absent, so warning
+  # about the default one would put a new line on the default path to say
+  # something already said better elsewhere.
+  defp warn_once(%Credential{source: :legacy}), do: :ok
 
   # One line per credential per boot, not one per request. The registry is
   # consulted on every GitHub call once pooling is on, and a warning on each

@@ -59,6 +59,11 @@ defmodule Aiur.GitHub.CredentialHeadroom do
     end
   rescue
     _error -> :ok
+  catch
+    # The docstring above promises this never takes the request down. That
+    # promise has to cover exits as well as raises, or it is only true of the
+    # failures that happen to be raises today.
+    :exit, _reason -> :ok
   end
 
   @doc """
