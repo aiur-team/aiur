@@ -282,7 +282,12 @@ defmodule Aiur.Application do
       # boot fill; it reads ETS only, so it changes nothing about the page's
       # zero-fetch property. Gated on the dashboard like the HTTP server that
       # serves the page — there is no point sampling a cache nobody can view.
-      if(dashboard?, do: Aiur.GitHub.CacheHistory),
+      #
+      # `QuotaHistory` is the sibling ring behind the same page's "what is
+      # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
+      # observations — a GenServer call, no client and no transport — so it too
+      # changes nothing about the page's zero-fetch property.
+      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.

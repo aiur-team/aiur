@@ -25,7 +25,10 @@ defmodule Aiur.GitHub.QuotaTest do
              used: 1250,
              used_percent: 25.0,
              reset_at: @reset,
-             observed_at: @now
+             observed_at: @now,
+             # The window's own span, not just its end. A consumer needs both to
+             # tell "another consumer spent this" from "I was not running yet".
+             started_at: DateTime.add(@reset, -3600, :second)
            }
 
     assert snapshot.windows["graphql"].remaining == 4400
@@ -65,6 +68,29 @@ defmodule Aiur.GitHub.QuotaTest do
     Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), response("graphql", 5000, 4400))
 
     assert Quota.snapshot(quota).windows["graphql"].remaining == 4400
+  end
+
+  test "the snapshot states how far back the meter can see" do
+    # Attribution lives in this process and dies with it, while GitHub keeps
+    # counting across a restart. Without this figure a consumer cannot tell
+    # "nobody else spent it" from "I was not running when it was spent", and
+    # would blame the daemon's own forgotten calls on somebody else.
+    booted_mid_window = start_quota(started_at: DateTime.add(@reset, -1800, :second))
+    Quota.observe(booted_mid_window, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    snapshot = Quota.snapshot(booted_mid_window)
+
+    assert snapshot.observing_since == DateTime.add(@reset, -1800, :second)
+    assert DateTime.compare(snapshot.observing_since, snapshot.windows["core"].started_at) == :gt
+  end
+
+  test "a meter cannot claim to see further back than the rolling attribution window" do
+    # A long-lived daemon still only retains an hour of observations, so its
+    # reach is bounded by the rolling window rather than by its uptime.
+    long_lived = start_quota(started_at: DateTime.add(@now, -86_400, :second))
+    Quota.observe(long_lived, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    snapshot = Quota.snapshot(long_lived)
+
+    assert snapshot.observing_since == DateTime.add(@now, -3600, :second)
   end
 
   test "the low-water crossing alerts once per resource window and names the reset" do
