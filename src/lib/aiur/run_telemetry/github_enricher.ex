@@ -292,7 +292,10 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     else
       author_down = String.downcase(author)
 
-      [owner, Config.bot_account() | Config.trusted_accounts()]
+      # Mirrors `Aiur.GitHub.CodeOwners`'s allowlist, which is what this branch
+      # stands in for when that process is not running — so it carries both Aiur
+      # logins for the same reason: a comment from either is Aiur's own.
+      [owner, Config.daemon_account(), Config.bot_account() | Config.trusted_accounts()]
       |> Enum.filter(&is_binary/1)
       |> Enum.any?(&(String.downcase(&1) == author_down))
     end

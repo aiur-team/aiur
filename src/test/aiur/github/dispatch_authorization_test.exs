@@ -79,6 +79,63 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     refute denied.dispatch_authorized?
   end
 
+  # SPLIT IDENTITY — the state label above is written with the *daemon's*
+  # credential, so under GitHub App auth the timeline actor is the App bot, not
+  # the account agents publish under. Every carry-forward test above uses one
+  # login for both roles, which is the blind spot that let the original
+  # conflation hide: with a single identity, matching the wrong one still
+  # matches. Here the two logins differ, so only a union answers correctly.
+  # Getting this wrong denies authorization on each ticket's first transition
+  # and `Orchestrator.Reconciler` kills the running agent.
+  test "SPLIT IDENTITY: a daemon App-bot state transition does not revoke a human-triaged ticket" do
+    events = [
+      labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "aiur-daemon[bot]", "2026-01-02T00:00:00Z")
+    ]
+
+    authorized =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"],
+        bot_account: "its-applekid",
+        daemon_account: "aiur-daemon[bot]"
+      )
+
+    assert authorized.dispatch_authorized?
+  end
+
+  # The other half of the union: an agent moving a label with its own
+  # credential appears as the bot account, and that must carry forward too.
+  test "SPLIT IDENTITY: an agent-applied state label also carries the triage decision forward" do
+    events = [
+      labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "its-applekid", "2026-01-02T00:00:00Z")
+    ]
+
+    authorized =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"],
+        bot_account: "its-applekid",
+        daemon_account: "aiur-daemon[bot]"
+      )
+
+    assert authorized.dispatch_authorized?
+  end
+
+  # Widening to a union must not widen who counts as Aiur. A third party is
+  # still a third party, and "latest applier wins" still revokes.
+  test "SPLIT IDENTITY: an outsider relabel still revokes under a split identity" do
+    events = [
+      labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "its-everdred", "2026-01-02T00:00:00Z")
+    ]
+
+    denied =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"],
+        bot_account: "its-applekid",
+        daemon_account: "aiur-daemon[bot]"
+      )
+
+    refute denied.dispatch_authorized?
+  end
+
   test "an agent-filed ticket with no trigger-label event at all is denied" do
     denied = authorize_with_events(issue(creator_login: "aiur-bot"), [], ["aiur-bot"])
 

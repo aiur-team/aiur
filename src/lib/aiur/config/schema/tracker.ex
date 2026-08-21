@@ -3,6 +3,7 @@ defmodule Aiur.Config.Schema.Github do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.Schema.GithubApp
   alias Aiur.Config.Schema.GithubCredential
 
   @max_planning_root_limit 100
@@ -21,6 +22,9 @@ defmodule Aiur.Config.Schema.Github do
   embedded_schema do
     field(:repo, :string)
     field(:label_prefix, :string, default: "agent")
+    # The login **agents** publish as: the account that pushes branches and
+    # opens pull requests. Separate from the daemon's App identity below — see
+    # `Aiur.Config.Schema.GithubApp`.
     field(:bot_account, :string)
     field(:trusted_accounts, {:array, :string}, default: [])
     field(:allowed_users, {:array, :string}, default: [])
@@ -44,6 +48,10 @@ defmodule Aiur.Config.Schema.Github do
     # Additional GitHub credentials the daemon may spread API load across. An
     # empty list is the single-credential default and changes nothing.
     embeds_many(:credentials, GithubCredential, on_replace: :delete)
+    # Optional. Present only when the daemon authenticates as a GitHub App and
+    # therefore writes under a login the agents do not hold. Absent is the
+    # single-identity default: everything resolves to `bot_account`.
+    embeds_one(:github_app, GithubApp, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -86,6 +94,7 @@ defmodule Aiur.Config.Schema.Github do
       :agent_graphql_limit_per_hour
     ])
     |> cast_embed(:credentials, with: &GithubCredential.changeset/2)
+    |> cast_embed(:github_app, with: &GithubApp.changeset/2)
     |> validate_unique_credential_ids()
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
