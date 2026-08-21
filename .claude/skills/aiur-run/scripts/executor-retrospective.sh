@@ -509,27 +509,88 @@ record() {
   printf '%s\n' "$event"
 }
 
+# Probe a candidate base URL. Any HTTP status (including 401 from the
+# dashboard's basic auth) proves something is listening and speaking HTTP;
+# only a transport failure disqualifies the candidate.
+dashboard_url_live() {
+  local candidate="$1" curl_bin code
+  curl_bin="$(command -v curl || true)"
+  # Without curl we cannot disprove the candidate, so accept it and let the
+  # capture script produce the real error.
+  [ -n "$curl_bin" ] || return 0
+  code="$("$curl_bin" -s -o /dev/null -m 5 -w '%{http_code}' "$candidate/" 2>/dev/null || true)"
+  case "$code" in
+    ''|000) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# Read @aiur_control_url from one tmux server. The daemon publishes it
+# best-effort (src/lib/aiur/pane_manager/anchor.ex), so an existing-but-empty
+# option is normal and must not stop discovery.
+dashboard_url_from_socket() {
+  local tmux_bin="$1" socket="$2" url
+  if [ -n "$socket" ]; then
+    url="$("$tmux_bin" -L "$socket" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  else
+    url="$("$tmux_bin" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  fi
+  case "$url" in
+    http://*|https://*) printf '%s\n' "${url%/}" ;;
+    *) return 1 ;;
+  esac
+}
+
 dashboard_url() {
-  local url tmux_bin
+  local url tmux_bin socket socket_dir port host candidate
 
   if [ -n "${AIUR_DASHBOARD_URL:-}" ]; then
-    printf '%s\n' "$AIUR_DASHBOARD_URL"
+    printf '%s\n' "${AIUR_DASHBOARD_URL%/}"
     return 0
   fi
 
   tmux_bin="$(command -v tmux || true)"
-  [ -n "$tmux_bin" ] || return 1
 
-  if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
-    url="$("$tmux_bin" -L "$AIUR_TMUX_SOCKET" show-options -gqv @aiur_control_url 2>/dev/null || true)"
-  else
-    url="$("$tmux_bin" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  if [ -n "$tmux_bin" ]; then
+    # 1. The socket the caller named, then 2. the ambient tmux server.
+    if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
+      url="$(dashboard_url_from_socket "$tmux_bin" "$AIUR_TMUX_SOCKET" || true)"
+      [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+    fi
+    url="$(dashboard_url_from_socket "$tmux_bin" '' || true)"
+    [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+
+    # 3. Any live aiur-* tmux server on this host. The Executor usually runs
+    # outside the daemon's tmux session, so the ambient server above is its
+    # own, not Aiur's; without this sweep discovery can never see the daemon.
+    socket_dir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
+    if [ -d "$socket_dir" ]; then
+      for socket in "$socket_dir"/aiur-*; do
+        [ -S "$socket" ] || continue
+        url="$(dashboard_url_from_socket "$tmux_bin" "$(basename "$socket")" || true)"
+        [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+      done
+    fi
   fi
 
-  case "$url" in
-    http://*|https://*) printf '%s\n' "$url" ;;
-    *) return 1 ;;
+  # 4. The tmux option is best-effort and is frequently published empty, so
+  # fall back to the configured bind and require a live HTTP response before
+  # returning it. This is the difference between a silent hourly skip and a
+  # real capture.
+  host="${AIUR_DASHBOARD_HOST:-127.0.0.1}"
+  case "$host" in
+    0.0.0.0|::|'') host="127.0.0.1" ;;
   esac
+  for port in "${AIUR_DASHBOARD_PORT:-}" "${AIUR_PORT:-}" 4000; do
+    [ -n "$port" ] || continue
+    candidate="http://$host:$port"
+    if dashboard_url_live "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 # Capture the four operator-facing reports and append their compact verdict to
@@ -539,10 +600,23 @@ dashboard_url() {
 # serialized.
 visual_check() {
   local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
-  [ "$#" -eq 1 ] || {
-    printf 'usage: %s visual-check\n' "$0" >&2
+  # "$@" still carries the subcommand word (the dispatcher never shifts), so
+  # $1 is "visual-check" and an operator-supplied base URL arrives as $2.
+  # Accepting that argument is what makes the documented URL override usable
+  # from the command line as well as from the environment.
+  [ "$#" -ge 1 ] && [ "$#" -le 2 ] || {
+    printf 'usage: %s visual-check [dashboard-url]\n' "$0" >&2
     return 64
   }
+  if [ "$#" -eq 2 ]; then
+    case "$2" in
+      http://*|https://*) AIUR_DASHBOARD_URL="$2" ;;
+      *)
+        printf 'usage: %s visual-check [dashboard-url]\n' "$0" >&2
+        return 64
+        ;;
+    esac
+  fi
 
   capture_script="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT:-$script_dir/../../aiur-meta/scripts/capture-dashboard.mjs}"
   if [ ! -f "$capture_script" ]; then
