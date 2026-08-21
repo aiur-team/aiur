@@ -107,10 +107,20 @@ defmodule Aiur.GitHub.Quota do
 
   @spec snapshot(GenServer.server()) :: map()
   def snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :snapshot)
+    snapshot!(server)
   catch
     :exit, _reason -> @unknown_snapshot
   end
+
+  @doc """
+  Reads the quota meter without replacing an unavailable process with an
+  unknown snapshot.
+
+  Diagnostic callers use this form when an unreachable meter must be reported
+  as an error rather than presented as an empty measurement.
+  """
+  @spec snapshot!(GenServer.server()) :: map()
+  def snapshot!(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do

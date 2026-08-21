@@ -52,13 +52,14 @@ defmodule Aiur.GitHubCostCLI do
   @doc """
   The ranking envelope, with no output of its own.
 
-  `snapshot_fun` is the seam: the default reads the live `Aiur.GitHub.Quota`,
-  and tests hand in a fixed snapshot so the rendering can be asserted without a
-  daemon.
+  `snapshot_fun` is the seam: the default strictly reads the live
+  `Aiur.GitHub.Quota`, and tests hand in a fixed snapshot so the rendering can
+  be asserted without a daemon. Unlike dashboard projections, this diagnostic
+  must fail when its meter cannot be reached.
   """
   @spec build(keyword()) :: {:ok, map()} | {:error, String.t()}
   def build(opts \\ []) do
-    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot/0)
+    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot!/0)
     budget = Keyword.get(opts, :budget, "graphql")
 
     with {:ok, snapshot} <- fetch(snapshot_fun),

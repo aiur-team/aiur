@@ -3,6 +3,7 @@ defmodule Aiur.GitHubCostCLITest do
 
   import ExUnit.CaptureIO
 
+  alias Aiur.GitHub.Quota
   alias Aiur.GitHubCostCLI
 
   @now ~U[2026-08-17 12:00:00Z]
@@ -174,9 +175,19 @@ defmodule Aiur.GitHubCostCLITest do
     assert stderr =~ "aiur: github-cost --budget accepts"
   end
 
-  test "survives a meter that is not running" do
-    assert {:error, message} = GitHubCostCLI.build(snapshot_fun: fn -> exit(:noproc) end)
+  test "fails when the production meter cannot be reached" do
+    meter = Process.whereis(Quota)
+    assert is_pid(meter)
+    assert Process.unregister(Quota)
 
+    result =
+      try do
+        GitHubCostCLI.build()
+      after
+        assert Process.register(meter, Quota)
+      end
+
+    assert {:error, message} = result
     assert message =~ "not running"
   end
 
