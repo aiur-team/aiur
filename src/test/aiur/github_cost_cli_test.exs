@@ -191,6 +191,42 @@ defmodule Aiur.GitHubCostCLITest do
     assert message =~ "not running"
   end
 
+  test "reads reported GraphQL attribution from the production meter" do
+    request = %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "secret",
+      caller: :github_cost_live_test,
+      body: %{"query" => "query CostTest { viewer { login } }", "variables" => %{}}
+    }
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [],
+         body: %{
+           "data" => %{
+             "rateLimit" => %{
+               "cost" => 37,
+               "limit" => 5000,
+               "remaining" => 4963,
+               "resetAt" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+             }
+           }
+         }
+       }}
+
+    Quota.observe(request, response)
+
+    assert {:ok, envelope} = GitHubCostCLI.build()
+    assert caller = Enum.find(envelope["data"]["callers"], &(&1["caller"] == "github_cost_live_test"))
+    assert caller["resource"] == "graphql"
+    assert caller["points"] == 37
+    assert caller["calls"] == 1
+    assert caller["estimated?"] == false
+  end
+
   test "emits a machine-readable envelope under --json" do
     output = capture_io(fn -> assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, json: true) end)
 
