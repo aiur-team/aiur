@@ -59,7 +59,7 @@ defmodule Aiur.WorkflowStore do
   @spec current() :: {:ok, Workflow.loaded_workflow()} | {:error, term()}
   def current do
     case Cache.fetch(Workflow.workflow_file_path()) do
-      {:ok, workflow, _generation} ->
+      {:ok, workflow, _generation, _publication} ->
         {:ok, workflow}
 
       # The cache holds a config loaded from a different path — a reload that
@@ -83,7 +83,7 @@ defmodule Aiur.WorkflowStore do
           {:ok, Workflow.loaded_workflow(), pos_integer() | :unknown} | {:error, term()}
   def current_with_generation do
     case Cache.fetch(Workflow.workflow_file_path()) do
-      {:ok, workflow, generation} ->
+      {:ok, workflow, generation, _publication} ->
         {:ok, workflow, generation}
 
       {:stale, _cached_path} ->
@@ -97,8 +97,34 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  @doc false
+  @spec current_with_cache_identity() ::
+          {:ok, Workflow.loaded_workflow(), pos_integer() | :unknown, reference() | :unknown} | {:error, term()}
+  def current_with_cache_identity do
+    case Cache.fetch(Workflow.workflow_file_path()) do
+      {:ok, workflow, generation, publication} ->
+        {:ok, workflow, generation, publication}
+
+      {:stale, _cached_path} ->
+        load_with_unknown_cache_identity()
+
+      :error ->
+        case Process.whereis(__MODULE__) do
+          pid when is_pid(pid) ->
+            with {:ok, workflow} <- current_from(pid), do: {:ok, workflow, :unknown, :unknown}
+
+          _ ->
+            load_with_unknown_cache_identity()
+        end
+    end
+  end
+
   defp load_with_unknown_generation do
     with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
+  end
+
+  defp load_with_unknown_cache_identity do
+    with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown, :unknown}
   end
 
   # The store is a cache over one small config file, so ANY failure to reach it
