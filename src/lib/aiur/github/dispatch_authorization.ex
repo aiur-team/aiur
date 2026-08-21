@@ -115,14 +115,30 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users, _opts), do: deny_ambiguous(issue, reason)
 
-  # Aiur's own identity, never a human decision. Resolved from the configured
-  # `bot_account`; when none is configured nothing carries forward and the
-  # stricter latest-applier rule applies unchanged.
+  # Aiur's own identity, never a human decision. Both logins count, and it has
+  # to be both: the state label above is written with the *daemon's* credential,
+  # so under GitHub App auth the actor on the timeline event is the App bot —
+  # while an agent moving a label with its own credential appears as the bot
+  # account. Matching only one of them makes the other's transition read as a
+  # third party relabelling the ticket, which denies authorization and gets the
+  # running agent killed on the next reconcile. When neither is configured
+  # nothing carries forward and the stricter latest-applier rule applies
+  # unchanged.
   defp aiur_actor?(actor, opts) do
-    case Keyword.get_lazy(opts, :bot_account, &Config.bot_account/0) do
-      bot when is_binary(bot) and bot != "" -> String.downcase(String.trim(bot)) == String.downcase(String.trim(actor))
-      _unconfigured -> false
-    end
+    trimmed = actor |> String.trim() |> String.downcase()
+
+    trimmed != "" and trimmed in aiur_logins(opts)
+  end
+
+  defp aiur_logins(opts) do
+    [
+      Keyword.get_lazy(opts, :bot_account, &Config.bot_account/0),
+      Keyword.get_lazy(opts, :daemon_account, &Config.daemon_account/0)
+    ]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
   end
 
   defp fetch_decision(issue, label, prefix, owner, repo, opts) do

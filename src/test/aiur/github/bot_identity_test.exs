@@ -14,6 +14,81 @@ defmodule Aiur.GitHub.BotIdentityTest do
     :ok
   end
 
+  # SPLIT IDENTITY — a fixture for the whole suite, not one test. Every case
+  # above configures a single login for both Aiur roles, and that shape is
+  # exactly what hid the original conflation: when the two are equal, resolving
+  # the wrong one still returns the right answer. Any site still asking the
+  # wrong question only fails under a config where they differ.
+  defp write_split_identity_config! do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_bot_account: "its-applekid",
+      tracker_github_app_account: "aiur-daemon[bot]"
+    )
+  end
+
+  describe "daemon_account/3 under a split identity" do
+    test "resolves the daemon App bot, not the account agents publish as" do
+      write_split_identity_config!()
+
+      request_fun = fn _ -> flunk("viewer lookup should not run when config resolves the daemon account") end
+
+      assert BotIdentity.daemon_account([], request_fun, "token") == {:ok, "aiur-daemon[bot]"}
+      assert BotIdentity.bot_account([], request_fun, "token") == {:ok, "its-applekid"}
+    end
+
+    test "opts override config" do
+      write_split_identity_config!()
+
+      request_fun = fn _ -> flunk("viewer lookup should not run when opts provide daemon_account") end
+
+      assert BotIdentity.daemon_account([daemon_account: " other-app[bot] "], request_fun, "token") ==
+               {:ok, "other-app[bot]"}
+    end
+
+    # The viewer fallback reports what the supplied token authenticates as,
+    # which is the right answer to "who wrote this with this credential".
+    test "falls back to the token's viewer login when no daemon identity is configured" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_bot_account: nil
+      )
+
+      request_fun = fn req ->
+        assert req.body["query"] =~ "viewer"
+        {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "viewer-bot"}}}}}
+      end
+
+      assert BotIdentity.daemon_account([], request_fun, "token") == {:ok, "viewer-bot"}
+    end
+
+    # Back-compat: with no `github_app` block the daemon identity is the bot
+    # account, so a single-identity install answers exactly as it did before.
+    test "collapses to bot_account when no github_app is configured" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_bot_account: "aiur-bot"
+      )
+
+      request_fun = fn _ -> flunk("viewer lookup should not run when config resolves the daemon account") end
+
+      assert BotIdentity.daemon_account([], request_fun, "token") == {:ok, "aiur-bot"}
+    end
+  end
+
+  test "classifies both split identities as Aiur's own from config alone" do
+    write_split_identity_config!()
+
+    opts = BotIdentity.codeowners_classification_opts([])
+
+    assert Keyword.get(opts, :agent_logins) == ["its-applekid", "aiur-daemon[bot]"]
+    assert BotIdentity.agent_login?("aiur-daemon[bot]", opts)
+    refute BotIdentity.agent_login?("its-everdred", opts)
+  end
+
   test "resolves bot account from opts before config or viewer lookup" do
     request_fun = fn _ -> flunk("viewer lookup should not run when opts provide bot_account") end
 
@@ -115,5 +190,25 @@ defmodule Aiur.GitHub.BotIdentityTest do
     assert BotIdentity.normalize_optional_binary(" aiur-bot ") == "aiur-bot"
     assert BotIdentity.normalize_optional_binary(" ") == nil
     assert BotIdentity.normalize_optional_binary(nil) == nil
+  end
+
+  # Under a split identity, "not a human reviewer" covers both logins Aiur
+  # writes under. Listing only one would let the other's comment stand as a
+  # human's judgement on the change, which releases a ticket nobody reviewed.
+  test "classifies both the agent account and the daemon App bot as Aiur's own" do
+    opts = BotIdentity.codeowners_classification_opts(bot_account: "its-applekid", daemon_account: "aiur-daemon[bot]")
+
+    assert Keyword.get(opts, :agent_logins) == ["its-applekid", "aiur-daemon[bot]"]
+    assert BotIdentity.agent_login?("its-applekid", opts)
+    assert BotIdentity.agent_login?("aiur-daemon[bot]", opts)
+    refute BotIdentity.agent_login?("its-everdred", opts)
+  end
+
+  # Single-identity installs are the shipped default and must keep the exact
+  # list they had before `github_app` existed — one entry, not a duplicate pair.
+  test "collapses to one login when the daemon and the agents share an account" do
+    opts = BotIdentity.codeowners_classification_opts(bot_account: "aiur-bot", daemon_account: "aiur-bot")
+
+    assert Keyword.get(opts, :agent_logins) == ["aiur-bot"]
   end
 end

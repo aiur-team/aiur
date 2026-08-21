@@ -755,6 +755,7 @@ defmodule Aiur.TestSupport do
           tracker_repo: nil,
           tracker_label_prefix: nil,
           tracker_bot_account: nil,
+          tracker_github_app_account: nil,
           tracker_trusted_accounts: [],
           tracker_planning_root_limit: 100,
           tracker_planning_page_budget: 4,
@@ -984,6 +985,7 @@ defmodule Aiur.TestSupport do
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
+      tracker_github_app_yaml(tracker_kind, config),
       trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
       "    planning_root_limit: #{yaml_value(root_limit)}",
       "    planning_page_budget: #{yaml_value(page_budget)}",
@@ -992,6 +994,17 @@ defmodule Aiur.TestSupport do
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
+
+  # Rendered only when a case asks for it, so the default fixture exercises the
+  # optional-block path an install without a GitHub App is on.
+  defp tracker_github_app_yaml("github", config) do
+    case Keyword.get(config, :tracker_github_app_account) do
+      nil -> nil
+      account -> "    github_app:\n      account: #{yaml_value(account)}"
+    end
+  end
+
+  defp tracker_github_app_yaml(_kind, _config), do: nil
 
   defp opencode_yaml(command, bridge_port, bridge_host, serve_args, model_prefix) do
     [
