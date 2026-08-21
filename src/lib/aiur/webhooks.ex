@@ -33,6 +33,12 @@ defmodule Aiur.Webhooks do
   Corroboration for the silence sweep, never proof of a working webhook. Safe
   to call unconditionally: it returns `:ok` even when no registry is running.
 
+  `:observation` identifies *which* event was seen — normally the resource key.
+  The poller re-offers the same resources on every sweep by design, so the
+  registry counts each distinct observation once and treats the repeats as the
+  replays they are. An omitted observation has no stable identity to compare
+  and is always counted.
+
   Fire-and-forget, because the caller is the event publish path and an alert
   that fires on a 60s sweep must never put a registry round trip on it.
   """

@@ -428,24 +428,44 @@ defmodule Aiur.Events.PublisherTest do
       assert Webhooks.mode("owner/repo").last_activity_at == settled
     end
 
-    test "a stale resource that is also bot-authored records no activity" do
+    # The production shape: a filterable comment is filterable on its *first*
+    # sight, so it is never published, never marked processed, and never enters
+    # the dedup window. The poller then re-offers it every cycle forever via
+    # the 304 list republish and the rewound watermark.
+    test "re-observing a bot comment that was filtered on first sight records no further activity" do
       comment_id = System.unique_integer([:positive])
-      resource = resource_for(comment_id)
-      opts = [resource: resource, resource_source: :poll, resource_version: "v1"]
 
-      assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
+      opts = [
+        resource: resource_for(comment_id),
+        resource_source: :poll,
+        actor: "aiur-bot"
+      ]
+
+      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
 
       settled = Webhooks.mode("owner/repo").last_activity_at
 
-      # The filter gates run before the dedup gates, so this answers `:filtered`
-      # even though the resource is already processed. Trusting the outcome
-      # alone would let it through as novel.
-      assert :filtered =
-               Publisher.publish(
-                 "ticket.42.issue.commented",
-                 %{comment: %{id: comment_id}},
-                 Keyword.put(opts, :actor, "aiur-bot")
-               )
+      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
+
+      assert Webhooks.mode("owner/repo").last_activity_at == settled,
+             "the same comment re-offered every sweep is one event, not new evidence, or an idle repo degrades a healthy webhook"
+    end
+
+    test "re-observing an untracked-issue comment filtered on first sight records no further activity" do
+      comment_id = System.unique_integer([:positive])
+      Publisher.set_tracked_fn(fn _issue -> false end)
+
+      opts = [
+        resource: resource_for(comment_id),
+        resource_source: :poll,
+        issue_number: 42
+      ]
+
+      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
+
+      settled = Webhooks.mode("owner/repo").last_activity_at
+
+      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
 
       assert Webhooks.mode("owner/repo").last_activity_at == settled
     end

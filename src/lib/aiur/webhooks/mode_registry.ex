@@ -65,7 +65,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   def record_activity(repo, opts \\ []) when is_binary(repo) do
     {server, opts} = Keyword.pop(opts, :server, __MODULE__)
     at = Keyword.get(opts, :at) || DateTime.utc_now()
-    GenServer.call(server, {:record_activity, repo, at})
+    GenServer.call(server, {:record_activity, repo, Keyword.get(opts, :observation), at})
   end
 
   @doc """
@@ -81,7 +81,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   def record_activity_async(repo, opts \\ []) when is_binary(repo) do
     {server, opts} = Keyword.pop(opts, :server, __MODULE__)
     at = Keyword.get(opts, :at) || DateTime.utc_now()
-    GenServer.cast(server, {:record_activity, repo, at})
+    GenServer.cast(server, {:record_activity, repo, Keyword.get(opts, :observation), at})
   end
 
   @doc "Current mode for `repo`. Unknown repos read back as never-configured."
@@ -141,6 +141,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       silence_threshold_ms: Keyword.get(opts, :silence_threshold_ms) || settings.silence_threshold_seconds * 1_000,
       sweep_interval_ms: Keyword.get(opts, :sweep_interval_ms) || settings.sweep_interval_seconds * 1_000,
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      observed: %{},
       sweep_timer: nil
     }
 
@@ -194,11 +195,12 @@ defmodule Aiur.Webhooks.ModeRegistry do
     {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
   end
 
-  def handle_call({:record_activity, repo, at}, _from, state) do
+  def handle_call({:record_activity, repo, observation, at}, _from, state) do
     repo = normalize(repo)
 
-    case record_activity_on_known_repo(state, repo, at) do
+    case record_activity_on_known_repo(state, repo, observation, at) do
       {:ok, updated, state} -> {:reply, {:ok, updated}, state}
+      {:replay, state} -> {:reply, {:ok, fetch(state, repo)}, state}
       :unknown -> {:reply, {:ok, fetch(state, repo)}, state}
     end
   end
@@ -223,9 +225,10 @@ defmodule Aiur.Webhooks.ModeRegistry do
   def handle_call(:silence_threshold_ms, _from, state), do: {:reply, state.silence_threshold_ms, state}
 
   @impl true
-  def handle_cast({:record_activity, repo, at}, state) do
-    case record_activity_on_known_repo(state, normalize(repo), at) do
+  def handle_cast({:record_activity, repo, observation, at}, state) do
+    case record_activity_on_known_repo(state, normalize(repo), observation, at) do
       {:ok, _updated, state} -> {:noreply, state}
+      {:replay, state} -> {:noreply, state}
       :unknown -> {:noreply, state}
     end
   end
@@ -237,14 +240,43 @@ defmodule Aiur.Webhooks.ModeRegistry do
   # alert. A repo the registry has never heard of has no webhook expectation to
   # corroborate — config seeds the configured ones, and a delivery creates the
   # proven ones, so anything still unknown here is genuinely not our business.
-  defp record_activity_on_known_repo(state, repo, at) do
+  #
+  # Novelty is decided here rather than in the publish path because this is the
+  # only place that is structurally able to decide it. The poller re-offers old
+  # resources on every sweep by design, and the traffic that matters most —
+  # events the fleet filters — is never published, so it is never marked
+  # processed and never enters the publish dedup window. Both of those stores
+  # are therefore blind to exactly the traffic that needs deduplicating, and
+  # inferring novelty from a store that the path in question never writes to is
+  # the mistake this guard exists to stop repeating.
+  defp record_activity_on_known_repo(state, repo, observation, at) do
     case Map.fetch(state.repos, repo) do
       {:ok, mode} ->
-        {updated, _transition} = DeliveryMode.record_activity(mode, at)
-        {:ok, updated, put_in(state.repos[repo], updated)}
+        record_novel_activity(state, repo, mode, observation, at)
 
       :error ->
         :unknown
+    end
+  end
+
+  # A `nil` observation has no stable identity to compare, so it always counts.
+  defp record_novel_activity(state, repo, mode, nil, at) do
+    {updated, _transition} = DeliveryMode.record_activity(mode, at)
+    {:ok, updated, put_in(state.repos[repo], updated)}
+  end
+
+  defp record_novel_activity(state, repo, mode, observation, at) do
+    key = {repo, observation}
+    seen? = Map.has_key?(state.observed, key)
+    # Refreshed on every sighting, so a resource the poller keeps re-offering
+    # never ages out and never gets counted a second time.
+    state = put_in(state.observed[key], System.monotonic_time(:millisecond))
+
+    if seen? do
+      {:replay, state}
+    else
+      {updated, _transition} = DeliveryMode.record_activity(mode, at)
+      {:ok, updated, put_in(state.repos[repo], updated)}
     end
   end
 
@@ -265,7 +297,18 @@ defmodule Aiur.Webhooks.ModeRegistry do
         {Map.put(acc, repo, updated), if(transition == :degraded, do: [repo | degraded], else: degraded)}
       end)
 
-    {%{state | repos: repos}, Enum.sort(degraded)}
+    {%{state | repos: repos, observed: prune_observed(state)}, Enum.sort(degraded)}
+  end
+
+  # Observation memory only has to outlive the window a replay could span, so
+  # it is dropped a full silence threshold after a resource was last offered.
+  # Anything the poller is still re-offering refreshes on every sighting and so
+  # never reaches this, which bounds the map to what the fleet is actively
+  # looking at rather than everything it has ever seen.
+  defp prune_observed(state) do
+    horizon = System.monotonic_time(:millisecond) - 2 * state.silence_threshold_ms
+
+    Map.reject(state.observed, fn {_key, seen_at} -> seen_at < horizon end)
   end
 
   defp schedule_sweep(state) do

@@ -219,6 +219,64 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
     end
   end
 
+  describe "a re-offered observation is a replay, not evidence" do
+    test "the same observation counts once however often it is offered" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901), observation: {:issue_comment, "aiur-team", "webhook-repo", "7"})
+
+      {:ok, mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(5000), observation: {:issue_comment, "aiur-team", "webhook-repo", "7"})
+
+      assert mode.last_activity_at == at(901),
+             "the poller re-offers the same resource every sweep by design; counting the repeats degrades an idle repo"
+    end
+
+    test "a genuinely different observation still counts" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901), observation: {:issue_comment, "aiur-team", "webhook-repo", "7"})
+
+      {:ok, mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(950), observation: {:issue_comment, "aiur-team", "webhook-repo", "8"})
+
+      assert mode.last_activity_at == at(950)
+    end
+
+    test "an observation with no identity always counts" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
+      {:ok, mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(950))
+
+      assert mode.last_activity_at == at(950)
+    end
+
+    test "the same resource under two repos is two observations" do
+      other = "aiur-team/other-repo"
+      registry = start_registry(configured_repos: [@webhook_repo, other])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_delivery(other, server: registry, at: at(0))
+
+      observation = {:issue_comment, "aiur-team", "webhook-repo", "7"}
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901), observation: observation)
+      {:ok, mode} = ModeRegistry.record_activity(other, server: registry, at: at(901), observation: observation)
+
+      assert mode.last_activity_at == at(901)
+    end
+
+    test "a repo that keeps being re-offered still degrades on its first sighting" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901), observation: {:issue_comment, "aiur-team", "webhook-repo", "7"})
+
+      assert {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802)),
+             "deduplicating replays must not blunt detection of a genuinely dead tunnel"
+    end
+  end
+
   describe "the asynchronous activity path" do
     test "a cast records activity just as a call does" do
       registry = start_registry(configured_repos: [@webhook_repo])

@@ -140,15 +140,20 @@ defmodule Aiur.Events.Publisher do
   # threshold. The separation rule in `delivery_was_owed?/2` cannot catch it,
   # because a re-observed event is arbitrarily old and the gap is unbounded.
   #
-  # `resource_processed?/1` is re-checked rather than inferred from `outcome`:
-  # the filter gates run *first*, so a stale resource that is also bot-authored
-  # surfaces as `:filtered` and would otherwise be mistaken for a novel event.
-  # It is a pure `ResourceStore` lookup, so asking twice costs nothing.
-  # `deduped?/1` is deliberately *not* re-checked — it claims into an ETS
-  # window as a side effect, so a second call would answer itself.
+  # Whether an observation is *new* is decided by the registry, not here, and
+  # deliberately not from `resource_processed?/1` or the dedup window. Both are
+  # written only by `do_publish/3`, so neither ever records filtered traffic —
+  # and filtered traffic is precisely what this recorder exists to carry.
+  # Inferring novelty from a store the path never writes to was the mistake;
+  # the registry keys on the resource itself, which every path supplies.
   #
-  # Reordering `rejection/3` was the other way to separate these, and was
-  # rejected: `deduped?/1` must be evaluated exactly once, and
+  # `deduped?/1` is still honoured through `outcome`, because it catches a
+  # replay keyed to a resource the registry has not seen. It is not re-checked:
+  # it claims into an ETS window as a side effect, so a second call would
+  # answer itself.
+  #
+  # Reordering `rejection/3` was the other way to separate the gate families,
+  # and was rejected: `deduped?/1` must be evaluated exactly once, and
   # `Aiur.Orchestrator.CiLifecycle` branches on `:deduped`, so changing which
   # reason wins for an event matching both families changes real behaviour.
   #
@@ -156,16 +161,15 @@ defmodule Aiur.Events.Publisher do
   # for three reasons: the key already carries it, it is already downcased to
   # the registry's canonical form, and reading config here would both shell out
   # to `git remote` on every polled publish and risk an `ArgumentError` that
-  # `Webhooks.record_activity/2` does not catch — it catches exits, not raises.
+  # `Webhooks.record_activity/3` does not catch — it catches exits, not raises.
   defp record_webhook_activity(:deduped, _opts), do: :ok
 
   defp record_webhook_activity(_outcome, opts) do
     with :poll <- Keyword.get(opts, :resource_source, :poll),
-         {_type, owner, repo, _id} <- Keyword.get(opts, :resource),
-         false <- resource_processed?(opts) do
-      Webhooks.record_activity("#{owner}/#{repo}")
+         {_type, owner, repo, _id} = resource <- Keyword.get(opts, :resource) do
+      Webhooks.record_activity("#{owner}/#{repo}", observation: resource)
     else
-      _reobserved_or_not_a_polled_github_resource -> :ok
+      _not_a_polled_github_resource -> :ok
     end
   end
 
