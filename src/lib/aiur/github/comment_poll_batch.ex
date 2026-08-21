@@ -45,11 +45,18 @@ defmodule Aiur.GitHub.CommentPollBatch do
   #
   # `@pull_requests_per_branch` is 2 rather than 5 because the branch aliases
   # are identity only and have exactly one consumer: `branch_pull_request/2`
-  # reads `[node | _rest]` and discards the rest. GitHub permits one open pull
-  # request per head/base pair, so the newest is the answer and the second slot
-  # is margin. No semantics change — `branch_pull_request_from_candidates/2`
-  # already answers `:unknown` on an overflowed connection so the poller falls
-  # back to complete REST reads, identically at 2 and at 5.
+  # reads `[node | _rest]` and discards the rest, so the newest is the answer
+  # and the second slot is margin.
+  #
+  # This is correctness-preserving but NOT semantics-preserving. GitHub permits
+  # one open pull request per head/*base* pair, so three open pull requests on
+  # a single head branch is legal. At `first: 5` GraphQL answered; at `first: 2`
+  # `branch_pull_request_from_candidates/2` answers `:unknown` on the overflowed
+  # connection and the poller falls back to complete REST reads — every cycle,
+  # and at a cost rather than a saving. The answer stays correct; the path to it
+  # changes.
+  #
+  # That case is rare enough here to accept, but do not read this as free.
   #
   # `reviewThreads(first: 100) { comments(last: 20) }` is deliberately NOT
   # reduced. Measured against GitHub's own reported `rateLimit { cost }` this
