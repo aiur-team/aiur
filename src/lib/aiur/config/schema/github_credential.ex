@@ -50,9 +50,7 @@ defmodule Aiur.Config.Schema.GithubCredential do
   end
 
   defp validate_identifier(changeset) do
-    validate_format(changeset, :id, ~r/\A[a-z0-9][a-z0-9_-]*\z/,
-      message: "must be a lowercase identifier (letters, digits, dash, underscore)"
-    )
+    validate_format(changeset, :id, ~r/\A[a-z0-9][a-z0-9_-]*\z/, message: "must be a lowercase identifier (letters, digits, dash, underscore)")
   end
 
   # An App installation credential mints its own token through the refresher, so
