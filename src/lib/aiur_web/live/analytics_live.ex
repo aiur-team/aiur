@@ -1,6 +1,6 @@
 defmodule AiurWeb.AnalyticsLive do
   @moduledoc """
-  Authenticated, read-only LiveView for live run utilization. It derives every
+  Authenticated, read-only LiveView for latest-run utilization. It derives every
   chart from the durable `Aiur.RunTelemetry` stream via the analytics
   `Presenter`, and renders them as inline SVG inside the Operator Control Center
   shell. Legend, sort, and time-range interactions are plain LiveView events —
@@ -121,8 +121,8 @@ defmodule AiurWeb.AnalyticsLive do
 
       <section id="analytics-page" class="analytics-root" aria-label="Run analytics">
         <div :if={@unavailable} class="an-empty">
-          <p><b>No run telemetry to analyze yet.</b></p>
-          <p>These charts are derived from the durable run-telemetry stream. Start a run with telemetry enabled and this view will populate on the next visit.</p>
+          <p><b>No retained run telemetry to analyze yet.</b></p>
+          <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
         </div>
 
         <div :if={!@unavailable} class="an-controls">
@@ -403,12 +403,12 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp analytics_scope(root_number), do: ScopeResolver.resolve(root_number)
 
-  defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, this session"
-  defp scope_label(:session), do: "this session"
+  defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, latest run"
+  defp scope_label(:session), do: "latest run"
   defp scope_label(:unavailable), do: "selected Build Order unavailable"
 
-  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in this session."
-  defp scope_note(:session), do: "The current live run only. Add a Build Order selection to scope this page to its members."
+  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in the latest run with telemetry."
+  defp scope_note(:session), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
   defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
 
   # The live route defaults to the daemon-owned aggregate. The configurable

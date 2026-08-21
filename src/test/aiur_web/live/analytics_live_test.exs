@@ -15,6 +15,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   @endpoint Endpoint
   @fixtures Path.expand("../../fixtures/run_telemetry", __DIR__)
+  @summary_fixture Path.expand("../../fixtures/analytics/runs/boot-a/run-summary.json", __DIR__)
 
   defmodule UsageAggregateSourceStub do
     @moduledoc false
@@ -70,9 +71,57 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Run analytics"
-    assert html =~ "No run telemetry to analyze yet"
+    assert html =~ "No retained run telemetry to analyze yet"
+    refute html =~ "Start a run with telemetry enabled"
     refute html =~ "Peak concurrency"
     refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
+  end
+
+  test "renders the latest durable run after the daemon restarts into a new log root" do
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-restart")
+    summaries = Path.join(root, "aiur-team/aiur/analytics/runs")
+    older = Path.join(summaries, "older/run-summary.json")
+    newer = Path.join(summaries, "newer/run-summary.json")
+
+    previous_app_env = [
+      repo_base_root: Application.fetch_env(:aiur, :repo_base_root),
+      analytics_repo: Application.fetch_env(:aiur, :analytics_repo)
+    ]
+
+    previous_run_id = :persistent_term.get({Aiur.Boot, :run_id}, :unset)
+
+    File.mkdir_p!(Path.dirname(older))
+    File.cp!(@summary_fixture, older)
+    write_newer_summary!(newer)
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "aiur-team/aiur")
+    Application.put_env(:aiur, :analytics_telemetry_file, Path.join(root, "new-run/log/telemetry.ndjson"))
+    :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+      Aiur.TestSupport.restore_app_env(previous_app_env)
+      restore_run_id(previous_run_id)
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ "Scope:"
+    assert html =~ "latest run"
+    assert html =~ ">#999<"
+    refute html =~ ">#930<"
+    refute html =~ "No retained run telemetry to analyze yet"
+  end
+
+  defp write_newer_summary!(path) do
+    summary = @summary_fixture |> File.read!() |> String.replace("930", "999") |> Jason.decode!()
+
+    newer =
+      summary
+      |> put_in(["provenance", "time_range", "end"], "2026-07-12T00:00:16Z")
+
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Jason.encode!(newer))
   end
 
   test "renders the KPI strip and inline SVG charts from telemetry" do
@@ -87,7 +136,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Cost per ticket"
     assert html =~ "Complexity breakdown"
     assert html =~ "<svg"
-    refute html =~ "No run telemetry to analyze yet"
+    refute html =~ "No retained run telemetry to analyze yet"
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -180,7 +229,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     {:ok, _view, html} = live(conn, "/analytics?build_order=77")
 
-    assert html =~ "Build Order #77, this session"
+    assert html =~ "Build Order #77, latest run"
     assert html =~ ">#941<"
     refute html =~ ">#942<"
     assert html =~ "PRs merged"
@@ -304,12 +353,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   defp reset_env(key, nil), do: Application.delete_env(:aiur, key)
 
-  test "names its default session scope and Build Order selection" do
+  test "names its default latest-run scope and Build Order selection" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
-    assert html =~ "this session"
+    assert html =~ "latest run"
     assert html =~ "Add a Build Order selection to scope this page to its members"
   end
 
@@ -326,6 +375,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   defp reset_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp restore_run_id(:unset), do: :persistent_term.erase({Aiur.Boot, :run_id})
+  defp restore_run_id(value), do: :persistent_term.put({Aiur.Boot, :run_id}, value)
 
   defp complexity_fixture! do
     root =
