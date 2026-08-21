@@ -47,8 +47,26 @@ defmodule Aiur.PaneManager.AnchorTest do
     assert {:ok, "test:0"} = Task.await(task, 2000)
   end
 
-  test "publish_control_url returns ok when dashboard is unbound" do
-    assert Anchor.publish_control_url(:unused) == :ok
+  test "publish_control_url writes the supplied URL to the tmux global option" do
+    tmux = start_tmux()
+
+    task = Task.async(fn -> Anchor.publish_control_url(tmux, "http://127.0.0.1:4100") end)
+
+    assert_receive {:tmux_mock_out, "set-option -g @aiur_control_url http://127.0.0.1:4100"}, 500
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 2000)
+  end
+
+  test "unpublish_control_url removes a stale tmux global option" do
+    tmux = start_tmux()
+
+    task = Task.async(fn -> Anchor.unpublish_control_url(tmux) end)
+
+    assert_receive {:tmux_mock_out, "set-option -gu @aiur_control_url"}, 500
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+
+    assert :ok = Task.await(task, 2000)
   end
 
   defp start_tmux do

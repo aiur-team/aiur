@@ -82,8 +82,7 @@ defmodule Aiur.ApplicationTest do
   end
 
   describe "child_specs/1 run-shape gating" do
-    @terminal_only [
-      Aiur.Tmux,
+    @interactive_only [
       Aiur.PaneManager,
       Aiur.Opencode.PrewarmSupervisor,
       Aiur.AgentList.App,
@@ -91,6 +90,8 @@ defmodule Aiur.ApplicationTest do
       Aiur.LauncherWatchdog,
       Aiur.Opencode.PaneSupervisor
     ]
+
+    @tmux_discovery [Aiur.Tmux]
 
     @dashboard [AiurWeb.ControlCenterCache, AiurWeb.FinancialData.Supervisor, Aiur.HttpServer]
 
@@ -137,15 +138,48 @@ defmodule Aiur.ApplicationTest do
     test "interactive run starts the full UI stack" do
       mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
 
-      for child <- @terminal_only ++ @dashboard ++ @always, do: assert(child in mods, "expected #{inspect(child)}")
+      for child <- @interactive_only ++ @tmux_discovery ++ @dashboard ++ @always,
+          do: assert(child in mods, "expected #{inspect(child)}")
+
+      assert Aiur.PaneManager.ControlUrlPublisher in mods
+    end
+
+    test "dashboard runs start tmux discovery even when headless" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
+
+      assert Aiur.Tmux in mods
+      assert Aiur.PaneManager.ControlUrlPublisher in mods
+      refute Aiur.PaneManager in mods
+    end
+
+    test "control URL publisher is absent when dashboard is disabled" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: false],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        refute Aiur.PaneManager.ControlUrlPublisher in mods
+      end
+    end
+
+    test "tmux discovery children start before PaneManager" do
+      mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true))
+
+      assert index_of(mods, Aiur.HttpServer) < index_of(mods, Aiur.Tmux)
+      assert index_of(mods, Aiur.Tmux) < index_of(mods, Aiur.PaneManager.ControlUrlPublisher)
+      assert index_of(mods, Aiur.PaneManager.ControlUrlPublisher) < index_of(mods, Aiur.PaneManager)
     end
 
     test "headless no-dashboard run keeps the lean background shape" do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false))
 
-      for child <- @terminal_only ++ @dashboard, do: refute(child in mods, "lean background should skip #{inspect(child)}")
+      for child <- @interactive_only ++ @tmux_discovery ++ @dashboard,
+          do: refute(child in mods, "lean background should skip #{inspect(child)}")
+
       for child <- @always, do: assert(child in mods, "headless still needs #{inspect(child)}")
     end
+
+    defp index_of(modules, module), do: Enum.find_index(modules, &(&1 == module))
 
     test "headless boots measurably fewer children than interactive" do
       interactive = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: true)
@@ -190,13 +224,18 @@ defmodule Aiur.ApplicationTest do
       mods = modules(AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true))
 
       for child <- @dashboard, do: assert(child in mods, "background should start #{inspect(child)}")
-      for child <- @terminal_only, do: refute(child in mods, "headless should skip #{inspect(child)}")
+      assert Aiur.Tmux in mods
+      assert Aiur.PaneManager.ControlUrlPublisher in mods
+
+      for child <- @interactive_only, do: refute(child in mods, "headless should skip #{inspect(child)}")
     end
 
     test "foreground no-dashboard run keeps terminal UI without an HTTP listener" do
       mods = modules(AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: false))
 
-      for child <- @terminal_only, do: assert(child in mods, "foreground should start #{inspect(child)}")
+      for child <- @interactive_only ++ @tmux_discovery,
+          do: assert(child in mods, "foreground should start #{inspect(child)}")
+
       for child <- @dashboard, do: refute(child in mods, "no-dashboard should skip #{inspect(child)}")
     end
 

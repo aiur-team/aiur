@@ -187,9 +187,10 @@ defmodule Aiur.Application do
   Build the supervision children for the given run shape.
 
   `--bg`/headless runs (`headless?: true`) skip terminal-only work — the
-  opencode chat-pane machinery and the whole interactive CLI block (tmux,
-  pane manager, opencode pre-warm, agent-list panes). Dashboard supervision
-  is independent and remains enabled unless `--no-dashboard` is supplied.
+  opencode chat-pane machinery, pane manager, opencode pre-warm, and agent-list
+  panes. Dashboard supervision is independent and remains enabled unless
+  `--no-dashboard` is supplied; dashboard-enabled headless runs retain the tmux
+  command client so the dashboard URL remains discoverable through tmux.
   The agent **backends** that
   actually run agents (session writers, the opencode bridge, token
   registry) are kept so a headless node still does real work; an Executor
@@ -220,7 +221,6 @@ defmodule Aiur.Application do
     cli_children =
       if interactive_cli? do
         [
-          {Aiur.Tmux, name: Aiur.Tmux},
           {Aiur.PaneManager, name: Aiur.PaneManager},
           Aiur.Opencode.PrewarmSupervisor,
           Aiur.AgentList.App,
@@ -385,6 +385,8 @@ defmodule Aiur.Application do
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
       if(dashboard?, do: Aiur.HttpServer),
+      if(interactive_cli? or dashboard?, do: {Aiur.Tmux, name: Aiur.Tmux}),
+      if(dashboard?, do: {Aiur.PaneManager.ControlUrlPublisher, name: Aiur.PaneManager.ControlUrlPublisher}),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
