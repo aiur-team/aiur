@@ -151,10 +151,24 @@ defmodule Aiur.Webhooks.ModeRegistry do
     opts
     |> Keyword.get(:configured_repos, settings.repos)
     |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
+    |> Enum.map(&normalize/1)
     |> Enum.reject(&(&1 == ""))
     |> Map.new(&{&1, DeliveryMode.new(&1, configured?: true)})
   end
+
+  # GitHub repository names are case-insensitive, and the two pipes that feed
+  # this registry disagree on case: a delivery is keyed by the payload's
+  # `repository.full_name` (whatever case GitHub sent) while configuration and
+  # the poller supply their own. `Normalizer.tracked_repo/2` already downcases
+  # *to compare*, which is the codebase acknowledging these strings differ.
+  #
+  # Without one canonical key the same repository becomes two entries, and they
+  # fail in opposite directions: the delivery-cased one is webhook_backed and
+  # never sees activity so it can never degrade, while the config-cased one has
+  # zero deliveries and accumulating activity so it raises a false
+  # `webhook.never_delivered`. Every key crossing this process is therefore
+  # normalized here, at the one boundary all of them pass through.
+  defp normalize(repo) when is_binary(repo), do: repo |> String.trim() |> String.downcase()
 
   # Config is unavailable in some boot and test contexts. Falling back to the
   # schema defaults keeps the registry startable there, and the defaults are
@@ -172,6 +186,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   @impl true
   def handle_call({:record_delivery, repo, at}, _from, state) do
+    repo = normalize(repo)
     current = fetch(state, repo)
     {updated, transition} = DeliveryMode.record_delivery(current, at)
     announce(state, updated, transition)
@@ -180,15 +195,17 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   def handle_call({:record_activity, repo, at}, _from, state) do
+    repo = normalize(repo)
     current = fetch(state, repo)
     {updated, _transition} = DeliveryMode.record_activity(current, at)
 
     {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
   end
 
-  def handle_call({:mode, repo}, _from, state), do: {:reply, fetch(state, repo), state}
+  def handle_call({:mode, repo}, _from, state), do: {:reply, state |> fetch(normalize(repo)), state}
 
   def handle_call({:configure, repo, configured?}, _from, state) do
+    repo = normalize(repo)
     {updated, _transition} = state |> fetch(repo) |> DeliveryMode.configure(configured?)
     {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
   end
@@ -206,6 +223,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   @impl true
   def handle_cast({:record_activity, repo, at}, state) do
+    repo = normalize(repo)
     {updated, _transition} = state |> fetch(repo) |> DeliveryMode.record_activity(at)
 
     {:noreply, put_in(state.repos[repo], updated)}

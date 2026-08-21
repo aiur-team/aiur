@@ -357,5 +357,35 @@ defmodule Aiur.Events.PublisherTest do
 
       assert Webhooks.mode("owner/repo").last_activity_at == before
     end
+
+    test "an event filtered as a bot self-loop still records the observation" do
+      comment_id = System.unique_integer([:positive])
+      before = Webhooks.mode("owner/repo").last_activity_at
+
+      assert :filtered =
+               Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}},
+                 resource: resource_for(comment_id),
+                 resource_source: :poll,
+                 actor: "aiur-bot"
+               )
+
+      refute Webhooks.mode("owner/repo").last_activity_at == before,
+             "this fleet's traffic is mostly agent-authored, so ignoring filtered events would let ingress die with no corroboration and no alert"
+    end
+
+    test "an event filtered as an untracked issue still records the observation" do
+      comment_id = System.unique_integer([:positive])
+      Publisher.set_tracked_fn(fn _issue -> false end)
+      before = Webhooks.mode("owner/repo").last_activity_at
+
+      assert :filtered =
+               Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}},
+                 resource: resource_for(comment_id),
+                 resource_source: :poll,
+                 issue_number: 42
+               )
+
+      refute Webhooks.mode("owner/repo").last_activity_at == before
+    end
   end
 end

@@ -159,6 +159,68 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
     end
   end
 
+  describe "repository names are case-insensitive" do
+    test "a delivery and its poller activity reach the same entry despite differing case" do
+      registry = start_registry(configured_repos: ["aiur-team/Aiur"])
+
+      {:ok, _mode} = ModeRegistry.record_delivery("AIUR-TEAM/aiur", server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity("aiur-team/AIUR", server: registry, at: at(901))
+
+      assert [mode] = ModeRegistry.list(registry),
+             "one repository must never become two entries that fail in opposite directions"
+
+      assert mode.delivery_count == 1
+      assert mode.last_activity_at == at(901)
+
+      assert {:ok, ["aiur-team/aiur"]} = ModeRegistry.sweep(registry, at(1802))
+      assert_received {:alert, "webhook.degraded", _message, _opts}
+    end
+
+    # The reviewer's scenario exactly: deliveries arrive under the payload's
+    # case while config and the poller use their own. Split across two entries,
+    # the config-cased one has activity and zero deliveries and raises a false
+    # never_delivered about a webhook that is working perfectly.
+    test "a configured repo proven under different case never raises never_delivered" do
+      registry = start_registry(configured_repos: ["aiur-team/Aiur"])
+
+      {:ok, _mode} = ModeRegistry.record_delivery("aiur-team/aiur", server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity("aiur-team/Aiur", server: registry, at: at(50))
+
+      {:ok, []} = ModeRegistry.sweep(registry, at(100))
+
+      refute_received {:alert, "webhook.never_delivered", _message, _opts}
+    end
+
+    test "reads answer under any case" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      assert ModeRegistry.transport("AIUR-TEAM/WEBHOOK-REPO", registry) == :webhook
+    end
+  end
+
+  describe "the asynchronous activity path" do
+    test "a cast records activity just as a call does" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+
+      :ok = ModeRegistry.record_activity_async(@webhook_repo, server: registry, at: at(901))
+
+      # `mode/2` is a call to the same process, so it cannot answer until the
+      # cast ahead of it has been handled.
+      assert ModeRegistry.mode(@webhook_repo, registry).last_activity_at == at(901)
+    end
+
+    test "a cast never moves activity backwards" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+
+      :ok = ModeRegistry.record_activity_async(@webhook_repo, server: registry, at: at(901))
+      :ok = ModeRegistry.record_activity_async(@webhook_repo, server: registry, at: at(10))
+
+      assert ModeRegistry.mode(@webhook_repo, registry).last_activity_at == at(901)
+    end
+  end
+
   describe "an idle repository raises nothing" do
     test "a proven repo with no observed activity never degrades however long it is silent" do
       registry = start_registry(configured_repos: [@webhook_repo])

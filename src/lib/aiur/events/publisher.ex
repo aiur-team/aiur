@@ -109,9 +109,43 @@ defmodule Aiur.Events.Publisher do
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
+    record_webhook_activity(opts)
+
     case rejection(topic, payload, opts) do
       nil -> do_publish(topic, payload, opts)
       rejection -> rejection
+    end
+  end
+
+  # Corroboration for the webhook silence sweep: the poller *observed* a GitHub
+  # resource for this repo.
+  #
+  # Observation, not publication, is the signal — which is why this runs ahead
+  # of `rejection/3` rather than inside `do_publish/3`. `filtered_bot_self_loop?`
+  # and `tracked?` both answer `:filtered` before the dedup gates, and this
+  # fleet's traffic is mostly agent-authored comments. Recording only what
+  # survives those gates would mean the ingress could die and never accumulate
+  # a single piece of corroboration, so the repo would never degrade and no
+  # alert would fire at all — trading the false positives this change removes
+  # for a silent false negative, which is the worse of the two.
+  #
+  # Recording pre-gate cannot resurrect those false positives, because
+  # degradation additionally requires the activity to post-date the last
+  # delivery by a full threshold (`DeliveryMode.delivery_was_owed?/2`). A
+  # working webhook resets `last_delivery_at` on every event, so the poller's
+  # echo — at most one poll interval behind — never opens that gap.
+  #
+  # The repo comes from the resource key rather than `Aiur.GitHub.Config.repo/0`
+  # for three reasons: the key already carries it, it is already downcased to
+  # the registry's canonical form, and reading config here would both shell out
+  # to `git remote` on every polled publish and risk an `ArgumentError` that
+  # `Webhooks.record_activity/2` does not catch — it catches exits, not raises.
+  defp record_webhook_activity(opts) do
+    with :poll <- Keyword.get(opts, :resource_source, :poll),
+         {_type, owner, repo, _id} <- Keyword.get(opts, :resource) do
+      Webhooks.record_activity("#{owner}/#{repo}")
+    else
+      _not_a_polled_github_resource -> :ok
     end
   end
 
@@ -161,31 +195,8 @@ defmodule Aiur.Events.Publisher do
     # first would make the same crash suppress the event permanently,
     # because this store is the sweep's own source of suppression.
     mark_resource_processed(opts)
-    record_webhook_activity(opts)
     DebugLog.broadcast(:publish, topic, id: id, body: payload)
     {:ok, id, subscribers}
-  end
-
-  # Corroboration for the webhook silence sweep, and the reason it is recorded
-  # *here* rather than wherever the poller reads GitHub.
-  #
-  # Reaching this line means a poll-sourced GitHub event was published — it
-  # passed the dedup gates above, so no webhook had already delivered it. That
-  # is precisely the evidence `Aiur.Webhooks.DeliveryMode` needs: an event
-  # demonstrably happened and the webhook did not carry it. When the webhook is
-  # working the poller's copy is `:deduped` before it ever gets here, so a
-  # healthy repo records no activity and can never be degraded by an idle
-  # night. When ingress is broken every poll cycle records some, and the repo
-  # degrades on evidence instead of on silence.
-  defp record_webhook_activity(opts) do
-    if Keyword.get(opts, :resource_source, :poll) == :poll and Keyword.get(opts, :resource) do
-      case GitHubConfig.repo() do
-        repo when is_binary(repo) -> Webhooks.record_activity(repo)
-        _unknown -> :ok
-      end
-    end
-
-    :ok
   end
 
   defp resource_processed?(opts) do
