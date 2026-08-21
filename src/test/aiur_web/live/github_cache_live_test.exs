@@ -658,7 +658,9 @@ defmodule AiurWeb.GithubCacheLiveTest do
       outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
       assert Floki.attribute(outside, "data-value") == ["856"]
       assert graphql |> Floki.find(~s([data-role="usage-outside-row"])) |> Floki.text() =~ "856"
-      assert Floki.text(outside) =~ "Not issued by this daemon"
+      # This meter booted mid-window, so the label says what it can support.
+      # Whose spend the remainder is has its own tests below.
+      assert Floki.text(outside) =~ "Spend this daemon did not observe"
     end
 
     test "the two budgets are rendered apart and never summed" do
@@ -706,6 +708,64 @@ defmodule AiurWeb.GithubCacheLiveTest do
       legend = chart |> Floki.find(~s([data-band])) |> Floki.attribute("data-band")
       assert "__outside__" in legend
       assert "comment_poll_batch" in legend
+    end
+
+    test "a meter that booted mid-window does not blame the remainder on another consumer" do
+      # The deploy case, and the moment this page is most likely to be opened.
+      # `install_graphql_quota/0` starts the meter half an hour into the window,
+      # so it cannot account for the first half — including anything the daemon
+      # itself spent before the restart.
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
+      assert Floki.attribute(outside, "data-observed-whole-window") == ["false"]
+      assert Floki.text(outside) =~ "Spend this daemon did not observe"
+      row = graphql |> Floki.find(~s([data-role="usage-outside-row"])) |> Floki.text()
+      assert row =~ "not observed by this daemon"
+      # "shared credential" names a cause and needs the same evidence.
+      refute row =~ "shared credential"
+      assert row =~ "outside the meter's reach"
+
+      explainer = graphql |> Floki.find(~s([data-role="usage-outside-explainer"])) |> Floki.text()
+      refute explainer =~ "other consumers"
+      assert explainer =~ "does not survive a restart"
+    end
+
+    test "it says how far back it can see and when the claim becomes safe again" do
+      # Not a hedge: an operator four minutes after a deploy needs to know the
+      # number is temporarily unattributable and roughly when to look again.
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      reach = html |> budget_block() |> Floki.find(~s([data-role="usage-reach"])) |> Floki.text()
+
+      assert reach =~ "not attributable yet"
+      assert reach =~ "observing since"
+      assert reach =~ "this window opened at"
+      # The reset is when the meter's reach covers the whole window again.
+      assert reach =~ DateTime.to_iso8601(@reset)
+    end
+
+    test "a meter that covered the whole window keeps the other-consumers claim" do
+      Source.install(entries(2))
+      install_graphql_quota(observing_since: DateTime.add(@reset, -7_200, :second))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
+      assert Floki.attribute(outside, "data-observed-whole-window") == ["true"]
+      assert Floki.text(outside) =~ "Not issued by this daemon"
+      row = graphql |> Floki.find(~s([data-role="usage-outside-row"])) |> Floki.text()
+      assert row =~ "not issued by this daemon"
+      assert row =~ "shared credential"
+      assert graphql |> Floki.find(~s([data-role="usage-outside-explainer"])) |> Floki.text() =~ "other consumers"
+      assert Floki.find(graphql, ~s([data-role="usage-reach"])) == []
     end
 
     test "an assumed cost is never presented as a measurement" do
@@ -800,8 +860,8 @@ defmodule AiurWeb.GithubCacheLiveTest do
   # A meter that has seen the budget that actually exhausts. Two priced calls
   # and one the response never priced, so the page has both a reported and an
   # assumed row to tell apart.
-  defp install_graphql_quota do
-    quota = install_quota()
+  defp install_graphql_quota(opts \\ []) do
+    quota = install_quota(opts)
 
     for {caller, cost} <- [{:comment_poll_batch, 93}, {:review_threads_unaddressed, 50}] do
       Quota.observe(quota, graphql_request(caller), graphql_response(cost))
@@ -832,12 +892,19 @@ defmodule AiurWeb.GithubCacheLiveTest do
      }}
   end
 
-  defp install_quota do
+  defp install_quota(opts \\ []) do
+    # The clock sits half an hour into the window, so by default the meter
+    # booted mid-window and cannot account for the whole of it. Tests that need
+    # full coverage pass an earlier `observing_since`.
+    settings =
+      [name: nil, clock: fn -> DateTime.add(@reset, -1800, :second) end, hold_dir: nil] ++
+        case Keyword.fetch(opts, :observing_since) do
+          {:ok, started_at} -> [started_at: started_at]
+          :error -> []
+        end
+
     quota =
-      start_supervised!(
-        {Quota, name: nil, clock: fn -> DateTime.add(@reset, -1800, :second) end, hold_dir: nil},
-        id: {:quota, System.unique_integer([:positive])}
-      )
+      start_supervised!({Quota, settings}, id: {:quota, System.unique_integer([:positive])})
 
     Quota.observe(quota, %{method: :get, url: "https://api.github.com/repos/o/r", token: "t"}, window_response())
     _settle = Quota.snapshot(quota)

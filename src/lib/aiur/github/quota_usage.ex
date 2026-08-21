@@ -16,6 +16,21 @@ defmodule Aiur.GitHub.QuotaUsage do
   projection is always *per budget*: `sample/2` returns a map keyed by resource
   and there is no combined total anywhere for a renderer to reach for.
 
+  ## Whose remainder it is depends on how far back the meter can see
+
+  `spend - attributed` is only *another consumer's* spend when this meter was
+  running for the whole window. Attribution lives in `Quota`'s memory and dies
+  with the process; the credential's window does not, and `/rate_limit` reports
+  the full hour on the next refresh. So for up to an hour after every restart
+  the remainder is inflated by the daemon's own forgotten calls.
+
+  `observation_complete?` is that condition, and it is what the page switches
+  its wording on. The band, the arithmetic and the reconciliation are identical
+  either way — what changes is the claim about *whose* spend it is, which is the
+  only part that was ever a guess. Saying "another consumer spent this" four
+  minutes after a deploy would be the confident wrong number this page exists to
+  refuse, committed by the surface built to refuse it.
+
   ## The remainder is the point
 
   The sum of the per-caller rows is `attributed` — what this daemon issued and
@@ -92,6 +107,34 @@ defmodule Aiur.GitHub.QuotaUsage do
 
   def sample(_snapshot, _now), do: nil
 
+  @doc """
+  Could this meter have seen the whole window?
+
+  True only when the meter was already observing when the window opened. False
+  covers both the restart case and a meter with no boot time at all — in either
+  the honest reading of the remainder is "spend this daemon did not observe",
+  never "spend somebody else made".
+  """
+  @spec observation_complete?(map()) :: boolean()
+  def observation_complete?(%{observed_from: %DateTime{} = from, window_started_at: %DateTime{} = start}),
+    do: DateTime.compare(from, start) != :gt
+
+  def observation_complete?(_budget), do: false
+
+  @doc """
+  When the remainder becomes attributable again, or `nil` when it already is.
+
+  The meter's reach is fixed at its boot; the window's start advances only when
+  the window resets. So a restart mid-window stays unattributable until that
+  reset, and the reset is the actionable answer to "when can I trust this" —
+  more use to an operator than a hedge, because it says whether to wait or to
+  stop comparing.
+  """
+  @spec attributable_from(map()) :: DateTime.t() | nil
+  def attributable_from(budget) do
+    if observation_complete?(budget), do: nil, else: Map.get(budget, :window, %{})[:reset_at]
+  end
+
   @doc "The budgets present in a sample, in `budget_order/0`, unknown ones last."
   @spec budgets(map() | nil) :: [{String.t(), map()}]
   def budgets(%{budgets: budgets}) when is_map(budgets) do
@@ -121,7 +164,12 @@ defmodule Aiur.GitHub.QuotaUsage do
     {drawn, dropped} = trailing_observed(present)
 
     if length(drawn) >= 2 do
-      bands = bands(drawn)
+      # The label is taken from the latest drawn point, which is the state the
+      # operator is looking at now. A chart legend claiming "not issued by this
+      # daemon" over a span the meter could not see is the same overstatement as
+      # the table making the claim.
+      {_t, latest} = List.last(drawn)
+      bands = bands(drawn, observation_complete?(latest))
 
       %{
         budget: budget,
@@ -221,6 +269,12 @@ defmodule Aiur.GitHub.QuotaUsage do
       outside: outside(spend, attributed),
       direction: Map.get(reconciliation, :direction),
       estimated?: Enum.any?(callers, & &1.estimated?),
+      # How far back the meter can see, against when this window opened. The
+      # page prints both rather than only their comparison, because "observed
+      # since 06:38, window opened 06:14" tells an operator what to do and a
+      # softened sentence does not.
+      observed_from: Map.get(snapshot, :observing_since),
+      window_started_at: Map.get(window, :started_at),
       window: Map.take(window, [:limit, :remaining, :used, :reset_at])
     }
   end
@@ -266,7 +320,7 @@ defmodule Aiur.GitHub.QuotaUsage do
     {drawn, length(points) - length(drawn)}
   end
 
-  defp bands(drawn) do
+  defp bands(drawn, observed_whole_window?) do
     totals =
       drawn
       |> Enum.flat_map(fn {_t, b} -> Enum.map(b.callers, &{&1.caller, &1.points}) end)
@@ -287,8 +341,19 @@ defmodule Aiur.GitHub.QuotaUsage do
 
     caller_bands ++
       other_band ++
-      [%{key: "__outside__", label: "not issued by this daemon", kind: :outside, slot: nil}]
+      [%{key: "__outside__", label: outside_label(observed_whole_window?), kind: :outside, slot: nil}]
   end
+
+  @doc """
+  What the remainder band may be called.
+
+  Only a meter that was running when the window opened may name somebody else.
+  Anything less says what is actually true — that this daemon did not see the
+  spend — and leaves who made it open, because it does not know.
+  """
+  @spec outside_label(boolean()) :: String.t()
+  def outside_label(true), do: "not issued by this daemon"
+  def outside_label(_incomplete), do: "not observed by this daemon"
 
   defp other_label(1), do: "1 other caller"
   defp other_label(count), do: "#{count} other callers"

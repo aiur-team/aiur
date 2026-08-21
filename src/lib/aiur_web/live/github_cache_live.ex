@@ -563,11 +563,29 @@ defmodule AiurWeb.GithubCacheLive do
             <span class="ghc-usage-split-label">Attributed to this daemon</span>
           </div>
 
-          <div class={split_class(budget.outside)} data-role="usage-outside" data-value={budget.outside}>
+          <div
+            class={split_class(budget.outside)}
+            data-role="usage-outside"
+            data-value={budget.outside}
+            data-observed-whole-window={to_string(QuotaUsage.observation_complete?(budget))}
+          >
             <span class="ghc-usage-split-value">{measured(budget.outside)}</span>
-            <span class="ghc-usage-split-label">Not issued by this daemon</span>
+            <span class="ghc-usage-split-label">{outside_split_label(budget)}</span>
           </div>
         </div>
+
+        <p
+          :if={not QuotaUsage.observation_complete?(budget)}
+          class="ghc-usage-note ghc-usage-note-strong"
+          data-role="usage-reach"
+        >
+          <strong>This remainder is not attributable yet.</strong>
+          The meter has been observing since {moment(budget.observed_from)}, but this window opened at
+          {moment(budget.window_started_at)} — so anything spent in between, including this daemon's own
+          calls from before its last restart, is counted here rather than against a caller. Attribution
+          covers the whole window again from {moment(QuotaUsage.attributable_from(budget))}, when the
+          window resets.
+        </p>
 
         <p :if={is_nil(budget.spend)} class="ghc-usage-note" data-role="usage-spend-unobserved">
           The credential's window has passed its reset and has not been read since, so
@@ -613,19 +631,18 @@ defmodule AiurWeb.GithubCacheLive do
             </tr>
 
             <tr class="ghc-usage-row-outside" data-role="usage-outside-row">
-              <td>not issued by this daemon</td>
+              <td>{QuotaUsage.outside_label(QuotaUsage.observation_complete?(budget))}</td>
               <td>{measured(budget.outside)}</td>
               <td>unknown</td>
               <td>unknown</td>
               <td>not attributed</td>
-              <td class="ghc-usage-source">shared credential</td>
+              <td class="ghc-usage-source">{outside_source(budget)}</td>
             </tr>
           </tbody>
         </table>
 
-        <p class="ghc-usage-note">
-          The rows are calls this daemon issued and priced. The last row is the rest of the bill —
-          other consumers on the same GitHub App installation. It is spend, not an error.
+        <p class="ghc-usage-note" data-role="usage-outside-explainer">
+          {outside_explainer(budget)}
         </p>
       </article>
     </section>
@@ -686,6 +703,39 @@ defmodule AiurWeb.GithubCacheLive do
       </p>
     </div>
     """
+  end
+
+  # Naming another consumer is a claim, and it needs the meter to have been
+  # running when the window opened. Short of that the label says only what is
+  # true — this daemon did not see the spend — and leaves who made it open.
+  defp outside_split_label(budget) do
+    if QuotaUsage.observation_complete?(budget),
+      do: "Not issued by this daemon",
+      else: "Spend this daemon did not observe"
+  end
+
+  # "shared credential" names a cause, and naming a cause needs the same
+  # evidence as naming a consumer.
+  defp outside_source(budget) do
+    if QuotaUsage.observation_complete?(budget), do: "shared credential", else: "outside the meter's reach"
+  end
+
+  # Whole seconds. The meter's boot carries microseconds and the window's edges
+  # do not, and three timestamps in one sentence should be comparable at a
+  # glance rather than differ in precision for no reason the reader can see.
+  defp moment(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  defp moment(_absent), do: "an unknown time"
+
+  defp outside_explainer(budget) do
+    if QuotaUsage.observation_complete?(budget) do
+      "The rows are calls this daemon issued and priced. The last row is the rest of the bill — " <>
+        "other consumers on the same GitHub App installation. It is spend, not an error."
+    else
+      "The rows are calls this daemon issued and priced. The last row is everything else the window " <>
+        "was billed for. It is not a claim about another consumer: the meter's attribution is held in " <>
+        "memory and does not survive a restart, while GitHub keeps counting across one, so this daemon's " <>
+        "own calls from before its last restart are in there too."
+    end
   end
 
   # Never an em-dash standing in for a number. An absent figure says why it is

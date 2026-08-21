@@ -16,6 +16,11 @@ defmodule Aiur.GitHub.QuotaUsageTest do
 
   @now ~U[2030-01-01 12:00:00Z]
   @reset ~U[2030-01-01 12:30:00Z]
+  # The window runs the hour up to its reset, so it opened at 11:30.
+  @window_seconds 3_600
+  # A daemon restarted four minutes ago — the deploy case, and the moment an
+  # operator is most likely to open this page.
+  @restarted_at ~U[2030-01-01 11:56:00Z]
 
   describe "sample/2" do
     test "keeps the two budgets apart and never offers a combined total" do
@@ -80,6 +85,63 @@ defmodule Aiur.GitHub.QuotaUsageTest do
     end
   end
 
+  describe "whose remainder it is" do
+    test "a meter that was running when the window opened may name another consumer" do
+      %{budgets: %{"graphql" => graphql}} = QuotaUsage.sample(snapshot(), @now)
+
+      assert QuotaUsage.observation_complete?(graphql)
+      assert QuotaUsage.outside_label(true) == "not issued by this daemon"
+      assert QuotaUsage.attributable_from(graphql) == nil
+    end
+
+    test "a meter that booted mid-window may not, because the gap holds its own forgotten calls" do
+      # The restart case. GitHub kept counting across the restart and reports
+      # the whole hour on the next refresh, while attribution died with the
+      # process — so the shortfall is this daemon's own spend, not somebody
+      # else's, and the wording must not name somebody else.
+      %{budgets: %{"graphql" => graphql}} = QuotaUsage.sample(restarted_snapshot(), @now)
+
+      refute QuotaUsage.observation_complete?(graphql)
+      assert QuotaUsage.outside_label(false) == "not observed by this daemon"
+    end
+
+    test "equal spans count as complete — booting exactly on the window edge is full coverage" do
+      snapshot = %{snapshot() | observing_since: window_opened_at()}
+      %{budgets: %{"graphql" => graphql}} = QuotaUsage.sample(snapshot, @now)
+
+      assert graphql.observed_from == graphql.window_started_at
+      assert QuotaUsage.observation_complete?(graphql)
+    end
+
+    test "the page can say how far back it sees and when the claim becomes safe again" do
+      %{budgets: %{"graphql" => graphql}} = QuotaUsage.sample(restarted_snapshot(), @now)
+
+      # Both ends, not just their comparison: "observed since X, window opened
+      # Y" tells an operator whether to wait, and a hedge does not.
+      assert graphql.observed_from == @restarted_at
+      assert graphql.window_started_at == window_opened_at()
+      # The meter's reach is fixed at boot; the window's start only moves at the
+      # reset, so the reset is when attribution covers the whole window again.
+      assert QuotaUsage.attributable_from(graphql) == @reset
+    end
+
+    test "an unknown reach never counts as complete" do
+      # A missing boot time must fail closed. Failing open would put the
+      # confident claim back exactly where nothing is known.
+      refute QuotaUsage.observation_complete?(%{})
+      refute QuotaUsage.observation_complete?(%{observed_from: nil, window_started_at: window_opened_at()})
+      refute QuotaUsage.observation_complete?(%{observed_from: @restarted_at, window_started_at: nil})
+    end
+
+    test "the chart's remainder band takes the same wording as the table" do
+      restarted = QuotaUsage.series(samples(3, observing_since: @restarted_at), "graphql")
+      complete = QuotaUsage.series(samples(3), "graphql")
+
+      assert List.last(restarted.bands).label == "not observed by this daemon"
+      assert List.last(complete.bands).label == "not issued by this daemon"
+    end
+  end
+
   describe "ranked_callers/1 and share_of_attributed/2" do
     test "ranks by points, not by call count" do
       %{budgets: %{"graphql" => graphql}} = QuotaUsage.sample(snapshot(), @now)
@@ -128,7 +190,7 @@ defmodule Aiur.GitHub.QuotaUsageTest do
       # rather than its rank at one instant.
       overtaking =
         samples(3) ++
-          [sample_at(3, %{"review_threads_unaddressed" => {900, 60}, "comment_poll_batch" => {93, 9}})]
+          [sample_at(3, %{"review_threads_unaddressed" => {900, 60}, "comment_poll_batch" => {93, 9}}, [])]
 
       series = QuotaUsage.series(overtaking, "graphql")
       slots = Map.new(series.bands, &{&1.key, &1.slot})
@@ -179,12 +241,19 @@ defmodule Aiur.GitHub.QuotaUsageTest do
     "unattributed" => {17, 7}
   }
 
+  defp window_opened_at, do: DateTime.add(@reset, -@window_seconds, :second)
+
+  # A meter that has been up longer than the window — it can account for all of
+  # it, so the remainder genuinely belongs to another consumer.
+  defp restarted_snapshot, do: %{snapshot() | observing_since: @restarted_at}
+
   defp snapshot do
     %{
       state: :observed,
+      observing_since: DateTime.add(window_opened_at(), -600, :second),
       windows: %{
-        "graphql" => %{limit: 5_000, remaining: 0, used: 5_000, reset_at: @reset},
-        "core" => %{limit: 5_000, remaining: 4_912, used: 88, reset_at: @reset}
+        "graphql" => %{limit: 5_000, remaining: 0, used: 5_000, reset_at: @reset, started_at: window_opened_at()},
+        "core" => %{limit: 5_000, remaining: 4_912, used: 88, reset_at: @reset, started_at: window_opened_at()}
       },
       callers:
         Enum.map(@graphql_callers, fn {caller, {points, calls}} ->
@@ -211,9 +280,9 @@ defmodule Aiur.GitHub.QuotaUsageTest do
     }
   end
 
-  defp samples(count), do: Enum.map(0..(count - 1), &sample_at(&1))
+  defp samples(count, opts \\ []), do: Enum.map(0..(count - 1), &sample_at(&1, nil, opts))
 
-  defp sample_at(index, callers \\ nil, opts \\ []) do
+  defp sample_at(index, callers, opts) do
     callers = callers || @graphql_callers
     attributed = callers |> Map.values() |> Enum.reduce(0, fn {points, _calls}, acc -> acc + points end)
     spend = Keyword.get(opts, :spend, :default)
@@ -233,6 +302,8 @@ defmodule Aiur.GitHub.QuotaUsageTest do
           outside: if(is_integer(spend), do: max(spend - attributed, 0)),
           direction: :shortfall,
           estimated?: false,
+          observed_from: Keyword.get(opts, :observing_since, DateTime.add(window_opened_at(), -600, :second)),
+          window_started_at: window_opened_at(),
           window: %{limit: 5_000, remaining: 0, used: 5_000, reset_at: @reset}
         }
       }

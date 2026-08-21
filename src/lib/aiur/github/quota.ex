@@ -137,6 +137,16 @@ defmodule Aiur.GitHub.Quota do
       shell_observations: [],
       shell_refreshed_at: nil,
       alerts: MapSet.new(),
+      # When this meter started observing. Attribution lives in this process's
+      # memory and does not survive a restart, while the credential's window
+      # does — GitHub keeps counting across the restart and `/rate_limit`
+      # reports the whole hour on the next refresh. Without this, a consumer
+      # cannot tell "nobody else spent it" from "I was not running when it was
+      # spent", and would attribute the daemon's own forgotten calls to
+      # somebody else.
+      # Overridable so a test can place the boot before or after a window's
+      # start without also moving the clock that prices everything else.
+      started_at: Keyword.get_lazy(opts, :started_at, fn -> Keyword.get(opts, :clock, &DateTime.utc_now/0).() end),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
@@ -186,7 +196,11 @@ defmodule Aiur.GitHub.Quota do
 
     snapshot = %{
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
-      windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
+      windows:
+        Map.new(state.windows, fn {resource, window} ->
+          {resource, window |> present_window() |> Map.put(:started_at, window_start(state.windows, resource, now))}
+        end),
+      observing_since: observing_since(state, now),
       attribution: summarize_attribution(in_window),
       callers: summarize_callers(in_window, state.windows, now),
       coverage: coverage,
@@ -590,6 +604,28 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp rolling_start(now), do: DateTime.add(now, -@attribution_window_seconds, :second)
+
+  @doc """
+  The earliest moment this meter could have attributed a call.
+
+  Not "when the first call happened" — a daemon that has been up for hours and
+  was simply idle for the first ten minutes of a window can still account for
+  the whole window. This is the boundary of what the meter is *able* to have
+  seen: its own boot, or the edge of the rolling attribution window, whichever
+  is later.
+
+  A consumer compares this against a window's `started_at` to know whether the
+  shortfall between `attributed` and `spend` means "another consumer spent it"
+  or only "I was not running yet". The two are different facts and only one of
+  them names somebody else.
+  """
+  @spec observing_since(map(), DateTime.t()) :: DateTime.t()
+  def observing_since(%{started_at: %DateTime{} = started_at}, now) do
+    rolling = rolling_start(now)
+    if DateTime.compare(started_at, rolling) == :gt, do: started_at, else: rolling
+  end
+
+  def observing_since(_state, now), do: rolling_start(now)
 
   defp within_window?(observation, starts, now) do
     start = Map.get(starts, observation_resource(observation)) || rolling_start(now)
