@@ -58,14 +58,16 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              )
 
     assert_receive {:requested, issue_comments_url}
-    assert_receive {:requested, legacy_pulls_url}
-    assert_receive {:requested, readable_pulls_url}
+    assert_receive {:requested, pulls_url}
     refute_receive {:requested, _url}, 100
 
     assert String.contains?(issue_comments_url, "/issues/42/comments?")
-    assert String.contains?(legacy_pulls_url, "head=owner%3Aaiur%2F42")
-    assert String.contains?(readable_pulls_url, "/pulls?")
-    refute String.contains?(readable_pulls_url, "head=")
+    # One listing, not two. The `head=<owner>:aiur/42` probe that used to run in
+    # front of this listing could only find branches the listing's own filter
+    # already matches, so it was a billed request per target per poll cycle that
+    # answered nothing new.
+    assert String.contains?(pulls_url, "/pulls?")
+    refute String.contains?(pulls_url, "head=")
   end
 
   test "keeps a per-target issue ETag when comments are unchanged" do
@@ -192,7 +194,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok, %{status: 200, body: []}}
@@ -250,7 +252,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok,
@@ -426,7 +428,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok,
@@ -625,14 +627,16 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              ]
            }}
 
-        String.contains?(url, "/pulls?") and not String.contains?(url, "aiur%2F43") and
-            not String.contains?(url, "aiur/43") ->
+        # Both targets read the same open-pull-request listing URL now that the
+        # per-target `head=<owner>:aiur/<n>` probe is gone — it could only find
+        # branches the listing's own filter already matches, so it was a billed
+        # request per target per cycle that answered nothing new. The failing
+        # target is therefore made to fail on a request that is still its own:
+        # its issue-comment read.
+        String.contains?(url, "/pulls?") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/issues/43/comments?") ->
-          {:ok, %{status: 200, body: []}}
-
-        String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F43") ->
           {:error, :timeout}
       end
     end
@@ -644,7 +648,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                 "42" => "2026-06-24T12:03:59Z",
                 "43" => "2026-06-24T11:00:00Z"
               },
-              errors: [{"43", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
+              errors: [{"43", {:issue_comments, {:github, :timeout, %{reason: :timeout}}}}]
             }} =
              GithubCommentsPoller.poll(["42", "43"],
                since: %{"42" => "2026-06-24T11:00:00Z", "43" => "2026-06-24T11:00:00Z"},
@@ -1107,7 +1111,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       request_fun = fn %{url: url} ->
         cond do
           String.contains?(url, "/issues/42/comments?") -> {:ok, %{status: 200, body: []}}
-          String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: [%{"number" => 77}]}}
+          String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
           String.contains?(url, "/issues/77/comments?") -> {:ok, %{status: 200, body: []}}
           String.contains?(url, "/graphql") -> empty_review_threads_response()
           String.contains?(url, "/pulls/77/reviews") -> {:error, :timeout}
@@ -1147,7 +1151,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              }}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
           String.contains?(url, "/issues/77/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -1401,7 +1405,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok, %{status: 200, body: []}}
