@@ -110,6 +110,16 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.ChartsTest do
       refute Charts.spend_over_time(series()) =~ "not the whole bill"
     end
 
+    test "shades and labels history from before the current credential window" do
+      series = %{series() | current_window_started_at_ms: @t0 + 120_000}
+      svg = Charts.spend_over_time(series)
+
+      assert svg =~ ~s(data-role="pre-window-history")
+      assert svg =~ ~s(data-role="current-window-boundary")
+      assert svg =~ "before current window"
+      assert svg =~ "current window"
+    end
+
     test "renders nothing rather than an empty axis when there is nothing to draw" do
       assert Charts.spend_over_time(nil) == ""
       assert Charts.spend_over_time(%{series() | points: Enum.take(series().points, 1)}) == ""
@@ -133,6 +143,14 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.ChartsTest do
         }
       end
 
-    %{budget: "graphql", scope: :bill, bands: bands, points: points, dropped: 0, estimated?: false}
+    %{
+      budget: "graphql",
+      scope: :bill,
+      bands: bands,
+      points: points,
+      dropped: 0,
+      estimated?: false,
+      current_window_started_at_ms: @t0
+    }
   end
 end

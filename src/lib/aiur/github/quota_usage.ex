@@ -157,6 +157,10 @@ defmodule Aiur.GitHub.QuotaUsage do
   Band identity is ranked once over the whole retained series rather than
   per-sample, so a caller keeps its colour when another overtakes it. Colour
   follows the caller, never its rank at one instant.
+
+  The retained ring may cross a credential reset. The projection keeps those
+  older points for comparison and carries the current window's start so the
+  renderer can distinguish them from the current-window headline and table.
   """
   @spec series([map()], String.t()) :: map() | nil
   def series(samples, budget) when is_list(samples) and is_binary(budget) do
@@ -164,12 +168,12 @@ defmodule Aiur.GitHub.QuotaUsage do
     {drawn, dropped} = trailing_observed(present)
 
     if length(drawn) >= 2 do
-      # The label is taken from the latest drawn point, which is the state the
-      # operator is looking at now. A chart legend claiming "not issued by this
-      # daemon" over a span the meter could not see is the same overstatement as
-      # the table making the claim.
       {_t, latest} = List.last(drawn)
-      bands = bands(drawn, observation_complete?(latest))
+      current_window_started_at_ms = window_started_at_ms(latest)
+
+      # Unlike the table, the legend describes the whole retained span. It may
+      # name another consumer only when the meter covered every window drawn.
+      bands = bands(drawn, Enum.all?(drawn, fn {_t, projection} -> observation_complete?(projection) end))
 
       %{
         budget: budget,
@@ -177,12 +181,21 @@ defmodule Aiur.GitHub.QuotaUsage do
         bands: bands,
         points: Enum.map(drawn, fn {t_ms, b} -> plot_point(t_ms, b, bands) end),
         dropped: dropped,
-        estimated?: Enum.any?(drawn, fn {_t, b} -> b.estimated? end)
+        estimated?: Enum.any?(drawn, fn {_t, b} -> b.estimated? end),
+        current_window_started_at_ms: current_window_started_at_ms
       }
     end
   end
 
   def series(_samples, _budget), do: nil
+
+  @doc "Whether a series retains samples from before its current credential window."
+  @spec spans_previous_window?(map() | nil) :: boolean()
+  def spans_previous_window?(%{points: [%{t_ms: first_t_ms} | _], current_window_started_at_ms: boundary})
+      when is_integer(boundary),
+      do: first_t_ms < boundary
+
+  def spans_previous_window?(_series), do: false
 
   @doc """
   The same series with the remainder band removed and rescaled to what this
@@ -306,6 +319,11 @@ defmodule Aiur.GitHub.QuotaUsage do
   end
 
   defp point(_sample, _budget), do: {nil, nil}
+
+  defp window_started_at_ms(%{window_started_at: %DateTime{} = started_at}),
+    do: DateTime.to_unix(started_at, :millisecond)
+
+  defp window_started_at_ms(_budget), do: nil
 
   # Only the trailing run where the credential's window was observed is drawn.
   # A gap means `limit - remaining` described a window that had already closed,

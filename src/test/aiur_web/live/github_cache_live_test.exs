@@ -680,7 +680,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
     test "a meter that has observed nothing says so rather than drawing a zero" do
       Source.install(entries(2))
-      Application.delete_env(:aiur, :github_quota_server)
+      Application.put_env(:aiur, :github_quota_server, :unobserved_quota_test)
 
       {:ok, _view, html} = live(build_conn(), "/github-cache")
       document = Floki.parse_document!(html)
@@ -708,6 +708,10 @@ defmodule AiurWeb.GithubCacheLiveTest do
       legend = chart |> Floki.find(~s([data-band])) |> Floki.attribute("data-band")
       assert "__outside__" in legend
       assert "comment_poll_batch" in legend
+
+      note = drawn |> budget_block() |> Floki.find(~s([data-role="usage-previous-window-note"])) |> Floki.text()
+      assert note =~ "before the current credential window"
+      assert note =~ "headline and table describe only the current window"
     end
 
     test "a meter that booted mid-window does not blame the remainder on another consumer" do
@@ -860,8 +864,11 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
   defp quota_samples do
     for index <- 0..1 do
+      sampled_at = DateTime.add(@reset, -1800 + index * 30, :second)
+      window_started_at = if index == 0, do: DateTime.add(@reset, -3600, :second), else: DateTime.add(@reset, -1785, :second)
+
       %{
-        t_ms: DateTime.to_unix(DateTime.add(@reset, -1800 + index * 30, :second), :millisecond),
+        t_ms: DateTime.to_unix(sampled_at, :millisecond),
         budgets: %{
           "graphql" => %{
             resource: "graphql",
@@ -873,6 +880,8 @@ defmodule AiurWeb.GithubCacheLiveTest do
             outside: 907,
             direction: :shortfall,
             estimated?: false,
+            observed_from: DateTime.add(@reset, -1800, :second),
+            window_started_at: window_started_at,
             window: %{limit: 5_000, remaining: 4_000, used: 1_000, reset_at: @reset}
           }
         }
