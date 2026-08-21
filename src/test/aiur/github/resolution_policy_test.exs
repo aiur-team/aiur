@@ -215,4 +215,69 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicyTest do
       File.rm_rf!(repo_root)
     end
   end
+
+  # SPLIT IDENTITY — every test above uses one login for both Aiur roles, which
+  # is the shape that hid the original conflation. These use two different
+  # logins, because that is the only configuration where classifying the wrong
+  # one still shows up as a failure.
+  #
+  # This path never reaches `BotIdentity.codeowners_classification_opts/1`, so
+  # the union has to happen in `agent_classification_opts/2`. Without it the
+  # daemon's own App-bot comment is taken for the reviewer's comment and checked
+  # for CODEOWNERS authority it never had.
+  describe "agent_classification_opts/2 under a split identity" do
+    test "carries both Aiur logins into :agent_logins" do
+      opts = ResolutionPolicy.agent_classification_opts("aiur-daemon[bot]", bot_account: "its-applekid")
+
+      assert Keyword.get(opts, :agent_logins) == ["aiur-daemon[bot]", "its-applekid"]
+    end
+
+    test "keeps caller-supplied agent logins" do
+      opts =
+        ResolutionPolicy.agent_classification_opts("aiur-daemon[bot]",
+          bot_account: "its-applekid",
+          agent_logins: ["extra-agent"]
+        )
+
+      assert Keyword.get(opts, :agent_logins) == ["aiur-daemon[bot]", "its-applekid", "extra-agent"]
+    end
+
+    # Single-identity installs are the shipped default: one entry, not a pair.
+    test "collapses to one login when both roles share an account" do
+      opts = ResolutionPolicy.agent_classification_opts("aiur-bot", bot_account: "aiur-bot")
+
+      assert Keyword.get(opts, :agent_logins) == ["aiur-bot"]
+    end
+
+    # The daemon's own comment must not be mistaken for the reviewer's: with
+    # only the agent login classified, `review_thread_authority/2` would walk
+    # back to the App-bot comment, call it the reviewer's, and refuse to resolve
+    # a thread the real owner had already answered.
+    test "a daemon App-bot comment is not treated as the reviewer's comment" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      thread = %{
+        "id" => "PRRT_test",
+        "isResolved" => false,
+        "path" => "src/lib/foo.ex",
+        "comments" => %{
+          "nodes" => [
+            %{"author" => %{"login" => "owner"}, "body" => "please fix"},
+            %{"author" => %{"login" => "its-applekid"}, "body" => "fixed"},
+            %{"author" => %{"login" => "aiur-daemon[bot]"}, "body" => "Done, no further changes."}
+          ]
+        }
+      }
+
+      opts =
+        ResolutionPolicy.agent_classification_opts("aiur-daemon[bot]",
+          repo_root: repo_root,
+          bot_account: "its-applekid"
+        )
+
+      assert ResolutionPolicy.review_thread_authoritative_comment?(thread, opts)
+
+      File.rm_rf!(repo_root)
+    end
+  end
 end

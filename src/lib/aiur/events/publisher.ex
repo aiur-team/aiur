@@ -12,7 +12,7 @@ defmodule Aiur.Events.Publisher do
        `Aiur.Events.IdGenerator.next_id/0` at the moment of publish.
     2. **Contamination filter** — drops events whose issue number isn't
        in the orchestrator's tracked set (running/queued/recent) and
-       drops events whose actor is the configured `bot_account` (to
+       drops events whose actor is the configured `daemon_account` (to
        prevent self-loops where Aiur reacts to its own writes).
     3. **Replay dedup** — sources that poll replay-prone APIs can pass
        a stable `:dedup_key` to avoid publishing the same PR/comment
@@ -75,7 +75,7 @@ defmodule Aiur.Events.Publisher do
 
     * `:issue_number` — number used by the contamination filter; nil
       bypasses filter (e.g. system topics like `system.<base_branch>.branch.push`)
-    * `:actor` — author login; if matches `bot_account`, drop
+    * `:actor` — author login; if matches `daemon_account`, drop
     * `:dedup_key` — stable source-specific key; if set, dedup is applied
     * `:resource` — an `Aiur.GitHub.ResourceStore` key naming the GitHub
       resource this event *is*, as `{type, owner, repo, id}`. Where
@@ -395,7 +395,10 @@ defmodule Aiur.Events.Publisher do
   defp bot_self_loop?(nil), do: false
 
   defp bot_self_loop?(actor) when is_binary(actor) do
-    case GitHubConfig.bot_account() do
+    # The daemon identity, not the agent one: this drops events the daemon
+    # itself produced. An agent's write is a real external event the daemon
+    # must react to, so it deliberately does not match here.
+    case GitHubConfig.daemon_account() do
       bot when is_binary(bot) -> String.downcase(actor) == String.downcase(bot)
       _ -> false
     end

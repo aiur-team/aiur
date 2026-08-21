@@ -7,7 +7,7 @@ defmodule Aiur.Events.PrCommandScanner do
 
   A comment is a command when its trimmed body **starts with** the
   configured command prefix (e.g. `/aiur …`) OR **mentions** the
-  configured bot account (`@<bot_account>`, word-boundary,
+  configured bot account (`@<daemon_account>`, word-boundary,
   case-insensitive on the login). The bot-mention match deliberately
   uses a word boundary so `@aiur` (a real, unrelated GitHub user) never
   matches a bot account of `aiur-bot`, and a login that is merely a
@@ -19,7 +19,7 @@ defmodule Aiur.Events.PrCommandScanner do
     1. The marker (prefix or mention) is present.
     2. The author is trusted — the `author_trusted?` flag already
        stamped by `Aiur.Events.Sanitizer.stamp_author_trust/2` from the
-       CODEOWNERS ∪ `bot_account` ∪ `trusted_accounts` set. This module
+       CODEOWNERS ∪ Aiur's own logins ∪ `trusted_accounts` set. This module
        does NOT re-derive trust; it consumes the flag.
     3. The author is NOT the bot itself — the bot's own `/aiur`/mention
        comments are dropped to avoid a self-loop (mirrors
@@ -44,16 +44,16 @@ defmodule Aiur.Events.PrCommandScanner do
 
   @doc """
   Returns the subset of `comments` that are trusted one-off commands for
-  `command_prefix` / `bot_account`.
+  `command_prefix` / `daemon_account`.
 
   `command_prefix` is the literal leading marker (e.g. `"/aiur"`).
-  `bot_account` is the configured bot login (nil disables mention
+  `daemon_account` is the configured bot login (nil disables mention
   matching but leaves prefix matching intact). A `nil`/blank
   `command_prefix` disables prefix matching.
   """
   @spec commands([comment()], String.t() | nil, String.t() | nil) :: [comment()]
-  def commands(comments, command_prefix, bot_account) when is_list(comments) do
-    Enum.filter(comments, &command?(&1, command_prefix, bot_account))
+  def commands(comments, command_prefix, daemon_account) when is_list(comments) do
+    Enum.filter(comments, &command?(&1, command_prefix, daemon_account))
   end
 
   @doc """
@@ -63,29 +63,29 @@ defmodule Aiur.Events.PrCommandScanner do
   all return `false`.
   """
   @spec command?(comment(), String.t() | nil, String.t() | nil) :: boolean()
-  def command?(comment, command_prefix, bot_account) when is_map(comment) do
+  def command?(comment, command_prefix, daemon_account) when is_map(comment) do
     author = comment_author(comment)
     body = comment_body(comment)
 
     trusted?(comment) and
-      not bot_author?(author, bot_account) and
-      command_body?(body, command_prefix, bot_account)
+      not bot_author?(author, daemon_account) and
+      command_body?(body, command_prefix, daemon_account)
   end
 
-  def command?(_comment, _command_prefix, _bot_account), do: false
+  def command?(_comment, _command_prefix, _daemon_account), do: false
 
   @doc """
   Whether a raw comment `body` carries a command marker — a leading
-  `command_prefix` or a word-boundary `@<bot_account>` mention. Pure
+  `command_prefix` or a word-boundary `@<daemon_account>` mention. Pure
   string check with no trust/author gating; the public gate is
   `command?/3`.
   """
   @spec command_body?(String.t() | nil, String.t() | nil, String.t() | nil) :: boolean()
-  def command_body?(body, command_prefix, bot_account) when is_binary(body) do
-    starts_with_prefix?(body, command_prefix) or mentions_bot?(body, bot_account)
+  def command_body?(body, command_prefix, daemon_account) when is_binary(body) do
+    starts_with_prefix?(body, command_prefix) or mentions_bot?(body, daemon_account)
   end
 
-  def command_body?(_body, _command_prefix, _bot_account), do: false
+  def command_body?(_body, _command_prefix, _daemon_account), do: false
 
   defp starts_with_prefix?(body, prefix) when is_binary(prefix) do
     case String.trim(prefix) do
@@ -101,8 +101,8 @@ defmodule Aiur.Events.PrCommandScanner do
   # bot of `@aiur`, and the leading boundary keeps `foo@aiur` (an email
   # tail) from matching. The login is regex-escaped so a login with
   # regex metacharacters can't break the pattern.
-  defp mentions_bot?(body, bot_account) when is_binary(bot_account) do
-    case String.trim(bot_account) do
+  defp mentions_bot?(body, daemon_account) when is_binary(daemon_account) do
+    case String.trim(daemon_account) do
       "" ->
         false
 
@@ -112,18 +112,18 @@ defmodule Aiur.Events.PrCommandScanner do
     end
   end
 
-  defp mentions_bot?(_body, _bot_account), do: false
+  defp mentions_bot?(_body, _daemon_account), do: false
 
   defp trusted?(%{author_trusted?: true}), do: true
   defp trusted?(%{"author_trusted?" => true}), do: true
   defp trusted?(_comment), do: false
 
-  defp bot_author?(author, bot_account)
-       when is_binary(author) and is_binary(bot_account) do
-    String.downcase(String.trim(author)) == String.downcase(String.trim(bot_account))
+  defp bot_author?(author, daemon_account)
+       when is_binary(author) and is_binary(daemon_account) do
+    String.downcase(String.trim(author)) == String.downcase(String.trim(daemon_account))
   end
 
-  defp bot_author?(_author, _bot_account), do: false
+  defp bot_author?(_author, _daemon_account), do: false
 
   defp comment_author(comment) when is_map(comment) do
     get_in(comment, ["user", "login"]) ||
