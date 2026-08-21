@@ -19,7 +19,7 @@ Run the command from the repository that owns the run. An instance is keyed to t
 
 | Job | Commands | Notes |
 | --- | --- | --- |
-| Start a run | `aiur`, `aiur run` | Foreground gives the TUI board and chat panes; background is headless. |
+| Start or attach | `aiur`, `aiur run` | Bare `aiur` attaches to this repository's live session when one exists; otherwise foreground gives the TUI board and chat panes. Background is headless unless launched with `--interactive`. |
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost`, `github-usage` | Read-only reports from the running daemon. |
 | Operate the fleet | `set max-agents`, `pause`, `resume`, `message`, `reset-budget`, `stop`, `restart` | Steers a live run. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `analytics` | Read-only terminal forms of the dashboard pages. |
@@ -32,13 +32,13 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
-| `aiur` | Starts a foreground interactive run. The launcher supplies a lower-precedence Tailscale-or-loopback host default, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
+| `aiur` | Attaches to this repository's live tmux session when one exists; otherwise starts a foreground interactive run. Attachment does not create a second run or take teardown ownership, so detaching leaves the daemon healthy. | `aiur` |
 | `aiur run` | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
 | `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. It also asks whether to enable Stream Deck voice input with ElevenLabs speech-to-text; answering yes writes the `elevenlabs` section, defaulting the key to the `$ELEVENLABS_API_KEY` environment reference. A resumed `aiur init` offers the same question when the saved config predates the section. | `aiur init` |
 | `aiur init --force` | Recreates generated configuration. Re-running without it preserves existing scaffold files. | `aiur init --force` |
 | `aiur --todo 142 143` | Requires a running daemon and one or more numeric IDs, with commas also accepted. A stopped daemon exits nonzero. | `aiur --todo 142,143` |
 | `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
-| `aiur --bg` | Starts detached headless execution. It has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
+| `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
 | `aiur --debug` | Enables debug logs and durable chat-pane recording for this run. | `aiur --debug` |
 | `aiur --pause` | Cold-starts with the global provisioning switch paused. | `aiur --pause` |
 | `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
@@ -54,7 +54,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 | Launch choice | Behavior |
 | --- | --- |
-| Foreground | Shows the terminal board and chat panes. |
+| Foreground | Shows the terminal board and chat panes. A later bare `aiur` from the same repository reattaches to that session. |
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
 | Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
