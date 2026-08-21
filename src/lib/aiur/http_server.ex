@@ -33,10 +33,10 @@ defmodule Aiur.HttpServer do
         decision_api = Keyword.get(opts, :decision_api, DecisionApi)
         decision_store = Keyword.get(opts, :decision_store, DecisionStore)
         decision_policy = Keyword.get(opts, :decision_policy)
+        endpoint_start_fun = Keyword.get(opts, :endpoint_start_fun, &Endpoint.start_link/0)
 
         with {:ok, ip} <- parse_host(host),
-             :ok <- guard_dashboard_credentials(ip, host, dashboard_writable),
-             :ok <- guard_port_available(ip, port, host) do
+             :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
           endpoint_opts = [
             server: true,
             http: [ip: ip, port: port],
@@ -57,10 +57,29 @@ defmodule Aiur.HttpServer do
             |> Keyword.merge(endpoint_opts)
 
           Application.put_env(:aiur, Endpoint, endpoint_config)
-          Endpoint.start_link()
+
+          case start_endpoint(endpoint_start_fun) do
+            {:endpoint_exit, reason} ->
+              if address_in_use?(reason) do
+                port_in_use(host, ip, port)
+                :ignore
+              else
+                exit(reason)
+              end
+
+            {:error, reason} = error ->
+              if address_in_use?(reason) do
+                port_in_use(host, ip, port)
+                :ignore
+              else
+                error
+              end
+
+            other ->
+              other
+          end
         else
           :dashboard_credentials_missing -> :ignore
-          :port_in_use -> :ignore
           other -> other
         end
 
@@ -68,6 +87,32 @@ defmodule Aiur.HttpServer do
         :ignore
     end
   end
+
+  defp start_endpoint(endpoint_start_fun) do
+    trapping_exits? = Process.flag(:trap_exit, true)
+
+    try do
+      result = endpoint_start_fun.()
+      drain_failed_start_exit(result)
+      result
+    catch
+      :exit, reason ->
+        drain_failed_start_exit({:error, reason})
+        {:endpoint_exit, reason}
+    after
+      Process.flag(:trap_exit, trapping_exits?)
+    end
+  end
+
+  defp drain_failed_start_exit({:error, reason}) do
+    receive do
+      {:EXIT, _pid, ^reason} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp drain_failed_start_exit(_result), do: :ok
 
   @spec bound_port(term()) :: non_neg_integer() | nil
   def bound_port(_server \\ __MODULE__) do
@@ -142,45 +187,19 @@ defmodule Aiur.HttpServer do
     end
   end
 
-  # A fixed dashboard port that is already bound — e.g. a *second* aiur instance
-  # sharing the same `server.port` (this repo's config pins 4000) — makes
-  # Bandit's listener fail with `:eaddrinuse`. That failure surfaces as a
-  # crashed child, which `:one_for_one` retries until `max_restarts` is exhausted
-  # and the whole BEAM goes down on startup (#442). Probe the bind first and
-  # degrade to no-dashboard (`:ignore`) instead: the node keeps running agents,
-  # only this instance's dashboard is unavailable. The `Logger.warning` line is
-  # the Executor’s only signal, so it names the port + remediation.
-  #
-  # Port 0 is ephemeral (the OS assigns a free port), so it never collides —
-  # skip the probe. The probe mirrors Bandit's bind (`reuseaddr: true`) so a
-  # port merely lingering in TIME_WAIT is not misread as in-use. A tiny
-  # time-of-check/time-of-use window remains between the probe and the real
-  # bind; losing that race only reproduces the pre-#442 crash, which is no
-  # worse than today and astronomically unlikely in practice.
-  defp guard_port_available(_ip, 0, _host_input), do: :ok
-
-  defp guard_port_available(ip, port, host_input) do
-    case :gen_tcp.listen(port, ip: ip, reuseaddr: true) do
-      {:ok, socket} ->
-        :gen_tcp.close(socket)
-        :ok
-
-      {:error, :eaddrinuse} ->
-        Logger.warning(
-          "Aiur dashboard port #{port} is already in use on " <>
-            "#{inspect(host_input)} (#{format_ip(ip)}) — another aiur instance? " <>
-            "Dashboard disabled for this instance (agents still run). " <>
-            "Set a different `server.port` (or pass `--port`) to run a second dashboard."
-        )
-
-        :port_in_use
-
-      {:error, _other} ->
-        # Any other bind error (e.g. `:eaddrnotavail` for an unroutable host) is
-        # left to `Endpoint.start_link/0` to surface, preserving prior behavior.
-        :ok
-    end
+  defp port_in_use(host_input, ip, port) do
+    Logger.warning(
+      "Aiur dashboard port #{port} is already in use on " <>
+        "#{inspect(host_input)} (#{format_ip(ip)}) — another aiur instance? " <>
+        "Dashboard disabled for this instance (agents still run). " <>
+        "Set a different `server.port` (or pass `--port`) to run a second dashboard."
+    )
   end
+
+  defp address_in_use?(:eaddrinuse), do: true
+  defp address_in_use?(term) when is_tuple(term), do: term |> Tuple.to_list() |> Enum.any?(&address_in_use?/1)
+  defp address_in_use?(term) when is_list(term), do: Enum.any?(term, &address_in_use?/1)
+  defp address_in_use?(_term), do: false
 
   defp loopback?(@loopback_v4), do: true
   defp loopback?(@loopback_v6), do: true

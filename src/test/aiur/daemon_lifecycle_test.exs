@@ -7,7 +7,7 @@ defmodule Aiur.DaemonLifecycleTest do
   @now ~U[2026-08-17 17:40:38Z]
 
   setup do
-    path = Path.join(System.tmp_dir!(), "aiur-daemon-lifecycle-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-daemon-lifecycle") <> ".json"
     previous = Application.get_env(:aiur, :control_lifecycle_store_path)
     Application.put_env(:aiur, :control_lifecycle_store_path, path)
 
@@ -21,7 +21,7 @@ defmodule Aiur.DaemonLifecycleTest do
       File.rm(path)
     end)
 
-    :ok
+    %{path: path}
   end
 
   describe "record_start/record_stop" do
@@ -45,9 +45,6 @@ defmodule Aiur.DaemonLifecycleTest do
     end
 
     test "simulated two instances both appear in the journal" do
-      # Acceptance: "Simulate two instances and assert both appear." Two
-      # daemons sharing a host each record their own start; a later review of
-      # the journal must name both invoking processes.
       assert :ok = DaemonLifecycle.record_start(run_id: "run-first", os_pid: "4001", ppid: "4000", ppid_comm: "aiur", hostname: "host", at: @now)
       assert :ok = DaemonLifecycle.record_start(run_id: "run-second", os_pid: "5002", ppid: "5001", ppid_comm: "aiur", hostname: "host", at: @now)
 
@@ -86,6 +83,31 @@ defmodule Aiur.DaemonLifecycleTest do
       assert identity.run_id == "run-probe"
       assert identity.os_pid == "1234"
       assert is_binary(identity.ppid) or is_nil(identity.ppid)
+    end
+
+    test "application lifecycle wiring persists one start and one stop", %{path: path} do
+      code_paths =
+        :code.get_path()
+        |> Enum.map(&List.to_string/1)
+        |> Enum.filter(&String.contains?(&1, "/_build/test/lib/"))
+        |> Enum.flat_map(&["-pa", &1])
+
+      script = """
+      Application.put_env(:aiur, :control_lifecycle_store_path, #{inspect(path)})
+      :ok = Aiur.Application.record_daemon_start()
+      IO.puts("__AIUR_RUN_ID__" <> Aiur.Boot.run_id())
+      :state = Aiur.Application.prep_stop(:state)
+      :ok = Aiur.Application.stop(:state)
+      """
+
+      {output, 0} =
+        System.cmd(System.find_executable("elixir"), code_paths ++ ["-e", script],
+          cd: File.cwd!(),
+          stderr_to_stdout: true
+        )
+
+      [run_id] = Regex.run(~r/__AIUR_RUN_ID__(\S+)/, output, capture: :all_but_first)
+      assert [%{kind: :start, run_id: ^run_id}, %{kind: :stop, run_id: ^run_id}] = DaemonLifecycle.daemon_events()
     end
   end
 

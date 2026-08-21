@@ -30,10 +30,6 @@ defmodule Aiur.HttpServerPortCollisionTest do
           assert HttpServer.start_link(host: "127.0.0.1", port: port, dashboard_writable: false) == :ignore
         end)
 
-      # Acceptance #2131-1/#2131-2: the second instance must say explicitly at
-      # startup that it cannot bind, naming the port AND the conflict AND the
-      # stated degraded mode (agents still run) — not just crash or emit a bare
-      # `SUPERVISION ... DOWN`.
       assert log =~ "#{port}"
       assert log =~ "already in use"
       assert log =~ "another aiur instance"
@@ -62,6 +58,24 @@ defmodule Aiur.HttpServerPortCollisionTest do
         assert HttpServer.bound_port() == nil
         Supervisor.stop(sup)
       end)
+    end
+
+    test "a nested listener bind collision still degrades" do
+      {listen, port} = occupy_loopback_port()
+      :gen_tcp.close(listen)
+
+      log =
+        capture_log(fn ->
+          assert HttpServer.start_link(
+                   host: "127.0.0.1",
+                   port: port,
+                   dashboard_writable: false,
+                   endpoint_start_fun: fn -> {:error, {:shutdown, {:failed_to_start_child, :listener, :eaddrinuse}}} end
+                 ) == :ignore
+        end)
+
+      assert log =~ "port #{port} is already in use"
+      assert log =~ "Dashboard disabled for this instance"
     end
   end
 end

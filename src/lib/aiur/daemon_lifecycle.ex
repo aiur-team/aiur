@@ -64,23 +64,21 @@ defmodule Aiur.DaemonLifecycle do
   """
   @spec process_identity(keyword()) :: map()
   def process_identity(opts \\ []) do
+    ppid = Keyword.get_lazy(opts, :ppid, &parent_pid/0)
+
     %{
-      run_id: Keyword.get(opts, :run_id, Boot.run_id()),
-      os_pid: Keyword.get(opts, :os_pid, System.pid()),
-      ppid: Keyword.get(opts, :ppid, parent_pid()),
-      ppid_comm: Keyword.get(opts, :ppid_comm, parent_comm()),
-      hostname: Keyword.get(opts, :hostname, hostname()),
-      at: Keyword.get(opts, :at, DateTime.utc_now())
+      run_id: Keyword.get_lazy(opts, :run_id, &Boot.run_id/0),
+      os_pid: Keyword.get_lazy(opts, :os_pid, &System.pid/0),
+      ppid: ppid,
+      ppid_comm: Keyword.get_lazy(opts, :ppid_comm, fn -> parent_comm(ppid) end),
+      hostname: Keyword.get_lazy(opts, :hostname, &hostname/0),
+      at: Keyword.get_lazy(opts, :at, &DateTime.utc_now/0)
     }
   end
 
   defp record(kind, opts) do
-    journal = ControlLifecycleStore.load()
-
-    journal =
-      ControlLifecycle.record_daemon_event(journal, kind, process_identity(opts))
-
-    :ok = ControlLifecycleStore.save(journal)
+    identity = process_identity(opts)
+    :ok = ControlLifecycleStore.update(&ControlLifecycle.record_daemon_event(&1, kind, identity))
     :ok
   rescue
     error ->
@@ -108,16 +106,12 @@ defmodule Aiur.DaemonLifecycle do
     end
   end
 
-  defp parent_comm do
-    case parent_pid() do
-      pid when is_binary(pid) ->
-        case File.read("/proc/#{pid}/comm") do
-          {:ok, comm} -> String.trim(comm)
-          _ -> nil
-        end
-
-      _ ->
-        nil
+  defp parent_comm(pid) when is_binary(pid) do
+    case File.read("/proc/#{pid}/comm") do
+      {:ok, comm} -> String.trim(comm)
+      _ -> nil
     end
   end
+
+  defp parent_comm(_pid), do: nil
 end

@@ -384,7 +384,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   per run: a second event with the same `kind` and `run_id` (a re-marked boot,
   or a stop recorded on both the `prep_stop` and `stop` shutdown paths) is a
   no-op rather than a duplicate. The journal is bounded to `@daemon_event_limit`
-  events, keeping the oldest entries.
+  events, keeping the most recent entries.
   """
   @spec record_daemon_event(t(), :start | :stop, map()) :: t()
   def record_daemon_event(%__MODULE__{} = lifecycle, kind, attrs)
@@ -402,14 +402,26 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   @spec daemon_events(t()) :: [daemon_event()]
   def daemon_events(%__MODULE__{} = lifecycle), do: lifecycle.daemon_events
 
+  @doc false
+  @spec merge_daemon_events(t(), t()) :: t()
+  def merge_daemon_events(%__MODULE__{} = lifecycle, %__MODULE__{} = other) do
+    events =
+      (lifecycle.daemon_events ++ other.daemon_events)
+      |> Enum.uniq_by(&{&1.kind, &1.run_id})
+      |> Enum.sort_by(&DateTime.to_unix(&1.at, :microsecond))
+      |> Enum.take(-@daemon_event_limit)
+
+    %{lifecycle | daemon_events: events}
+  end
+
   @doc "Restores a previously redacted lifecycle projection, skipping invalid records."
   @spec restore(term(), keyword()) :: t()
   def restore(%{"version" => @protocol_version, "records" => records} = persisted, opts) when is_list(records) do
-    restore_records(records, opts) |> put_restored_daemon_events(persisted, opts)
+    restore_records(records, opts) |> put_restored_daemon_events(persisted)
   end
 
   def restore(%{version: @protocol_version, records: records} = persisted, opts) when is_list(records) do
-    restore_records(records, opts) |> put_restored_daemon_events(persisted, opts)
+    restore_records(records, opts) |> put_restored_daemon_events(persisted)
   end
 
   def restore(_persisted, opts), do: new(opts)
@@ -691,7 +703,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     }
   end
 
-  defp put_restored_daemon_events(lifecycle, persisted, _opts) do
+  defp put_restored_daemon_events(lifecycle, persisted) do
     events =
       case persisted_value(persisted, :daemon_events) do
         raw when is_list(raw) -> Enum.flat_map(raw, &restore_daemon_event/1)
