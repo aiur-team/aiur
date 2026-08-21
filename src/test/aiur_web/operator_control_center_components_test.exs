@@ -642,7 +642,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         %{total: 701, open: 503, awaiting: 503, blocking: 401, awaiting_blocking: 401}
       )
 
-    assert html =~ ~r/All\s+<span class="count num">503<\/span>/
+    assert html =~ ~r/All\s+<span class="count num">701<\/span>/
     assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
     assert html =~ "Commands inbox"
