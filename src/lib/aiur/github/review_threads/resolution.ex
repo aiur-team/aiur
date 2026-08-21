@@ -272,12 +272,15 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
       {:ok, thread_body} ->
         Logger.info("GitHub review thread resolution verification response: #{inspect(thread_body)}")
 
-        with {:ok, bot_account} <- BotIdentity.bot_account(opts, request_fun, token) do
+        # The daemon posts the terminal reply with this very token, so the login
+        # the verification compares against is the daemon's — not the account
+        # agents publish under.
+        with {:ok, daemon_account} <- BotIdentity.daemon_account(opts, request_fun, token) do
           ResolutionPolicy.verify_review_thread_resolution_ready(
             thread_body,
             thread_id,
             terminal_reply_body,
-            bot_account,
+            daemon_account,
             opts
           )
         end
@@ -294,12 +297,12 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
       {:ok, thread_body} ->
         Logger.info("GitHub review thread post-resolution verification response: #{inspect(thread_body)}")
 
-        with {:ok, bot_account} <- BotIdentity.bot_account(opts, request_fun, token) do
+        with {:ok, daemon_account} <- BotIdentity.daemon_account(opts, request_fun, token) do
           ResolutionPolicy.verify_review_thread_resolution_still_latest(
             thread_body,
             thread_id,
             terminal_reply_body,
-            bot_account,
+            daemon_account,
             opts
           )
         end

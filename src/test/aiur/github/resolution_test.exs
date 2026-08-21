@@ -61,7 +61,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
       assert {:ok, result} =
                Resolution.resolve_review_thread("PRRT_clean",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -134,7 +134,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
       assert {:error, {^error_key, %{reason: :post_resolve_latest_comment_author_mismatch}}} =
                Resolution.resolve_review_thread("PRRT_raced",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -179,7 +179,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
                }}} =
                Resolution.resolve_review_thread("PRRT_denied",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )

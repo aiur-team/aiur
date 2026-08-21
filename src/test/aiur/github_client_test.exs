@@ -964,7 +964,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, result} =
                Client.reply_to_review_thread("PRRT_verified", "Verified this is already fixed.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  retry_delay_ms: 0
                )
 
@@ -987,7 +987,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:github_graphql_errors, [%{"message" => "Could not resolve to a node"}]}} =
                Client.reply_to_review_thread("PRRT_missing", "reply",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  retry_delay_ms: 0
                )
     end
@@ -1036,7 +1036,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, %{attempt: 2}} =
                Client.reply_to_review_thread("PRRT_retry", "Fixed on this branch.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 2,
                  retry_delay_ms: 0
                )
@@ -1044,7 +1044,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert Agent.get(counts, & &1) == %{mutation: 1, query: 2}
     end
 
-    test "falls back to the authenticated viewer login when bot_account is unset" do
+    test "falls back to the authenticated viewer login when no daemon identity is configured" do
       request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
         cond do
           body["query"] =~ "addPullRequestReviewThreadReply" ->
@@ -1120,7 +1120,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.reply_to_review_thread("PRRT_stale", "Fixed on this branch.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 3,
                  retry_delay_ms: 0
                )
@@ -1164,7 +1164,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, result} =
                Client.resolve_review_thread("PRRT_done",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1264,7 +1264,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.resolve_review_thread("PRRT_raced",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1308,7 +1308,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.resolve_review_thread("PRRT_denied",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1341,7 +1341,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:github_graphql_errors, [%{"message" => "not permitted on an already resolved thread"}]}} =
                Client.resolve_review_thread("PRRT_error",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1381,7 +1381,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:review_thread_not_resolved, %{review_thread_id: "PRRT_still_open"}}} =
                Client.resolve_review_thread("PRRT_still_open",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1412,7 +1412,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.resolve_review_thread("PRRT_followup",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes."
                )
     end
@@ -1436,7 +1436,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:review_thread_resolution_not_authorized, %{review_thread_id: "PRRT_nonowner", path: "src/lib/aiur/github/client.ex"}}} =
                Client.resolve_review_thread("PRRT_nonowner",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )

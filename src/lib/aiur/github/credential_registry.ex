@@ -99,7 +99,11 @@ defmodule Aiur.GitHub.CredentialRegistry do
   """
   @spec legacy_credential(keyword()) :: Credential.t()
   def legacy_credential(opts \\ []) do
-    identity_fun = Keyword.get(opts, :identity_fun, &GitHubConfig.bot_account/0)
+    # The legacy credential is the *daemon's* credential, so its identity is the
+    # daemon's login — the App bot when App auth is configured, the bot account
+    # otherwise. Reporting it as the agent publication account would label an
+    # App-installation row with a login that credential cannot write as.
+    identity_fun = Keyword.get(opts, :identity_fun, &GitHubConfig.daemon_account/0)
 
     %Credential{
       id: @legacy_id,
@@ -131,7 +135,7 @@ defmodule Aiur.GitHub.CredentialRegistry do
 
   # Both failure modes, deliberately. `Aiur.Config.settings/0` reaches a
   # `GenServer.call` into `Aiur.WorkflowStore`, which throws an **exit** on
-  # timeout rather than raising, and `Aiur.GitHub.Config.bot_account/0` goes
+  # timeout rather than raising, and `Aiur.GitHub.Config.daemon_account/0` goes
   # through `settings!/0`, which **raises** when the config is unavailable. A
   # guard that catches one and not the other reads as safe and is not.
   #
