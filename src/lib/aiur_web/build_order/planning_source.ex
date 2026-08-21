@@ -62,6 +62,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def demand(%TrackerIdentity{} = identity), do: {:ok, selected_snapshot(identity)}
 
   @impl true
+  def refresh(_identity), do: :ok
+
+  @impl true
   def selected(%TrackerIdentity{} = identity), do: {:ok, selected_snapshot(identity)}
 
   defp selected_snapshot(identity) do

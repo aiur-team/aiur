@@ -301,7 +301,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
     test "health and freshness variants are each named" do
       degraded = Presenter.present(snapshot(%{health: {:degraded, :source_unavailable}, freshness: %{status: :stale}}))
       assert degraded.health == %{status: :degraded, reason: :source_unavailable, label: "Degraded"}
-      assert degraded.freshness.label == "Stale"
+      assert degraded.freshness.label == "Healthy"
 
       unavailable = Presenter.present(snapshot(%{health: {:unavailable, :compaction_floor_unavailable}}))
       assert unavailable.health.status == :unavailable

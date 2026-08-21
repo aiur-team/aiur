@@ -12,17 +12,16 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   stamps the wall clock of the publish itself) are excluded — everything a
   consumer routes, filters, or renders on must be identical.
 
-  Two known divergences are pinned rather than asserted away, both rooted in the
-  same cause — GraphQL-only values that no webhook delivery can carry:
+  One known divergence is pinned rather than asserted away, rooted in the
+  same cause — a GraphQL-only value that no webhook delivery can carry:
 
     * `review_decision`, which changes whether `ReviewFreshness` suppresses
       rework on an APPROVED pull request.
-    * `review_thread_id`, which changes the dedup key for review thread comments
-      so the two producers wake the agent twice for one comment.
 
-  Each has a test asserting the current divergent behaviour. When either is
-  fixed, its test fails and must be rewritten as an equivalence or coalescing
-  assertion — that failure is the tripwire.
+  The old `review_thread_id` divergence is gone: both pipes now key review
+  thread comments on the thread node id (the webhook resolves it in the
+  delivery path), so the coalescing cases below assert that a single inline
+  comment wakes the agent exactly once whichever pipe saw it first.
   """
 
   use Aiur.TestSupport
@@ -373,30 +372,22 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     assert_indistinguishable(polled, pushed)
   end
 
-  # Known divergence, pinned deliberately — the counterexample to the test above.
+  # The review-thread coalescing cases. `GithubCommentsPoller` keys thread
+  # comments on the GraphQL thread node id (`{repo, "pr_review_thread:901",
+  # "PRRT_..."}`); the webhook now resolves that same id from the delivered
+  # comment's `node_id` (`GithubWebhook.ThreadResolver`), so the two pipes
+  # derive the same key and `Publisher` collapses them into one wake (#2081).
   #
-  # Coalescing holds only where both producers derive the same dedup key. For
-  # review *thread* comments they do not. The GraphQL batch path stamps every
-  # thread comment with `review_thread_id` (`ReviewThreads.normalize_thread_comment/2`,
-  # from the thread node id), so the poller keys on
-  # `{repo, "pr_review_thread:901", "PRRT_..."}` while a delivery — which carries
-  # no GraphQL node id — can only key on `{repo, "pr_review_comment:901", "7007"}`.
-  #
-  # Different keys means the Publisher window never collapses them: the webhook
-  # wakes the agent, the reconciliation poll wakes it again for the same comment.
-  # The two are also semantically different policies — the poller dedups per
-  # *thread*, the webhook per *comment* — so this is a choice, not just a
-  # missing field, and it is not closable in the normalizer.
-  #
-  # The earlier review-comment equivalence case passes only because it injects a
-  # comment with no `review_thread_id`, which takes the poller's fallback branch.
-  # This case uses the shape the batch actually produces.
-  test "known divergence: review thread comments do not coalesce and wake twice" do
-    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+  # The earlier review-comment equivalence case injects a comment with no
+  # `review_thread_id`, which takes both pipes' per-comment fallback branches
+  # and says nothing about thread granularity. These cases use the shape the
+  # poller's batch actually produces and the delivery GitHub actually sends.
+  @thread_id "PRRT_kwDOabc123"
 
-    polled_comment = %{
+  defp thread_comment do
+    %{
       "id" => 7_007,
-      "review_thread_id" => "PRRT_kwDOabc123",
+      "review_thread_id" => @thread_id,
       "body" => "extract this into a helper",
       "created_at" => "2026-06-24T12:00:00Z",
       "updated_at" => "2026-06-24T12:00:00Z",
@@ -405,6 +396,55 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       "line" => 12,
       "user" => %{"login" => "its-everdred"}
     }
+  end
+
+  # The delivery for the comment above, as GitHub actually sends it: the full
+  # REST review comment including its own `node_id`, which the resolver turns
+  # back into `@thread_id`.
+  defp thread_comment_delivery(comment) do
+    %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "comment" => comment,
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "sender" => %{"login" => "its-everdred"}
+    }
+  end
+
+  defp thread_resolver(thread_id) do
+    fn _request ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "node" => %{"pullRequestReviewThread" => %{"id" => thread_id}}
+           }
+         }
+       }}
+    end
+  end
+
+  defp comment_on_thread(id, updated_at) do
+    %{
+      "body" => "feedback on the same thread",
+      "created_at" => "2026-06-24T12:00:00Z",
+      "updated_at" => updated_at,
+      "path" => "lib/foo.ex",
+      "line" => 12,
+      "user" => %{"login" => "its-everdred"}
+    }
+    |> Map.merge(%{
+      "id" => id,
+      "node_id" => "PRRC_kwD#{id}",
+      "html_url" => "https://github.com/owner/repo/pull/901#discussion_r#{id}"
+    })
+  end
+
+  test "review thread comment: poller and webhook coalesce to one wake" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    polled_comment = thread_comment()
 
     assert {:ok, %{count: 1}} =
              GithubCommentsPoller.poll(["42"],
@@ -417,24 +457,126 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
                }
              )
 
-    assert_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 500
+    assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"review_thread_id" => @thread_id}}},
+                   500
 
-    # Dedup deliberately NOT cleared: if the keys agreed, this publish would be
-    # suppressed as a duplicate the way the issue-comment case above is.
-    delivery = %{
-      "action" => "created",
-      "repository" => %{"full_name" => @repo},
-      "comment" => Map.delete(polled_comment, "review_thread_id"),
-      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
-      "sender" => %{"login" => "its-everdred"}
+    # The webhook delivery carries the comment's own node id; the resolver maps
+    # it to the same thread the poller keyed on. Dedup deliberately NOT cleared:
+    # if the keys agree, this publish is suppressed as a duplicate.
+    delivery =
+      thread_comment_delivery(
+        polled_comment
+        |> Map.delete("review_thread_id")
+        |> Map.put("node_id", "PRRC_kwDOabc123")
+      )
+
+    assert %{status: :published, published: []} =
+             GithubWebhook.handle_delivery("pull_request_review_comment", delivery,
+               repo: @repo,
+               request_fun: thread_resolver(@thread_id)
+             )
+
+    # One comment, one wake — whether it arrived by poll or by webhook.
+    refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+  end
+
+  test "a review thread comment delivered by webhook is not re-published by the poll" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    comment = %{
+      "id" => 7_007,
+      "node_id" => "PRRC_kwDOabc123",
+      "body" => "extract this into a helper",
+      "created_at" => "2026-06-24T12:00:00Z",
+      "updated_at" => "2026-06-24T12:00:00Z",
+      "html_url" => "https://github.com/owner/repo/pull/901#discussion_r7007",
+      "path" => "lib/foo.ex",
+      "line" => 12,
+      "user" => %{"login" => "its-everdred"}
     }
+
+    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+             GithubWebhook.handle_delivery("pull_request_review_comment", thread_comment_delivery(comment),
+               repo: @repo,
+               request_fun: thread_resolver(@thread_id)
+             )
+
+    assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"review_thread_id" => @thread_id}}},
+                   500
+
+    # The reconciliation poll then reads the same thread. The in-memory replay
+    # window is cleared first so the durable resource mark — `{:pr_review_thread,
+    # owner, repo, thread_id}` written by both pipes — is the only thing left
+    # suppressing the re-publish. That is the restart-proof half of the seam.
+    clear_replay_window()
+    thread = Map.put(comment, "review_thread_id", @thread_id)
+
+    assert {:ok, %{count: 0}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: @repo,
+               review_submission_targets: MapSet.new([]),
+               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+               comment_batch: %{
+                 "42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [thread]}
+               }
+             )
+
+    refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+  end
+
+  # Acceptance criterion 4, and the half of the change a reviewer must evaluate
+  # (the issue's requirement 4): a reviewer adding several comments to one
+  # thread wakes the agent once, not once per comment. This is the webhook's
+  # previous behaviour, now changed — before #2081 a second comment on the same
+  # thread was a distinct per-comment key and woke again.
+  test "several comments on one review thread produce one agent wake" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    first = comment_on_thread(7_007, "2026-06-24T12:00:00Z")
+    second = comment_on_thread(7_008, "2026-06-24T12:05:00Z")
+
+    # First comment wakes the agent once...
+    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+             GithubWebhook.handle_delivery("pull_request_review_comment", thread_comment_delivery(first),
+               repo: @repo,
+               request_fun: thread_resolver(@thread_id)
+             )
+
+    assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 7_007}}}, 500
+
+    # ...a follow-up comment on the same thread within the replay window does
+    # not wake a second time. Newer `updated_at`, so only the thread key — not
+    # the resource version — is what suppresses it.
+    assert %{status: :published, published: []} =
+             GithubWebhook.handle_delivery("pull_request_review_comment", thread_comment_delivery(second),
+               repo: @repo,
+               request_fun: thread_resolver(@thread_id)
+             )
+
+    refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+  end
+
+  # The fail-open degradation, pinned deliberately. Thread granularity is the
+  # chosen behaviour, but resolving the thread needs the delivered comment's
+  # `node_id` and a working lookup; when either is missing the webhook falls
+  # back to per-comment keying — exactly the pre-#2081 behaviour, divergence
+  # included. That is the safe direction: a duplicate wake is recoverable, a
+  # dropped delivery is not, so a failure must cost a possible extra wake, never
+  # a lost comment.
+  test "an unresolvable review thread delivery falls back to per-comment keying" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    # No `node_id`, so the resolver is never consulted and the delivery keys per
+    # comment, as before #2081.
+    delivery =
+      thread_comment_delivery(thread_comment() |> Map.delete("review_thread_id"))
 
     assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
              GithubWebhook.handle_delivery("pull_request_review_comment", delivery, repo: @repo)
 
-    # The second wake. When this stops arriving, the divergence is fixed and this
-    # test must be rewritten as a coalescing assertion.
-    assert_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 500
+    assert_receive {:event, %{topic: "ticket.42.pr.review_comment"} = event}, 500
+    refute Map.has_key?(event.comment, "review_thread_id")
   end
 
   test "the same event seen by both producers wakes a consumer exactly once" do
@@ -563,6 +705,17 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     after
       1_000 -> flunk("no event published on #{topic}")
     end
+  end
+
+  # Empties only the volatile replay window, leaving the durable resource marks
+  # in place — the state a daemon restart actually produces.
+  defp clear_replay_window do
+    case :ets.whereis(@dedup_table) do
+      :undefined -> :ok
+      table -> :ets.delete_all_objects(table)
+    end
+
+    :ok
   end
 
   # These tests deliberately drive both pipes over the *same* comment so the two

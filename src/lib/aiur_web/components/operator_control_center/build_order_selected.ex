@@ -308,22 +308,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_title(:invalid_parameter), do: "Invalid Build Order URL"
   defp state_title(:awaiting_catalog), do: "Loading catalog"
   defp state_title(:catalog_unavailable), do: "No Build Order list"
-  defp state_title(:catalog_stale), do: "Build Order list is not live"
+  defp state_title(:catalog_stale), do: "Build Order list is unavailable"
   defp state_title(:not_found), do: "Build Order not found"
   defp state_title(:invalid_catalog), do: "This URL matches more than one Build Order"
   defp state_title(:selected_loading), do: "Loading selected graph"
-  defp state_title(:selected_stale), do: "Selected graph is stale"
+  defp state_title(:selected_stale), do: "Selected graph is unavailable"
   defp state_title(_status), do: "Build Order unavailable"
 
   defp state_message(:invalid_parameter), do: "Use one canonical positive GitHub issue number."
   defp state_message(:awaiting_catalog), do: "Waiting for the list of Build Orders before selecting this one."
   defp state_message(:catalog_unavailable), do: "No readable Build Order list can match this URL yet."
-  defp state_message(:catalog_stale), do: "The Build Order list is out of date, so this one cannot be confirmed."
+  defp state_message(:catalog_stale), do: "The Build Order list is unavailable, so this one cannot be confirmed."
   defp state_message(:not_found), do: "This Build Order is not in the catalog."
   defp state_message(:invalid_catalog), do: "This link matches more than one repository. Pick a specific one."
   defp state_message(:selected_loading), do: "The exact root is selected; its graph snapshot is loading."
 
-  defp state_message(:selected_stale), do: "The data is out of date and there is no earlier plan for this Build Order."
+  defp state_message(:selected_stale), do: "The plan data is temporarily unavailable for this Build Order."
   defp state_message(_status), do: "Planning data is temporarily unavailable."
 
   defp state_role(:invalid_parameter), do: "alert"
@@ -333,9 +333,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp positive_generation(%Snapshot{generation: generation}) when is_integer(generation) and generation > 0, do: generation
   defp positive_generation(_snapshot), do: 1
 
-  defp model_summary(%{status: :provider_stale}), do: "Showing the last saved plan while live data catches up."
+  defp model_summary(%{status: :provider_stale}), do: "Showing the last saved plan."
 
-  defp model_state_title(%{status: :provider_stale}), do: "Plan is not live"
+  defp model_state_title(%{status: :provider_stale}), do: "Build Order plan"
   defp model_state_title(_model), do: "Build Order state"
 
   defp model_state_role(_model), do: "status"

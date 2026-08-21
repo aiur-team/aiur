@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, Config, DecisionMetrics, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Config, DecisionMetrics, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
@@ -235,25 +235,106 @@ defmodule AiurWeb.StreamdeckProjection do
   defp normalize_provider_meter(provider, meter, now) when is_map(meter) do
     observed_at = meter |> field(:observed_at) |> datetime()
     freshness = meter_freshness(meter, observed_at, now)
+    state = meter_state(meter, observed_at)
 
-    %{
-      provider: provider,
-      state: meter_state(meter, observed_at),
-      observed_at: observed_at,
-      age_seconds: age_seconds(observed_at, now),
-      auth_mode: field(meter, :auth_mode),
-      plan: field(meter, :plan),
-      freshness: freshness,
-      health: field(meter, :health),
-      windows: normalized_windows(meter, observed_at, now, freshness)
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
+    normalized =
+      %{
+        provider: provider,
+        state: state,
+        observed_at: observed_at,
+        age_seconds: age_seconds(observed_at, now),
+        auth_mode: field(meter, :auth_mode),
+        plan: field(meter, :plan),
+        freshness: freshness,
+        health: field(meter, :health),
+        windows: normalized_windows(meter, observed_at, now, freshness)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    if state == :unknown, do: maybe_attach_durable(normalized, provider, now), else: normalized
   end
 
-  defp normalize_provider_meter(provider, _meter, _now) do
+  defp normalize_provider_meter(provider, _meter, now) do
     %{provider: provider, state: :unknown, freshness: :unknown, windows: %{}}
+    |> maybe_attach_durable(provider, now)
   end
+
+  # A provider that has never been observed this boot reads `:unknown` on the
+  # deck, exactly like the dashboard's cards do before `put_durable_observation`
+  # attaches the last-known standing from the durable dispatch-limits ledger
+  # (`Aiur.ModelAvailability`, `model-usage.json`). The deck had no equivalent,
+  # so a provider the dashboard read as, say, 99% used rendered as a permanent
+  # "Awaiting data" on the strip — the two surfaces disagreeing about the same
+  # account (#2185). Attach the same durable record here: the value is a real
+  # last-known used% (marked stale, never live), and a later real observation
+  # replaces it because this branch only runs for an unobserved meter.
+  defp maybe_attach_durable(meter, provider, now) do
+    case durable_window(provider, now) do
+      %{} = window ->
+        meter
+        |> Map.merge(%{
+          state: :observed,
+          observed_at: window.observed_at,
+          age_seconds: window.age_seconds,
+          freshness: :stale,
+          health: %{state: :stale, failure: nil},
+          windows: %{"session" => window}
+        })
+
+      nil ->
+        meter
+    end
+  end
+
+  # The ledger's governing bucket becomes the deck's session slot (the primary
+  # one both the emulator and the sidecar render). It carries no reliable reset
+  # instant and is stale by construction, mirroring the dashboard's durable meta
+  # line ("99% used · as of HH:MM UTC (stale)").
+  defp durable_window(provider, now) do
+    case durable_observation(provider) do
+      %{percent: percent, observed_at: %DateTime{} = observed_at} when is_number(percent) ->
+        %{
+          used_percent: percent,
+          observed_at: observed_at,
+          age_seconds: age_seconds(observed_at, now),
+          freshness: :stale
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp durable_observation(provider) do
+    with %{"backends" => backends} <- ModelAvailability.load(),
+         %{} = entry when map_size(entry) > 0 <- Map.get(backends, Atom.to_string(provider)),
+         %{percent: percent} <- durable_percent_entry(entry) do
+      %{percent: percent, observed_at: durable_observed_at(Map.get(entry, "observed_at"))}
+    else
+      _ -> nil
+    end
+  end
+
+  defp durable_percent_entry(entry) do
+    entry
+    |> Map.take(~w(hourly weekly monthly))
+    |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
+      %{percent: min(round(used / limit * 100), 100)}
+    end)
+    |> Enum.max_by(& &1.percent, fn -> nil end)
+  end
+
+  defp durable_observed_at(%DateTime{} = value), do: value
+
+  defp durable_observed_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp durable_observed_at(_value), do: nil
 
   defp meter_state(meter, _observed_at) do
     case field(meter, :state) do

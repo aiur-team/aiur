@@ -31,18 +31,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderUsage do
       <.scope_state :if={@state != :ready} state={@state} scope={@scope} />
 
       <div :if={@state == :ready}>
-        <p
-          :if={@scope.graph_health == :stale}
-          class="bo-usage-graph-note readonly-banner"
-          role="status"
-        >
-          <span aria-hidden="true">◉</span>
-          <span>
-            <b>Unit list may be out of date.</b>
-            Showing the units we last saw while the Build Order refreshes.
-          </span>
-        </p>
-
         <UsageSummary.usage_summary
           :if={@view}
           view={@view}
