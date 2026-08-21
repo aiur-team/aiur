@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @type model :: %{
           available?: boolean(),
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
+          source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
           cap: non_neg_integer(),
           cores: pos_integer(),
@@ -59,11 +60,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
     file = Keyword.get(opts, :telemetry_file) || RunTelemetry.telemetry_file()
+    analyzable? = fn dataset -> dataset |> scope(opts) |> dataset_analyzable?() end
 
     result =
       case Keyword.get(opts, :session, :all) do
         :current ->
-          LatestRun.load(file, current_boot_id(), &dataset_analyzable?/1)
+          LatestRun.load(file, current_boot_id(), analyzable?)
 
         :cross ->
           cross_session(file)
@@ -222,6 +224,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     %{
       available?: true,
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
+      source_boot_id: single_boot_id(dataset),
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
       cap: cap,
       cores: cores,
@@ -233,6 +236,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       complexity_breakdown: complexity_breakdown,
       kpis: kpis
     }
+  end
+
+  defp single_boot_id(dataset) do
+    case Dataset.boot_ids(dataset) do
+      [boot_id] -> boot_id
+      _other -> nil
+    end
   end
 
   # ---- per-actor summary ----

@@ -10,6 +10,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
+  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
 
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
 
@@ -82,6 +83,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     summaries = Path.join(root, "aiur-team/aiur/analytics/runs")
     older = Path.join(summaries, "older/run-summary.json")
     newer = Path.join(summaries, "newer/run-summary.json")
+    current = Path.join(root, "new-run/log/telemetry.ndjson")
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
 
     previous_app_env = [
       repo_base_root: Application.fetch_env(:aiur, :repo_base_root),
@@ -93,24 +97,98 @@ defmodule AiurWeb.AnalyticsLiveTest do
     File.mkdir_p!(Path.dirname(older))
     File.cp!(@summary_fixture, older)
     write_newer_summary!(newer)
+    File.mkdir_p!(Path.dirname(current))
+    File.write!(current, Jason.encode!(route_record("boot-after-restart", 1, "restart", ~U[2026-07-12 00:01:00Z], nil)) <> "\n")
     Application.put_env(:aiur, :repo_base_root, root)
     Application.put_env(:aiur, :analytics_repo, "aiur-team/aiur")
-    Application.put_env(:aiur, :analytics_telemetry_file, Path.join(root, "new-run/log/telemetry.ndjson"))
+    Application.put_env(:aiur, :analytics_telemetry_file, current)
+    Application.put_env(:aiur, :analytics_usage_aggregate_source, UsageAggregateSourceStub)
+
+    Application.put_env(
+      :aiur,
+      :analytics_usage_aggregate_source_snapshot,
+      provider_spend_snapshot(identity(999, "NODE-999"), identity(941, "NODE-941"), nil, "boot-a")
+    )
+
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "analytics-spend-secret")
     :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
 
     on_exit(fn ->
       File.rm_rf!(root)
       Aiur.TestSupport.restore_app_env(previous_app_env)
       restore_run_id(previous_run_id)
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      Application.delete_env(:aiur, :analytics_usage_aggregate_source)
+      Application.delete_env(:aiur, :analytics_usage_aggregate_source_snapshot)
     end)
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:analytics-spend-secret"))
+
+    {:ok, _view, html} = live(conn, "/analytics")
 
     assert html =~ "Scope:"
     assert html =~ "latest run"
     assert html =~ ">#999<"
     refute html =~ ">#930<"
+    assert html =~ "3.50 USD"
+    refute html =~ "9.99 USD"
     refute html =~ "No retained run telemetry to analyze yet"
+  end
+
+  test "selects a prior run that is analyzable for the requested Build Order" do
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-build-restart")
+    summary = Path.join(root, "aiur-team/aiur/analytics/runs/newer/run-summary.json")
+    current_boot = RunTelemetry.boot_id()
+    member = identity(999, "NODE-999")
+    build_root = identity(77, "ROOT-77")
+
+    previous_app_env = [
+      repo_base_root: Application.fetch_env(:aiur, :repo_base_root),
+      analytics_repo: Application.fetch_env(:aiur, :analytics_repo),
+      build_order_data_source: Application.fetch_env(:aiur, :build_order_data_source)
+    ]
+
+    write_newer_summary!(summary)
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "aiur-team/aiur")
+    Application.put_env(:aiur, :analytics_telemetry_file, route_fixture!(current_boot))
+    Application.put_env(:aiur, :build_order_data_source, {BuildOrderSourceStub, build_order_context(build_root, member)})
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+      Aiur.TestSupport.restore_app_env(previous_app_env)
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics?build_order=77")
+
+    assert html =~ "Build Order #77, latest run"
+    assert html =~ ">#999<"
+    refute html =~ ">#941<"
+    refute html =~ "No retained run telemetry to analyze yet"
+  end
+
+  test "reuses decoded prior summaries while the current boot remains empty" do
+    {:ok, dataset} = @summary_fixture |> File.read!() |> Aiur.RunTelemetry.Summaries.decode_summary()
+    cache_identity = make_ref()
+    parent = self()
+
+    loader = fn ->
+      send(parent, :loaded_prior_summaries)
+      [dataset]
+    end
+
+    opts = [cache_identity: cache_identity, prior_loader: loader]
+    analyzable? = fn _dataset -> true end
+
+    assert {:ok, ^dataset} = LatestRun.load("/nonexistent/current.ndjson", "new-boot", analyzable?, opts)
+    assert_received :loaded_prior_summaries
+
+    assert {:ok, ^dataset} = LatestRun.load("/nonexistent/current.ndjson", "new-boot", analyzable?, opts)
+    refute_received :loaded_prior_summaries
   end
 
   defp write_newer_summary!(path) do
@@ -446,12 +524,12 @@ defmodule AiurWeb.AnalyticsLiveTest do
     }
   end
 
-  defp provider_spend_snapshot(member \\ nil, non_member \\ nil, prior_session_member \\ nil) do
+  defp provider_spend_snapshot(member \\ nil, non_member \\ nil, prior_session_member \\ nil, member_run_id \\ nil) do
     member = member || identity(941, "NODE-941")
 
     member_envelope =
       envelope()
-      |> Map.put(:attribution, attribution(member))
+      |> Map.put(:attribution, attribution(member, member_run_id || RunTelemetry.boot_id()))
 
     projection = Projection.apply_record(Projection.new(), record(1, member_envelope, %{cost: "3.50"}))
 

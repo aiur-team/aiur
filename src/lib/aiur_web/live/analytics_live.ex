@@ -268,8 +268,6 @@ defmodule AiurWeb.AnalyticsLive do
         telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
       ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
 
-    socket = assign(socket, :provider_spend, provider_spend(socket))
-
     case Presenter.load(opts) do
       {:ok, model} ->
         domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
@@ -277,6 +275,7 @@ defmodule AiurWeb.AnalyticsLive do
         socket
         |> assign(
           model: model,
+          provider_spend: provider_spend(socket, model.source_boot_id),
           selected: MapSet.new(model.actors, & &1.key),
           unavailable: nil,
           now: now
@@ -287,6 +286,7 @@ defmodule AiurWeb.AnalyticsLive do
         assign(socket,
           model: nil,
           chart_model: nil,
+          provider_spend: %{state: :unavailable},
           time_domain: nil,
           selected: MapSet.new(),
           unavailable: reason,
@@ -352,9 +352,9 @@ defmodule AiurWeb.AnalyticsLive do
   # Financial data stays behind the same per-connection capability gate used by
   # the Build Order usage summary. The analytics page receives a display-only
   # provider estimate, never aggregate cells or an unscoped raw total.
-  defp provider_spend(socket) do
+  defp provider_spend(socket, source_boot_id) do
     case {connected?(socket), authorized_context(socket)} do
-      {true, {:ok, context}} -> load_provider_spend(context, socket.assigns.analytics_scope)
+      {true, {:ok, context}} -> load_provider_spend(context, socket.assigns.analytics_scope, source_boot_id)
       {_connected, :locked} -> %{state: :locked}
       {false, {:ok, _context}} -> %{state: :loading}
     end
@@ -364,10 +364,10 @@ defmodule AiurWeb.AnalyticsLive do
     _kind, _reason -> %{state: :unavailable}
   end
 
-  defp load_provider_spend(context, analytics_scope) do
+  defp load_provider_spend(context, analytics_scope, source_boot_id) do
     usage_aggregate = usage_aggregate_source()
 
-    with {:ok, scope} <- ScopeResolver.usage_scope(analytics_scope),
+    with {:ok, scope} <- ScopeResolver.usage_scope(analytics_scope, source_boot_id),
          {:ok, snapshot} <-
            FinancialData.fetch_usage_grouping(
              FinancialData,
