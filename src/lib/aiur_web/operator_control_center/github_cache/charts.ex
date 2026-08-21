@@ -130,7 +130,7 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
     inner =
       pre_window_shade(boundary, xf, ml, mt, ph) <>
         y_grid(vmax, yf, ml, @w - mr, &to_string(round(&1))) <>
-        spend_bands(points, bands, xf, yf) <>
+        spend_bands(points, bands, xf, yf, boundary) <>
         current_window_guide(boundary, xf, mt, ph) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph)
 
@@ -174,25 +174,42 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
 
   # A 2px surface gap between segments, so two adjacent bands never read as one
   # continuous region when their hues are close.
-  defp spend_bands(points, bands, xf, yf) do
-    zero = Map.new(points, &{&1.t_ms, 0})
+  defp spend_bands(points, bands, xf, yf, boundary) do
+    segments = spend_segments(points, boundary)
+    latest = List.last(points)
 
-    {_cum, out} =
-      Enum.reduce(bands, {zero, []}, fn band, {cum, acc} ->
-        next = Map.new(points, fn p -> {p.t_ms, Map.get(cum, p.t_ms) + Map.get(p.values, band.key, 0)} end)
-        top = Enum.map(points, fn p -> {xf.(p.t_ms), yf.(Map.get(next, p.t_ms))} end)
-        bot = points |> Enum.map(fn p -> {xf.(p.t_ms), yf.(Map.get(cum, p.t_ms))} end) |> Enum.reverse()
-        total = Map.get(next, List.last(points).t_ms) - Map.get(cum, List.last(points).t_ms)
+    bands
+    |> Enum.with_index()
+    |> Enum.map_join(fn {band, index} ->
+      lower_bands = Enum.take(bands, index)
+      total = Map.get(latest.values, band.key, 0)
 
-        path =
-          ~s|<g><title>#{escape(band.label)}: #{total} points now</title>| <>
-            ~s|<path d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
-            ~s|stroke="var(--surface)" stroke-width="2"/></g>|
+      paths =
+        Enum.map_join(segments, fn {window, segment} ->
+          top = Enum.map(segment, fn point -> {xf.(point.t_ms), yf.(stack_total(point, lower_bands) + Map.get(point.values, band.key, 0))} end)
+          bot = segment |> Enum.map(fn point -> {xf.(point.t_ms), yf.(stack_total(point, lower_bands))} end) |> Enum.reverse()
 
-        {next, [path | acc]}
-      end)
+          ~s|<path data-window="#{window}" d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
+            ~s|stroke="var(--surface)" stroke-width="2"/>|
+        end)
 
-    out |> Enum.reverse() |> Enum.join()
+      ~s|<g><title>#{escape(band.label)}: #{total} points now</title>#{paths}</g>|
+    end)
+  end
+
+  defp spend_segments(points, nil), do: [{:current, points}]
+
+  defp spend_segments(points, boundary) do
+    {previous, current} = Enum.split_while(points, &(&1.t_ms < boundary))
+    previous = previous ++ [%{List.last(previous) | t_ms: boundary}]
+
+    current =
+      case current do
+        [%{t_ms: ^boundary} | _] -> current
+        [first | _] -> [%{first | t_ms: boundary} | current]
+      end
+
+    [{:previous, previous}, {:current, current}]
   end
 
   defp pre_window_shade(boundary, xf, x0, y0, height) do

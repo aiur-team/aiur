@@ -709,9 +709,14 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert "__outside__" in legend
       assert "comment_poll_batch" in legend
 
-      note = drawn |> budget_block() |> Floki.find(~s([data-role="usage-previous-window-note"])) |> Floki.text()
-      assert note =~ "before the current credential window"
-      assert note =~ "headline and table describe only the current window"
+      notes = drawn |> budget_block() |> Floki.find(~s([data-role="usage-previous-window-note"]))
+      assert length(notes) == 2
+
+      for note <- notes do
+        text = Floki.text(note)
+        assert text =~ "before the current credential window"
+        assert text =~ "headline and table describe only the current window"
+      end
     end
 
     test "a meter that booted mid-window does not blame the remainder on another consumer" do
