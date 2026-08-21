@@ -223,13 +223,16 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
       |> ReviewThreads.thread_comments()
       |> List.last()
 
-    with {:ok, bot_account} <- BotIdentity.bot_account(opts, request_fun, token) do
+    # `token` is the credential that wrote the reply being verified, so the
+    # expected author is the login that credential writes as. Under GitHub App
+    # auth that is the App bot, not the account agents publish under.
+    with {:ok, daemon_account} <- BotIdentity.daemon_account(opts, request_fun, token) do
       cond do
         is_nil(latest) ->
           {:error, :review_thread_latest_comment_missing}
 
-        get_in(latest, ["author", "login"]) != bot_account ->
-          latest_comment_author_mismatch(bot_account, latest)
+        get_in(latest, ["author", "login"]) != daemon_account ->
+          latest_comment_author_mismatch(daemon_account, latest)
 
         Map.get(latest, "body") != body ->
           latest_comment_body_mismatch(body, latest)

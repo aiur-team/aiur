@@ -5,6 +5,15 @@ on:
     paths:
       - "website/**"
       - ".github/workflows/website.yml"
+  push:
+    # Validate the website/docs build on main itself (PR branches alone let a
+    # broken main build go unnoticed) and run the post-deploy docs smoke check.
+    # See #1921: the published docs were stale for days with no CI signal.
+    branches:
+      - main
+    paths:
+      - "website/**"
+      - ".github/workflows/website.yml"
 
 # Initial PR runs share a stable group; reruns and every non-PR event get a
 # unique group so they cannot replace another pending or in-progress run.
@@ -47,3 +56,10 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test brand accessibility and theme navigation
         run: npm run test:brand
+      - name: Post-deploy docs smoke check
+        if: github.event_name == 'push'
+        # Runs only after a push to main (the merged commit is what Netlify
+        # deploys), once the guards build above has produced dist/docs. Fails
+        # when https://aiur.team/docs/guide/stream-deck.html does not return
+        # 200 or when its content lags the merged commit (#1921).
+        run: bash scripts/smoke-published-docs.sh

@@ -49,7 +49,10 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
              headers: []
            }}
 
-        url =~ "head=" ->
+        # The open-pull-request listing, which no longer carries a
+        # `head=<owner>:aiur/<n>` probe. `pr_body/0` already declares
+        # `head.ref`, so `TicketBranch.ticket_branch?/2` matches ticket 101.
+        url =~ "/pulls?" ->
           {:ok, %{status: 200, body: pull_requests, headers: []}}
 
         true ->

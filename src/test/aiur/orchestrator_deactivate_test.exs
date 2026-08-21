@@ -3532,7 +3532,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61}]}}
+            {:ok, %{status: 200, body: [%{"number" => 61, "head" => %{"ref" => "aiur/57"}}]}}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -3681,11 +3681,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
           String.contains?(url, "/issues/57/comments?") ->
             {:ok, %{status: 200, body: []}}
 
-          String.contains?(url, "/pulls?") and String.contains?(url, "aiur%2F57") ->
-            {:ok, %{status: 200, body: [%{"number" => 61}]}}
-
+          # Every target now reads the same open-pull-request listing URL, so the
+          # stub can no longer tell the lookups apart by URL. It returns the one
+          # open pull request and lets `TicketBranch.ticket_branch?/2` do the
+          # filtering: ticket 57 matches `aiur/57`, ticket 42 matches nothing.
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: []}}
+            {:ok, %{status: 200, body: [%{"number" => 61, "head" => %{"ref" => "aiur/57"}}]}}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -3799,16 +3800,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
       receive_barrier({:issue_comments_requested, "11"})
       # poll_github_comments/2 synchronously completes the bounded target scan.
       refute_received {:issue_comments_requested, _}
+      # One pull-request lookup per bounded target, and one request each: the
+      # `head=<owner>:aiur/<n>` probe that used to precede the listing is gone,
+      # so each target issues only the open-pull-request listing read.
       receive_barrier({:pulls_requested, pulls_13})
-      receive_barrier({:pulls_requested, readable_pulls_13})
       receive_barrier({:pulls_requested, pulls_11})
-      receive_barrier({:pulls_requested, readable_pulls_11})
       refute_received {:pulls_requested, _}
 
-      assert String.contains?(pulls_13, "aiur%2F13")
-      assert String.contains?(pulls_11, "aiur%2F11")
-      refute String.contains?(readable_pulls_13, "head=")
-      refute String.contains?(readable_pulls_11, "head=")
+      for url <- [pulls_13, pulls_11] do
+        refute String.contains?(url, "head=")
+        assert String.contains?(url, "state=open")
+        assert String.contains?(url, "per_page=100")
+      end
 
       assert next.github_comments_since == %{
                "10" => "2026-06-24T12:00:00Z",
@@ -3989,15 +3992,17 @@ defmodule Aiur.OrchestratorDeactivateTest do
           max_concurrency: 1
         )
 
+      # The capped target issues a single open-pull-request listing read; the
+      # `head=<owner>:aiur/<n>` probe that used to precede it is gone.
       receive_barrier({:pulls_requested, pulls_11})
-      receive_barrier({:pulls_requested, readable_pulls_11})
       receive_barrier({:issue_comments_requested, "11"})
       # The synchronous poll return is the barrier for both request streams.
       refute_received {:pulls_requested, _}
       refute_received {:issue_comments_requested, _}
 
-      assert String.contains?(pulls_11, "aiur%2F11")
-      refute String.contains?(readable_pulls_11, "head=")
+      refute String.contains?(pulls_11, "head=")
+      assert String.contains?(pulls_11, "state=open")
+      assert String.contains?(pulls_11, "per_page=100")
 
       assert next.github_comment_issue_updated_at == %{
                "10" => updated_at,
