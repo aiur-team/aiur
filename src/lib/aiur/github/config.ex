@@ -323,7 +323,7 @@ defmodule Aiur.GitHub.Config do
 
   @doc """
   The one-off per-comment command prefix (e.g. `/aiur`). A trusted comment
-  starting with this — or mentioning `bot_account/0` — wakes an agent for that
+  starting with this — or mentioning `daemon_account/0` — wakes an agent for that
   single comment, no label required.
   """
   @spec command_prefix() :: String.t()

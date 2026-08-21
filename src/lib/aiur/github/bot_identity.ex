@@ -27,6 +27,29 @@ defmodule Aiur.GitHub.BotIdentity do
     end
   end
 
+  @doc """
+  The login the supplied `token` writes as: the configured daemon identity,
+  falling back to the token's own viewer login.
+
+  Distinct from `bot_account/3` and not interchangeable with it. Ask this when
+  the question is "did the credential I am holding write this comment" — the
+  review-thread reply verification does, because the daemon posts those replies
+  with the daemon token, and under GitHub App auth that lands as the App bot
+  rather than as the account agents publish under.
+
+  The viewer fallback is the same one `bot_account/3` uses and stays correct
+  here for the same reason: it reports what this very token authenticates as.
+  """
+  @spec daemon_account(keyword(), function(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def daemon_account(opts, request_fun, token) do
+    case opts
+         |> Keyword.get_lazy(:daemon_account, &GitHub.Config.daemon_account/0)
+         |> normalize_optional_binary() do
+      daemon_account when is_binary(daemon_account) -> {:ok, daemon_account}
+      nil -> fetch_authenticated_viewer_login(request_fun, token)
+    end
+  end
+
   @spec fetch_authenticated_viewer_login(function(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def fetch_authenticated_viewer_login(request_fun, token) do
     case Transport.github_graphql(request_fun, token, @viewer_login_query, %{}, caller: :bot_identity) do

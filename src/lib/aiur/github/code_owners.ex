@@ -24,7 +24,7 @@ defmodule Aiur.GitHub.CodeOwners do
   own bot-account replies, and the orchestrator would lock itself out
   of the dependencies dance). To prevent that:
 
-    * `bot_account` (from `Aiur.GitHub.Config.bot_account/0`) and
+    * `bot_account` and `daemon_account` (from `Aiur.GitHub.Config`) and
       `trusted_accounts` (from `Aiur.GitHub.Config.trusted_accounts/0`)
       are **always** included regardless of CODEOWNERS contents.
     * Missing or empty CODEOWNERS file → allowlist contains only the
