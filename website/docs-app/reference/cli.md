@@ -32,7 +32,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
-| `aiur` | Starts a foreground interactive run. The launcher supplies a lower-precedence Tailscale-or-loopback host default, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
+| `aiur` | Starts a foreground interactive run. The launcher supplies a lower-precedence loopback host default, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
 | `aiur run` | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
 | `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. It also asks whether to enable Stream Deck voice input with ElevenLabs speech-to-text; answering yes writes the `elevenlabs` section, defaulting the key to the `$ELEVENLABS_API_KEY` environment reference. A resumed `aiur init` offers the same question when the saved config predates the section. | `aiur init` |
 | `aiur init --force` | Recreates generated configuration. Re-running without it preserves existing scaffold files. | `aiur init --force` |
@@ -56,7 +56,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | --- | --- |
 | Foreground | Shows the terminal board and chat panes. |
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
-| Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
+| Host precedence | `--host` wins over `server.host`, which wins over the loopback default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.

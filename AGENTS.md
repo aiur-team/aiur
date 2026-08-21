@@ -138,9 +138,10 @@ aiurdev --host …              # explicitly override configured/default dashboa
 
 Every subcommand except `build` is handled by the shared engine, so the
 npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
-the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
-when safely available, otherwise `127.0.0.1`. A configured value wins over that
-default; explicit `--host` wins over both.
+the engine supplies a lower-precedence `127.0.0.1` (loopback) default — external
+access arrives over the Cloudflare tunnel / SSH, so there is no plain-HTTP
+Tailscale bind. A configured value wins over that default; explicit `--host`
+wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled

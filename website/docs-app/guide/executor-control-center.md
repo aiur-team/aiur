@@ -10,7 +10,7 @@ The Dashboard is Aiur's browser interface for supervising a run. It combines the
 | `--no-dashboard` | Listener disabled. |
 | Writable mode | Username and password required, including on loopback. |
 | Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request returns `503`. |
-| Host selection | `server.host` wins over authenticated Tailscale or loopback default. |
+| Host selection | `server.host` wins over the loopback (`127.0.0.1`) default. |
 
 Startup prints the URL and effective bind only when the listener runs:
 
