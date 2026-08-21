@@ -398,6 +398,21 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert {"43", {:github, :timeout, %{reason: :timeout}}} = error
   end
 
+  test "reports a failing pull request lookup as a pr_lookup error" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:error, :timeout}
+      end
+    end
+
+    assert {:ok,
+            %{
+              results: [%{decision: :pending, target: "42"}],
+              errors: [{"42", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}}]
+            }} = GithubCIPoller.poll(["42"], request_fun: request_fun)
+  end
+
   test "uses the current PR head on every poll after a re-push" do
     {:ok, calls} = Agent.start_link(fn -> 0 end)
 
@@ -596,6 +611,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1144,
+               "draft" => true,
                "head" => %{"ref" => "aiur/1146", "sha" => "head-before-concurrent-push"},
                "base" => %{"ref" => "v2"}
              }
@@ -678,6 +694,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1144,
+                 "draft" => true,
                  "head" => %{"ref" => "aiur/1146", "sha" => "unchanged-head"},
                  "base" => %{"ref" => Agent.get(base, & &1)}
                }
@@ -1041,6 +1058,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1145,
+               "draft" => true,
                "head" => %{"ref" => "aiur/1146", "sha" => "head-1145"},
                "base" => %{"ref" => "v2"}
              }
