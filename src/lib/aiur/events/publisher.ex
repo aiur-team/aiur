@@ -42,6 +42,7 @@ defmodule Aiur.Events.Publisher do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketObservation
+  alias Aiur.Webhooks
 
   @table __MODULE__.Dedup
   # 1-hour dedup window. GitHub's Events API returns the same event
@@ -108,9 +109,67 @@ defmodule Aiur.Events.Publisher do
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
-    case rejection(topic, payload, opts) do
+    outcome = rejection(topic, payload, opts)
+    record_webhook_activity(outcome, opts)
+
+    case outcome do
       nil -> do_publish(topic, payload, opts)
       rejection -> rejection
+    end
+  end
+
+  # Corroboration for the webhook silence sweep: the poller observed a GitHub
+  # resource for this repo that **no webhook had already accounted for**.
+  #
+  # Two gate families sit in `rejection/3` and they mean opposite things here.
+  # The *filter* gates (`filtered_bot_self_loop?`, `tracked?`) say "this fleet
+  # does not act on this event" — the event still happened, and since this
+  # fleet's traffic is mostly agent-authored, ignoring them would let ingress
+  # die without ever accumulating corroboration: no degradation, no alert,
+  # silence indistinguishable from health. The *dedup* gates say something
+  # entirely different — "this is the same event again" — and those must never
+  # count as evidence.
+  #
+  # The distinction is load-bearing because the poller is publish-and-reject
+  # with no pre-check against the store, so it re-offers old resources on every
+  # sweep, forever: `advance_since/2` rewinds its watermark by a second, a
+  # `304` republishes the whole cached comment list, and unaddressed PR review
+  # threads have no cursor at all. Counting those would march
+  # `last_activity_at` forward on a repo where nothing happened while
+  # `last_delivery_at` stood still, degrading a healthy webhook after one
+  # threshold. The separation rule in `delivery_was_owed?/2` cannot catch it,
+  # because a re-observed event is arbitrarily old and the gap is unbounded.
+  #
+  # Whether an observation is *new* is decided by the registry, not here, and
+  # deliberately not from `resource_processed?/1` or the dedup window. Both are
+  # written only by `do_publish/3`, so neither ever records filtered traffic —
+  # and filtered traffic is precisely what this recorder exists to carry.
+  # Inferring novelty from a store the path never writes to was the mistake;
+  # the registry keys on the resource itself, which every path supplies.
+  #
+  # `deduped?/1` is still honoured through `outcome`, because it catches a
+  # replay keyed to a resource the registry has not seen. It is not re-checked:
+  # it claims into an ETS window as a side effect, so a second call would
+  # answer itself.
+  #
+  # Reordering `rejection/3` was the other way to separate the gate families,
+  # and was rejected: `deduped?/1` must be evaluated exactly once, and
+  # `Aiur.Orchestrator.CiLifecycle` branches on `:deduped`, so changing which
+  # reason wins for an event matching both families changes real behaviour.
+  #
+  # The repo comes from the resource key rather than `Aiur.GitHub.Config.repo/0`
+  # for three reasons: the key already carries it, it is already downcased to
+  # the registry's canonical form, and reading config here would both shell out
+  # to `git remote` on every polled publish and risk an `ArgumentError` that
+  # `Webhooks.record_activity/3` does not catch — it catches exits, not raises.
+  defp record_webhook_activity(:deduped, _opts), do: :ok
+
+  defp record_webhook_activity(_outcome, opts) do
+    with :poll <- Keyword.get(opts, :resource_source, :poll),
+         {_type, owner, repo, _id} = resource <- Keyword.get(opts, :resource) do
+      Webhooks.record_activity("#{owner}/#{repo}", observation: resource)
+    else
+      _not_a_polled_github_resource -> :ok
     end
   end
 
