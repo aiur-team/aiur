@@ -202,6 +202,27 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule StaleCountsStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts), do: {:ok, %{store: Keyword.fetch!(opts, :store)}}
+
+    @impl true
+    def handle_call(:retained_counts, _from, state) do
+      counts = %{total: 0, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    end
+
+    def handle_call(request, _from, state) do
+      {:reply, GenServer.call(state.store, request), state}
+    end
+  end
+
   defmodule VersionedDetailStore do
     use GenServer
 
@@ -1570,6 +1591,93 @@ defmodule AiurWeb.DashboardLiveTest do
     assert has_element?(view, ".decision-list #decision-#{delegated.decision_id}")
   end
 
+  test "deferred Commands remain visible in open and blocking queue counts" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferredOpenOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferredOpenDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_079}}}
+      end)
+
+    decision = request_dashboard_decision(store, "deferred-open")
+
+    assert {:ok, %{status: :accepted, decision: %{decision_status: :deferred}}} =
+             DecisionStore.defer(
+               decision.decision_id,
+               [actor: %{kind: :operator, id: "dashboard"}],
+               store
+             )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands")
+
+    assert html =~ ~r/Open\s+<span class="count num">1<\/span>/
+    assert html =~ ~r/Blocking\s+<span class="count num">1<\/span>/
+    assert html =~ ~r/Resolved\s+<span class="count num">0<\/span>/
+    assert html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+    refute has_element?(view, "#history-#{decision.decision_id}")
+
+    view
+    |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="blocking"]))
+    |> render_click()
+
+    assert_patch(view, "/commands?filter=blocking")
+    assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+  end
+
+  test "Command chips use the same retained snapshot as history totals" do
+    orchestrator_name = Module.concat(__MODULE__, :SnapshotCountsOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :SnapshotCountsDecisionStore)
+    stale_counts_store_name = Module.concat(__MODULE__, :StaleSnapshotCountsStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_080}}}
+      end)
+
+    decision = request_dashboard_decision(store, "snapshot-counts", "reversible", blocking: false)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.dismiss(
+               decision.decision_id,
+               [actor: %{kind: :operator, id: "dashboard"}],
+               store
+             )
+
+    start_supervised!({StaleCountsStore, name: stale_counts_store_name, store: store})
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: stale_counts_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands")
+
+    assert html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
+    assert html =~ "1 of 1"
+
+    send(view.pid, :reload_payload)
+    reloaded_html = render(view)
+
+    assert reloaded_html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert reloaded_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
+    assert reloaded_html =~ "1 of 1"
+  end
+
   test "All Commands keeps retained search and pagination controls out of the surface" do
     orchestrator_name = Module.concat(__MODULE__, :RetainedPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RetainedPageDecisionStore)
@@ -1607,7 +1715,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert Process.alive?(view.pid)
   end
 
-  test "All Commands and the CLI show the same open set" do
+  test "All Commands counts retained history while its cards match the CLI open set" do
     orchestrator_name = Module.concat(__MODULE__, :OpenPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OpenPageDecisionStore)
 
@@ -1646,7 +1754,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, view, html} = live(build_conn(), "/commands")
 
-    assert html =~ ~r/All\s+<span class="count num">2<\/span>/
+    assert html =~ ~r/All\s+<span class="count num">27<\/span>/
+    assert html =~ ~r/Resolved\s+<span class="count num">25<\/span>/
     assert has_element?(view, "#decision-#{Enum.at(decisions, 0).decision_id}")
     assert has_element?(view, "#decision-#{Enum.at(decisions, 1).decision_id}")
 
@@ -3891,7 +4000,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert row |> Floki.text() =~ "Expired"
   end
 
-  test "notifying the Executor moves the Command to history without flattening it into an answer" do
+  test "notifying the Executor keeps the Command open without flattening it into an answer" do
     orchestrator_name = Module.concat(__MODULE__, :DeferToHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DeferToHistoryDecisionStore)
 
@@ -3917,12 +4026,12 @@ defmodule AiurWeb.DashboardLiveTest do
     |> element(~s(button[phx-click="defer-decision"][phx-value-decision-id="#{decision.decision_id}"]))
     |> render_click()
 
-    refute has_element?(view, "#decision-#{decision.decision_id}")
-    assert has_element?(view, "#history-#{decision.decision_id}")
+    assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+    refute has_element?(view, "#history-#{decision.decision_id}")
 
-    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{decision.decision_id}")
-    assert row |> Floki.text() =~ "Deferred to Executor"
-    refute row |> Floki.text() =~ "Answered"
+    card = view |> render() |> Floki.parse_document!() |> Floki.find("#decision-#{decision.decision_id}")
+    assert card |> Floki.text() =~ "Deferred to Executor"
+    refute card |> Floki.text() =~ "Answered"
   end
 
   defp history_row_count(view) do
