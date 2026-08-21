@@ -53,6 +53,29 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("issue_comment", issue_comment_delivery(%{"full_name" => "Owner/Repo"}), repo: @repo)
     end
 
+    # Resolving a review comment's thread costs a GraphQL point. A delivery for
+    # a repository the fleet does not track is dropped anyway, so the resolver
+    # must never be consulted for one (#2081).
+    test "a review comment for an untracked repository never consults the thread resolver" do
+      delivery = %{
+        "action" => "created",
+        "repository" => %{"full_name" => "someone-else/other-repo"},
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug"}},
+        "comment" => %{
+          "id" => 7_007,
+          "node_id" => "PRRC_kwDOabc123",
+          "body" => "inline",
+          "user" => %{"login" => "its-everdred"}
+        }
+      }
+
+      assert %{status: :dropped, reason: {:untracked_repository, "someone-else/other-repo"}} =
+               GithubWebhook.handle_delivery("pull_request_review_comment", delivery,
+                 repo: @repo,
+                 request_fun: fn _request -> flunk("resolver must not be called for an untracked repository") end
+               )
+    end
+
     test "a delivery with no repository is rejected as malformed" do
       assert %{status: :error, reason: :missing_repository} =
                GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(), "repository"), repo: @repo)

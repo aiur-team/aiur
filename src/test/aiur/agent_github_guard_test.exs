@@ -1448,6 +1448,38 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  test "an actor-ceiling wait is parsed, slept, and then admitted to the real gh", context do
+    # An actor that hit its hourly ceiling is told `wait actor <ms>`. The guard
+    # must strip the `actor` token (the Elixir side's cue for the hold reason),
+    # sleep the delay, and re-acquire — not refuse the wait as malformed. A
+    # sequencing broker waits once and then grants.
+    budget_root = Path.join(context.state_path, "host-budget")
+    counter = Path.join(context.state_path, "broker-calls")
+    seq_broker = Path.join(context.workspace, "seq-broker.py")
+
+    File.write!(seq_broker, """
+    import os
+    count_file = os.environ["FAKE_BROKER_COUNTER"]
+    n = int(open(count_file).read().strip() or "0") if os.path.exists(count_file) else 0
+    n += 1
+    open(count_file, "w").write(str(n))
+    print("wait actor 100" if n == 1 else "granted " + "a" * 32)
+    """)
+
+    File.chmod!(seq_broker, 0o755)
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: seq_broker,
+               FAKE_BROKER_COUNTER: counter
+             )
+
+    assert output =~ "ok"
+    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
+  end
+
   test "an Executor-style wrapper honours Retry-After in its shared cooldown", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)

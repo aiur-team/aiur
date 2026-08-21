@@ -194,9 +194,10 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     assert html =~ "Other"
   end
 
-  test "stale view shows the last-known-good banner" do
-    view = %{ready_view() | state: :stale, freshness: %{status: :stale, label: "Stale"}}
+  test "stale view renders without a staleness banner" do
+    view = %{ready_view() | state: :stale, freshness: %{status: :stale, label: "Healthy"}}
     html = render(view)
-    assert html =~ "Not live."
+    refute html =~ "Not live"
+    refute html =~ "last read"
   end
 end

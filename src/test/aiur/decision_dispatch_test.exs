@@ -57,10 +57,13 @@ defmodule Aiur.DecisionDispatchTest do
     assert payload.correlation.decision_id == decision.decision_id
     assert payload.correlation.decision_version == 1
     assert payload.correlation.attempt_id == "attempt-1"
-    assert payload.body =~ "Durable Executor answer for ticket 981"
+    # The envelope is product-first and concise: the answer and rationale read
+    # plainly, and the ticket/version/action identity lives in the payload, not
+    # the prose.
+    refute payload.body =~ "Durable Executor answer for ticket 981"
+    refute payload.body =~ "Request version"
     assert payload.body =~ "Selected option `ship`: Ship it"
     assert payload.body =~ "All checks are green."
-    assert payload.body =~ "Answered by: operator:operator-1"
     assert payload.body =~ "decision.acknowledged"
     assert payload.body =~ "decision.resolved"
   end

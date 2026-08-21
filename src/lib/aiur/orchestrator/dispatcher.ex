@@ -135,6 +135,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
     case fetch_candidate_issues(state) do
       {:ok, issues, state} ->
         {state, issues} = reconcile_merged_tickets(state, issues)
+
+        # Heal any polled ticket that transiently carries two `agent:*` state
+        # labels (a broken lifecycle state from a writer stamping `rework`
+        # without a review verdict, #2075) before anything consumes the list:
+        # the dispatch guard no longer silently drops the pair, and this rewrite
+        # makes GitHub stop carrying it so the ticket stays dispatchable.
+        {state, issues} = IssueSync.reconcile_contradictory_state_labels(state, issues)
+
         # Reconciliation runs against the snapshot this poll just revalidated,
         # so a ticket relabelled since the previous poll is judged on its
         # current labels rather than a stale cached copy (#1682).

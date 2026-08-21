@@ -59,7 +59,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
     refute html =~ "outcome-card"
   end
 
-  test "stale retention shows retained cards with a stale banner" do
+  test "stale retention renders retained cards without a staleness banner" do
     current = snapshot([outcome(number: 1)], run_id: "run-1")
     incoming = unavailable_snapshot([:merge_source_unavailable], run_id: "run-1")
     {source, true} = Presenter.reconcile(current, incoming)
@@ -71,7 +71,8 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesTest do
         announcement: Presenter.announcement(view)
       )
 
-    assert html =~ "Not live."
+    refute html =~ "Not live"
+    refute html =~ "last read"
     assert html =~ "PR #1"
   end
 

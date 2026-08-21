@@ -391,7 +391,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp progress_track_class(progress), do: if(is_nil(known_percent(progress)), do: "ut-pbar is-unknown", else: "ut-pbar")
 
   defp progress_fill_class(progress) do
-    ["ut-progress-fill", if(known_percent(progress) == 100, do: "is-complete"), if(Map.get(progress, :freshness) == :stale, do: "is-stale")]
+    ["ut-progress-fill", if(known_percent(progress) == 100, do: "is-complete")]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" ")
   end

@@ -26,6 +26,7 @@ defmodule Aiur.Config.Schema do
     PrWatch,
     Server,
     Tracker,
+    Upgrade,
     Webhooks,
     Worker,
     Workspace
@@ -63,6 +64,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:upgrade, Upgrade, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -156,6 +158,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
+    |> cast_embed(:upgrade, with: &Upgrade.changeset/2)
   end
 
   # Ecto's integer cast truncates a float (1.5 -> 1) and coerces a numeric
