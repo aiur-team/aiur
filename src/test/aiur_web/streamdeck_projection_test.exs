@@ -1,5 +1,8 @@
 defmodule AiurWeb.StreamdeckProjectionTest do
-  use ExUnit.Case, async: true
+  # The durable-fallback test writes a fixture `model-usage.json` beside a
+  # throwaway workflow file, which mutates the suite-global workflow path, so
+  # this file must not run concurrently with other tests that read it.
+  use ExUnit.Case, async: false
 
   alias Aiur.{CodingAgent, ProviderMeterSnapshot}
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter
@@ -111,6 +114,107 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert get_in(deck, ["codex", "windows", "weekly", "used_percent"]) == dashboard.windows |> Enum.find(&(&1.limit_id == "secondary")) |> Map.fetch!(:used_percent)
   end
 
+  # The dashboard's provider cards attach a provider's durable last-known
+  # standing from the dispatch-limits ledger when the live meter has no
+  # observation (`put_durable_observation` in RunSummaryStrip). The deck must
+  # read the same record, or a provider the dashboard shows at 99% used renders
+  # as a permanent "Awaiting data" on the strip — two surfaces disagreeing about
+  # the same account (#2185).
+  test "attaches the durable last-known standing to an unobserved provider's session meter" do
+    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    workflow_path = Path.join(dir, "config.yaml")
+    observed_at = ~U[2026-08-02 08:53:00Z]
+    previous_path = Application.get_env(:aiur, :workflow_file_path)
+
+    try do
+      Application.put_env(:aiur, :workflow_file_path, workflow_path)
+
+      :ok =
+        Aiur.ModelAvailability.observe(
+          "deepseek",
+          %{weekly: %{used: 99, limit: 100, reset_at: DateTime.add(@now, 86_400, :second) |> DateTime.to_iso8601()}},
+          now: observed_at
+        )
+
+      view =
+        StreamdeckProjection.provider_meters(
+          %{deepseek: %{state: :unknown, observed_at: nil, freshness: :unknown, windows: %{}}},
+          @now
+        )
+
+      deepseek = view["deepseek"]
+      assert deepseek["state"] == "observed"
+      assert deepseek["freshness"] == "stale"
+      assert deepseek["observed_at"] == DateTime.to_iso8601(observed_at)
+      assert deepseek["age_seconds"] == DateTime.diff(@now, observed_at)
+      assert get_in(deepseek, ["windows", "session", "used_percent"]) == 99
+      assert get_in(deepseek, ["windows", "session", "freshness"]) == "stale"
+      refute get_in(deepseek, ["windows", "weekly"])
+    after
+      restore_app_env(:aiur, :workflow_file_path, previous_path)
+      File.rm_rf(dir)
+    end
+  end
+
+  test "a provider with no durable record stays unknown on the deck" do
+    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-none-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    workflow_path = Path.join(dir, "config.yaml")
+    previous_path = Application.get_env(:aiur, :workflow_file_path)
+
+    try do
+      Application.put_env(:aiur, :workflow_file_path, workflow_path)
+
+      view =
+        StreamdeckProjection.provider_meters(
+          %{deepseek: %{state: :unknown, observed_at: nil, freshness: :unknown, windows: %{}}},
+          @now
+        )
+
+      assert view["deepseek"]["state"] == "unknown"
+      assert view["deepseek"]["windows"] == %{}
+    after
+      restore_app_env(:aiur, :workflow_file_path, previous_path)
+      File.rm_rf(dir)
+    end
+  end
+
+  # A real observation wins over the durable fallback: the fallback exists to
+  # cover an unobserved meter, so an observed one must never be downgraded to
+  # the stale ledger value.
+  test "a real observation replaces the durable fallback" do
+    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-observed-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    workflow_path = Path.join(dir, "config.yaml")
+    previous_path = Application.get_env(:aiur, :workflow_file_path)
+
+    try do
+      Application.put_env(:aiur, :workflow_file_path, workflow_path)
+
+      :ok =
+        Aiur.ModelAvailability.observe(
+          "deepseek",
+          %{weekly: %{used: 99, limit: 100}},
+          now: ~U[2026-08-02 08:53:00Z]
+        )
+
+      view =
+        StreamdeckProjection.provider_meters(
+          %{deepseek: observed_meter("session", 25, 120, "weekly", 45, 10_080)},
+          @now
+        )
+
+      assert view["deepseek"]["state"] == "observed"
+      assert view["deepseek"]["freshness"] == "fresh"
+      assert get_in(view, ["deepseek", "windows", "session", "used_percent"]) == 25
+      assert get_in(view, ["deepseek", "windows", "weekly", "used_percent"]) == 45
+    after
+      restore_app_env(:aiur, :workflow_file_path, previous_path)
+      File.rm_rf(dir)
+    end
+  end
+
   defp observed_meter(session_id, session_percent, session_duration, weekly_id, weekly_percent, weekly_duration, opts \\ []) do
     observed_at = Keyword.get(opts, :observed_at, @now)
     freshness = Keyword.get(opts, :freshness, :fresh)
@@ -135,4 +239,7 @@ defmodule AiurWeb.StreamdeckProjectionTest do
       freshness: freshness
     }
   end
+
+  defp restore_app_env(app, key, nil), do: Application.delete_env(app, key)
+  defp restore_app_env(app, key, value), do: Application.put_env(app, key, value)
 end

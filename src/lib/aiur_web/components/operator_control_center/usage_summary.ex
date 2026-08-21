@@ -64,14 +64,6 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
         <p>The usage and cost facts cannot be read right now.</p>
       </div>
 
-      <div :if={@state == :stale} class="usage-summary-state readonly-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span>
-          <b>Not live.</b>
-          Showing the usage we last read for this scope; refresh is {String.downcase(@view.freshness.label)}.
-        </span>
-      </div>
-
       <div :if={@state in [:ready, :partial, :stale]} class="usage-summary-body">
         <div class="usage-summary-grid">
           {models_chart_panel(assigns)}

@@ -112,7 +112,7 @@ targets_release_deliberately() {
     agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
     watch | init | findings | guard-pr-deletions | __identity) return 1 ;;
     help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    ask | asks | usage | commands | units | build-orders | analytics | github-cost) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | analytics | github-cost | github-usage) return 1 ;;
     executor-*) return 1 ;;
     *) return 0 ;;
   esac
@@ -501,7 +501,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost) return 0 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -633,6 +633,19 @@ fi
 # parent that already passed this guard, mid-restart with the daemon down, where
 # a refusal would only strand the fleet on a decision already made.
 guard_checkout_target "$@"
+
+# `aiur upgrade` installs a published npm release. It can never make sense
+# under a development launcher, and the acceptance contract is that it changes
+# nothing on disk here — so refuse before anything is built, started, or
+# touched. The shared engine refuses dev release dirs too; this is the launcher
+# check that fires even before a build would be considered (#2109).
+if [ "${1:-}" = "upgrade" ]; then
+  echo "❌ aiur upgrade cannot run under aiurdev (a development checkout)." >&2
+  echo "   aiurdev runs code built from the local tree; aiur upgrade installs a published" >&2
+  echo "   npm release and would not touch this working tree. Nothing has been changed." >&2
+  echo "   Install aiur from npm and run \`aiur upgrade\` from the installed CLI instead." >&2
+  exit 64
+fi
 
 # aiur spawns its own tmux on a dedicated socket and does not nest cleanly.
 if [ -n "${TMUX:-}" ]; then

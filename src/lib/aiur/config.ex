@@ -966,6 +966,21 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc """
+  Whether the `aiur run` upgrade-version notice is enabled. True by default;
+  set `upgrade.check_enabled: false` to suppress the registry check entirely.
+  Fails open (returns true) when the config cannot be read, so a config error
+  never silently disables the notice.
+  """
+  @spec upgrade_check_enabled?() :: boolean()
+  @spec upgrade_check_enabled?(term()) :: boolean()
+  def upgrade_check_enabled?(settings \\ settings_uncached()) do
+    case settings do
+      {:ok, %{upgrade: upgrade}} -> upgrade.check_enabled
+      _other -> true
+    end
+  end
+
   # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
   # default until a deliberate dashboard parity pass — see issue #371.
   @spec dashboard_writable?() :: boolean()

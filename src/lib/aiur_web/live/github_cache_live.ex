@@ -13,11 +13,15 @@ defmodule AiurWeb.GithubCacheLive do
   Each is one line of code and each would make the page unable to demonstrate
   the property it exists to demonstrate. The absence is the feature.
 
-  ## Three layers
+  ## Four layers
 
     * **Map** — every resource type as a tile, sized by how many entries it
       holds and coloured by how stale its worst entry is, so a stale region is
       visible without reading any text.
+    * **History** — two time-series charts from the sampler's ring: entries
+      over time (total, with body, validator-only) and the same totals stacked
+      by freshness, so "how up to date" is a band that can be watched growing
+      rather than a number to compare.
     * **Group** — one type's entries: identity, age, writer, what validator and
       body the store holds for each.
     * **Entry** — the full record, with the cached body pretty-printed.
@@ -25,6 +29,16 @@ defmodule AiurWeb.GithubCacheLive do
   Each layer is a URL. A deep link to an entry resolves after a restart because
   the identity is the resource's own — `(type, owner, repo, id)` — not a
   position in a list that the next write would invalidate.
+
+  ## History is a live-session feature
+
+  The two charts are fed by `Aiur.GitHub.CacheHistory`, a sampler that reads the
+  same ETS table this page reads — never GitHub — on a fixed cadence and keeps a
+  bounded ring of recent state. The ring is in-memory and lost on restart, and
+  the charts say so, because a chart that drew a flat zero over a span the
+  sampler never observed would be the same silent-subset lie the rest of the
+  page refuses. When the ring is too new to draw, the page says it is
+  collecting.
 
   ## Validator held, body absent, is shown as its own thing
 
@@ -59,6 +73,7 @@ defmodule AiurWeb.GithubCacheLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.GitHub.CacheHistory
   alias Aiur.GitHub.CacheInspector
   alias Aiur.GitHub.CacheInspector.Events
   alias Aiur.GitHub.Quota, as: GitHubQuota
@@ -71,7 +86,7 @@ defmodule AiurWeb.GithubCacheLive do
     RouteRegistry
   }
 
-  alias AiurWeb.OperatorControlCenter.GithubCache.Styles
+  alias AiurWeb.OperatorControlCenter.GithubCache.{Charts, Styles}
 
   @highlight_ms 4_000
   @sorts [:age, :identity]
@@ -81,6 +96,7 @@ defmodule AiurWeb.GithubCacheLive do
   def mount(_params, _session, socket) do
     connected = connected?(socket)
     if connected, do: Events.subscribe()
+    if connected, do: CacheHistory.subscribe()
 
     {:ok,
      socket
@@ -141,6 +157,12 @@ defmodule AiurWeb.GithubCacheLive do
   def handle_info({:decision_changed, _decision_id, _version}, socket),
     do: {:noreply, AwaitingCommands.refresh(socket)}
 
+  # A new history sample landed on the sampler's cadence. The page re-reads the
+  # ring (an ETS read) rather than trusting the message's count, matching how
+  # every other change here is re-read rather than rendered out of the message.
+  def handle_info({:cache_history_sampled, _count}, socket),
+    do: {:noreply, assign(socket, :history, history())}
+
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
@@ -180,6 +202,22 @@ defmodule AiurWeb.GithubCacheLive do
     socket
     |> assign(:projection, projection)
     |> assign(:quota, quota_snapshot())
+    |> assign(:history, history())
+  end
+
+  # The same seam `quota_snapshot/0` uses, for the same reason: the page reads
+  # whatever history provider is configured — the sampler in production — and a
+  # test can point it at a deterministic double without depending on the global
+  # sampler's ring. `CacheHistory.samples/0` itself already fails open to `[]`
+  # when the sampler is absent, so the double exists for determinism, not for
+  # safety.
+  defp history do
+    provider = Application.get_env(:aiur, :github_cache_history_provider, CacheHistory)
+    provider.samples()
+  rescue
+    _unavailable -> []
+  catch
+    :exit, _reason -> []
   end
 
   # The same seam `Aiur.GitHub.Transport` uses to find the meter, so a test can
@@ -243,6 +281,8 @@ defmodule AiurWeb.GithubCacheLive do
         </div>
 
         <.map_layer :if={@projection.available? and is_nil(@group)} projection={@projection} />
+
+        <.trends :if={@projection.available? and is_nil(@group)} history={@history} />
 
         <.group_layer
           :if={@projection.available? and not is_nil(@group) and is_nil(@entry_identity)}
@@ -353,7 +393,7 @@ defmodule AiurWeb.GithubCacheLive do
         <span class="ghc-cell-count">{group.count}</span>
         <span class="ghc-cell-label">{group.label}</span>
         <span class="ghc-cell-freshness">
-          {group.freshness.fresh} fresh · {group.freshness.stale} stale · {group.freshness.expired} expired
+          {group.freshness.fresh} fresh · {group.freshness.stale} older · {group.freshness.expired} expired
         </span>
         <span :if={group.bodyless > 0} class="ghc-cell-bodyless">
           {group.bodyless} validator only
@@ -364,6 +404,79 @@ defmodule AiurWeb.GithubCacheLive do
       </.link>
     </div>
     """
+  end
+
+  # The map layer answers "what is held now"; this answers "how did it get
+  # here". Two charts from the sampler's ring: entries over time (total, with
+  # body, validator-only) and the same totals stacked by freshness, so a cache
+  # that is quietly going stale reads as a growing band rather than a number
+  # that has to be compared. Charts only ever draw what the sampler recorded —
+  # an empty ring renders a "collecting" note, never a fabricated zero line.
+  defp trends(assigns) do
+    assigns =
+      assigns
+      |> assign(:enough?, length(assigns.history) >= 2)
+      |> assign(:history_window, history_window(assigns.history))
+
+    ~H"""
+    <section class="ghc-trends" data-role="trends" aria-labelledby="ghc-trends-title">
+      <div class="ghc-trends-head">
+        <h2 id="ghc-trends-title" class="ghc-trends-title">History</h2>
+        <p class="ghc-trends-note" data-role="history-window">
+          {history_note(@history_window, @enough?)}
+        </p>
+      </div>
+
+      <div :if={not @enough?} class="ghc-empty" data-role="history-collecting">
+        <strong>Collecting cache history.</strong>
+        <p>
+          The charts draw what the sampler has recorded since this daemon boot. They fill in as
+          samples accumulate — nothing is fetched to produce them.
+        </p>
+      </div>
+
+      <div :if={@enough?} class="ghc-charts">
+        <figure class="ghc-chart" data-role="entries-chart">
+          <figcaption class="ghc-chart-title">Entries over time</figcaption>
+          <div class="ghc-chart-body">{Phoenix.HTML.raw(Charts.entries_over_time(@history))}</div>
+          <figcaption class="ghc-chart-legend">
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--fg)"></i>total</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--good)"></i>hold a body</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--attention)"></i>validator only</span>
+          </figcaption>
+        </figure>
+
+        <figure class="ghc-chart" data-role="freshness-chart">
+          <figcaption class="ghc-chart-title">Freshness over time</figcaption>
+          <div class="ghc-chart-body">{Phoenix.HTML.raw(Charts.freshness_over_time(@history))}</div>
+          <figcaption class="ghc-chart-legend">
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--good)"></i>fresh</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--attention)"></i>older</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--blocking)"></i>expired</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--faint)"></i>unknown</span>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+    """
+  end
+
+  defp history_window([]), do: {0, 0}
+  defp history_window(history), do: {hd(history).t_ms, List.last(history).t_ms}
+
+  defp history_note({t0, t1}, true), do: "Last #{fmt_window(t1 - t0)} — sampled every 30s since this daemon boot."
+  defp history_note(_window, _enough?), do: "Sampled from the cache since this daemon boot."
+
+  defp fmt_window(ms) do
+    minutes = div(round(ms / 1000), 60)
+    hours = div(minutes, 60)
+    remainder = rem(minutes, 60)
+
+    cond do
+      hours > 0 and remainder > 0 -> "#{hours}h #{remainder}m"
+      hours > 0 -> "#{hours}h"
+      true -> "#{minutes}m"
+    end
   end
 
   defp group_layer(assigns) do
@@ -470,7 +583,7 @@ defmodule AiurWeb.GithubCacheLive do
           data-active={to_string(@freshness == level)}
           class={chip_class(@freshness == level)}
         >
-          {level}
+          {freshness_label(level)}
         </button>
       </div>
 
@@ -674,6 +787,9 @@ defmodule AiurWeb.GithubCacheLive do
 
   defp chip_class(true), do: "ghc-chip ghc-chip-on"
   defp chip_class(_inactive), do: "ghc-chip"
+
+  defp freshness_label(:stale), do: "older"
+  defp freshness_label(level), do: to_string(level)
 
   defp body_filter_label(:held), do: "body held"
   defp body_filter_label(:bodyless), do: "validator only"

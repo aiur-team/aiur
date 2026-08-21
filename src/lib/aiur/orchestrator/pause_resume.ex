@@ -154,14 +154,18 @@ defmodule Aiur.Orchestrator.PauseResume do
   # A lifetime-latched ticket is durably moved to `agent:error` when it trips
   # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
   # so clearing the budget alone leaves the ticket undispatchable. Restore a
-  # latched error ticket to `rework` (the active state the latch most commonly
-  # trips from) so `reset-budget` actually returns it to dispatchable
-  # (#1453 review P2c). Non-error or non-latched tickets pass through untouched.
+  # latched error ticket to `todo` (the "pick it up again" state) so
+  # `reset-budget` actually returns it to the board (#1453 review P2c).
+  #
+  # The restore deliberately writes `todo`, never `rework`: a lifetime dispatch
+  # latch is an exhaustion of retry budget, not a reviewer's rejection, so a
+  # `rework` verdict would be a lie — and on a ticket with no open PR it would
+  # strand the ticket in a state nothing selects (#2075).
   defp restore_latched_error_state(state, %Issue{state: tracker_state} = issue, true) do
     if DispatchPolicy.normalize_issue_state(tracker_state) == "error" and is_binary(issue.identifier) do
-      case Tracker.update_issue_state(issue.identifier, "rework") do
+      case Tracker.update_issue_state(issue.identifier, "todo") do
         :ok ->
-          refreshed = %{issue | state: "rework"}
+          refreshed = %{issue | state: "todo"}
           {:ok, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}}
 
         {:error, reason} ->

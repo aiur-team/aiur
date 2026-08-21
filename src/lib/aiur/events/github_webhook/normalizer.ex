@@ -358,31 +358,46 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     end
   end
 
-  # Dedup divergence, reported not absorbed. `GithubCommentsPoller` keys review
-  # thread comments on the GraphQL thread node id when it has one — which, on the
-  # batch path, is always — giving `{repo, "pr_review_thread:N", "PRRT_..."}`.
-  # A delivery carries no node id, so this can only produce
-  # `{repo, "pr_review_comment:N", "<comment id>"}`. The keys never match, so the
-  # webhook and the reconciliation poll each wake the agent for one comment.
+  # One granularity, both pipes. `GithubCommentsPoller` keys review thread
+  # comments on the GraphQL thread node id, and the delivery path resolves that
+  # id for webhook deliveries (`Aiur.Events.GithubWebhook.ThreadResolver`), so
+  # the two pipes derive the same key for the same event and `Publisher`
+  # collapses them into one wake.
   #
-  # It is also a policy difference, not only a missing field: the poller dedups
-  # per thread, a delivery can only dedup per comment. Reconciling them means
-  # choosing one granularity and resolving the thread id, which needs a fetch in
-  # the delivery path. Pinned by `github_webhook_equivalence_test.exs`.
+  # Thread is the deliberate granularity (see #2081). A review thread is
+  # GitHub's own unit of feedback — one finding plus its replies — and keying
+  # per comment would multiply wakes for a multi-comment review, which is a real
+  # cost, not neutral correctness. The tradeoff: a follow-up comment on an
+  # already-woken thread within the replay window does not wake a second time.
+  #
+  # A delivery whose thread could not be resolved (no `node_id`, or a failed
+  # lookup) keys per comment — the fail-open degradation, unchanged from before
+  # this change. A duplicate wake is recoverable; a dropped delivery is not.
   defp review_comment_triple(payload, comment, repo) do
     with {:ok, target, pr_number} <- pull_request_identity(payload) do
+      {dedup_key, resource} = review_comment_keys(repo, pr_number, comment)
+
       {:publish,
        [
          comment_triple(
            "ticket.#{target}.pr.review_comment",
            target,
            poller_comment_shape(comment),
-           GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
+           dedup_key,
            payload |> Map.get("pull_request") |> review_context() |> approval_only_context(),
-           ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))
+           resource
          )
        ]}
     end
+  end
+
+  defp review_comment_keys(repo, pr_number, %{"review_thread_id" => thread_id})
+       when is_binary(thread_id) and thread_id != "" do
+    {GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id), ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)}
+  end
+
+  defp review_comment_keys(repo, pr_number, comment) when is_map(comment) do
+    {GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")), ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))}
   end
 
   # GithubCommentsPoller.publish_comment/4: payload keyed by the ticket
@@ -439,7 +454,10 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # including its `body` and `updated_at` fallbacks. `line` and `path` ride along
   # only when present, matching `ReviewThreads.normalize_thread_comment/2` for
   # review threads while staying absent on issue comments, which is where the
-  # poller leaves them.
+  # poller leaves them. `review_thread_id` is the same: it is present on every
+  # thread comment the poller publishes, and the delivery path stamps it on a
+  # resolved review-comment delivery, so the published webhook comment matches
+  # the poller's shape.
   defp poller_comment_shape(comment) when is_map(comment) do
     base = %{
       "id" => Map.get(comment, "id"),
@@ -450,7 +468,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
       "user" => %{"login" => get_in(comment, ["user", "login"])}
     }
 
-    Enum.reduce(["path", "line"], base, fn key, acc ->
+    Enum.reduce(["path", "line", "review_thread_id"], base, fn key, acc ->
       case Map.fetch(comment, key) do
         {:ok, value} -> Map.put(acc, key, value)
         :error -> acc

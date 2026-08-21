@@ -199,6 +199,51 @@ defmodule Aiur.GitHub.CacheInspector do
 
   def observed_calls(_snapshot), do: 0
 
+  @doc """
+  One time-series sample: whole-store counts and freshness, for the cache
+  history charts.
+
+  `project/1` is shaped for a page — truncation, per-type grouping, one re-read
+  per render. A chart that summed its truncated `groups` would report freshness
+  for a subset beside a total for the whole store, which is the silent-subset
+  failure this page refuses elsewhere, so `history_sample/1` classifies **every**
+  entry the source holds (the store caps itself at 100,000) and answers counts
+  that sum to each other: `with_body + bodyless == total`, and for body-holding
+  entries `fresh + stale + expired + unknown == with_body`.
+
+  Classification reuses `CacheInspector.Entry.new/3` rather than restating the
+  freshness rules, so the chart and the map tiles cannot drift apart about what
+  "stale" and "expired" mean.
+
+  Answers `nil` when the source is unavailable, so the sampler records nothing
+  rather than recording a fabricated zero — the same distinction this page makes
+  between "nothing cached" and "nothing observed".
+  """
+  @spec history_sample(DateTime.t(), keyword()) :: map() | nil
+  def history_sample(now \\ DateTime.utc_now(), opts \\ []) do
+    source = Keyword.get(opts, :source, configured_source())
+
+    case read(source) do
+      {:ok, raw} ->
+        entries = Enum.map(raw, &Entry.new(&1, now, thresholds(opts)))
+        freshness = Enum.frequencies_by(entries, & &1.freshness)
+
+        %{
+          t_ms: DateTime.to_unix(now, :millisecond),
+          total: length(entries),
+          with_body: Enum.count(entries, & &1.body?),
+          bodyless: Enum.count(entries, & &1.bodyless?),
+          fresh: Map.get(freshness, :fresh, 0),
+          stale: Map.get(freshness, :stale, 0),
+          expired: Map.get(freshness, :expired, 0),
+          unknown: Map.get(freshness, :unknown, 0)
+        }
+
+      :unavailable ->
+        nil
+    end
+  end
+
   @doc "Counts of every writer that has touched the cache, in canonical order."
   @spec writes_by_writer(map()) :: [{atom(), non_neg_integer()}]
   def writes_by_writer(%{entries: entries}) do

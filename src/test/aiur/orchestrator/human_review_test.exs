@@ -1,10 +1,69 @@
 defmodule Aiur.Orchestrator.HumanReviewTest do
-  use ExUnit.Case, async: true
+  # `use Aiur.TestSupport` expands to `use ExUnit.Case` without `async: true`;
+  # these tests mutate the global `human_review_ready_verifier` env and cannot
+  # race async cases.
+  use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.HumanReview
+  import ExUnit.CaptureLog
+
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.{HumanReview, State}
 
   test "recognizes the human review state" do
     assert HumanReview.human_review_state?("human-review")
     refute HumanReview.human_review_state?("todo")
+  end
+
+  defp setup_failing_verifier do
+    previous = Application.get_env(:aiur, :human_review_ready_verifier)
+    Application.put_env(:aiur, :human_review_ready_verifier, fn _issue_id -> {:error, :not_ready} end)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :human_review_ready_verifier)
+      else
+        Application.put_env(:aiur, :human_review_ready_verifier, previous)
+      end
+    end)
+  end
+
+  defp human_review_issue do
+    %Issue{id: "2075", identifier: "repo#2075", state: "human-review", title: "t", labels: ["agent:human-review"]}
+  end
+
+  # #2075: a human-review ticket that fails its ready-verification reverts to
+  # `agent:rework` — but only when an open PR exists, because `rework` means
+  # "work exists and was rejected". With no open PR there is nothing a reviewer
+  # rejected, so the honest restore is `todo` (make it dispatchable again, no
+  # verdict). This is the precondition test for the human_review writer.
+  test "a human-review ticket with no open PR reverts to todo, never rework" do
+    setup_failing_verifier()
+    issue = human_review_issue()
+
+    log =
+      capture_log(fn ->
+        state =
+          HumanReview.maybe_deactivate_human_review_issue(%State{}, issue, rework_opts: [open_pr_fetcher: fn _issue_key -> {:ok, nil} end])
+
+        assert state == %State{}
+      end)
+
+    assert log =~ "reverting to todo"
+    refute log =~ "reverting to rework"
+  end
+
+  test "a human-review ticket with an open PR reverts to rework" do
+    # Control: with an open PR the reviewer verdict is real, so the revert is
+    # to `rework`, not `todo`.
+    setup_failing_verifier()
+    issue = human_review_issue()
+
+    log =
+      capture_log(fn ->
+        HumanReview.maybe_deactivate_human_review_issue(%State{}, issue, rework_opts: [open_pr_fetcher: fn _issue_key -> {:ok, %{number: 42}} end])
+      end)
+
+    assert log =~ "reverting to rework"
+    refute log =~ "reverting to todo"
   end
 end

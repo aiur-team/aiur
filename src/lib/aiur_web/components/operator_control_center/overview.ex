@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, UnitsPresentation}
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters}
 
   @fleet_stats [
     {:running, "Active", "good"},
@@ -164,44 +164,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   defp error_detail(_code, _message),
     do: "No fleet data. The reported fault is shown below."
-
-  # A compact, logo-adjacent staleness label. The full explanation lives in the
-  # hover popover, so the header stays one line while the staleness stays named.
-  attr(:freshness, :map, default: %{})
-
-  @spec stale_label(map()) :: Phoenix.LiveView.Rendered.t()
-  def stale_label(assigns) do
-    ~H"""
-    <span
-      :if={@freshness[:status] == :stale}
-      class="fleet-stale-label"
-      title={stale_label_title(@freshness)}
-      aria-label={stale_label_title(@freshness)}
-    >
-      Not live
-    </span>
-    """
-  end
-
-  defp stale_label_title(freshness) do
-    ["Showing the fleet as we last saw it", stale_age_clause(freshness[:age_seconds]), stale_reason(freshness[:reason])]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.join(". ")
-    |> String.trim_trailing(".")
-    |> Kernel.<>(".")
-  end
-
-  defp stale_age_clause(age_seconds) when is_integer(age_seconds) and age_seconds >= 0,
-    do: "#{age_label(age_seconds)} old"
-
-  defp stale_age_clause(_age_seconds), do: nil
-
-  defp age_label(age_seconds), do: UnitsPresentation.age_label(age_seconds)
-
-  defp stale_reason(:snapshot_timeout), do: "The Orchestrator is busy."
-  defp stale_reason(:snapshot_stalled), do: "The Orchestrator has stopped publishing."
-  defp stale_reason(:orchestrator_unavailable), do: "The Orchestrator is unavailable."
-  defp stale_reason(_reason), do: ""
 
   defp banner_title(_blocking, 1), do: "1 unit awaiting commands"
   defp banner_title(_blocking, open), do: "#{open} units awaiting commands"

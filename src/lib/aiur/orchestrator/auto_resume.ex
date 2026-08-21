@@ -266,12 +266,19 @@ defmodule Aiur.Orchestrator.AutoResume do
 
   # An `agent:error` ticket (from retry exhaustion on a transient cause) must
   # be restored to a dispatchable state before it can be re-dispatched.
+  #
+  # The restore writes `todo`, never `rework`: nothing here rejected the work.
+  # `rework` means "work exists and was rejected" (a reviewer's verdict); a
+  # transient infra fault only needs "make this dispatchable again", which is
+  # exactly what `todo` says. Writing `rework` also let a no-PR ticket be
+  # stamped with a review verdict it never received, stranding the ticket in a
+  # state nothing would select (#2075).
   defp restore_state(state, %Issue{} = issue, opts) do
     update_fun = Keyword.get(opts, :update_state_fun, &Tracker.update_issue_state/2)
 
-    case update_fun.(issue.identifier, "rework") do
+    case update_fun.(issue.identifier, "todo") do
       :ok ->
-        refreshed = %{issue | state: "rework"}
+        refreshed = %{issue | state: "todo"}
         %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}
 
       {:error, reason} ->

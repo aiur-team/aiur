@@ -156,3 +156,4 @@ alerts:
 # server: { port: 4000 }                # host omitted = authenticated Tailscale IP when available, else loopback; add host: 127.0.0.1 to pin loopback
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
+# upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED
