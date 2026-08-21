@@ -37,7 +37,8 @@ defmodule Aiur.Webhooks.IntervalPolicyTest do
       {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
       assert IntervalPolicy.poll_interval_ms(@base_ms, @webhook_repo, server: registry, widen_factor: 4.0) == 120_000
 
-      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(901))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
+      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
 
       assert IntervalPolicy.poll_interval_ms(@base_ms, @webhook_repo, server: registry, widen_factor: 4.0) == @base_ms
     end

@@ -207,7 +207,9 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
       {:ok, _mode} = ModeRegistry.record_delivery(@repo, server: registry, at: at(0))
       assert delay(registry, state) == 240_000
 
-      {:ok, [@repo]} = ModeRegistry.sweep(registry, at(1_000))
+      # Corroboration: the poller published events the webhook never carried.
+      {:ok, _mode} = ModeRegistry.record_activity(@repo, server: registry, at: at(1_000))
+      {:ok, [@repo]} = ModeRegistry.sweep(registry, at(2_000))
 
       assert_received {:alert, "webhook.degraded", message, alert_opts}
       assert message =~ @repo

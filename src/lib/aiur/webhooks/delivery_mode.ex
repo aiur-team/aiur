@@ -26,9 +26,41 @@ defmodule Aiur.Webhooks.DeliveryMode do
   repo of events entirely. So a configured-but-silent repo is a polling repo
   that happens to have a webhook configured.
 
-  Degradation is automatic and reversible: silence past the threshold drops a
-  proven repo back to full polling (the caller raises the operator alert), and
-  a single resumed delivery restores webhook mode with no operator action.
+  Degradation is automatic and reversible: corroborated silence past the
+  threshold drops a proven repo back to full polling (the caller raises the
+  operator alert), and a single resumed delivery restores webhook mode with no
+  operator action. "Corroborated" is load-bearing, and the next section is why.
+
+  ## Silence is not evidence — activity is
+
+  GitHub sends no heartbeat. A repository nobody touched for an hour delivers
+  nothing, and a repository whose ingress is dead delivers nothing, and the two
+  are indistinguishable from silence alone. Degrading on silence alone therefore
+  fires on every quiet night and every idle weekend, telling an operator to
+  "check the secret, the App install, and the ingress" about a webhook that is
+  working perfectly. Measured on this fleet: 47 degradations against 5,668
+  accepted deliveries and *zero* rejections, with healthy windows bottoming out
+  at 922s against a 900s threshold and one "outage" that lasted three seconds.
+
+  So degradation requires corroboration. `record_activity/2` is the seam the
+  poller uses to say "I observed events for this repo"; a proven repo degrades
+  only when the poller saw activity that arrived more than a full threshold
+  *after* the last delivery. That is the one pattern silence cannot fake: events
+  demonstrably happened, and no delivery carried them. A repo with no observed
+  activity is idle, not broken, and is left webhook-backed and quiet.
+
+  A full threshold of separation — rather than a tighter grace — is what makes
+  this immune to poll lag. The poller observes an event some seconds or minutes
+  after it happened, so an activity timestamp is always an upper bound on the
+  event's own time; only a gap larger than the silence window itself proves the
+  delivery was owed and never came.
+
+  The same corroboration gives `:configured_unproven` a voice it did not have.
+  A repo configured for webhooks that has observed activity and has still never
+  delivered once is broken in a way silence cannot express, and it is the exact
+  state an ingress that was never publicly reachable produces. `sweep/3` reports
+  it as `:never_delivered`, once, so "configured but nothing ever arrived" stops
+  looking identical to "never configured at all".
 
   This module holds no clock and no process. Callers pass `now`, which keeps
   every transition directly testable; `Aiur.Webhooks.ModeRegistry` owns the
@@ -38,15 +70,17 @@ defmodule Aiur.Webhooks.DeliveryMode do
   @type state :: :never_configured | :configured_unproven | :webhook_backed | :degraded
   @type transport :: :webhook | :polling
   @type polling_reason :: :never_configured | :configured_unproven | :degraded_from_silence | nil
-  @type transition :: :none | :proven | :recovered | :degraded | :configured | :unconfigured
+  @type transition :: :none | :proven | :recovered | :degraded | :configured | :unconfigured | :never_delivered
 
   @type t :: %__MODULE__{
           repo: String.t(),
           state: state(),
           configured?: boolean(),
           last_delivery_at: DateTime.t() | nil,
+          last_activity_at: DateTime.t() | nil,
           degraded_at: DateTime.t() | nil,
-          delivery_count: non_neg_integer()
+          delivery_count: non_neg_integer(),
+          never_delivered_reported?: boolean()
         }
 
   @enforce_keys [:repo]
@@ -54,8 +88,10 @@ defmodule Aiur.Webhooks.DeliveryMode do
             state: :never_configured,
             configured?: false,
             last_delivery_at: nil,
+            last_activity_at: nil,
             degraded_at: nil,
-            delivery_count: 0
+            delivery_count: 0,
+            never_delivered_reported?: false
 
   @doc """
   Builds the mode for `repo` (an `"owner/name"` string).
@@ -98,7 +134,8 @@ defmodule Aiur.Webhooks.DeliveryMode do
         state: :never_configured,
         last_delivery_at: nil,
         degraded_at: nil,
-        delivery_count: 0
+        delivery_count: 0,
+        never_delivered_reported?: false
     }
 
     {unconfigured, :unconfigured}
@@ -130,25 +167,58 @@ defmodule Aiur.Webhooks.DeliveryMode do
         configured?: true,
         last_delivery_at: latest(mode.last_delivery_at, at),
         degraded_at: nil,
-        delivery_count: mode.delivery_count + 1
+        delivery_count: mode.delivery_count + 1,
+        never_delivered_reported?: false
     }
 
     {delivered, transition}
   end
 
   @doc """
-  Degrades a webhook-backed repo that has been silent for longer than
-  `threshold_ms`.
+  Records that the poller observed repository activity for this repo at `at`.
 
-  Only `:webhook_backed` can degrade. A `:configured_unproven` repo is already
-  polling at full rate, so silence there is unremarkable and must not raise an
-  alert every sweep.
+  This is corroboration, never proof: observing activity says events exist, not
+  that any of them were delivered, so it can never promote a repo to
+  `:webhook_backed` and it returns `:none` always. Its only job is to give
+  `sweep/3` something silence cannot fake — see the module docs.
+
+  Like a delivery timestamp, activity never moves backwards, so an out-of-order
+  or replayed observation cannot manufacture the separation that degradation
+  requires.
+  """
+  @spec record_activity(t(), DateTime.t()) :: {t(), transition()}
+  def record_activity(%__MODULE__{} = mode, %DateTime{} = at) do
+    {%{mode | last_activity_at: latest(mode.last_activity_at, at)}, :none}
+  end
+
+  @doc """
+  Degrades a webhook-backed repo whose silence is corroborated by observed
+  activity, and reports a configured repo that has never delivered at all.
+
+  Only `:webhook_backed` can degrade, and only with evidence: silence past
+  `threshold_ms` *and* poller-observed activity that landed more than a full
+  threshold after the last delivery. Silence on its own means the repo is idle
+  — the overwhelmingly common case — and returns `:none`.
+
+  A `:configured_unproven` repo is already polling at full rate, so silence
+  there is unremarkable. But a configured repo that has seen activity and still
+  has zero deliveries is a broken setup rather than a quiet one, and it is
+  reported once as `:never_delivered`.
   """
   @spec sweep(t(), DateTime.t(), pos_integer()) :: {t(), transition()}
   def sweep(%__MODULE__{state: :webhook_backed, last_delivery_at: %DateTime{} = last} = mode, %DateTime{} = now, threshold_ms)
       when is_integer(threshold_ms) and threshold_ms > 0 do
-    if DateTime.diff(now, last, :millisecond) > threshold_ms do
+    if DateTime.diff(now, last, :millisecond) > threshold_ms and delivery_was_owed?(mode, threshold_ms) do
       {%{mode | state: :degraded, degraded_at: now}, :degraded}
+    else
+      {mode, :none}
+    end
+  end
+
+  def sweep(%__MODULE__{state: :configured_unproven, never_delivered_reported?: false} = mode, %DateTime{}, threshold_ms)
+      when is_integer(threshold_ms) and threshold_ms > 0 do
+    if match?(%DateTime{}, mode.last_activity_at) and mode.delivery_count == 0 do
+      {%{mode | never_delivered_reported?: true}, :never_delivered}
     else
       {mode, :none}
     end
@@ -157,6 +227,15 @@ defmodule Aiur.Webhooks.DeliveryMode do
   def sweep(%__MODULE__{} = mode, %DateTime{}, threshold_ms) when is_integer(threshold_ms) and threshold_ms > 0 do
     {mode, :none}
   end
+
+  # The proof that a delivery was missed rather than never owed: the poller saw
+  # events more than a whole silence window after the last delivery. Anything
+  # tighter would be poll lag, not a lost delivery.
+  defp delivery_was_owed?(%__MODULE__{last_activity_at: %DateTime{} = activity, last_delivery_at: %DateTime{} = last}, threshold_ms) do
+    DateTime.diff(activity, last, :millisecond) > threshold_ms
+  end
+
+  defp delivery_was_owed?(%__MODULE__{}, _threshold_ms), do: false
 
   @doc """
   The transport a repo is currently served by.
