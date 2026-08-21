@@ -56,13 +56,14 @@ defmodule Aiur.GitHub.CredentialRegistry do
     end
   end
 
-  @doc "The credential a tie resolves to, and the one every write defaults to."
-  @spec primary(keyword()) :: Credential.t() | nil
-  def primary(opts \\ []) do
-    credentials = credentials(opts)
-
-    Enum.find(credentials, & &1.primary?) || List.first(credentials)
-  end
+  # There is deliberately no `primary/1` here. It existed, had no callers, and
+  # returned `Enum.find(&1.primary?) || List.first/1` — an **intent-blind**
+  # credential. That is the precise shape of the defect this module's caller
+  # shipped with: when the legacy credential does not resolve, no `primary?`
+  # entry survives and first place falls to whoever is listed next, which can be
+  # a human. Choosing a credential without an intent is not a meaningful
+  # question, so the function that made it look meaningful is gone. Ask
+  # `Aiur.GitHub.CredentialSelector.choose/3`, which cannot answer without one.
 
   @doc """
   True when more than one credential is available to spread load across.

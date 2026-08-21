@@ -84,15 +84,40 @@ defmodule Aiur.GitHub.CredentialSelector do
   """
   @spec choose(String.t(), intent(), keyword()) :: Credential.t() | nil
   def choose(resource, intent, opts \\ []) do
-    credentials = CredentialRegistry.credentials(opts)
-    primary = Enum.find(credentials, & &1.primary?) || List.first(credentials)
-    eligible = Enum.filter(credentials, &Credential.eligible?(&1, intent))
+    opts
+    |> CredentialRegistry.credentials()
+    |> Enum.filter(&Credential.eligible?(&1, intent))
+    |> select_from(resource, opts)
+    |> only_eligible(intent)
+  end
 
-    case eligible do
-      [] -> if intent == :read, do: primary
-      [only] -> only
-      many -> best(many, resource, primary, opts)
-    end
+  # Every candidate list below is already filtered by intent, and the
+  # exhausted-credential fallback is drawn from that same filtered list rather
+  # than from the registry. That is the fix for a real defect: the fallback used
+  # to take `List.first/1` of the *unfiltered* registry, which is the legacy
+  # credential in every ordinary deployment — and therefore write-eligible — but
+  # becomes whatever happens to be first when the legacy credential does not
+  # resolve. A pool whose legacy token was missing could hand a write to a human.
+  defp select_from([], _resource, _opts), do: nil
+  defp select_from([only], _resource, _opts), do: only
+  defp select_from(eligible, resource, opts), do: best(eligible, resource, fallback(eligible), opts)
+
+  defp fallback(eligible), do: Enum.find(eligible, & &1.primary?) || List.first(eligible)
+
+  # The boundary. Selection above may be reordered, extended or rewritten; no
+  # credential reaches a caller for an intent it cannot carry. Enforcing this
+  # once here rather than at each `-> primary` site is the point: the defect was
+  # not that a check was wrong, it was that one path had no check at all, and a
+  # rule applied only where someone remembered it is not a rule.
+  #
+  # `nil` is a safe answer. `assign/2` leaves the request holding the token it
+  # arrived with — `Aiur.GitHub.Config.token/0`, the identity the daemon writes
+  # as anyway — so a write that cannot be attributed safely is not attributed at
+  # all rather than attributed to the wrong person.
+  defp only_eligible(nil, _intent), do: nil
+
+  defp only_eligible(%Credential{} = credential, intent) do
+    if Credential.eligible?(credential, intent), do: credential
   end
 
   @doc """
@@ -169,8 +194,9 @@ defmodule Aiur.GitHub.CredentialSelector do
 
     case open do
       # Every eligible credential reads as exhausted. Rather than refuse the
-      # request locally, hand it to the primary and let GitHub be the authority
-      # on whether the window has rolled.
+      # request locally, hand it to the fallback and let GitHub be the authority
+      # on whether the window has rolled. `primary` here is the fallback drawn
+      # from the eligible list, never the registry's first entry.
       [] -> primary
       candidates -> pick(candidates, primary)
     end

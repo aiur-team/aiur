@@ -152,6 +152,90 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
     end
   end
 
+  # The exhausted-credential fallback used to hand back whatever the registry
+  # listed first, without checking it could carry the intent. That is normally
+  # the legacy credential, which is write-eligible — but when the legacy
+  # credential does not resolve it drops out of the list, and first place can
+  # fall to a human. Every other guard holds; this route went around them.
+  describe "the exhausted fallback" do
+    setup do
+      # Deliberately never exported, so the registry filters it out and no
+      # `primary?` credential survives.
+      legacy = %Credential{id: "primary", kind: :machine_user, source: :legacy, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
+      human = with_token(credential("human_first", kind: :human), "human-first-token")
+
+      # Two write-eligible machine users, not one. With a single eligible
+      # credential `choose/3` short-circuits on its `[only]` clause and never
+      # reaches the fallback under test — the fixture has to get past that to
+      # exercise the rule it exists to protect.
+      machine_a = with_token(credential("machine_a", writes?: true), "machine-a-token")
+      machine_b = with_token(credential("machine_b", writes?: true), "machine-b-token")
+
+      # Human ordered ahead of the machine users so `List.first/1` picks it once
+      # the unresolvable legacy credential drops out.
+      credentials = [legacy, human, machine_a, machine_b]
+
+      # Both write-eligible credentials observed exhausted; the human has room.
+      windows = %{
+        Credential.token_key(machine_a) => %{"core" => window(0)},
+        Credential.token_key(machine_b) => %{"core" => window(0)},
+        Credential.token_key(human) => %{"core" => window(5_000)}
+      }
+
+      %{credentials: credentials, human: human, windows: windows}
+    end
+
+    test "never returns a human credential for a write", context do
+      %{credentials: credentials, human: human, windows: windows} = context
+
+      opts = [credentials: credentials, windows: windows, now: @now]
+
+      assert CredentialSelector.choose("core", :write, opts) != human
+      refute match?(%Credential{kind: :human}, CredentialSelector.choose("core", :write, opts))
+    end
+
+    test "a real write request is never assigned a human token", context do
+      %{credentials: credentials, windows: windows} = context
+
+      request = %{method: :post, url: "https://api.github.com/repos/o/r/issues/1/comments", body: %{body: "hi"}, token: "config-token"}
+
+      assigned = CredentialSelector.assign(request, credentials: credentials, windows: windows, now: @now)
+
+      refute assigned.token == "human-first-token"
+    end
+
+    # With no eligible credential left, refusing to choose is the right
+    # answer: the request keeps the token it arrived with, which is
+    # `Config.token/0`. A write that cannot be attributed safely must not be
+    # attributed at all.
+    test "returns nil rather than an ineligible credential when only a human resolves", %{human: human} do
+      legacy = %Credential{id: "primary", kind: :machine_user, source: :legacy, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
+
+      opts = [credentials: [legacy, human], windows: %{}, now: @now]
+
+      assert CredentialSelector.choose("core", :write, opts) == nil
+    end
+
+    test "the request keeps its original token when nothing may carry the write", %{human: human} do
+      legacy = %Credential{id: "primary", kind: :machine_user, source: :legacy, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
+
+      request = %{method: :post, url: "https://api.github.com/repos/o/r/labels", body: %{name: "x"}, token: "config-token"}
+
+      assigned = CredentialSelector.assign(request, credentials: [legacy, human], windows: %{}, now: @now)
+
+      assert assigned.token == "config-token"
+      refute Map.has_key?(assigned, :credential_id)
+    end
+
+    # Reads are unaffected: every credential is read-eligible, so the human
+    # may still absorb read traffic, which is the entire point of the pool.
+    test "reads still use the human credential", context do
+      %{credentials: credentials, human: human} = context
+
+      assert CredentialSelector.choose("core", :read, credentials: credentials, windows: %{}, now: @now) == human
+    end
+  end
+
   describe "intent/1" do
     test "REST GET is a read" do
       assert CredentialSelector.intent(%{method: :get, url: "https://api.github.com/repos/o/r"}) == :read
