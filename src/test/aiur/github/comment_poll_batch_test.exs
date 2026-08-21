@@ -99,11 +99,29 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert batch |> Map.keys() |> Enum.sort() == [:open_pull_request]
   end
 
-  # The other half of the cost claim. A branch alias asks for up to five
-  # candidate pull requests per branch and up to two branches per target, so
-  # attaching `reviewThreads(first: 100) { comments(last: 20) }` to those nodes
-  # bought the complete inline-review contents of up to ten pull requests in
-  # order to learn one number.
+  # `branch_pull_request/2` reads `[node | _rest]` of the branch connection and
+  # discards the rest, and GitHub permits one open pull request per head/base
+  # pair — so four of the five slots were nodes nothing could read. The review
+  # thread pages stay at their full size: a smaller one would send every busy
+  # pull request onto the paginated fallback each cycle, and this document bills
+  # 10-11 points per call, not the ~660 a node count suggests.
+  test "asks for only the branch pull requests it reads, and keeps the full thread pages" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "direction: DESC}, first: 2)"
+      refute body["query"] =~ "direction: DESC}, first: 5)"
+      assert body["query"] =~ "reviewThreads(first: 100)"
+      assert body["query"] =~ "comments(last: 20)"
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+    end
+
+    assert {:ok, _batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+  end
+
+  # The other half of the cost claim. A branch alias asks for candidate pull
+  # requests per branch and up to two branches per target, so attaching
+  # `reviewThreads { comments }` to those nodes bought the complete inline-review
+  # contents of every candidate in order to learn one number.
   test "branch alias candidates carry identity only, never review threads" do
     request_fun = fn %{method: :post, body: body} ->
       [_before, branch_section] = String.split(body["query"], "branch_0_0:", parts: 2)

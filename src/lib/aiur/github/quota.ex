@@ -256,7 +256,33 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
+  # Every instrumented GraphQL response carries `rateLimit { limit remaining
+  # resetAt }` in its body, and that block is the endpoint's own answer for the
+  # points budget — no header parsing, no assumption, and no dependence on the
+  # `x-ratelimit-*` headers being present on a GraphQL response. Reading it here
+  # is what lets the daemon learn its real remaining budget from every call it
+  # already makes, instead of waiting for the next `/rate_limit` refresh.
   defp observe_response(state, request, {:ok, response}, now) when is_map(response) do
+    case graphql_rate_limit_values(request, response) do
+      %{} = values -> put_window_from_values(state, "graphql", values, now)
+      nil -> observe_response_headers(state, request, response, now)
+    end
+  end
+
+  defp observe_response(state, _request, _result, _now), do: state
+
+  defp graphql_rate_limit_values(request, response) do
+    with "graphql" <- request_resource(request),
+         %{limit: limit, remaining: remaining, reset_at: reset_at} when is_integer(limit) and is_integer(remaining) <-
+           GraphQLCost.reported(response),
+         {:ok, reset, _offset} <- reset_at |> to_string() |> DateTime.from_iso8601() do
+      %{"limit" => limit, "remaining" => remaining, "reset" => DateTime.to_unix(reset)}
+    else
+      _unreported -> nil
+    end
+  end
+
+  defp observe_response_headers(state, request, response, now) do
     headers = Map.get(response, :headers, [])
 
     # GitHub reports `core` for an anonymous read too, but that is a different
@@ -280,8 +306,6 @@ defmodule Aiur.GitHub.Quota do
       state
     end
   end
-
-  defp observe_response(state, _request, _result, _now), do: state
 
   defp put_window_from_values(state, resource, values, now) do
     with {:ok, limit} <- integer_value(Map.get(values, "limit")),

@@ -10,8 +10,23 @@ defmodule Aiur.GitHub.CIPollBatch do
   # `aiur/<id>-<slug>` branch and the legacy `aiur/<id>` one) keeps every query
   # bounded by the requested targets instead of scanning the repository's open
   # PR list, while staying at or under 100 aliases per call.
+  #
+  # `@pull_requests_per_branch` is 2 rather than 5 because the connection has
+  # exactly one consumer: `put_first_pull_request/3` reads `List.first/1` of it
+  # and discards the rest, and GitHub permits one open pull request per
+  # head/base pair, so the newest is the answer and the second slot is margin.
+  # This changes no semantics — an overflowed connection was already fail-closed
+  # in `put_entry_result/4`, which drops the target to the REST fallback rather
+  # than trusting a truncated listing, and that behaviour is identical at 2 and
+  # at 5. It is a smaller ask for nodes nothing reads, nothing more.
+  #
+  # `contexts(first: 100)` is deliberately NOT reduced. A smaller page would
+  # mean a pull request with many check contexts falls out to the REST fallback
+  # every cycle, and — measured against GitHub's own reported `rateLimit
+  # { cost }` — this whole document costs **1 point per call**, not the ~510 a
+  # naive nodes/100 estimate predicts. There is no budget to buy with that risk.
   @targets_per_query 50
-  @pull_requests_per_branch 5
+  @pull_requests_per_branch 2
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(targets, opts \\ []) when is_list(targets) do
