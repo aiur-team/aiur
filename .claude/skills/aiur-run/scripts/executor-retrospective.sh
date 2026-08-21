@@ -509,25 +509,10 @@ record() {
   printf '%s\n' "$event"
 }
 
-# Probe a candidate base URL. Any HTTP status (including 401 from the
-# dashboard's basic auth) proves something is listening and speaking HTTP;
-# only a transport failure disqualifies the candidate.
-dashboard_url_live() {
-  local candidate="$1" curl_bin code
-  curl_bin="$(command -v curl || true)"
-  # Without curl we cannot disprove the candidate, so accept it and let the
-  # capture script produce the real error.
-  [ -n "$curl_bin" ] || return 0
-  code="$("$curl_bin" -s -o /dev/null -m 5 -w '%{http_code}' "$candidate/" 2>/dev/null || true)"
-  case "$code" in
-    ''|000) return 1 ;;
-    *) return 0 ;;
-  esac
-}
-
-# Read @aiur_control_url from one tmux server. The daemon publishes it
-# best-effort (src/lib/aiur/pane_manager/anchor.ex), so an existing-but-empty
-# option is normal and must not stop discovery.
+# Read @aiur_control_url from one tmux server. Aiur publishes it only once the
+# HTTP listener is actually bound (src/lib/aiur/pane_manager/anchor.ex), and
+# scripts/aiur.tmux.conf seeds the option empty, so both "absent" and "present
+# but empty" mean the same thing: this server has no dashboard to offer.
 dashboard_url_from_socket() {
   local tmux_bin="$1" socket="$2" url
   if [ -n "$socket" ]; then
@@ -541,8 +526,13 @@ dashboard_url_from_socket() {
   esac
 }
 
+# Discover the daemon dashboard. Every rung reads a URL that Aiur itself
+# published; there is deliberately no port guess. A guessed port cannot tell
+# the Aiur dashboard apart from any other listener, and writing a stranger's
+# pages into the hourly narrative as if they were the daemon's is worse than
+# the explicit attention verdict a failed discovery produces.
 dashboard_url() {
-  local url tmux_bin socket socket_dir port host candidate
+  local url tmux_bin socket socket_dir candidate found
 
   if [ -n "${AIUR_DASHBOARD_URL:-}" ]; then
     printf '%s\n' "${AIUR_DASHBOARD_URL%/}"
@@ -550,47 +540,52 @@ dashboard_url() {
   fi
 
   tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 1
 
-  if [ -n "$tmux_bin" ]; then
-    # 1. The socket the caller named, then 2. the ambient tmux server.
-    if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
-      url="$(dashboard_url_from_socket "$tmux_bin" "$AIUR_TMUX_SOCKET" || true)"
-      [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
-    fi
-    url="$(dashboard_url_from_socket "$tmux_bin" '' || true)"
+  # 1. The socket the caller named. This is also the disambiguator when more
+  # than one Aiur daemon is live on the host.
+  if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
+    url="$(dashboard_url_from_socket "$tmux_bin" "$AIUR_TMUX_SOCKET" || true)"
     [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
-
-    # 3. Any live aiur-* tmux server on this host. The Executor usually runs
-    # outside the daemon's tmux session, so the ambient server above is its
-    # own, not Aiur's; without this sweep discovery can never see the daemon.
-    socket_dir="${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)"
-    if [ -d "$socket_dir" ]; then
-      for socket in "$socket_dir"/aiur-*; do
-        [ -S "$socket" ] || continue
-        url="$(dashboard_url_from_socket "$tmux_bin" "$(basename "$socket")" || true)"
-        [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
-      done
-    fi
   fi
 
-  # 4. The tmux option is best-effort and is frequently published empty, so
-  # fall back to the configured bind and require a live HTTP response before
-  # returning it. This is the difference between a silent hourly skip and a
-  # real capture.
-  host="${AIUR_DASHBOARD_HOST:-127.0.0.1}"
-  case "$host" in
-    0.0.0.0|::|'') host="127.0.0.1" ;;
-  esac
-  for port in "${AIUR_DASHBOARD_PORT:-}" "${AIUR_PORT:-}" 4000; do
-    [ -n "$port" ] || continue
-    candidate="http://$host:$port"
-    if dashboard_url_live "$candidate"; then
-      printf '%s\n' "$candidate"
-      return 0
+  # 2. The ambient tmux server, for an Executor running inside the session.
+  url="$(dashboard_url_from_socket "$tmux_bin" '' || true)"
+  [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+
+  # 3. Live aiur-* tmux servers on this host. The Executor usually runs
+  # outside the daemon's tmux session, so the ambient server above is its own,
+  # not Aiur's; without this sweep discovery can never see the daemon at all.
+  socket_dir="${AIUR_TMUX_SOCKET_DIR:-${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)}"
+  [ -d "$socket_dir" ] || return 1
+
+  # Prefer a socket that names this run before considering any other.
+  if [ -n "${AIUR_EXECUTOR_RUN_ID:-}" ]; then
+    for socket in "$socket_dir"/aiur-*"$AIUR_EXECUTOR_RUN_ID"*; do
+      [ -S "$socket" ] || continue
+      url="$(dashboard_url_from_socket "$tmux_bin" "$(basename "$socket")" || true)"
+      [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+    done
+  fi
+
+  # Otherwise accept a sweep result only when it is unambiguous. Several live
+  # daemons publishing different URLs means we cannot tell which one this
+  # Executor owns, and picking by glob order would silently audit the wrong
+  # fleet. Refusing sends the operator to AIUR_TMUX_SOCKET instead.
+  found=""
+  for socket in "$socket_dir"/aiur-*; do
+    [ -S "$socket" ] || continue
+    candidate="$(dashboard_url_from_socket "$tmux_bin" "$(basename "$socket")" || true)"
+    [ -n "$candidate" ] || continue
+    if [ -z "$found" ]; then
+      found="$candidate"
+    elif [ "$found" != "$candidate" ]; then
+      return 1
     fi
   done
 
-  return 1
+  [ -n "$found" ] || return 1
+  printf '%s\n' "$found"
 }
 
 # Capture the four operator-facing reports and append their compact verdict to
@@ -600,6 +595,7 @@ dashboard_url() {
 # serialized.
 visual_check() {
   local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
+  local url_override="${AIUR_DASHBOARD_URL:-}"
   # "$@" still carries the subcommand word (the dispatcher never shifts), so
   # $1 is "visual-check" and an operator-supplied base URL arrives as $2.
   # Accepting that argument is what makes the documented URL override usable
@@ -610,7 +606,7 @@ visual_check() {
   }
   if [ "$#" -eq 2 ]; then
     case "$2" in
-      http://*|https://*) AIUR_DASHBOARD_URL="$2" ;;
+      http://*|https://*) url_override="$2" ;;
       *)
         printf 'usage: %s visual-check [dashboard-url]\n' "$0" >&2
         return 64
@@ -628,7 +624,7 @@ visual_check() {
   capture_dir="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_DIR:-${retro_file}.d/dashboard-$timestamp}"
   mkdir -p "$capture_dir"
 
-  dashboard_base_url="$(dashboard_url || true)"
+  dashboard_base_url="$(AIUR_DASHBOARD_URL="$url_override" dashboard_url || true)"
   if [ -z "$dashboard_base_url" ]; then
     capture_status=67
     verdict="$capture_dir/verdict.md"
