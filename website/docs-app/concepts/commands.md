@@ -23,6 +23,8 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
 | Revise | Append a corrected action without rewriting the original record. |
 
+Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
+
 ## Durability
 
 | Contract | Why it matters |
