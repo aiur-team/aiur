@@ -171,6 +171,45 @@ defmodule Aiur.GitHub.TransportTest do
              Transport.github_graphql(request_fun, "token", "query", %{}, max_response_bytes: 32_768)
   end
 
+  # A price known only after the call is a receipt. The shape of a document is
+  # knowable before sending, so a fan-out that has gone pathological fails here
+  # rather than being found in the ranking an hour later. The ceiling is set far
+  # above real traffic on purpose — see `Aiur.GitHub.GraphQLCost` — so this test
+  # configures a tight one rather than shipping a document big enough to trip
+  # the default.
+  test "refuses to send a document that asks for more points than the ceiling" do
+    Application.put_env(:aiur, :github_graphql_cost_ceiling_points, 250)
+    on_exit(fn -> Application.delete_env(:aiur, :github_graphql_cost_ceiling_points) end)
+
+    request_fun = fn _request -> flunk("an over-budget document must never reach GitHub") end
+
+    over_budget =
+      "query AiurHuge { repository { " <>
+        String.duplicate("a: pullRequests(first: 100) { nodes { commits(last: 5) { nodes { commit { id } } } } } ", 100) <>
+        " } }"
+
+    log =
+      capture_log(fn ->
+        assert {:error, {:graphql_cost_ceiling, details}} =
+                 Transport.github_graphql(request_fun, "token", over_budget, %{}, caller: :test_caller)
+
+        assert details.points > details.ceiling_points
+      end)
+
+    assert log =~ "Github GraphQL cost ceiling: operation=AiurHuge caller=test_caller"
+  end
+
+  test "sends a document inside the ceiling untouched" do
+    request_fun = fn %{body: body} ->
+      assert body["query"] =~ "issues(first: 50)"
+      {:ok, %{status: 200, headers: [], body: %{"data" => %{"repository" => %{}}}}}
+    end
+
+    query = "query AiurSmall { repository { issues(first: 50) { nodes { id } } } }"
+
+    assert {:ok, %{"data" => %{"repository" => %{}}}} = Transport.github_graphql(request_fun, "token", query, %{})
+  end
+
   test "rejects malformed HTTP-200 GraphQL envelopes" do
     for response <- [
           %{status: 200, body: "unexpected scalar"},

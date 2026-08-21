@@ -2004,6 +2004,20 @@ kill_control_rpc_process() {
   for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
 }
 
+# Signalling the watchdog subshell alone leaves its `sleep` child running and
+# orphaned: bash forks the subshell, and the sleep is a separate process the
+# subshell's death does not reap. Kill the descendants too so a fast reply
+# leaves nothing behind that outlives the command.
+# Deepest-first: a bash subshell that is TERMed while waiting on a foreground
+# child defers the signal until that child exits, so signalling the wrapper
+# before the sleep it is waiting on can leave the sleep running.
+cancel_timeout_watchdog() {
+  local pid="$1" p tree=() i
+  [ -n "$pid" ] || return 0
+  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
+  for ((i = ${#tree[@]} - 1; i >= 0; i--)); do kill -TERM "${tree[i]}" 2>/dev/null || true; done
+}
+
 run_release_rpc_with_timeout() {
   local expression="$1" timeout output_file timeout_file pid watchdog_pid status grouped=0
   timeout="$(control_rpc_timeout_seconds)"
@@ -2019,13 +2033,18 @@ run_release_rpc_with_timeout() {
   fi
   pid=$!
 
+  # The watchdog must not hold the caller's stdout/stderr. A caller that captures
+  # our output (command substitution, a pipe, a language runtime's subprocess
+  # capture) reads until EOF, and EOF arrives only when every process holding the
+  # write end exits - including a watchdog that is merely sleeping. Closing those
+  # descriptors here is what keeps the timeout a ceiling instead of a floor.
   (
     sleep "$timeout"
     if kill -0 "$pid" 2>/dev/null; then
       : >"$timeout_file"
       kill_control_rpc_process "$pid" "$grouped"
     fi
-  ) &
+  ) >/dev/null 2>&1 &
   watchdog_pid=$!
 
   if wait "$pid"; then
@@ -2039,7 +2058,7 @@ run_release_rpc_with_timeout() {
     # strand descendants that ignored TERM after the root process exits.
     :
   else
-    kill "$watchdog_pid" 2>/dev/null || true
+    cancel_timeout_watchdog "$watchdog_pid"
   fi
   wait "$watchdog_pid" 2>/dev/null || true
 

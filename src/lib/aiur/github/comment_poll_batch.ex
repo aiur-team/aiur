@@ -42,8 +42,30 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # headRefName-keyed pullRequests lookups (the generated `aiur/<id>-<slug>`
   # branch and the legacy `aiur/<id>` one), so 33 targets keeps every call at
   # or under 100 aliases without ever scanning the repository's open PR list.
+  #
+  # `@pull_requests_per_branch` is 2 rather than 5 because the branch aliases
+  # are identity only and have exactly one consumer: `branch_pull_request/2`
+  # reads `[node | _rest]` and discards the rest, so the newest is the answer
+  # and the second slot is margin.
+  #
+  # This is correctness-preserving but NOT semantics-preserving. GitHub permits
+  # one open pull request per head/*base* pair, so three open pull requests on
+  # a single head branch is legal. At `first: 5` GraphQL answered; at `first: 2`
+  # `branch_pull_request_from_candidates/2` answers `:unknown` on the overflowed
+  # connection and the poller falls back to complete REST reads — every cycle,
+  # and at a cost rather than a saving. The answer stays correct; the path to it
+  # changes.
+  #
+  # That case is rare enough here to accept, but do not read this as free.
+  #
+  # `reviewThreads(first: 100) { comments(last: 20) }` is deliberately NOT
+  # reduced. Measured against GitHub's own reported `rateLimit { cost }` this
+  # document costs **10-11 points per call**, not the ~660 a naive nodes/100
+  # estimate predicts, and a smaller thread page would push every busy pull
+  # request onto the paginated fallback each cycle. There is no budget worth
+  # buying with review-comment risk.
   @targets_per_query 33
-  @pull_requests_per_branch 5
+  @pull_requests_per_branch 2
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(targets, opts \\ []) when is_list(targets) do

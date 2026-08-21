@@ -17,6 +17,39 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
   @css """
   .ghc-root { display: flex; flex-direction: column; gap: 1.25rem; }
 
+  /* The categorical palette for the spend-by-caller chart. These are the one
+     place on this page where a hex is correct: the theme tokens are a semantic
+     status palette (good / attention / blocking) and painting five peer callers
+     with them would say a caller is "bad" because it happened to rank third.
+     Both columns are selected for their own surface — the dark steps are not an
+     automatic flip of the light ones — and the set is validated for lightness
+     band, chroma floor, colour-vision separation and normal-vision separation
+     against `--surface` in each theme. Adjacent-pair worst case is CVD dE 9.1
+     light / 8.4 dark against a target of 8. Four light-mode steps sit under 3:1
+     on the cream surface, which is why the chart always ships a legend and the
+     ranking table beside it rather than colour alone.
+
+     `outside` and `other` are deliberately chroma-free. They are not series. */
+  .ghc-root {
+    --ghc-series-1: #3987e5;
+    --ghc-series-2: #d95926;
+    --ghc-series-3: #199e70;
+    --ghc-series-4: #c98500;
+    --ghc-series-5: #d55181;
+    --ghc-series-other: #8b8f99;
+    --ghc-series-outside: #969aa4;
+  }
+
+  html[data-theme="light"] .ghc-root {
+    --ghc-series-1: #2a78d6;
+    --ghc-series-2: #eb6834;
+    --ghc-series-3: #1baf7a;
+    --ghc-series-4: #eda100;
+    --ghc-series-5: #e87ba4;
+    --ghc-series-other: #6d6450;
+    --ghc-series-outside: #635a48;
+  }
+
   .ghc-readonly {
     margin: 0;
     padding: 0.75rem 1rem;
@@ -80,6 +113,38 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
   .ghc-chart-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; margin-top: 0.5rem; font-size: 0.75rem; color: var(--muted); }
   .ghc-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
   .ghc-legend-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
+
+  .ghc-usage { display: flex; flex-direction: column; gap: 0.9rem; }
+  .ghc-usage-budget {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .ghc-usage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+  .ghc-usage-budget-name { margin: 0; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg); }
+  .ghc-usage-window { font-size: 0.75rem; color: var(--muted); }
+  .ghc-usage-note { margin: 0; font-size: 0.75rem; color: var(--muted); }
+  .ghc-usage-note-strong { color: var(--attention-ink); }
+
+  .ghc-usage-splits { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+  .ghc-usage-split { display: flex; flex-direction: column; gap: 0.1rem; }
+  .ghc-usage-split-value { font-size: 1.25rem; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .ghc-usage-split-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .ghc-usage-unmeasured .ghc-usage-split-value { color: var(--muted); font-size: 0.9375rem; font-weight: 500; }
+
+  .ghc-usage-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  .ghc-usage-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 0.25rem 0.5rem; }
+  .ghc-usage-table td { padding: 0.25rem 0.5rem; border-top: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
+  .ghc-usage-table td:first-child { font-variant-numeric: normal; }
+  .ghc-usage-swatch { width: 0.6rem; height: 0.6rem; border-radius: 2px; display: inline-block; margin-right: 0.4rem; vertical-align: baseline; }
+  .ghc-usage-row-outside td { border-top: 2px solid var(--line); color: var(--muted); }
+  .ghc-usage-source { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .ghc-usage-source-assumed { color: var(--attention-ink); }
 
   /* Density and freshness, both from data. `--ghc-weight` scales the cell with
      how much the type holds; `--ghc-stale` tints it toward the attention ink so

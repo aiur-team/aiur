@@ -29,10 +29,13 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.CredentialHeadroom
+  alias Aiur.GitHub.CredentialSelector
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.ReadCache
 
   require Logger
 
@@ -88,8 +91,36 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
+  @doc """
+  Executes one GitHub request.
+
+  The credential is chosen here rather than where the request was built, because
+  this is the last point that knows the URL (which budget it spends) and the
+  method/body (whether it writes) at the same time. With a single credential
+  configured — the default — `assign/2` returns the request untouched and this
+  is the same code path it always was.
+
+  Selection happens **outside** `quota_request/2`, so it precedes the read
+  cache. That ordering is deliberate. `ReadCache` keys entries on the request's
+  shape and its identities, never on who authenticated, so a hit is served
+  whichever credential the selector picked — which is correct only because a hit
+  spends nothing: no budget is charged, so no budget can be charged to the wrong
+  credential. Selecting after the cache would invert that, letting a miss be
+  fetched before anything had decided who should pay for it.
+
+  Sharing one credential's answer with another is the same trade `Aiur.GitHub.AgentCache`
+  already makes between agents, which run under different credentials again. It
+  holds while every pooled credential can read the same repository; a pool whose
+  members had different visibility would need the credential in the cache key.
+  """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(%{method: :get, url: url, token: token} = req) do
+  def default_request_fun(%{token: token} = req) when is_binary(token) do
+    req |> CredentialSelector.assign() |> do_request()
+  end
+
+  def default_request_fun(req), do: do_request(req)
+
+  defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
       case Map.get(req, :etag) do
         nil -> github_headers(token, req)
@@ -99,7 +130,7 @@ defmodule Aiur.GitHub.Transport do
     quota_request(req, fn -> Req.get(url, request_options(headers, req)) end)
   end
 
-  def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
+  defp do_request(%{method: :post, url: url, token: token, body: body} = req) do
     options =
       token
       |> github_headers(req)
@@ -109,18 +140,32 @@ defmodule Aiur.GitHub.Transport do
     quota_request(req, fn -> Req.post(url, options) end)
   end
 
-  def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
+  defp do_request(%{method: :patch, url: url, token: token, body: body} = req) do
     quota_request(req, fn ->
       options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
       Req.patch(url, options)
     end)
   end
 
-  def default_request_fun(%{method: :delete, url: url, token: token} = req) do
+  defp do_request(%{method: :delete, url: url, token: token} = req) do
     quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
   end
 
+  # The cache wraps quota, not the other way round. A read the cache answers
+  # never reaches preflight, admission or the socket, which is the entire saving:
+  # a request that is priced and then not sent has cost the budget nothing, but a
+  # request that is sent and then discarded has cost it everything.
+  #
+  # `ReadCache.through/2` is also where a *write* retires what it changed, so a
+  # mutation cannot leave a stale read behind it. Both halves live at this one
+  # call because a read that could be added without passing through here is a
+  # read nobody can account for — the same argument `GraphQLCost` makes for
+  # pricing at the chokepoint.
   defp quota_request(request, request_fun) do
+    ReadCache.through(request, fn -> uncached_quota_request(request, request_fun) end)
+  end
+
+  defp uncached_quota_request(request, request_fun) do
     quota = Application.get_env(:aiur, :github_quota_server, Quota)
 
     case quota_preflight(quota, request) do
@@ -442,6 +487,9 @@ defmodule Aiur.GitHub.Transport do
   # cache hint that was bolted on after it.
   defp quota_observe(quota, request, result) do
     observed = Quota.observe(quota, request, result)
+    # Quota keeps one window per resource; this keeps the same headers per
+    # credential so the selector can compare headroom across the pool.
+    CredentialHeadroom.observe(request, result)
     AuthPreflight.note_response(request, result)
     observed
   end
@@ -549,7 +597,15 @@ defmodule Aiur.GitHub.Transport do
   @doc """
   Issues a GraphQL request and returns the decoded body beside the raw response.
 
-  Two things happen here that no call site has to remember.
+  Three things happen here that no call site has to remember.
+
+  The document is priced before it is sent. `Aiur.GitHub.GraphQLCost.check/2`
+  refuses a fan-out whose *shape* has gone pathological with
+  `{:error, {:graphql_cost_ceiling, details}}`, so such a query fails at the
+  call site instead of being discovered in the ranking an hour later. The
+  ceiling sits far above every document this tree sends — the estimate is a node
+  count and GitHub bills these documents dramatically cheaper — so it never
+  fires on real traffic.
 
   The query is passed through `Aiur.GitHub.GraphQLCost.instrument/1`, which adds
   a `rateLimit { cost }` selection where the document does not already carry
@@ -566,6 +622,13 @@ defmodule Aiur.GitHub.Transport do
   @spec github_graphql_response(function(), String.t(), String.t(), map(), keyword()) ::
           {:ok, map(), map()} | {:error, term(), map() | nil}
   def github_graphql_response(request_fun, token, query, variables, opts \\ []) do
+    case GraphQLCost.check(query, caller: Keyword.get(opts, :caller)) do
+      :ok -> send_graphql(request_fun, token, query, variables, opts)
+      {:error, {:graphql_cost_ceiling, details}} -> refuse_over_budget_graphql(details)
+    end
+  end
+
+  defp send_graphql(request_fun, token, query, variables, opts) do
     body = %{"query" => GraphQLCost.instrument(query), "variables" => variables}
 
     request =
@@ -574,6 +637,18 @@ defmodule Aiur.GitHub.Transport do
       |> maybe_put_caller(opts)
 
     validate_graphql_response(request_fun.(request))
+  end
+
+  # The budget is the reason the call is refused, so the refusal has to be
+  # louder than the spend it prevents: a document this size is a bug in the
+  # query, not a transient condition to retry around.
+  defp refuse_over_budget_graphql(details) do
+    Logger.warning(
+      "Github GraphQL cost ceiling: operation=#{details.operation} caller=#{details.caller || "undeclared"} " <>
+        "points=#{details.points} ceiling=#{details.ceiling_points} nodes=#{details.nodes}"
+    )
+
+    {:error, {:graphql_cost_ceiling, details}, nil}
   end
 
   defp maybe_put_caller(request, opts) do
