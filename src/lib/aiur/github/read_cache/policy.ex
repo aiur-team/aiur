@@ -69,10 +69,25 @@ defmodule Aiur.GitHub.ReadCache.Policy do
       configuration and belongs on the refused list, not on a five-minute TTL.
 
   `comment_poll_batch` is likewise absent from the caller table below, despite
-  being the single largest GraphQL spender. Its document interleaves comment
-  content with `reviewDecision` and `mergeStateStatus`, so it is refused on
-  content and a row for it would be decoration. Splitting that document is what
-  would make it cacheable; a policy entry is not.
+  being the single largest GraphQL spender, and it is expected to read as
+  `refused (unsafe_kind)` in the metrics permanently. That is the cache working,
+  not a gap.
+
+  There is no comment half to separate. Issue-comment bodies already moved to
+  conditional REST (`Aiur.GitHub.Comments.fetch_issue_comments_conditional/2`),
+  where an unchanged list answers `304` for free, and the document's only
+  remaining `comments(...)` is nested inside `reviewThreads`. What is left is
+  pull-request identity plus `reviewDecision` and `reviewThreads` — merge-gating
+  state, refused on content, correctly and permanently.
+
+  Splitting it would not pay even if it were splittable, so do not reach for
+  that: there is no second reader to serve, because
+  `Aiur.Orchestrator.CommentPolling` is the only call site and its
+  `start_async/2` refuses to start a poll while one is in flight; the 33 ticket
+  numbers are interpolated into the document, so the key changes whenever the
+  watched set does; and a 33-number entry is retired when *any* one of those
+  tickets is written to, which the daemon does continuously. A cacheable half
+  would hit approximately never.
 
   ## A TTL must not outrun the caller's own freshness
 
