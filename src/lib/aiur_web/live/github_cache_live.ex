@@ -517,6 +517,12 @@ defmodule AiurWeb.GithubCacheLive do
   #     wrong picture — the exact failure class this page exists to refuse.
   #   * Nothing unobserved is drawn as zero. No meter, no window, and a window
   #     whose reset has passed each say so in words.
+  #   * The ranking is of calls that reached GitHub, and says so. Since the
+  #     read cache landed, a hit never reaches `Quota` at all — which is the
+  #     whole saving, and which also means a caller can fall down this table
+  #     because it is being served from cache rather than because it went
+  #     quiet. Those are opposite conclusions from identical columns, so the
+  #     page names the ambiguity instead of leaving it to be inferred.
   #
   # It renders even when the cache store is absent: the meter is a different
   # process and a budget can be burning while nothing at all is cached.
@@ -643,6 +649,14 @@ defmodule AiurWeb.GithubCacheLive do
 
         <p class="ghc-usage-note" data-role="usage-outside-explainer">
           {outside_explainer(budget)}
+        </p>
+
+        <p class="ghc-usage-note" data-role="usage-cache-caveat">
+          This ranks what reached GitHub. A read the daemon's own cache answered never reaches the
+          meter — that is the saving — so it contributes no points and no calls here. A caller can
+          therefore fall down this table because it is being served from cache rather than because
+          it stopped polling, and the two look identical from these columns alone. The cache's own
+          hit rate, per caller, is what separates them.
         </p>
       </article>
     </section>

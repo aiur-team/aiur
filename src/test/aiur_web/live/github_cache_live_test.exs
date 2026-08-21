@@ -768,6 +768,29 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert Floki.find(graphql, ~s([data-role="usage-reach"])) == []
     end
 
+    test "the ranking says it only counts calls that reached GitHub" do
+      # Since the read cache landed, a hit never reaches `Quota` — so a caller
+      # can fall down this table because it is being served from cache rather
+      # than because it stopped polling. Opposite conclusions, identical
+      # columns; the page must name that rather than let it be inferred.
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      # Normalised, because the assertion is about the sentence and not about
+      # where the template happens to wrap it.
+      caveat =
+        html
+        |> budget_block()
+        |> Floki.find(~s([data-role="usage-cache-caveat"]))
+        |> Floki.text()
+        |> String.replace(~r/\s+/, " ")
+        |> String.trim()
+
+      assert caveat =~ "ranks what reached GitHub"
+      assert caveat =~ "served from cache rather than because it stopped polling"
+    end
+
     test "an assumed cost is never presented as a measurement" do
       Source.install(entries(2))
       install_graphql_quota()
