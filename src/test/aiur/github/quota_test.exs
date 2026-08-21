@@ -25,11 +25,72 @@ defmodule Aiur.GitHub.QuotaTest do
              used: 1250,
              used_percent: 25.0,
              reset_at: @reset,
-             observed_at: @now
+             observed_at: @now,
+             # The window's own span, not just its end. A consumer needs both to
+             # tell "another consumer spent this" from "I was not running yet".
+             started_at: DateTime.add(@reset, -3600, :second)
            }
 
     assert snapshot.windows["graphql"].remaining == 4400
     assert snapshot.windows["graphql"].used_percent == 12.0
+  end
+
+  # Every instrumented GraphQL response already carries the endpoint's own
+  # answer for the points budget. Reading it is what lets the daemon learn its
+  # real remaining budget from the calls it is already making, rather than
+  # waiting for the next `/rate_limit` refresh to discover it is out.
+  test "learns the GraphQL window from the rateLimit block a response reports" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), reported_graphql_response(1234))
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.windows["graphql"].limit == 5000
+    assert snapshot.windows["graphql"].remaining == 1234
+    assert snapshot.windows["graphql"].reset_at == @reset
+  end
+
+  test "the reported block wins over the headers, being the endpoint's own answer" do
+    quota = start_quota()
+
+    {:ok, headers_only} = response("graphql", 5000, 4400)
+    reported = put_in(headers_only.body, %{"data" => rate_limit_block(77)})
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), {:ok, reported})
+
+    assert Quota.snapshot(quota).windows["graphql"].remaining == 77
+  end
+
+  test "a GraphQL response without a reported block still falls back to its headers" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), response("graphql", 5000, 4400))
+
+    assert Quota.snapshot(quota).windows["graphql"].remaining == 4400
+  end
+
+  test "the snapshot states how far back the meter can see" do
+    # Attribution lives in this process and dies with it, while GitHub keeps
+    # counting across a restart. Without this figure a consumer cannot tell
+    # "nobody else spent it" from "I was not running when it was spent", and
+    # would blame the daemon's own forgotten calls on somebody else.
+    booted_mid_window = start_quota(started_at: DateTime.add(@reset, -1800, :second))
+    Quota.observe(booted_mid_window, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    snapshot = Quota.snapshot(booted_mid_window)
+
+    assert snapshot.observing_since == DateTime.add(@reset, -1800, :second)
+    assert DateTime.compare(snapshot.observing_since, snapshot.windows["core"].started_at) == :gt
+  end
+
+  test "a meter cannot claim to see further back than the rolling attribution window" do
+    # A long-lived daemon still only retains an hour of observations, so its
+    # reach is bounded by the rolling window rather than by its uptime.
+    long_lived = start_quota(started_at: DateTime.add(@now, -86_400, :second))
+    Quota.observe(long_lived, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    snapshot = Quota.snapshot(long_lived)
+
+    assert snapshot.observing_since == DateTime.add(@now, -3600, :second)
   end
 
   test "the low-water crossing alerts once per resource window and names the reset" do
@@ -660,6 +721,23 @@ defmodule Aiur.GitHub.QuotaTest do
     {:ok, response} = response("graphql", 5000, remaining)
 
     {:ok, %{response | body: %{"data" => %{"rateLimit" => %{"cost" => cost, "remaining" => remaining, "limit" => 5000}}}}}
+  end
+
+  # The block the transport's injected `rateLimit { limit cost remaining
+  # resetAt }` selection brings back on every instrumented query.
+  defp rate_limit_block(remaining) do
+    %{
+      "rateLimit" => %{
+        "cost" => 1,
+        "limit" => 5000,
+        "remaining" => remaining,
+        "resetAt" => DateTime.to_iso8601(@reset)
+      }
+    }
+  end
+
+  defp reported_graphql_response(remaining) do
+    {:ok, %{status: 200, headers: [], body: %{"data" => rate_limit_block(remaining)}}}
   end
 
   defp not_modified(resource, remaining) do

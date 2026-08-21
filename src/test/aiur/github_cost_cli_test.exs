@@ -37,6 +37,53 @@ defmodule Aiur.GitHubCostCLITest do
     assert Enum.sort(Map.keys(all["data"]["windows"])) == ["core", "graphql"]
   end
 
+  test "prints what the read cache saved, and why it refused what it refused" do
+    cache = fn ->
+      %{
+        available?: true,
+        entries: 12,
+        hit_rate: 0.75,
+        totals: %{hit: 30, miss: 10, deposit: 10, refused: 60},
+        refused: %{unsafe_kind: 60},
+        classes: %{},
+        callers: %{},
+        invalidations: %{events: 2, marks: 4}
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    assert output =~ "read cache: 75.0% of cacheable reads served"
+    assert output =~ "30 hits, 10 misses, 10 deposits"
+    # A refusal is deliberate spend, not a cache that is failing. Printing it
+    # beside the ranking is what separates the two.
+    assert output =~ "read cache refusals: unsafe_kind 60"
+  end
+
+  test "never prints a hit rate over no observations" do
+    cache = fn -> %{available?: true, entries: 0, hit_rate: nil, totals: %{hit: 0, miss: 0, deposit: 0, refused: 0}, refused: %{}} end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    assert output =~ "no cacheable reads observed"
+    refute output =~ "0.0% of cacheable reads"
+  end
+
+  test "says the read cache is not running rather than printing zeroes for it" do
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: fn -> :unavailable end, format: :records)
+      end)
+
+    assert output =~ "read cache: not running (no measurement)"
+  end
+
   test "reports an unattributed remainder as a measurement gap, not an alarm" do
     # Spend Aiur could not see is the normal state, and an all-caps alarm on the
     # normal state teaches operators to ignore the line that matters.
@@ -138,7 +185,7 @@ defmodule Aiur.GitHubCostCLITest do
 
     decoded = Jason.decode!(output)
 
-    assert decoded["schema_version"] == 1
+    assert decoded["schema_version"] == 2
     assert decoded["page"] == "github-cost"
     assert decoded["data"]["reconciliation"]["graphql"]["reconciled?"] == true
   end

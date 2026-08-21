@@ -240,13 +240,21 @@ AIUR_EXECUTOR_STATE_DIR="$state_root" \
 jq -e '.type == "hourly_retrospective"' "$missing_capture_out" >/dev/null || fail "record lost its hourly report when the capture helper was missing"
 
 # A missing daemon-published URL is recorded as an explicit attention verdict;
-# the runner must never fall back to a guessed port.
+# the runner must never fall back to a guessed port. Every discovery rung has
+# to read a URL that Aiur itself published, so that a host with an unrelated
+# listener still reports "could not discover" rather than auditing a stranger.
+# AIUR_TMUX_SOCKET_DIR keeps the socket sweep off the developer's real sockets
+# so the assertion means the same thing on a laptop running a live daemon as
+# it does on a bare CI runner.
+empty_socket_dir="$state_root/empty-sockets"
+mkdir -p "$empty_socket_dir"
 url_missing_retro="$state_root/url-missing-retrospective.md"
 AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=url-missing \
   AIUR_EXECUTOR_RETRO_FILE="$url_missing_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
   AIUR_TMUX_SOCKET="no-such-aiur-tmux-socket" \
+  AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
   "$script" visual-check >/dev/null 2>&1 &
 url_missing_pid=$!
 set +e
@@ -255,6 +263,142 @@ url_missing_status=$?
 set -e
 [ "$url_missing_status" -eq 67 ] || fail "missing dashboard URL did not return its explicit failure status"
 grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit attention evidence"
+
+# The no-guessed-port invariant above is only as strong as the script's
+# refusal to hardcode one. This is the regression that shipped once already:
+# a fallback rung reading a literal :4000 passes on a CI runner with nothing
+# listening while silently capturing whatever answers on a developer's host.
+if grep -q '4000' "$script"; then
+  fail "discovery reintroduced a hardcoded dashboard port"
+fi
+
+# Discovery ladder. The daemon publishes @aiur_control_url on its own tmux
+# server, and the Executor normally runs outside that server, so these rungs
+# are stubbed with a PATH tmux shim plus a scoped socket directory.
+tmux_shim_dir="$state_root/bin"
+mkdir -p "$tmux_shim_dir"
+cat > "$tmux_shim_dir/tmux" <<'EOF'
+#!/usr/bin/env bash
+# Stand-in for tmux show-options. FAKE_TMUX_URLS maps socket name to the
+# published control URL, one "socket=url" pair per line. A socket with no
+# entry answers empty, exactly as a server that never bound a dashboard does.
+socket=""
+if [ "${1:-}" = "-L" ]; then
+  socket="$2"
+  shift 2
+fi
+case "${1:-}" in
+  show-options)
+    [ -n "$socket" ] || exit 0
+    while IFS= read -r pair; do
+      [ -n "$pair" ] || continue
+      if [ "${pair%%=*}" = "$socket" ]; then
+        printf '%s\n' "${pair#*=}"
+        exit 0
+      fi
+    done <<< "${FAKE_TMUX_URLS:-}"
+    exit 0
+    ;;
+esac
+exit 0
+EOF
+chmod +x "$tmux_shim_dir/tmux"
+
+make_socket() {
+  python3 -c 'import socket,sys
+s = socket.socket(socket.AF_UNIX)
+s.bind(sys.argv[1])' "$1"
+}
+
+sweep_socket_dir="$state_root/sweep-sockets"
+mkdir -p "$sweep_socket_dir"
+make_socket "$sweep_socket_dir/aiur-run-alpha"
+make_socket "$sweep_socket_dir/aiur-quiet"
+
+# A live aiur-* server that publishes a URL is discovered even though the
+# Executor's own tmux server (the ambient one) publishes nothing. This is the
+# rung that was missing entirely: without it the hourly check never ran.
+sweep_retro="$state_root/sweep-retrospective.md"
+set +e
+PATH="$tmux_shim_dir:$PATH" \
+  FAKE_TMUX_URLS="aiur-run-alpha=http://127.0.0.1:4021" \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=sweep \
+  AIUR_EXECUTOR_RETRO_FILE="$sweep_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
+  "$script" visual-check >/dev/null 2>&1
+sweep_status=$?
+set -e
+[ "$sweep_status" -eq 0 ] || fail "socket sweep did not discover a publishing aiur tmux server"
+grep -q 'metric-column-missing' "$sweep_retro" || fail "socket sweep did not append its capture verdict"
+
+# Two live daemons publishing different dashboards is ambiguous. Picking by
+# glob order would silently audit the wrong fleet, so discovery must refuse
+# and send the operator to AIUR_TMUX_SOCKET.
+make_socket "$sweep_socket_dir/aiur-run-beta"
+ambiguous_retro="$state_root/ambiguous-retrospective.md"
+set +e
+PATH="$tmux_shim_dir:$PATH" \
+  FAKE_TMUX_URLS="aiur-run-alpha=http://127.0.0.1:4021
+aiur-run-beta=http://127.0.0.1:4022" \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=ambiguous \
+  AIUR_EXECUTOR_RETRO_FILE="$ambiguous_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
+  "$script" visual-check >/dev/null 2>&1
+ambiguous_status=$?
+set -e
+[ "$ambiguous_status" -eq 67 ] || fail "ambiguous multi-daemon sweep did not refuse to guess"
+grep -q 'could not discover the daemon dashboard URL' "$ambiguous_retro" || fail "ambiguous sweep did not produce explicit attention evidence"
+
+# A socket naming this run resolves the same ambiguity in the Executor's
+# favour rather than failing.
+make_socket "$sweep_socket_dir/aiur-run-gamma"
+run_id_retro="$state_root/run-id-retrospective.md"
+set +e
+PATH="$tmux_shim_dir:$PATH" \
+  FAKE_TMUX_URLS="aiur-run-alpha=http://127.0.0.1:4021
+aiur-run-beta=http://127.0.0.1:4022
+aiur-run-gamma=http://127.0.0.1:4023" \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=gamma \
+  AIUR_EXECUTOR_RETRO_FILE="$run_id_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
+  "$script" visual-check >/dev/null 2>&1
+run_id_status=$?
+set -e
+[ "$run_id_status" -eq 0 ] || fail "run-id-named socket did not win the sweep"
+
+# The documented URL override works as an argument, not only as an env var.
+# The dispatcher never shifts, so "$@" still carries the subcommand word and
+# the override arrives as $2.
+arg_retro="$state_root/arg-override-retrospective.md"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=arg-override \
+  AIUR_EXECUTOR_RETRO_FILE="$arg_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
+  "$script" visual-check "http://127.0.0.1:4018" >/dev/null 2>&1
+arg_status=$?
+set -e
+[ "$arg_status" -eq 0 ] || fail "visual-check rejected its documented dashboard-url argument"
+grep -q 'metric-column-missing' "$arg_retro" || fail "argument override did not append its capture verdict"
+
+# A non-URL argument and an extra argument are still usage errors.
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=arg-bad \
+  "$script" visual-check not-a-url >/dev/null 2>&1
+arg_bad_status=$?
+AIUR_EXECUTOR_STATE_DIR="$state_root" AIUR_EXECUTOR_RUN_ID=arg-many \
+  "$script" visual-check http://127.0.0.1:4018 extra >/dev/null 2>&1
+arg_many_status=$?
+set -e
+[ "$arg_bad_status" -eq 64 ] || fail "visual-check accepted a non-URL argument"
+[ "$arg_many_status" -eq 64 ] || fail "visual-check accepted too many arguments"
 
 # The terminal evidence is appended to the same narrative and retains the
 # command timing/output shape plus the pane/config coupling.
