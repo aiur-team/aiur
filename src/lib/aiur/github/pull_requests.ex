@@ -83,6 +83,29 @@ defmodule Aiur.GitHub.PullRequests do
   @doc """
   Fetches the open pull request whose legacy or readable Aiur head branch
   belongs to `issue_number`.
+
+  ## One listing, not two
+
+  This used to probe `?head=<owner>:aiur/<n>` first and fall back to scanning the
+  open-pull-request listing. The probe was a strict subset of the fallback and so
+  was pure duplication: the listing is filtered by `TicketBranch.ticket_branch?/2`,
+  whose regex `\\Aaiur\\/([1-9]\\d*)(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\\z` accepts the
+  legacy `aiur/<n>` spelling and the suffixed `aiur/<n>-<slug>` one alike, and the
+  listing is paginated to exhaustion while the probe capped at ten. Anything the
+  probe could find, the listing finds.
+
+  It was not free. `Aiur.Orchestrator.CommentPolling.TargetSelection` calls this
+  once per human-review target — up to 25 a cycle — so the probe was billing one
+  primary-rate point per target per cycle to answer a question the very next
+  request answered anyway. It was measured at roughly half of
+  `GET /repos/:owner/:repo/pulls`, the single busiest REST call site in the
+  daemon (`aiur github-cost --budget core`).
+
+  The one behavioural difference is which pull request wins when a ticket has
+  both a legacy-named and a suffixed open pull request: the probe preferred the
+  legacy one, and the listing now prefers GitHub's own ordering, which is newest
+  first. Preferring the newer of two open pull requests for one ticket is the
+  better answer, not merely a different one.
   """
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
@@ -90,25 +113,14 @@ defmodule Aiur.GitHub.PullRequests do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
 
-      legacy_branch = TicketBranch.legacy_branch_name(issue_number)
-
-      legacy_query =
-        URI.encode_query(%{"state" => "open", "head" => "#{owner}:#{legacy_branch}", "per_page" => "10"})
-
-      legacy_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{legacy_query}"
-
-      case Transport.fetch_json_list(request_fun, token, legacy_url) do
-        {:ok, [pull_request | _]} ->
-          {:ok, pull_request}
-
-        {:ok, []} ->
-          query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
-          fetch_open_ticket_pull_request(request_fun, token, "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}", issue_number)
-
-        {:error, _reason} = error ->
-          error
-      end
+      fetch_open_ticket_pull_request(
+        request_fun,
+        token,
+        "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}",
+        issue_number
+      )
     end
   end
 

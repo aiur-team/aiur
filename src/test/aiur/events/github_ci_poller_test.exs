@@ -43,7 +43,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 71,
-                 "head" => %{"sha" => "current-sha"},
+                 "head" => %{"ref" => "aiur/42", "sha" => "current-sha"},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -133,7 +133,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
       "42" => %{
         pull_request: %{
           "number" => 71,
-          "head" => %{"sha" => "parked-head"},
+          "head" => %{"ref" => "aiur/71", "sha" => "parked-head"},
           "base" => %{"ref" => "main"},
           "merge_queue" => %{
             draft?: false,
@@ -296,7 +296,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 91,
-                 "head" => %{"sha" => "partial-head"},
+                 "head" => %{"ref" => "aiur/91", "sha" => "partial-head"},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -352,22 +352,32 @@ defmodule Aiur.Events.GithubCIPollerTest do
   end
 
   test "reports one target failure without changing another target result" do
+    # Both targets read the same open-pull-request listing URL — the
+    # `head=<owner>:aiur/<n>` probe that used to tell the two lookups apart by
+    # URL was a redundant second request per target and is gone. The listing now
+    # carries both pull requests, and the failure under test is moved onto a
+    # request that is still per-target: "43"'s check-run read.
     request_fun = fn %{url: url} ->
       cond do
-        String.contains?(url, "aiur%2F42") ->
+        String.contains?(url, "/pulls?") ->
           {:ok,
            %{
              status: 200,
              body: [
                %{
                  "number" => 42,
-                 "head" => %{"sha" => "head-42"},
+                 "head" => %{"ref" => "aiur/42", "sha" => "head-42"},
+                 "base" => %{"ref" => "main"}
+               },
+               %{
+                 "number" => 43,
+                 "head" => %{"ref" => "aiur/43", "sha" => "head-43"},
                  "base" => %{"ref" => "main"}
                }
              ]
            }}
 
-        String.contains?(url, "aiur%2F43") ->
+        String.contains?(url, "head-43/check-runs") ->
           {:error, :timeout}
 
         String.contains?(url, "head-42/check-runs") ->
@@ -385,7 +395,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
             }} =
              GithubCIPoller.poll(["42", "43"], request_fun: request_fun)
 
-    assert {"43", {:pr_lookup, {:github, :timeout, %{reason: :timeout}}}} = error
+    assert {"43", {:github, :timeout, %{reason: :timeout}}} = error
   end
 
   test "uses the current PR head on every poll after a re-push" do
@@ -403,7 +413,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 77,
-                 "head" => %{"sha" => head_sha},
+                 "head" => %{"ref" => "aiur/77", "sha" => head_sha},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -450,7 +460,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 78,
-                 "head" => %{"sha" => head_sha},
+                 "head" => %{"ref" => "aiur/78", "sha" => head_sha},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -489,7 +499,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 79,
-                 "head" => %{"sha" => "head-79"},
+                 "head" => %{"ref" => "aiur/79", "sha" => "head-79"},
                  "base" => %{"ref" => base}
                }
              ]
@@ -543,7 +553,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 88,
-                 "head" => %{"sha" => "head-88"},
+                 "head" => %{"ref" => "aiur/88", "sha" => "head-88"},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -586,8 +596,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1144,
-               "draft" => true,
-               "head" => %{"sha" => "head-before-concurrent-push"},
+               "head" => %{"ref" => "aiur/1146", "sha" => "head-before-concurrent-push"},
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -669,8 +678,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1144,
-                 "draft" => true,
-                 "head" => %{"sha" => "unchanged-head"},
+                 "head" => %{"ref" => "aiur/1146", "sha" => "unchanged-head"},
                  "base" => %{"ref" => Agent.get(base, & &1)}
                }
              ]
@@ -800,7 +808,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1174,
-                 "head" => %{"sha" => "repaired-head"},
+                 "head" => %{"ref" => "aiur/1146", "sha" => "repaired-head"},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -860,7 +868,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1144,
-               "head" => %{"sha" => "journal-failure-head"},
+               "head" => %{"ref" => "aiur/1146", "sha" => "journal-failure-head"},
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -915,7 +923,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1144,
-               "head" => %{"sha" => "pre-patch-head"},
+               "head" => %{"ref" => "aiur/1146", "sha" => "pre-patch-head"},
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -968,7 +976,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1144,
-                 "head" => %{"sha" => "concurrent-head"},
+                 "head" => %{"ref" => "aiur/1146", "sha" => "concurrent-head"},
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -1033,8 +1041,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1145,
-               "draft" => true,
-               "head" => %{"sha" => "head-1145"},
+               "head" => %{"ref" => "aiur/1146", "sha" => "head-1145"},
                "base" => %{"ref" => "v2"}
              }
            ]
