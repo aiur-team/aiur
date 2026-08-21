@@ -199,6 +199,26 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
     end
   end
 
+  describe "activity corroborates a mode without creating one" do
+    test "activity for a repo the registry has never heard of adds no row" do
+      registry = start_registry(configured_repos: [@webhook_repo])
+
+      {:ok, _mode} = ModeRegistry.record_activity("aiur-team/stranger", server: registry, at: at(50))
+
+      assert [%DeliveryMode{repo: @webhook_repo}] = ModeRegistry.list(registry),
+             "the publish path offers activity for every polled resource; minting rows from it fills the CLI table with entries that can never alert"
+    end
+
+    test "a repo proven by delivery alone still accepts activity" do
+      registry = start_registry([])
+
+      {:ok, _mode} = ModeRegistry.record_delivery("aiur-team/unlisted", server: registry, at: at(0))
+      {:ok, mode} = ModeRegistry.record_activity("aiur-team/unlisted", server: registry, at: at(901))
+
+      assert mode.last_activity_at == at(901)
+    end
+  end
+
   describe "the asynchronous activity path" do
     test "a cast records activity just as a call does" do
       registry = start_registry(configured_repos: [@webhook_repo])

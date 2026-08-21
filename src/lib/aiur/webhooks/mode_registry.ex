@@ -196,10 +196,11 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   def handle_call({:record_activity, repo, at}, _from, state) do
     repo = normalize(repo)
-    current = fetch(state, repo)
-    {updated, _transition} = DeliveryMode.record_activity(current, at)
 
-    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+    case record_activity_on_known_repo(state, repo, at) do
+      {:ok, updated, state} -> {:reply, {:ok, updated}, state}
+      :unknown -> {:reply, {:ok, fetch(state, repo)}, state}
+    end
   end
 
   def handle_call({:mode, repo}, _from, state), do: {:reply, state |> fetch(normalize(repo)), state}
@@ -223,10 +224,28 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   @impl true
   def handle_cast({:record_activity, repo, at}, state) do
-    repo = normalize(repo)
-    {updated, _transition} = state |> fetch(repo) |> DeliveryMode.record_activity(at)
+    case record_activity_on_known_repo(state, normalize(repo), at) do
+      {:ok, _updated, state} -> {:noreply, state}
+      :unknown -> {:noreply, state}
+    end
+  end
 
-    {:noreply, put_in(state.repos[repo], updated)}
+  # Activity corroborates a mode; it never creates one. The publish path offers
+  # activity for every polled resource, so recording through `fetch/2`'s
+  # `Map.get_lazy` would mint a `never_configured` row for any repo the poller
+  # touches and fill `list/1` and the CLI table with entries that can never
+  # alert. A repo the registry has never heard of has no webhook expectation to
+  # corroborate — config seeds the configured ones, and a delivery creates the
+  # proven ones, so anything still unknown here is genuinely not our business.
+  defp record_activity_on_known_repo(state, repo, at) do
+    case Map.fetch(state.repos, repo) do
+      {:ok, mode} ->
+        {updated, _transition} = DeliveryMode.record_activity(mode, at)
+        {:ok, updated, put_in(state.repos[repo], updated)}
+
+      :error ->
+        :unknown
+    end
   end
 
   @impl true

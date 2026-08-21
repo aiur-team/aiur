@@ -46,7 +46,13 @@ defmodule Aiur.Webhooks do
   @spec mode(String.t(), keyword()) :: DeliveryMode.t()
   def mode(repo, opts \\ []) when is_binary(repo) do
     server = Keyword.get(opts, :server, ModeRegistry)
-    safely(fn -> ModeRegistry.mode(repo, server) end, DeliveryMode.new(repo))
+
+    # The fallback is built here rather than taken from the registry, so it has
+    # to canonicalize the repo itself or a registry-down read would report a
+    # `.repo` in a different case than the same read with the registry up.
+    fallback = repo |> String.trim() |> String.downcase() |> DeliveryMode.new()
+
+    safely(fn -> ModeRegistry.mode(repo, server) end, fallback)
   end
 
   @doc "Transport serving `repo`. Always `:polling` unless the repo is proven."

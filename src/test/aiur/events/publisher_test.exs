@@ -6,6 +6,7 @@ defmodule Aiur.Events.PublisherTest do
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
   alias Aiur.Webhooks
+  alias Aiur.Webhooks.ModeRegistry
   alias Aiur.Workflow
 
   setup do
@@ -322,6 +323,14 @@ defmodule Aiur.Events.PublisherTest do
   # wiring the silence sweep has no evidence and can never degrade a repo, and
   # with it firing on the wrong pipe every healthy fleet degrades itself.
   describe "webhook activity corroboration" do
+    # Activity corroborates an existing mode and never mints one, so the repo
+    # has to carry a webhook expectation before any of this is observable —
+    # which is also the only state in which the corroboration matters.
+    setup do
+      {:ok, _mode} = ModeRegistry.configure("owner/repo", true)
+      :ok
+    end
+
     defp resource_for(id), do: ResourceStore.key_for_repo(:issue_comment, "owner/repo", id)
 
     test "a poll-sourced GitHub publish records repository activity" do
@@ -371,6 +380,74 @@ defmodule Aiur.Events.PublisherTest do
 
       refute Webhooks.mode("owner/repo").last_activity_at == before,
              "this fleet's traffic is mostly agent-authored, so ignoring filtered events would let ingress die with no corroboration and no alert"
+    end
+
+    # The poller is publish-and-reject and re-offers old resources every sweep
+    # (rewound watermark, 304 list republish, cursorless review threads). If a
+    # re-observation counted, `last_activity_at` would march forward on a repo
+    # where nothing happened and degrade a healthy webhook after one threshold.
+    test "a deduped re-publish of the same resource records no activity" do
+      comment_id = System.unique_integer([:positive])
+      resource = resource_for(comment_id)
+      opts = [resource: resource, resource_source: :poll, resource_version: "v1"]
+
+      assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
+
+      settled = Webhooks.mode("owner/repo").last_activity_at
+
+      assert :deduped = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
+
+      assert Webhooks.mode("owner/repo").last_activity_at == settled,
+             "re-observing an already-processed resource is not evidence that a delivery was owed"
+    end
+
+    # Pins the `:deduped` guard on its own. The dedup window catches this
+    # replay while the store has never seen the resource, so the
+    # already-processed check cannot cover it and only the outcome can.
+    test "a replay caught by the dedup window records no activity even when the resource is novel" do
+      dedup_key = {"owner/repo", "issue_comment:42", Integer.to_string(System.unique_integer([:positive]))}
+      first_id = System.unique_integer([:positive])
+      second_id = System.unique_integer([:positive])
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.issue.commented", %{comment: %{id: first_id}},
+                 resource: resource_for(first_id),
+                 resource_source: :poll,
+                 dedup_key: dedup_key
+               )
+
+      settled = Webhooks.mode("owner/repo").last_activity_at
+
+      assert :deduped =
+               Publisher.publish("ticket.42.issue.commented", %{comment: %{id: second_id}},
+                 resource: resource_for(second_id),
+                 resource_source: :poll,
+                 dedup_key: dedup_key
+               )
+
+      assert Webhooks.mode("owner/repo").last_activity_at == settled
+    end
+
+    test "a stale resource that is also bot-authored records no activity" do
+      comment_id = System.unique_integer([:positive])
+      resource = resource_for(comment_id)
+      opts = [resource: resource, resource_source: :poll, resource_version: "v1"]
+
+      assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, opts)
+
+      settled = Webhooks.mode("owner/repo").last_activity_at
+
+      # The filter gates run before the dedup gates, so this answers `:filtered`
+      # even though the resource is already processed. Trusting the outcome
+      # alone would let it through as novel.
+      assert :filtered =
+               Publisher.publish(
+                 "ticket.42.issue.commented",
+                 %{comment: %{id: comment_id}},
+                 Keyword.put(opts, :actor, "aiur-bot")
+               )
+
+      assert Webhooks.mode("owner/repo").last_activity_at == settled
     end
 
     test "an event filtered as an untracked issue still records the observation" do
