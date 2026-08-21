@@ -25,7 +25,7 @@ Add `agent:todo` to the issues you want worked. Prefer GitHub App installation-t
 
 ## First run
 
-The bare `aiur` command discovers `.aiur/config` and starts a foreground run when this repository has no live session. When one is already running, the same command attaches to its directory-scoped tmux session instead of starting another run. `aiur run` is the explicit launch form.
+The bare `aiur` command discovers `.aiur/config`, starts a foreground run when this repository has no live session, attaches to its directory-scoped tmux session when one is already running, and leaves `aiur run` as the explicit launch form.
 
 | Dashboard mode | Requirement |
 | --- | --- |
