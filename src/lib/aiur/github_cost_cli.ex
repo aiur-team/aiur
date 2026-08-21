@@ -18,8 +18,14 @@ defmodule Aiur.GitHubCostCLI do
   Nothing here is a percentage of success. A caller either accounts for spend or
   it does not, and an unmeasured remainder is named as unmeasured rather than
   averaged into the rows that were measured.
+
+  `schema_version` is `2` on every envelope, including the single-credential
+  default where the payload is byte-identical to version 1. The version states
+  what this command's schema *can* contain, not what one payload happens to
+  contain. Consumers should branch on whether `data.credentials` is present.
   """
 
+  alias Aiur.GitHub.CredentialUsage
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ReadCache
   alias Aiur.JSONSafe
@@ -78,9 +84,13 @@ defmodule Aiur.GitHubCostCLI do
   defp envelope(snapshot, budget, opts) do
     callers = callers_for(snapshot, budget)
     windows = snapshot |> Map.get(:windows, %{}) |> for_budget(budget)
+    # Cost reads GitHub's own windows, never the broker's admission counts, so
+    # it does not pay for a broker subprocess it would not read.
+    rows = CredentialUsage.rows(Keyword.put_new(opts, :usage_fun, fn -> %{actors: []} end))
+    pool = opts |> Keyword.put(:rows, rows) |> CredentialUsage.pool() |> for_budget(budget)
 
     JSONSafe.normalize(%{
-      schema_version: 1,
+      schema_version: 2,
       page: "github-cost",
       request: %{budget: budget},
       snapshot: %{
@@ -94,6 +104,71 @@ defmodule Aiur.GitHubCostCLI do
         cache: cache_snapshot(opts)
       }
     })
+    |> put_credential_view(rows, budget, callers, pool)
+  end
+
+  # A pool of one is not a pool. With the single configured credential that is
+  # the default, the report is exactly what it was: the existing per-credential
+  # reconciliation already says everything a second section would repeat, and
+  # printing an empty comparison would read as a measurement where there is
+  # none.
+  defp put_credential_view(envelope, rows, _budget, _callers, _pool) when length(rows) < 2, do: envelope
+
+  defp put_credential_view(envelope, rows, budget, callers, pool) do
+    view =
+      JSONSafe.normalize(%{
+        credentials: Enum.map(rows, &present_credential(&1, budget)),
+        pool_reconciliation: pool_reconciliation(callers, pool)
+      })
+
+    update_in(envelope["data"], &Map.merge(&1, view))
+  end
+
+  defp present_credential(row, budget) do
+    %{
+      id: row.id,
+      kind: row.kind,
+      identity: row.identity,
+      writes: row.writes?,
+      available: row.available?,
+      windows: for_budget(row.windows, budget)
+    }
+  end
+
+  # The per-caller ranking is point-accurate but credential-blind: it records
+  # what a call site cost, not which credential paid. Pooling therefore makes
+  # the existing reconciliation caveat sharper rather than softer — the
+  # attributed points span the whole pool, while an observed window covers one
+  # credential. A pool spend figure is comparable to attribution only when every
+  # configured credential has been observed this window; otherwise it is a floor
+  # and the delta it produces is not evidence, so it is refused by name.
+  defp pool_reconciliation(callers, pool) do
+    Map.new(pool, fn {resource, figures} ->
+      attributed = callers |> Enum.filter(&(&1.resource == resource)) |> Enum.reduce(0, &(&1.points + &2))
+
+      {resource, pool_figures(attributed, figures)}
+    end)
+  end
+
+  defp pool_figures(attributed, %{complete?: true, used: used} = figures) when is_integer(used) do
+    %{
+      attributed: attributed,
+      pool_spend: used,
+      delta: attributed - used,
+      credentials: figures.configured_credentials,
+      measurable?: true
+    }
+  end
+
+  defp pool_figures(attributed, figures) do
+    %{
+      attributed: attributed,
+      pool_spend: figures.used,
+      delta: nil,
+      credentials: figures.configured_credentials,
+      observed_credentials: figures.observed_credentials,
+      measurable?: false
+    }
   end
 
   # The ranking says where the budget went. This says how much of it did not have
@@ -165,7 +240,63 @@ defmodule Aiur.GitHubCostCLI do
 
     print_windows(data["windows"])
     print_reconciliation(data["reconciliation"])
+    # Reading order, not merge order. The ranking says where the budget went,
+    # the window says how much is left, the reconciliation says whether the
+    # ranking adds up, and the cache says how much never had to be spent — that
+    # is the whole question for the single-credential default, and those four
+    # always print.
+    #
+    # The pool sections come last because they are a drill-down that only exists
+    # when more than one credential is configured. Within them the order mirrors
+    # the single-credential one above: per-credential windows first, then the
+    # pool-wide reconciliation that adds them up.
     print_cache(data["cache"])
+    print_credentials(data["credentials"])
+    print_pool_reconciliation(data["pool_reconciliation"])
+  end
+
+  defp print_credentials(credentials) when is_list(credentials) and credentials != [] do
+    IO.puts("")
+
+    Enum.each(credentials, fn credential ->
+      IO.puts(
+        "credential #{credential["id"]} (#{credential["kind"]}, #{credential["identity"] || "unknown-identity"}, #{if credential["writes"], do: "read+write", else: "read-only"}): #{credential_windows(credential["windows"])}"
+      )
+    end)
+  end
+
+  defp print_credentials(_credentials), do: :ok
+
+  defp credential_windows(windows) when is_map(windows) and map_size(windows) > 0 do
+    Enum.map_join(windows, "; ", fn
+      {resource, window} when is_map(window) ->
+        "#{resource} #{value(window["remaining"])} of #{value(window["limit"])} left"
+
+      {resource, _absent} ->
+        "#{resource} not observed this window"
+    end)
+  end
+
+  defp credential_windows(_windows), do: "no window observed"
+
+  defp print_pool_reconciliation(pool) when is_map(pool) and map_size(pool) > 0 do
+    IO.puts("")
+
+    Enum.each(pool, fn {resource, figures} ->
+      IO.puts("#{resource} pool reconciliation: #{pool_line(figures)}")
+    end)
+  end
+
+  defp print_pool_reconciliation(_pool), do: :ok
+
+  defp pool_line(%{"measurable?" => true} = figures) do
+    "#{value(figures["attributed"])} attributed vs #{value(figures["pool_spend"])} spent across #{value(figures["credentials"])} credentials " <>
+      "(delta #{value(figures["delta"])})"
+  end
+
+  defp pool_line(figures) do
+    "not measurable — #{value(figures["observed_credentials"])} of #{value(figures["credentials"])} credentials observed this window, " <>
+      "so pool spend is a floor and no delta is claimed"
   end
 
   # Never a bare `0%`. A cache that has been asked nothing and a cache that

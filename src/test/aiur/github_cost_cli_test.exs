@@ -185,7 +185,7 @@ defmodule Aiur.GitHubCostCLITest do
 
     decoded = Jason.decode!(output)
 
-    assert decoded["schema_version"] == 1
+    assert decoded["schema_version"] == 2
     assert decoded["page"] == "github-cost"
     assert decoded["data"]["reconciliation"]["graphql"]["reconciled?"] == true
   end

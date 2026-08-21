@@ -29,6 +29,8 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.CredentialHeadroom
+  alias Aiur.GitHub.CredentialSelector
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
@@ -89,8 +91,36 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
+  @doc """
+  Executes one GitHub request.
+
+  The credential is chosen here rather than where the request was built, because
+  this is the last point that knows the URL (which budget it spends) and the
+  method/body (whether it writes) at the same time. With a single credential
+  configured — the default — `assign/2` returns the request untouched and this
+  is the same code path it always was.
+
+  Selection happens **outside** `quota_request/2`, so it precedes the read
+  cache. That ordering is deliberate. `ReadCache` keys entries on the request's
+  shape and its identities, never on who authenticated, so a hit is served
+  whichever credential the selector picked — which is correct only because a hit
+  spends nothing: no budget is charged, so no budget can be charged to the wrong
+  credential. Selecting after the cache would invert that, letting a miss be
+  fetched before anything had decided who should pay for it.
+
+  Sharing one credential's answer with another is the same trade `Aiur.GitHub.AgentCache`
+  already makes between agents, which run under different credentials again. It
+  holds while every pooled credential can read the same repository; a pool whose
+  members had different visibility would need the credential in the cache key.
+  """
   @spec default_request_fun(map()) :: {:ok, map()} | {:error, term()}
-  def default_request_fun(%{method: :get, url: url, token: token} = req) do
+  def default_request_fun(%{token: token} = req) when is_binary(token) do
+    req |> CredentialSelector.assign() |> do_request()
+  end
+
+  def default_request_fun(req), do: do_request(req)
+
+  defp do_request(%{method: :get, url: url, token: token} = req) do
     headers =
       case Map.get(req, :etag) do
         nil -> github_headers(token, req)
@@ -100,7 +130,7 @@ defmodule Aiur.GitHub.Transport do
     quota_request(req, fn -> Req.get(url, request_options(headers, req)) end)
   end
 
-  def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
+  defp do_request(%{method: :post, url: url, token: token, body: body} = req) do
     options =
       token
       |> github_headers(req)
@@ -110,14 +140,14 @@ defmodule Aiur.GitHub.Transport do
     quota_request(req, fn -> Req.post(url, options) end)
   end
 
-  def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
+  defp do_request(%{method: :patch, url: url, token: token, body: body} = req) do
     quota_request(req, fn ->
       options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
       Req.patch(url, options)
     end)
   end
 
-  def default_request_fun(%{method: :delete, url: url, token: token} = req) do
+  defp do_request(%{method: :delete, url: url, token: token} = req) do
     quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
   end
 
@@ -457,6 +487,9 @@ defmodule Aiur.GitHub.Transport do
   # cache hint that was bolted on after it.
   defp quota_observe(quota, request, result) do
     observed = Quota.observe(quota, request, result)
+    # Quota keeps one window per resource; this keeps the same headers per
+    # credential so the selector can compare headroom across the pool.
+    CredentialHeadroom.observe(request, result)
     AuthPreflight.note_response(request, result)
     observed
   end
