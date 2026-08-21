@@ -274,5 +274,4 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       }
     }
   end
-
 end
