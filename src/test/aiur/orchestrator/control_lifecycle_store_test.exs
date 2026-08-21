@@ -59,6 +59,37 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     assert Enum.map(ControlLifecycleStore.load().daemon_events, & &1.run_id) == ["run-first", "run-second"]
   end
 
+  test "stale writers preserve independent control transitions" do
+    {:ok, _first, first} = ControlLifecycle.request(ControlLifecycle.new(now: @now), attrs(), now: @now)
+
+    second_attrs =
+      attrs()
+      |> Map.put(:request_id, "pause-2")
+      |> Map.put(:issue_id, "issue-2")
+      |> Map.put(:tracker_identity, %{attrs().tracker_identity | provider_id: "I_kwDOissue2", identifier: "102"})
+
+    {:ok, _second, second} =
+      ControlLifecycle.request(ControlLifecycle.new(now: @now), second_attrs, now: DateTime.add(@now, 1, :second))
+
+    assert :ok = ControlLifecycleStore.save(first)
+    assert :ok = ControlLifecycleStore.save(second)
+
+    recovered = ControlLifecycleStore.load()
+    assert %{status: :requested} = ControlLifecycle.get(recovered, "pause-1")
+    assert %{status: :requested} = ControlLifecycle.get(recovered, "pause-2")
+  end
+
+  test "a stale request cannot overwrite a later transition" do
+    {:ok, _request, requested} = ControlLifecycle.request(ControlLifecycle.new(now: @now), attrs(), now: @now)
+    {:ok, _accepted, accepted} = ControlLifecycle.accept(requested, "pause-1", 7, now: DateTime.add(@now, 1, :second))
+    {:ok, _applied, applied} = ControlLifecycle.apply(accepted, "pause-1", 7, now: DateTime.add(@now, 2, :second))
+
+    assert :ok = ControlLifecycleStore.save(applied)
+    assert :ok = ControlLifecycleStore.save(requested)
+
+    assert %{status: :applied} = ControlLifecycleStore.load() |> ControlLifecycle.get("pause-1")
+  end
+
   test "a daemon update preserves the latest control projection" do
     lifecycle = ControlLifecycle.new(now: @now)
     {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs(), now: @now)

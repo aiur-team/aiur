@@ -4,9 +4,10 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   require Logger
 
   alias Aiur.Config.Paths
-  alias Aiur.Claude.RemoteControl
+  alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
   alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.ProcessIdentity
 
   @lock_retry_ms 10
   @lock_stale_after_seconds 30
@@ -28,7 +29,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   @doc "Best-effort durable write after each lifecycle transition."
   @spec save(ControlLifecycle.t()) :: :ok
   def save(%ControlLifecycle{} = lifecycle) do
-    persist(fn current -> ControlLifecycle.merge_daemon_events(lifecycle, current) end)
+    persist(&ControlLifecycle.merge(lifecycle, &1))
   end
 
   @doc false
@@ -49,7 +50,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   @spec path_for() :: Path.t()
   def path_for do
     Application.get_env(:aiur, :control_lifecycle_store_path) ||
-      Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.control-lifecycle.json")
+      Path.join(StatePaths.dir(), "#{Paths.repo_name()}.control-lifecycle.json")
   end
 
   defp persist(fun) do
@@ -154,7 +155,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   defp lock_owner_dead?(%{"hostname" => hostname, "os_pid" => os_pid} = owner) do
     with true <- hostname == hostname(),
          {pid, ""} <- Integer.parse(os_pid) do
-      not RemoteControl.process_alive?(pid) or process_identity_changed?(pid, Map.get(owner, "process_identity"))
+      not ProcessIdentity.alive?(pid) or process_identity_changed?(pid, Map.get(owner, "process_identity"))
     else
       _ -> false
     end
@@ -177,7 +178,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   end
 
   defp encoded_process_identity(pid) when is_integer(pid) do
-    case RemoteControl.process_identity(pid) do
+    case ProcessIdentity.resolve(pid) do
       {:ok, identity} -> identity |> :erlang.term_to_binary() |> Base.url_encode64(padding: false)
       _ -> nil
     end

@@ -1,7 +1,7 @@
 defmodule Aiur.DaemonLifecycle do
   @moduledoc """
   Records daemon start and stop in the durable control-lifecycle journal
-  (`<log-root>/<repo>.control-lifecycle.json`).
+  (`<repository-state>/executor/<repo>.control-lifecycle.json`).
 
   A second instance or a crash leaves no trace in the running process table, so
   post-incident review has to guess who booted and why the first instance

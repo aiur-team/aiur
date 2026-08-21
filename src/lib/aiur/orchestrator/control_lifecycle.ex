@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   The same durable journal also carries bounded daemon lifecycle events
   (`:start` / `:stop` with the invoking process's identity), so a second
   instance or a crash is identifiable after the fact from
-  `aiur.control-lifecycle.json`.
+  `<repo>.control-lifecycle.json` in the durable repository Executor state.
   """
 
   alias Aiur.TrackerIdentity
@@ -414,6 +414,27 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     %{lifecycle | daemon_events: events}
   end
 
+  @doc false
+  @spec merge(t(), t()) :: t()
+  def merge(%__MODULE__{} = lifecycle, %__MODULE__{} = other) do
+    records =
+      Map.merge(lifecycle.records, other.records, fn _request_id, left, right ->
+        Enum.max_by([left, right], &request_transition_key/1)
+      end)
+
+    history_limit = max(lifecycle.history_limit, other.history_limit)
+    created_at = earliest_datetime(lifecycle.created_at, other.created_at)
+
+    merged =
+      records
+      |> Map.values()
+      |> Enum.sort_by(&request_history_key/1)
+      |> Enum.reduce(new(now: created_at, history_limit: history_limit), &put_restored_request(&2, &1))
+      |> trim_restored_history()
+
+    merge_daemon_events(merged, %{lifecycle | daemon_events: lifecycle.daemon_events ++ other.daemon_events})
+  end
+
   @doc "Restores a previously redacted lifecycle projection, skipping invalid records."
   @spec restore(term(), keyword()) :: t()
   def restore(%{"version" => @protocol_version, "records" => records} = persisted, opts) when is_list(records) do
@@ -543,6 +564,28 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
       &(Map.get(record, &1) == Map.get(attrs, &1))
     )
   end
+
+  defp request_history_key(request) do
+    {DateTime.to_unix(request.requested_at, :microsecond), to_string(request.request_id)}
+  end
+
+  defp request_transition_key(request) do
+    {DateTime.to_unix(request_transition_at(request), :microsecond), status_rank(request.status)}
+  end
+
+  defp request_transition_at(%{status: :applied, applied_at: %DateTime{} = at}), do: at
+  defp request_transition_at(%{status: :rejected, rejected_at: %DateTime{} = at}), do: at
+  defp request_transition_at(%{status: :expired, expiry: %{at: %DateTime{} = at}}), do: at
+  defp request_transition_at(%{status: :accepted, accepted_at: %DateTime{} = at}), do: at
+  defp request_transition_at(request), do: request.requested_at
+
+  defp status_rank(:requested), do: 0
+  defp status_rank(:accepted), do: 1
+  defp status_rank(status) when status in [:applied, :rejected, :expired], do: 2
+
+  defp earliest_datetime(nil, right), do: right
+  defp earliest_datetime(left, nil), do: left
+  defp earliest_datetime(%DateTime{} = left, %DateTime{} = right), do: Enum.min_by([left, right], &DateTime.to_unix(&1, :microsecond))
 
   defp supersede_pending(lifecycle, issue_id, now) do
     case current_pending(lifecycle, issue_id) do

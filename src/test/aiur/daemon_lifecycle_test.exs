@@ -55,6 +55,64 @@ defmodule Aiur.DaemonLifecycleTest do
       assert Enum.any?(events, &(&1.run_id == "run-second" and &1.os_pid == "5002"))
     end
 
+    test "independent instances with distinct run logs share one durable journal" do
+      state_dir = Aiur.TestSupport.tmp_root!("aiur-daemon-lifecycle-shared-state")
+      journal_path = Path.join(state_dir, "shared.control-lifecycle.json")
+      previous_store_path = Application.get_env(:aiur, :control_lifecycle_store_path)
+      previous_state_dir = Application.get_env(:aiur, :executor_state_dir)
+      Application.put_env(:aiur, :control_lifecycle_store_path, journal_path)
+      Application.put_env(:aiur, :executor_state_dir, state_dir)
+
+      on_exit(fn ->
+        restore_env(:control_lifecycle_store_path, previous_store_path)
+        restore_env(:executor_state_dir, previous_state_dir)
+        File.rm_rf!(state_dir)
+      end)
+
+      code_paths = test_code_paths()
+
+      tasks =
+        for {run_id, os_pid} <- [{"run-first", "4001"}, {"run-second", "5002"}] do
+          Task.async(fn ->
+            script = """
+            Application.put_env(:aiur, :executor_state_dir, #{inspect(state_dir)})
+            Application.put_env(:aiur, :control_lifecycle_store_path, #{inspect(journal_path)})
+            Application.put_env(:aiur, :log_file, Path.join(#{inspect(state_dir)}, #{inspect(run_id)} <> "/log/aiur.log"))
+            :ok = Aiur.DaemonLifecycle.record_start(run_id: #{inspect(run_id)}, os_pid: #{inspect(os_pid)}, at: ~U[2026-08-17 17:40:38Z])
+            """
+
+            System.cmd(System.find_executable("elixir"), code_paths ++ ["-e", script], cd: File.cwd!(), stderr_to_stdout: true)
+          end)
+        end
+
+      results = Task.await_many(tasks, 5_000)
+      assert Enum.all?(results, &match?({_output, 0}, &1))
+      assert DaemonLifecycle.daemon_events() |> Enum.map(& &1.run_id) |> Enum.sort() == ["run-first", "run-second"]
+    end
+
+    test "the default journal path is stable across per-run log directories" do
+      state_dir = Aiur.TestSupport.tmp_root!("aiur-daemon-lifecycle-stable-path")
+      previous_store_path = Application.get_env(:aiur, :control_lifecycle_store_path)
+      previous_state_dir = Application.get_env(:aiur, :executor_state_dir)
+      previous_log_file = Application.get_env(:aiur, :log_file)
+      Application.delete_env(:aiur, :control_lifecycle_store_path)
+      Application.put_env(:aiur, :executor_state_dir, state_dir)
+
+      on_exit(fn ->
+        restore_env(:control_lifecycle_store_path, previous_store_path)
+        restore_env(:executor_state_dir, previous_state_dir)
+        restore_env(:log_file, previous_log_file)
+        File.rm_rf!(state_dir)
+      end)
+
+      Application.put_env(:aiur, :log_file, Path.join(state_dir, "run-first/log/aiur.log"))
+      first_path = ControlLifecycleStore.path_for()
+      Application.put_env(:aiur, :log_file, Path.join(state_dir, "run-second/log/aiur.log"))
+
+      assert ControlLifecycleStore.path_for() == first_path
+      assert Path.dirname(first_path) == state_dir
+    end
+
     test "a stop for one instance preserves the other instance's record" do
       assert :ok = DaemonLifecycle.record_start(run_id: "run-first", os_pid: "4001", at: @now)
       assert :ok = DaemonLifecycle.record_start(run_id: "run-second", os_pid: "5002", at: @now)
@@ -86,11 +144,7 @@ defmodule Aiur.DaemonLifecycleTest do
     end
 
     test "application lifecycle wiring persists one start and one stop", %{path: path} do
-      code_paths =
-        :code.get_path()
-        |> Enum.map(&List.to_string/1)
-        |> Enum.filter(&String.contains?(&1, "/_build/test/lib/"))
-        |> Enum.flat_map(&["-pa", &1])
+      code_paths = test_code_paths()
 
       script = """
       Application.put_env(:aiur, :control_lifecycle_store_path, #{inspect(path)})
@@ -179,4 +233,14 @@ defmodule Aiur.DaemonLifecycleTest do
       requester: :operator
     }
   end
+
+  defp test_code_paths do
+    :code.get_path()
+    |> Enum.map(&List.to_string/1)
+    |> Enum.filter(&String.contains?(&1, "/_build/test/lib/"))
+    |> Enum.flat_map(&["-pa", &1])
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
 end
