@@ -146,44 +146,87 @@ defmodule Aiur.GitHub.Config do
   def planning_call_budget, do: section_value("planning_call_budget")
 
   @doc """
-  Returns the GitHub login that Aiur posts under (PR comments, dependency
-  declarations, etc.). Read from `github.bot_account` in .aiur/config.
+  The GitHub login **agents** publish as: the account that pushes branches,
+  opens pull requests, and comments on behalf of a ticket. Read from
+  `tracker.github.bot_account` in .aiur/config.
+
   Returns `nil` when unset — `validate!/0` does not require it, since
   bot identity is only load-bearing for the events foundation (CODEOWNERS
   allowlist self-include + native dependency authorship).
+
+  This is **not** necessarily the identity the daemon itself writes as; under
+  GitHub App auth the daemon writes as the App bot. Ask `daemon_account/0` for
+  that one. A call site that means "the account this daemon posts under" and
+  reads `bot_account/0` will silently misbehave on a split-identity install.
   """
   @spec bot_account() :: String.t() | nil
-  def bot_account do
-    case section_value("bot_account") do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
+  def bot_account, do: normalize_account(section_value("bot_account"))
 
-      _ ->
-        nil
+  @doc """
+  The GitHub App bot login the daemon writes as, from
+  `tracker.github.github_app.account`, or `nil` when no App identity is
+  configured.
+
+  Optional by construction: an install with no `github_app` block keeps a
+  single identity and every daemon-side consumer falls back to `bot_account/0`.
+  """
+  @spec app_account() :: String.t() | nil
+  def app_account do
+    case section_value("github_app") do
+      %{account: account} -> normalize_account(account)
+      _absent -> nil
     end
   end
 
   @doc """
-  Checks that `github.bot_account` names the identity the daemon actually
-  writes as.
+  The login the **daemon** writes as: the App bot when one is configured,
+  otherwise the bot account.
+
+  Use this for anything keyed on "did this daemon produce this event" —
+  self-loop suppression, the PR command scanner's own-comment drop, credential
+  identity reporting. Use `bot_account/0` for anything keyed on "did an agent
+  author this".
+
+  The fallback is deliberately to `bot_account/0` and stops there. It must
+  never widen into a chain that can reach an ambient `gh` keyring identity: the
+  keyring on an operator's machine is the human, whose authorship the merge
+  policy treats as disqualifying, so failing open to it is worse than resolving
+  nothing.
+  """
+  @spec daemon_account() :: String.t() | nil
+  def daemon_account, do: app_account() || bot_account()
+
+  defp normalize_account(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_account(_value), do: nil
+
+  @doc """
+  Checks that the daemon's configured identity names what it actually writes
+  as.
 
   A GitHub App installation token authenticates as the App's bot user
   (`<app-slug>[bot]`), never as the operator account a PAT authenticated as.
   Every identity-keyed gate — `Events.Publisher`'s self-loop suppression, the
   PR command scanner's self-loop drop, review-thread reply verification, the
-  CODEOWNERS self-include — compares the event actor against `bot_account`, so
-  a `bot_account` left pointing at the old PAT account silently stops
+  CODEOWNERS self-include — compares the event actor against `daemon_account/0`,
+  so a daemon identity left pointing at the old PAT account silently stops
   recognizing the daemon's own writes and the daemon reacts to itself.
 
-  Returns `nil` when the daemon is on the PAT path or `bot_account` already
-  names an App bot; otherwise the concrete misconfiguration.
+  Resolution goes through `daemon_account/0`, so an install that predates
+  `tracker.github.github_app` and set `bot_account` to the App bot is still
+  correct and still silent.
+
+  Returns `nil` when the daemon is on the PAT path or the resolved daemon
+  identity already names an App bot; otherwise the concrete misconfiguration.
   """
   @spec app_identity_issue() :: nil | :bot_account_missing | {:bot_account_not_app_bot, String.t()}
   def app_identity_issue do
-    if AppCredentials.configured?(), do: bot_account_issue(bot_account())
+    if AppCredentials.configured?(), do: bot_account_issue(daemon_account())
   end
 
   defp bot_account_issue(nil), do: :bot_account_missing

@@ -258,7 +258,10 @@ defmodule Aiur.Orchestrator.CommandScan do
     comments
     |> PrCommandScanner.commands(
       Aiur.GitHub.Config.command_prefix(),
-      Aiur.GitHub.Config.bot_account()
+      # The account a human @-mentions to command Aiur, and whose own comments
+      # must not command it back — both are the login the daemon posts under,
+      # which is the App bot when one is configured.
+      Aiur.GitHub.Config.daemon_account()
     )
     |> group_command_hits_by_pr()
     |> cap_command_pr_hits(limit)

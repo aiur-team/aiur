@@ -56,9 +56,17 @@ defmodule Aiur.GitHub.BotIdentity do
 
   @spec codeowners_classification_opts(keyword()) :: keyword()
   def codeowners_classification_opts(opts) do
+    # Every login Aiur itself writes under. Both identities belong here: a
+    # comment is "not human review" whether an agent posted it under
+    # `bot_account` or the daemon posted it under its GitHub App bot. Listing
+    # only one would let the other's comment count as a human's judgement,
+    # which is the failure that releases a ticket nobody reviewed.
+    # `daemon_account/0` collapses to `bot_account/0` when no App is
+    # configured, so a single-identity install yields the same list as before.
     agent_logins =
       [
-        Keyword.get_lazy(opts, :bot_account, &GitHub.Config.bot_account/0)
+        Keyword.get_lazy(opts, :bot_account, &GitHub.Config.bot_account/0),
+        Keyword.get_lazy(opts, :daemon_account, &GitHub.Config.daemon_account/0)
         | Keyword.get(opts, :agent_logins, [])
       ]
       |> List.flatten()

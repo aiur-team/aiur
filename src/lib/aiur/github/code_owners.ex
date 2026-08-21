@@ -378,7 +378,12 @@ defmodule Aiur.GitHub.CodeOwners do
   end
 
   defp trusted_account_set do
-    [Config.bot_account() | Config.trusted_accounts()]
+    # Both Aiur identities, not one: the daemon and the agents post under
+    # different logins once a GitHub App is configured, and a comment from
+    # either is Aiur's own and must stay trusted. `daemon_account/0` collapses
+    # to `bot_account/0` on a single-identity install, so this is the same set
+    # it has always been there.
+    [Config.daemon_account(), Config.bot_account() | Config.trusted_accounts()]
     |> Enum.filter(&is_binary/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))

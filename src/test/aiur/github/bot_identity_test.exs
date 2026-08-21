@@ -116,4 +116,24 @@ defmodule Aiur.GitHub.BotIdentityTest do
     assert BotIdentity.normalize_optional_binary(" ") == nil
     assert BotIdentity.normalize_optional_binary(nil) == nil
   end
+
+  # Under a split identity, "not a human reviewer" covers both logins Aiur
+  # writes under. Listing only one would let the other's comment stand as a
+  # human's judgement on the change, which releases a ticket nobody reviewed.
+  test "classifies both the agent account and the daemon App bot as Aiur's own" do
+    opts = BotIdentity.codeowners_classification_opts(bot_account: "its-applekid", daemon_account: "aiur-daemon[bot]")
+
+    assert Keyword.get(opts, :agent_logins) == ["its-applekid", "aiur-daemon[bot]"]
+    assert BotIdentity.agent_login?("its-applekid", opts)
+    assert BotIdentity.agent_login?("aiur-daemon[bot]", opts)
+    refute BotIdentity.agent_login?("its-everdred", opts)
+  end
+
+  # Single-identity installs are the shipped default and must keep the exact
+  # list they had before `github_app` existed — one entry, not a duplicate pair.
+  test "collapses to one login when the daemon and the agents share an account" do
+    opts = BotIdentity.codeowners_classification_opts(bot_account: "aiur-bot", daemon_account: "aiur-bot")
+
+    assert Keyword.get(opts, :agent_logins) == ["aiur-bot"]
+  end
 end

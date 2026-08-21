@@ -336,7 +336,10 @@ defmodule Aiur.Events.Publisher do
   defp bot_self_loop?(nil), do: false
 
   defp bot_self_loop?(actor) when is_binary(actor) do
-    case GitHubConfig.bot_account() do
+    # The daemon identity, not the agent one: this drops events the daemon
+    # itself produced. An agent's write is a real external event the daemon
+    # must react to, so it deliberately does not match here.
+    case GitHubConfig.daemon_account() do
       bot when is_binary(bot) -> String.downcase(actor) == String.downcase(bot)
       _ -> false
     end
