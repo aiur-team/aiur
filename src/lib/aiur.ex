@@ -256,6 +256,12 @@ defmodule Aiur.Application do
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
+      # The daemon's read-through cache, owning the tables `Aiur.GitHub.Transport`
+      # consults on every request. It starts before `Quota` and before anything
+      # that polls, because a request issued while its tables do not exist is a
+      # request that pays: the lookup degrades to a miss rather than failing, and
+      # a miss is the full price. Reads never call this process.
+      Aiur.GitHub.ReadCache,
       Aiur.GitHub.Quota,
       # The ElevenLabs account credit quota, read on its own schedule. Absent an
       # API key it observes nothing at all, so an unconfigured account costs a
