@@ -41,7 +41,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
       <h2 id="decision-inbox-title" class="sr-only">Commands inbox</h2>
 
-      <div class="filter-row" aria-label="Command filters">
+      <div class="filter-row" aria-label="Command filters" data-count-scope="commands">
         <.filter_button
           :for={{filter, label} <- @filter_specs}
           filter={Atom.to_string(filter)}

@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrdersCLI do
   change.
   """
 
-  alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth}
+  alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth, RootSummary}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{JSONSafe, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, Runtime}
@@ -271,6 +271,16 @@ defmodule Aiur.BuildOrdersCLI do
   end
 
   defp plain(%DateTime{} = value), do: value
+
+  defp plain(%RootSummary{} = value) do
+    completion = value |> ProgressRenderer.json() |> Map.new(fn {key, item} -> {String.to_existing_atom(key), item} end)
+
+    value
+    |> Map.from_struct()
+    |> Map.merge(completion)
+    |> plain()
+  end
+
   defp plain(%{__struct__: _} = value), do: value |> Map.from_struct() |> plain()
   defp plain(value) when is_map(value), do: Map.new(value, fn {key, item} -> {key, plain(item)} end)
   defp plain(value) when is_list(value), do: Enum.map(value, &plain/1)

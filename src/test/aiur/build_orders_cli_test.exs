@@ -87,7 +87,8 @@ defmodule Aiur.BuildOrdersCLITest do
       RootSummary.new(%{identity: identity(101), title: "Resolved", member_count: 35, progress: 60, progress_resolution: :resolved, progress_resolved_count: 35}),
       RootSummary.new(%{identity: identity(102), title: "Partial", member_count: 35, progress: 60, progress_resolution: :partial, progress_resolved_count: 21}),
       RootSummary.new(%{identity: identity(103), title: "Unresolved", member_count: 35, progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0}),
-      RootSummary.new(%{identity: identity(104), title: "Not reported", member_count: 35})
+      RootSummary.new(%{identity: identity(104), title: "Not reported", member_count: 35}),
+      RootSummary.new(%{identity: identity(105), title: "Empty", member_count: 0, progress: 0, progress_resolution: :resolved, progress_resolved_count: 0})
     ]
 
     Process.put(
@@ -105,16 +106,18 @@ defmodule Aiur.BuildOrdersCLITest do
              "Resolved" => {60, "resolved", 35},
              "Partial" => {60, "partial", 21},
              "Unresolved" => {nil, "unresolved", 0},
-             "Not reported" => {nil, "unknown", nil}
+             "Not reported" => {nil, "unknown", nil},
+             "Empty" => {nil, "empty", 0}
            }
 
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(source: Source, now: @captured_at) end)
     # Vocabulary is ProgressRenderer's, so the CLI and the catalog page cannot
-    # describe the same pack differently. All four states stay distinguishable.
+    # describe the same pack differently. All five states stay distinguishable.
     assert output =~ "Resolved (completion 60%,"
     assert output =~ "Partial (completion 60% partial (21/35 resolved),"
     assert output =~ "Unresolved (completion unresolved,"
     assert output =~ "Not reported (completion unknown,"
+    assert output =~ "Empty (completion empty,"
 
     json = capture_io(fn -> assert 0 == BuildOrdersCLI.run(json: true, source: Source, now: @captured_at) end)
     [partial | _] = Jason.decode!(json)["data"]["catalog"]["entries"] |> Enum.filter(&(&1["title"] == "Partial"))

@@ -53,8 +53,10 @@ export const DEFAULT_KNOWN_NOISE = []
 export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null, expectedActiveAgents = null) {
   const issues = []
   const metricColumns = snapshot.tables.flatMap((table) => tableMetricIssues(table))
+  const filterCounts = filterCountIssues(snapshot)
 
   for (const issue of metricColumns) issues.push(issue)
+  for (const issue of filterCounts) issues.push(issue)
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
   for (const errorState of snapshot.errorStates || []) issues.push({ kind: 'error-state', detail: errorState })
   for (const emptyState of snapshot.emptyStates) {
@@ -106,6 +108,8 @@ export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null
       tables: snapshot.tables.length,
       staleBanners: snapshot.staleBanners,
       errorStates: snapshot.errorStates || [],
+      filterGroups: snapshot.filterGroups || [],
+      countSummaries: snapshot.countSummaries || [],
       capacityReadings: snapshot.capacityReadings
     }
   }
@@ -193,12 +197,40 @@ function tableMetricIssues(table) {
   })
 }
 
+function filterCountIssues(snapshot) {
+  const summaries = snapshot.countSummaries || []
+
+  return (snapshot.filterGroups || []).flatMap((group) => {
+    const all = group.options.find((option) => /^all$/i.test(option.label) && Number.isInteger(option.count))
+    if (!all) return []
+
+    const largerOptions = group.options.filter((option) =>
+      !/^all$/i.test(option.label) && Number.isInteger(option.count) && option.count > all.count
+    )
+    const largerSummaries = summaries.filter((summary) =>
+      group.scope && summary.scope === group.scope && Number.isInteger(summary.total) && summary.total > all.count
+    )
+
+    if (largerOptions.length === 0 && largerSummaries.length === 0) return []
+
+    const contradictions = [
+      ...largerOptions.map((option) => `${option.label} ${option.count}`),
+      ...largerSummaries.map((summary) => `${summary.label} total ${summary.total}`)
+    ]
+
+    return [{
+      kind: 'filter-count-contradiction',
+      detail: `${group.label} All reports ${all.count}, below ${contradictions.join(' and ')}`
+    }]
+  })
+}
+
 function isMetricHeader(header) {
   return /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(header)
 }
 
 function isMissingMetric(value) {
-  return value === '' || value === '—' || value === '–' || value === '-' || value === 'N/A'
+  return value === '' || /^(?:—|–|-|n\/a|unresolved)$/i.test(value)
 }
 
 function displayMetric(value) {
@@ -283,6 +315,26 @@ export async function inspectPage(page, name) {
       rows: Array.from(table.querySelectorAll('tbody tr')).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => cell.innerText.trim())),
       hasBody: Boolean(table.querySelector('tbody'))
     }))
+    const filterGroups = Array.from(document.querySelectorAll('.filter-row[aria-label]'))
+      .filter(visible)
+      .map((group) => ({
+        label: group.getAttribute('aria-label') || 'Filters',
+        scope: group.getAttribute('data-count-scope'),
+        options: Array.from(group.querySelectorAll('button.filter-chip')).map((button) => ({
+          label: button.childNodes[0]?.textContent?.trim() || button.innerText.trim(),
+          count: Number.parseInt(button.querySelector('.count')?.innerText.trim(), 10)
+        }))
+      }))
+    const countSummaries = Array.from(document.querySelectorAll('.history-count'))
+      .filter(visible)
+      .flatMap((element) => {
+        const match = element.innerText.match(/(\d+)\s+of\s+(\d+)/i)
+        if (!match) return []
+
+        const section = element.closest('section')
+        const label = section?.querySelector('.recent-subtitle')?.innerText.trim() || 'Table'
+        return [{ label, scope: element.getAttribute('data-count-scope'), loaded: Number(match[1]), total: Number(match[2]) }]
+      })
     const staleBanners = Array.from(document.querySelectorAll('[role="status"], [role="alert"], .readonly-banner, .bo-state-card'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
@@ -316,6 +368,8 @@ export async function inspectPage(page, name) {
       liveViewConnected: Boolean(document.querySelector('[data-phx-main], [data-phx-session]')),
       primaryContent: Boolean(primaryContentSelector && document.querySelector(primaryContentSelector)),
       tables,
+      filterGroups,
+      countSummaries,
       staleBanners,
       emptyStates,
       errorStates,
@@ -385,6 +439,8 @@ async function main() {
         liveViewConnected: false,
         primaryContent: false,
         tables: [],
+        filterGroups: [],
+        countSummaries: [],
         staleBanners: [],
         emptyStates: [],
         errorStates: [],
