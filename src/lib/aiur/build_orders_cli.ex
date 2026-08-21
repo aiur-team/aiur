@@ -65,7 +65,7 @@ defmodule Aiur.BuildOrdersCLI do
   defp envelope(request, %Snapshot{} = snapshot, _source, captured_at) when map_size(request) == 0 do
     {:ok,
      %{
-       schema_version: 1,
+       schema_version: 2,
        page: "build-orders",
        snapshot: %{captured_at: captured_at},
        request: %{},
@@ -84,7 +84,7 @@ defmodule Aiur.BuildOrdersCLI do
 
       {:ok,
        %{
-         schema_version: 1,
+         schema_version: 2,
          page: "build-orders",
          snapshot: %{captured_at: captured_at},
          request: %{root: root},

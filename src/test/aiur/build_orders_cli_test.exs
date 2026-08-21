@@ -61,7 +61,7 @@ defmodule Aiur.BuildOrdersCLITest do
   test "lists the dashboard catalog with source freshness and no fabricated progress" do
     assert {:ok, envelope} = BuildOrdersCLI.build(source: Source, now: @captured_at)
 
-    assert envelope["schema_version"] == 1
+    assert envelope["schema_version"] == 2
     assert envelope["page"] == "build-orders"
     assert envelope["snapshot"]["captured_at"] == "2026-08-09T12:00:05Z"
 
@@ -162,6 +162,7 @@ defmodule Aiur.BuildOrdersCLITest do
   test "renders page-projected member completion and directed cleared versus blocking edges" do
     assert {:ok, envelope} = BuildOrdersCLI.build(root: "100", source: Source, now: @captured_at)
 
+    assert envelope["schema_version"] == 2
     assert envelope["request"] == %{"root" => "100"}
     assert Map.keys(envelope["sources"]) |> Enum.sort() == ["activity", "execution", "planning_graph"]
     assert envelope["data"]["root"]["title"] == "Build Order"
