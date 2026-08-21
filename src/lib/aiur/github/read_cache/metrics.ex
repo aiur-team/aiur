@@ -129,8 +129,19 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
   @spec reset() :: :ok
   def reset do
     case :ets.info(@table) do
-      :undefined -> :ok
-      _live -> :ets.delete_all_objects(@table) && :ok
+      :undefined ->
+        :ok
+
+      _live ->
+        # Two statements rather than `delete_all_objects(...) && :ok`. That form
+        # reads as "clear it, and answer :ok if that worked", but
+        # `:ets.delete_all_objects/1` is specified to return `true` and nothing
+        # else — the failure it appears to guard against is a raise, which no
+        # `&&` can catch. Dialyzer proved the falsy branch unreachable
+        # (`guard_fail`), and it was right: the conditional was decoration on a
+        # call whose only failure mode is an exception.
+        :ets.delete_all_objects(@table)
+        :ok
     end
   end
 

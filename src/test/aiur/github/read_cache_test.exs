@@ -15,6 +15,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
   use ExUnit.Case, async: false
 
+  alias Aiur.GitHub.Config
   alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
 
@@ -247,7 +248,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
     test "a node-id mutation retires the configured repository rather than nothing" do
       # `resolveReviewThread(threadId:)` names no repository, so taken literally
       # it would retire nothing and leave its own stale read behind it.
-      [owner, repo] = Aiur.GitHub.Config.repo() |> String.split("/")
+      [owner, repo] = Config.repo() |> String.split("/")
       read = graphql("comment_poll_batch", safe_document(2073), %{"owner" => owner, "repo" => repo})
       assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
 
