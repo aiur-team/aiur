@@ -1007,9 +1007,22 @@ resolve_tmux_conf() {
 # because startup reclaim wants to clear a stale BEAM quickly; the stop paths
 # pass a longer grace so the BEAM can finish its own agent reap + session
 # deletion instead of being SIGKILLed mid-cleanup (which is what orphaned agent
-# processes on `aiur stop`). Overridable per-call or via env.
+# processes on `aiur stop`). Callers may override the grace internally; invalid
+# or excessive values fall back to the 3s startup-reclaim default instead of
+# skipping the wait and jumping straight to SIGKILL.
 kill_beams_matching() {
-  local pattern="$1" grace_ticks="${2:-${AIUR_BEAM_TERM_GRACE_TICKS:-30}}" pids pid waited=0
+  local pattern="$1" grace_ticks="${2:-30}" pids pid waited=0
+  case "$grace_ticks" in
+    "" | *[!0-9]*) grace_ticks=30 ;;
+    *)
+      # Reject overlong digit strings before numeric comparison so shell integer
+      # overflow cannot turn an excessive grace into an immediate SIGKILL.
+      if [ "${#grace_ticks}" -gt 5 ] ||
+        { [ "${#grace_ticks}" -eq 5 ] && [ "$grace_ticks" -gt 36000 ]; }; then
+        grace_ticks=30
+      fi
+      ;;
+  esac
   pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
   [ -n "$pids" ] || return 0
   for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
@@ -1789,7 +1802,7 @@ session_cleanup() {
   # the BEAM a generous TERM grace (the stop grace, not the 3s startup reclaim
   # default) so its own graceful shutdown — ProcessReaper reaping the agent tree
   # plus the BEAM-side workspace sweep — completes before any SIGKILL lands.
-  [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}" "${AIUR_STOP_TERM_GRACE_TICKS:-300}"
+  [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}" 300
 
   # Final cwd-sweep backstop after the BEAM is gone: catches workspace-rooted
   # agents or test children that registered too late, reparented during the
@@ -3240,7 +3253,7 @@ cmd_stop() {
   # then the BEAM-side workspace sweep) and the short 3s startup default would
   # SIGKILL it mid-cleanup, orphaning exactly the agents this stop must reap.
   # The loop exits the moment the BEAM is gone, so a fast stop costs nothing.
-  kill_beams_matching "-name ${AIUR_RELEASE_NODE}" "${AIUR_STOP_TERM_GRACE_TICKS:-300}"
+  kill_beams_matching "-name ${AIUR_RELEASE_NODE}" 300
 
   # Final cwd-sweep backstop after the BEAM is dead. The launcher's instance
   # record points to the BEAM-written root handoff, so degraded stop never has

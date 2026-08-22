@@ -2579,43 +2579,49 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     assert out =~ ~r/KILL_BEAM:-name aiur-enginetest-.* 300/
   end
 
-  @tag skip: @pgrep_skip_reason
   test "kill_beams_matching honors a caller-supplied TERM grace" do
-    # A fake BEAM that traps TERM and refuses to exit proves the grace parameter is
-    # honored as the pre-SIGKILL window: with a short grace it is SIGKILLed after
-    # roughly that window rather than at the 3s default. The stop path passes 300
-    # ticks precisely so a healthy-but-slow BEAM can finish its own agent reap
-    # before SIGKILL would land.
-    marker = "aiur-grace-#{System.unique_integer([:positive])}@127.0.0.1"
-    on_exit(fn -> System.cmd("pkill", ["-f", marker], stderr_to_stdout: true) end)
+    events = Path.join(System.tmp_dir!(), "aiur-grace-#{System.unique_integer([:positive])}")
+    File.write!(events, "")
+    on_exit(fn -> File.rm(events) end)
 
     script = """
-    source "$AIUR_ENGINE"
-    set +e
-    # trap '' TERM: the fake beam only dies on SIGKILL, so the short grace is what
-    # bounds the kill (10 ticks = 1s, versus the 30-tick default).
-    bash -c 'trap "" TERM; exec -a "beam.smp #{marker}" sleep 30' >/dev/null 2>&1 &
-    seen=0
-    for _ in $(seq 1 20); do
-      if pgrep -f -- '#{marker}' >/dev/null 2>&1; then seen=1; break; fi
-      sleep 0.1
-    done
-    if [ "$seen" -ne 1 ]; then echo SETUP_FAILED; exit 0; fi
-    start=$(date +%s)
-    kill_beams_matching '#{marker}' 10
-    elapsed=$(( $(date +%s) - start ))
-    if pgrep -f -- '#{marker}' >/dev/null 2>&1; then echo STILL_ALIVE; else echo KILLED_AFTER_${elapsed}s; fi
+    pgrep() { printf '4242\n'; }
+    kill() { printf 'KILL:%s\n' "$*" >> "$EVENTS"; }
+    sleep() { printf 'SLEEP:%s\n' "$*" >> "$EVENTS"; }
+    kill_beams_matching 'aiur-grace' 10
+    cat "$EVENTS"
     """
 
-    path = Path.join(System.tmp_dir!(), "aiur-grace-#{System.unique_integer([:positive])}.sh")
-    File.write!(path, script)
-    on_exit(fn -> File.rm(path) end)
+    {out, 0} = run_sourced_engine(script, [{"EVENTS", events}])
 
-    {out, _} = System.cmd("bash", [path], env: [{"AIUR_ENGINE", @engine}], stderr_to_stdout: true)
-    refute out =~ "SETUP_FAILED"
-    # 10 ticks = 1s: the kill must land within 2s, not after the 3s default — that
-    # is what proves the caller-supplied grace (not the startup default) was used.
-    assert out =~ ~r/KILLED_AFTER_[12]s/
+    assert length(Regex.scan(~r/^SLEEP:0\.1$/m, out)) == 10
+    assert out =~ "KILL:-TERM 4242"
+    assert out =~ "KILL:-KILL 4242"
+  end
+
+  test "kill_beams_matching falls back deterministically for invalid grace values" do
+    events = Path.join(System.tmp_dir!(), "aiur-invalid-grace-#{System.unique_integer([:positive])}")
+    File.write!(events, "")
+    on_exit(fn -> File.rm(events) end)
+
+    script = """
+    pgrep() { printf '4242\n'; }
+    kill() { printf 'KILL:%s\n' "$*" >> "$EVENTS"; }
+    sleep() { printf 'SLEEP:%s\n' "$*" >> "$EVENTS"; }
+    kill_beams_matching 'aiur-grace' -1
+    printf 'NEXT\n' >> "$EVENTS"
+    kill_beams_matching 'aiur-grace' oops
+    printf 'NEXT\n' >> "$EVENTS"
+    kill_beams_matching 'aiur-grace' 999999999999999999999999999999999999
+    cat "$EVENTS"
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"EVENTS", events}])
+
+    assert length(Regex.scan(~r/^SLEEP:0\.1$/m, out)) == 90
+    assert length(Regex.scan(~r/^KILL:-TERM 4242$/m, out)) == 3
+    assert length(Regex.scan(~r/^KILL:-KILL 4242$/m, out)) == 3
+    assert length(Regex.scan(~r/^NEXT$/m, out)) == 2
   end
 
   test "cmd_stop fails loud instead of no-oping for an unmatched global-config cwd" do
