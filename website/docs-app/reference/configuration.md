@@ -589,9 +589,11 @@ Selecting a root and holding it open consume zero GitHub reads.
 The **catalog** itself is different: it is the most expensive single query in the
 system, and since #2312 it is demand-gated on an open Build Order page. Opening
 `/build-orders` renders the stored snapshot immediately (with its age), then buys
-one refresh; while any Build Order page stays open the catalog reconciles on the
-cadence below; closing the last page stops it entirely, so a headless run — the
-normal case — buys none of it.
+one refresh on mount.
+
+While any Build Order page stays open the catalog reconciles on the cadence
+below; closing the last page stops it entirely, so a headless run — the normal
+case — buys none of it.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
