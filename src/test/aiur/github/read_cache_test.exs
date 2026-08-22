@@ -19,7 +19,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
   alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
+  alias Aiur.Webhooks.{DeliveryMode, ModeRegistry, ModeTable}
 
   @repo "aiur-team/aiur"
   @ttl_repo "aiur-team/ttl-test-repo"
@@ -232,6 +232,30 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:ok, %{body: "first"}} = ReadCache.through(numbered, fn -> flunk("a numbered read is not a collection") end)
     end
 
+    test "the marker sweep keeps every marker that could still retire a fresh entry" do
+      # The sweep drops markers older than `@max_ttl_ms` (four hours) on the
+      # theory that once nothing deposited before them can still be fresh, they
+      # can retire nothing. The theory is load-bearing: a marker written beside
+      # a deposit must survive until that deposit's TTL has passed, and with
+      # webhook-backed repos issuing an hour the bound has to sit above it.
+      # This pins the boundary from both sides.
+      request = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+      ReadCache.invalidate_number(@repo, 2073)
+
+      # Four hours minus a minute is still inside the bound, so the sweep keeps
+      # both markers (the number and the collections).
+      age_markers_by(4 * 60 * 60_000 - 60_000)
+      sweep()
+      assert wait_until(fn -> marker_count() == 2 end)
+
+      # A minute later they are past the bound, where nothing they cover can be
+      # fresh any more, and the sweep drops them.
+      age_markers_by(60_001)
+      sweep()
+      assert wait_until(fn -> marker_count() == 0 end)
+    end
+
     test "a mutation retires what it changed" do
       read = graphql("issue_relationships", safe_document(2073))
       assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
@@ -405,6 +429,27 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert {:ok, %{body: "second"}} = ReadCache.through(enumerating, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
+
+    test "a labeled delivery retires a numbers-free enumerating read" do
+      # The `build_order_catalog` document names no numbers, so its identity
+      # set is only [:root, {:repo, ...}, {:collections, ...}] — the collections
+      # marker is the one identity a delivery can write that retires it. A
+      # `labeled` delivery changes what a `labels: ["build-order"]` enumeration
+      # answers (set membership) without creating or destroying a resource,
+      # which is exactly the action a conditional collections marker would have
+      # skipped — and a delivery that skips it serves pre-delivery bytes for
+      # the whole webhook TTL.
+      catalog = graphql("build_order_catalog", catalog_document())
+      assert {:ok, _response} = ReadCache.through(catalog, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit(
+        "issues",
+        %{"action" => "labeled", "issue" => %{"number" => 2073, "labels" => [%{"name" => "build-order"}]}},
+        @repo
+      )
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(catalog, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
   end
 
   describe "metrics" do
@@ -541,6 +586,48 @@ defmodule Aiur.GitHub.ReadCacheTest do
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/comments?per_page=100"))
     end
 
+    test "a webhook-backed entry is still a hit past the old 30-second TTL" do
+      # The raise has to be proven by a served hit, not only by a constant: a
+      # webhook-backed entry aged past the polling bucket is still fresh,
+      # because the delivery (not the clock) is what retires it. The constant
+      # assertion above would stay green if `@webhook_backed_ttls` were reverted
+      # to 30 s; this one goes red.
+      on_exit(fn -> ModeTable.delete(@ttl_repo) end)
+      ModeTable.put(@ttl_repo, webhook_backed_mode())
+
+      request = graphql("issue_relationships", safe_document(2073), %{"owner" => "aiur-team", "repo" => "ttl-test-repo"})
+
+      assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+      age_entries_by(31_000)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(request, fn -> flunk("a webhook-backed hit must not refetch at 31 s") end)
+      assert %{totals: %{hit: 1}} = Metrics.snapshot()
+    end
+
+    test "a registry-recorded delivery reaches the TTL policy through the mode table" do
+      # The mode pipe is the part of this feature CI could not see: if
+      # `ModeRegistry.persist/3` stopped publishing to `ModeTable`, every repo
+      # would sit on the 30-second bucket and the suite would stay green,
+      # because the TTL tests seed the table directly. Driving the registry
+      # (not `ModeTable.put`) is what makes this fail when the publish is
+      # dropped.
+      on_exit(fn -> ModeTable.delete(@ttl_repo) end)
+
+      name = :"ttl_pipe_registry_#{System.unique_integer([:positive])}"
+
+      start_supervised!({ModeRegistry, name: name, configured_repos: [@ttl_repo], silence_threshold_ms: 900_000, sweep_interval_ms: 3_600_000, alert_fun: fn _name, _message, _opts -> :ok end})
+
+      request = graphql("issue_relationships", safe_document(2073), %{"owner" => "aiur-team", "repo" => "ttl-test-repo"})
+
+      assert ModeTable.transport(@ttl_repo) == :polling
+      assert {:cache, :issue_graph, 30_000} = Policy.classify(request)
+
+      {:ok, _mode} = ModeRegistry.record_delivery(@ttl_repo, server: name, at: ~U[2026-01-01 00:00:00Z])
+
+      assert ModeTable.transport(@ttl_repo) == :webhook
+      assert {:cache, :issue_graph, 3_600_000} = Policy.classify(request)
+    end
+
     test "an unproven repo keeps the short TTL even when configured" do
       # Configuration is a hint, never proof: a configured-but-unproven repo
       # polls at full rate and must not earn the long TTL. The mode-aware TTL
@@ -610,6 +697,12 @@ defmodule Aiur.GitHub.ReadCacheTest do
     "query B($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { #{aliases} } }"
   end
 
+  # The `build_order_catalog` shape: an enumerating read that names no numbers,
+  # so its identity set is only [:root, {:repo, ...}, {:collections, ...}].
+  defp catalog_document do
+    "query B($owner: String!, $repo: String!, $pageSize: Int!, $cursor: String) { repository(owner: $owner, name: $repo) { issues(first: $pageSize, after: $cursor, labels: [\"build-order\"]) { pageInfo { hasNextPage endCursor } nodes { number title } } } }"
+  end
+
   defp ci_document do
     "query C($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } }"
   end
@@ -666,4 +759,27 @@ defmodule Aiur.GitHub.ReadCacheTest do
       :ets.insert(table, {key, response, deposited_at - ms})
     end
   end
+
+  # Same trick for markers, which the sweep ages against `@max_ttl_ms`.
+  defp age_markers_by(ms) do
+    table = :aiur_github_read_cache_markers
+
+    for {identity, marked_at} <- :ets.tab2list(table) do
+      :ets.insert(table, {identity, marked_at - ms})
+    end
+  end
+
+  defp marker_count, do: :ets.info(:aiur_github_read_cache_markers, :size)
+
+  # The sweep runs in the cache's process, so a test that triggers it must wait
+  # for the message to be handled before asserting on the tables.
+  defp sweep, do: Process.send(Process.whereis(ReadCache), :sweep, [])
+
+  defp wait_until(fun, attempts \\ 200)
+
+  defp wait_until(fun, attempts) when attempts > 0 do
+    if fun.(), do: true, else: Process.sleep(5) && wait_until(fun, attempts - 1)
+  end
+
+  defp wait_until(_fun, 0), do: flunk("condition never became true")
 end

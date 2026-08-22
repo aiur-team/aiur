@@ -62,13 +62,19 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   A delivery is not only a body to hold — it is a fact that the state Aiur was
   caching has changed. Each deposit therefore retires the `Aiur.GitHub.ReadCache`
-  identities the delivery makes stale (the numbered issue or pull request it
-  carries, plus the repository's collections when the action created or removed
-  a set member), through the same `ReadCache.invalidate/1` primitive
-  `write_through/3` uses for Aiur's own mutations. This is the second producer
-  the read cache had no knowledge of, and it is what lets the `ReadCache` TTLs
-  rise from seconds to hours: the delivery, not the clock, is the freshness
-  mechanism, and the clock is only a backstop against a missed delivery.
+  identities the delivery makes stale: the numbered issue or pull request it
+  carries and, unconditionally, the repository's collections. The collections
+  marker goes on every delivery rather than only on actions that create or
+  destroy a set member, because any change to a numbered resource changes what
+  a list of that repository's tickets answers — a label changes what a
+  `labels: [...]` enumeration answers, an edit changes what a ticket list
+  renders — and the `build_order_catalog` enumeration names no number, so the
+  collections marker is the only thing that retires it. This is
+  `ReadCache.invalidate_number/2`, the same primitive `write_through/3` uses
+  for Aiur's own mutations, wired to the second producer the read cache had no
+  knowledge of; it is what lets the `ReadCache` TTLs rise from seconds to
+  hours, with the delivery rather than the clock as the freshness mechanism and
+  the clock only a backstop against a missed delivery.
 
   ## What this module deliberately does not do
 
@@ -213,56 +219,52 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # primitive `write_through/3` already uses for Aiur's own writes, wired to
   # the second producer that knows about changes made outside this daemon.
   #
-  # Identities are derived from the payload — the numbered resources the
-  # delivery is about — rather than from the `ResourceStore` keys written,
-  # because a comment's store key is its comment id, which is not a `ReadCache`
-  # identity. GitHub numbers issues and pull requests from one sequence, so a
-  # delivery about either retires the single shared `{:number, ...}` identity.
-  #
   # Deliberately runs even when the store is not running: a delivery proves the
   # change whether or not there is anywhere to hold its body.
   defp invalidate_read_cache(event_type, payload, repo) do
-    identities =
+    number =
       case event_type do
         "issue_comment" ->
-          numbered_identities(repo, get_in(payload, ["issue", "number"]), false)
+          get_in(payload, ["issue", "number"])
 
         event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
-          numbered_identities(repo, get_in(payload, ["pull_request", "number"]), set_changing?(:pull_request, Map.get(payload, "action")))
+          get_in(payload, ["pull_request", "number"])
 
         "issues" ->
-          numbered_identities(repo, get_in(payload, ["issue", "number"]), set_changing?(:issue, Map.get(payload, "action")))
+          get_in(payload, ["issue", "number"])
 
         _other ->
-          []
+          nil
       end
 
-    ReadCache.invalidate(identities)
+    invalidate_numbered(repo, number)
   end
 
-  # Which actions change an *enumerating* read's answer — a ticket list, "is
-  # there an open pull request on this branch yet" — as opposed to only changing
-  # the numbered resource itself. A resource appearing in or disappearing from a
-  # set (created, destroyed, reopened, closed) retires the collections marker as
-  # well as the number; an edit, a label, or a comment changes the resource and
-  # nothing else. Over-invalidating here costs one re-fetch of an enumerating
-  # read; under-invalidating serves a stale list for the whole TTL.
-  defp set_changing?(:issue, action), do: action in ["opened", "reopened", "deleted"]
-  defp set_changing?(:pull_request, action), do: action in ["opened", "reopened", "closed"]
-
-  defp numbered_identities(repo, number, collections?) do
-    with {owner, name} when owner != "" and name != "" <- split_repo(repo),
-         parsed when is_integer(parsed) and parsed > 0 <- parse_number(number) do
-      [{:number, owner, name, parsed}] ++ if(collections?, do: [{:collections, owner, name}], else: [])
-    else
-      _unusable -> []
-    end
-  end
-
-  defp split_repo(repo) when is_binary(repo) do
-    case repo |> String.trim() |> String.downcase() |> String.split("/") do
-      [owner, name] when owner != "" and name != "" -> {owner, name}
-      _other -> nil
+  # The delivery retires what it changed through the same primitive
+  # `write_through/3` uses for Aiur's own writes — `ReadCache.invalidate_number/2`
+  # — which marks the numbered issue-or-pull-request and, unconditionally, the
+  # repository's collections. The collections marker has to go on *every*
+  # delivery, not only on actions that create or destroy a set member: a
+  # `labeled` delivery changes what a `labels: [...]` enumeration answers, an
+  # edit changes what a ticket list renders, a comment changes what a list of
+  # the repository's tickets answers. The `build_order_catalog` enumeration
+  # names no numbers, so its entry carries only the collections identity, and a
+  # delivery that skipped it would serve pre-delivery bytes for the whole TTL.
+  # Over-invalidating costs one re-fetch of an enumerating read;
+  # under-invalidating serves a stale list for the whole TTL.
+  #
+  # The number is read from the payload rather than from the `ResourceStore`
+  # keys written, because a comment's store key is its comment id, which is not
+  # a `ReadCache` identity; GitHub numbers issues and pull requests from one
+  # sequence, so a delivery about either retires the single shared
+  # `{:number, ...}` identity. A delivery with no nameable number (defensive;
+  # every handled event carries one) falls back to retiring the whole
+  # repository — the only thing known is that something in it changed, and
+  # guessing which read is the failure mode this cache cannot afford.
+  defp invalidate_numbered(repo, number) do
+    case parse_number(number) do
+      parsed when is_integer(parsed) -> ReadCache.invalidate_number(repo, parsed)
+      _unusable -> ReadCache.invalidate_repo(repo)
     end
   end
 
