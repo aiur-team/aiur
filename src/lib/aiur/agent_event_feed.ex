@@ -386,15 +386,7 @@ defmodule Aiur.AgentEventFeed do
   defp changed_line(output) do
     lines = String.split(output, "\n")
 
-    Enum.find_value(lines, fn
-      "+" <> "+" <> _ -> nil
-      "+" <> line -> line
-      _ -> nil
-    end) ||
-      Enum.find_value(lines, "", fn
-        "-" <> "-" <> _ -> nil
-        "-" <> line -> line
-        _ -> nil
-      end)
+    Enum.find(lines, &changed_line?(&1, "+")) ||
+      Enum.find(lines, "", &changed_line?(&1, "-"))
   end
 end

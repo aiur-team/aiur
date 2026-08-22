@@ -4,6 +4,7 @@ defmodule Aiur.AgentEventFeedTest do
   import ExUnit.CaptureLog
 
   alias Aiur.{AgentEventFeed, IssueLog}
+  alias AiurWeb.{StreamdeckLogs, StreamdeckStrip}
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -57,7 +58,27 @@ defmodule Aiur.AgentEventFeedTest do
 
     assert {:ok, %{events: [message, diff]}} = AgentEventFeed.list(identifier)
     assert %{type: "message", body: "edit lib/replaced.ex"} = message
-    assert %{type: "diff", path: "lib/example.ex", additions: 1, deletions: 1, line: "new"} = diff
+    assert %{type: "diff", path: "lib/example.ex", additions: 1, deletions: 1, line: "+new"} = diff
+  end
+
+  test "preserves the representative line sign through the Stream Deck strip", %{identifier: identifier} do
+    diff = "++x = 1\n-y = 2"
+
+    write_events(identifier, [
+      event("tool", "edit a.ex", %{"tool" => "edit", "changes" => [%{"path" => "a.ex", "diff" => diff}]})
+    ])
+
+    assert {:ok, %{events: [event]}} = AgentEventFeed.list(identifier)
+    assert %{additions: 1, deletions: 1, line: "++x = 1"} = event
+
+    [strip_entry] =
+      %{events: [], transcript: [event]}
+      |> StreamdeckLogs.project()
+      |> Map.fetch!(:transcript)
+      |> Enum.filter(&(&1.kind == :diff))
+      |> StreamdeckStrip.entries()
+
+    assert %{shape: :diff, line: "++x = 1", line_kind: :addition} = strip_entry
   end
 
   test "an agent with no events returns an empty page", %{identifier: identifier} do
@@ -88,7 +109,7 @@ defmodule Aiur.AgentEventFeedTest do
     _ = :sys.get_state(pid)
     :ok = GenServer.stop(pid)
 
-    assert {:ok, %{events: [alert, %{type: "diff", path: "a.ex", additions: 1, line: "new"}]}} = AgentEventFeed.list(identifier)
+    assert {:ok, %{events: [alert, %{type: "diff", path: "a.ex", additions: 1, line: "+new"}]}} = AgentEventFeed.list(identifier)
     assert %{type: "message", role: "alert", badge: "INFO", body: "reviewing"} = alert
   end
 
@@ -196,7 +217,7 @@ defmodule Aiur.AgentEventFeedTest do
 
     assert {:ok, %{events: [message, diff]}} = AgentEventFeed.list(identifier)
     assert %{type: "message", body: "plain message", badge: "AGENT"} = message
-    assert %{type: "diff", path: "lib/removed.ex", additions: 0, deletions: 1, line: "old"} = diff
+    assert %{type: "diff", path: "lib/removed.ex", additions: 0, deletions: 1, line: "-old"} = diff
   end
 
   test "does not expose Claude's pane-generated edit text as a diff", %{identifier: identifier} do
@@ -216,7 +237,7 @@ defmodule Aiur.AgentEventFeedTest do
       })
     ])
 
-    assert {:ok, %{events: [%{type: "diff", path: "lib/x.ex", additions: 1, deletions: 0, line: " defmodule X do"}]}} =
+    assert {:ok, %{events: [%{type: "diff", path: "lib/x.ex", additions: 1, deletions: 0, line: "+ defmodule X do"}]}} =
              AgentEventFeed.list(identifier)
   end
 
@@ -244,7 +265,7 @@ defmodule Aiur.AgentEventFeedTest do
       event("tool", "edit lib/derived.ex", %{"tool" => "edit", "changes" => [%{"diff" => diff}]})
     ])
 
-    assert {:ok, %{events: [%{type: "diff", path: "lib/derived.ex", additions: 1, deletions: 1, line: "new"}]}} =
+    assert {:ok, %{events: [%{type: "diff", path: "lib/derived.ex", additions: 1, deletions: 1, line: "+new"}]}} =
              AgentEventFeed.list(identifier, %{"limit" => 1})
 
     assert {:ok, %{events: []}} = AgentEventFeed.list(identifier, %{"limit" => 1, "cursor" => "0"})
@@ -263,8 +284,8 @@ defmodule Aiur.AgentEventFeedTest do
     ])
 
     assert {:ok, %{events: [fallback, header]}} = AgentEventFeed.list(identifier)
-    assert %{type: "diff", path: nil, additions: 1, deletions: 1, line: "new"} = fallback
-    assert %{type: "diff", path: "lib/header.ex", additions: 0, deletions: 1, line: "old"} = header
+    assert %{type: "diff", path: nil, additions: 1, deletions: 1, line: "+new"} = fallback
+    assert %{type: "diff", path: "lib/header.ex", additions: 0, deletions: 1, line: "-old"} = header
   end
 
   # ---------------------------------------------------------------------------
