@@ -14,6 +14,14 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   end
 
   describe "resource identity" do
+    test "selection snapshots are restart-durable resource identities" do
+      assert ResourceStore.key(:pr_review_threads, "owner", "repo", 77) ==
+               {:pr_review_threads, "owner", "repo", "77"}
+
+      assert ResourceStore.key(:ci_contexts, "owner", "repo", 42) ==
+               {:ci_contexts, "owner", "repo", "42"}
+    end
+
     test "keys are addressed by resource, not by call site" do
       assert ResourceStore.key(:issue_comment, "owner", "repo", 42) ==
                {:issue_comment, "owner", "repo", "42"}
