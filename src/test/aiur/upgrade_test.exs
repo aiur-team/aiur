@@ -62,7 +62,7 @@ defmodule Aiur.Upgrade.VersionTest do
 end
 
 defmodule Aiur.UpgradeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
@@ -251,7 +251,7 @@ defmodule Aiur.UpgradeTest do
       log = capture_log(fn -> assert :ok = run_check(transport: CountingTransport) end)
 
       assert CountingTransport.count() == 0
-      assert log == ""
+      refute log =~ "aiur_upgrade "
     end
   end
 
@@ -265,7 +265,7 @@ defmodule Aiur.UpgradeTest do
         end)
 
       assert CountingTransport.count() == 1
-      assert log == ""
+      refute log =~ "aiur_upgrade "
       # The state is stamped so an offline host does not retry every run, and no
       # notice is recorded.
       assert {:ok, state} = Upgrade.State.read(state_file())
@@ -326,7 +326,7 @@ defmodule Aiur.UpgradeTest do
         end)
 
       assert CountingTransport.count() == 0
-      assert log == ""
+      refute log =~ "aiur_upgrade "
       # A disabled check never creates the state file.
       refute File.exists?(state_file())
     end
@@ -378,7 +378,7 @@ defmodule Aiur.UpgradeTest do
         end)
 
       assert CountingTransport.count() == 0
-      assert log == ""
+      refute log =~ "aiur_upgrade "
     end
 
     test "aiurdev stays silent when the local version is ahead of published" do

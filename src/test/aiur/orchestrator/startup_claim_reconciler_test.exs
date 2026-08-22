@@ -78,8 +78,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
 
   test "releases a claim whose matching registry entry is no longer alive" do
     issue = issue("2076", "in-progress")
-    dead_pid = spawn(fn -> :ok end)
-    monitor = Process.monitor(dead_pid)
+    {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
     assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}
 
     state = %State{
