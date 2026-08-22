@@ -1011,14 +1011,29 @@ cache_volatile_fields() {
   return 1
 }
 
-# REST equivalents of the verdict and merge-gating fields above. Keep this in
-# step with `Aiur.GitHub.ReadCache.Policy`: a caller spelling the same read as
-# `gh api` must not acquire a stale answer merely by bypassing `gh pr view`.
+# REST equivalents of the verdict and merge-gating fields above: a caller
+# spelling the same read as `gh api` must not acquire a stale answer merely by
+# bypassing `gh pr view`. The pull-request resource itself is included because
+# its default document carries `mergeable`, `mergeable_state`, `merged` and
+# `state` — the exact fields `gh pr view --json ...` refuses — and nothing that
+# changes them passes through this wrapper (a merge is a human or ruleset
+# action), so even a `pulls/<n>/comments` read filed under that PR can never be
+# retired by the write that would stale it. Refusing the whole family costs
+# throughput, never correctness.
+#
+# Deliberate divergence from `Aiur.GitHub.ReadCache.Policy`: the daemon refuses
+# every `/actions` path wholesale (`policy.ex` refuses `actions(?:/|$|\?)`),
+# while this wrapper keeps stable workflow metadata (`actions/workflows`, the
+# definition list) cacheable and refuses only run and job state. A workflow
+# definition changes when its YAML is edited, which is a wrapper-passing write
+# that invalidates it; a run's status is a verdict that nothing retires. So the
+# shell is narrower than the daemon, on purpose, because the two stores serve
+# different callers with different invalidation reach.
 cache_unsafe_rest_endpoint() {
   case "/${1#/}" in
     */check-runs|*/check-runs/*|*/check-suites|*/check-suites/*|\
     */status|*/status/*|*/statuses|*/statuses/*|\
-    */merge|*/merge/*|*/requested_reviewers|*/requested_reviewers/*|\
+    */pulls|*/pulls/*|*/merge|*/merge/*|*/requested_reviewers|*/requested_reviewers/*|\
     */reviews|*/reviews/*|*/actions/runs|*/actions/runs/*|\
     */actions/jobs|*/actions/jobs/*|*/actions/workflows/*/runs|\
     */actions/workflows/*/runs/*|*/actions/workflows/*/workflow_runs|\
@@ -1313,10 +1328,15 @@ cache_record() {
 
     # Pruning is outside the call's output descriptors and keeps a one-hour
     # safety margin beyond the reader's window. The exact prefix confines the
-    # deletion to this bounded effectiveness log.
-    (
-      find "$agent_quota_dir" -type f -name 'agent-cache.tsv.*' -mmin +1500 -delete || true
-    ) >/dev/null 2>&1 &
+    # deletion to this bounded effectiveness log. `-mmin` and `-delete` are
+    # non-POSIX, so this is gated exactly as `cache_prune` gates its own use of
+    # them: on a host without GNU/BSD find the prune is a no-op rather than a
+    # silent failure that lets archives accumulate with no recovery path.
+    if command -v find >/dev/null 2>&1; then
+      (
+        find "$agent_quota_dir" -type f -name 'agent-cache.tsv.*' -mmin +1500 -delete || true
+      ) >/dev/null 2>&1 &
+    fi
   fi
 
   if [ -n "${2:-}" ]; then
@@ -1352,7 +1372,14 @@ cache_lookup() {
   [ -n "$cache_body" ] || return 1
   if [ "$cache_bypass" -ne 0 ]; then cache_miss_reason=bypassed; return 1; fi
   [ -f "$cache_meta" ] || return 1
-  [ -f "$cache_body" ] || return 1
+  # A meta that survived but whose body did not is a torn entry, not a cold
+  # read: `cache_prune` or a partial disk-full write left the stamp behind. The
+  # old comment called this "the entry's stamp survives its body". Recorded as
+  # `absent` it reads on the dashboard as a cold cache with diverse shapes, and
+  # store-integrity failures go unseen — the misdiagnosis #2207 exists to
+  # prevent. It is a distinct cause from `corrupt` (present but unreadable) and
+  # from `absent` (nothing was ever stored).
+  [ -f "$cache_body" ] || { cache_miss_reason=torn; return 1; }
   if [ ! -r "$cache_body" ]; then cache_miss_reason=corrupt; return 1; fi
 
   cache_fetched_at=

@@ -361,8 +361,17 @@ check run do not pass through the wrapper, so nothing could retire the answer
 before an agent acted on it.
 
 The same refusal applies to direct REST paths for check runs, check suites,
-commit statuses, reviews, requested reviewers, merge state, and Actions run or
-job state. Spelling a verdict read as `gh api` does not make it safe to cache.
+commit statuses, reviews, requested reviewers, the pull-request resource
+itself, merge state, and Actions run or job state. Spelling a verdict read as
+`gh api` does not make it safe to cache.
+
+Stable Actions workflow *definitions* (`actions/workflows`) are still shared.
+
+A workflow definition changes when its YAML is edited, which is a
+wrapper-passing write that retires it, while a run's status is a verdict that
+nothing retires. This is a deliberate divergence from the daemon's `ReadCache`
+policy, which refuses every `/actions` path wholesale — the two stores serve
+different callers with different invalidation reach.
 
 An answer is kept for 60 seconds.
 
@@ -386,30 +395,17 @@ misses independently.
 Likewise, a write or daemon delivery retires every shape of the changed
 resource to protect correctness.
 
-The original 11-hit, 490-miss sample contained 293 `issue`, 66 `pr`, and 131
-repository REST `api` misses. High-level verdict and merge-gating reads were
-already excluded before accounting, so they contributed no misses.
-
-The REST rows kept endpoint digests rather than endpoint text. Matching those
-digests against retained agent transcripts recovered 120 of 131 miss events.
-Seventy-five misses were CI, review, or Actions reads that should never have
-entered the store, and six of the eleven total hits were also unsafe.
-
-With those rows removed, safe reads still made 404 misses and five hits—about
-1.2%.
-
-A live store snapshot shows why low reuse can be inherent without proving the
-historical cause: 122 exact output shapes existed for 47 resources, 32 resources
-had multiple shapes, and 72 shapes had already been invalidated.
-
 Different output requests cannot share bytes, and a changed resource cannot
 safely reuse an older answer. The cache therefore keeps its byte-exact key,
 correctness invalidation, and 60-second lifetime.
 
 The wrapper now records a reason with every miss (`absent`, `expired`,
-`invalidated`, `bypassed`, `clock-skewed`, or `corrupt`) so a later regression
-can distinguish expected correctness misses from entries expiring before
-reuse.
+`invalidated`, `bypassed`, `clock-skewed`, `corrupt`, or `torn`).
+
+That lets a later regression distinguish expected correctness misses from
+entries expiring before reuse, and can tell a cold cache from a
+store-integrity failure — a present stamp whose body has vanished is `torn`,
+never `absent`.
 
 Editing a ticket or a pull request discards the kept answers for it at once, so
 an agent never reads back what it just replaced.

@@ -1227,7 +1227,8 @@ defmodule AiurWeb.GithubCacheLive do
     %{
       value: nil,
       display: "Not measured",
-      note: "Readable daemon-host counters contain no hit or miss rows in the previous 24 hours." <> partial_coverage(metrics)
+      note: "Readable agent-workspace counters on this host contain no hit or miss rows in the previous 24 hours." <>
+        partial_coverage(metrics)
     }
   end
 
@@ -1235,13 +1236,13 @@ defmodule AiurWeb.GithubCacheLive do
     %{
       value: nil,
       display: "Not measured",
-      note: "No readable daemon-host agent-cache counters were found for the previous 24 hours."
+      note: "No readable agent-workspace counters on this host were found for the previous 24 hours."
     }
   end
 
   defp agent_metrics_window(metrics) do
     "previous 24 hours (#{moment(Map.get(metrics, :window_started_at))}–#{moment(Map.get(metrics, :window_ended_at))}); " <>
-      "daemon-host agent workspaces"
+      "agent workspaces on this host"
   end
 
   defp partial_coverage(%{partial?: true} = metrics) do

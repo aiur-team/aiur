@@ -2400,6 +2400,14 @@ defmodule Aiur.AgentGitHubGuardTest do
       File.write!(meta, "1\n")
       assert {_, 0} = run_cached_guard(context, args)
 
+      # A stamp that survived while its body vanished is a torn entry — the
+      # store was pruned or a partial write removed the body. It is a distinct
+      # cause from `absent` (nothing was ever stored) and from `corrupt`
+      # (present but unreadable).
+      File.rm!(body)
+      assert {_, 0} = run_cached_guard(context, args)
+      assert last_cache_miss_reason(context) == "torn"
+
       # A daemon-side resource retirement is the final independent cause.
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
       assert {_, 0} = run_cached_guard(context, args)
@@ -2413,7 +2421,7 @@ defmodule Aiur.AgentGitHubGuardTest do
         |> Enum.map(&Enum.at(&1, 5))
         |> MapSet.new()
 
-      assert reasons == MapSet.new(~w(absent bypassed corrupt clock-skewed expired invalidated))
+      assert reasons == MapSet.new(~w(absent bypassed corrupt torn clock-skewed expired invalidated))
     end
 
     # -------------------------------------------------------------------------
@@ -2519,17 +2527,20 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 2
     end
 
-    test "a REST read of a pull request is filed under that pull request", context do
-      # The join with the daemon's writers. `gh api repos/owner/repo/pulls/1670`
-      # and `gh pr view 1670` are the same resource; filed under a digest of the
-      # URL instead, the first would survive a writer retiring the second.
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+    test "a REST read of an issue is filed under that issue", context do
+      # The join with the daemon's writers. `gh api repos/owner/repo/issues/1670`
+      # and `gh issue view 1670` are the same resource; filed under a digest of the
+      # URL instead, the first would survive a writer retiring the second. Pull
+      # requests are exercised separately: their REST resource is a merge
+      # verdict and is refused outright (see the REST verdict test), so the
+      # identity join is proven on the issue resource, which is still cacheable.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
       assert upstream_calls(context) == 1
 
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
 
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
       assert upstream_calls(context) == 2
     end
 
@@ -2629,6 +2640,7 @@ defmodule Aiur.AgentGitHubGuardTest do
         "repos/owner/repo/commits/deadbeef/check-suites",
         "repos/owner/repo/commits/deadbeef/status",
         "repos/owner/repo/statuses/main",
+        "repos/owner/repo/pulls/1670",
         "repos/owner/repo/pulls/1670/merge",
         "repos/owner/repo/pulls/1670/requested_reviewers",
         "repos/owner/repo/pulls/1670/reviews",
@@ -2737,14 +2749,36 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
 
     test "a REST read with a query string is still filed under its resource", context do
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      # Pull requests are a refused verdict resource (see the REST verdict test),
+      # so the query-string identity rule is exercised on the issue resource,
+      # which is still cacheable.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
       assert upstream_calls(context) == 1
 
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
 
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
       assert upstream_calls(context) == 2
+    end
+
+    test "a body that vanished before lookup falls through and is recorded as torn", context do
+      # The original hazard this pair guards: the store's prune (`cache_prune`,
+      # `-mmin +120 -delete` on `*.body` and `*.meta`) or a partial disk-full
+      # write can leave a meta behind while its body is gone. That is a torn
+      # entry, not a cold read — it must fall through to the real `gh` (never
+      # answer with nothing) and be recorded as `torn`, so the dashboard shows a
+      # store-integrity failure instead of a wall of `absent` that reads as a
+      # cold cache with diverse shapes.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      [{_shape, body}] = cached_shapes(context)
+
+      File.rm!(body)
+
+      assert {output, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert output != ""
+      assert upstream_calls(context) == 2
+      assert last_cache_miss_reason(context) == "torn"
     end
 
     test "a body vanishing after lookup is fetched and recorded as corrupt", context do

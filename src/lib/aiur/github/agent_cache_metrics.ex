@@ -21,6 +21,13 @@ defmodule Aiur.GitHub.AgentCacheMetrics do
 
   @window_seconds 24 * 60 * 60
   @default_interval_ms 30_000
+  # A single 30-second pass must not read an unbounded amount of disk. Archives
+  # are rotated at ~1 MiB each and retained for ~25 hours; on a host without
+  # GNU/BSD find (where the prune is a no-op) or under pathological traffic the
+  # in-window pile could grow without a cap. Once this budget is spent the
+  # remaining sources are skipped and reported as partial coverage rather than
+  # silently under-measured or read in full forever.
+  @max_read_bytes 8 * 1024 * 1024
   @events ~w(hit miss store coalesced)
   @miss_reasons %{
     "absent" => :absent,
@@ -28,7 +35,8 @@ defmodule Aiur.GitHub.AgentCacheMetrics do
     "invalidated" => :invalidated,
     "bypassed" => :bypassed,
     "clock-skewed" => :"clock-skewed",
-    "corrupt" => :corrupt
+    "corrupt" => :corrupt,
+    "torn" => :torn
   }
 
   @type snapshot :: %{
@@ -115,7 +123,10 @@ defmodule Aiur.GitHub.AgentCacheMetrics do
     read_fun = Keyword.get(opts, :read_fun, &File.read/1)
     stat_fun = Keyword.get(opts, :stat_fun, &File.stat(&1, time: :posix))
 
-    counts = Enum.reduce(paths, empty_counts(), &read_source(&1, &2, read_fun, stat_fun, started_unix, now_unix))
+    {counts, _bytes_read} =
+      Enum.reduce(paths, {empty_counts(), 0}, fn path, {counts, bytes_read} ->
+        read_source(path, counts, bytes_read, read_fun, stat_fun, started_unix, now_unix)
+      end)
 
     sample_size = counts.hits + counts.misses
 
@@ -140,34 +151,48 @@ defmodule Aiur.GitHub.AgentCacheMetrics do
 
   defp schedule(_state), do: :ok
 
-  defp read_source(path, counts, read_fun, stat_fun, started_unix, now_unix) do
+  defp read_source(path, counts, bytes_read, read_fun, stat_fun, started_unix, now_unix) do
     case stat_fun.(path) do
       {:ok, %{mtime: modified_at}} when is_integer(modified_at) and modified_at < started_unix ->
-        %{counts | sources_read: counts.sources_read + 1}
+        {%{counts | sources_read: counts.sources_read + 1}, bytes_read}
+
+      {:ok, %{mtime: modified_at, size: size}} when is_integer(modified_at) and is_integer(size) ->
+        if bytes_read + size > @max_read_bytes do
+          # The read budget for this pass is spent. Skipping the rest bounds the
+          # daemon's steady-state read volume regardless of how many retained
+          # archives accumulate; the snapshot reports this as partial coverage
+          # rather than hiding the valid samples it did read.
+          {%{counts | skipped_sources: counts.skipped_sources + 1}, bytes_read}
+        else
+          read_rows(path, counts, bytes_read + size, read_fun, started_unix, now_unix)
+        end
 
       {:ok, _stat} ->
-        read_rows(path, counts, read_fun, started_unix, now_unix)
+        read_rows(path, counts, bytes_read, read_fun, started_unix, now_unix)
 
       _unreadable ->
-        %{counts | skipped_sources: counts.skipped_sources + 1}
+        {%{counts | skipped_sources: counts.skipped_sources + 1}, bytes_read}
     end
   rescue
-    _unavailable -> %{counts | skipped_sources: counts.skipped_sources + 1}
+    _unavailable -> {%{counts | skipped_sources: counts.skipped_sources + 1}, bytes_read}
   catch
-    _kind, _reason -> %{counts | skipped_sources: counts.skipped_sources + 1}
+    _kind, _reason -> {%{counts | skipped_sources: counts.skipped_sources + 1}, bytes_read}
   end
 
-  defp read_rows(path, counts, read_fun, started_unix, now_unix) do
+  defp read_rows(path, counts, bytes_read, read_fun, started_unix, now_unix) do
     case read_fun.(path) do
       {:ok, contents} when is_binary(contents) ->
-        contents
-        |> String.splitter("\n")
-        |> Enum.reduce(%{counts | sources_read: counts.sources_read + 1}, fn line, acc ->
-          count_line(acc, line, started_unix, now_unix)
-        end)
+        counts =
+          contents
+          |> String.splitter("\n")
+          |> Enum.reduce(%{counts | sources_read: counts.sources_read + 1}, fn line, acc ->
+            count_line(acc, line, started_unix, now_unix)
+          end)
+
+        {counts, bytes_read}
 
       _unreadable ->
-        %{counts | skipped_sources: counts.skipped_sources + 1}
+        {%{counts | skipped_sources: counts.skipped_sources + 1}, bytes_read}
     end
   end
 

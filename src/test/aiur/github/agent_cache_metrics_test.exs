@@ -53,13 +53,14 @@ defmodule Aiur.GitHub.AgentCacheMetricsTest do
       row(-40, "ticket:1", "miss", "issue", "1", "invalidated"),
       row(-30, "ticket:1", "miss", "issue", "1", "bypassed"),
       row(-20, "ticket:1", "miss", "issue", "1", "clock-skewed"),
-      row(-10, "ticket:1", "miss", "issue", "1", "corrupt")
+      row(-10, "ticket:1", "miss", "issue", "1", "corrupt"),
+      row(-5, "ticket:1", "miss", "issue", "1", "torn")
     ]
 
     write_rows(path, rows)
     snapshot = AgentCacheMetrics.snapshot(paths: [path], clock: fn -> @now end)
 
-    assert snapshot.misses == 7
+    assert snapshot.misses == 8
 
     assert snapshot.miss_reasons == %{
              :absent => 1,
@@ -68,6 +69,7 @@ defmodule Aiur.GitHub.AgentCacheMetricsTest do
              :corrupt => 1,
              :expired => 1,
              :invalidated => 1,
+             :torn => 1,
              :unknown => 1
            }
   end
@@ -111,6 +113,40 @@ defmodule Aiur.GitHub.AgentCacheMetricsTest do
     assert zero_denominator.stores == 1
     assert zero_denominator.sample_size == 0
     assert is_nil(zero_denominator.hit_ratio)
+  end
+
+  test "a source past the read budget is skipped as partial coverage instead of read in full" do
+    root = tmp_dir!()
+    valid = Path.join(root, "agent-cache.tsv")
+    oversized = Path.join(root, "agent-cache.tsv.overflow")
+    write_rows(valid, [row(-10, "ticket:1", "hit", "issue", "1")])
+    write_rows(oversized, [row(-10, "ticket:1", "hit", "issue", "1")])
+
+    # Archives are rotated at ~1 MiB each and retained for ~25 hours, so on a
+    # host without GNU/BSD find the in-window pile can grow without a prune. The
+    # 30-second read pass must not then read an unbounded amount of disk: once a
+    # source would push the pass past its budget it is skipped and reported as
+    # partial coverage, exactly like an unreadable file.
+    stat_fun = fn
+      ^oversized -> {:ok, %{mtime: DateTime.to_unix(@now), size: 10 * 1024 * 1024}}
+      path -> File.stat(path, time: :posix)
+    end
+
+    reads = :counters.new(1, [])
+
+    read_fun = fn source ->
+      :counters.add(reads, 1, 1)
+      File.read(source)
+    end
+
+    snapshot = AgentCacheMetrics.snapshot(paths: [valid, oversized], clock: fn -> @now end, stat_fun: stat_fun, read_fun: read_fun)
+
+    assert snapshot.available?
+    assert snapshot.partial?
+    assert snapshot.skipped_sources == 1
+    assert snapshot.sources_read == 1
+    assert snapshot.hits == 1
+    assert :counters.get(reads, 1) == 1
   end
 
   test "discovers counters below each workspace dot directory" do
