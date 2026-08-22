@@ -42,10 +42,22 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   could theoretically be. A TTL shorter than the cadence saves nothing; a TTL
   much longer than the cadence buys little more and holds staleness longer.
 
-  | kind | ttl | why |
-  | --- | --- | --- |
-  | `:comments` | 30 s | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
-  | `:issue_graph` | 30 s | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
+  | kind | ttl (polling) | ttl (webhook-backed) | why |
+  | --- | --- | --- | --- |
+  | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
+  | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
+
+  There are two buckets, and which one applies is decided by the repository's
+  delivery mode, not by the class. A repo that is not proven webhook-backed —
+  never configured, configured-but-unproven, or degraded from silence — gets
+  the short bucket, because for it the TTL is the only freshness mechanism:
+  nothing but the clock retires its entries. A repo proven webhook-backed gets
+  the long bucket, because `Aiur.Events.GithubWebhook.Deposit` retires the
+  `ReadCache` entries a delivery makes stale, so the TTL stops being a guess at
+  staleness and becomes a backstop against a missed delivery. It collapses back
+  to the short bucket the moment the repo degrades (silence past
+  `webhooks.silence_threshold_seconds`), which is the measured bound on how
+  long a missed delivery can go uncorrected. One hour is four times that bound.
 
   Every TTL here is an upper bound on staleness only in the absence of news. An
   invalidation retires the entry immediately, so the observed staleness for
@@ -96,28 +108,56 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   `Aiur.GitHub.ResourceFetch` requires an explicit `:freshness` with no default
   for exactly that reason, and nothing about a TTL chosen here reaches it.
 
-  So the numbers above sit *below* the cadence of every caller that can reach
-  them. Build Order's catalog refresh is clamped to the tracker poll interval
+  So the short bucket sits *below* the cadence of every caller that can reach
+  it. Build Order's catalog refresh is clamped to the tracker poll interval
   (120 s by default) and its ticket detail freshness derives to 30 s at that
   interval, so a 30-s `:issue_graph` entry is only ever served to a *duplicate*
   read inside a window the caller was not going to re-poll anyway — which is
   where the duplication actually is: concurrent graph builds, the dashboard, and
   the CLI asking the same question at once.
 
+  The long bucket overrides that freshness on purpose, and it is safe only
+  because the delivery retires the entry: a 1-h `:issue_graph` entry is not a
+  promise that GitHub state holds for an hour, it is a promise that the state
+  will be retried the moment a delivery says it changed. A repo whose deliveries
+  are unproven or degraded never gets the long bucket, so the caller's freshness
+  is never overridden where the correction path is absent.
+
   A tracker configured to poll much faster narrows those cadences below these
-  TTLs, and then this table would be serving staleness nobody asked for. The
-  values are therefore overridable — set `:github_read_cache_ttls` to a map of
-  `class => ms` — rather than compiled in, and lowering one is always safe.
-  Reading the live cadence per request is not: it parses settings, and this runs
-  on every GitHub request the daemon makes.
+  TTLs, and then even the short bucket would be serving staleness nobody asked
+  for. The values are therefore overridable — set `:github_read_cache_ttls` to a
+  map of `class => ms` — rather than compiled in, and lowering one is always
+  safe. Reading the live cadence per request is not: it parses settings, and
+  this runs on every GitHub request the daemon makes.
   """
 
   alias Aiur.GitHub.ReadCache.Identity
+  alias Aiur.Webhooks.ModeTable
 
   @type class :: :comments | :issue_graph
   @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom()}
 
+  # The short bucket, in force for any repo that is not proven webhook-backed:
+  # never configured, configured-but-unproven, or degraded from silence. For
+  # those repos the TTL *is* the freshness mechanism — nothing else retires
+  # their entries — so it stays at the value chosen against the poll cadence
+  # below.
   @default_ttls %{comments: 30_000, issue_graph: 30_000}
+
+  # The long bucket, in force only for a repo proven webhook-backed. Once a
+  # delivery retires what it changes (`Aiur.Events.GithubWebhook.Deposit`),
+  # the TTL stops being the freshness mechanism and becomes a backstop against
+  # a missed delivery — so it can move from seconds to an hour. The hour is
+  # justified against the delivery-reliability bound this system already
+  # measures: `webhooks.silence_threshold_seconds` (900) is how long a silent
+  # repo may go before it degrades back to full polling, which collapses the
+  # TTL to the short bucket. A delivery lost for longer than the threshold is
+  # therefore bounded by the degradation sweep, and the TTL only has to cover
+  # the window in which the miss has not yet been corroborated. One hour is
+  # four times that bound, turning the four expensive GraphQL reads
+  # (`build_order_catalog` above all) from a 30-second re-fetch into an
+  # hourly one while leaving the correction path intact.
+  @webhook_backed_ttls %{comments: 3_600_000, issue_graph: 3_600_000}
 
   # Declared callers, keyed by the string `Transport` stamps on the request from
   # `opts[:caller]`. A caller absent from this table falls through to the REST
@@ -192,7 +232,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   defp classify_kind(request) do
     case Map.get(@callers, caller(request)) do
       nil -> classify_rest(request)
-      class -> cache(class)
+      class -> cache(class, request)
     end
   end
 
@@ -202,9 +242,9 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # and holding a body instead of sending `If-None-Match` would trade a free
   # `304` for staleness. A cache is only an improvement where no validator
   # exists.
-  defp classify_rest(%{method: :get, url: url}) when is_binary(url) do
+  defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
     if Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url),
-      do: cache(:comments),
+      do: cache(:comments, request),
       else: {:no_cache, :unclassified}
   end
 
@@ -213,22 +253,60 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @doc """
   The TTL in force for a class, after any operator override.
 
-  A configured value of zero or less is an instruction to stop caching that
-  class, and is honoured as a refusal rather than clamped up to something the
-  operator did not ask for.
+  This is the short-bucket value, for a request whose repository's transport is
+  unknown or not proven webhook-backed — which is also the conservative default
+  when no repository is in hand. A configured value of zero or less is an
+  instruction to stop caching that class, and is honoured as a refusal rather
+  than clamped up to something the operator did not ask for.
   """
   @spec ttl_ms(class()) :: integer()
   def ttl_ms(class) do
-    overrides = Application.get_env(:aiur, :github_read_cache_ttls, %{})
-    configured = if is_map(overrides), do: Map.get(overrides, class), else: nil
-
-    if is_integer(configured), do: configured, else: Map.fetch!(@default_ttls, class)
+    configured_override(class) || Map.fetch!(@default_ttls, class)
   end
 
-  defp cache(class) do
-    case ttl_ms(class) do
+  @doc """
+  The TTL in force for a class given the transport serving the request's repo.
+
+  A proven webhook-backed repo earns the long TTL, because every mutation path
+  into the repo is now covered by a subscribed delivery or by our own write
+  (`Aiur.Events.GithubWebhook.Deposit` retires what it deposits). Any polling
+  transport — never configured, configured-but-unproven, or degraded from
+  silence — keeps the short TTL, because for those repos the TTL is still the
+  only freshness mechanism.
+
+  An operator override (`:github_read_cache_ttls`) wins over both buckets, so
+  tightening one class always works whichever transport the repo is on.
+  """
+  @spec ttl_ms(class(), Aiur.Webhooks.DeliveryMode.transport()) :: integer()
+  def ttl_ms(class, transport) do
+    configured_override(class) || mode_ttl(class, transport)
+  end
+
+  defp mode_ttl(class, :webhook), do: Map.fetch!(@webhook_backed_ttls, class)
+  defp mode_ttl(class, _polling), do: Map.fetch!(@default_ttls, class)
+
+  defp configured_override(class) do
+    overrides = Application.get_env(:aiur, :github_read_cache_ttls, %{})
+    configured = if is_map(overrides), do: Map.get(overrides, class), else: nil
+    if is_integer(configured), do: configured, else: nil
+  end
+
+  defp cache(class, request) do
+    case ttl_ms(class, transport(request)) do
       ttl_ms when ttl_ms > 0 -> {:cache, class, ttl_ms}
       _disabled -> {:no_cache, :disabled}
+    end
+  end
+
+  # The transport for the repository a request observes, read from `ModeTable`
+  # without a process hop. A request whose repository cannot be named has
+  # already refused at `:no_identity` before this is consulted, so `nil` here
+  # is a request that reached `classify_kind` with a named repo but whose
+  # transport cannot be determined — which answers the conservative short TTL.
+  defp transport(request) do
+    case Identity.repository(request) do
+      {owner, repo} -> ModeTable.transport("#{owner}/#{repo}")
+      nil -> :polling
     end
   end
 
