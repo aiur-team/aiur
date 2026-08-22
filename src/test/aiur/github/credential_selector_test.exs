@@ -29,14 +29,18 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
   end
 
   describe "single credential (back-compat)" do
-    test "one configured credential is not pooled and assign/2 leaves the request alone" do
+    test "one configured credential keeps its token and receives a stable accounting key" do
       only = with_token(credential("solo", primary?: true, writes?: true), "solo-token")
 
       refute CredentialRegistry.pooled?(credentials: [only])
 
-      request = %{method: :get, url: "https://api.github.com/repos/o/r", token: "legacy-token"}
+      request = %{method: :get, url: "https://api.github.com/repos/o/r", token: "solo-token"}
 
-      assert CredentialSelector.assign(request, credentials: [only]) == request
+      assigned = CredentialSelector.assign(request, credentials: [only])
+
+      assert assigned.token == request.token
+      assert assigned.credential_key == Credential.token_key(only)
+      refute Map.has_key?(assigned, :credential_id)
     end
 
     test "choose/3 returns the only credential for both budgets and both intents" do
@@ -161,7 +165,7 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
     setup do
       # Deliberately never exported, so the registry filters it out and no
       # `primary?` credential survives.
-      legacy = %Credential{id: "primary", kind: :machine_user, source: :legacy, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
+      legacy = %Credential{id: "primary", kind: :machine_user, source: :env, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
       human = with_token(credential("human_first", kind: :human), "human-first-token")
 
       # Two write-eligible machine users, not one. With a single eligible
@@ -209,7 +213,7 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
     # `Config.token/0`. A write that cannot be attributed safely must not be
     # attributed at all.
     test "returns nil rather than an ineligible credential when only a human resolves", %{human: human} do
-      legacy = %Credential{id: "primary", kind: :machine_user, source: :legacy, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
+      legacy = %Credential{id: "primary", kind: :machine_user, source: :env, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
 
       opts = [credentials: [legacy, human], windows: %{}, now: @now]
 
@@ -217,7 +221,7 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
     end
 
     test "the request keeps its original token when nothing may carry the write", %{human: human} do
-      legacy = %Credential{id: "primary", kind: :machine_user, source: :legacy, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
+      legacy = %Credential{id: "primary", kind: :machine_user, source: :env, token_env: "AIUR_TEST_LEGACY_ABSENT", writes?: true, primary?: true}
 
       request = %{method: :post, url: "https://api.github.com/repos/o/r/labels", body: %{name: "x"}, token: "config-token"}
 
@@ -279,7 +283,26 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
 
       assert assigned.token == "spare-token"
       assert assigned.credential_id == "spare"
-      assert Budget.token_key(assigned.token) == Credential.token_key(spare)
+      assert assigned.credential_key == Credential.token_key(spare)
+    end
+
+    test "attaches one stable key to successive tokens for the same credential" do
+      credential = credential("rotating", identity: "Aiur-Bot", primary?: true, writes?: true)
+      first = with_token(credential, "first-token")
+      first_request = CredentialSelector.assign(%{method: :get, url: "https://api.github.com/repos/o/r", token: "first-token"}, credentials: [first])
+
+      System.put_env(first.token_env, "second-token")
+      second_request = CredentialSelector.assign(%{method: :get, url: "https://api.github.com/repos/o/r", token: "second-token"}, credentials: [first])
+
+      assert first_request.credential_key == second_request.credential_key
+      refute first_request.credential_key == Budget.token_key("first-token")
+    end
+
+    test "distinct configured credentials stay distinct when identity and token overlap" do
+      first = with_token(credential("first", identity: "same-login"), "shared-token")
+      second = with_token(credential("second", identity: "same-login"), "shared-token")
+
+      refute Credential.token_key(first) == Credential.token_key(second)
     end
   end
 end

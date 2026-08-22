@@ -12,7 +12,7 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
   alias Aiur.BuildOrder.RootSummary
 
   @type html_projection :: %{
-          state: RootSummary.progress_resolution(),
+          state: RootSummary.progress_resolution() | :empty,
           label: String.t(),
           percent: 0..100 | nil,
           coverage: String.t() | nil,
@@ -27,6 +27,7 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
       %{state: :resolved, percent: percent} -> "#{percent}%"
       %{state: :partial, percent: percent, coverage: nil} -> "#{percent}% partial"
       %{state: :partial, percent: percent, coverage: coverage} -> "#{percent}% partial (#{coverage})"
+      %{state: :empty} -> "empty"
       %{state: :unresolved} -> "unresolved"
       %{state: :unknown} -> "unknown"
     end
@@ -67,18 +68,31 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
     resolution = resolution(field(value, :progress_resolution))
 
     if consistent?(resolution, resolved_count, member_count) do
-      case resolution do
-        :resolved when is_integer(progress) -> projection(:resolved, progress, resolved_count, member_count)
-        :partial when is_integer(progress) -> projection(:partial, progress, resolved_count, member_count)
-        :unresolved -> projection(:unresolved, nil, resolved_count, member_count)
-        _unknown_or_invalid -> projection(:unknown, nil, nil, member_count)
-      end
+      project_resolution(resolution, progress, resolved_count, member_count)
     else
       projection(:unknown, nil, nil, member_count)
     end
   end
 
   defp project(_value), do: projection(:unknown, nil, nil, nil)
+
+  defp project_resolution(:empty, _progress, resolved_count, member_count),
+    do: projection(:empty, nil, resolved_count, member_count)
+
+  defp project_resolution(:resolved, progress, resolved_count, 0) when is_integer(progress),
+    do: projection(:empty, nil, resolved_count, 0)
+
+  defp project_resolution(:resolved, progress, resolved_count, member_count) when is_integer(progress),
+    do: projection(:resolved, progress, resolved_count, member_count)
+
+  defp project_resolution(:partial, progress, resolved_count, member_count) when is_integer(progress),
+    do: projection(:partial, progress, resolved_count, member_count)
+
+  defp project_resolution(:unresolved, _progress, resolved_count, member_count),
+    do: projection(:unresolved, nil, resolved_count, member_count)
+
+  defp project_resolution(_resolution, _progress, _resolved_count, member_count),
+    do: projection(:unknown, nil, nil, member_count)
 
   defp projection(state, percent, resolved_count, member_count) do
     %{
@@ -99,6 +113,7 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
 
   defp resolution(value) when value in [:resolved, "resolved"], do: :resolved
   defp resolution(value) when value in [:partial, "partial"], do: :partial
+  defp resolution(value) when value in [:empty, "empty"], do: :empty
   defp resolution(value) when value in [:unresolved, "unresolved"], do: :unresolved
   defp resolution(value) when value in [:unknown, "unknown"], do: :unknown
   defp resolution(_value), do: :unknown
@@ -124,6 +139,9 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
   defp consistent?(:partial, resolved_count, nil) when is_integer(resolved_count),
     do: resolved_count > 0
 
+  defp consistent?(:empty, resolved_count, member_count),
+    do: resolved_count == 0 and member_count == 0
+
   defp consistent?(:unresolved, resolved_count, _member_count) when is_integer(resolved_count),
     do: resolved_count == 0
 
@@ -140,6 +158,7 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
 
   defp html_label(%{state: :resolved, percent: percent}), do: "#{percent}%"
   defp html_label(%{state: :partial, percent: percent}), do: "#{percent}% partial"
+  defp html_label(%{state: :empty}), do: "Empty"
   defp html_label(%{state: :unresolved}), do: "unresolved"
   defp html_label(%{state: :unknown}), do: "unknown"
 
@@ -151,6 +170,8 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
 
   defp aria_label(%{state: :partial, percent: percent, coverage: coverage}),
     do: "#{percent}% complete with partial resolution; #{coverage}"
+
+  defp aria_label(%{state: :empty}), do: "Empty Build Order; no members"
 
   defp aria_label(%{state: :unresolved}),
     do: "Progress unresolved; completion could not be resolved"
@@ -165,6 +186,8 @@ defmodule Aiur.BuildOrder.ProgressRenderer do
 
   defp title(%{state: :partial, coverage: coverage}),
     do: "Completion is resolved for only part of this Build Order: #{coverage}."
+
+  defp title(%{state: :empty}), do: "This Build Order has no members."
 
   defp title(%{state: :unresolved}),
     do: "Completion resolution was attempted but could not resolve any progress."

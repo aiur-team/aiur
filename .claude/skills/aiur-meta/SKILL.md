@@ -27,6 +27,45 @@ Real examples from this repo: a provider meter reported `freshness: :fresh` on a
 resolution failed silently (#1491); a blocker card described a PR as unmerged for
 five days after it merged (#1565).
 
+**The same rule applies to your own carried-forward claims.** A "standing item"
+repeated from the last log is an unverified assertion, not a finding. On
+2026-08-22 an Executor reported "webhook ingress was never enabled" in five
+consecutive hourly logs, built a plan on it, and asked the operator to enable a
+tunnel. Webhooks had been delivering `202 OK` the entire time. The claim was
+inherited from a handoff and never re-tested.
+
+**Re-verify every standing item you repeat, from the system that owns the
+answer.** If you cannot cheaply re-verify one, say "unverified since <time>"
+rather than restating it as fact. Carrying a stale claim forward is how a whole
+run's plan ends up resting on something nobody checked.
+
+### Verify capability from the system of record, not from local config
+
+The failure above had a second half. The Executor *did* check — it ran
+`tailscale funnel status`, saw Funnel disabled, and treated that as
+confirmation. But Funnel was one hypothetical transport; the live one was a
+Cloudflare tunnel the operator had already built.
+
+**Checking a mechanism you assume is in use does not answer whether the
+capability works.** Ask the system that owns the answer, not the local file that
+would describe one possible implementation of it: delivery history over a
+tunnel's status, `gh pr checks` over a local test run, the running daemon's
+behaviour over a merge commit, a credential resolved against the API over a
+variable that is merely set.
+
+An empty local config proves nothing about a capability that may be provided
+elsewhere. Prefer the source that would still be right if every local assumption
+were wrong.
+
+**Before auditing a GitHub-facing surface, read
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+It is the source of truth for how Aiur talks to GitHub — poll cadence, API
+budgets, credential pooling, the read cache, webhook delivery states, and the
+Cloudflare tunnel boundary. In the incident above it already documented the
+tunnel and the delivery-state table that would have prevented the whole
+detour. Do not restate its contents in a skill or a ticket; link to it, so there
+is one copy to keep true.
+
 ## 1. Observe — do not infer
 
 ### Dashboard pages
