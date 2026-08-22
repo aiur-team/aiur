@@ -283,8 +283,6 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  defp maybe_alert_meter_disagreement(_request, _key, _reason, _opts), do: :ok
-
   defp local_usage(key, resource, opts) do
     usage_opts = opts |> Keyword.drop([:deadline_at]) |> Keyword.put(:timeout_ms, 1_000)
 

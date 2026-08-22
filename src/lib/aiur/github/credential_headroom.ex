@@ -189,25 +189,31 @@ defmodule Aiur.GitHub.CredentialHeadroom do
 
   # One alert per key per reset window, cleared as soon as the meters agree
   # again so the next real divergence still speaks.
-  defp signal(key, disagrees?, reset_at, message, opts) do
-    if disagrees? do
-      if activate_disagreement(key, DateTime.to_unix(reset_at)) do
-        alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_system/2)
-
-        case alert_fun.("system.github.budget_meter_disagreement",
-               reason: message,
-               needs_attention: true,
-               severity: "warning"
-             ) do
-          :ok -> :ok
-          _failed -> :ets.delete(@disagreements_table, key)
-        end
-      end
-    else
-      :ets.delete(@disagreements_table, key)
+  defp signal(key, true = _disagrees?, reset_at, message, opts) do
+    if activate_disagreement(key, DateTime.to_unix(reset_at)) do
+      emit_disagreement(key, message, opts)
     end
 
     :ok
+  end
+
+  defp signal(key, false = _disagrees?, _reset_at, _message, _opts) do
+    :ets.delete(@disagreements_table, key)
+
+    :ok
+  end
+
+  defp emit_disagreement(key, message, opts) do
+    alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_system/2)
+
+    case alert_fun.("system.github.budget_meter_disagreement",
+           reason: message,
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok -> :ok
+      _failed -> :ets.delete(@disagreements_table, key)
+    end
   end
 
   defp activate_disagreement(key, signature) do
