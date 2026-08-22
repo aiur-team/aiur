@@ -301,7 +301,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   # Observation memory only has to outlive the window a replay could span, so
-  # it is dropped a full silence threshold after a resource was last offered.
+  # it is dropped two full silence thresholds after a resource was last offered.
   # Anything the poller is still re-offering refreshes on every sighting and so
   # never reaches this, which bounds the map to what the fleet is actively
   # looking at rather than everything it has ever seen.

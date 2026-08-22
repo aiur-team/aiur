@@ -84,8 +84,8 @@ defmodule AiurWeb.StreamdeckStripTest do
       StreamdeckStrip.entries([
         %{kind: :event_header, badge: "EMIT", body: "tool finished", timestamp: "not-a-time"},
         %{kind: :diff, path: "lib/strip.ex", additions: 0, deletions: 0, line: " context"},
-        %{kind: :diff, path: "lib/strip.ex", additions: 2, deletions: 1, line: "added"},
-        %{kind: :diff, path: "lib/strip.ex", additions: 0, deletions: 1, line: "removed"},
+        %{kind: :diff, path: "lib/strip.ex", additions: 2, deletions: 1, line: "+added"},
+        %{kind: :diff, path: "lib/strip.ex", additions: 0, deletions: 1, line: "-removed"},
         %{kind: :message, role: "assistant", body: "working"},
         %{kind: :message, role: "tool", body: "mix test"},
         %{kind: :message, role: "system", body: "CI passed"},

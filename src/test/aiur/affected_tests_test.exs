@@ -63,6 +63,95 @@ defmodule Aiur.AffectedTestsTest do
            ) == {:scoped, ["src/test/aiur/caller_test.exs"]}
   end
 
+  test "includes tests found by deleted-reference scanning" do
+    assert AffectedTests.select(["src/lib/aiur/github/reply.ex"],
+             exists?: fn _ -> true end,
+             reference_tests: ["src/test/aiur/github_client_test.exs"]
+           ) ==
+             {:scoped, ["src/test/aiur/github/reply_test.exs", "src/test/aiur/github_client_test.exs"]}
+  end
+
+  test "extracts references deleted from individual diff hunks" do
+    diff = """
+    @@ -1 +1 @@
+    -Keyword.get_lazy(opts, :bot_account, &GitHub.Config.bot_account/0)
+    +Keyword.get_lazy(opts, :daemon_account, &GitHub.Config.daemon_account/0)
+    @@ -8 +8 @@
+    -URI.encode_query(%{"state" => "open", "head" => branch})
+    +URI.encode_query(%{"state" => "open"})
+    @@ -12 +12 @@
+    -foo(value)
+    +bar(value)
+    @@ -16 +16 @@
+    -def old_name, do: :state
+    +def new_name, do: :status
+    """
+
+    terms = AffectedTests.deleted_reference_terms(diff)
+
+    assert "bot_account" in terms
+    assert "foo" in terms
+    assert "head" in terms
+    assert "old_name" in terms
+    assert "state" in terms
+    refute "bar" in terms
+    refute "daemon_account" in terms
+    refute "new_name" in terms
+    refute "open" in terms
+  end
+
+  test "ignores diff headers without dropping changed lines that start with signs" do
+    diff = """
+    diff --git a/src/lib/old.ex b/src/lib/new.ex
+    --- a/src/lib/old.ex
+    +++ b/src/lib/new.ex
+    @@ -1 +1 @@
+    ----:bot_account in heredoc
+    ++++:daemon_account in heredoc
+    """
+
+    terms = AffectedTests.deleted_reference_terms(diff)
+
+    assert "bot_account" in terms
+    refute "old" in terms
+    refute "daemon_account" in terms
+  end
+
+  test "finds root-level tests containing deleted references" do
+    root = Path.join(System.tmp_dir!(), "affected-reference-tests-#{System.unique_integer([:positive])}")
+    root_test = Path.join(root, "src/test/aiur/github_client_test.exs")
+    nested_test = Path.join(root, "src/test/aiur/github/reply_test.exs")
+    File.mkdir_p!(Path.dirname(root_test))
+    File.mkdir_p!(Path.dirname(nested_test))
+    File.write!(root_test, "reply(opts: [bot_account: account])")
+    File.write!(nested_test, "reply(opts: [daemon_account: account])")
+
+    try do
+      assert AffectedTests.reference_test_files(root, ["bot_account"]) == [
+               "src/test/aiur/github_client_test.exs"
+             ]
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  test "reference matching does not confuse an identifier with a longer word" do
+    root = Path.join(System.tmp_dir!(), "affected-reference-boundary-#{System.unique_integer([:positive])}")
+    header_test = Path.join(root, "src/test/aiur/header_test.exs")
+    head_test = Path.join(root, "src/test/aiur/github_client_test.exs")
+    File.mkdir_p!(Path.dirname(header_test))
+    File.write!(header_test, "assert response.headers != []")
+    File.write!(head_test, ~s(assert url =~ "head=owner:branch"))
+
+    try do
+      assert AffectedTests.reference_test_files(root, ["head"]) == [
+               "src/test/aiur/github_client_test.exs"
+             ]
+    after
+      File.rm_rf!(root)
+    end
+  end
+
   test "fails closed when no direct or xref-dependent test exists" do
     assert {:full, reason} =
              AffectedTests.select(["src/lib/aiur/callee.ex"], exists?: fn _ -> false end)
