@@ -347,6 +347,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
         # the new authority a labelled one.
         catalog_labels_read_ms: nil,
         catalog_labels_ok_ms: nil,
+        catalog_labels_failure: nil,
         catalog_labels_failures: 0,
         catalog_labels_penalty_ms: 0,
         selected: %{},
@@ -703,7 +704,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
           {:error, failure, provider_result} ->
             state
-            |> record_catalog_labels_failure(scope, inflight)
+            |> record_catalog_labels_failure(scope, inflight, failure)
             |> complete_failure(entry, scope, failure, provider_result)
         end
 
@@ -727,6 +728,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp complete_success(state, entry, scope, candidate, inflight) do
     generation = state.next_generation
     candidate = carry_catalog_counts(state, candidate, entry, scope, inflight)
+    {state, candidate} = put_catalog_count_resolution(state, candidate, scope, inflight)
     entry = Policy.apply_success(entry, candidate, generation, now(state), now_ms(state))
 
     state =
@@ -836,6 +838,27 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp carry_catalog_counts(_state, candidate, _entry, _scope, _inflight), do: candidate
 
+  defp put_catalog_count_resolution(state, %Catalog{} = catalog, :catalog, inflight) do
+    if labelled_read?(inflight) do
+      failure = if unresolved_populated_counts?(catalog), do: :upstream, else: nil
+      {%{state | catalog_labels_failure: failure}, Catalog.put_count_resolution_failure(catalog, failure)}
+    else
+      {state, Catalog.put_count_resolution_failure(catalog, state.catalog_labels_failure)}
+    end
+  end
+
+  defp put_catalog_count_resolution(state, candidate, _scope, _inflight), do: {state, candidate}
+
+  defp unresolved_populated_counts?(%Catalog{entries: entries}) do
+    Enum.any?(entries, fn
+      %{member_count: count, epic_count: epics, phase_count: phases} when is_integer(count) and count > 0 ->
+        is_nil(epics) or is_nil(phases)
+
+      _entry ->
+        false
+    end)
+  end
+
   defp labelled_read?(%{member_labels?: true}), do: true
   defp labelled_read?(_inflight), do: false
 
@@ -870,18 +893,23 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp record_catalog_labels_read(state, _scope, _inflight), do: state
 
-  defp record_catalog_labels_failure(state, :catalog, %{member_labels?: true}) do
+  defp record_catalog_labels_failure(state, :catalog, %{member_labels?: true}, failure) do
     failures = state.catalog_labels_failures + 1
 
     %{
       state
       | catalog_labels_read_ms: now_ms(state),
+        catalog_labels_failure: count_resolution_failure(failure),
         catalog_labels_failures: failures,
         catalog_labels_penalty_ms: labels_penalty_ms(state, failures)
     }
   end
 
-  defp record_catalog_labels_failure(state, _scope, _inflight), do: state
+  defp record_catalog_labels_failure(state, _scope, _inflight, _failure), do: state
+
+  defp count_resolution_failure(failure) when failure in [:call_budget, :page_budget, :budget], do: :budget
+  defp count_resolution_failure(:timeout), do: :timeout
+  defp count_resolution_failure(_failure), do: :upstream
 
   defp labels_penalty_ms(state, failures) do
     backoff = state.policy.catalog_refresh_ms * Integer.pow(2, min(failures - 1, 16))

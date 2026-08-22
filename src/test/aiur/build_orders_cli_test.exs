@@ -59,6 +59,10 @@ defmodule Aiur.BuildOrdersCLITest do
   end
 
   test "lists the dashboard catalog with source freshness and no fabricated progress" do
+    snapshot = Process.get(:build_orders_catalog)
+    catalog = Catalog.put_count_resolution_failure(snapshot.data, :budget)
+    Process.put(:build_orders_catalog, %{snapshot | data: catalog})
+
     assert {:ok, envelope} = BuildOrdersCLI.build(source: Source, now: @captured_at)
 
     assert envelope["schema_version"] == 2
@@ -78,6 +82,7 @@ defmodule Aiur.BuildOrdersCLITest do
     assert root["title"] == "Build Order"
     assert root["progress"] == nil
     assert root["progress_resolution"] == "unknown"
+    refute Map.has_key?(envelope["data"]["catalog"], "count_resolution_failure")
   end
 
   test "preserves each catalog completion resolution in JSON and human output" do

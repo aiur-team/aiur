@@ -42,6 +42,10 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # because a failing labelled read must still back off, but must not make
       # the carried counts look freshly re-read.
       catalog_labels_ok_ms: nil,
+      # Bounded reason the last labelled read could not resolve epic/wave
+      # counts. Cheap catalog reads cannot answer that question, so they retain
+      # this fact until the next labelled success replaces it.
+      catalog_labels_failure: nil,
       catalog_labels_failures: 0,
       catalog_labels_penalty_ms: 0,
       selected: %{},

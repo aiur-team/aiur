@@ -281,6 +281,16 @@ defmodule Aiur.BuildOrdersCLI do
     |> plain()
   end
 
+  # Count-resolution provenance is dashboard-only in schema version 2. Keep it
+  # out of the generic struct traversal so this internal catalog fact does not
+  # silently change the CLI JSON contract.
+  defp plain(%Catalog{} = value) do
+    value
+    |> Map.from_struct()
+    |> Map.delete(:count_resolution_failure)
+    |> plain()
+  end
+
   defp plain(%{__struct__: _} = value), do: value |> Map.from_struct() |> plain()
   defp plain(value) when is_map(value), do: Map.new(value, fn {key, item} -> {key, plain(item)} end)
   defp plain(value) when is_list(value), do: Enum.map(value, &plain/1)

@@ -77,8 +77,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
               <.catalog_progress progress={progress} />
             </td>
             <td class="bo-catalog-num mono num" data-sort-value={entry.member_count}>{count_display(entry.member_count)}</td>
-            <td class="bo-catalog-num mono num" data-sort-value={entry.epic_count}><.catalog_count count={entry.epic_count} label="Epics" /></td>
-            <td class="bo-catalog-num mono num" data-sort-value={entry.phase_count}><.catalog_count count={entry.phase_count} label="Waves" /></td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.epic_count}><.catalog_count count={entry.epic_count} label="Epics" failure={@catalog.count_resolution_failure} /></td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.phase_count}><.catalog_count count={entry.phase_count} label="Waves" failure={@catalog.count_resolution_failure} /></td>
           </tr>
           <% end %>
         </tbody>
@@ -159,8 +159,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
 
   attr(:count, :any, required: true)
   attr(:label, :string, required: true)
+  attr(:failure, :atom, default: nil)
 
   defp catalog_count(assigns) do
+    assigns = assign(assigns, :unresolved, count_failure_presentation(assigns.label, assigns.failure))
+
     ~H"""
     <%= if is_integer(@count) do %>
       {@count}
@@ -169,14 +172,42 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         class="bo-catalog-count-unresolved"
         data-count-state="unresolved"
         role="img"
-        aria-label={"#{@label} not counted"}
-        title={"#{@label} could not be counted for this Build Order"}
+        aria-label={@unresolved.aria_label}
+        title={@unresolved.title}
       >
-        Unresolved
+        {@unresolved.text}
       </span>
     <% end %>
     """
   end
+
+  defp count_failure_presentation(label, :budget),
+    do: %{
+      text: "Budget exhausted",
+      aria_label: "#{label} not counted: budget exhausted",
+      title: "#{label} could not be counted because the planning query budget was exhausted."
+    }
+
+  defp count_failure_presentation(label, :timeout),
+    do: %{
+      text: "Timed out",
+      aria_label: "#{label} not counted: timed out",
+      title: "#{label} could not be counted because the planning request timed out."
+    }
+
+  defp count_failure_presentation(label, :upstream),
+    do: %{
+      text: "Upstream error",
+      aria_label: "#{label} not counted: upstream error",
+      title: "#{label} could not be counted because the tracker returned an upstream error."
+    }
+
+  defp count_failure_presentation(label, _failure),
+    do: %{
+      text: "Unresolved",
+      aria_label: "#{label} not counted",
+      title: "#{label} could not be counted for this Build Order"
+    }
 
   defp count_display(count) when is_integer(count), do: Integer.to_string(count)
   defp count_display(_count), do: "—"
