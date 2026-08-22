@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Host-local GitHub request admission broker.
 
-The broker deliberately persists only SHA-256 credential and consumer fingerprints.  A
+The broker deliberately persists only SHA-256 credential and consumer fingerprints. A
 single SQLite transaction covers every decision so independently started Aiur
 nodes and their shell wrappers share the same leases, rate ceiling, stagger,
 and cooldowns without a resident daemon or a network service.
@@ -69,6 +69,10 @@ def connection(path):
           cooldown_until_ms INTEGER NOT NULL DEFAULT 0,
           next_admission_ms INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS credential_bindings (
+          identity_key TEXT PRIMARY KEY,
+          token_key TEXT NOT NULL UNIQUE
+        );
         CREATE TABLE IF NOT EXISTS resource_holds (
           token_key TEXT NOT NULL,
           resource TEXT NOT NULL,
@@ -86,8 +90,11 @@ def connection(path):
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           token_key TEXT NOT NULL,
           consumer_key TEXT NOT NULL DEFAULT '',
+          lease_id TEXT,
           endpoint_family TEXT NOT NULL,
-          admitted_at_ms INTEGER NOT NULL
+          resource TEXT,
+          admitted_at_ms INTEGER NOT NULL,
+          billable INTEGER NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS admissions_token_time ON admissions(token_key, admitted_at_ms);
         CREATE TABLE IF NOT EXISTS policies (
@@ -100,6 +107,7 @@ def connection(path):
           stagger_ms INTEGER NOT NULL,
           core_limit_per_hour INTEGER NOT NULL DEFAULT 0,
           graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0,
+          search_limit_per_hour INTEGER NOT NULL DEFAULT 0,
           observed_at_ms INTEGER NOT NULL,
           PRIMARY KEY (token_key, consumer_key)
         );
@@ -126,6 +134,17 @@ def migrate(conn):
     admissions_columns = {row[1] for row in conn.execute("PRAGMA table_info(admissions)").fetchall()}
     if "consumer_key" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN consumer_key TEXT NOT NULL DEFAULT ''")
+    if "lease_id" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
+    if "billable" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
+    # The resource the guard booked this admission to (core / graphql / unknown).
+    # The broker's accounting buckets on `endpoint_family`, so this column does
+    # not change how a row is counted; it records what the caller *said* it was
+    # spending, which makes a guard that books a GraphQL call to core detectable
+    # from the ledger instead of only inferable from the family-to-bucket map.
+    if "resource" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN resource TEXT")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -134,6 +153,7 @@ def migrate(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS admissions_consumer_time ON admissions(token_key, consumer_key, admitted_at_ms)"
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS admissions_token_lease ON admissions(token_key, lease_id)")
 
     policies_columns = {row[1] for row in conn.execute("PRAGMA table_info(policies)").fetchall()}
     if "consumer_label" not in policies_columns:
@@ -142,6 +162,8 @@ def migrate(conn):
         conn.execute("ALTER TABLE policies ADD COLUMN core_limit_per_hour INTEGER NOT NULL DEFAULT 0")
     if "graphql_limit_per_hour" not in policies_columns:
         conn.execute("ALTER TABLE policies ADD COLUMN graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0")
+    if "search_limit_per_hour" not in policies_columns:
+        conn.execute("ALTER TABLE policies ADD COLUMN search_limit_per_hour INTEGER NOT NULL DEFAULT 0")
 
 
 def cleanup(conn, now):
@@ -163,29 +185,81 @@ def cleanup(conn, now):
     conn.execute("DELETE FROM cache_claims WHERE expires_at_ms <= ?", (now,))
 
 
-# The rolling-hour admissions of one actor and one resource, oldest first. Core
-# is every REST family; GraphQL is the graphql family. A `resource` ceiling is a
-# request-count ceiling: the broker sees admissions, never the GraphQL point
-# price GitHub charged, so this is the coarsest thing that still stops one actor
-# from exhausting the shared hourly budget.
+def resolve_credential_identity(conn, args):
+    """Resolve a stable identity to compatibility storage under one transaction.
+
+    The first stable identity to present a token adopts that token's existing
+    ledger. A later rotation resolves back to the adopted key. If two configured
+    credentials present the same token, only the first may adopt its hash; the
+    second uses its distinct stable key and remains isolated.
+    """
+    identity_key = getattr(args, "identity_key", None)
+    if not identity_key:
+        return
+
+    binding = conn.execute(
+        "SELECT token_key FROM credential_bindings WHERE identity_key = ?", (identity_key,)
+    ).fetchone()
+    if binding:
+        args.token_key = binding[0]
+        return
+
+    claimed = conn.execute(
+        "SELECT identity_key FROM credential_bindings WHERE token_key = ?", (args.token_key,)
+    ).fetchone()
+    storage_key = identity_key if claimed else args.token_key
+    conn.execute(
+        "INSERT INTO credential_bindings(identity_key, token_key) VALUES (?, ?)",
+        (identity_key, storage_key),
+    )
+    args.token_key = storage_key
+
+
+# The rolling-hour billable responses of one actor and one resource, oldest
+# first. Core is every REST booking; GraphQL is the graphql booking. The bucket
+# is the booked `resource` column, NOT the descriptive `endpoint_family`:
+# high-level GraphQL commands keep their family (pulls/issues/search) for the
+# lease pool and the audit histogram while booking `resource=graphql`, so a
+# family can no longer double as the bucket — bucketing on family again would
+# count `pr view` against the core window. Anything not booked graphql (core,
+# or an unclassified `unknown`) counts against the core window. A `resource`
+# ceiling is a request-count ceiling: the broker sees admissions, never the
+# GraphQL point price GitHub charged, so this is the coarsest thing that still
+# stops one actor from exhausting the shared hourly budget. A reconciled 304 is
+# not billable, so it stays in the admissions ledger for RPM accounting but is
+# excluded here.
 def actor_usage_rows(conn, token_key, consumer_key, resource, now):
     if resource == "graphql":
-        family_clause = "endpoint_family = ?"
-        family_value = "graphql"
+        resource_clause = "resource = 'graphql'"
+    elif resource == "search":
+        # GitHub meters `/search/*` against a third pool (`X-Ratelimit-Resource:
+        # search`, ~30 req/min rather than 5,000/hr), so `search` is a
+        # first-class resource of its own — booking it to core or graphql
+        # mis-states the spend and paces nothing against the pool that throttles
+        # first.
+        resource_clause = "resource = 'search'"
     else:
-        family_clause = "endpoint_family != ?"
-        family_value = "graphql"
+        # Parentheses are load-bearing: without them `AND resource IS NULL OR
+        # resource != ?` binds as `(AND resource IS NULL) OR (resource != ?)`,
+        # and the OR branch then matches every non-graphql row on any token or
+        # consumer regardless of billable.
+        resource_clause = "(resource IS NULL OR resource NOT IN ('graphql', 'search'))"
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
-        "WHERE token_key = ? AND consumer_key = ? AND admitted_at_ms > ? AND "
-        + family_clause
+        "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
+        + resource_clause
         + " ORDER BY admitted_at_ms ASC",
-        (token_key, consumer_key, now - HOURLY_WINDOW_MS, family_value),
+        (token_key, consumer_key, now - HOURLY_WINDOW_MS),
     ).fetchall()
 
 
 def actor_ceiling_hold(conn, args, now):
-    limit = args.graphql_limit if args.resource == "graphql" else args.core_limit
+    if args.resource == "graphql":
+        limit = args.graphql_limit
+    elif args.resource == "search":
+        limit = args.search_limit
+    else:
+        limit = args.core_limit
     if not limit or limit <= 0:
         return 0
 
@@ -206,6 +280,7 @@ def acquire(args):
 
     try:
         conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
         cleanup(conn, now)
         conn.execute(
             "INSERT OR IGNORE INTO budgets(token_key, cooldown_until_ms, next_admission_ms) VALUES (?, 0, 0)",
@@ -214,8 +289,8 @@ def acquire(args):
         conn.execute(
             "INSERT INTO policies("
             "token_key, consumer_key, consumer_label, max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms, "
-            "core_limit_per_hour, graphql_limit_per_hour, observed_at_ms"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "core_limit_per_hour, graphql_limit_per_hour, search_limit_per_hour, observed_at_ms"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(token_key, consumer_key) DO UPDATE SET "
             "consumer_label = excluded.consumer_label, "
             "max_inflight = excluded.max_inflight, "
@@ -224,6 +299,7 @@ def acquire(args):
             "stagger_ms = excluded.stagger_ms, "
             "core_limit_per_hour = excluded.core_limit_per_hour, "
             "graphql_limit_per_hour = excluded.graphql_limit_per_hour, "
+            "search_limit_per_hour = excluded.search_limit_per_hour, "
             "observed_at_ms = excluded.observed_at_ms",
             (
                 args.token_key,
@@ -235,6 +311,7 @@ def acquire(args):
                 args.stagger_ms,
                 args.core_limit,
                 args.graphql_limit,
+                args.search_limit,
                 now,
             ),
         )
@@ -361,8 +438,8 @@ def acquire(args):
             (lease_id, args.token_key, args.endpoint_family, expires_at),
         )
         conn.execute(
-            "INSERT INTO admissions(token_key, consumer_key, endpoint_family, admitted_at_ms) VALUES (?, ?, ?, ?)",
-            (args.token_key, args.consumer_key, args.endpoint_family, now),
+            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, resource, admitted_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, args.resource, now),
         )
         conn.execute(
             "UPDATE budgets SET next_admission_ms = ? WHERE token_key = ?", (now + stagger, args.token_key)
@@ -401,12 +478,38 @@ def release(args):
         conn.close()
 
 
+# Reconciliation is keyed on the *adopted* storage key, not the raw token hash
+# the caller presented. An admission was written under the adopted key, so a
+# credential that rotated between admission and reconciliation would otherwise
+# look for its own admission under a key that never held it and silently leave
+# the `304` billable. Resolving inside the transaction is what makes this
+# rotation-safe, and re-running it is a no-op because `billable = 1` is part of
+# the predicate.
+def reconcile(args):
+    conn = connection(args.db)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
+        if args.status == 304:
+            conn.execute(
+                "UPDATE admissions SET billable = 0 WHERE token_key = ? AND lease_id = ? AND billable = 1",
+                (args.token_key, args.lease_id),
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def renew(args):
     conn = connection(args.db)
     try:
         conn.execute(
-            "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ? AND token_key = ?",
-            (now_ms() + args.lease_ttl_ms, args.lease_id, args.token_key),
+            "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ?",
+            (now_ms() + args.lease_ttl_ms, args.lease_id),
         )
     finally:
         conn.close()
@@ -417,6 +520,7 @@ def hold(args):
     conn = connection(args.db)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
         conn.execute(
             "INSERT OR IGNORE INTO budgets(token_key, cooldown_until_ms, next_admission_ms) VALUES (?, 0, 0)",
             (args.token_key,),
@@ -448,6 +552,7 @@ def snapshot(args):
     conn = connection(args.db)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
         cleanup(conn, now)
         cooldown = conn.execute(
             "SELECT cooldown_until_ms FROM budgets WHERE token_key = ?", (args.token_key,)
@@ -457,7 +562,7 @@ def snapshot(args):
             (args.token_key,),
         ).fetchall()
         admissions = conn.execute(
-            "SELECT endpoint_family, admitted_at_ms FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
+            "SELECT endpoint_family, resource, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
         ).fetchall()
         conn.execute("COMMIT")
         print(
@@ -466,8 +571,8 @@ def snapshot(args):
                     "cooldown_until_ms": cooldown[0] if cooldown else 0,
                     "inflight": dict(leases),
                     "admissions": [
-                        {"endpoint_family": endpoint_family, "admitted_at_ms": admitted_at_ms}
-                        for endpoint_family, admitted_at_ms in admissions
+                        {"endpoint_family": endpoint_family, "resource": resource, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
+                        for endpoint_family, resource, admitted_at_ms, billable in admissions
                     ],
                 }
             )
@@ -510,21 +615,56 @@ def usage(args):
         conn.execute("BEGIN IMMEDIATE")
         cleanup(conn, now)
         policies = conn.execute(
-            "SELECT token_key, consumer_key, consumer_label, core_limit_per_hour, graphql_limit_per_hour "
-            "FROM policies ORDER BY token_key, consumer_key"
+            "SELECT COALESCE(bindings.identity_key, policies.token_key), policies.token_key, "
+            "policies.consumer_key, policies.consumer_label, policies.core_limit_per_hour, "
+            "policies.graphql_limit_per_hour, policies.search_limit_per_hour "
+            "FROM policies LEFT JOIN credential_bindings AS bindings ON bindings.token_key = policies.token_key "
+            "ORDER BY COALESCE(bindings.identity_key, policies.token_key), policies.consumer_key"
         ).fetchall()
         actors = [
             {
-                "token_key": token_key,
+                "token_key": reported_key,
                 "consumer_key": consumer_key,
                 "consumer_label": consumer_label,
-                "core": usage_figure(conn, token_key, consumer_key, "core", core_limit, now),
-                "graphql": usage_figure(conn, token_key, consumer_key, "graphql", graphql_limit, now),
+                "core": usage_figure(conn, storage_key, consumer_key, "core", core_limit, now),
+                "graphql": usage_figure(conn, storage_key, consumer_key, "graphql", graphql_limit, now),
+                "search": usage_figure(conn, storage_key, consumer_key, "search", search_limit, now),
             }
-            for token_key, consumer_key, consumer_label, core_limit, graphql_limit in policies
+            for reported_key, storage_key, consumer_key, consumer_label, core_limit, graphql_limit, search_limit in policies
         ]
         conn.execute("COMMIT")
         print(json.dumps({"schema_version": 1, "actors": actors}))
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def meter(args):
+    """One actor/resource figure for hold diagnostics on the request path."""
+    now = now_ms()
+    conn = connection(args.db)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cleanup(conn, now)
+        limits = conn.execute(
+            "SELECT core_limit_per_hour, graphql_limit_per_hour, search_limit_per_hour FROM policies "
+            "WHERE token_key = ? AND consumer_key = ?",
+            (args.token_key, args.consumer_key),
+        ).fetchone()
+        if limits is None:
+            limit = 0
+        elif args.resource == "graphql":
+            limit = limits[1]
+        elif args.resource == "search":
+            limit = limits[2]
+        else:
+            limit = limits[0]
+        figure = usage_figure(conn, args.token_key, args.consumer_key, args.resource, limit, now)
+        conn.execute("COMMIT")
+        print(json.dumps(figure))
     except Exception:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
@@ -537,6 +677,7 @@ def parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", required=True)
     common.add_argument("--token-key", required=True)
+    common.add_argument("--identity-key")
 
     root = argparse.ArgumentParser()
     commands = root.add_subparsers(dest="command", required=True)
@@ -556,6 +697,7 @@ def parser():
     # print each actor's limit without another round trip.
     acquire_parser.add_argument("--core-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     acquire_parser.add_argument("--graphql-limit", type=lambda value: clamp(value, 0, 100000), default=0)
+    acquire_parser.add_argument("--search-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     # Display-only actor label (the raw consumer identity, e.g.
     # `daemon:node@host` or `workspace:/path/to/2181`). The consumer_key remains
     # the fingerprint; this is what `usage` prints so the report is readable.
@@ -569,6 +711,11 @@ def parser():
     release_parser = commands.add_parser("release", parents=[common])
     release_parser.add_argument("--lease-id", required=True)
     release_parser.set_defaults(fun=release)
+
+    reconcile_parser = commands.add_parser("reconcile", parents=[common])
+    reconcile_parser.add_argument("--lease-id", required=True)
+    reconcile_parser.add_argument("--status", type=lambda value: clamp(value, 100, 599), required=True)
+    reconcile_parser.set_defaults(fun=reconcile)
 
     renew_parser = commands.add_parser("renew", parents=[common])
     renew_parser.add_argument("--lease-id", required=True)
@@ -590,6 +737,11 @@ def parser():
     usage_parser = commands.add_parser("usage")
     usage_parser.add_argument("--db", required=True)
     usage_parser.set_defaults(fun=usage)
+
+    meter_parser = commands.add_parser("meter", parents=[common])
+    meter_parser.add_argument("--consumer-key", required=True)
+    meter_parser.add_argument("--resource", choices=("core", "graphql", "search"), required=True)
+    meter_parser.set_defaults(fun=meter)
     return root
 
 

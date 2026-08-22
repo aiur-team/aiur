@@ -49,6 +49,7 @@ agent_quota_dir=${AIUR_AGENT_QUOTA_STATE_PATH:-}
 events_file=
 budget_root=${AIUR_GITHUB_BUDGET_ROOT:-"$HOME/.aiur/github-budget"}
 budget_key=${AIUR_GITHUB_BUDGET_KEY:-}
+budget_identity_key=${AIUR_GITHUB_BUDGET_IDENTITY_KEY:-}
 budget_broker=${AIUR_GITHUB_BUDGET_BROKER:-"$(dirname "$0")/aiur-github-budget"}
 budget_requested=${AIUR_GITHUB_BUDGET_ENABLED:-1}
 budget_db=
@@ -221,12 +222,40 @@ case "${1:-} ${2:-}" in
     done
     unset api_options
     ;;
-  "pr view"|"pr list"|"pr status"|"pr checks"|"pr diff") endpoint_family=pulls ;;
-  "issue view"|"issue list"|"issue status") endpoint_family=issues ;;
+  # `gh pr view|list|status|checks`, `gh issue view|list|status`, and
+  # `gh search *` speak GraphQL on the wire and are billed in points against the
+  # GraphQL window, so they must book to the graphql resource — not core. They
+  # KEEP their descriptive families (pulls / issues / search): `endpoint_family`
+  # is also the lease-pool key and the audit histogram, so collapsing every
+  # GraphQL arm onto one family would merge four in-flight pools into one (a
+  # fleet-wide throughput regression) and destroy the family breakdown this bug
+  # was found with. The broker's hourly accounting buckets on the booked
+  # `resource`, not on the family. `pr diff` is REST and stays in the pulls
+  # family with resource=core (it must not inherit the graphql booking from its
+  # read-arm sibling).
+  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=pulls ;;
+  "pr diff") resource=core; endpoint_family=pulls ;;
+  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=issues ;;
   "run view"|"run list"|"run watch") endpoint_family=actions ;;
-  "search "*) endpoint_family=search ;;
-  "pr "*) endpoint_family=pulls; direction=write ;;
-  "issue "*) endpoint_family=issues; direction=write ;;
+  # `gh search` splits across two wire transports (measured with GH_DEBUG=api):
+  # `search issues|prs` are GraphQL (`X-Ratelimit-Resource: graphql`), while
+  # `search code|commits|repos|users` hit REST `/search/*` and GitHub meters
+  # them as a third pool, `search` (~30 req/min rather than 5,000/hr). The
+  # `search` pool is its own resource so something paces against it; booking it
+  # to core or graphql mis-states the spend and protects the wrong window.
+  "search issues"|"search prs") resource=graphql; endpoint_family=search ;;
+  "search code"|"search commits"|"search repos"|"search users") resource=search; endpoint_family=search ;;
+  "search "*) resource=search; endpoint_family=search ;;
+  # The `pr`/`issue` write subcommands are a GraphQL/REST mix and must be
+  # classified per subcommand rather than as one bucket: `pr create|merge|review`
+  # and `issue create` mutate through GraphQL, while the rest (close, reopen,
+  # comment, edit, ready, lock/unlock, update-branch, transfer, ...) go through
+  # REST. Each keeps its descriptive pulls/issues family for the lease pool and
+  # books the resource its wire traffic actually consumes.
+  "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=pulls; direction=write ;;
+  "pr "*) resource=core; endpoint_family=pulls; direction=write ;;
+  "issue create") resource=graphql; endpoint_family=issues; direction=write ;;
+  "issue "*) resource=core; endpoint_family=issues; direction=write ;;
   "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
   "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
   # Commands that change repository state without touching an issue or a pull
@@ -1553,7 +1582,11 @@ cache_claim_overtake=0
 cache_served=0
 
 budget_command() {
-  python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+  if [ -n "$budget_identity_key" ]; then
+    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+  else
+    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+  fi
 }
 
 budget_sleep_ms() {
@@ -1595,7 +1628,8 @@ budget_acquire() {
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
-      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
+      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
+      --search-limit "${AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
       printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
       return 75
     fi
@@ -1668,6 +1702,16 @@ budget_release() {
   [ -n "$budget_lease" ] || return 0
   budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
   budget_lease=
+}
+
+budget_reconcile_response() {
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ -n "$budget_lease" ] || return 0
+  [ -n "$output_file" ] && [ -f "$output_file" ] || return 0
+
+  if awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"; then
+    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+  fi
 }
 
 budget_start_renewal() {
@@ -2264,7 +2308,7 @@ consider_hold() {
 # while the primary window still reads healthy.
 consider_resource_holds() {
   case "$2" in
-    core|graphql)
+    core|graphql|search)
       consider_hold "$1/$2-hold"
       consider_hold "$1/$2-secondary-hold"
       ;;
@@ -2550,6 +2594,7 @@ record_successful_budget_hold() {
 }
 
 record_successful_budget_hold
+budget_reconcile_response
 
 # A mutation invalidates before its response is stored, so an agent that edits a
 # pull request and immediately reads it back can never be answered from the copy

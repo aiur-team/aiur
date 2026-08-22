@@ -187,6 +187,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_OPERATOR_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Shell that launched aiur; exported by the launcher."},
     {"AIUR_LAUNCHER_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Launcher process id; exported by the launcher."},
     {"AIUR_GITHUB_BUDGET_CONSUMER", type: :string, validate: false, example: false, group: :runtime, purpose: "Workspace budget consumer id; set by the launcher."},
+    {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Stable publication-credential budget identity; set by the launcher."},
     {"AIUR_AGENT_IR_SANDBOX", type: :boolean, validate: false, example: false, group: :runtime, purpose: "Test-reset guard inside an agent IR sandbox."},
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},

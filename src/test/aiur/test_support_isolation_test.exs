@@ -20,6 +20,7 @@ defmodule Aiur.TestSupportIsolationTest do
   alias Aiur.Config.Paths
   alias Aiur.GitHub.DispatchAuthorization
   alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.GlobalPauseStore
 
@@ -51,6 +52,23 @@ defmodule Aiur.TestSupportIsolationTest do
     assert {:ok, %{globally_paused: true, source: "test"}} = GlobalPauseStore.load()
   end
 
+  test "cache inspector source overrides are restored between TestSupport cases" do
+    previous = Application.fetch_env(:aiur, :github_cache_inspector_source)
+
+    on_exit(fn ->
+      case previous do
+        :error -> Application.delete_env(:aiur, :github_cache_inspector_source)
+        {:ok, source} -> Application.put_env(:aiur, :github_cache_inspector_source, source)
+      end
+    end)
+
+    captured = Aiur.TestSupport.capture_app_env()
+    Application.put_env(:aiur, :github_cache_inspector_source, __MODULE__)
+    Aiur.TestSupport.restore_app_env(captured)
+
+    assert Application.fetch_env(:aiur, :github_cache_inspector_source) == previous
+  end
+
   test "ModelAvailability reads and writes its default ledger store in the per-test workflow root" do
     workflow_dir = Path.dirname(Aiur.Workflow.workflow_file_path())
     default = ModelAvailability.path()
@@ -79,6 +97,21 @@ defmodule Aiur.TestSupportIsolationTest do
     assert Task.yield(waiter, 0) == nil
     send(process, :stop)
     assert {:ok, :ok} = Task.yield(waiter, 1_000)
+  end
+
+  test "global reset restores a resource store a prior case left terminated" do
+    store = Process.whereis(ResourceStore)
+    ref = Process.monitor(store)
+
+    on_exit(fn -> Aiur.TestSupport.ensure_resource_store_running() end)
+
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
+    assert_receive {:DOWN, ^ref, :process, ^store, _reason}
+    refute ResourceStore.running?()
+
+    assert :ok = Aiur.TestSupport.reset_global_state!()
+    assert ResourceStore.running?()
+    assert ResourceStore.size() == 0
   end
 
   # Regression guard for #2082. `DispatchAuthorization` keeps its decision cache
