@@ -46,8 +46,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"],
                request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
-               since: %{"42" => "2026-07-30T00:00:00Z"}
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
              )
 
     assert %{"number" => 77, "head" => %{"ref" => "aiur/42-comment-batch"}} = batch.open_pull_request
@@ -101,16 +100,18 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
   # `branch_pull_request/2` reads `[node | _rest]` of the branch connection and
   # discards the rest, and GitHub permits one open pull request per head/base
-  # pair — so four of the five slots were nodes nothing could read. The review
-  # thread pages stay at their full size: a smaller one would send every busy
-  # pull request onto the paginated fallback each cycle, and this document bills
-  # 10-11 points per call, not the ~660 a node count suggests.
-  test "asks for only the branch pull requests it reads, and keeps the full thread pages" do
+  # pair — so four of the five slots were nodes nothing could read. The direct
+  # target is an issue in this tracker, but GitHub still prices a
+  # `reviewThreads(first: 100)` selection on its PullRequest fragment. A live
+  # 33-ticket document cost 35 points despite returning no direct pull request.
+  # Thread content is fetched after the one real PR resolves, so the discovery
+  # batch must stay identity-only.
+  test "asks only for pull request identity during discovery" do
     request_fun = fn %{method: :post, body: body} ->
       assert body["query"] =~ "direction: DESC}, first: 2)"
       refute body["query"] =~ "direction: DESC}, first: 5)"
-      assert body["query"] =~ "reviewThreads(first: 100)"
-      assert body["query"] =~ "comments(last: 20)"
+      refute body["query"] =~ "reviewThreads"
+      refute body["query"] =~ "comments(last: 20)"
 
       {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
     end
@@ -187,9 +188,10 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     refute Map.has_key?(batch, :review_thread_comments)
   end
 
-  # The direct node is not speculative — it is the target itself — so it keeps
-  # the full field set and its threads are answered here.
-  test "answers review threads for a target that is itself the pull request" do
+  # A target that is itself a pull request still resolves its identity here,
+  # but thread content follows the same per-resolved-PR path as every issue
+  # target. Omitting the key is what makes the poller take that fallback.
+  test "keeps a direct pull request identity-only so review threads use the safe fallback" do
     request_fun = fn %{method: :post} ->
       {:ok,
        %{
@@ -208,7 +210,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
 
     assert %{"number" => 77, "head" => %{"ref" => "feature/watched"}} = batch.open_pull_request
-    assert batch.review_thread_comments == []
+    refute Map.has_key?(batch, :review_thread_comments)
   end
 
   test "omits a target whose legacy branch guess finds no PR so REST can resolve it" do
@@ -338,8 +340,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       "state" => "OPEN",
       "headRefName" => branch,
       "headRefOid" => "head-#{number}",
-      "baseRefName" => "develop",
-      "reviewThreads" => %{"nodes" => []}
+      "baseRefName" => "develop"
     }
   end
 end
