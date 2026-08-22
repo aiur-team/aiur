@@ -384,7 +384,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       end
 
       assert {:ok, %{"42" => delivered, "43" => _polled}} =
-               CIPollBatch.fetch(["42", "43"],
+               CIPollBatch.fetch(
+                 ["42", "43"],
                  @displacement_opts ++
                    [branch_names_by_target: %{"43" => "aiur/43-batch"}, request_fun: request_fun]
                )

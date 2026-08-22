@@ -16,7 +16,7 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 
-The CI poll does the same for check runs: when a `check_run` delivery has answered a ticket's head since the last poll read, that one target is dropped from the CI batch for that cycle — the read GitHub just paid for is not bought again. Displacement is per target (a ticket with no delivery keeps its full cadence) and only ever *skips the read*; the verdict is still produced by a real poll on the next cycle, never answered from the held delivery (a CI verdict is never served from a cache at any age). An unmatched or unknown check-run id — a run the last poll never saw — keeps the target in the batch, so polling remains the complete fallback when a delivery is dropped.
+The CI poll drops from its batch a target a `check_run` delivery already answered since the last read — the read is not bought again. Displacement is per target: a ticket with no delivery keeps its cadence, and only the read is skipped; no verdict is served from the held body. An unmatched check-run id keeps the target polled; polling stays the fallback.
 
 ## Who Aiur trusts
 

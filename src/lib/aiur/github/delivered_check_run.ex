@@ -145,11 +145,14 @@ defmodule Aiur.GitHub.DeliveredCheckRun do
   # "Deposited since the last poll read". The deposit never marks processed; a
   # poll that serves it does. A delivery already consumed by a poll displaces
   # nothing, and a delivery with a newer marker is unprocessed again.
+  # `ResourceStore.fetch/1` always returns a versioned entry (its `entry()`
+  # type carries `version`), so the map clause below always matches and a
+  # catch-all fallback would be unreachable. The version may still be `nil` —
+  # an unversioned write — which reads as unprocessed and keeps the target on
+  # the fetch path, the fail-toward-polling default.
   defp unprocessed?(key, %{version: marker}) do
     not ResourceStore.processed?(key, marker)
   end
-
-  defp unprocessed?(_key, _entry), do: false
 
   # The delivered run must sit on the head the last poll observed, and be a run
   # that poll actually saw. Anything else means the delivery is not an answer

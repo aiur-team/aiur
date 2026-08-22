@@ -203,6 +203,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
   test "returns pending for no observed checks or in-progress work" do
     assert %{decision: :pending, failures: []} = GithubCIPoller.evaluate_for_test([], %{"statuses" => []})
+
     assert %{decision: :pending, failures: []} =
              GithubCIPoller.evaluate_for_test(
                [%{"name" => "test", "status" => "in_progress", "conclusion" => nil}],
