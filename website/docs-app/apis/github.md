@@ -326,23 +326,30 @@ An answer is kept for 60 seconds.
 
 The GitHub cache page reports whether this sharing is effective. Its **Agent gh
 exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
-alongside the raw hit and miss counts. It reads the durable `agent-cache.tsv`
-counters from agent workspaces on the daemon host; workspaces on remote SSH
-workers are not included. If no readable counter exists, or the readable files
-contain no hit or miss in that window, the page says **Not measured** instead of
-presenting zero as a measurement. Malformed or unreadable sources are retained
-as partial coverage rather than hiding the valid samples.
+alongside the raw hit and miss counts.
+
+It reads the durable `agent-cache.tsv` counters from agent workspaces on the
+daemon host; workspaces on remote SSH workers are not included.
+
+If no readable counter exists, or the readable files contain no hit or miss in
+that window, the page says **Not measured** instead of presenting zero as a
+measurement. Malformed or unreadable sources are retained as partial coverage
+rather than hiding the valid samples.
 
 The cache key intentionally includes the exact requested output shape. Two
 reads of one pull request that request different JSON fields, templates, or
 queries cannot share an answer without changing `gh`'s output, so each shape
-misses independently. Likewise, a write or daemon delivery retires every shape
-of the changed resource to protect correctness. Measurements of the retained
-store found these two boundaries—not the 60-second lifetime—to be the dominant
-causes of its historically low observed hit rate. The wrapper now records a
-reason with every miss (`absent`, `expired`, `invalidated`, `bypassed`,
-`clock-skewed`, or `corrupt`) so a later regression can distinguish expected
-correctness misses from entries expiring before reuse.
+misses independently.
+
+Likewise, a write or daemon delivery retires every shape of the changed
+resource to protect correctness. Measurements of the retained store found
+these two boundaries—not the 60-second lifetime—to be the dominant causes of
+its historically low observed hit rate.
+
+The wrapper now records a reason with every miss (`absent`, `expired`,
+`invalidated`, `bypassed`, `clock-skewed`, or `corrupt`) so a later regression
+can distinguish expected correctness misses from entries expiring before
+reuse.
 
 Editing a ticket or a pull request discards the kept answers for it at once, so
 an agent never reads back what it just replaced.

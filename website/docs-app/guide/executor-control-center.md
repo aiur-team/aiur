@@ -68,11 +68,14 @@ That is the store's own rule applied to its inspector: looking at cached state n
 Its headline tile, **Fetches caused by viewing**, therefore reads `0`. Beside it the page prints how many calls the quota meter attributed in total, so the zero reads as a measurement rather than a reassurance.
 
 The **Agent gh exact-shape hit rate** tile measures the separate cache used by
-agent `gh` subprocesses. It shows `hits / (hits + misses)` plus the raw counts
-for the previous 24 hours across agent workspaces on the daemon host; remote SSH
-workers are outside that coverage. Missing counters and a zero denominator read
-**Not measured**, never `0%`, and skipped or malformed sources are labeled as
-partial coverage.
+agent `gh` subprocesses.
+
+It shows `hits / (hits + misses)` plus the raw counts for the previous 24 hours
+across agent workspaces on the daemon host; remote SSH workers are outside that
+coverage.
+
+Missing counters and a zero denominator read **Not measured**, never `0%`, and
+skipped or malformed sources are labeled as partial coverage.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
