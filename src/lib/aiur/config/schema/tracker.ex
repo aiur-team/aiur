@@ -15,8 +15,8 @@ defmodule Aiur.Config.Schema.Github do
   @default_stagger_ms 75
   @default_daemon_core_limit_per_hour 3000
   @default_daemon_graphql_limit_per_hour 2000
-  @default_agent_core_limit_per_hour 1000
-  @default_agent_graphql_limit_per_hour 500
+  @default_agent_core_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 375
 
   @primary_key false
   embedded_schema do
@@ -36,11 +36,10 @@ defmodule Aiur.Config.Schema.Github do
     field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
     field(:requests_per_minute, :integer, default: @default_requests_per_minute)
     field(:stagger_ms, :integer, default: @default_stagger_ms)
-    # Per-actor hourly GitHub ceilings (#2181): how many Core (REST) requests /
-    # GraphQL requests one actor may be admitted for in a rolling hour before its
-    # own requests hold. `0` disables the ceiling. These are request-count
-    # ceilings, not GraphQL point budgets — the broker sees admissions, never
-    # the point price GitHub charged.
+    # Per-actor hourly GitHub ceilings (#2181): how many billable Core (REST) /
+    # GraphQL responses one actor may consume in a rolling hour before its own
+    # requests hold. `304` responses are reconciled as free; `0` disables the
+    # ceiling. GraphQL remains request-counted rather than point-priced.
     field(:daemon_core_limit_per_hour, :integer, default: @default_daemon_core_limit_per_hour)
     field(:daemon_graphql_limit_per_hour, :integer, default: @default_daemon_graphql_limit_per_hour)
     field(:agent_core_limit_per_hour, :integer, default: @default_agent_core_limit_per_hour)
