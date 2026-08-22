@@ -571,6 +571,29 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = Task.await(second, 1_500)
   end
 
+  test "the wrapper keeps one admission ledger when its publication token rotates", context do
+    budget_root = Path.join(context.state_path, "rotating-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    identity_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    first_key = Budget.token_key("publication-token-a")
+    second_key = Budget.token_key("publication-token-b")
+
+    common = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_IDENTITY_KEY: identity_key,
+      AIUR_GITHUB_STAGGER_MS: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/2236"], common ++ [AIUR_GITHUB_BUDGET_KEY: first_key])
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/2237"], common ++ [AIUR_GITHUB_BUDGET_KEY: second_key])
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", second_key, "--identity-key", identity_key])
+
+    assert length(Jason.decode!(snapshot)["admissions"]) == 2
+  end
+
   test "an Executor-style gh wrapper publishes a secondary cooldown to the host budget", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)

@@ -18,6 +18,50 @@ defmodule Aiur.GitHub.BudgetTest do
     {:ok, root: root}
   end
 
+  test "one credential keeps its admission history across token rotation", %{root: root} do
+    credential_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    opts = [state_dir: root, stagger_ms: 0, credential_key: credential_key]
+
+    assert {:ok, first} = Budget.acquire(request("token-before-rotation", "/repos/owner/repo/issues/2236"), opts)
+    assert :ok = Budget.release(first, opts)
+    assert {:ok, second} = Budget.acquire(request("token-after-rotation", "/repos/owner/repo/issues/2236"), opts)
+    assert :ok = Budget.release(second, opts)
+
+    assert %{admissions: [_, _]} = Budget.snapshot("token-after-rotation", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.token_key == credential_key
+    assert actor.core.used == 2
+  end
+
+  test "the first stable identity adopts an active token-hash ledger", %{root: root} do
+    legacy_opts = [state_dir: root, stagger_ms: 0]
+    token = "pre-upgrade-token"
+
+    assert {:ok, legacy} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), legacy_opts)
+    assert :ok = Budget.release(legacy, legacy_opts)
+
+    stable_opts = Keyword.put(legacy_opts, :credential_key, Budget.identity_key("machine_user:primary:aiur-bot"))
+    assert {:ok, current} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), stable_opts)
+    assert :ok = Budget.release(current, stable_opts)
+
+    assert %{admissions: [_, _]} = Budget.snapshot(token, stable_opts)
+  end
+
+  test "distinct stable credentials stay isolated even when their tokens overlap", %{root: root} do
+    token = "shared-token"
+    first_opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:first:same-login")]
+    second_opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:second:same-login")]
+
+    assert {:ok, first} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), first_opts)
+    assert :ok = Budget.release(first, first_opts)
+    assert {:ok, second} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), second_opts)
+    assert :ok = Budget.release(second, second_opts)
+
+    assert %{admissions: [_]} = Budget.snapshot(token, first_opts)
+    assert %{admissions: [_]} = Budget.snapshot(token, second_opts)
+  end
+
   test "two independent callers sharing a token cannot exceed the global in-flight ceiling", %{root: root} do
     opts = [state_dir: root, max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0]
     request = request("shared-token", "/repos/owner/repo/issues/1477")
