@@ -153,7 +153,16 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
        when is_binary(id) and is_binary(key) do
-    _ = command(["reconcile", "--lease-id", id, "--status", "304"], key, opts)
+    case command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
+      {:ok, _output} -> :ok
+      # `command` already logs the broker failure generically; this names the
+      # reconcile specifically so a stale broker (one without the `reconcile`
+      # subcommand) or a broken reconcile is visible in the daemon log instead
+      # of reading as "reconciliation did not fire".
+      {:error, reason} -> Logger.warning("github_budget_reconcile_failed lease_id=#{id} reason=#{inspect(reason)}")
+      :bypass -> :ok
+    end
+
     :ok
   end
 
@@ -654,7 +663,18 @@ defmodule Aiur.GitHub.Budget do
     %{
       cooldown_until_ms: cooldown,
       inflight: inflight,
-      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], admitted_at_ms: &1["admitted_at_ms"]})
+      admissions:
+        Enum.map(admissions, fn admission ->
+          %{
+            endpoint_family: admission["endpoint_family"],
+            admitted_at_ms: admission["admitted_at_ms"],
+            # The broker marks a reconciled `304` (and any lease-less row it has
+            # healed) unbilled. Exposing it lets the running system verify that
+            # reconciliation happened instead of requiring raw SQL against the
+            # broker database.
+            billable: Map.get(admission, "billable", true)
+          }
+        end)
     }
   end
 
