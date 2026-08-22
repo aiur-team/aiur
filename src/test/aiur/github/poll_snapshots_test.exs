@@ -38,9 +38,21 @@ defmodule Aiur.GitHub.PollSnapshotsTest do
   test "an unknown thread delta cannot make an incomplete collection delivery-fresh" do
     assert :ok = PollSnapshots.put_review_threads(@repo, 77, [thread("PRRT_1", false, "2026-08-21T10:00:00Z")])
 
-    assert :unchanged =
+    assert :ok =
              PollSnapshots.merge_review_thread(@repo, 77, thread("PRRT_unknown", true, "2026-08-21T10:01:00Z"))
 
+    assert :miss = PollSnapshots.review_threads(@repo, 77)
+  end
+
+  test "an unknown thread delta invalidates a collection that was already delivery-fresh" do
+    assert :ok = PollSnapshots.put_review_threads(@repo, 77, [thread("PRRT_1", false, "2026-08-21T10:00:00Z")])
+    assert :ok = PollSnapshots.merge_review_thread(@repo, 77, thread("PRRT_1", true, "2026-08-21T10:01:00Z"))
+    assert {:ok, [_thread]} = PollSnapshots.review_threads(@repo, 77)
+
+    # A thread the baseline has never seen proves the baseline is no longer the
+    # whole collection. Leaving it servable hides the new thread for the rest of
+    # the delivery-fresh window.
+    assert :ok = PollSnapshots.merge_review_thread(@repo, 77, thread("PRRT_2", false, "2026-08-21T10:02:00Z"))
     assert :miss = PollSnapshots.review_threads(@repo, 77)
   end
 
@@ -108,9 +120,30 @@ defmodule Aiur.GitHub.PollSnapshotsTest do
                %{"state" => "pending", "statuses" => []}
              )
 
-    assert :unchanged =
+    assert :ok =
              PollSnapshots.merge_check_run(@repo, 42, "head-1", check_run(502, "completed", "success", "2026-08-21T10:01:00Z"))
 
+    assert :miss = PollSnapshots.ci_contexts(@repo, 42)
+  end
+
+  test "a check run the baseline never saw invalidates an already delivery-fresh snapshot" do
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               @repo,
+               42,
+               "head-1",
+               [check_run(501, "queued", nil, "2026-08-21T10:00:00Z")],
+               %{"state" => "pending", "statuses" => []}
+             )
+
+    assert :ok = PollSnapshots.merge_check_run(@repo, 42, "head-1", check_run(501, "completed", "success", "2026-08-21T10:01:00Z"))
+    assert {:ok, %{"check_runs" => [%{"status" => "completed"}]}} = PollSnapshots.ci_contexts(@repo, 42)
+
+    # A second workflow registers run 502 on the same head, still queued. If the
+    # unmatched id left the snapshot webhook-fresh, the CI poller — which has
+    # already dropped the paid check-run selection — would read only the
+    # completed run 501 and call the head passed while 502 is pending.
+    assert :ok = PollSnapshots.merge_check_run(@repo, 42, "head-1", check_run(502, "queued", nil, "2026-08-21T10:02:00Z"))
     assert :miss = PollSnapshots.ci_contexts(@repo, 42)
   end
 

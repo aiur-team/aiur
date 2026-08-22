@@ -193,9 +193,17 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
          %{"id" => id} = normalized when is_binary(id) and id != "" <- normalize_review_thread(thread) do
       [{:merge_review_thread, pr_number, normalized}]
     else
-      _other -> []
+      _other -> review_thread_invalidation(payload)
     end
   end
+
+  # Every other thread action — `unresolved` above all — is a statement that the
+  # held resolution state is wrong, and none of them carry enough to merge. An
+  # un-resolved thread left webhook-fresh as `isResolved: true` is filtered out
+  # of the unaddressed set, so the reviewer's re-raised objection disappears and
+  # the agent proceeds as though it were answered. Drop the snapshot and let the
+  # next poll pay for the truth.
+  defp bodies("pull_request_review_thread", payload), do: review_thread_invalidation(payload)
 
   defp bodies("check_run", payload) do
     with %{} = check_run <- Map.get(payload, "check_run"),
@@ -233,6 +241,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 
+  # Paired with `Aiur.GitHub.CIPollBatch.normalize_check_run/1`; see the note
+  # there. The REST `"id"` and the GraphQL `databaseId` are the same number,
+  # which is what lets a delivery merge into a polled baseline at all.
   defp normalize_check_run(check_run) do
     %{
       "id" => Map.get(check_run, "id"),

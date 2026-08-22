@@ -455,7 +455,41 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_unknown", "updated_at" => "2026-06-24T12:01:00Z"}
       }
 
-      assert [] == GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+
+      assert :miss = PollSnapshots.review_threads(@repo, 77)
+    end
+
+    test "an unresolved delivery drops a snapshot that says the thread is resolved" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{"id" => "PRRT_5504", "isResolved" => false, "updatedAt" => "2026-06-24T12:00:00Z"}
+               ])
+
+      resolved = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77},
+        "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => true, "updated_at" => "2026-06-24T12:01:00Z"}
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", resolved, @repo)
+
+      assert {:ok, [%{"isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
+
+      # The reviewer un-resolves it seconds later. Serving the resolved snapshot
+      # for the rest of the window filters the thread out of the unaddressed set
+      # and drops the re-raised objection silently.
+      unresolved = %{
+        "action" => "unresolved",
+        "pull_request" => %{"number" => 77},
+        "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => false, "updated_at" => "2026-06-24T12:02:00Z"}
+      }
+
+      # An invalidation writes no body, so it reports no key.
+      assert [] == GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
+
       assert :miss = PollSnapshots.review_threads(@repo, 77)
     end
 

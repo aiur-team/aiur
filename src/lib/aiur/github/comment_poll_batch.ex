@@ -140,7 +140,11 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp known_pull_request_number(target, opts) do
     case opts |> Keyword.get(:open_pull_requests_by_target, %{}) |> Map.get(target) do
       %{"number" => number} when not is_nil(number) -> number
-      _other -> target
+      # No known PR for this target. The ticket id is *not* a substitute: it
+      # would key the snapshot of whichever pull request happens to carry that
+      # number. `cached_threads_match?/2` re-checks the number before use, so
+      # the wrong key only wasted a lookup, but a nil key cannot be wrong.
+      _other -> nil
     end
   end
 

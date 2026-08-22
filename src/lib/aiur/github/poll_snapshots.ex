@@ -76,7 +76,7 @@ defmodule Aiur.GitHub.PollSnapshots do
 
           cond do
             not is_map(existing) ->
-              :unchanged
+              incomplete(held)
 
             source == :webhook and stale_or_unversioned?(existing, delivered, &thread_marker/1) ->
               :unchanged
@@ -111,7 +111,7 @@ defmodule Aiur.GitHub.PollSnapshots do
           existing = Enum.find(check_runs, &(Map.get(&1, "id") == id))
 
           cond do
-            not is_map(existing) -> :unchanged
+            not is_map(existing) -> incomplete(held)
             stale_or_unversioned?(existing, delivered, &check_run_marker/1) -> :unchanged
             true -> Map.put(held, "check_runs", replace_resource(check_runs, id, delivered))
           end
@@ -160,6 +160,17 @@ defmodule Aiur.GitHub.PollSnapshots do
       version: &snapshot_version/1
     )
   end
+
+  # A delivery whose id is absent from the baseline is proof the baseline is no
+  # longer the whole collection: a check run registered after the poll, or a
+  # thread opened since it. Answering `:unchanged` would leave the entry
+  # webhook-fresh and servable, so the poller — which has already dropped the
+  # paid selection because the snapshot was warm — would keep reading a
+  # collection that is missing the very resource the delivery announced, and
+  # call a queued required check passed. Marking the snapshot incomplete keeps
+  # the entry (and its validator) while making every reader miss, so the next
+  # poll pays once and re-establishes a complete baseline.
+  defp incomplete(held), do: Map.put(held, "complete", false)
 
   defp replace_resource(resources, id, delivered) do
     {replaced, found?} =

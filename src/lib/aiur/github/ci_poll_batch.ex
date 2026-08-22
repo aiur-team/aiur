@@ -412,6 +412,15 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp status_contexts(_commit_node), do: {[], false}
 
+  # Paired with `Aiur.Events.GithubWebhook.Deposit.normalize_check_run/1`, which
+  # shapes the same run out of a REST delivery so the two merge into one
+  # snapshot. The keys here are the contract between them: `"id"` must be the
+  # numeric database id on both sides or the merge cannot join a delivery to the
+  # polled baseline, and a key one side emits and the other omits silently
+  # changes shape when a delivery overwrites a polled run. The one deliberate
+  # asymmetry is `"updated_at"`, which only the delivery carries and which
+  # `PollSnapshots.check_run_marker/1` uses to refuse a late delivery. Change
+  # one, change both.
   defp normalize_check_run(check_run) do
     %{
       "id" => Map.get(check_run, "databaseId"),
