@@ -58,8 +58,9 @@ defmodule Aiur.TestSupport do
     path
   end
 
-  # Application keys the `use Aiur.TestSupport` setup redirects into the
-  # per-test workflow root, and must therefore put back on the way out.
+  # Application keys the `use Aiur.TestSupport` setup redirects or that its
+  # cases replace with process-owned test providers. They must all be put back
+  # on the way out so a dead provider cannot leak into the next test module.
   #
   # `:workflow_file_path` is restored rather than deleted: deleting it leaves
   # the global config resolving to a possibly-missing run-folder path, so any
@@ -87,6 +88,7 @@ defmodule Aiur.TestSupport do
     :log_file,
     :build_gate_dir_override,
     :global_pause_store_path,
+    :github_cache_inspector_source,
     :github_resource_store_path,
     :repo_base_root,
     :executor_state_dir,
