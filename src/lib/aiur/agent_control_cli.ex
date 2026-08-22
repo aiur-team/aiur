@@ -1205,7 +1205,10 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp global_pause_status_for_control do
-    Application.get_env(:aiur, :agent_control_cli_global_pause_status_fun, &Orchestrator.global_pause_status/0).()
+    case Application.get_env(:aiur, :agent_control_cli_global_pause_status_fun) do
+      nil -> fleet_global_pause_status(@status_timeout_ms)
+      fun -> fun.()
+    end
   end
 
   defp control_selected([], action, targets) do
@@ -1325,15 +1328,65 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  # Control commands (`pause`/`resume`/`message`) select their targets from
+  # fleet state the daemon already knows, so they must not queue behind the
+  # Orchestrator mailbox the way `status`/`agents`/`watch` once did (#1837). A
+  # blocked GitHub read on a held socket made `aiurdev resume <id>` time out
+  # with "timed out while reading agent status" while `aiurdev status` answered
+  # from the SnapshotStore read model in ~300ms (#2329). These reads serve from
+  # that same read model, so a resume never depends on a busy or dead agent
+  # process answering a status read.
   defp control_status_snapshot do
-    Application.get_env(:aiur, :agent_control_cli_status_fun, &Orchestrator.status/0).()
+    case Application.get_env(:aiur, :agent_control_cli_status_fun) do
+      nil -> fleet_status_snapshot(@status_timeout_ms)
+      fun -> fun.()
+    end
   end
 
   defp confirmation_status_snapshot(timeout_ms) do
-    Application.get_env(:aiur, :agent_control_cli_confirmation_status_fun, &Orchestrator.status/2).(
-      Orchestrator,
-      timeout_ms
-    )
+    case Application.get_env(:aiur, :agent_control_cli_confirmation_status_fun) do
+      nil -> fleet_status_snapshot(timeout_ms)
+      fun -> fun.(Orchestrator, timeout_ms)
+    end
+  end
+
+  defp fleet_status_snapshot(timeout_ms) do
+    case control_fleet_view(timeout_ms, fleet_rows?: true) do
+      {:ok, snapshot} ->
+        case Map.get(snapshot, :statuses) do
+          statuses when is_list(statuses) -> statuses
+          _missing -> :unavailable
+        end
+
+      {:error, error} ->
+        error
+    end
+  end
+
+  defp fleet_global_pause_status(timeout_ms) do
+    case control_fleet_view(timeout_ms, fleet_rows?: false) do
+      {:ok, snapshot} ->
+        case Map.get(snapshot, :global_pause) do
+          %{globally_paused: paused} when is_boolean(paused) ->
+            {:ok, %{globally_paused: paused}}
+
+          _missing ->
+            {:error, :orchestrator_unavailable}
+        end
+
+      {:error, :timeout} ->
+        {:error, :timeout}
+
+      {:error, :unavailable} ->
+        {:error, :orchestrator_unavailable}
+    end
+  end
+
+  defp control_fleet_view(timeout_ms, opts) do
+    case Orchestrator.fleet_view(Orchestrator, timeout_ms, opts) do
+      {:ok, snapshot, _freshness} -> {:ok, snapshot}
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp resume_outcome(status, nil) do
