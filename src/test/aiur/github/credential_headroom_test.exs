@@ -45,6 +45,24 @@ defmodule Aiur.GitHub.CredentialHeadroomTest do
     assert CredentialHeadroom.snapshot() == %{}
   end
 
+  test "last_observed keeps the expired window so a stale meter can show its age" do
+    past = DateTime.add(DateTime.utc_now(), -30)
+
+    CredentialHeadroom.observe(%{token: "a", url: "https://api.github.com/graphql"}, response("graphql", 5_000, 0, past))
+
+    # `window/3` and `snapshot/1` refuse the expired window — headroom that
+    # cannot be spent — but `last_observed/2` keeps it, with its observed time,
+    # so the cache page can say how long ago the credential was last seen.
+    assert CredentialHeadroom.window(Budget.token_key("a"), "graphql") == nil
+
+    last = CredentialHeadroom.last_observed(Budget.token_key("a"), "graphql")
+    assert %{observed_at: %DateTime{}, reset_at: reset_at} = last
+    assert reset_at == DateTime.truncate(past, :second)
+
+    assert CredentialHeadroom.last_observed(Budget.token_key("a"), "core") == nil
+    assert CredentialHeadroom.last_observed(nil, "graphql") == nil
+  end
+
   test "an error result, a missing token and incomplete headers are all ignored" do
     later = DateTime.add(DateTime.utc_now(), 900)
 
