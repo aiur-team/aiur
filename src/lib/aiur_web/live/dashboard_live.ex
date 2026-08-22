@@ -87,9 +87,9 @@ defmodule AiurWeb.DashboardLive do
   @current_run_outcomes_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
   # What "the operator is finished with it" means, mirrored from the retained
-  # store's `history` lifecycle. A deferral belongs here: the Executor owns the
-  # answer from that point, so the card leaves the operator's queue.
-  @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :moot, :expired, :deferred]
+  # store's `historic` lifecycle. Deferred Commands remain open because the
+  # Executor still owes an answer.
+  @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :moot, :expired]
   @decision_events DecisionEvents.events()
   @table_sort_columns %{
     "units" => ~w(id unit ticket latest),
@@ -938,6 +938,7 @@ defmodule AiurWeb.DashboardLive do
 
     socket
     |> assign(:payload, payload)
+    |> assign(:retained_counts, Map.get(payload, :retained_counts, unavailable_retained_counts()))
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> assign_units_view()
@@ -2277,6 +2278,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp reset_history_with(page, socket) do
     socket
+    |> assign_retained_counts(page)
     |> assign(:history_rows, page.decisions)
     |> assign(:history_ids, MapSet.new(page.decisions, & &1.decision_id))
     |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
@@ -2289,6 +2291,7 @@ defmodule AiurWeb.DashboardLive do
     new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
 
     socket
+    |> assign_retained_counts(page)
     |> append_history_rows(new_rows)
     |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
     |> assign(:history_total, get_in(page, [:pagination, :total]))
@@ -2304,12 +2307,22 @@ defmodule AiurWeb.DashboardLive do
         Enum.split_with(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
 
       socket
+      |> assign_retained_counts(page)
       |> refresh_history_rows(known_rows)
       |> prepend_history_rows(new_rows)
       |> assign(:history_total, get_in(page, [:pagination, :total]))
       |> assign(:history_health, history_health(page))
     end
   end
+
+  # The history total and filter-chip counts must come from the same serialized
+  # store read. Otherwise a Command created between the payload count read and
+  # this page read can transiently render All below Resolved.
+  defp assign_retained_counts(socket, %{counts: counts, health: health, scope: scope}) when is_map(counts) do
+    assign(socket, :retained_counts, counts |> Map.put(:health, health) |> Map.put(:scope, scope))
+  end
+
+  defp assign_retained_counts(socket, _page), do: socket
 
   # Called after an operator action: the decision is re-read from the store and
   # only joins history if the store itself now reports a history status. A
@@ -2394,7 +2407,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp history_page(cursor) do
     query =
-      %{"lifecycle" => "history", "limit" => History.page_size()}
+      %{"lifecycle" => "historic", "limit" => History.page_size()}
       |> then(&if(is_binary(cursor), do: Map.put(&1, "cursor", cursor), else: &1))
 
     case PayloadLoader.decisions(query) do
@@ -2478,14 +2491,13 @@ defmodule AiurWeb.DashboardLive do
     |> put_filter_query(filter)
   end
 
-  # The inbox lists what the operator still owns. Answered, acknowledged,
-  # expired and deferred Commands have all left it, and are read back from the
-  # history table instead.
-  defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "awaiting")
+  # The inbox lists outstanding Commands, including work deferred to the
+  # Executor. Only completed or retired Commands move into history.
+  defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "open")
 
-  defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "awaiting") |> Map.put("blocking", true)
-  defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "history")
-  defp put_filter_query(query, :all), do: Map.put(query, "lifecycle", "awaiting")
+  defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
+  defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "historic")
+  defp put_filter_query(query, :all), do: Map.put(query, "lifecycle", "open")
   defp put_filter_query(query, _filter), do: query
 
   defp maybe_put_query(query, key, value) when is_binary(value) do
