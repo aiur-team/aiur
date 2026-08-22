@@ -72,11 +72,12 @@ defmodule Aiur.GitHub.Quota do
   # malformed `Retry-After` from parking the whole fleet for hours.
   @secondary_backoff_seconds 60
   @max_secondary_backoff_seconds 60 * 60
-  # Written by the agent `gh` guard (`budget_reconcile_response`) exactly once
-  # per stale period, when the workspace's broker predates the `reconcile`
-  # subcommand or the ledger's version stamp. This process turns it into one
-  # fleet alert per workspace and rearms when the guard clears it (a refreshed
-  # broker self-heals). See #2307.
+  # Written by the agent `gh` guard exactly once per stale period: by
+  # `budget_acquire` when the ledger's schema trigger or version stamp refuses
+  # the workspace broker's write, or by `budget_reconcile_response` when the
+  # broker cannot reconcile 304s. This process turns it into one fleet alert per
+  # workspace and rearms when the guard clears it (a refreshed broker
+  # self-heals). See #2307.
   @stale_broker_marker "broker-reconcile-stale"
   @stale_broker_alert_topic "system.github.budget.broker_reconcile_stale"
 
@@ -994,11 +995,12 @@ defmodule Aiur.GitHub.Quota do
     _unavailable -> nil
   end
 
-  # A workspace running a broker that cannot reconcile 304s writes exactly one
-  # marker per stale period (the guard's own dedup) and clears it on recovery.
-  # Turn each distinct marker into one fleet alert, latch on the marker path so
-  # a persistent marker does not re-alert on every refresh, and rearm once the
-  # marker disappears (a refreshed broker has recovered).
+  # A workspace running a broker that cannot coordinate with the current shared
+  # ledger writes exactly one marker per stale period (the guard's own dedup:
+  # it is written on the first structural acquire/reconcile failure and cleared
+  # on recovery). Turn each distinct marker into one fleet alert, latch on the
+  # marker path so a persistent marker does not re-alert on every refresh, and
+  # rearm once the marker disappears (a refreshed broker has recovered).
   defp refresh_stale_broker_alerts(state) do
     found = stale_broker_markers(state.stale_broker_path)
     seen = state.stale_broker_alerts
@@ -1038,8 +1040,8 @@ defmodule Aiur.GitHub.Quota do
     workspace = marker_workspace(marker_path)
 
     message =
-      "Agent workspace #{workspace} (#{consumer}) is running a GitHub budget broker that cannot reconcile 304 responses; " <>
-        "its admissions stay billable until the current broker is installed"
+      "Agent workspace #{workspace} (#{consumer}) is running a GitHub budget broker that cannot reconcile 304 responses " <>
+        "or write to the current shared ledger (stale broker); its budget accounting is disabled until the current broker is installed"
 
     state.emit_fun.(@stale_broker_alert_topic,
       message: message,

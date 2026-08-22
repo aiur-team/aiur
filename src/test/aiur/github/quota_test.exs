@@ -490,11 +490,11 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   # The agent `gh` guard writes `broker-reconcile-stale` exactly once per stale
-  # period when its broker predates the `reconcile` subcommand or the ledger's
-  # version stamp (#2307). This process turns that marker into one fleet alert
-  # per workspace — latched on the marker path so a persistent marker does not
-  # re-alert on every refresh, and rearmed once the marker disappears (a
-  # refreshed broker has recovered).
+  # period, when its broker cannot write to the current ledger (schema trigger
+  # or version stamp abort at acquire) or cannot reconcile 304s (#2307). This
+  # process turns that marker into one fleet alert per workspace — latched on
+  # the marker path so a persistent marker does not re-alert on every refresh,
+  # and rearmed once the marker disappears (a refreshed broker has recovered).
   test "a stale-broker marker raises one fleet alert per workspace and rearms on recovery" do
     parent = self()
     root = Path.join(System.tmp_dir!(), "aiur-gh-stale-#{System.unique_integer([:positive])}")

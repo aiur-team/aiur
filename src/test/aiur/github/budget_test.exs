@@ -651,6 +651,31 @@ defmodule Aiur.GitHub.BudgetTest do
              ])
   end
 
+  test "a read-only command does not stamp the ledger or install the trigger", %{root: root} do
+    db = Budget.database_path(state_dir: root)
+    key = Budget.token_key("read-token")
+
+    # snapshot is a read command; it must not take a schema write (the version
+    # stamp or the lease trigger) on the shared ledger just to report on it
+    # (#2307 review).
+    assert {_output, 0} =
+             System.cmd("python3", [Budget.broker_path(), "snapshot", "--db", db, "--token-key", key], stderr_to_stdout: true)
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "print(c.execute(\"SELECT COUNT(*) FROM broker_meta\").fetchone()[0]); " <>
+        "print(c.execute(\"SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='admissions_require_lease'\").fetchone()[0])"
+
+    assert {"0\n0\n", 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
+
+    # The first write installs both.
+    opts = [state_dir: root, stagger_ms: 0]
+    assert {:ok, lease} = Budget.acquire(request("read-token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert {"1\n1\n", 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
+  end
+
   test "a broker older than the ledger version stamp refuses to write with a clear message", %{root: root} do
     opts = [state_dir: root, stagger_ms: 0]
     db = Budget.database_path(state_dir: root)
