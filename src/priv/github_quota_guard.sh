@@ -1674,14 +1674,44 @@ budget_release() {
   budget_lease=
 }
 
+# A reconcile that fails because the broker predates the `reconcile` subcommand
+# — or is older than the ledger's version stamp — can never succeed on this
+# ledger, so it must be surfaced once rather than silently on every 304 (#2307).
+# The marker file is the dedup: written on the first structural failure and
+# removed as soon as a reconcile succeeds (a refreshed broker self-heals), so
+# the daemon's quota reader raises exactly one fleet alert per stale period.
+budget_reconcile_stale_broker() {
+  case "$budget_reconcile_output" in
+    *"invalid choice: 'reconcile'"*|*"refusing to write: ledger is stamped"*|*"refusing admission without a lease_id"*)
+      # The marker write and the one-time stderr are the same event: the first
+      # structural failure in a stale period surfaces once, and every later
+      # failure in that period (while the marker still stands) stays quiet so a
+      # fleet of 304s does not become per-request noise (#2307).
+      if [ -n "$agent_quota_dir" ] && [ ! -f "$agent_quota_dir/broker-reconcile-stale" ]; then
+        printf '%s\n' "$budget_consumer_label" > "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
+        printf '%s\n' 'aiur: GitHub budget broker cannot reconcile 304 responses (missing reconcile subcommand or a broker older than the ledger); admissions stay billable until the current broker is installed' >&2
+      fi
+      ;;
+  esac
+}
+
 budget_reconcile_response() {
   [ "$budget_enabled" -eq 1 ] || return 0
   [ -n "$budget_lease" ] || return 0
   [ -n "$output_file" ] && [ -f "$output_file" ] || return 0
 
   if awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"; then
-    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+    if budget_reconcile_output=$(budget_command reconcile --lease-id "$budget_lease" --status 304 2>&1); then
+      # Reconcile succeeded: a refreshed broker has recovered, so clear any
+      # stale-broker marker left by an earlier structural failure.
+      if [ -n "$agent_quota_dir" ] && [ -f "$agent_quota_dir/broker-reconcile-stale" ]; then
+        rm -f "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
+      fi
+    else
+      budget_reconcile_stale_broker
+    fi
   fi
+  unset budget_reconcile_output
 }
 
 budget_start_renewal() {

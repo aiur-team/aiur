@@ -1410,6 +1410,50 @@ defmodule Aiur.AgentGitHubGuardTest do
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"admissions" => [%{"billable" => false}]} = Jason.decode!(snapshot)
+
+    # A healthy reconcile leaves no stale-broker marker behind.
+    refute File.exists?(Path.join(context.state_path, "github-quota/broker-reconcile-stale"))
+  end
+
+  test "a stale broker without the reconcile subcommand raises one alert and leaves the 304 billable", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = stale_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+
+    run_304 = fn ->
+      run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+        AIUR_GITHUB_BUDGET_ROOT: budget_root,
+        AIUR_GITHUB_BUDGET_KEY: key,
+        AIUR_GITHUB_BUDGET_BROKER: broker,
+        # High enough that the second admission (run 2) is admitted: the first
+        # run's 304 stays billable because the stale broker cannot reconcile,
+        # so a limit of 1 would hold the second run behind the actor ceiling
+        # for the rest of the hour and hang the test (#2307).
+        AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10",
+        AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      )
+    end
+
+    assert {output, 0} = run_304.()
+    # The request still succeeds (a failed reconcile is not a request failure),
+    # but the structural failure is surfaced exactly once and the 304 stays
+    # billable.
+    assert output =~ "cannot reconcile 304 responses"
+    assert File.exists?(marker)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [AgentGitHubGuard.budget_broker_path(context.workspace), "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"billable" => true}]} = Jason.decode!(snapshot)
+
+    # A second 304 does not re-write the marker (exactly one alert, not
+    # per-request noise): the sentinel proves the guard never rewrote it.
+    File.write!(marker, "sentinel\n")
+    assert {"ok\n", 0} = run_304.()
+    assert File.read!(marker) == "sentinel\n"
   end
 
   test "auth token remains local when a configured budget cannot start", context do
@@ -2763,6 +2807,28 @@ defmodule Aiur.AgentGitHubGuardTest do
       {:ok, contents} -> contents |> String.split("\n", trim: true) |> length()
       _missing -> 0
     end
+  end
+
+  # A broker that delegates every command to the real broker except `reconcile`,
+  # where it mimics a pre-#2284 broker's argparse failure exactly. This is the
+  # shape the guard must distinguish from a transient reconcile failure (#2307).
+  defp stale_broker_path(context) do
+    path = Path.join(context.workspace, "stale-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import subprocess
+    import sys
+    if sys.argv[1] == "reconcile":
+        sys.stderr.write("usage: aiur-github-budget [-h] command ...\\n")
+        sys.stderr.write("aiur-github-budget: error: argument command: invalid choice: 'reconcile' (choose from 'acquire', 'release', 'renew', 'hold')\\n")
+        sys.exit(2)
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
   end
 
   defp run_guard(context, args, extra_env \\ []) do

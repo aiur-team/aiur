@@ -638,6 +638,97 @@ defmodule Aiur.GitHub.BudgetTest do
     assert Enum.any?(usage.actors, &(&1.consumer_label == "workspace:/stale"))
   end
 
+  test "a current broker stamps the ledger with its version", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+    assert {:ok, lease} = Budget.acquire(request("stamp-token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert {"1\n", 0} =
+             System.cmd("python3", [
+               "-c",
+               "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute(\"SELECT value FROM broker_meta WHERE key='broker_version'\").fetchone()[0])",
+               Budget.database_path(state_dir: root)
+             ])
+  end
+
+  test "a broker older than the ledger version stamp refuses to write with a clear message", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+    db = Budget.database_path(state_dir: root)
+    request = request("stamp-token", "/repos/owner/repo/issues/1477")
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # Stamp the ledger past this broker's version, exactly as the next release's
+    # broker would when it opens the shared ledger. This broker is now stale.
+    bump_broker_version(db, 99)
+
+    key = Budget.token_key("stamp-token")
+
+    {output, status} =
+      System.cmd(
+        "python3",
+        [
+          Budget.broker_path(),
+          "acquire",
+          "--db",
+          db,
+          "--token-key",
+          key,
+          "--resource",
+          "core",
+          "--consumer-key",
+          Budget.token_key("stale-writer"),
+          "--endpoint-family",
+          "issues",
+          "--max-inflight",
+          "2",
+          "--max-inflight-per-endpoint",
+          "2",
+          "--requests-per-minute",
+          "20",
+          "--stagger-ms",
+          "0",
+          "--lease-ttl-ms",
+          "35000"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0
+    assert output =~ "refusing to write: ledger is stamped version 99"
+    assert output =~ "this broker is version"
+
+    # Nothing was written by the stale broker: the ledger still holds only the
+    # admission the current broker created before the stamp was bumped.
+    snapshot = Budget.snapshot("stamp-token", state_dir: root)
+    assert length(snapshot.admissions) == 1
+  end
+
+  test "a broker that omits the lease id cannot write an admission", %{root: root} do
+    db = Budget.database_path(state_dir: root)
+    opts = [state_dir: root, stagger_ms: 0]
+    assert {:ok, lease} = Budget.acquire(request("lease-trigger-token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # A pre-#2284 broker's INSERT names no `lease_id`; the schema trigger must
+    # refuse it loudly instead of leaving a row the current broker can never
+    # reconcile or refund (#2307).
+    {output, status} =
+      System.cmd(
+        "python3",
+        [
+          "-c",
+          "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+            "c.execute(\"INSERT INTO admissions(token_key, consumer_key, endpoint_family, admitted_at_ms) VALUES ('k','c','issues',1)\"); c.commit()",
+          db
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0
+    assert output =~ "refusing admission without a lease_id"
+  end
+
   defp request(token, path), do: %{method: :get, url: "https://api.github.com#{path}", token: token}
 
   defp secondary_response(seconds) do
@@ -715,6 +806,17 @@ defmodule Aiur.GitHub.BudgetTest do
         "c.commit()"
 
     assert {_output, 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
+  end
+
+  # Advances the ledger's `broker_meta` version stamp, simulating a newer broker
+  # release having opened the shared ledger before this broker ran.
+  defp bump_broker_version(db, version) do
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute(\"INSERT INTO broker_meta(key,value) VALUES('broker_version',?) " <>
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value\", (sys.argv[2],)); c.commit()"
+
+    assert {_output, 0} = System.cmd("python3", ["-c", script, db, Integer.to_string(version)], stderr_to_stdout: true)
   end
 
   defp close_port(port) do
