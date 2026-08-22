@@ -391,6 +391,52 @@ defmodule Aiur.AgentEnvironmentTest do
     refute remote_output =~ "elevenlabs-secret"
   end
 
+  # The GitHub App credentials are the daemon's identity (#2266). This asserts on
+  # the RESULTING environment, not on the scrub list, and includes a name that
+  # does not exist yet — so a future App credential that is added without being
+  # named here still has to be scrubbed for this test to pass.
+  test "no GitHub App credential survives into an agent environment" do
+    app_env = [
+      {"GITHUB_APP_ID", "12345"},
+      {"GITHUB_APP_INSTALLATION_ID", "678"},
+      {"GITHUB_APP_PRIVATE_KEY_PATH", "/secrets/aiur-app.pem"},
+      {"GITHUB_APP_PRIVATE_KEY", "-----BEGIN RSA PRIVATE KEY-----"},
+      {"GITHUB_APP_CLIENT_SECRET", "future-app-secret"}
+    ]
+
+    previous = Enum.map(app_env, fn {name, _value} -> {name, System.get_env(name)} end)
+    Enum.each(app_env, fn {name, value} -> System.put_env(name, value) end)
+    on_exit(fn -> Enum.each(previous, fn {name, value} -> restore_env(name, value) end) end)
+
+    # 1. Port.open launch path: every App name is unset for the child, and the
+    #    bot PAT the agent legitimately publishes with is untouched.
+    workspace_env = AgentEnvironment.workspace_env("/work/aiur/2266")
+
+    Enum.each(app_env, fn {name, _value} ->
+      assert {String.to_charlist(name), false} in workspace_env, "#{name} is not unset for the agent process"
+    end)
+
+    refute Enum.any?(workspace_env, fn {name, _value} -> name == ~c"GITHUB_TOKEN" end)
+
+    # 2. Shell scrub path: run it and read back what actually survives.
+    command =
+      AgentEnvironment.scrub_shell_command("env | grep -E '^(GITHUB_APP_|GITHUB_TOKEN=)' | sort")
+
+    {output, _status} = System.cmd("bash", ["-lc", command], env: app_env ++ [{"GITHUB_TOKEN", "bot-pat"}])
+
+    assert output == "GITHUB_TOKEN=bot-pat\n"
+
+    Enum.each(app_env, fn {_name, value} -> refute output =~ value end)
+
+    # 3. SSH-launch path inlines the same prefix.
+    prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/2266", base_branch: "main")
+
+    {remote_output, 0} =
+      System.cmd("bash", ["-lc", "#{prefix}; env | grep -c '^GITHUB_APP_' || true"], env: app_env ++ [{"HOME", "/remote-home"}])
+
+    assert String.trim(remote_output) == "0"
+  end
+
   test "shell startup suppression clears profile hooks" do
     assert AgentEnvironment.shell_startup_env() == [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", "/dev/null"}]
     assert AgentEnvironment.shell_startup_prefix() == "unset BASH_ENV ENV; export ZDOTDIR='/dev/null'"
