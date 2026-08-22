@@ -63,6 +63,25 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
              TicketDetailCoordinator.current(cache, identity)
   end
 
+  test "propagates a LiveView request origin into the refresh task" do
+    parent = self()
+    identity = identity(42, "I42")
+
+    {:ok, cache} =
+      start_cache(
+        reader: fn _identity ->
+          send(parent, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?()})
+          {:ok, snapshot(identity, "detail")}
+        end
+      )
+
+    Aiur.GitHub.RequestOrigin.carry(true, fn ->
+      assert {:ok, %State{generation: 1}} = TicketDetailCoordinator.request(cache, identity)
+    end)
+
+    assert_receive {:view_originated, true}, 2_000
+  end
+
   test "constant repository fixture does not subscribe to workflow configuration" do
     parent = self()
     identity = identity(42, "I42")

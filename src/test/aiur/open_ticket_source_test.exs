@@ -134,6 +134,23 @@ defmodule Aiur.OpenTicketSourceTest do
     assert %Snapshot{status: :unavailable} = OpenTicketSource.snapshot(:no_such_open_ticket_source)
   end
 
+  test "propagates a LiveView request origin into an asynchronous refresh" do
+    test_pid = self()
+
+    request_fun = fn request ->
+      send(test_pid, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?(), request})
+      {:ok, %{status: 200, body: [], headers: []}}
+    end
+
+    server = start_source(request_fun: request_fun)
+
+    Aiur.GitHub.RequestOrigin.carry(true, fn ->
+      assert :ok = OpenTicketSource.refresh(server)
+    end)
+
+    assert_receive {:view_originated, true, %{method: :get}}, 2_000
+  end
+
   defp start_source(opts) do
     defaults = [
       name: nil,
