@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.RequestOrigin
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
@@ -100,17 +101,27 @@ defmodule Aiur.GitHub.Quota do
 
   @spec observe(GenServer.server(), request(), {:ok, map()} | {:error, term()}) :: :ok
   def observe(server \\ __MODULE__, request, result) do
-    GenServer.cast(server, {:observe, request, result})
+    GenServer.cast(server, {:observe, RequestOrigin.mark(request), result})
   catch
     :exit, _reason -> :ok
   end
 
   @spec snapshot(GenServer.server()) :: map()
   def snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :snapshot)
+    snapshot!(server)
   catch
     :exit, _reason -> @unknown_snapshot
   end
+
+  @doc """
+  Reads the quota meter without replacing an unavailable process with an
+  unknown snapshot.
+
+  Diagnostic callers use this form when an unreachable meter must be reported
+  as an error rather than presented as an empty measurement.
+  """
+  @spec snapshot!(GenServer.server()) :: map()
+  def snapshot!(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do
@@ -541,6 +552,7 @@ defmodule Aiur.GitHub.Quota do
       observation = %{
         consumer: request_consumer(request),
         caller: GraphQLCost.derive(request),
+        view_originated?: Map.get(request, :view_originated?, false) == true,
         direction: request_direction(request),
         resource: resource,
         cost: cost,
@@ -680,6 +692,7 @@ defmodule Aiur.GitHub.Quota do
         caller: caller,
         resource: resource,
         calls: length(entries),
+        view_calls: Enum.count(entries, &(Map.get(&1, :view_originated?, false) == true)),
         reads: reads,
         writes: length(entries) - reads,
         points: points,

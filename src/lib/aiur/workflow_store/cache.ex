@@ -44,8 +44,10 @@ defmodule Aiur.WorkflowStore.Cache do
   @doc """
   Publishes the current workflow. Drops the derived-value keys so a reader can
   never pair a new workflow with values derived from an older one. Both are
-  also generation-stamped, so a torn write between the insert and the deletes
-  is a miss rather than a stale hit.
+  also stamped with a collision-free publication reference, so a torn write
+  between the insert and the deletes is a miss rather than a stale hit. A late
+  reader may republish a value under its old reference, but it cannot match a
+  later publication even if generation metadata is reused.
 
   The entry carries the `path` the workflow was loaded from. A reader fetches
   by its own current path (see `fetch/1`) and only accepts an entry whose path
@@ -55,7 +57,7 @@ defmodule Aiur.WorkflowStore.Cache do
   @spec put(term(), generation(), Path.t()) :: :ok
   def put(workflow, generation, path) when is_integer(generation) and is_binary(path) do
     safe(fn ->
-      :ets.insert(@table, {@current_key, path, workflow, generation})
+      :ets.insert(@table, {@current_key, path, workflow, generation, make_ref()})
       :ets.delete(@table, @settings_key)
       :ets.delete(@table, @env_names_key)
     end)
@@ -69,11 +71,11 @@ defmodule Aiur.WorkflowStore.Cache do
   belongs to another path — the fence that keeps a `write_workflow_file!/2`
   + `force_reload` from being clobbered by a concurrent reload from elsewhere.
   """
-  @spec fetch(Path.t()) :: {:ok, term(), generation()} | {:stale, Path.t()} | :error
+  @spec fetch(Path.t()) :: {:ok, term(), generation(), reference()} | {:stale, Path.t()} | :error
   def fetch(path) when is_binary(path) do
     case safe_lookup(@current_key) do
-      [{@current_key, ^path, workflow, generation}] -> {:ok, workflow, generation}
-      [{@current_key, cached_path, _workflow, _generation}] -> {:stale, cached_path}
+      [{@current_key, ^path, workflow, generation, publication}] -> {:ok, workflow, generation, publication}
+      [{@current_key, cached_path, _workflow, _generation, _publication}] -> {:stale, cached_path}
       _ -> :error
     end
   end
@@ -82,10 +84,14 @@ defmodule Aiur.WorkflowStore.Cache do
   Memoized `Aiur.Config.Schema` parse.
 
   `key` is opaque to this module — `Aiur.Config` builds it from the workflow
-  generation plus an environment epoch, because parsing resolves `$ENV`
-  references. Exactly one memo is kept: a lookup whose key does not match is a
-  miss, and the next `put_settings/2` overwrites it. Any reader may compute the
-  value; two readers racing produce the same one and the later insert wins.
+  generation, a collision-free workflow publication reference, and an
+  environment epoch, because parsing resolves `$ENV` references. The reference
+  prevents a late reader from republishing old settings under reused generation
+  metadata without copying the full config term through this hot lookup.
+  Exactly one memo is kept: a lookup whose key does not match is a miss, and the
+  next `put_settings/2` overwrites it. Any reader may compute the value; two
+  readers for the same publication produce the same one and the later insert
+  wins.
   """
   @spec fetch_settings(term()) :: {:ok, term()} | :error
   def fetch_settings(key) do
@@ -103,22 +109,24 @@ defmodule Aiur.WorkflowStore.Cache do
   @doc """
   The environment variable names `Aiur.Config.settings/0` must sample to decide
   whether its memo is still valid. Derived from the config content, so it is
-  fixed for a generation — which is the whole point of caching it: sampling a
+  fixed for one workflow publication. The key carries that publication's
+  collision-free reference and generation so late readers cannot cross a reused
+  generation boundary. That is the whole point of caching it: sampling a
   handful of named variables costs a fraction of a microsecond, while hashing
   the entire environment cost 154us per read on a 226-variable host, roughly
   300x the ETS lookup it guards.
   """
-  @spec fetch_env_names(generation()) :: {:ok, [String.t()]} | :error
-  def fetch_env_names(generation) do
+  @spec fetch_env_names(term()) :: {:ok, [String.t()]} | :error
+  def fetch_env_names(key) do
     case safe_lookup(@env_names_key) do
-      [{@env_names_key, ^generation, names}] -> {:ok, names}
+      [{@env_names_key, ^key, names}] -> {:ok, names}
       _ -> :error
     end
   end
 
-  @spec put_env_names(generation(), [String.t()]) :: :ok
-  def put_env_names(generation, names) do
-    safe(fn -> :ets.insert(@table, {@env_names_key, generation, names}) end)
+  @spec put_env_names(term(), [String.t()]) :: :ok
+  def put_env_names(key, names) do
+    safe(fn -> :ets.insert(@table, {@env_names_key, key, names}) end)
   end
 
   @doc false

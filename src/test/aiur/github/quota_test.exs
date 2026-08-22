@@ -7,6 +7,10 @@ defmodule Aiur.GitHub.QuotaTest do
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
+  test "strict snapshots surface an unavailable meter" do
+    assert catch_exit(Quota.snapshot!(:aiur_github_quota_not_running))
+  end
+
   test "projects rate-limit headers into exact core and GraphQL windows" do
     quota = start_quota()
 
@@ -257,6 +261,26 @@ defmodule Aiur.GitHub.QuotaTest do
 
     assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
     assert Quota.snapshot(quota).coverage.estimated?
+  end
+
+  test "preserves process-scoped view attribution in the caller summary" do
+    quota = start_quota()
+    {:label, previous_label} = Process.info(self(), :label)
+    Process.set_label({Phoenix.LiveView, AiurWeb.DashboardLive, "lv:test"})
+
+    try do
+      Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4999))
+      Quota.observe(quota, request(:patch, "/repos/owner/repo/issues/1670"), response("core", 5000, 4997))
+    after
+      Process.set_label(previous_label)
+    end
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4998))
+
+    callers = Quota.snapshot(quota).callers
+
+    assert %{calls: 2, view_calls: 1} = Enum.find(callers, &(&1.caller == "rest:GET /repos/owner/repo/issues/:n"))
+    assert %{calls: 1, view_calls: 1} = Enum.find(callers, &(&1.caller == "rest:PATCH /repos/owner/repo/issues/:n"))
   end
 
   # A conditional request answered `304` is served from GitHub's cache and is
