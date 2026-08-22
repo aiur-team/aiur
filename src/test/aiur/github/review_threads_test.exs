@@ -85,7 +85,12 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
                  %{"id" => "PRRT_resolved", "isResolved" => false}
                ])
 
-      assert :ok = PollSnapshots.merge_review_thread("owner/repo", 61, %{"id" => "PRRT_resolved", "isResolved" => true})
+      assert :ok =
+               PollSnapshots.merge_review_thread("owner/repo", 61, %{
+                 "id" => "PRRT_resolved",
+                 "isResolved" => true,
+                 "updatedAt" => "2026-08-21T10:01:00Z"
+               })
 
       assert {:ok, []} = ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61)
     end
@@ -123,6 +128,42 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
                ResourceStore.fetch(PollSnapshots.review_threads_key("owner/repo", 61))
 
       File.rm_rf!(repo_root)
+    end
+
+    test "does not cache a partial collection when a cursor request fails" do
+      pr_number = 61
+
+      request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        case get_in(body, ["variables", "cursor"]) do
+          nil ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "data" => %{
+                   "repository" => %{
+                     "pullRequest" => %{
+                       "reviewThreads" => %{
+                         "pageInfo" => %{"hasNextPage" => true, "endCursor" => "cursor_1"},
+                         "nodes" => []
+                       }
+                     }
+                   }
+                 }
+               }
+             }}
+
+          "cursor_1" ->
+            {:error, :timeout}
+        end
+      end
+
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
+               ReviewThreads.fetch_unaddressed_pr_review_thread_comments(pr_number,
+                 request_fun: request_fun
+               )
+
+      assert ResourceStore.fetch(PollSnapshots.review_threads_key("owner/repo", pr_number)) == :miss
     end
 
     test "returns only unresolved threads' latest comments, CODEOWNERS-classified" do

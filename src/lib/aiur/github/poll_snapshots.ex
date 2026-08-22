@@ -66,6 +66,8 @@ defmodule Aiur.GitHub.PollSnapshots do
   def merge_review_thread(repo, pr_number, delivered, opts \\ [])
 
   def merge_review_thread(repo, pr_number, %{"id" => id} = delivered, opts) when is_binary(id) and id != "" do
+    source = Keyword.get(opts, :source, :webhook)
+
     ResourceStore.update_resource(
       review_threads_key(repo, pr_number),
       fn
@@ -76,7 +78,7 @@ defmodule Aiur.GitHub.PollSnapshots do
             not is_map(existing) ->
               :unchanged
 
-            newer_than?(existing, delivered, &thread_marker/1) ->
+            source == :webhook and stale_or_unversioned?(existing, delivered, &thread_marker/1) ->
               :unchanged
 
             true ->
@@ -86,7 +88,7 @@ defmodule Aiur.GitHub.PollSnapshots do
         _other ->
           :unchanged
       end,
-      source: Keyword.get(opts, :source, :webhook),
+      source: source,
       version: &snapshot_version/1
     )
   end
@@ -108,9 +110,11 @@ defmodule Aiur.GitHub.PollSnapshots do
         when is_list(check_runs) and is_map(commit_status) ->
           existing = Enum.find(check_runs, &(Map.get(&1, "id") == id))
 
-          if is_map(existing) and stale_or_unversioned?(existing, delivered, &check_run_marker/1),
-            do: :unchanged,
-            else: Map.put(held, "check_runs", replace_resource(check_runs, id, delivered))
+          cond do
+            not is_map(existing) -> :unchanged
+            stale_or_unversioned?(existing, delivered, &check_run_marker/1) -> :unchanged
+            true -> Map.put(held, "check_runs", replace_resource(check_runs, id, delivered))
+          end
 
         _other ->
           :unchanged
@@ -167,19 +171,9 @@ defmodule Aiur.GitHub.PollSnapshots do
     if found?, do: replaced, else: replaced ++ [delivered]
   end
 
-  defp newer_than?(existing, delivered, marker_fun) do
-    case {marker_fun.(existing), marker_fun.(delivered)} do
-      {existing_marker, delivered_marker} when is_binary(existing_marker) and is_binary(delivered_marker) ->
-        existing_marker > delivered_marker
-
-      _other ->
-        false
-    end
-  end
-
   defp stale_or_unversioned?(existing, delivered, marker_fun) do
     case {marker_fun.(existing), marker_fun.(delivered)} do
-      {existing_marker, nil} when is_binary(existing_marker) -> true
+      {_existing_marker, nil} -> true
       {existing_marker, delivered_marker} when is_binary(existing_marker) and is_binary(delivered_marker) -> existing_marker > delivered_marker
       _other -> false
     end

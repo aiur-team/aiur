@@ -467,7 +467,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert deposited["html_url"] == "https://github.com/owner/repo/pull/7#discussion_r880001"
     end
 
-    test "resolving a thread deposits its resolution state" do
+    test "a compensating unresolve prevents a delayed resolved delivery from making the aggregate delivery-fresh" do
       assert :ok =
                PollSnapshots.put_review_threads(@repo, 7, [
                  %{"id" => "PRRT_thread", "isResolved" => false, "comments" => %{"nodes" => []}}
@@ -488,16 +488,26 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert {:ok, %{source: :mutation, data: %{"threads" => [%{"id" => "PRRT_thread", "isResolved" => true}]}}} =
                ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 7))
 
+      # GitHub's compensating unresolve response carries no marker that can
+      # order it against the original resolve delivery. It still updates the
+      # individual thread, but deliberately drops the complete aggregate.
       WriteThrough.review_thread(%{
         "id" => "PRRT_thread",
         "isResolved" => false,
         "pullRequest" => %{"number" => 7}
       })
 
+      assert %{"isResolved" => false} =
+               ResourceStore.data(ResourceStore.key(:pr_review_thread, "owner", "repo", "PRRT_thread"))
+
       assert :miss = PollSnapshots.review_threads(@repo, 7)
 
-      assert {:ok, %{source: :mutation, data: %{"threads" => [%{"id" => "PRRT_thread", "isResolved" => false}]}}} =
-               ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 7))
+      # The old resolved delivery must not recreate a complete aggregate from
+      # which a reader could be served. A subsequent poll is the authority.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", resolved_thread_delivery(), repo: @repo)
+
+      assert :miss = PollSnapshots.review_threads(@repo, 7)
     end
   end
 
@@ -698,6 +708,15 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
          }
        }
      }}
+  end
+
+  defp resolved_thread_delivery do
+    %{
+      "action" => "resolved",
+      "repository" => %{"full_name" => @repo},
+      "pull_request" => %{"number" => 7, "head" => %{"ref" => "aiur/42-slug"}},
+      "thread" => %{"node_id" => "PRRT_thread", "is_resolved" => true, "updated_at" => "2026-08-17T16:00:00Z"}
+    }
   end
 
   # A whole GitHub issue object at generation `n`, in the shape

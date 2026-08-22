@@ -199,7 +199,17 @@ defmodule Aiur.GitHub.WriteThrough do
       with %{} <- thread,
            pr_number when not is_nil(pr_number) <- get_in(thread, ["pullRequest", "number"]),
            {:ok, owner, repo} <- repo_identity(thread, opts) do
-        PollSnapshots.merge_review_thread("#{owner}/#{repo}", pr_number, thread, source: :mutation)
+        if Map.get(thread, "isResolved") == false do
+          # An unresolve can race a delayed `resolved` webhook for the original
+          # mutation. The mutation response has no version, so merging it into
+          # the complete aggregate would leave that old delivery free to
+          # overwrite it and make the collection delivery-fresh. Keep the
+          # individual thread write-through above, but require a fresh poll for
+          # the aggregate.
+          PollSnapshots.invalidate_review_threads("#{owner}/#{repo}", pr_number)
+        else
+          PollSnapshots.merge_review_thread("#{owner}/#{repo}", pr_number, thread, source: :mutation)
+        end
       else
         _other -> :ok
       end
