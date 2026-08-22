@@ -6,7 +6,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   alias Aiur.Orchestrator.State
 
   test "reloads the latest validated refs before consumers start" do
-    path = Path.join(System.tmp_dir!(), "branch-refs-#{System.unique_integer([:positive])}.json")
+    path = Path.join(System.tmp_dir!(), "branch-refs-#{System.pid()}-#{System.unique_integer([:positive])}.json")
     ref = "refs/heads/aiur/99-dependency"
     sha = String.duplicate("a", 40)
 
@@ -23,7 +23,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "retains a one-shot unblock until its exact ref is observed" do
-    path = Path.join(System.tmp_dir!(), "branch-unblocks-#{System.unique_integer([:positive])}.json")
+    path = Path.join(System.tmp_dir!(), "branch-unblocks-#{System.pid()}-#{System.unique_integer([:positive])}.json")
     ref = "refs/heads/aiur/99-dependency"
     sha = String.duplicate("b", 40)
     metadata = %{ref: ref, sha: sha}
@@ -49,7 +49,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "a matching final unblock stays durable until routing acknowledges it" do
-    path = Path.join(System.tmp_dir!(), "branch-ready-crash-#{System.unique_integer([:positive])}.json")
+    path = Path.join(System.tmp_dir!(), "branch-ready-crash-#{System.pid()}-#{System.unique_integer([:positive])}.json")
     ref = "refs/heads/aiur/99-dependency"
     sha = String.duplicate("c", 40)
     metadata = %{ref: ref, sha: sha}
@@ -73,7 +73,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "default persistence survives a new launch log root" do
-    root = Path.join(System.tmp_dir!(), "branch-state-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "branch-state-#{System.pid()}-#{System.unique_integer([:positive])}")
     state_dir = Path.join(root, "stable-instance-project")
     previous_log_file = Application.get_env(:aiur, :log_file)
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
@@ -101,7 +101,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "resolved default persistence survives a new launch log root without an override" do
-    root = Path.join(System.tmp_dir!(), "branch-default-state-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "branch-default-state-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous_log_file = Application.get_env(:aiur, :log_file)
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
     previous_instance_key = System.get_env("AIUR_INSTANCE_KEY")
@@ -133,7 +133,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "empty instance key fails closed instead of accepting state under launch log roots" do
-    root = Path.join(System.tmp_dir!(), "branch-closed-state-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "branch-closed-state-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous_log_file = Application.get_env(:aiur, :log_file)
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
     previous_instance_key = System.get_env("AIUR_INSTANCE_KEY")
@@ -169,7 +169,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "a write failure is not accepted without a second caller" do
-    root = Path.join(System.tmp_dir!(), "branch-retry-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "branch-retry-#{System.pid()}-#{System.unique_integer([:positive])}")
     blocker = Path.join(root, "not-a-directory")
     path = Path.join(blocker, "branch-refs.json")
     ref = "refs/heads/aiur/99-dependency"
@@ -204,7 +204,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "failed branch and unblock writes compose into one durable retry" do
-    root = Path.join(System.tmp_dir!(), "branch-unblock-retry-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "branch-unblock-retry-#{System.pid()}-#{System.unique_integer([:positive])}")
     blocker = Path.join(root, "not-a-directory")
     path = Path.join(blocker, "branch-refs.json")
     ref = "refs/heads/aiur/99-dependency"
@@ -240,7 +240,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "branch-push routing autonomously preserves a write that fails once" do
-    root = Path.join(System.tmp_dir!(), "branch-route-retry-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "branch-route-retry-#{System.pid()}-#{System.unique_integer([:positive])}")
     blocker = Path.join(root, "not-a-directory")
     path = Path.join(blocker, "branch-refs.json")
     ref = "refs/heads/aiur/99-dependency"
@@ -275,7 +275,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "existing unreadable state fails closed" do
-    path = Path.join(System.tmp_dir!(), "branch-unreadable-#{System.unique_integer([:positive])}")
+    path = Path.join(System.tmp_dir!(), "branch-unreadable-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous_trap_exit = Process.flag(:trap_exit, true)
 
     File.mkdir_p!(path)
@@ -289,7 +289,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "existing corrupt state fails closed" do
-    path = Path.join(System.tmp_dir!(), "branch-corrupt-#{System.unique_integer([:positive])}.json")
+    path = Path.join(System.tmp_dir!(), "branch-corrupt-#{System.pid()}-#{System.unique_integer([:positive])}.json")
     previous_trap_exit = Process.flag(:trap_exit, true)
 
     File.write!(path, "{not-json")
@@ -303,7 +303,7 @@ defmodule Aiur.Events.BranchRefStoreTest do
   end
 
   test "existing structurally invalid state fails closed" do
-    path = Path.join(System.tmp_dir!(), "branch-invalid-#{System.unique_integer([:positive])}.json")
+    path = Path.join(System.tmp_dir!(), "branch-invalid-#{System.pid()}-#{System.unique_integer([:positive])}.json")
     previous_trap_exit = Process.flag(:trap_exit, true)
 
     File.write!(path, Jason.encode!(%{refs: []}))

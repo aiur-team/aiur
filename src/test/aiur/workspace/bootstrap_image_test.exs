@@ -4,7 +4,7 @@ defmodule Aiur.Workspace.BootstrapImageTest do
   alias Aiur.Workspace.BootstrapImage
 
   setup do
-    test_root = Path.join(System.tmp_dir!(), "bi_test_#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "bi_test_#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace = Path.join(test_root, "ws")
     File.mkdir_p!(workspace)
 

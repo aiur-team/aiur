@@ -1354,7 +1354,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     issue = issue("latched-error-store-failure", "rework")
     topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
     resolved_topic = "#{topic}.resolved"
-    store_path = Path.join(System.tmp_dir!(), "dispatch-budget-invalid-#{System.unique_integer([:positive])}.json")
+    store_path = Path.join(System.tmp_dir!(), "dispatch-budget-invalid-#{System.pid()}-#{System.unique_integer([:positive])}.json")
     previous_store_path = Application.get_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :dispatch_budget_store_path, store_path)
     File.write!(store_path, "not json")

@@ -12,7 +12,7 @@ defmodule Aiur.Executor.RecordingTest do
   setup do
     # Point every StatePaths lookup at a directory this case owns, so the
     # inbox's durable ledger is this test's and nothing else's.
-    dir = Path.join(System.tmp_dir!(), "aiur-executor-recording-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-executor-recording-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     Application.put_env(:aiur, :executor_state_dir, dir)
 

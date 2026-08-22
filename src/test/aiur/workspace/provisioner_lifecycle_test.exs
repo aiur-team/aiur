@@ -7,7 +7,7 @@ defmodule Aiur.Workspace.ProvisionerLifecycleTest do
     workspace =
       Path.join(
         System.tmp_dir!(),
-        "aiur-existing-workspace-#{System.unique_integer([:positive])}"
+        "aiur-existing-workspace-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     init_repo!(workspace)

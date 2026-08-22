@@ -5,7 +5,7 @@ defmodule Aiur.Init.AlertsTest do
   alias Aiur.Init.Templates
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-alerts-test-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-alerts-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     target = Path.join([dir, ".aiur", "config"])
     File.mkdir_p!(Path.dirname(target))
     on_exit(fn -> File.rm_rf!(dir) end)

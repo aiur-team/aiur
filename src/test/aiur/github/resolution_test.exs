@@ -192,7 +192,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
 
   defp codeowners_repo!(content) do
     repo_root =
-      Path.join(System.tmp_dir!(), "aiur-res-test-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-res-test-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     path = Path.join(repo_root, ".github/CODEOWNERS")
     File.mkdir_p!(Path.dirname(path))

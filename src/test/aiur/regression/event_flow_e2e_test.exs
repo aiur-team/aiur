@@ -21,7 +21,7 @@ defmodule Aiur.Regression.EventFlowE2eTest do
   alias Aiur.Events.{Exchange, GithubFirehose, Publisher, SubscriptionStore}
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_e2e_#{System.unique_integer([:positive])}")
+    tmp_dir = Path.join(System.tmp_dir!(), "aiur_e2e_#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp_dir)
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))

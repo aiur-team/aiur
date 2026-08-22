@@ -100,7 +100,7 @@ defmodule Aiur.UpgradeTest do
   end
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "aiur-upgrade-test-#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "aiur-upgrade-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
     state_file = Path.join(tmp, "upgrade.json")
     Process.put(:upgrade_test_state_file, state_file)

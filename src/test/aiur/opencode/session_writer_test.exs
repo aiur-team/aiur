@@ -424,7 +424,7 @@ defmodule Aiur.Opencode.SessionWriterTest do
     db_path =
       Path.join(
         System.tmp_dir!(),
-        "aiur-session-writer-test-#{System.unique_integer([:positive])}.db"
+        "aiur-session-writer-test-#{System.pid()}-#{System.unique_integer([:positive])}.db"
       )
 
     initialize_schema!(db_path)

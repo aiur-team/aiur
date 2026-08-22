@@ -13,7 +13,7 @@ defmodule Aiur.DecisionArtifactTest do
       end
     end)
 
-    root = Path.join(System.tmp_dir!(), "aiur-decision-artifact-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-decision-artifact-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
 
@@ -40,7 +40,7 @@ defmodule Aiur.DecisionArtifactTest do
     end
 
     test "a path outside every safe root is rejected", %{root: root} do
-      outside = Path.join(System.tmp_dir!(), "outside-#{System.unique_integer([:positive])}.md")
+      outside = Path.join(System.tmp_dir!(), "outside-#{System.pid()}-#{System.unique_integer([:positive])}.md")
       assert DecisionArtifact.validate(outside, [root]) == {:error, :artifact_path_outside_root}
     end
 
@@ -51,7 +51,7 @@ defmodule Aiur.DecisionArtifactTest do
 
     test "a symlink that resolves outside every safe root is rejected", %{root: root} do
       outside_dir =
-        Path.join(System.tmp_dir!(), "aiur-artifact-outside-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-artifact-outside-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(outside_dir)
       on_exit(fn -> File.rm_rf!(outside_dir) end)

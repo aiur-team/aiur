@@ -527,7 +527,7 @@ defmodule AiurWeb.PresenterTest do
   end
 
   test "durable history and outcomes remain visible when the orchestrator is unavailable" do
-    telemetry_path = Path.join(System.tmp_dir!(), "presenter-telemetry-#{System.unique_integer([:positive])}.ndjson")
+    telemetry_path = Path.join(System.tmp_dir!(), "presenter-telemetry-#{System.pid()}-#{System.unique_integer([:positive])}.ndjson")
     File.write!(telemetry_path, "")
     on_exit(fn -> File.rm(telemetry_path) end)
 

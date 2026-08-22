@@ -15,7 +15,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
 
   setup do
     original_dir = Application.get_env(:aiur, :decision_state_dir)
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-delivery-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-decision-delivery-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     on_exit(fn ->

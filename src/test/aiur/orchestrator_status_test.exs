@@ -973,7 +973,7 @@ defmodule Aiur.OrchestratorStatusTest do
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
     previous_log_file = Application.get_env(:aiur, :log_file)
-    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-terminal-cleanup-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-terminal-cleanup-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
@@ -1025,7 +1025,7 @@ defmodule Aiur.OrchestratorStatusTest do
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
     previous_log_file = Application.get_env(:aiur, :log_file)
-    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-todo-cleanup-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-todo-cleanup-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
@@ -4686,7 +4686,7 @@ defmodule Aiur.OrchestratorStatusTest do
     release_file =
       Path.join(
         System.tmp_dir!(),
-        "completed-revalidation-#{System.unique_integer([:positive])}.release"
+        "completed-revalidation-#{System.pid()}-#{System.unique_integer([:positive])}.release"
       )
 
     File.rm(release_file)

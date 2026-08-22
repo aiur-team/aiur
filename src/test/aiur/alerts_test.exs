@@ -7,7 +7,7 @@ defmodule Aiur.AlertsTest do
 
   test "emit_system writes a structured alert entry and selects a configured sound" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alerts-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alerts-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     # Linear default config namespaces the workspace under <root>/<project_slug>/,
     # which is where resolve_workspace (via the issue:) now looks for the log dir.
@@ -49,7 +49,7 @@ defmodule Aiur.AlertsTest do
   end
 
   test "emit_system persists a dynamic readiness alert without a configured topic" do
-    root = Path.join(System.tmp_dir!(), "aiur-readiness-alert-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-readiness-alert-#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace = Path.join([root, "project", "1474"])
     log_root = Path.join(root, "log")
     previous_log_file = Application.get_env(:aiur, :log_file)
@@ -109,7 +109,7 @@ defmodule Aiur.AlertsTest do
 
   test "task state transitions emit task alerts into the issue workspace log" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-state-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-state-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     # Resolved via the issue identifier, so it must match the repo-namespaced
     # layout (Linear default config → <root>/project/<issue>).
@@ -133,7 +133,7 @@ defmodule Aiur.AlertsTest do
 
   test "human-review state transitions are marked operator-actionable" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-review-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-review-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     workspace = Path.join([workspace_root, "project", "MT-ALERT-REVIEW"])
     File.mkdir_p!(workspace)
@@ -159,7 +159,7 @@ defmodule Aiur.AlertsTest do
 
   test "tracker pause transitions persist and appear in the Executor alert feed" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-tracker-pause-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-tracker-pause-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     workspace = Path.join([workspace_root, "project", "MT-TRACKER-PAUSE"])
     File.mkdir_p!(workspace)
@@ -191,7 +191,7 @@ defmodule Aiur.AlertsTest do
 
   test "alerts without a local workspace are written to the central alert feed" do
     log_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-central-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-central-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
@@ -222,7 +222,7 @@ defmodule Aiur.AlertsTest do
 
   test "central alerts with a local workspace are written to both feeds" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-central-workspace-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-central-workspace-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     workspace = Path.join([workspace_root, "project", "MT-CENTRAL-WORKSPACE"])
     log_root = Path.join(workspace_root, "central")
@@ -262,7 +262,7 @@ defmodule Aiur.AlertsTest do
 
   test "fleet dispatch alerts persist and appear in the Executor alert feed" do
     log_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-fleet-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-fleet-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
@@ -299,7 +299,7 @@ defmodule Aiur.AlertsTest do
   end
 
   test "executor takeover advisories round-trip through the needs-attention feed and resolve" do
-    log_root = Path.join(System.tmp_dir!(), "aiur-takeover-alert-#{System.unique_integer([:positive])}")
+    log_root = Path.join(System.tmp_dir!(), "aiur-takeover-alert-#{System.pid()}-#{System.unique_integer([:positive])}")
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
@@ -353,7 +353,7 @@ defmodule Aiur.AlertsTest do
 
   describe "resolution alerts are edge-triggered" do
     setup do
-      log_root = Path.join(System.tmp_dir!(), "aiur-alert-resolution-#{System.unique_integer([:positive])}")
+      log_root = Path.join(System.tmp_dir!(), "aiur-alert-resolution-#{System.pid()}-#{System.unique_integer([:positive])}")
       original_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
@@ -439,7 +439,7 @@ defmodule Aiur.AlertsTest do
 
   test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     # Resolved via the issue identifier, so it must match the repo-namespaced
     # layout (Linear default config → <root>/project/<issue>).
@@ -622,7 +622,7 @@ defmodule Aiur.AlertsTest do
     setup do
       prev = Application.get_env(:aiur, :alerts_file_path)
 
-      tmp_yaml = Path.join(System.tmp_dir!(), "alerts_glob_#{System.unique_integer([:positive])}.yaml")
+      tmp_yaml = Path.join(System.tmp_dir!(), "alerts_glob_#{System.pid()}-#{System.unique_integer([:positive])}.yaml")
 
       File.write!(tmp_yaml, """
       alerts:
@@ -965,7 +965,7 @@ defmodule Aiur.AlertsTest do
     end
 
     test "resolve_workspace_for returns the workspace path when it exists" do
-      workspace_root = Path.join(System.tmp_dir!(), "aiur-rwfor-#{System.unique_integer([:positive])}")
+      workspace_root = Path.join(System.tmp_dir!(), "aiur-rwfor-#{System.pid()}-#{System.unique_integer([:positive])}")
       # Linear default config namespaces the workspace under <root>/<project_slug>/.
       workspace = Path.join([workspace_root, "project", "MT-WSEXIST"])
       File.mkdir_p!(workspace)
@@ -1102,7 +1102,7 @@ defmodule Aiur.AlertsTest do
 
     test "test env suppresses fallback sound playback while preserving alert emission" do
       workspace_root =
-        Path.join(System.tmp_dir!(), "aiur-alert-test-silent-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-alert-test-silent-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       workspace = Path.join([workspace_root, "project", "MT-ALERT-SILENT"])
       File.mkdir_p!(workspace)
@@ -1139,7 +1139,7 @@ defmodule Aiur.AlertsTest do
 
     test "non-test env still invokes fallback sound playback" do
       workspace_root =
-        Path.join(System.tmp_dir!(), "aiur-alert-runtime-sound-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-alert-runtime-sound-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       workspace = Path.join([workspace_root, "project", "MT-ALERT-RUNTIME"])
       File.mkdir_p!(workspace)
@@ -1184,7 +1184,7 @@ defmodule Aiur.AlertsTest do
       # `maybe_play_sound`'s rescue branch logs at debug and returns :ok
       # so a crashing player can't break the alert emission flow.
       workspace_root =
-        Path.join(System.tmp_dir!(), "aiur-alert-rescue-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-alert-rescue-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       workspace = Path.join(workspace_root, "MT-ALERT-RESCUE")
       File.mkdir_p!(workspace)
@@ -1208,7 +1208,7 @@ defmodule Aiur.AlertsTest do
       # we pass `player: &Aiur.Alerts.default_player_for_test/1`
       # if exposed — when not exposed we ensure no crash either way.
       workspace_root =
-        Path.join(System.tmp_dir!(), "aiur-alert-url-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-alert-url-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       workspace = Path.join(workspace_root, "MT-ALERT-URL")
       File.mkdir_p!(workspace)
@@ -1255,7 +1255,7 @@ defmodule Aiur.AlertsTest do
   describe "config-driven alert settings" do
     setup do
       workspace_root =
-        Path.join(System.tmp_dir!(), "aiur-alert-cfg-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-alert-cfg-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(Path.join(workspace_root, "MT-CFG"))
       on_exit(fn -> File.rm_rf!(workspace_root) end)

@@ -122,7 +122,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     # The default test tracker is Linear, whose add_label/remove_label return
     # {:error, :unsupported} — a stand-in for any tracker write failure.
     setup do
-      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.unique_integer([:positive])}.json")
+      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.pid()}-#{System.unique_integer([:positive])}.json")
       Application.put_env(:aiur, :remote_control_claude_json, claude_json)
 
       on_exit(fn ->
@@ -134,7 +134,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
     end
 
     test "promote: a label-add failure aborts with the agent still running" do
-      workspace = Path.join(System.tmp_dir!(), "rc-ws-#{System.unique_integer([:positive])}")
+      workspace = Path.join(System.tmp_dir!(), "rc-ws-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.mkdir_p!(workspace)
       agent_pid = spawn(fn -> Process.sleep(:infinity) end)
       agent_ref = Process.monitor(agent_pid)
@@ -164,9 +164,9 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
   describe "promote / demote success (memory tracker captures the label op)" do
     setup do
-      workspace = Path.join(System.tmp_dir!(), "rc-ws-#{System.unique_integer([:positive])}")
+      workspace = Path.join(System.tmp_dir!(), "rc-ws-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.mkdir_p!(workspace)
-      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.unique_integer([:positive])}.json")
+      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.pid()}-#{System.unique_integer([:positive])}.json")
 
       Application.put_env(:aiur, :remote_control_claude_json, claude_json)
       write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
@@ -277,7 +277,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
   describe "ensure_remote_control_trust/2 (direct-dispatch trust seeding)" do
     setup do
-      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.unique_integer([:positive])}.json")
+      claude_json = Path.join(System.tmp_dir!(), "rc-claude-#{System.pid()}-#{System.unique_integer([:positive])}.json")
       Application.put_env(:aiur, :remote_control_claude_json, claude_json)
 
       on_exit(fn ->

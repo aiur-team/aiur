@@ -174,7 +174,7 @@ defmodule Aiur.Prewarm.DetectTest do
   end
 
   defp tmp_repo(files) do
-    root = Path.join(System.tmp_dir!(), "aiur_detect_#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur_detect_#{System.pid()}-#{System.unique_integer([:positive])}")
 
     Enum.each(files, fn {rel, content} ->
       path = Path.join(root, rel)

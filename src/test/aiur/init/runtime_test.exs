@@ -6,7 +6,7 @@ defmodule Aiur.Init.RuntimeTest do
   alias Aiur.RepoBase
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-init-runtime-test-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-init-runtime-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, dir: dir}

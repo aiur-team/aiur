@@ -15,7 +15,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
   setup do
     original_dir = Application.get_env(:aiur, :decision_state_dir)
     original_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-api-integration-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-decision-api-integration-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
     endpoint_started? = ensure_endpoint_running()

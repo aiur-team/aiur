@@ -5542,7 +5542,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_dashboard_metrics(name, decision_store, opts \\ []) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-#{System.pid()}-#{System.unique_integer([:positive])}")
     path = Path.join(dir, "decision-latency.ndjson")
     on_exit(fn -> File.rm_rf!(dir) end)
 
@@ -5556,7 +5556,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_restartable_dashboard_metrics(name, decision_store) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-restart-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-restart-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
 
     restart = fn ->
@@ -5599,7 +5599,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_recent_merge_store(name) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-merges-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-merges-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     start_supervised!({RecentMergeStore, name: name, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
@@ -5688,7 +5688,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_decision_store(name, dispatcher, opts \\ []) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-decisions-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-decisions-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous = Application.get_env(:aiur, :decision_state_dir)
     Application.put_env(:aiur, :decision_state_dir, dir)
 

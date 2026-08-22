@@ -84,7 +84,7 @@ defmodule Aiur.Scripts.GuardPRDeletionsTest do
   end
 
   defp new_repo! do
-    root = Path.join(System.tmp_dir!(), "aiur-pr-deletion-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-pr-deletion-#{System.pid()}-#{System.unique_integer([:positive])}")
     repo = Path.join(root, "work")
     origin = Path.join(root, "origin.git")
     File.mkdir_p!(repo)

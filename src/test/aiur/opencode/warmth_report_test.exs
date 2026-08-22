@@ -60,7 +60,7 @@ defmodule Aiur.Opencode.WarmthReportTest do
     """
 
     path =
-      Path.join(System.tmp_dir!(), "warmth_report_test_#{System.unique_integer([:positive])}.log")
+      Path.join(System.tmp_dir!(), "warmth_report_test_#{System.pid()}-#{System.unique_integer([:positive])}.log")
 
     File.write!(path, log)
 

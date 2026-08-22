@@ -540,7 +540,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
 
   defp with_log_root(fun) do
     original_log_file = Application.get_env(:aiur, :log_file)
-    tmp = Path.join(System.tmp_dir!(), "ticket-history-provider-#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "ticket-history-provider-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
 
     try do

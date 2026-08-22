@@ -113,7 +113,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   # BalanceBaseline persists beside the workflow file; these tests must never
   # read or write a real one, so every probe opts a throwaway path.
   defp baseline_path do
-    dir = Path.join(System.tmp_dir!(), "aiur-probe-baseline-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-probe-baseline-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
     Path.join(dir, "balance-baseline.json")
@@ -548,7 +548,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   test "DeepSeek publishes a balance window even when the baseline cannot be written" do
     :ok = Events.subscribe_observed()
 
-    file = Path.join(System.tmp_dir!(), "aiur-probe-mkdirfail-#{System.unique_integer([:positive])}")
+    file = Path.join(System.tmp_dir!(), "aiur-probe-mkdirfail-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.write!(file, "not a directory")
     on_exit(fn -> File.rm(file) end)
     path = Path.join([file, "sub", "balance-baseline.json"])

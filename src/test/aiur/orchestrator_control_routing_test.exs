@@ -928,7 +928,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
     workspace =
       Path.join(
         System.tmp_dir!(),
-        "aiur_control_routing_#{issue_id}_#{System.unique_integer([:positive])}"
+        "aiur_control_routing_#{issue_id}_#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     marker = Path.join(workspace, "must-survive")

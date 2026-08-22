@@ -4,7 +4,7 @@ defmodule Aiur.Init.ScaffoldTest do
   alias Aiur.Init.Scaffold
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-scaffold-test-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-scaffold-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     target = Path.join([dir, ".aiur", "config"])
     File.mkdir_p!(Path.dirname(target))
     on_exit(fn -> File.rm_rf!(dir) end)

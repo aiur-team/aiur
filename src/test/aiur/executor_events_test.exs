@@ -9,7 +9,7 @@ defmodule Aiur.ExecutorEventsTest do
 
   setup do
     previous = Application.get_env(:aiur, :log_file)
-    root = Path.join(System.tmp_dir!(), "aiur-executor-events-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-executor-events-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :log_file, Path.join(root, "aiur.log"))
 
     on_exit(fn ->

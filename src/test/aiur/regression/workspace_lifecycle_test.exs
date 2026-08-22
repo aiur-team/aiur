@@ -623,7 +623,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
   defp test_root(short_name) do
     Path.join(
       System.tmp_dir!(),
-      "aiur-reg-wslc-#{short_name}-#{System.unique_integer([:positive])}"
+      "aiur-reg-wslc-#{short_name}-#{System.pid()}-#{System.unique_integer([:positive])}"
     )
   end
 

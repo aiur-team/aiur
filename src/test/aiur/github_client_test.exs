@@ -723,7 +723,7 @@ defmodule Aiur.GitHub.ClientTest do
       repo_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-github-client-test-#{System.unique_integer([:positive])}"
+          "aiur-github-client-test-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       File.mkdir_p!(repo_root)
@@ -2046,7 +2046,7 @@ defmodule Aiur.GitHub.ClientTest do
     repo_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-github-client-test-#{System.unique_integer([:positive])}"
+        "aiur-github-client-test-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     path = Path.join(repo_root, ".github/CODEOWNERS")

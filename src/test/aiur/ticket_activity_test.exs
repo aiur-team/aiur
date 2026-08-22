@@ -123,7 +123,7 @@ defmodule Aiur.TicketActivityTest do
 
   test "restart retains the last progress reading from the durable store (#1963)" do
     ticket = identity()
-    state_dir = Path.join(System.tmp_dir!(), "ticket-activity-retention-#{System.unique_integer([:positive])}")
+    state_dir = Path.join(System.tmp_dir!(), "ticket-activity-retention-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     {:ok, retention} = ProgressRetention.start_link(name: nil, state_dir: state_dir)
 

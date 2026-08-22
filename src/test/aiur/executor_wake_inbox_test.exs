@@ -4,7 +4,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
   alias Aiur.ExecutorWakeInbox
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-wake-inbox-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-wake-inbox-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     opts = [
       name: __MODULE__,

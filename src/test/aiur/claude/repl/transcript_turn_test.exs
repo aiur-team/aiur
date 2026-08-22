@@ -37,7 +37,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
   end
 
   defp temp_transcript do
-    path = Path.join(System.tmp_dir!(), "tt-#{System.unique_integer([:positive])}.jsonl")
+    path = Path.join(System.tmp_dir!(), "tt-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl")
     File.write!(path, "")
     path
   end
@@ -126,7 +126,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
     tmux: tmux
   } do
     # Fresh workspace — no transcript file will ever appear.
-    ws = Path.join(System.tmp_dir!(), "tt-cold-#{System.unique_integer([:positive])}")
+    ws = Path.join(System.tmp_dir!(), "tt-cold-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(ws)
     on_exit(fn -> File.rm_rf(ws) end)
 

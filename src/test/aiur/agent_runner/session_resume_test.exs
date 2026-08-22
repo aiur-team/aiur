@@ -54,7 +54,7 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
 
   describe "persist_handle_best_effort/3" do
     test "returns :ok for a valid handle write" do
-      dir = Path.join(System.tmp_dir!(), "aiur_session_resume_test_#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "aiur_session_resume_test_#{System.pid()}-#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf(dir) end)
 
       assert :ok =
@@ -64,7 +64,7 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
     end
 
     test "swallows a raised handle write" do
-      not_a_dir = Path.join(System.tmp_dir!(), "aiur_session_resume_raise_#{System.unique_integer([:positive])}")
+      not_a_dir = Path.join(System.tmp_dir!(), "aiur_session_resume_raise_#{System.pid()}-#{System.unique_integer([:positive])}")
       File.write!(not_a_dir, "x")
       on_exit(fn -> File.rm_rf(not_a_dir) end)
 

@@ -61,7 +61,7 @@ defmodule Aiur.OsTest do
     root =
       Path.join(
         System.tmp_dir!(),
-        "os-test-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
+        "os-test-#{System.system_time(:nanosecond)}-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     path = Path.join(root, "fake-stty")

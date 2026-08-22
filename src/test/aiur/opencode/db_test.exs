@@ -6,7 +6,7 @@ defmodule Aiur.Opencode.DbTest do
 
   setup do
     db_path =
-      Path.join(System.tmp_dir!(), "aiur-opencode-db-test-#{System.unique_integer([:positive])}.db")
+      Path.join(System.tmp_dir!(), "aiur-opencode-db-test-#{System.pid()}-#{System.unique_integer([:positive])}.db")
 
     initialize_schema!(db_path)
     Application.put_env(:aiur, :opencode_db_path_override, db_path)

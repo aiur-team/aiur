@@ -381,7 +381,7 @@ defmodule Aiur.AppServer.AdapterTest do
   end
 
   test "start_port does not source a supplied BASH_ENV file" do
-    bash_env = Path.join(System.tmp_dir!(), "aiur-adapter-startup-#{System.unique_integer([:positive])}")
+    bash_env = Path.join(System.tmp_dir!(), "aiur-adapter-startup-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.write!(bash_env, "printf 'profile-loaded\n'")
     on_exit(fn -> File.rm(bash_env) end)
 
@@ -393,7 +393,7 @@ defmodule Aiur.AppServer.AdapterTest do
   end
 
   test "start_port does not source operator shell startup files" do
-    home = Path.join(System.tmp_dir!(), "aiur-adapter-home-#{System.unique_integer([:positive])}")
+    home = Path.join(System.tmp_dir!(), "aiur-adapter-home-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(home)
     File.write!(Path.join(home, ".bash_profile"), "printf 'login-profile-loaded\\n'")
     File.write!(Path.join(home, ".bashrc"), "printf 'interactive-rc-loaded\\n'")

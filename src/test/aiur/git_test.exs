@@ -58,7 +58,7 @@ defmodule Aiur.GitTest do
 
     test "timeout is wall-clock bounded even when git emits output" do
       tmp =
-        Path.join(System.tmp_dir!(), "aiur-git-heartbeat-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-git-heartbeat-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp)
       fake_git = Path.join(tmp, "git")
@@ -96,7 +96,7 @@ defmodule Aiur.GitTest do
     @tag skip: @pgrep_skip_reason
     test "times out and kills the git process tree" do
       tmp =
-        Path.join(System.tmp_dir!(), "aiur-git-timeout-#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur-git-timeout-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp)
       fake_git = Path.join(tmp, "git")

@@ -17,7 +17,7 @@ defmodule Aiur.Workspace.RemoteTest do
   end
 
   test "run_remote_script removes its staged input after a timeout" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-remote-timeout-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-remote-timeout-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     fake_ssh = Path.join(test_root, "ssh")
     previous_path = System.get_env("PATH")
 

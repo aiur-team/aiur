@@ -17,7 +17,7 @@ defmodule Aiur.PathSafetyTest do
     end
 
     test "a path outside root is rejected", %{tmp_dir: tmp_dir} do
-      outside = Path.join(System.tmp_dir!(), "outside-#{System.unique_integer([:positive])}")
+      outside = Path.join(System.tmp_dir!(), "outside-#{System.pid()}-#{System.unique_integer([:positive])}")
       assert PathSafety.contained?(tmp_dir, outside) == {:error, :outside_root}
     end
 
@@ -27,7 +27,7 @@ defmodule Aiur.PathSafetyTest do
     end
 
     test "a symlink that resolves outside root is rejected", %{tmp_dir: tmp_dir} do
-      outside_dir = Path.join(System.tmp_dir!(), "path-safety-outside-#{System.unique_integer([:positive])}")
+      outside_dir = Path.join(System.tmp_dir!(), "path-safety-outside-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.mkdir_p!(outside_dir)
       on_exit(fn -> File.rm_rf!(outside_dir) end)
 

@@ -6,7 +6,7 @@ defmodule Aiur.AlertFeedTest do
   alias Aiur.{AlertFeed, AlertLedger}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-alert-feed-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-alert-feed-#{System.pid()}-#{System.unique_integer([:positive])}")
     ledger = Path.join(root, "project.alerts.ndjson")
     on_exit(fn -> File.rm_rf!(root) end)
     {:ok, root: root, ledger: ledger}

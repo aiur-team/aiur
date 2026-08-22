@@ -762,13 +762,13 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
     root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-openai-root-#{System.unique_integer([:positive])}"
+        "aiur-openai-root-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     outside =
       Path.join(
         System.tmp_dir!(),
-        "aiur-openai-outside-#{System.unique_integer([:positive])}"
+        "aiur-openai-outside-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     File.mkdir_p!(root)

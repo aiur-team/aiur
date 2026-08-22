@@ -239,7 +239,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
     end
 
     test "aborted manual-smoke BEAM is reaped by node and workspace identity" do
-      log = Path.join(System.tmp_dir!(), "aiur-stale-cleanup-#{System.unique_integer([:positive])}.log")
+      log = Path.join(System.tmp_dir!(), "aiur-stale-cleanup-#{System.pid()}-#{System.unique_integer([:positive])}.log")
       on_exit(fn -> File.rm(log) end)
 
       release_root =
@@ -277,7 +277,7 @@ defmodule Aiur.Regression.ShutdownCleanupTest do
           "aiur"
         ])
 
-      log = Path.join(System.tmp_dir!(), "aiur-stale-dry-run-#{System.unique_integer([:positive])}.log")
+      log = Path.join(System.tmp_dir!(), "aiur-stale-dry-run-#{System.pid()}-#{System.unique_integer([:positive])}.log")
       on_exit(fn -> File.rm(log) end)
 
       dry_run = stale_cleanup_script(release_root, log, "cmd_cleanup_stale --dry-run")

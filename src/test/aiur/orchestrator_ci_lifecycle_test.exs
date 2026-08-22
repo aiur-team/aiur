@@ -50,7 +50,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     store_path =
       Path.join(
         System.tmp_dir!(),
-        "aiur_ci_lifecycle_#{System.unique_integer([:positive])}.json"
+        "aiur_ci_lifecycle_#{System.pid()}-#{System.unique_integer([:positive])}.json"
       )
 
     write_workflow_file!(Workflow.workflow_file_path(),

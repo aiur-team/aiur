@@ -6,7 +6,7 @@ defmodule Aiur.RecentMergeStoreTest do
   @now ~U[2026-07-12 18:00:00Z]
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-recent-merges-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-recent-merges-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
     %{dir: dir}
   end

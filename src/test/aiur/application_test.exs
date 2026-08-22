@@ -597,7 +597,7 @@ defmodule Aiur.ApplicationTest do
       original_pt = :persistent_term.get(enabled_key, :unset)
       original_path = Application.get_env(:aiur, :workflow_file_path)
 
-      tmp = Path.join(System.tmp_dir!(), "disabled-boot-test-#{System.unique_integer([:positive])}")
+      tmp = Path.join(System.tmp_dir!(), "disabled-boot-test-#{System.pid()}-#{System.unique_integer([:positive])}")
       config_path = Path.join(tmp, "disabledconfig.yaml")
       File.mkdir_p!(tmp)
 

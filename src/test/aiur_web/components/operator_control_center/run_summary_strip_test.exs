@@ -705,7 +705,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   # card. A fully-consumed durable record also turns the bar red.
   test "renders the durable last-known standing with a red-at-100 bar" do
     observed_at = ~U[2026-08-02 08:53:00Z]
-    dir = Path.join(System.tmp_dir!(), "aiur-strip-durable-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-strip-durable-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     workflow_path = Path.join(dir, "config.yaml")
 

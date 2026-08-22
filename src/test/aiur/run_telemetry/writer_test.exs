@@ -7,7 +7,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
   setup do
     root =
-      Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     path = Path.join(root, "log/telemetry.ndjson")
     on_exit(fn -> File.rm_rf!(root) end)

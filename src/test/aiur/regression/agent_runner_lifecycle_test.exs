@@ -11,7 +11,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
     tmp_dir =
       Path.join(
         System.tmp_dir!(),
-        "aiur_agent_runner_lifecycle_test_#{System.unique_integer([:positive])}"
+        "aiur_agent_runner_lifecycle_test_#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     File.mkdir_p!(tmp_dir)

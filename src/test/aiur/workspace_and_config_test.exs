@@ -14,7 +14,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-bootstrap-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hook-bootstrap-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -65,7 +65,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-pr-anchored-leaf-#{System.unique_integer([:positive])}"
+        "aiur-pr-anchored-leaf-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -102,7 +102,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-git-metadata-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-git-metadata-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -224,7 +224,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-git-locks-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-git-locks-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -302,7 +302,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-git-add-probe-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-git-add-probe-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
@@ -369,7 +369,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-git-ignored-probe-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-git-ignored-probe-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -401,7 +401,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-external-gitdir-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-external-gitdir-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -439,7 +439,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-stale-leftover-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-stale-leftover-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -467,7 +467,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-stale-leftover-retry-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-stale-leftover-retry-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -495,7 +495,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-stale-leftover-exit-code-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-stale-leftover-exit-code-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -542,7 +542,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-before-run-protect-resume-#{System.unique_integer([:positive])}"
+        "aiur-elixir-before-run-protect-resume-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -578,7 +578,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-materialize-parent-#{System.unique_integer([:positive])}"
+        "aiur-materialize-parent-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -613,7 +613,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-repo-url-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hook-repo-url-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -636,7 +636,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "materialize branches from the live configured base rather than main" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-workspace-configured-base-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-workspace-configured-base-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     try do
       origin = Path.join(test_root, "origin.git")
@@ -688,7 +688,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-deterministic-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-deterministic-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
@@ -704,7 +704,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-repo-namespace-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-repo-namespace-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -771,7 +771,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-idempotent-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-idempotent-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -800,7 +800,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-memory-flat-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-memory-flat-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -825,7 +825,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-reuse-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-reuse-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -864,7 +864,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-stale-path-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-stale-path-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -887,7 +887,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-symlink-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-symlink-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -915,7 +915,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-root-symlink-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-root-symlink-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -942,7 +942,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-root-remove-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-root-remove-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -963,7 +963,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-failure-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hook-failure-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -983,7 +983,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-github-preflight-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-github-preflight-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
@@ -1034,7 +1034,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-remote-github-preflight-#{System.unique_integer([:positive])}"
+        "aiur-elixir-remote-github-preflight-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
@@ -1109,7 +1109,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-timeout-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hook-timeout-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1130,7 +1130,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-workspace-empty-#{System.unique_integer([:positive])}"
+        "aiur-workspace-empty-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1158,7 +1158,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-bootstrap-image-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-bootstrap-image-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
@@ -1211,7 +1211,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-bootstrap-image-existing-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-bootstrap-image-existing-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
@@ -1263,7 +1263,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-issue-workspace-cleanup-#{System.unique_integer([:positive])}"
+        "aiur-elixir-issue-workspace-cleanup-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1291,7 +1291,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     missing_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-missing-workspaces-#{System.unique_integer([:positive])}"
+        "aiur-elixir-missing-workspaces-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: missing_root)
@@ -1748,7 +1748,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     random_path =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-missing-#{System.unique_integer([:positive])}"
+        "aiur-elixir-missing-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     assert {:ok, []} = Workspace.remove(random_path)
@@ -1758,7 +1758,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hooks-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1796,7 +1796,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-fail-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hooks-fail-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1821,7 +1821,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-large-fail-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hooks-large-fail-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1858,7 +1858,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-timeout-#{System.unique_integer([:positive])}"
+        "aiur-elixir-workspace-hooks-timeout-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1999,7 +1999,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     explicit_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-explicit-sandbox-root-#{System.unique_integer([:positive])}"
+        "aiur-elixir-explicit-sandbox-root-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     explicit_workspace = Path.join(explicit_root, "MT-EXPLICIT")
@@ -2925,7 +2925,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-runtime-sandbox-#{System.unique_integer([:positive])}"
+        "aiur-elixir-runtime-sandbox-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3083,7 +3083,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-runtime-build-gate-#{System.unique_integer([:positive])}"
+        "aiur-elixir-runtime-build-gate-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
@@ -3204,7 +3204,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-runtime-sandbox-branches-#{System.unique_integer([:positive])}"
+        "aiur-elixir-runtime-sandbox-branches-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3371,7 +3371,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-remote-workspace-#{System.unique_integer([:positive])}"
+        "aiur-elixir-remote-workspace-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")

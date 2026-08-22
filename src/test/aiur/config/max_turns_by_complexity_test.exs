@@ -5,7 +5,7 @@ defmodule Aiur.Config.MaxTurnsByComplexityTest do
 
   setup %{config: config} do
     previous = Application.get_env(:aiur, :workflow_file_path)
-    dir = Path.join(System.tmp_dir!(), "aiur-maxturns-test-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-maxturns-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     path = Path.join(dir, "config.yaml")
     File.write!(path, config)

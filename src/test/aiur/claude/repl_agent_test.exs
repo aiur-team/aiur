@@ -77,7 +77,7 @@ defmodule Aiur.Claude.ReplAgentTest do
 
   describe "resume_session_id/2" do
     setup do
-      dir = Path.join(System.tmp_dir!(), "repl-resume-id-#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "repl-resume-id-#{System.pid()}-#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf(dir) end)
       %{projects_dir: dir, workspace: "/ws/aiur/613"}
     end
@@ -107,7 +107,7 @@ defmodule Aiur.Claude.ReplAgentTest do
   test "start_session passes --resume and marks the session resumed when the transcript exists", %{tmux: tmux} do
     ws = "/ws/aiur/613"
     sid = "sess-#{System.unique_integer([:positive])}"
-    projects_dir = Path.join(System.tmp_dir!(), "repl-resume-#{System.unique_integer([:positive])}")
+    projects_dir = Path.join(System.tmp_dir!(), "repl-resume-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(projects_dir) end)
     slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
     File.mkdir_p!(slug_dir)
@@ -178,7 +178,7 @@ defmodule Aiur.Claude.ReplAgentTest do
     # headless via `AgentRunner.start_agent_session/3` rather than stranding.
     ws = "/ws/aiur/613"
     sid = "sess-#{System.unique_integer([:positive])}"
-    projects_dir = Path.join(System.tmp_dir!(), "repl-rc-resume-#{System.unique_integer([:positive])}")
+    projects_dir = Path.join(System.tmp_dir!(), "repl-rc-resume-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(projects_dir) end)
     slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
     File.mkdir_p!(slug_dir)
@@ -528,7 +528,7 @@ defmodule Aiur.Claude.ReplAgentTest do
   end
 
   defp temp_transcript do
-    path = Path.join(System.tmp_dir!(), "repl-turn-#{System.unique_integer([:positive])}.jsonl")
+    path = Path.join(System.tmp_dir!(), "repl-turn-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl")
     File.write!(path, "")
     path
   end
@@ -760,8 +760,8 @@ defmodule Aiur.Claude.ReplAgentTest do
   test "run_turn cold-starts: sends the prompt, awaits the jsonl, then tails it", %{tmux: tmux} do
     # Fresh workspace — claude has not written the session jsonl yet, so the
     # session carries a nil transcript_path and resolve finds nothing.
-    ws = Path.join(System.tmp_dir!(), "repl-cold-#{System.unique_integer([:positive])}")
-    projects_dir = Path.join(System.tmp_dir!(), "repl-proj-#{System.unique_integer([:positive])}")
+    ws = Path.join(System.tmp_dir!(), "repl-cold-#{System.pid()}-#{System.unique_integer([:positive])}")
+    projects_dir = Path.join(System.tmp_dir!(), "repl-proj-#{System.pid()}-#{System.unique_integer([:positive])}")
     slug_dir = Path.join(projects_dir, RemoteControl.workspace_slug(ws))
     File.mkdir_p!(slug_dir)
     on_exit(fn -> File.rm_rf!(ws) end)

@@ -7,7 +7,7 @@ defmodule Aiur.Events.IdGeneratorTest do
   alias Aiur.JsonStore
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_idgen_test_#{System.unique_integer([:positive])}")
+    tmp_dir = Path.join(System.tmp_dir!(), "aiur_idgen_test_#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp_dir)
     path = Path.join(tmp_dir, "event_id")
     on_exit(fn -> File.rm_rf!(tmp_dir) end)

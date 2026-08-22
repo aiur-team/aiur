@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
   # one, and writing into the supervised one would leak merge records into
   # every later test that reads it.
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-merged-dispatch-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-merged-dispatch-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     store =

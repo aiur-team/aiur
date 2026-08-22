@@ -98,7 +98,7 @@ defmodule Aiur.AgentEnvironmentTest do
   end
 
   test "scrubbed toolchain probe resolves OTP from mise, not the release" do
-    release_root = Path.join(System.tmp_dir!(), "aiur-release-#{System.unique_integer([:positive])}")
+    release_root = Path.join(System.tmp_dir!(), "aiur-release-#{System.pid()}-#{System.unique_integer([:positive])}")
     release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
     release_bin = Path.join(release_root, "bin")
     expected_inets = :inets |> :code.lib_dir() |> to_string()
@@ -762,7 +762,7 @@ defmodule Aiur.AgentEnvironmentTest do
   # other ticket's workpad (#1763).
   describe "workspace-private TMPDIR" do
     setup do
-      workspace = Path.join(System.tmp_dir!(), "aiur-env-scratch-#{System.unique_integer([:positive])}")
+      workspace = Path.join(System.tmp_dir!(), "aiur-env-scratch-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.mkdir_p!(workspace)
       on_exit(fn -> File.rm_rf(workspace) end)
       {:ok, workspace: workspace}

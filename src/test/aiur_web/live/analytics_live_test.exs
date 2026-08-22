@@ -331,7 +331,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-analytics-complexity-#{System.unique_integer([:positive])}"
+        "aiur-analytics-complexity-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     File.mkdir_p!(root)
@@ -352,7 +352,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   defp route_fixture!(current_boot_id) do
     root =
-      Path.join(System.tmp_dir!(), "aiur-analytics-route-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-analytics-route-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
@@ -498,7 +498,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   defp build_order_route_fixture!(current_boot_id) do
-    root = Path.join(System.tmp_dir!(), "aiur-analytics-build-order-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-build-order-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
 

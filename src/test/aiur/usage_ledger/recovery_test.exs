@@ -6,7 +6,7 @@ defmodule Aiur.UsageLedger.RecoveryTest do
   import Aiur.TestSupport.UsageLedger, only: [envelope: 1]
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-usage-ledger-recovery-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-usage-ledger-recovery-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(root) end)
     %{root: root, persistence: Recovery.options(filesystem_sync_fun: fn -> :ok end)}
   end

@@ -19,7 +19,7 @@ defmodule Aiur.UsageLedger.CheckpointTest do
     checkpoint = Checkpoint.record(0, 0, CounterPolicy.new())
     assert {:error, :checksum_mismatch} = Checkpoint.from_record(Map.put(checkpoint, "generation", 1))
 
-    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.unique_integer([:positive])}")
+    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.pid()}-#{System.unique_integer([:positive])}")
     assert {:error, :record_too_large} = Checkpoint.write(path, checkpoint, max_bytes: 1)
     refute File.exists?(path)
   end
@@ -56,7 +56,7 @@ defmodule Aiur.UsageLedger.CheckpointTest do
   end
 
   test "durably overwrites a prepared checkpoint without replacing its path" do
-    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.unique_integer([:positive])}")
+    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm(path) end)
 
     first = Checkpoint.record(0, 0, CounterPolicy.new())
@@ -71,7 +71,7 @@ defmodule Aiur.UsageLedger.CheckpointTest do
   end
 
   test "targeted checkpoint overwrite requires a prepared regular file" do
-    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.unique_integer([:positive])}")
+    path = Path.join(System.tmp_dir!(), "aiur-usage-ledger-checkpoint-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     assert {:error, :missing_checkpoint} = Checkpoint.overwrite_encoded(path, "{}")
   end

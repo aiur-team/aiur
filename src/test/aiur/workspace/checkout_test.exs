@@ -4,7 +4,7 @@ defmodule Aiur.Workspace.CheckoutTest do
   alias Aiur.Workspace.Checkout
 
   setup do
-    root = Path.join(System.tmp_dir!(), "workspace-checkout-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "workspace-checkout-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf(root) end)
     %{root: root}
