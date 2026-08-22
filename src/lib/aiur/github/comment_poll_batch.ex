@@ -58,12 +58,20 @@ defmodule Aiur.GitHub.CommentPollBatch do
   #
   # That case is rare enough here to accept, but do not read this as free.
   #
-  # `reviewThreads(first: 100) { comments(last: 20) }` is deliberately NOT
-  # reduced. Measured against GitHub's own reported `rateLimit { cost }` this
-  # document costs **10-11 points per call**, not the ~660 a naive nodes/100
-  # estimate predicts, and a smaller thread page would push every busy pull
-  # request onto the paginated fallback each cycle. There is no budget worth
-  # buying with review-comment risk.
+  # `reviewThreads(first: 100) { comments(last: 20) }` is asked only of an alias
+  # that names a pull request GitHub already confirmed for this target — the
+  # delivered one. It is deliberately NOT reduced there: measured against
+  # GitHub's own reported `rateLimit { cost }` it costs 10-11 points per call,
+  # not the ~660 a naive nodes/100 estimate predicts, and a smaller thread page
+  # would push every busy pull request onto the paginated fallback each cycle.
+  #
+  # It is equally deliberately absent from the *speculative* half. The
+  # `issueOrPullRequest` fragment is answered for a target that is an issue in
+  # this tracker, yet GitHub still prices the thread selection on its
+  # PullRequest fragment: a live 33-ticket discovery document cost 35 points
+  # while returning no direct pull request at all, and 1 point without it.
+  # Discovery is identity-only, and thread content follows once one real pull
+  # request has resolved.
   #
   # A target whose pull request a **webhook delivery already identified**
   # (`Aiur.GitHub.DeliveredPullRequest`) skips the speculation entirely: it
@@ -203,7 +211,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
       ... on Issue { __typename }
-      ... on PullRequest { #{pull_request_fields()} }
+      ... on PullRequest { #{pull_request_identity_fields()} }
     }
     #{branch_aliases}
     """
@@ -232,6 +240,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
+  # Threads belong only on an alias for a pull request already identified;
+  # see the discovery note above.
   defp pull_request_fields do
     """
     #{pull_request_identity_fields()}
@@ -365,7 +375,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   end
 
   defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request),
-    do: normalize_pull_request(pull_request, true)
+    do: normalize_pull_request(pull_request, false)
 
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 
