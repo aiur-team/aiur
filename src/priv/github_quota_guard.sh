@@ -221,21 +221,42 @@ case "${1:-} ${2:-}" in
     done
     unset api_options
     ;;
-  # `gh pr view/list/status/checks` and `gh issue view/list/status` are GraphQL
-  # on the wire: gh issues them against the GraphQL API, which bills points to
-  # the separate GraphQL window. Setting only `endpoint_family` left
-  # `resource=unknown`, so the broker filed every one of them as core and the
-  # credential's GraphQL spend had no local record (#2299). `pr diff` and
-  # `search` are REST and stay in core.
-  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=graphql ;;
-  "pr diff") endpoint_family=pulls ;;
-  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=graphql ;;
-  "run view"|"run list"|"run watch") endpoint_family=actions ;;
-  "search "*) endpoint_family=search ;;
-  "pr "*) endpoint_family=pulls; direction=write ;;
-  "issue "*) endpoint_family=issues; direction=write ;;
-  "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
-  "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
+  # `gh pr view/list/status/checks`, `gh issue view/list/status`, `gh search
+  # issues|prs` and the GraphQL write subcommands speak the GraphQL API on the
+  # wire, which bills points against the separate GraphQL window. Setting only
+  # `endpoint_family` left `resource=unknown`, so the broker filed every one of
+  # them as core and the credential's GraphQL spend had no local record (#2299).
+  #
+  # Two axes are kept deliberately separate (#2299 review). `endpoint_family`
+  # stays the DESCRIPTIVE family (pulls/issues/search/...) because it keys the
+  # broker's concurrency lease pool and the audit family histogram — collapsing
+  # it to `graphql` would silently serialise 87% of fleet traffic onto the two
+  # default in-flight slots. `resource` carries the ACCOUNTING bucket the broker
+  # bills the hourly ceiling against. `pr diff` is the REST diff endpoint and
+  # stays a core pull.
+  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=pulls ;;
+  "pr diff") resource=core; endpoint_family=pulls ;;
+  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=issues ;;
+  "run view"|"run list"|"run watch") resource=core; endpoint_family=actions ;;
+  # `gh search issues|prs` is GraphQL on the wire; `gh search
+  # repos|code|commits|users` hits the REST /search/* endpoints, which GitHub
+  # meters against a separate `search` pool (~30 requests/minute rather than
+  # 5,000/hour). Booking the two to one bucket — core or graphql — mis-states
+  # the spend and paces nothing against the pool that will throttle first, so
+  # the subcommands are split and `search` is a first-class resource.
+  "search issues"|"search prs") resource=graphql; endpoint_family=search ;;
+  "search repos"|"search code"|"search commits"|"search users") resource=search; endpoint_family=search ;;
+  "search "*) resource=search; endpoint_family=search ;;
+  # The `pr`/`issue` write subcommands are a GraphQL/REST mix and are classified
+  # per subcommand rather than as one bucket (#2297): `pr create|merge|review`
+  # and `issue create` mutate through GraphQL, while the rest (close, reopen,
+  # comment, edit, ready, ...) are REST and keep the pulls/issues families.
+  "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=pulls; direction=write ;;
+  "pr "*) resource=core; endpoint_family=pulls; direction=write ;;
+  "issue create") resource=graphql; endpoint_family=issues; direction=write ;;
+  "issue "*) resource=core; endpoint_family=issues; direction=write ;;
+  "run rerun"|"run cancel"|"run delete") resource=core; endpoint_family=actions; direction=write ;;
+  "label create"|"label delete"|"label edit") resource=core; endpoint_family=labels; direction=write ;;
   # Commands that change repository state without touching an issue or a pull
   # request. Left classified as reads they invalidated nothing, so
   # `gh repo edit --default-branch` or a release could change what a stored
@@ -243,7 +264,7 @@ case "${1:-} ${2:-}" in
   "repo edit"|"repo rename"|"repo archive"|"repo unarchive"|"repo delete"|\
   "release create"|"release edit"|"release delete"|"release upload"|\
   "secret set"|"secret delete"|"variable set"|"variable delete"|\
-  "gist create"|"gist edit"|"gist delete"|"cache delete") direction=write ;;
+  "gist create"|"gist edit"|"gist delete"|"cache delete") resource=core; direction=write ;;
   "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none; admission_required=0 ;;
   "auth token") track=0; resource=none; admission_required=0 ;;
   "auth "*|"extension "*) track=0 ;;
@@ -776,11 +797,12 @@ fi
 #     validator to send and no `304` to receive. The daemon's own read cache
 #     documents the same fact for the same endpoint
 #     (`Aiur.GitHub.ReadCache`, "Why a cache and not conditional requests").
-#  2. The REST reads the guard does serve — `gh api` GETs, `gh search` — run
-#     inside the `gh` binary, which does not expose request-header injection for
-#     subcommand reads. The one subcommand that does accept headers (`gh api
-#     -H`) is replayed through the shared store rather than re-validated, and it
-#     is a small fraction of the traffic this cache serves.
+#  2. The REST reads the guard does serve — `gh api` GETs, and the REST `gh
+#     search` subcommands (`repos`, `code`, `commits`, `users`) — run inside the
+#     `gh` binary, which does not expose request-header injection for subcommand
+#     reads. The one subcommand that does accept headers (`gh api -H`) is
+#     replayed through the shared store rather than re-validated, and it is a
+#     small fraction of the traffic this cache serves.
 #
 # So the TTL body cache with invalidation markers is the only mechanism this
 # path has, and the agent-side free share it cannot recover is GraphQL's, which
@@ -1645,7 +1667,8 @@ budget_acquire() {
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
-      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
+      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
+      --search-limit "${AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
       printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
       return 75
     fi
@@ -2423,26 +2446,71 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   # The resource column tells the daemon which budget the call was billed to.
   # Without it every agent call was counted against core, and a GraphQL query —
   # billed in points against a separate budget — landed in the wrong window.
+  # `search` is a first-class bucket too, so its rows are not folded into core.
   track_resource=$resource
   case "$track_resource" in
-    core|graphql) ;;
+    core|graphql|search) ;;
     *) track_resource=core ;;
   esac
 
   # The call-site column lets the daemon rank the agent-shell caller by gh
   # subcommand (`agent-shell:gh pr view`, `agent-shell:gh issue list`) instead
-  # of one undifferentiated `agent-shell:gh` row (#2299). An `api` endpoint path
-  # is not a useful grouping — it would fragment REST `gh api` reads into one
-  # row per URL — so it normalises to the command plus the budget it billed to.
-  call_site=$command_key
-  if [ "$command_name" = api ]; then
-    case "$resource" in
-      graphql) call_site="api graphql" ;;
-      *) call_site="api" ;;
-    esac
-  fi
-  # A bare `gh` with no subcommand has an empty `command_key`; keep a caller
-  # row for it rather than writing a blank call-site column.
+  # of one undifferentiated `agent-shell:gh` row (#2299).
+  #
+  # It is built from an ALLOWLIST, never from raw argv. The two positionals are
+  # first bounded to the safe character set: a crafted `gh pr $'view\n<forged
+  # tsv row>'` would otherwise write a second spend row into this file
+  # attributed to another ticket, and a flag counted as a positional would land
+  # in the stored record. Each command name below then admits only the
+  # subcommands its classification arm enumerates; a flag or any unknown word
+  # falls back to the bare command name.
+  case "$command_name" in
+    ''|*[!a-zA-Z0-9-_]*) command_name= ;;
+  esac
+  case "$subcommand_name" in
+    ''|*[!a-zA-Z0-9-_]*) subcommand_name= ;;
+  esac
+  call_site=$command_name
+  case "$command_name" in
+    api)
+      # An `api` endpoint path is not a useful grouping — it would fragment
+      # REST `gh api` reads into one row per URL — so it normalises to the
+      # command plus the budget it billed to.
+      case "$resource" in
+        graphql) call_site="api graphql" ;;
+        *) call_site=api ;;
+      esac
+      ;;
+    pr)
+      case "$subcommand_name" in
+        view|list|status|checks|diff|create|merge|review|close|reopen|edit|ready|delete|comment|update-branch) call_site="pr $subcommand_name" ;;
+      esac
+      ;;
+    issue)
+      case "$subcommand_name" in
+        view|list|status|create|edit|close|reopen|delete|comment|lock|unlock|pin|unpin|transfer) call_site="issue $subcommand_name" ;;
+      esac
+      ;;
+    run)
+      case "$subcommand_name" in
+        view|list|watch|rerun|cancel|delete) call_site="run $subcommand_name" ;;
+      esac
+      ;;
+    search)
+      case "$subcommand_name" in
+        issues|prs|repos|code|commits|users) call_site="search $subcommand_name" ;;
+      esac
+      ;;
+    label)
+      case "$subcommand_name" in
+        create|delete|edit) call_site="label $subcommand_name" ;;
+      esac
+      ;;
+  esac
+  # A bare `gh` with no subcommand has an empty command name; keep a caller
+  # row for it rather than writing a blank call-site column. Both positionals
+  # were bounded to the safe set above, so anything that reached here is
+  # already a clean single line.
   case "$call_site" in
     ''|' ') call_site=gh ;;
   esac

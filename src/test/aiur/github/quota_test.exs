@@ -470,7 +470,9 @@ defmodule Aiur.GitHub.QuotaTest do
   # The call-site column lets `github-cost` name the agent-side spend by gh
   # subcommand instead of folding the whole fleet into one `agent-shell:gh`
   # row (#2299). A row written before the column existed still parses and keeps
-  # the undifferentiated caller.
+  # the undifferentiated caller. A `search` row keeps its call site too; Aiur
+  # does not meter a separate search window, so it counts against core like any
+  # other resource the meter does not name.
   test "names agent-shell callers by gh subcommand from the call-site column" do
     path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
     now_unix = DateTime.to_unix(@now)
@@ -480,7 +482,8 @@ defmodule Aiur.GitHub.QuotaTest do
       "#{now_unix}\tticket:1670\tread\tgraphql\tpr view\n" <>
         "#{now_unix}\tticket:1671\tread\tgraphql\tissue list\n" <>
         "#{now_unix}\tticket:1672\tread\tcore\tapi\n" <>
-        "#{now_unix}\tticket:1673\tread\tcore\n"
+        "#{now_unix}\tticket:1673\tread\tcore\n" <>
+        "#{now_unix}\tticket:1674\tread\tsearch\tsearch repos\n"
     )
 
     on_exit(fn -> File.rm(path) end)
@@ -489,9 +492,12 @@ defmodule Aiur.GitHub.QuotaTest do
     callers = Quota.snapshot(quota).callers
 
     # Ranked within budget: core rows first, then graphql, each by caller name.
+    # The `search` row counts against core (Aiur does not meter a separate
+    # search window), so it sits with the other core callers.
     assert Enum.map(callers, & &1.caller) == [
              "agent-shell:gh",
              "agent-shell:gh api",
+             "agent-shell:gh search repos",
              "agent-shell:gh issue list",
              "agent-shell:gh pr view"
            ]
@@ -503,6 +509,33 @@ defmodule Aiur.GitHub.QuotaTest do
 
     assert [%{caller: "agent-shell:gh api", resource: "core"}] =
              Enum.filter(callers, &(&1.caller == "agent-shell:gh api"))
+
+    assert [%{caller: "agent-shell:gh search repos", resource: "core"}] =
+             Enum.filter(callers, &(&1.caller == "agent-shell:gh search repos"))
+  end
+
+  # The guard allowlists the call-site column, and the reader re-checks it: a
+  # row whose call site carries a character outside the safe set is not named.
+  # An injected call site must never appear as its own ranked row — the whole
+  # point of the column is to make agent spend attributable, and a forged row
+  # is exactly the surface that trust would be spent on (#2299 review).
+  test "a call site outside the safe character set falls back to the undifferentiated caller" do
+    path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
+    now_unix = DateTime.to_unix(@now)
+
+    File.write!(
+      path,
+      "#{now_unix}\tticket:1670\tread\tgraphql\tpr;view\n" <>
+        "#{now_unix}\tticket:1671\tread\tcore\n"
+    )
+
+    on_exit(fn -> File.rm(path) end)
+    quota = start_quota(shell_log_path: path)
+
+    callers = Quota.snapshot(quota).callers
+
+    refute Enum.any?(callers, &(&1.caller == "agent-shell:gh pr;view"))
+    assert Enum.map(callers, & &1.caller) == ["agent-shell:gh", "agent-shell:gh"]
   end
 
   # Agent-shell attribution never reached the panel: the log lives under each

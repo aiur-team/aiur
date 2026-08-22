@@ -960,8 +960,15 @@ defmodule Aiur.GitHub.Quota do
 
   # The fifth column is the gh subcommand the guard recorded (`pr view`, `issue
   # list`, `api graphql`, ...). Rows that predate it have no call-site column.
-  defp shell_caller([_resource, call_site | _]) when is_binary(call_site) and call_site != "",
-    do: @agent_shell_caller <> " " <> call_site
+  # The guard allowlists the value, and the reader re-checks it: a row that
+  # somehow carries a character outside the safe set (a forged spend row, say)
+  # is not named — it falls back to the undifferentiated caller so an injected
+  # call site can never appear as its own ranked row.
+  defp shell_caller([_resource, call_site | _]) when is_binary(call_site) and call_site != "" do
+    if Regex.match?(~r/\A[a-zA-Z0-9 _-]+\z/, call_site),
+      do: @agent_shell_caller <> " " <> call_site,
+      else: @agent_shell_caller
+  end
 
   defp shell_caller(_columns), do: @agent_shell_caller
 
