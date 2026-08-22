@@ -1,7 +1,7 @@
 defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
-  alias Aiur.{CodingAgent, Config, DecisionMetrics, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
+  alias Aiur.{CodingAgent, Config, DecisionMetrics, ModelAvailability, Orchestrator, PollCadence, ProviderMeterProjection, ProviderMeterSnapshot}
   alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
@@ -235,25 +235,106 @@ defmodule AiurWeb.StreamdeckProjection do
   defp normalize_provider_meter(provider, meter, now) when is_map(meter) do
     observed_at = meter |> field(:observed_at) |> datetime()
     freshness = meter_freshness(meter, observed_at, now)
+    state = meter_state(meter, observed_at)
 
-    %{
-      provider: provider,
-      state: meter_state(meter, observed_at),
-      observed_at: observed_at,
-      age_seconds: age_seconds(observed_at, now),
-      auth_mode: field(meter, :auth_mode),
-      plan: field(meter, :plan),
-      freshness: freshness,
-      health: field(meter, :health),
-      windows: normalized_windows(meter, observed_at, now, freshness)
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
+    normalized =
+      %{
+        provider: provider,
+        state: state,
+        observed_at: observed_at,
+        age_seconds: age_seconds(observed_at, now),
+        auth_mode: field(meter, :auth_mode),
+        plan: field(meter, :plan),
+        freshness: freshness,
+        health: field(meter, :health),
+        windows: normalized_windows(provider, meter, observed_at, now, freshness)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    if state == :unknown, do: maybe_attach_durable(normalized, provider, now), else: normalized
   end
 
-  defp normalize_provider_meter(provider, _meter, _now) do
+  defp normalize_provider_meter(provider, _meter, now) do
     %{provider: provider, state: :unknown, freshness: :unknown, windows: %{}}
+    |> maybe_attach_durable(provider, now)
   end
+
+  # A provider that has never been observed this boot reads `:unknown` on the
+  # deck, exactly like the dashboard's cards do before `put_durable_observation`
+  # attaches the last-known standing from the durable dispatch-limits ledger
+  # (`Aiur.ModelAvailability`, `model-usage.json`). The deck had no equivalent,
+  # so a provider the dashboard read as, say, 99% used rendered as a permanent
+  # "Awaiting data" on the strip — the two surfaces disagreeing about the same
+  # account (#2185). Attach the same durable record here: the value is a real
+  # last-known used% (marked stale, never live), and a later real observation
+  # replaces it because this branch only runs for an unobserved meter.
+  defp maybe_attach_durable(meter, provider, now) do
+    case durable_window(provider, now) do
+      %{} = window ->
+        meter
+        |> Map.merge(%{
+          state: :observed,
+          observed_at: window.observed_at,
+          age_seconds: window.age_seconds,
+          freshness: :stale,
+          health: %{state: :stale, failure: nil},
+          windows: %{"session" => window}
+        })
+
+      nil ->
+        meter
+    end
+  end
+
+  # The ledger's governing bucket becomes the deck's session slot (the primary
+  # one both the emulator and the sidecar render). It carries no reliable reset
+  # instant and is stale by construction, mirroring the dashboard's durable meta
+  # line ("99% used · as of HH:MM UTC (stale)").
+  defp durable_window(provider, now) do
+    case durable_observation(provider) do
+      %{percent: percent, observed_at: %DateTime{} = observed_at} when is_number(percent) ->
+        %{
+          used_percent: percent,
+          observed_at: observed_at,
+          age_seconds: age_seconds(observed_at, now),
+          freshness: :stale
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp durable_observation(provider) do
+    with %{"backends" => backends} <- ModelAvailability.load(),
+         %{} = entry when map_size(entry) > 0 <- Map.get(backends, Atom.to_string(provider)),
+         %{percent: percent} <- durable_percent_entry(entry) do
+      %{percent: percent, observed_at: durable_observed_at(Map.get(entry, "observed_at"))}
+    else
+      _ -> nil
+    end
+  end
+
+  defp durable_percent_entry(entry) do
+    entry
+    |> Map.take(~w(hourly weekly monthly))
+    |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
+      %{percent: min(round(used / limit * 100), 100)}
+    end)
+    |> Enum.max_by(& &1.percent, fn -> nil end)
+  end
+
+  defp durable_observed_at(%DateTime{} = value), do: value
+
+  defp durable_observed_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp durable_observed_at(_value), do: nil
 
   defp meter_state(meter, _observed_at) do
     case field(meter, :state) do
@@ -262,30 +343,49 @@ defmodule AiurWeb.StreamdeckProjection do
     end
   end
 
-  defp normalized_windows(meter, provider_observed_at, now, provider_freshness) do
+  defp normalized_windows(provider, meter, provider_observed_at, now, provider_freshness) do
     meter
     |> field(:windows)
-    |> rate_limit_windows()
+    |> meter_windows(provider)
     |> semantic_windows()
     |> Map.new(fn {slot, {_limit_id, window}} ->
       {slot, normalize_window(window, provider_observed_at, now, provider_freshness)}
     end)
   end
 
-  defp rate_limit_windows(windows) when is_map(windows) do
+  # The dashboard shows prepaid credit windows for every provider except Codex,
+  # whose credit facts are account capabilities rather than a dollar balance.
+  # Keep the same distinction here so both surfaces describe the same account
+  # standing. A credit window is governing, so `semantic_windows/1` gives it
+  # the primary Session position on the two-slot deck.
+  defp meter_windows(windows, provider) when is_map(windows) do
     windows
-    |> Enum.filter(fn {_limit_id, window} -> is_map(window) and field(window, :kind) in [:rate_limit, "rate_limit"] end)
+    |> Enum.filter(&eligible_window?(&1, provider))
     |> Enum.sort_by(fn {limit_id, window} -> {window_duration(window), to_string(limit_id)} end)
   end
 
-  defp rate_limit_windows(_windows), do: []
+  defp meter_windows(_windows, _provider), do: []
+
+  defp eligible_window?({limit_id, window}, provider) when is_map(window) do
+    if to_string(field(window, :limit_id) || limit_id) == "local-concurrency" do
+      false
+    else
+      case field(window, :kind) do
+        kind when kind in [:rate_limit, "rate_limit"] -> true
+        kind when kind in [:credit, "credit"] -> provider != :codex
+        _kind -> false
+      end
+    end
+  end
+
+  defp eligible_window?(_entry, _provider), do: false
 
   defp semantic_windows([]), do: []
 
   defp semantic_windows(windows) do
-    session = Enum.find(windows, &window_matches?(&1, @session_window_tokens))
+    session = Enum.find(windows, &credit_window?/1) || Enum.find(windows, &window_matches?(&1, @session_window_tokens))
     weekly = windows |> List.delete(session) |> Enum.find(&window_matches?(&1, @weekly_window_tokens))
-    remaining = unclassified_windows(windows) |> List.delete(session) |> List.delete(weekly)
+    remaining = windows |> unclassified_windows() |> List.delete(session) |> List.delete(weekly)
 
     session = session || fallback_window(remaining, :shortest)
     weekly = weekly || remaining |> List.delete(session) |> fallback_window(:longest)
@@ -294,8 +394,13 @@ defmodule AiurWeb.StreamdeckProjection do
     |> Enum.reject(fn {_slot, window} -> is_nil(window) end)
   end
 
-  defp unclassified_windows(windows),
-    do: Enum.reject(windows, &(window_matches?(&1, @session_window_tokens) or window_matches?(&1, @weekly_window_tokens)))
+  defp credit_window?({_limit_id, window}), do: field(window, :kind) in [:credit, "credit"]
+
+  defp unclassified_windows(windows) do
+    Enum.reject(windows, fn window ->
+      credit_window?(window) or window_matches?(window, @session_window_tokens) or window_matches?(window, @weekly_window_tokens)
+    end)
+  end
 
   defp window_matches?({limit_id, _window}, tokens) do
     limit_id

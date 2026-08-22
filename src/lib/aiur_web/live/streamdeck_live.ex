@@ -406,8 +406,7 @@ defmodule AiurWeb.StreamdeckLive do
                   :if={!key.empty? and key.bucket != "queued"}
                   class={[
                     "sd-ag-foot",
-                    is_nil(key.progress) && "is-progress-unknown",
-                    key.progress_freshness in [:stale, "stale"] && "is-progress-stale"
+                    is_nil(key.progress) && "is-progress-unknown"
                   ]}
                 >
                   <span class="sd-ag-dot" aria-hidden="true"></span>
@@ -554,8 +553,7 @@ defmodule AiurWeb.StreamdeckLive do
               class={[
                 "sd-strip-cmd",
                 "st-#{@sd_active.bucket}",
-                command.progress_freshness == :unknown && "is-progress-unknown",
-                command.progress_freshness == :stale && "is-progress-stale"
+                command.progress_freshness == :unknown && "is-progress-unknown"
               ]}
               style={"--sd-accent: #{command.accent}"}
               data-mode-view="cmd-strip"
@@ -657,7 +655,7 @@ defmodule AiurWeb.StreamdeckLive do
               <div
                 :for={meter <- segment.meters}
                 :if={segment.kind == :provider}
-                class={["sd-mini", meter.observed? && "is-observed", meter.stale? && "is-stale"]}
+                class={["sd-mini", meter.observed? && "is-observed"]}
                 data-provider={segment.provider}
                 data-meter={meter.key}
                 data-percent={meter.percent}
@@ -982,8 +980,7 @@ defmodule AiurWeb.StreamdeckLive do
       percent: percent,
       metadata: meter_metadata(window, freshness),
       observed?: is_integer(percent),
-      freshness: freshness,
-      stale?: freshness == "stale"
+      freshness: freshness
     }
   end
 
@@ -1008,8 +1005,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp window_freshness(_window), do: "unknown"
 
-  defp meter_metadata(window, freshness) do
-    [window_metadata(window), if(freshness == "stale", do: "stale"), stale_age_label(window, freshness)]
+  defp meter_metadata(window, _freshness) do
+    [window_metadata(window)]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
     |> case do
@@ -1017,20 +1014,6 @@ defmodule AiurWeb.StreamdeckLive do
       metadata -> metadata
     end
   end
-
-  defp stale_age_label(window, "stale") when is_map(window) do
-    case get_value(window, "age_seconds") do
-      age_seconds when is_integer(age_seconds) and age_seconds >= 0 -> "#{age_label(age_seconds)} ago"
-      _ -> nil
-    end
-  end
-
-  defp stale_age_label(_window, _freshness), do: nil
-
-  defp age_label(age_seconds) when age_seconds < 60, do: "#{age_seconds}s"
-  defp age_label(age_seconds) when age_seconds < 3_600, do: "#{div(age_seconds, 60)}m"
-  defp age_label(age_seconds) when age_seconds < 86_400, do: "#{div(age_seconds, 3_600)}h"
-  defp age_label(age_seconds), do: "#{div(age_seconds, 86_400)}d"
 
   defp reset_label(%DateTime{} = reset), do: "#{weekday(reset)} #{hour_label(reset)}"
 

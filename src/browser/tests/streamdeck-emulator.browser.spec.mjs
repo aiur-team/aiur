@@ -320,7 +320,7 @@ test('agent key face matches the design geometry and single-colour progress cont
   // Asserting the box alone passed while the glyph rendered at 18px.
   expect(geometry.iconGlyph).toEqual({ width: '20px', height: '20px' })
   expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
-  expect(geometry.barHeight).toBe('6px')
+  expect(geometry.barHeight).toBe('8px')
   // .sd-agent is `padding: 0.5rem 0.55rem 0.55rem` with a 0.35rem top-row gap
   // (streamdeck.design.css:38-39). The key box matches the design exactly, so
   // there is no fit reason to narrow either value.
@@ -1107,7 +1107,7 @@ test('touch strip renders two provider meters and design segment geometry', asyn
   expect(geometry.direction).toBe('column')
   expect(geometry.padding).toBe('5.12px 8px')
   expect(geometry.headingFont).toContain('JetBrains Mono')
-  expect(geometry.barHeight).toBe('3px')
+  expect(geometry.barHeight).toBe('8px')
 
   // Both segment headings hold one ink. The design specifies 0.42, which
   // measures under 4.5:1 here and fails the axe check below, so they sit at

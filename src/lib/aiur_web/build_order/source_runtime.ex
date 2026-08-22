@@ -209,10 +209,23 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   defp demand_selected(socket, source, identity) do
     case Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}) do
       {:ok, %Snapshot{} = snapshot} ->
-        case accept_authority(socket, snapshot) do
-          {:ok, socket} -> put_demand_snapshot(socket, snapshot)
-          :ignored -> socket
+        socket =
+          case accept_authority(socket, snapshot) do
+            {:ok, socket} -> put_demand_snapshot(socket, snapshot)
+            :ignored -> socket
+          end
+
+        # Registering demand buys nothing (writer-driven design): a cold root —
+        # one nobody has ever read — only gets its first graph on the next
+        # catalog completion, which widens to minutes at idle. That leaves a
+        # freshly-opened page on its shimmer indefinitely. `refresh/2` is the
+        # intended "read this now" path, so buy the first read explicitly when
+        # the demand came back empty.
+        if is_nil(snapshot.data) do
+          _ = Runtime.safe_source_call(source, :refresh, [identity], :ok)
         end
+
+        socket
 
       _failure ->
         assign(socket, :route_state, RouteState.demand_failed(socket.assigns.route_state, identity))

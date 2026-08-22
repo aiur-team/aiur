@@ -19,6 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.{DecisionDetail, DecisionPath}
+  alias AiurWeb.OperatorControlCenter.TimeFormat
   alias Phoenix.LiveView.JS
 
   @page_size 10
@@ -39,14 +40,15 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:writable, :boolean, default: false)
   attr(:filter, :atom, default: :all)
   attr(:query, :map, default: %{})
+  attr(:time_zone, :string, default: "Etc/UTC")
 
   @spec history(map()) :: Phoenix.LiveView.Rendered.t()
   def history(assigns) do
     ~H"""
     <section class="section-card command-history" aria-labelledby="decision-history-title">
       <div class="recent-subtitle-row">
-        <p class="recent-subtitle" id="decision-history-title">Command history</p>
-        <span class="history-count mono">{count_label(@loaded, @total)}</span>
+        <p class="recent-subtitle" id="decision-history-title">History</p>
+        <span class="history-count mono" data-count-scope="commands">{count_label(@loaded, @total)}</span>
       </div>
       <div :if={@provider_health == :unavailable} class="empty-state compact">Command history is unavailable right now.</div>
       <div :if={@provider_health == :degraded} class="empty-state compact">
@@ -75,6 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
               writable={@writable}
               filter={@filter}
               query={@query}
+              time_zone={@time_zone}
             />
           </tbody>
         </table>
@@ -101,6 +104,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:writable, :boolean, required: true)
   attr(:filter, :atom, required: true)
   attr(:query, :map, required: true)
+  attr(:time_zone, :string, default: "Etc/UTC")
 
   defp history_row(assigns) do
     assigns =
@@ -148,7 +152,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
           <span :if={answer_actor_label(@decision)} class={answer_actor_class(@decision)}>{answer_actor_label(@decision)}</span>
         </div>
         <div class="history-when mono">
-          <time datetime={timestamp_sort_value(@decision.created_at)}>{raised_at(@decision.created_at)}</time>
+          <time datetime={timestamp_sort_value(@decision.created_at)}>{raised_at(@decision.created_at, @time_zone)}</time>
           <span class="expand-chevron" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="m6 9 6 6 6-6" />
@@ -274,12 +278,12 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   # Absolute, not relative: a history row is rendered once and then left alone,
   # so a rendered "2h ago" would keep ageing on screen without ever being
-  # re-rendered. A timestamp cannot go stale.
-  defp raised_at(%DateTime{} = created_at) do
-    created_at |> DateTime.truncate(:second) |> Calendar.strftime("%Y-%m-%d %H:%M UTC")
+  # re-rendered. Rendered in the viewer's timezone.
+  defp raised_at(%DateTime{} = created_at, time_zone) do
+    TimeFormat.format(created_at, time_zone)
   end
 
-  defp raised_at(_created_at), do: "unknown"
+  defp raised_at(_created_at, _time_zone), do: "unknown"
 
   defp timestamp_sort_value(%DateTime{} = created_at), do: DateTime.to_iso8601(created_at)
   defp timestamp_sort_value(_created_at), do: nil

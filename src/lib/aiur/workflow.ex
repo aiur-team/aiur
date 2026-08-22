@@ -125,6 +125,19 @@ defmodule Aiur.Workflow do
     end
   end
 
+  @doc false
+  @spec current_with_cache_identity() ::
+          {:ok, loaded_workflow(), pos_integer() | :unknown, reference() | :unknown} | {:error, term()}
+  def current_with_cache_identity do
+    case Process.whereis(WorkflowStore) do
+      pid when is_pid(pid) ->
+        WorkflowStore.current_with_cache_identity()
+
+      _ ->
+        with {:ok, workflow} <- load(), do: {:ok, workflow, :unknown, :unknown}
+    end
+  end
+
   @spec load() :: {:ok, loaded_workflow()} | {:error, term()}
   def load do
     load(workflow_file_path())

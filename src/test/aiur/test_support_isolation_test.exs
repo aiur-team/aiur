@@ -18,8 +18,12 @@ defmodule Aiur.TestSupportIsolationTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.DispatchAuthorization
+  alias Aiur.GitHub.Issues
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.GlobalPauseStore
+
+  @dispatch_cache_key {Aiur.GitHub.DispatchAuthorization, :timeline_cache}
 
   test "log_root_dir is isolated to the per-test workflow root, not <cwd>/log" do
     log_root = Paths.log_root_dir()
@@ -45,6 +49,23 @@ defmodule Aiur.TestSupportIsolationTest do
              })
 
     assert {:ok, %{globally_paused: true, source: "test"}} = GlobalPauseStore.load()
+  end
+
+  test "cache inspector source overrides are restored between TestSupport cases" do
+    previous = Application.fetch_env(:aiur, :github_cache_inspector_source)
+
+    on_exit(fn ->
+      case previous do
+        :error -> Application.delete_env(:aiur, :github_cache_inspector_source)
+        {:ok, source} -> Application.put_env(:aiur, :github_cache_inspector_source, source)
+      end
+    end)
+
+    captured = Aiur.TestSupport.capture_app_env()
+    Application.put_env(:aiur, :github_cache_inspector_source, __MODULE__)
+    Aiur.TestSupport.restore_app_env(captured)
+
+    assert Application.fetch_env(:aiur, :github_cache_inspector_source) == previous
   end
 
   test "ModelAvailability reads and writes its default ledger store in the per-test workflow root" do
@@ -75,5 +96,61 @@ defmodule Aiur.TestSupportIsolationTest do
     assert Task.yield(waiter, 0) == nil
     send(process, :stop)
     assert {:ok, :ok} = Task.yield(waiter, 1_000)
+  end
+
+  # Regression guard for #2082. `DispatchAuthorization` keeps its decision cache
+  # in `:persistent_term` and only exposes `clear_cache/0`; nothing in the
+  # per-case setup used to call it, so a timeline decision one case made for an
+  # issue was reused by a later case fetching the same issue id with the same
+  # label and `updated_at`. That is what made `issues_test.exs` pass alone but
+  # fail once a sibling file ran first in the same VM: the leaked cache changed
+  # whether a test went down the live timeline-fetch path. The two tests below
+  # run in definition order — the first deliberately leaves a populated cache
+  # behind, and the second proves the next case's setup cleared it.
+  test "a live DispatchAuthorization decision stays cached for the rest of the VM" do
+    gh_issue = %{
+      "number" => 2082,
+      "node_id" => "I_kwDOIssue2082",
+      "title" => "Leak probe",
+      "html_url" => "https://github.com/owner/repo/issues/2082",
+      "labels" => [%{"name" => "sym:todo"}],
+      "state" => "open",
+      "created_at" => "2026-01-01T00:00:00Z",
+      "updated_at" => "2026-01-02T00:00:00Z"
+    }
+
+    request_fun = fn %{url: url} ->
+      if String.ends_with?(url, "/timeline?per_page=100") do
+        {:ok,
+         %{
+           status: 200,
+           headers: [],
+           body: [
+             %{
+               "event" => "labeled",
+               "id" => 1,
+               "created_at" => "2026-01-01T00:00:00Z",
+               "actor" => %{"login" => "trusted"},
+               "label" => %{"name" => "sym:todo"}
+             }
+           ]
+         }}
+      else
+        {:ok, %{status: 200, headers: [], body: %{}}}
+      end
+    end
+
+    _ =
+      Issues.normalize_issue(gh_issue, "owner", "repo", "sym")
+      |> DispatchAuthorization.authorize("owner", "repo", "sym",
+        request_fun: request_fun,
+        token: "test-token"
+      )
+
+    assert :persistent_term.get(@dispatch_cache_key, :unset) != :unset
+  end
+
+  test "the next TestSupport case starts with an empty DispatchAuthorization cache" do
+    assert :persistent_term.get(@dispatch_cache_key, :unset) == :unset
   end
 end

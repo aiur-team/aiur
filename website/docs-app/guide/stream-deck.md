@@ -59,7 +59,6 @@ Transcript lines stay beneath the event active when they arrived; agent prose is
 | State | Meaning | Display |
 | --- | --- | --- |
 | Fresh | Recent reading | Solid green bar, slightly brighter at 100%. |
-| Stale | Real reading past its freshness window | The same borderless green bar, dimmed. |
 | Unknown | No reading has ever arrived | Full-width flat grey bar and dot, distinct from measured progress. |
 | 0% | A real zero reading | Short solid stub, so "just started" never looks like "no reading". |
 

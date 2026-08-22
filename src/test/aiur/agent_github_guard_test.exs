@@ -571,6 +571,29 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = Task.await(second, 1_500)
   end
 
+  test "the wrapper keeps one admission ledger when its publication token rotates", context do
+    budget_root = Path.join(context.state_path, "rotating-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    identity_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    first_key = Budget.token_key("publication-token-a")
+    second_key = Budget.token_key("publication-token-b")
+
+    common = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_IDENTITY_KEY: identity_key,
+      AIUR_GITHUB_STAGGER_MS: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/2236"], common ++ [AIUR_GITHUB_BUDGET_KEY: first_key])
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/2237"], common ++ [AIUR_GITHUB_BUDGET_KEY: second_key])
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", second_key, "--identity-key", identity_key])
+
+    assert length(Jason.decode!(snapshot)["admissions"]) == 2
+  end
+
   test "an Executor-style gh wrapper publishes a secondary cooldown to the host budget", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -1367,6 +1390,28 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{"endpoint_family" => "rate_limit"}]} = Jason.decode!(snapshot)
   end
 
+  test "a guarded 304 response is reconciled as unbilled", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"billable" => false}]} = Jason.decode!(snapshot)
+  end
+
   test "auth token remains local when a configured budget cannot start", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
@@ -1446,6 +1491,38 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert output =~ "invalid or unusable wait response"
     refute File.exists?(context.calls)
+  end
+
+  test "an actor-ceiling wait is parsed, slept, and then admitted to the real gh", context do
+    # An actor that hit its hourly ceiling is told `wait actor <ms>`. The guard
+    # must strip the `actor` token (the Elixir side's cue for the hold reason),
+    # sleep the delay, and re-acquire — not refuse the wait as malformed. A
+    # sequencing broker waits once and then grants.
+    budget_root = Path.join(context.state_path, "host-budget")
+    counter = Path.join(context.state_path, "broker-calls")
+    seq_broker = Path.join(context.workspace, "seq-broker.py")
+
+    File.write!(seq_broker, """
+    import os
+    count_file = os.environ["FAKE_BROKER_COUNTER"]
+    n = int(open(count_file).read().strip() or "0") if os.path.exists(count_file) else 0
+    n += 1
+    open(count_file, "w").write(str(n))
+    print("wait actor 100" if n == 1 else "granted " + "a" * 32)
+    """)
+
+    File.chmod!(seq_broker, 0o755)
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: seq_broker,
+               FAKE_BROKER_COUNTER: counter
+             )
+
+    assert output =~ "ok"
+    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
   end
 
   test "an Executor-style wrapper honours Retry-After in its shared cooldown", context do

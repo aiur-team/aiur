@@ -71,23 +71,6 @@ defmodule Aiur.GitHub.CacheInspector do
   @writers [:mutation, :webhook, :fetch, :poll, :other]
   @freshness [:fresh, :stale, :expired, :unknown]
 
-  # What a GitHub call made from a view would be named.
-  #
-  # This started as a prefix list — `"view:"`, `"dashboard:"` — and that was a
-  # hard-coded zero wearing a measurement's clothes. Every real call site in
-  # this tree declares a bare snake_case caller (`:comment_poll_batch`,
-  # `:bot_identity`), nothing enforces a prefix, and a LiveView that started
-  # fetching would declare `caller: :github_cache_live` and land outside the
-  # filter. The tile would still read zero at the exact moment it was wrong,
-  # which is worse than having no tile.
-  #
-  # So the match is on the shape a view's caller actually takes in this
-  # codebase: anything naming a LiveView, a dashboard surface, or a page. It is
-  # a heuristic and it is stated as one — the enforcing proof is the call-count
-  # test at the transport seam, which cannot be fooled by a naming convention
-  # because it counts requests rather than believing labels.
-  @view_caller_patterns ["view", "dashboard", "page", "live"]
-
   @doc "The canonical writer buckets, in the order the page offers them."
   @spec writers() :: [atom()]
   def writers, do: @writers
@@ -163,21 +146,19 @@ defmodule Aiur.GitHub.CacheInspector do
   @doc """
   GitHub requests caused by somebody looking at a page.
 
-  The headline figure on the debug page, and it must read zero. It counts the
-  quota meter's observations whose call site declared itself a view path — a set
-  that is empty by construction today, and whose becoming non-empty is exactly
-  the regression worth seeing immediately. Reading a derived zero rather than
-  hard-coding one is the difference between a claim and a measurement.
+  The headline figure on the debug page, and passive page viewing must leave it
+  at zero. It counts the quota meter's observations that originated in a
+  LiveView process. The quota seam records that process-scoped fact independently
+  from the caller tag, so a poller containing `view` in its name cannot be billed
+  to the operator and an asynchronously completed click fetch remains visible.
 
-  The zero is only meaningful beside `observed_callers/1`. A meter that has seen
+  The zero is only meaningful beside `observed_calls/1`. A meter that has seen
   nothing at all also reports zero here, and that is not the same fact as a busy
   meter none of whose calls came from a view — so the page prints both.
   """
   @spec view_fetches(map()) :: non_neg_integer()
   def view_fetches(%{callers: callers}) when is_list(callers) do
-    callers
-    |> Enum.filter(&view_caller?/1)
-    |> Enum.reduce(0, &(calls(&1) + &2))
+    Enum.reduce(callers, 0, &(view_calls(&1) + &2))
   end
 
   def view_fetches(_snapshot), do: 0
@@ -199,6 +180,51 @@ defmodule Aiur.GitHub.CacheInspector do
 
   def observed_calls(_snapshot), do: 0
 
+  @doc """
+  One time-series sample: whole-store counts and freshness, for the cache
+  history charts.
+
+  `project/1` is shaped for a page — truncation, per-type grouping, one re-read
+  per render. A chart that summed its truncated `groups` would report freshness
+  for a subset beside a total for the whole store, which is the silent-subset
+  failure this page refuses elsewhere, so `history_sample/1` classifies **every**
+  entry the source holds (the store caps itself at 100,000) and answers counts
+  that sum to each other: `with_body + bodyless == total`, and for body-holding
+  entries `fresh + stale + expired + unknown == with_body`.
+
+  Classification reuses `CacheInspector.Entry.new/3` rather than restating the
+  freshness rules, so the chart and the map tiles cannot drift apart about what
+  "stale" and "expired" mean.
+
+  Answers `nil` when the source is unavailable, so the sampler records nothing
+  rather than recording a fabricated zero — the same distinction this page makes
+  between "nothing cached" and "nothing observed".
+  """
+  @spec history_sample(DateTime.t(), keyword()) :: map() | nil
+  def history_sample(now \\ DateTime.utc_now(), opts \\ []) do
+    source = Keyword.get(opts, :source, configured_source())
+
+    case read(source) do
+      {:ok, raw} ->
+        entries = Enum.map(raw, &Entry.new(&1, now, thresholds(opts)))
+        freshness = Enum.frequencies_by(entries, & &1.freshness)
+
+        %{
+          t_ms: DateTime.to_unix(now, :millisecond),
+          total: length(entries),
+          with_body: Enum.count(entries, & &1.body?),
+          bodyless: Enum.count(entries, & &1.bodyless?),
+          fresh: Map.get(freshness, :fresh, 0),
+          stale: Map.get(freshness, :stale, 0),
+          expired: Map.get(freshness, :expired, 0),
+          unknown: Map.get(freshness, :unknown, 0)
+        }
+
+      :unavailable ->
+        nil
+    end
+  end
+
   @doc "Counts of every writer that has touched the cache, in canonical order."
   @spec writes_by_writer(map()) :: [{atom(), non_neg_integer()}]
   def writes_by_writer(%{entries: entries}) do
@@ -209,14 +235,15 @@ defmodule Aiur.GitHub.CacheInspector do
 
   def writes_by_writer(_projection), do: Enum.map(@writers, &{&1, 0})
 
-  defp view_caller?(observation) do
-    caller = observation |> Map.get(:caller) |> to_string() |> String.downcase()
-
-    Enum.any?(@view_caller_patterns, &String.contains?(caller, &1))
-  end
-
   defp calls(observation) do
     case Map.get(observation, :calls) do
+      count when is_integer(count) and count > 0 -> count
+      _none -> 0
+    end
+  end
+
+  defp view_calls(observation) do
+    case Map.get(observation, :view_calls) do
       count when is_integer(count) and count > 0 -> count
       _none -> 0
     end

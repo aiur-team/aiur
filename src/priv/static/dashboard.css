@@ -73,6 +73,10 @@
   /* The page's reading width — what the content column is capped at once the
      shell itself runs the full width of the window. */
   --shell-measure: 75rem;
+  /* One height for every progress bar on the dashboard — the meter strip, the
+     run-summary and units-table tracks, the provider-meter tracks, and the
+     Stream Deck bars — so no two bars read as different gauges. */
+  --progress-bar-height: 0.5rem;
 }
 
 html[data-theme="light"] {
@@ -591,7 +595,7 @@ textarea:focus-visible,
 
 .bo-catalog-progress-track {
   flex: 1 1 auto;
-  height: 5px;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface);
   overflow: hidden;
@@ -632,6 +636,16 @@ textarea:focus-visible,
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   padding: 0 0.35rem;
+}
+
+/* A zero-member Build Order is empty, not unstarted work at 0%. */
+.bo-catalog-progress-empty {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* An unresolved catalog count reads as a word rather than a fabricated zero. */
@@ -1925,22 +1939,6 @@ th[data-sort-key]:focus-visible {
   left: 0.28rem;
 }
 
-/* The compact fleet-staleness label rides beside the brand logo. The full
-   explanation (age + reason) lives in the hover popover. */
-.fleet-stale-label {
-  padding: 0.15rem 0.55rem;
-  border: 1px solid var(--attention-line);
-  border-radius: 999px;
-  background: var(--attention-soft);
-  color: var(--attention-ink);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  cursor: help;
-}
-
 /* The global pause switch reads OFF (muted, like its sibling toggles) and flips
    to a filled warning accent when the whole daemon is halted, so a paused fleet
    is unmistakable from the nav. Disabled when the dashboard is read-only. */
@@ -2618,8 +2616,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .chip.cmd-agent {
-  color: var(--provider-command-color, var(--fg));
-  border-color: var(--provider-command-border, var(--line-strong));
+  color: var(--muted);
+  border-color: var(--line);
+  background: var(--pill-bg);
 }
 
 .chip.faint {
@@ -2716,9 +2715,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .recommendation-chip {
-  border-color: var(--super-line);
-  background: var(--super-soft);
-  color: var(--super-ink);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   font-family: inherit;
   font-size: 0.73rem;
 }
@@ -2794,7 +2793,6 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 1rem;
   padding: 1rem 1.05rem 1.15rem 1.25rem;
   border-top: 1px solid var(--hairline);
-  background: var(--bg-2);
   animation: detail-open 0.22s ease both;
 }
 
@@ -2802,10 +2800,9 @@ html[data-theme="light"] .toggle-icon .moon {
   display: grid;
   gap: 0.85rem;
   padding: 0.95rem;
-  border: 1px solid var(--line-strong);
-  border-radius: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
 }
 
 .decision-action.compact {
@@ -2855,7 +2852,7 @@ html[data-theme="light"] .toggle-icon .moon {
   margin: 0;
   padding: 0.62rem 0.72rem;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   font-size: 0.78rem;
 }
 
@@ -2892,7 +2889,7 @@ html[data-theme="light"] .toggle-icon .moon {
   min-width: 0;
   padding: 0.72rem;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--surface-2);
   cursor: pointer;
   transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
@@ -2995,7 +2992,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.8rem;
   padding: 0.78rem;
   border: 1px solid var(--good-line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--good-soft);
 }
 
@@ -3047,7 +3044,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .decision-retry-row {
   padding: 0.72rem 0.78rem;
   border: 1px solid var(--blocking-line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--blocking-soft);
   color: var(--blocking-ink);
 }
@@ -3062,11 +3059,8 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.85rem;
   padding: 0.95rem;
   border: 1px solid var(--super-line);
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, var(--super-soft), transparent 42%),
-    var(--surface);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
 .decision-revision-caution {
@@ -3167,7 +3161,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .markdown-source {
   padding: 0.78rem 0.9rem;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--fg);
   font-size: 0.86rem;
@@ -3178,7 +3172,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .decision-callout {
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--attention-line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--attention-soft);
   color: var(--attention-ink);
   font-size: 0.86rem;
@@ -3192,7 +3186,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .option-card {
   padding: 0.82rem 0.9rem;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
 }
 
@@ -3224,7 +3218,7 @@ html[data-theme="light"] .toggle-icon .moon {
   height: 1.5rem;
   padding: 0 0.25rem;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--surface-3);
   font-size: 0.72rem;
   font-weight: 700;
@@ -3271,7 +3265,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .recommendation {
   padding: 0.8rem 0.9rem;
   border: 1px solid var(--super-line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--super-soft);
   color: var(--super-ink);
 }
@@ -3281,7 +3275,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0;
   margin: 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
 }
 
@@ -3579,7 +3573,7 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .ut-pbar {
   display: block;
-  height: 5px;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -3589,16 +3583,12 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: 999px;
-  min-width: 5px;
+  min-width: var(--progress-bar-height);
   background: var(--progress-fill);
 }
 
 .ut-pbar > i.is-complete {
   background: var(--progress-complete-fill);
-}
-
-.ut-pbar > i.is-stale {
-  opacity: 0.5;
 }
 
 .ut-pbar.is-unknown {
@@ -3804,19 +3794,12 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .rs-provider-row > .rs-provider-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5rem 4.5rem;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 0.55rem;
   min-width: 0;
 }
 
-.rs-api > .rs-provider-body {
-  grid-template-columns: minmax(0, 1fr) 2.5rem;
-}
-
-/* The stats cluster must be able to drop below the name and shrink: at the
-   narrow end of the 3-column grid a long value ("Unavailable") is wider than
-   its track, and without wrapping it spilled past the card's rounded edge. */
 /* Top-aligned, not centred: the stat block on a provider card is taller than
    the name, and centring pushed the logo and name down so they no longer lined
    up with Summary's. */
@@ -3898,22 +3881,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--good-ink);
 }
 
-.rs-token-ic {
-  width: 1.2rem;
-  height: 1.2rem;
-  flex: none;
-  object-fit: contain;
-  margin: 0 0 0 0.15rem;
-  vertical-align: -0.15em;
-}
-
-/* An unknown token count keeps only the provider's token glyph, top right at
-   logo size, so the card keeps its footprint without a "Tokens N/A" row. Only
-   Claude and Codex carry that glyph, so only their rows use this. */
-.rs-token-na {
-  align-self: flex-start;
-}
-
 .rs-limits {
   display: flex;
   flex-direction: column;
@@ -3921,42 +3888,41 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   min-width: 0;
 }
 
-/* A provider meter is a single logo-height line. Models need only the flexible
-   bar and its status text; API windows retain their Core/GraphQL/Credits label
-   because one API can expose more than one independent budget. */
+/* A provider meter is a standard progress bar with its label and meta on the
+   line directly above the bar. The label line and the thin bar share the same
+   fixed row height, so restoring the label-above-bar design does not expand the
+   row: the label rides close above the bar inside the one logo-height line. */
 .rs-provider-row .rs-limit {
   display: grid;
-  align-items: center;
-  gap: 0.45rem;
+  gap: 0.1rem;
   height: var(--rs-provider-row-height);
   min-width: 0;
 }
 
-.rs-model .rs-limit {
-  grid-template:
-    "meter meta" var(--rs-provider-row-height) /
-    minmax(0, 1fr) 9rem;
-}
-
+.rs-model .rs-limit,
 .rs-api .rs-limit {
   grid-template:
-    "label meter meta" var(--rs-provider-row-height) /
-    3.5rem minmax(0, 1fr) 7rem;
+    "label meta" minmax(0, 1fr)
+    "meter meter" var(--rs-meter-height, var(--progress-bar-height)) /
+    minmax(0, 1fr) 9rem;
 }
 
 .rs-provider-row .rs-meter {
   grid-area: meter;
+  align-self: end;
   width: 100%;
-  height: var(--rs-provider-row-height);
+  height: var(--rs-meter-height, var(--progress-bar-height));
 }
 
 .rs-provider-row .rs-limit-label {
   grid-area: label;
+  align-self: start;
 }
 
 .rs-provider-row .rs-limit-meta {
   grid-area: meta;
   justify-self: end;
+  align-self: start;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3966,8 +3932,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .rs-provider-row .rs-limit-meta,
 .rs-provider-row .rs-stat-label,
 .rs-provider-row .rs-stat-val {
-  height: var(--rs-provider-row-height);
-  line-height: var(--rs-provider-row-height);
+  line-height: 1;
 }
 
 .rs-provider-row .rs-limit-meta {
@@ -3984,33 +3949,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .rs-api .rs-limit-meta-compact {
   display: inline;
-}
-
-.rs-provider-body > .rs-head-stats {
-  align-items: center;
-  align-self: start;
-  flex-wrap: nowrap;
-  gap: 0.55rem;
-  height: var(--rs-provider-row-height);
-  margin-left: 0;
-}
-
-.rs-provider-body .rs-stat {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.25rem;
-  height: var(--rs-provider-row-height);
-  white-space: nowrap;
-}
-
-.rs-provider-body > .rs-spend {
-  align-self: start;
-}
-
-/* The due amount remains visible and labelled for assistive technology; the
-   long visual label would take more width than the ElevenLabs meter itself. */
-.rs-elevenlabs .rs-head-stats .rs-stat-label {
-  display: none;
 }
 
 .rs-limit-top {
@@ -4048,7 +3986,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .rs-meter {
-  height: 0.34rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -4069,6 +4007,11 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .rs-meter > i.is-warning {
   background: var(--warning, #d08a2a);
+}
+
+/* Meter stage colours: yellow from 80%, orange from 90%, red at 100% used. */
+.rs-meter > i.is-caution {
+  background: var(--caution, #d0a92a);
 }
 
 .github-quota-attribution,
@@ -4215,7 +4158,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 /* Unknown values remain visibly inert without resembling a measured 0%. */
 .rs-meter-none {
   display: block;
-  height: 0.34rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--line-strong);
 }
@@ -4292,41 +4235,22 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   }
 
   .rs-provider-row > .rs-provider-body {
-    grid-template-columns: minmax(0, 1fr) 3.2rem 2.5rem;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.35rem;
   }
 
-  .rs-api > .rs-provider-body {
-    grid-template-columns: minmax(0, 1fr) 2.5rem;
-  }
-
   .rs-provider-row .rs-limit {
-    gap: 0.3rem;
+    gap: 0.15rem;
   }
 
-  .rs-model .rs-limit {
+  .rs-model .rs-limit,
+  .rs-api .rs-limit {
     grid-template-columns: minmax(0, 1fr) 6.5rem;
   }
 
-  .rs-api .rs-limit {
-    grid-template-columns: 3rem minmax(0, 1fr) 5.8rem;
-  }
-
   .rs-provider-row .rs-limit-label,
-  .rs-provider-row .rs-limit-meta,
-  .rs-provider-row .rs-stat-label {
+  .rs-provider-row .rs-limit-meta {
     font-size: 0.6rem;
-  }
-
-  .rs-provider-row .rs-stat-val {
-    font-size: 0.72rem;
-  }
-
-  /* At the dashboard's existing phone width the values and decorative token
-     glyphs remain, while their repeated headings move to the aria-label on the
-     containing stat. This keeps every meter on one fixed-height line. */
-  .rs-model .rs-stat-label {
-    display: none;
   }
 
   .rs-provider-row .rs-limit-meta-wide {
@@ -4659,7 +4583,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: block;
   flex: 1 1 auto;
   min-width: 3rem;
-  height: 0.55rem;
+  height: var(--progress-bar-height);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -5119,12 +5043,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .history-question {
-  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
   margin-top: 0.15rem;
   color: var(--fg);
 }
 
 .history-decision {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -7107,7 +7040,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .run-summary-progress-track {
   display: block;
-  height: 0.55rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -7117,17 +7050,13 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
-  min-width: 0.55rem;
+  min-width: var(--progress-bar-height);
   background: var(--progress-fill);
   transition: width 0.3s ease;
 }
 
 .run-summary-progress-fill.is-complete {
   background: var(--progress-complete-fill);
-}
-
-.run-summary-progress-fill.is-stale {
-  opacity: 0.5;
 }
 
 .run-summary-progress-value {
@@ -7323,7 +7252,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .provider-meter-track {
   display: block;
-  height: 0.55rem;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -7859,7 +7788,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-wave-seg-meter {
   display: block;
-  height: 5px;
+  height: var(--progress-bar-height);
   border-radius: 999px;
   background: var(--surface-3);
   overflow: hidden;
@@ -8883,7 +8812,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .sd-ag-bar {
   display: block;
-  height: 6px;
+  height: var(--progress-bar-height);
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -8896,10 +8825,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   height: 100%;
   border-radius: inherit;
   background: var(--sd-progress-fill);
-  min-width: 6px;
+  min-width: var(--progress-bar-height);
 }
-
-.sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
 
 .sd-ag-foot.is-progress-unknown .sd-ag-bar {
   background: rgba(255, 255, 255, 0.24);
@@ -9085,7 +9012,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .sd-strip-cmd-progress {
   display: block;
-  height: 0.34rem;
+  height: var(--progress-bar-height);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
@@ -9094,12 +9021,8 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .sd-strip-cmd-progress > i {
   display: block;
   height: 100%;
-  min-width: 0.34rem;
+  min-width: var(--progress-bar-height);
   border-radius: inherit;
-}
-
-.sd-strip-cmd.is-progress-stale .sd-strip-cmd-progress > i {
-  opacity: 0.5;
 }
 
 .sd-strip-cmd.is-progress-unknown .sd-strip-cmd-status::before {
@@ -9332,7 +9255,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 }
 
 .sd-mini-bar {
-  height: 3px;
+  height: var(--progress-bar-height);
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
@@ -9343,17 +9266,6 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #3f8bff, #8fbcff);
-}
-
-/* A stale reading remains distinct through colour and opacity, without the
-   hatch treatment used by the old unknown-progress state. */
-.sd-mini.is-stale .sd-mini-r {
-  color: var(--attention-ink);
-}
-
-.sd-mini.is-stale .sd-mini-bar > i {
-  background: var(--attention);
-  opacity: 0.6;
 }
 
 .sd-pager {

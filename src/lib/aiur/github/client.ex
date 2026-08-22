@@ -151,6 +151,11 @@ defmodule Aiur.GitHub.Client do
   def fetch_pull_request_reviews(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_reviews(pr_number, opts)
 
+  @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_reviews_conditional(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_reviews_conditional(pr_number, opts)
+
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_number, opts \\ []),
@@ -170,6 +175,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_by_label(label, opts \\ []),
     do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
+
+  @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_requests_by_label_conditional(label, opts \\ []),
+    do: PullRequests.fetch_open_pull_requests_by_label_conditional(label, opts)
 
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}

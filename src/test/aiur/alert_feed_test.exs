@@ -1,6 +1,8 @@
 defmodule Aiur.AlertFeedTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{AlertFeed, AlertLedger}
 
   setup do
@@ -82,6 +84,14 @@ defmodule Aiur.AlertFeedTest do
 
       assert AlertFeed.condition_state("system.dispatch.prewarm_blocked", ledger_paths: [ledger]) == :resolved
       assert AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked.resolved", ledger_paths: [ledger])
+
+      assert AlertFeed.condition_states(
+               ["system.dispatch.prewarm_blocked", "system.dispatch.never_seen"],
+               ledger_paths: [ledger]
+             ) == %{
+               "system.dispatch.prewarm_blocked" => :resolved,
+               "system.dispatch.never_seen" => :unknown
+             }
     end
 
     test "never treat a non-resolution topic as a duplicate", %{ledger: ledger} do
@@ -161,6 +171,168 @@ defmodule Aiur.AlertFeedTest do
     assert [%{"message" => "Executor decision required"}] = AlertFeed.list(ledger_paths: [ledger])
   end
 
+  describe "bounded ledger persistence" do
+    test "compacts across the ceiling while retaining the newest alert and an unresolved attention", %{ledger: ledger} do
+      attention = alert_line("ticket.42.agent.attention.scope", "2026-06-25T01:00:00Z", true, "active")
+      history = alert_line("ticket.42.agent.progress", "2026-06-25T01:01:00Z", false, String.duplicate("h", 80))
+      newest = alert("ticket.42.agent.phase.work.end", "2026-06-25T01:02:00Z", false, "newest")
+      newest_line = encoded_line(newest)
+      max_bytes = byte_size(attention) + byte_size(newest_line)
+
+      write_ledger!(ledger, attention <> history)
+
+      assert :ok = AlertLedger.append(newest, ledger_path: ledger, max_bytes: max_bytes)
+      assert File.stat!(ledger).size <= max_bytes
+
+      assert ["ticket.42.agent.attention.scope", "ticket.42.agent.phase.work.end"] == ledger_topics(ledger)
+    end
+
+    test "resolved attentions lose retention priority", %{ledger: ledger} do
+      opened = alert_line("ticket.42.agent.attention.scope", "2026-06-25T01:00:00Z", true, String.duplicate("o", 80))
+      resolved = alert_line("ticket.42.agent.attention.scope.resolved", "2026-06-25T01:01:00Z", false, "resolved")
+      recent = alert_line("ticket.42.agent.progress", "2026-06-25T01:02:00Z", false, "recent")
+      newest = alert("ticket.42.agent.phase.work.end", "2026-06-25T01:03:00Z", false, "newest")
+      max_bytes = byte_size(recent) + byte_size(encoded_line(newest))
+
+      write_ledger!(ledger, opened <> resolved <> recent)
+
+      assert :ok = AlertLedger.append(newest, ledger_path: ledger, max_bytes: max_bytes)
+      refute "ticket.42.agent.attention.scope" in ledger_topics(ledger)
+      assert List.last(ledger_topics(ledger)) == "ticket.42.agent.phase.work.end"
+    end
+
+    test "warns and keeps the newest active attentions when actionable state exceeds the ceiling", %{ledger: ledger} do
+      oldest = alert_line("ticket.1.agent.attention.scope", "2026-06-25T01:00:00Z", true, "oldest")
+      middle = alert_line("ticket.2.agent.attention.scope", "2026-06-25T01:01:00Z", true, "middle")
+      newest_active = alert_line("ticket.3.agent.attention.scope", "2026-06-25T01:02:00Z", true, "newest active")
+      newest = alert("system.alert-ledger.compaction", "2026-06-25T01:03:00Z", false, "newest")
+      max_bytes = byte_size(middle) + byte_size(newest_active) + byte_size(encoded_line(newest))
+
+      write_ledger!(ledger, oldest <> middle <> newest_active)
+
+      log =
+        capture_log(fn ->
+          assert :ok = AlertLedger.append(newest, ledger_path: ledger, max_bytes: max_bytes)
+        end)
+
+      assert log =~ "dropped_active_count=1"
+      assert ledger_topics(ledger) == ["ticket.2.agent.attention.scope", "ticket.3.agent.attention.scope", "system.alert-ledger.compaction"]
+    end
+
+    test "keeps later active attentions that fit after rejecting an oversized candidate", %{ledger: ledger} do
+      smaller = alert_line("ticket.1.agent.attention.scope", "2026-06-25T01:00:00Z", true, "small")
+      oversized = alert_line("ticket.2.agent.attention.scope", "2026-06-25T01:01:00Z", true, String.duplicate("x", 200))
+      newest = alert("system.alert-ledger.compaction", "2026-06-25T01:02:00Z", false, "newest")
+      max_bytes = byte_size(smaller) + byte_size(encoded_line(newest))
+
+      write_ledger!(ledger, smaller <> oversized)
+
+      log =
+        capture_log(fn ->
+          assert :ok = AlertLedger.append(newest, ledger_path: ledger, max_bytes: max_bytes)
+        end)
+
+      assert log =~ "dropped_active_count=1"
+      assert ledger_topics(ledger) == ["ticket.1.agent.attention.scope", "system.alert-ledger.compaction"]
+    end
+
+    test "rejects an indivisible alert larger than the ceiling without mutating the ledger", %{ledger: ledger} do
+      original = alert_line("ticket.42.agent.progress", "2026-06-25T01:00:00Z", false, "original")
+      oversized = alert("ticket.42.agent.progress", "2026-06-25T01:01:00Z", false, String.duplicate("x", 200))
+      max_bytes = byte_size(encoded_line(oversized)) - 1
+      write_ledger!(ledger, original)
+
+      assert {:error, {:record_too_large, encoded_size, ^max_bytes}} =
+               AlertLedger.append(oversized, ledger_path: ledger, max_bytes: max_bytes)
+
+      assert encoded_size == byte_size(encoded_line(oversized))
+      assert File.read!(ledger) == original
+    end
+
+    test "blocks concurrent compaction-triggering appends until the append lock is released", %{ledger: ledger} do
+      old_history = alert_line("ticket.0.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("h", 200))
+      first = alert("ticket.1.agent.attention.scope", "2026-06-25T01:01:00Z", true, "first")
+      second = alert("ticket.2.agent.attention.scope", "2026-06-25T01:02:00Z", true, "second")
+      max_bytes = byte_size(encoded_line(first)) + byte_size(encoded_line(second))
+      write_ledger!(ledger, old_history)
+
+      parent = self()
+
+      lock_holder =
+        Task.async(fn ->
+          AlertLedger.with_lock([ledger_path: ledger, lock_timeout: 5_000], fn ->
+            send(parent, :append_lock_acquired)
+
+            receive do
+              :release_append_lock -> :ok
+            end
+          end)
+        end)
+
+      assert_receive :append_lock_acquired
+
+      tasks =
+        for record <- [first, second] do
+          Task.async(fn ->
+            send(parent, {:append_started, self()})
+            AlertLedger.append(record, ledger_path: ledger, max_bytes: max_bytes, lock_timeout: 5_000)
+          end)
+        end
+
+      for task <- tasks do
+        assert_receive {:append_started, pid} when pid == task.pid
+        assert Task.yield(task, 0) == nil
+      end
+
+      assert File.read!(ledger) == old_history
+
+      send(lock_holder.pid, :release_append_lock)
+      assert :ok = Task.await(lock_holder, 5_000)
+      assert Enum.map(tasks, &Task.await(&1, 5_000)) == [:ok, :ok]
+      assert MapSet.new(ledger_topics(ledger)) == MapSet.new([first["topic"], second["topic"]])
+      assert File.stat!(ledger).size <= max_bytes
+    end
+
+    test "backfill compacts an oversized ledger even when its durable marker already exists", %{ledger: ledger} do
+      old = alert_line("ticket.42.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("o", 100))
+      newest = alert_line("ticket.42.agent.phase.review.end", "2026-06-25T01:01:00Z", false, "newest")
+      max_bytes = byte_size(newest)
+      write_ledger!(ledger, old <> newest)
+      assert :ok = AlertLedger.mark_backfilled(ledger_path: ledger)
+
+      assert :ok = AlertFeed.backfill(roots: [], log_roots: [], ledger_path: ledger, max_bytes: max_bytes)
+      assert File.stat!(ledger).size <= max_bytes
+      assert ledger_topics(ledger) == ["ticket.42.agent.phase.review.end"]
+    end
+  end
+
+  describe "bounded ledger reads" do
+    test "reads only complete records from an oversized ledger tail and skips malformed lines", %{ledger: ledger} do
+      old = alert_line("ticket.1.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("o", 200))
+      recent = alert_line("ticket.2.agent.progress", "2026-06-25T01:01:00Z", false, "recent")
+      newest = alert_line("ticket.3.agent.progress", "2026-06-25T01:02:00Z", false, "newest")
+      malformed = "not-json\n"
+      max_bytes = byte_size(recent <> malformed <> newest) + 10
+      write_ledger!(ledger, old <> recent <> malformed <> newest)
+
+      assert Enum.map(AlertFeed.list(ledger_paths: [ledger], max_bytes: max_bytes), & &1["topic"]) == [
+               "ticket.2.agent.progress",
+               "ticket.3.agent.progress"
+             ]
+    end
+
+    test "condition state and resolution dedupe use the retained tail", %{ledger: ledger} do
+      old = alert_line("ticket.1.agent.progress", "2026-06-25T01:00:00Z", false, String.duplicate("o", 200))
+      firing = alert_line("system.dispatch.prewarm_blocked", "2026-06-25T01:01:00Z", true, "blocked")
+      resolution = alert_line("system.dispatch.prewarm_blocked.resolved", "2026-06-25T01:02:00Z", false, "ready")
+      max_bytes = byte_size(firing <> resolution) + 10
+      write_ledger!(ledger, old <> firing <> resolution)
+
+      assert AlertFeed.condition_state("system.dispatch.prewarm_blocked", ledger_paths: [ledger], max_bytes: max_bytes) == :resolved
+      assert AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked.resolved", ledger_paths: [ledger], max_bytes: max_bytes)
+    end
+  end
+
   test "missing resolution timestamps sort after timestamped opens", %{ledger: ledger} do
     write_ledger!(ledger, """
     {"event":"alert","topic":"ticket.42.agent.attention.scope.resolved","needs_attention":false,"source_ticket_id":"42","timestamp":null}
@@ -237,5 +409,25 @@ defmodule Aiur.AlertFeedTest do
   defp write_ledger!(path, contents) do
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, contents)
+  end
+
+  defp alert(topic, timestamp, needs_attention, message) do
+    %{
+      "event" => "alert",
+      "timestamp" => timestamp,
+      "topic" => topic,
+      "message" => message,
+      "needs_attention" => needs_attention
+    }
+  end
+
+  defp alert_line(topic, timestamp, needs_attention, message), do: encoded_line(alert(topic, timestamp, needs_attention, message))
+  defp encoded_line(record), do: Jason.encode!(record) <> "\n"
+
+  defp ledger_topics(path) do
+    path
+    |> File.stream!()
+    |> Enum.map(&Jason.decode!/1)
+    |> Enum.map(&Map.fetch!(&1, "topic"))
   end
 end

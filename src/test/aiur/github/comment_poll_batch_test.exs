@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CommentPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.CommentPollBatch
+  alias Aiur.GitHub.{CommentPollBatch, ResourceStore}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -99,11 +99,29 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert batch |> Map.keys() |> Enum.sort() == [:open_pull_request]
   end
 
-  # The other half of the cost claim. A branch alias asks for up to five
-  # candidate pull requests per branch and up to two branches per target, so
-  # attaching `reviewThreads(first: 100) { comments(last: 20) }` to those nodes
-  # bought the complete inline-review contents of up to ten pull requests in
-  # order to learn one number.
+  # `branch_pull_request/2` reads `[node | _rest]` of the branch connection and
+  # discards the rest, and GitHub permits one open pull request per head/base
+  # pair — so four of the five slots were nodes nothing could read. The review
+  # thread pages stay at their full size: a smaller one would send every busy
+  # pull request onto the paginated fallback each cycle, and this document bills
+  # 10-11 points per call, not the ~660 a node count suggests.
+  test "asks for only the branch pull requests it reads, and keeps the full thread pages" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "direction: DESC}, first: 2)"
+      refute body["query"] =~ "direction: DESC}, first: 5)"
+      assert body["query"] =~ "reviewThreads(first: 100)"
+      assert body["query"] =~ "comments(last: 20)"
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+    end
+
+    assert {:ok, _batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+  end
+
+  # The other half of the cost claim. A branch alias asks for candidate pull
+  # requests per branch and up to two branches per target, so attaching
+  # `reviewThreads { comments }` to those nodes bought the complete inline-review
+  # contents of every candidate in order to learn one number.
   test "branch alias candidates carry identity only, never review threads" do
     request_fun = fn %{method: :post, body: body} ->
       [_before, branch_section] = String.split(body["query"], "branch_0_0:", parts: 2)
@@ -310,6 +328,114 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     # stripped.
     assert batch.open_pull_request |> Map.keys() |> Enum.sort() ==
              ["base", "head", "head_committed_at", "number", "review_decision", "state"]
+  end
+
+  # #2265 — the poll pipe reads the store the webhook pipe writes.
+  #
+  # These assertions are on the **document that is sent**, not on the value that
+  # comes back, and that is what makes them mutation-sensitive: a poller that
+  # went on issuing its speculative `pullRequests(headRefName:)` discovery for a
+  # target a delivery already identified fails `refute query =~ "branch_0_0"`
+  # even though every returned value would still be correct. Reverting the
+  # store read fails these tests; nothing else here would notice.
+  describe "a pull request a webhook delivery already identified" do
+    setup do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+      :ok
+    end
+
+    test "is not rediscovered, and its review threads arrive in this batch instead of a second call" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post, body: body} ->
+        assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
+        # The saving, stated as an absence: three aliases for this target
+        # become one. The speculative branch lookups are gone, and so is the
+        # `issueOrPullRequest` alias whose only job was to catch a target that
+        # is itself a pull request — which a ticket with a delivered branch
+        # pull request never is.
+        refute body["query"] =~ "branch_0_0"
+        refute body["query"] =~ "target_0:"
+        # Identity came from the store. Everything a stale answer could
+        # mislead the daemon about is still asked of GitHub on this cycle.
+        assert body["query"] =~ "reviewThreads(first: 100)"
+        assert body["query"] =~ "reviewDecision"
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => pull_request(77, "aiur/42-x")}}}}}
+      end
+
+      assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+
+      assert %{"number" => 77} = batch.open_pull_request
+
+      # The `review_threads_unaddressed` half of the win. The poller only pays
+      # for its own per-pull-request thread read when this key is absent
+      # (`GithubCommentsPoller.poll_unaddressed_pr_review_threads/5`), and a
+      # branch-discovered target never carries it. A delivered one does.
+      assert Map.has_key?(batch, :review_thread_comments)
+    end
+
+    test "must have been delivered, not polled, for the store to answer" do
+      deliver_pull_request(42, 77, source: :poll)
+
+      request_fun = fn %{method: :post, body: body} ->
+        assert body["query"] =~ "branch_0_0"
+        refute body["query"] =~ "delivered_0"
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => branch_discovery_response()}}}}
+      end
+
+      assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+      assert %{"number" => 77} = batch.open_pull_request
+    end
+
+    # Keyed on `fetched_at_ms` — the age of the body — never on
+    # `recorded_at_ms`, which every write touches including a bodyless
+    # processed-mark (#2174).
+    test "is bought again once the held body is older than the freshness bound" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post, body: body} ->
+        refute body["query"] =~ "delivered_0"
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => branch_discovery_response()}}}}
+      end
+
+      assert {:ok, %{"42" => _batch}} =
+               CommentPollBatch.fetch(["42"], request_fun: request_fun, delivered_identity_max_age_ms: 0)
+    end
+
+    # Closed is exactly the state in which a *newer* pull request may exist for
+    # the ticket, so it must not be answered as "this ticket has none".
+    test "falls out to the poller's own lookup when GitHub reports it closed" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node = 77 |> pull_request("aiur/42-x") |> Map.put("state", "CLOSED")
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+      refute Map.has_key?(batch, "42")
+    end
+  end
+
+  defp deliver_pull_request(target, number, opts \\ []) do
+    :branch_pull_request
+    |> ResourceStore.key_for_repo("owner/repo", target)
+    |> ResourceStore.put_resource(
+      %{"number" => number, "state" => "open", "head" => %{"ref" => "aiur/#{target}-x"}},
+      source: Keyword.get(opts, :source, :webhook),
+      version: "2026-08-20T00:00:00Z"
+    )
+  end
+
+  defp branch_discovery_response do
+    %{
+      "target_0" => issue(),
+      "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request(77, "aiur/42-x")]}
+    }
   end
 
   defp issue, do: %{}

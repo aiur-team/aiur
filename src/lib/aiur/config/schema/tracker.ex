@@ -3,6 +3,9 @@ defmodule Aiur.Config.Schema.Github do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Aiur.Config.Schema.GithubApp
+  alias Aiur.Config.Schema.GithubCredential
+
   @max_planning_root_limit 100
   @max_planning_page_budget 4
   @max_planning_call_budget 4
@@ -10,11 +13,18 @@ defmodule Aiur.Config.Schema.Github do
   @default_max_inflight_per_endpoint 2
   @default_requests_per_minute 120
   @default_stagger_ms 75
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 2000
+  @default_agent_core_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 375
 
   @primary_key false
   embedded_schema do
     field(:repo, :string)
     field(:label_prefix, :string, default: "agent")
+    # The login **agents** publish as: the account that pushes branches and
+    # opens pull requests. Separate from the daemon's App identity below — see
+    # `Aiur.Config.Schema.GithubApp`.
     field(:bot_account, :string)
     field(:trusted_accounts, {:array, :string}, default: [])
     field(:allowed_users, {:array, :string}, default: [])
@@ -26,6 +36,21 @@ defmodule Aiur.Config.Schema.Github do
     field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
     field(:requests_per_minute, :integer, default: @default_requests_per_minute)
     field(:stagger_ms, :integer, default: @default_stagger_ms)
+    # Per-actor hourly GitHub ceilings (#2181): how many billable Core (REST) /
+    # GraphQL responses one actor may consume in a rolling hour before its own
+    # requests hold. `304` responses are reconciled as free; `0` disables the
+    # ceiling. GraphQL remains request-counted rather than point-priced.
+    field(:daemon_core_limit_per_hour, :integer, default: @default_daemon_core_limit_per_hour)
+    field(:daemon_graphql_limit_per_hour, :integer, default: @default_daemon_graphql_limit_per_hour)
+    field(:agent_core_limit_per_hour, :integer, default: @default_agent_core_limit_per_hour)
+    field(:agent_graphql_limit_per_hour, :integer, default: @default_agent_graphql_limit_per_hour)
+    # Additional GitHub credentials the daemon may spread API load across. An
+    # empty list is the single-credential default and changes nothing.
+    embeds_many(:credentials, GithubCredential, on_replace: :delete)
+    # Optional. Present only when the daemon authenticates as a GitHub App and
+    # therefore writes under a login the agents do not hold. Absent is the
+    # single-identity default: everything resolves to `bot_account`.
+    embeds_one(:github_app, GithubApp, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -46,7 +71,11 @@ defmodule Aiur.Config.Schema.Github do
         :max_inflight,
         :max_inflight_per_endpoint,
         :requests_per_minute,
-        :stagger_ms
+        :stagger_ms,
+        :daemon_core_limit_per_hour,
+        :daemon_graphql_limit_per_hour,
+        :agent_core_limit_per_hour,
+        :agent_graphql_limit_per_hour
       ],
       empty_values: []
     )
@@ -57,8 +86,15 @@ defmodule Aiur.Config.Schema.Github do
       :max_inflight,
       :max_inflight_per_endpoint,
       :requests_per_minute,
-      :stagger_ms
+      :stagger_ms,
+      :daemon_core_limit_per_hour,
+      :daemon_graphql_limit_per_hour,
+      :agent_core_limit_per_hour,
+      :agent_graphql_limit_per_hour
     ])
+    |> cast_embed(:credentials, with: &GithubCredential.changeset/2)
+    |> cast_embed(:github_app, with: &GithubApp.changeset/2)
+    |> validate_unique_credential_ids()
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
     |> validate_number(:planning_root_limit,
@@ -77,7 +113,23 @@ defmodule Aiur.Config.Schema.Github do
     |> validate_number(:max_inflight_per_endpoint, greater_than: 0, less_than_or_equal_to: 100)
     |> validate_number(:requests_per_minute, greater_than: 0, less_than_or_equal_to: 10_000)
     |> validate_number(:stagger_ms, greater_than_or_equal_to: 0, less_than_or_equal_to: 5_000)
+    |> validate_number(:daemon_core_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:daemon_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:agent_core_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:agent_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_endpoint_concurrency()
+  end
+
+  # Credential ids name rows in `aiur github-usage` and select a credential in
+  # config; two credentials sharing one id makes both reports ambiguous.
+  defp validate_unique_credential_ids(changeset) do
+    ids = changeset |> get_field(:credentials) |> List.wrap() |> Enum.map(& &1.id) |> Enum.reject(&is_nil/1)
+
+    if length(Enum.uniq(ids)) == length(ids) do
+      changeset
+    else
+      add_error(changeset, :credentials, "credential ids must be unique")
+    end
   end
 
   defp validate_endpoint_concurrency(changeset) do

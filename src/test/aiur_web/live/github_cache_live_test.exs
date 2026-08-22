@@ -19,12 +19,75 @@ defmodule AiurWeb.GithubCacheLiveTest do
   alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
 
+  # A deterministic history double. The page reads whichever provider is
+  # configured (`:github_cache_history_provider`), so a test can hand it exact
+  # samples without depending on the shared app-started sampler's ring.
+  defmodule HistoryProvider do
+    @table __MODULE__.Table
+
+    @spec install([map()]) :: :ok
+    def install(samples) do
+      if :ets.whereis(@table) == :undefined do
+        :ets.new(@table, [:named_table, :public, :set])
+      end
+
+      :ets.insert(@table, {:samples, samples})
+      Application.put_env(:aiur, :github_cache_history_provider, __MODULE__)
+      :ok
+    end
+
+    def samples do
+      case :ets.lookup(@table, :samples) do
+        [{:samples, samples}] -> samples
+        _none -> []
+      end
+    rescue
+      ArgumentError -> []
+    end
+  end
+
+  # The read cache has no per-test process to own, so this double keeps the
+  # snapshot deterministic while exercising the LiveView's real join and
+  # refresh path.
+  defmodule ReadCacheProvider do
+    @table __MODULE__.Table
+
+    @spec install(map()) :: :ok
+    def install(snapshot) do
+      if :ets.whereis(@table) == :undefined do
+        :ets.new(@table, [:named_table, :public, :set])
+      end
+
+      :ets.insert(@table, {:snapshot, snapshot})
+      Application.put_env(:aiur, :github_read_cache_provider, __MODULE__)
+      :ok
+    end
+
+    def snapshot do
+      case :ets.lookup(@table, :snapshot) do
+        [{:snapshot, snapshot}] -> snapshot
+        _none -> %{available?: false, callers: %{}}
+      end
+    rescue
+      ArgumentError -> %{available?: false, callers: %{}}
+    end
+  end
+
+  defmodule RaisingReadCacheProvider do
+    def snapshot, do: raise("read cache unavailable")
+  end
+
+  defmodule ExitingReadCacheProvider do
+    def snapshot, do: exit(:read_cache_unavailable)
+  end
+
   @endpoint Endpoint
   @reset ~U[2030-01-01 12:00:00Z]
 
   setup context do
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
+    previous_read_cache = Application.get_env(:aiur, :github_read_cache_provider)
 
     endpoint_config =
       :aiur
@@ -42,8 +105,11 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
     on_exit(fn ->
       Source.uninstall()
+      Application.delete_env(:aiur, :github_cache_history_provider)
+      Application.delete_env(:aiur, :github_quota_history_provider)
       restore_application_env(Endpoint, previous_endpoint)
       restore_application_env(:github_quota_server, previous_quota)
+      restore_application_env(:github_read_cache_provider, previous_read_cache)
     end)
 
     :ok
@@ -146,11 +212,12 @@ defmodule AiurWeb.GithubCacheLiveTest do
     test "no module on the read path can reach a GitHub client" do
       # Scanning only the LiveView would miss a transport introduced one module
       # down, in the projection or the source — which is where a "just fetch it
-      # on a miss" would actually be written.
+      # on a miss" would actually be written. The history sampler is on the same
+      # path (it feeds the charts), so it is scanned with the rest.
       root = Path.expand("../../../lib/aiur/github", __DIR__)
 
       files =
-        ["cache_inspector.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
+        ["cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
 
       for relative <- files do
         code = root |> Path.join(relative) |> File.read!() |> strip_prose()
@@ -313,6 +380,67 @@ defmodule AiurWeb.GithubCacheLiveTest do
       html = view |> element(~s([data-role="clear-filters"])) |> render_click()
 
       refute html =~ ~s(data-role="active-filters")
+    end
+  end
+
+  describe "history charts" do
+    test "render on the overview page once the ring has enough samples" do
+      Source.install(entries(3))
+      HistoryProvider.install(history_samples())
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      assert document |> Floki.find(~s([data-role="trends"])) != []
+      assert document |> Floki.find(~s([data-role="entries-chart"] svg)) != []
+      assert document |> Floki.find(~s([data-role="freshness-chart"] svg)) != []
+
+      # The note says what the charts cover, so a screenshot does not imply the
+      # sampler saw more than it did.
+      assert document |> Floki.find(~s([data-role="history-window"])) |> Floki.text() =~ "since this daemon boot"
+    end
+
+    test "say they are collecting when the ring is too new to draw" do
+      Source.install(entries(3))
+      HistoryProvider.install([hd(history_samples())])
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html =~ ~s(data-role="history-collecting")
+      refute html =~ ~s(data-role="entries-chart")
+      refute html =~ ~s(data-role="freshness-chart")
+    end
+
+    test "charts live on the overview only, not on a group page" do
+      Source.install(entries(3))
+      HistoryProvider.install(history_samples())
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache/issue_comment")
+
+      refute html =~ ~s(data-role="trends")
+    end
+
+    test "a sampled notification redraws the charts without costing a fetch" do
+      Source.install(entries(3))
+      quota = install_quota()
+      before = reading(quota)
+      HistoryProvider.install(history_samples(6))
+
+      {:ok, view, _html} = live(build_conn(), "/github-cache")
+
+      # The note spans the retained ring: six 30s samples = "Last 2m".
+      assert render(view) =~ "Last 2m"
+
+      # A new sample lands and the sampler notifies the page. The page must
+      # re-read the ring (now four samples = "Last 1m"), not keep the stale six
+      # it mounted with — otherwise the note would still say 2m.
+      HistoryProvider.install(history_samples(4))
+      send(view.pid, {:cache_history_sampled, 4})
+
+      html = render(view)
+      assert html =~ "Last 1m"
+      assert html =~ ~s(data-role="entries-chart")
+      assert reading(quota) == before
     end
   end
 
@@ -523,16 +651,433 @@ defmodule AiurWeb.GithubCacheLiveTest do
     end
   end
 
+  # `count` samples so the trends section has enough to draw two charts. Each is
+  # a plausible cache state; the totals rise so the lines are not flat. 30s
+  # spacing means `count` samples span `(count - 1) * 30s`, which the page's note
+  # rounds to minutes — that rounding is what the redraw test asserts on.
+  defp history_samples(count \\ 6) do
+    now = DateTime.utc_now()
+    t0 = DateTime.to_unix(now, :millisecond)
+
+    for i <- 0..(count - 1) do
+      %{
+        t_ms: t0 + i * 30_000,
+        total: 10 + i,
+        with_body: 8 + i,
+        bodyless: 2,
+        fresh: 6 + i,
+        stale: 2,
+        expired: 1,
+        unknown: 1
+      }
+    end
+  end
+
   # A private meter, installed on the same seam `Transport` uses, seeded with
   # one observation so the window has a real `used` figure to compare against.
-  defp install_quota do
-    quota =
-      start_supervised!(
-        {Quota, name: nil, clock: fn -> DateTime.add(@reset, -1800, :second) end, hold_dir: nil},
-        id: {:quota, System.unique_integer([:positive])}
-      )
+  describe "what is spending the budget" do
+    test "shows served-free reads without changing the spend ranking or totals" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
 
-    Quota.observe(quota, %{method: :get, url: "https://api.github.com/repos/o/r", token: "t"}, window_response())
+      ReadCacheProvider.install(%{
+        available?: true,
+        callers: %{
+          "comment_poll_batch" => %{hit: 0, refused: 55},
+          "issue_relationships" => %{hit: 12, miss: 1}
+        }
+      })
+
+      before = reading(quota)
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      assert callers(graphql) == [
+               {"comment_poll_batch", "93"},
+               {"review_threads_unaddressed", "50"},
+               {"issue_relationships", "2"},
+               {"ci_poll_batch", "1"}
+             ]
+
+      assert served_free(graphql, "comment_poll_batch") == "55 policy refusals"
+      assert served_free(graphql, "review_threads_unaddressed") == "not observed by ReadCache"
+      assert served_free(graphql, "issue_relationships") == "12 reads"
+      assert served_free(graphql, "ci_poll_batch") == "not observed by ReadCache"
+
+      outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
+      assert Floki.attribute(outside, "data-value") == ["854"]
+      assert graphql |> Floki.find(~s([data-role="usage-served-free-outside"])) |> Floki.text() =~ "not applicable"
+      assert reading(quota) == before
+    end
+
+    test "distinguishes an unavailable cache from an available cache with no hits" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+
+      ReadCacheProvider.install(%{
+        available?: true,
+        callers: %{"issue_relationships" => %{hit: 0, miss: 1}}
+      })
+
+      {:ok, view, html} = live(build_conn(), "/github-cache")
+      assert html |> budget_block() |> served_free("issue_relationships") == "none this boot"
+
+      ReadCacheProvider.install(%{available?: false, callers: %{}})
+      send(view.pid, {:quota_history_sampled, 1})
+
+      assert view |> render() |> budget_block() |> served_free("issue_relationships") == "cache unavailable"
+    end
+
+    test "keeps the ranking available when the cache provider raises or exits" do
+      Source.install(entries(2))
+      install_graphql_quota()
+      Application.put_env(:aiur, :github_read_cache_provider, RaisingReadCacheProvider)
+
+      {:ok, view, html} = live(build_conn(), "/github-cache")
+      assert html |> budget_block() |> served_free("comment_poll_batch") == "cache unavailable"
+
+      Application.put_env(:aiur, :github_read_cache_provider, ExitingReadCacheProvider)
+      send(view.pid, {:quota_history_sampled, 1})
+
+      assert view |> render() |> budget_block() |> served_free("comment_poll_batch") == "cache unavailable"
+      assert Process.alive?(view.pid)
+    end
+
+    test "refreshes served-free reads on the quota sampler cadence without spending quota" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+      ReadCacheProvider.install(%{available?: true, callers: %{"issue_relationships" => %{hit: 1}}})
+
+      before = reading(quota)
+      {:ok, view, _html} = live(build_conn(), "/github-cache")
+      assert view |> render() |> budget_block() |> served_free("issue_relationships") == "1 read"
+
+      ReadCacheProvider.install(%{available?: true, callers: %{"issue_relationships" => %{hit: 5}}})
+      send(view.pid, {:quota_history_sampled, 1})
+
+      assert view |> render() |> budget_block() |> served_free("issue_relationships") == "5 reads"
+      assert reading(quota) == before
+    end
+
+    test "keeps the widened ranking keyboard-reachable on narrow viewports" do
+      Source.install(entries(2))
+      install_graphql_quota()
+      ReadCacheProvider.install(%{available?: true, callers: %{}})
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      region = html |> budget_block() |> Floki.find(~s([data-role="usage-table-scroll"]))
+      assert Floki.attribute(region, "role") == ["region"]
+      assert Floki.attribute(region, "tabindex") == ["0"]
+      assert Floki.attribute(region, "aria-label") == ["graphql spend ranking"]
+    end
+
+    test "ranks callers by points and renders the unissued remainder as its own row" do
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      # Points, not calls: review_threads_unaddressed made more calls and cost
+      # less, and a request-count ranking would invert them.
+      assert callers(graphql) == [
+               {"comment_poll_batch", "93"},
+               {"review_threads_unaddressed", "50"},
+               {"ci_poll_batch", "1"}
+             ]
+
+      # The row that makes the ranking honest. 1,000 spent, 144 explained.
+      outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
+      assert Floki.attribute(outside, "data-value") == ["856"]
+      assert graphql |> Floki.find(~s([data-role="usage-outside-row"])) |> Floki.text() =~ "856"
+      # This meter booted mid-window, so the label says what it can support.
+      # Whose spend the remainder is has its own tests below.
+      assert Floki.text(outside) =~ "Spend this daemon did not observe"
+    end
+
+    test "the two budgets are rendered apart and never summed" do
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      budgets =
+        html
+        |> Floki.parse_document!()
+        |> Floki.find(~s([data-role="usage-budget"]))
+        |> Floki.attribute("data-budget")
+
+      assert budgets == ["graphql", "core"]
+    end
+
+    test "a meter that has observed nothing says so rather than drawing a zero" do
+      Source.install(entries(2))
+      install_quota(seed?: false)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      assert document |> Floki.find(~s([data-role="usage-unobserved"])) |> Floki.text() =~
+               "has not observed a rate-limit window"
+
+      assert Floki.find(document, ~s([data-role="usage-budget"])) == []
+    end
+
+    test "the chart waits for two observed samples and says it is collecting until then" do
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, collecting} = live(build_conn(), "/github-cache")
+      assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-collecting"])) != []
+      assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-chart"])) == []
+
+      __MODULE__.QuotaHistoryProvider.install(quota_samples())
+      {:ok, _view, drawn} = live(build_conn(), "/github-cache")
+      chart = drawn |> budget_block() |> Floki.find(~s([data-role="usage-chart"]))
+
+      assert chart != []
+      # Identity is never colour alone: every band is named in the legend.
+      legend = chart |> Floki.find(~s([data-band])) |> Floki.attribute("data-band")
+      assert "__outside__" in legend
+      assert "comment_poll_batch" in legend
+    end
+
+    test "a meter that booted mid-window does not blame the remainder on another consumer" do
+      # The deploy case, and the moment this page is most likely to be opened.
+      # `install_graphql_quota/0` starts the meter half an hour into the window,
+      # so it cannot account for the first half — including anything the daemon
+      # itself spent before the restart.
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
+      assert Floki.attribute(outside, "data-observed-whole-window") == ["false"]
+      assert Floki.text(outside) =~ "Spend this daemon did not observe"
+      row = graphql |> Floki.find(~s([data-role="usage-outside-row"])) |> Floki.text()
+      assert row =~ "not observed by this daemon"
+      # "shared credential" names a cause and needs the same evidence.
+      refute row =~ "shared credential"
+      assert row =~ "outside the meter's reach"
+
+      explainer = graphql |> Floki.find(~s([data-role="usage-outside-explainer"])) |> Floki.text()
+      refute explainer =~ "other consumers"
+      assert explainer =~ "does not survive a restart"
+    end
+
+    test "it says how far back it can see and when the claim becomes safe again" do
+      # Not a hedge: an operator four minutes after a deploy needs to know the
+      # number is temporarily unattributable and roughly when to look again.
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      reach = html |> budget_block() |> Floki.find(~s([data-role="usage-reach"])) |> Floki.text()
+
+      assert reach =~ "not attributable yet"
+      assert reach =~ "observing since"
+      assert reach =~ "this window opened at"
+      # The reset is when the meter's reach covers the whole window again.
+      assert reach =~ DateTime.to_iso8601(@reset)
+    end
+
+    test "a meter that covered the whole window keeps the other-consumers claim" do
+      Source.install(entries(2))
+      install_graphql_quota(observing_since: DateTime.add(@reset, -7_200, :second))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
+      assert Floki.attribute(outside, "data-observed-whole-window") == ["true"]
+      assert Floki.text(outside) =~ "Not issued by this daemon"
+      row = graphql |> Floki.find(~s([data-role="usage-outside-row"])) |> Floki.text()
+      assert row =~ "not issued by this daemon"
+      assert row =~ "shared credential"
+      assert graphql |> Floki.find(~s([data-role="usage-outside-explainer"])) |> Floki.text() =~ "other consumers"
+      assert Floki.find(graphql, ~s([data-role="usage-reach"])) == []
+    end
+
+    test "the ranking separates served-free reads from calls that reached GitHub" do
+      # A cache hit never reaches `Quota`, so the page must keep it outside the
+      # spend figures while making it visible beside the caller.
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      # Normalised, because the assertion is about the sentence and not about
+      # where the template happens to wrap it.
+      caveat =
+        html
+        |> budget_block()
+        |> Floki.find(~s([data-role="usage-cache-caveat"]))
+        |> Floki.text()
+        |> String.replace(~r/\s+/, " ")
+        |> String.trim()
+
+      assert caveat =~ "ranks what reached GitHub"
+      assert caveat =~ "contributes no points, calls, share or totals"
+      assert caveat =~ "reports those reads separately"
+    end
+
+    test "an assumed cost is never presented as a measurement" do
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      graphql = budget_block(html)
+
+      sources =
+        graphql
+        |> Floki.find(~s([data-role="usage-caller"]))
+        |> Enum.map(fn row -> {row |> Floki.find("td") |> hd() |> Floki.text(), row |> Floki.find("td") |> List.last() |> Floki.text()} end)
+
+      assert {"comment_poll_batch", "reported"} in sources
+      assert {"ci_poll_batch", "assumed"} in sources
+      assert graphql |> Floki.find(~s([data-role="usage-estimated"])) |> Floki.text() =~ "assumed"
+    end
+
+    test "the usage layer renders even when no cache store is running" do
+      # The meter is a different process from the store: a budget can be burning
+      # while nothing at all is cached, and hiding the ranking behind an
+      # unavailable store would hide it at the worst moment.
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html |> Floki.parse_document!() |> Floki.find(~s([data-role="usage-budget"])) != []
+    end
+  end
+
+  # A deterministic quota-history double, the sibling of `HistoryProvider`.
+  defmodule QuotaHistoryProvider do
+    @table __MODULE__.Table
+
+    @spec install([map()]) :: :ok
+    def install(samples) do
+      if :ets.whereis(@table) == :undefined do
+        :ets.new(@table, [:named_table, :public, :set])
+      end
+
+      :ets.insert(@table, {:samples, samples})
+      Application.put_env(:aiur, :github_quota_history_provider, __MODULE__)
+      :ok
+    end
+
+    def samples do
+      case :ets.lookup(@table, :samples) do
+        [{:samples, samples}] -> samples
+        _none -> []
+      end
+    rescue
+      ArgumentError -> []
+    end
+  end
+
+  defp budget_block(html) do
+    html |> Floki.parse_document!() |> Floki.find(~s([data-role="usage-budget"][data-budget="graphql"]))
+  end
+
+  defp callers(graphql) do
+    graphql
+    |> Floki.find(~s([data-role="usage-caller"]))
+    |> Enum.map(fn row ->
+      cells = Floki.find(row, "td")
+      {row |> Floki.attribute("data-caller") |> hd(), cells |> Enum.at(1) |> Floki.text()}
+    end)
+  end
+
+  defp served_free(graphql, caller) do
+    graphql
+    |> Floki.find(~s([data-role="usage-caller"][data-caller="#{caller}"] [data-role="usage-served-free"]))
+    |> Floki.text()
+    |> String.trim()
+  end
+
+  defp quota_samples do
+    for index <- 0..1 do
+      %{
+        t_ms: DateTime.to_unix(DateTime.add(@reset, -1800 + index * 30, :second), :millisecond),
+        budgets: %{
+          "graphql" => %{
+            resource: "graphql",
+            callers: [
+              %{caller: "comment_poll_batch", points: 93, calls: 9, points_per_hour: 1.0, estimated?: false}
+            ],
+            attributed: 93,
+            spend: 1_000,
+            outside: 907,
+            direction: :shortfall,
+            estimated?: false,
+            window: %{limit: 5_000, remaining: 4_000, used: 1_000, reset_at: @reset}
+          }
+        }
+      }
+    end
+  end
+
+  # A meter that has seen the budget that actually exhausts. Two priced calls
+  # and one the response never priced, so the page has both a reported and an
+  # assumed row to tell apart.
+  defp install_graphql_quota(opts \\ []) do
+    quota = install_quota(opts)
+
+    for {caller, cost} <- [{:comment_poll_batch, 93}, {:review_threads_unaddressed, 50}] do
+      Quota.observe(quota, graphql_request(caller), graphql_response(cost))
+    end
+
+    Quota.observe(quota, graphql_request(:ci_poll_batch), graphql_response(nil))
+    _settle = Quota.snapshot(quota)
+    quota
+  end
+
+  defp graphql_request(caller) do
+    %{method: :post, url: "https://api.github.com/graphql", token: "t", caller: caller, body: %{"query" => "query { viewer { login } }"}}
+  end
+
+  defp graphql_response(cost) do
+    data = if is_integer(cost), do: %{"rateLimit" => %{"cost" => cost}}, else: %{}
+
+    {:ok,
+     %{
+       status: 200,
+       headers: [
+         {"x-ratelimit-resource", "graphql"},
+         {"x-ratelimit-limit", "5000"},
+         {"x-ratelimit-remaining", "4000"},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+       ],
+       body: %{"data" => data}
+     }}
+  end
+
+  defp install_quota(opts \\ []) do
+    # The clock sits half an hour into the window, so by default the meter
+    # booted mid-window and cannot account for the whole of it. Tests that need
+    # full coverage pass an earlier `observing_since`.
+    settings =
+      [name: nil, clock: fn -> DateTime.add(@reset, -1800, :second) end, hold_dir: nil] ++
+        case Keyword.fetch(opts, :observing_since) do
+          {:ok, started_at} -> [started_at: started_at]
+          :error -> []
+        end
+
+    quota =
+      start_supervised!({Quota, settings}, id: {:quota, System.unique_integer([:positive])})
+
+    if Keyword.get(opts, :seed?, true) do
+      Quota.observe(quota, %{method: :get, url: "https://api.github.com/repos/o/r", token: "t"}, window_response())
+    end
+
     _settle = Quota.snapshot(quota)
 
     Application.put_env(:aiur, :github_quota_server, quota)

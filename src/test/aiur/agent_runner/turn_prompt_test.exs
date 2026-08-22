@@ -140,6 +140,22 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       assert prompt =~ ~r/--base "#{Config.base_branch()}"/i
     end
 
+    test "in-process continuation restates the rename test-tree audit" do
+      prompt = TurnPrompt.build_turn_prompt(%Issue{}, [], 2, nil)
+
+      assert prompt =~ "## Rename and signature-change test audit (restated)"
+      assert prompt =~ "rg -n --fixed-strings -- '<old-name>' src/test/"
+      assert prompt =~ "test/aiur/github/` does not collect `test/aiur/github_client_test.exs"
+    end
+
+    test "resumed-session prompt restates the rename test-tree audit" do
+      prompt = TurnPrompt.build_turn_prompt(%Issue{}, [resumed: true], 1, nil)
+
+      assert prompt =~ "## Rename and signature-change test audit (restated)"
+      assert prompt =~ "rg -n --fixed-strings -- '<old-name>' src/test/"
+      assert prompt =~ "test/aiur/github/` does not collect `test/aiur/github_client_test.exs"
+    end
+
     # Regression: agents must not stall at the ce-plan → ce-work boundary waiting
     # for an operator message. Every prompt surface must carry the authorization
     # AND the interactive-menu suppression rule with the correct semantic

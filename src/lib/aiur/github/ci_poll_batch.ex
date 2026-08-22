@@ -3,15 +3,45 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{MergeQueue, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
   # `aiur/<id>-<slug>` branch and the legacy `aiur/<id>` one) keeps every query
   # bounded by the requested targets instead of scanning the repository's open
   # PR list, while staying at or under 100 aliases per call.
+  #
+  # `@pull_requests_per_branch` is 2 rather than 5 because the connection has
+  # exactly one consumer: `put_first_pull_request/3` reads `List.first/1` of it
+  # and discards the rest, so the newest is the answer and the second slot is
+  # margin.
+  #
+  # This is correctness-preserving but NOT semantics-preserving, and the
+  # difference matters. GitHub permits one open pull request per head/*base*
+  # pair, so three open pull requests on a single head branch is legal. At
+  # `first: 5` that answer came back from GraphQL; at `first: 2` it trips
+  # `pageInfo.hasNextPage` and `put_entry_result/4` fail-closes the target to
+  # the REST fallback — every cycle, with a warning, and at a cost rather than
+  # a saving. The answer stays correct; the path to it changes.
+  #
+  # That case is rare enough here to accept, but do not read this as free.
+  #
+  # `contexts(first: 100)` is deliberately NOT reduced. A smaller page would
+  # mean a pull request with many check contexts falls out to the REST fallback
+  # every cycle, and — measured against GitHub's own reported `rateLimit
+  # { cost }` — this whole document costs **1 point per call**, not the ~510 a
+  # naive nodes/100 estimate predicts. There is no budget to buy with that risk.
+  #
+  # A target whose pull request a **webhook delivery already identified**
+  # (`Aiur.GitHub.DeliveredPullRequest`) contributes a single
+  # `pullRequest(number:)` alias instead of up to two speculative
+  # `pullRequests(headRefName:)` connections, and can no longer fall out to the
+  # REST fan-out because a legacy-branch guess missed. Only the number comes
+  # from the store: `statusCheckRollup`, `mergeable` and `reviewDecision` are
+  # still asked of GitHub on every cycle, because a CI verdict served from a
+  # cache at any age is precisely what `Aiur.GitHub.ReadCache.Policy` refuses.
   @targets_per_query 50
-  @pull_requests_per_branch 5
+  @pull_requests_per_branch 2
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(targets, opts \\ []) when is_list(targets) do
@@ -28,7 +58,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, opts)) |> Enum.chunk_every(@targets_per_query)
+      chunks = targets |> Enum.map(&target_entry(&1, owner, repo, opts)) |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -47,7 +77,15 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  defp target_entry(target, opts) do
+  # The store is consulted before the query is written, not after it comes back.
+  defp target_entry(target, owner, repo, opts) do
+    case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
+      number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
+      nil -> branch_target_entry(target, opts)
+    end
+  end
+
+  defp branch_target_entry(target, opts) do
     case known_branch(target, opts) do
       nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
       branch -> %{target: target, branches: [branch], known_branch: true}
@@ -113,6 +151,12 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
+  defp branch_aliases(%{pull_request_number: number}, index) when is_integer(number) do
+    """
+    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields()} }
+    """
+  end
+
   defp branch_aliases(%{branches: branches}, index) do
     branches
     |> Enum.with_index()
@@ -123,23 +167,27 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
     branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
+      nodes { #{pull_request_fields()} }
+    }
+    """
+  end
+
+  defp pull_request_fields do
+    """
+    number state headRefName headRefOid baseRefName
+    isDraft reviewDecision mergeable mergeStateStatus
+    autoMergeRequest { enabledAt }
+    mergeQueueEntry { id }
+    commits(last: 1) {
       nodes {
-        number state headRefName headRefOid baseRefName
-        isDraft reviewDecision mergeable mergeStateStatus
-        autoMergeRequest { enabledAt }
-        mergeQueueEntry { id }
-        commits(last: 1) {
-          nodes {
-            commit {
-              statusCheckRollup {
-                contexts(first: 100) {
-                  pageInfo { hasNextPage endCursor }
-                  nodes {
-                    __typename
-                    ... on CheckRun { name status conclusion detailsUrl startedAt completedAt }
-                    ... on StatusContext { context state targetUrl createdAt description }
-                  }
-                }
+        commit {
+          statusCheckRollup {
+            contexts(first: 100) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                __typename
+                ... on CheckRun { name status conclusion detailsUrl startedAt completedAt }
+                ... on StatusContext { context state targetUrl createdAt description }
               }
             }
           }
@@ -154,17 +202,36 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   defp match_entries(indexed, repository) do
-    Enum.reduce(indexed, %{}, fn {entry, index}, acc ->
-      case candidate_connections(entry, repository, index) do
-        {:ok, connections} ->
-          match_candidates(acc, entry, connections)
-
-        :missing ->
-          Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
-          acc
-      end
-    end)
+    Enum.reduce(indexed, %{}, fn {entry, index}, acc -> match_entry(acc, entry, repository, index) end)
   end
+
+  # A delivery already named the pull request, so there is one alias and no
+  # candidate list to choose between. A pull request GitHub now reports as
+  # closed is left to the REST fallback rather than answered as "no open pull
+  # request": closed is exactly the state in which a newer one may exist.
+  defp match_entry(acc, %{pull_request_number: _number} = entry, repository, index) do
+    case Map.get(repository, "delivered_#{index}") do
+      %{"headRefName" => _ref} = node ->
+        if open_pull_request_node?(node), do: put_first_pull_request(acc, entry, node), else: acc
+
+      _other ->
+        Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
+        acc
+    end
+  end
+
+  defp match_entry(acc, entry, repository, index) do
+    case candidate_connections(entry, repository, index) do
+      {:ok, connections} ->
+        match_candidates(acc, entry, connections)
+
+      :missing ->
+        Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
+        acc
+    end
+  end
+
+  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
 
   defp candidate_connections(entry, repository, index) do
     connections =

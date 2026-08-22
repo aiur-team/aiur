@@ -65,7 +65,27 @@ The page is strictly view-only. There is no refresh, no invalidate, no eviction 
 
 That is the store's own rule applied to its inspector: looking at cached state never costs a GitHub call, so a page that could trigger a fetch would break the property it exists to demonstrate.
 
-Its headline tile, **Fetches caused by viewing**, therefore reads `0`. Beside it the page prints how many calls the quota meter attributed in total, so the zero reads as a measurement rather than a reassurance.
+Its headline tile, **Fetches caused by viewing**, counts GitHub requests whose request chain began in a LiveView process. Merely opening or navigating the cache inspector leaves it at `0`; operator actions on other pages that intentionally fetch fresh detail can raise it.
+
+Caller names are shown separately and do not determine this count. Beside it the page prints how many calls the quota meter attributed in total, so a zero reads as a measurement rather than a reassurance.
+
+The **What is spending the budget** table ranks each observed caller by the points that reached GitHub in the current rate-limit window. Its **ReadCache served free** column adds context from `ReadCache` only: caller-wide reads answered since this daemon boot.
+
+Read the column as follows:
+
+- A positive read count means low spend may be the cache doing its job.
+- **none this boot** means `ReadCache` observed the caller but served no reads.
+- A **policy refusal** means the caller reached `ReadCache` but was deliberately not cached.
+- **not observed by ReadCache** means the caller did not reach that store.
+- **cache unavailable** means there is no cache measurement.
+
+None of the four non-count states is rendered as a bare zero.
+
+Served-free reads cost no GitHub budget. They are shown alongside the ranking for diagnosis, but are excluded from points, calls, rates, shares, charts, attributed totals and outside-spend figures.
+
+Cache counters do not identify a GitHub budget, so callers seen only by the cache are not assigned to the GraphQL or core table.
+
+Reads served by `ResourceStore` are also outside this column. The header explicitly names `ReadCache`, so absence from one store is not presented as absence from every shared-state path.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
@@ -73,9 +93,20 @@ Three layers, each addressable and each reachable from the one above:
 
 | Layer | Route | Shows |
 | --- | --- | --- |
-| Map | `/github-cache` | Every resource type as a tile, sized by how many entries it holds and tinted by how stale its worst entry is. |
+| Map | `/github-cache` | Every resource type as a tile, sized by how many entries it holds and tinted by how old its worst entry is. |
 | Group | `/github-cache/:resource_type` | That type's entries, searchable by identity and filterable by freshness, writer and body state. |
 | Entry | `/github-cache/:resource_type/:identity` | One record in full: key, `fetched_at`, processed version, body version, ETag, last writer, and the cached body. |
+
+Above the map, two **history charts** show the same cache as a time-series rather than a snapshot:
+
+| Chart | Shows |
+| --- | --- |
+| Entries over time | Total entries, how many hold a body, how many are validator-only — so a cache that grew and then dropped reads as a shape. |
+| Freshness over time | The same totals stacked by freshness (fresh / older / expired / unknown) — so a cache quietly aging is a band that grows, not a number to compare. |
+
+The charts are fed by a sampler that reads the same store the page reads — never GitHub — every 30 seconds and keeps a bounded, in-memory ring of the last hour.
+
+The ring starts again at each daemon boot, and the page says so, because drawing a flat zero over a span the sampler never observed would be the same silent-subset lie the rest of the page refuses. When the ring is too new to draw, the page says it is collecting.
 
 Filters are carried in the query string, so a filtered view such as `/github-cache/issue_comment?writer=webhook` can be pasted into a ticket as evidence. A deep link to an entry keeps meaning the same thing after a restart, because the identity is the resource's own `(type, owner, repo, id)` rather than a position in a list.
 

@@ -4,6 +4,7 @@ defmodule Aiur.TestSupport do
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
   alias Aiur.GitHub.AuthPreflight, as: GitHubAuthPreflight
+  alias Aiur.GitHub.DispatchAuthorization, as: GitHubDispatchAuthorization
   alias Aiur.GitHub.ResourceStore, as: GitHubResourceStore
   alias Aiur.PollCadence
 
@@ -87,6 +88,7 @@ defmodule Aiur.TestSupport do
     :build_gate_dir_override,
     :global_pause_store_path,
     :github_resource_store_path,
+    :github_cache_inspector_source,
     :repo_base_root,
     :executor_state_dir,
     :loadavg_source_override,
@@ -167,6 +169,12 @@ defmodule Aiur.TestSupport do
       interval there and every freshness threshold in the tree derives from it,
       so a case that drives a poll cycle would move the staleness windows for
       every later case.
+    * `Aiur.GitHub.DispatchAuthorization` — it caches the verified applier of
+      the trigger label per `{id, label, updated_at}`. One case's timeline
+      decision would otherwise be reused by a later case that happens to fetch
+      the same issue id with the same labels and `updated_at`, skipping (or
+      wrongly satisfying) the timeline fetch that later case expected to drive
+      (#2082).
   """
   @spec reset_global_state!() :: :ok
   def reset_global_state! do
@@ -175,6 +183,7 @@ defmodule Aiur.TestSupport do
     GitHubResourceStore.reset()
     GitHubAuthPreflight.invalidate(:test_setup)
     PollCadence.forget_effective_interval_ms()
+    GitHubDispatchAuthorization.clear_cache()
     :ok
   end
 
@@ -747,6 +756,7 @@ defmodule Aiur.TestSupport do
           tracker_repo: nil,
           tracker_label_prefix: nil,
           tracker_bot_account: nil,
+          tracker_github_app_account: nil,
           tracker_trusted_accounts: [],
           tracker_planning_root_limit: 100,
           tracker_planning_page_budget: 4,
@@ -976,6 +986,7 @@ defmodule Aiur.TestSupport do
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
+      tracker_github_app_yaml(tracker_kind, config),
       trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
       "    planning_root_limit: #{yaml_value(root_limit)}",
       "    planning_page_budget: #{yaml_value(page_budget)}",
@@ -984,6 +995,17 @@ defmodule Aiur.TestSupport do
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
+
+  # Rendered only when a case asks for it, so the default fixture exercises the
+  # optional-block path an install without a GitHub App is on.
+  defp tracker_github_app_yaml("github", config) do
+    case Keyword.get(config, :tracker_github_app_account) do
+      nil -> nil
+      account -> "    github_app:\n      account: #{yaml_value(account)}"
+    end
+  end
+
+  defp tracker_github_app_yaml(_kind, _config), do: nil
 
   defp opencode_yaml(command, bridge_port, bridge_host, serve_args, model_prefix) do
     [

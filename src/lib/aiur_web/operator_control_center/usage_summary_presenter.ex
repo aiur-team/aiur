@@ -580,7 +580,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
 
   defp freshness_label(:fresh), do: "Fresh"
   defp freshness_label(:partial), do: "Partial"
-  defp freshness_label(:stale), do: "Stale"
+  defp freshness_label(:stale), do: "Healthy"
   defp freshness_label(:empty), do: "Empty"
   defp freshness_label(:unavailable), do: "Unavailable"
   defp freshness_label(_status), do: "Unknown"
@@ -639,7 +639,6 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
 
   # --- announcement helpers ------------------------------------------------
 
-  defp scope_sentence(:stale, view), do: "#{view.scope.label} usage, showing the values we last read."
   defp scope_sentence(_state, view), do: "#{view.scope.label} usage."
 
   defp tokens_sentence(%{any?: false}), do: "No tokens recorded."

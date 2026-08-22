@@ -122,6 +122,7 @@ defmodule AiurWeb.DashboardLive do
       socket
       |> assign(:payload, payload)
       |> assign(:now, DateTime.utc_now())
+      |> assign(:time_zone, browser_time_zone(socket))
       |> assign(:github_quota, github_quota_snapshot())
       |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
       |> assign(:agent_log_modal, nil)
@@ -806,7 +807,6 @@ defmodule AiurWeb.DashboardLive do
       nav_collapsed={@nav_collapsed}
       globally_paused={global_paused?(@payload)}
       writable={@writable}
-      fleet_freshness={@payload.fleet[:snapshot_freshness]}
     >
       <:banner>
         <div :if={@global_pause_error} class="readonly-banner global-pause-error" role="alert" aria-live="assertive">
@@ -855,6 +855,7 @@ defmodule AiurWeb.DashboardLive do
           writable={@writable}
           filter={@decision_filter}
           query={@decision_query}
+          time_zone={@time_zone}
         />
       </div>
 
@@ -1031,6 +1032,16 @@ defmodule AiurWeb.DashboardLive do
 
   defp normalize_filter(_filter), do: :all
   defp dashboard_writable?, do: Endpoint.config(:dashboard_writable) == true
+
+  # The browser reports its IANA timezone through the LiveSocket connect params.
+  # Fall back to UTC when it is missing (initial render, fixture, or a browser
+  # that does not expose Intl).
+  defp browser_time_zone(socket) do
+    case Phoenix.LiveView.get_connect_params(socket) do
+      %{"time_zone" => zone} when is_binary(zone) and zone != "" -> zone
+      _ -> "Etc/UTC"
+    end
+  end
 
   defp decision_path(nil, filter, query), do: DecisionPath.inbox(filter, query)
   defp decision_path(decision_id, filter, query), do: DecisionPath.detail(decision_id, filter, query)

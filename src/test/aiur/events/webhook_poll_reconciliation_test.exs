@@ -389,6 +389,94 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
     end
   end
 
+  # Review submissions are the last comment kind the poller still re-read at
+  # full price every cycle (#2069). The webhook delivers `pull_request_review`
+  # free and marks the `:pr_review` resource; the sweep re-read the same list
+  # unconditionally. These pin the same reconciliation contract for reviews
+  # that the issue-comment tests above pin for comments.
+  describe "a review submission the webhook delivered" do
+    # Acceptance criterion 3, applied to review submissions: published once by
+    # the delivery, not again by the sweep.
+    test "is published once by the delivery and not again by the sweep" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+      review = review(9001, "its-everdred", "CHANGES_REQUESTED", "please rework this section", "2026-06-24T12:00:00Z")
+
+      assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+               GithubWebhook.handle_delivery("pull_request_review", review_delivery(review), repo: @repo)
+
+      assert %{comment: %{"id" => 9001}} = await_event("ticket.42.pr.review_comment")
+
+      # The sweep reads the very same review list back from GitHub.
+      {calls, result} = review_sweep([review])
+
+      assert {:ok, %{count: 0}} = result
+      assert length(calls) == 1
+      refute_event("ticket.42.pr.review_comment")
+    end
+
+    # Acceptance criterion 4, applied to review submissions. Nothing marked the
+    # review, so the sweep publishes it — the delivery-loss case a blanket
+    # skip-when-webhook-backed would drop.
+    test "is recovered by the next sweep when its delivery was lost" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+      review = review(9002, "its-everdred", "CHANGES_REQUESTED", "the 502'd one", "2026-06-24T12:00:00Z")
+
+      {_calls, result} = review_sweep([review])
+
+      assert {:ok, %{count: 1}} = result
+      assert %{comment: %{"id" => 9002}} = await_event("ticket.42.pr.review_comment")
+    end
+
+    # The restart case, applied to reviews. The in-memory replay window empties
+    # on restart, and so does the orchestrator's `pr_review_seen_at` watermark —
+    # the first sweep after one re-reads the whole review list. The durable
+    # `:pr_review` mark is what stops the old CHANGES_REQUESTED from waking the
+    # agent again.
+    test "stays suppressed across a restart of the replay window" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+      review = review(9005, "its-everdred", "CHANGES_REQUESTED", "before the restart", "2026-06-24T12:00:00Z")
+
+      assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+               GithubWebhook.handle_delivery("pull_request_review", review_delivery(review), repo: @repo)
+
+      assert %{comment: %{"id" => 9005}} = await_event("ticket.42.pr.review_comment")
+      clear_replay_window()
+
+      {_calls, result} = review_sweep([review])
+
+      assert {:ok, %{count: 0}} = result
+      refute_event("ticket.42.pr.review_comment")
+    end
+  end
+
+  describe "review submission cost" do
+    # Acceptance criterion 1, applied to review submissions: an unchanged review
+    # list revalidates with If-None-Match and GitHub answers 304 — a request the
+    # primary REST limit does not bill. The assertion is on the request the
+    # poller actually sends.
+    test "an unchanged review list revalidates with If-None-Match and publishes nothing" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+      review = review(9003, "its-everdred", "CHANGES_REQUESTED", "seen once", "2026-06-24T12:00:00Z")
+
+      # First sweep has no validator to send, so it is a full-price read.
+      {first_calls, _result} = review_sweep([review], etag: ~s("rv1"))
+      assert [request] = first_calls
+      refute Map.has_key?(request, :etag)
+      assert %{comment: %{"id" => 9003}} = await_event("ticket.42.pr.review_comment")
+
+      # Second sweep sends it back and GitHub answers 304 — free.
+      {second_calls, result} = review_sweep(:not_modified, etag: ~s("rv1"))
+
+      assert [%{etag: ~s("rv1")}] = Enum.map(second_calls, &Map.take(&1, [:etag]))
+      assert {:ok, %{count: 0, errors: []}} = result
+      refute_event("ticket.42.pr.review_comment")
+    end
+  end
+
   # -- helpers ---------------------------------------------------------------
 
   # Runs one comment-poll cycle against a recording request stub and returns
@@ -424,6 +512,48 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
     {calls, result}
   end
 
+  # Runs one review-submission poll cycle against a recording request stub and
+  # returns {requests, result}. The `open_pull_request` batch entry points the
+  # cycle at PR 77's review list; issue/PR conversation comments and the
+  # GraphQL thread read answer from the batch so the only request under test is
+  # `/pulls/77/reviews`.
+  defp review_sweep(response, opts \\ []) do
+    {:ok, recorder} = Agent.start_link(fn -> [] end)
+    etag = Keyword.get(opts, :etag, ~s("rv1"))
+
+    request_fun = fn request ->
+      Agent.update(recorder, &(&1 ++ [request]))
+
+      case response do
+        :not_modified ->
+          {:ok, %{status: 304, headers: [{"etag", etag}]}}
+
+        reviews when is_list(reviews) ->
+          {:ok, %{status: 200, body: reviews, headers: [{"etag", etag}]}}
+      end
+    end
+
+    result =
+      GithubCommentsPoller.poll(["42"],
+        since: "2026-06-24T11:00:00Z",
+        repo: @repo,
+        request_fun: request_fun,
+        comment_batch: %{
+          "42" => %{
+            open_pull_request: %{"number" => 77},
+            issue_comments: [],
+            pr_issue_comments: [],
+            review_thread_comments: []
+          }
+        }
+      )
+
+    calls = Agent.get(recorder, & &1)
+    Agent.stop(recorder)
+
+    {calls, result}
+  end
+
   defp delivery(id, body) do
     %{
       "action" => "created",
@@ -442,6 +572,29 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
       "updated_at" => updated_at,
       "html_url" => "https://example.test/comments/#{id}",
       "user" => %{"login" => "its-everdred"}
+    }
+  end
+
+  # A review submission as `GET /pulls/N/reviews` reports it — `state` in upper
+  # case, `submitted_at` as the mutation marker the `:pr_review` resource
+  # version is keyed on.
+  defp review(id, login, state, body, submitted_at) do
+    %{
+      "id" => id,
+      "state" => state,
+      "body" => body,
+      "submitted_at" => submitted_at,
+      "user" => %{"login" => login}
+    }
+  end
+
+  defp review_delivery(review) do
+    %{
+      "action" => "submitted",
+      "repository" => %{"full_name" => @repo},
+      "review" => review,
+      "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "sender" => %{"login" => "its-everdred"}
     }
   end
 

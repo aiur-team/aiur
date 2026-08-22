@@ -136,7 +136,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       <span class="bo-catalog-progress-label mono num">{@progress.label}</span>
     </div>
     <span
-      :if={is_nil(@progress.percent) and @progress.state != :unresolved}
+      :if={@progress.state == :empty}
+      class="bo-catalog-progress-empty mono"
+      data-progress-state={@progress.state}
+      role="img"
+      aria-label={@progress.aria_label}
+      title={@progress.title}
+    >{@progress.label}</span>
+    <span
+      :if={is_nil(@progress.percent) and @progress.state not in [:unresolved, :empty]}
       class="bo-catalog-invalid"
       data-progress-state={@progress.state}
       role="img"
@@ -190,7 +198,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   defp catalog_path(_entry), do: nil
 
   defp catalog_notice(%Snapshot{health: %{state: :stale}}),
-    do: %{title: "Not live", message: "Showing the Build Orders we last saw; the refresh is failing."}
+    do: %{title: "Build Order list", message: "Build Orders are listed below."}
 
   defp catalog_notice(%Snapshot{health: %{state: :structurally_invalid}}),
     do: %{title: "Catalog validation warning", message: "Showing bounded entries with structural diagnostics."}
@@ -198,12 +206,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   defp catalog_notice(_snapshot), do: nil
 
   defp catalog_state_title(:loading), do: "Loading Build Orders"
-  defp catalog_state_title(:stale), do: "Build Order list is not live"
+  defp catalog_state_title(:stale), do: "Build Order list is unavailable"
   defp catalog_state_title(:invalid), do: "Build Order list is unreadable"
   defp catalog_state_title(_state), do: "No Build Order list"
 
   defp catalog_state_message(:loading), do: "Waiting for the first list of Build Orders."
-  defp catalog_state_message(:stale), do: "The list is out of date and there is no earlier list to show."
+  defp catalog_state_message(:stale), do: "The list of Build Orders is not available right now."
   defp catalog_state_message(:invalid), do: "The list of Build Orders came back unreadable."
   defp catalog_state_message(_state), do: "No readable list of Build Orders is available."
 

@@ -225,7 +225,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
   end
 
   # Under App auth the daemon writes as the App bot (`<slug>[bot]`), so a
-  # `bot_account` still naming the PAT account breaks every self-loop and
+  # daemon identity still naming the PAT account breaks every self-loop and
   # authorship gate that compares against it. Checked once at startup and
   # raised as needs-attention rather than left to be discovered as the daemon
   # reacting to its own comments.
@@ -238,18 +238,20 @@ defmodule Aiur.GitHub.AppTokenRefresher do
         safe_emit(
           state,
           @identity_mismatch_topic,
-          "GitHub App authentication is configured but tracker.github.bot_account is unset. " <>
-            "Set it to the App's bot login (`<app-slug>[bot]`) — self-loop suppression, PR " <>
-            "command handling, and the CODEOWNERS self-include all key off it and are inert while it is nil."
+          "GitHub App authentication is configured but no daemon identity is set. " <>
+            "Set tracker.github.github_app.account to the App's bot login (`<app-slug>[bot]`) — self-loop " <>
+            "suppression, PR command handling, and the CODEOWNERS self-include all key off it and are " <>
+            "inert while it is nil. Leave tracker.github.bot_account naming the account agents publish as."
         )
 
       {:bot_account_not_app_bot, login} ->
         safe_emit(
           state,
           @identity_mismatch_topic,
-          "tracker.github.bot_account is `#{login}`, but the daemon now authenticates as a GitHub " <>
-            "App and writes as the App's bot user (`<app-slug>[bot]`). Update bot_account to the " <>
-            "App bot login, or the daemon will not recognize its own comments, labels and PRs."
+          "The daemon identity resolves to `#{login}`, but the daemon now authenticates as a GitHub " <>
+            "App and writes as the App's bot user (`<app-slug>[bot]`). Set tracker.github.github_app.account " <>
+            "to the App bot login — leaving tracker.github.bot_account as the account agents publish as — " <>
+            "or the daemon will not recognize its own comments, labels and PRs."
         )
     end
   end

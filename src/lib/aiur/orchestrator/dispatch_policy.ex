@@ -3,6 +3,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.
   """
 
+  require Logger
+
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
   alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
@@ -771,9 +773,28 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
+  defp issue_identity_decision(%Issue{state_labels: [_, _ | _] = state_labels} = issue) do
+    # A ticket carrying two `agent:*` state labels is a broken lifecycle state:
+    # the fail-closed guard used to refuse it, silently dropping the ticket
+    # from dispatch with no error and no alert (#2075). Resolve the pair to a
+    # single deterministic state instead and continue the ordinary checks, so
+    # the ticket is dispatchable rather than stranded. `resolve_state_labels/1`
+    # makes `todo` win (a ticket that is also `todo` has no work for a `rework`
+    # verdict to mean anything about); the poll-time heal in
+    # `IssueSync.reconcile_contradictory_state_labels/3` also rewrites the
+    # tracker so GitHub stops carrying both labels.
+    winner = resolve_state_labels(state_labels)
+
+    Logger.info(
+      "Dispatch resolved contradictory state labels for issue_id=#{inspect(issue.id)} " <>
+        "labels=#{inspect(state_labels)} -> #{inspect(winner)}"
+    )
+
+    issue_identity_decision(%{issue | state: winner, state_labels: [winner]})
+  end
+
   defp issue_identity_decision(%Issue{} = issue) do
     cond do
-      match?([_, _ | _], issue.state_labels) -> {:skip, :contradictory_state_labels}
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
@@ -1018,6 +1039,48 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   def state_slug(_state_name), do: nil
+
+  @doc """
+  Deterministically resolves a set of contradictory `agent:*` state labels to
+  the single state a ticket should be treated as.
+
+  `rework` means "work exists and was rejected"; `todo` means "no work exists
+  yet to redo". When both are present they contradict, and `todo` wins: a
+  ticket that is also `todo` has not been worked, so any `rework` verdict
+  stamped alongside it is the artifact of a broken writer, and "pick this up
+  again" (`todo`) is the honest fallback — never a review verdict. Any other
+  pair resolves to the alphabetically-first label so the choice is always
+  deterministic. Empty input resolves to `nil`.
+  """
+  @spec resolve_state_labels([String.t()]) :: String.t() | nil
+  def resolve_state_labels(state_labels) when is_list(state_labels) do
+    normalized =
+      state_labels
+      |> Enum.map(&normalize_state_label/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    cond do
+      "todo" in normalized -> "todo"
+      normalized == [] -> nil
+      true -> hd(normalized)
+    end
+  end
+
+  def resolve_state_labels(_state_labels), do: nil
+
+  # Normalizes a state label to its bare, unprefixed lowercase form so both the
+  # GitHub ingestion shape (`"todo"`, prefix already stripped) and any
+  # caller-provided `"agent:todo"` resolve identically.
+  defp normalize_state_label(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.replace_prefix("agent:", "")
+    |> String.downcase()
+  end
+
+  defp normalize_state_label(_label), do: ""
 
   @spec terminal_state_set() :: MapSet.t()
   def terminal_state_set do

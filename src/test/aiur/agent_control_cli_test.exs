@@ -8,6 +8,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
   alias Aiur.TrackerIdentity
 
@@ -2871,12 +2872,59 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: max-agents must be a positive integer"
       assert output =~ "__AIUR_CONTROL_EXIT__:1"
     end
+
+    test "a write against a busy orchestrator announces the wait and names what it waited for (#2137)", %{orchestrator: pid} do
+      previous = Application.get_env(:aiur, :agent_control_cli_busy_mailbox_threshold)
+      Application.put_env(:aiur, :agent_control_cli_busy_mailbox_threshold, 0)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:aiur, :agent_control_cli_busy_mailbox_threshold),
+          else: Application.put_env(:aiur, :agent_control_cli_busy_mailbox_threshold, previous)
+      end)
+
+      # Suspend the orchestrator to stand in for the post-restart initial
+      # GitHub reconciliation poll that can wedge its mailbox past the 5s
+      # control-call budget, and drop a message into its mailbox so the busy
+      # heuristic fires. The CLI must report progress instead of appearing hung,
+      # and the failure must say what the write was waiting on, not just
+      # "orchestrator timed out" (#2137).
+      :sys.suspend(pid)
+      send(pid, :stand_in_for_poll_work)
+
+      try do
+        output = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
+
+        assert output =~ "aiur: waiting for the orchestrator to become available (it is busy; mailbox="
+        assert output =~ "aiur: failed to set max-agents (orchestrator timed out; Orchestrator"
+        assert output =~ "__AIUR_CONTROL_ERROR__:"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+      after
+        :sys.resume(pid)
+      end
+    end
   end
 
   test "build-orders routes ordinary failures through the control marker" do
     output = capture_io(fn -> AgentControlCLI.build_orders(root: "") end)
 
     assert output =~ "__AIUR_CONTROL_ERROR__:aiur: build-orders accepts one non-empty Build Order root"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
+  test "github-cost routes meter failures through the control marker" do
+    meter = Process.whereis(Quota)
+    assert is_pid(meter)
+    assert Process.unregister(Quota)
+
+    output =
+      try do
+        capture_io(fn -> AgentControlCLI.github_cost() end)
+      after
+        assert Process.register(meter, Quota)
+      end
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: github-cost the GitHub quota meter is not running"
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 

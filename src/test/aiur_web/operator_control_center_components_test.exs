@@ -489,8 +489,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   end
 
   test "distinguishes degraded decision history from an unavailable provider" do
-    html = render_component(&History.history/1, %{rows: [], provider_health: :degraded})
+    html = render_component(&History.history/1, %{rows: [], provider_health: :degraded, time_zone: "Etc/UTC"})
 
+    assert html =~ ~s(class="history-count mono" data-count-scope="commands")
     assert html =~ "Showing a partial Command history"
     refute html =~ "currently unavailable"
   end
@@ -550,7 +551,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert [result_cell] = Floki.find(document, ".history-row > td.history-result-cell:has(.history-result):has(.history-when)")
     assert Floki.attribute(result_cell, "data-sort-value") == [timestamp]
     assert Floki.attribute(result_cell, ".history-when time", "datetime") == [timestamp]
-    assert Floki.text(result_cell |> Floki.find(".history-when") |> List.first()) =~ "UTC"
+    assert Floki.text(result_cell |> Floki.find(".history-when") |> List.first()) =~ ~r/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/
     assert render_history([answered], expanded_id: answered.decision_id) =~ ~s(<td colspan="3">)
   end
 
@@ -642,6 +643,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         %{total: 701, open: 503, awaiting: 503, blocking: 401, awaiting_blocking: 401}
       )
 
+    assert html =~ ~s(class="filter-row" aria-label="Command filters" data-count-scope="commands")
+    assert html =~ ~s(data-count-label="All")
     assert html =~ ~r/All\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/
@@ -689,22 +692,22 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ">Decision</button>"
   end
 
-  test "free-form attention offers acknowledge-without-decision alongside the response form" do
+  test "free-form attention offers a dismiss alongside the response form" do
     decision = action_decision(options: [], recommendation: nil)
 
     html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
 
     assert html =~ ~s(phx-click="dismiss-decision")
-    assert html =~ ">Acknowledge</button>"
+    refute html =~ ">Acknowledge</button>"
     assert html =~ ~s(phx-submit="answer-decision")
   end
 
-  test "optioned command does not offer acknowledge-without-decision" do
+  test "optioned command offers a dismiss alongside the choice list" do
     decision = action_decision([])
 
     html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
 
-    refute html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ~s(phx-click="dismiss-decision")
     refute html =~ ">Acknowledge</button>"
   end
 
@@ -718,18 +721,18 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ">×</button>"
   end
 
-  test "blocking agent-filed command offers no dismiss control it cannot honour" do
-    # The store refuses this dismissal because nothing releases the agent.
-    # Offering the control anyway would promise a close the operator cannot get.
+  test "any open command offers a dismiss control" do
+    # The store still refuses an agent-filed blocking Command with no legacy
+    # attention, but the UI offers the control so the operator can attempt it;
+    # the store answers with the honest refusal.
     decision = action_decision(blocking: true, legacy_attention: nil)
 
     html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
 
-    refute html =~ ~s(phx-click="dismiss-decision")
-    refute html =~ ~s(aria-label="Dismiss blocker")
+    assert html =~ ~s(phx-click="dismiss-decision")
   end
 
-  test "command footer never renders more than two buttons" do
+  test "command footer renders defer, dismiss and submit for an open command" do
     blocking =
       action_decision(blocking: true, legacy_attention: %{slug: "scope-question", topic: "ticket.1.attention"})
 
@@ -739,7 +742,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
 
       buttons = html |> Floki.parse_document!() |> Floki.find(".decision-action-buttons button")
-      assert length(buttons) == 2
+      assert length(buttons) == 3
     end
   end
 
@@ -1339,7 +1342,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       has_more: Keyword.get(opts, :has_more, false),
       provider_health: :ok,
       expanded_id: Keyword.get(opts, :expanded_id),
-      writable: Keyword.get(opts, :writable, false)
+      writable: Keyword.get(opts, :writable, false),
+      time_zone: Keyword.get(opts, :time_zone, "Etc/UTC")
     })
   end
 

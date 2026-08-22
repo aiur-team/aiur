@@ -23,6 +23,9 @@ defmodule Aiur.Webhooks.ModePresenter do
           mode_label: String.t(),
           last_delivery_at: DateTime.t() | nil,
           last_delivery_label: String.t(),
+          last_activity_at: DateTime.t() | nil,
+          last_activity_label: String.t(),
+          ever_delivered?: boolean(),
           polling_reason: DeliveryMode.polling_reason(),
           reason_label: String.t() | nil,
           delivery_count: non_neg_integer()
@@ -49,6 +52,9 @@ defmodule Aiur.Webhooks.ModePresenter do
       mode_label: mode_label(mode.state),
       last_delivery_at: mode.last_delivery_at,
       last_delivery_label: last_delivery_label(mode.last_delivery_at),
+      last_activity_at: mode.last_activity_at,
+      last_activity_label: last_delivery_label(mode.last_activity_at),
+      ever_delivered?: mode.delivery_count > 0,
       polling_reason: reason,
       reason_label: reason_label(reason),
       delivery_count: mode.delivery_count

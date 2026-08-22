@@ -195,6 +195,61 @@ defmodule Aiur.GitHub.CacheInspectorTest do
     end
   end
 
+  describe "history_sample/1" do
+    test "classifies every entry the source holds, with counts that sum" do
+      sample = CacheInspector.history_sample(@now, source: FixedSource)
+
+      # 30s → fresh, 600s → stale (past the 5-minute window), 300,000,000s →
+      # expired, 5s → fresh. Every one holds a body.
+      assert sample.total == 4
+      assert sample.with_body == 4
+      assert sample.bodyless == 0
+      assert sample.fresh == 2
+      assert sample.stale == 1
+      assert sample.expired == 1
+      assert sample.unknown == 0
+      assert sample.t_ms == DateTime.to_unix(@now, :millisecond)
+    end
+
+    test "keeps validator-only entries apart from the bodies" do
+      # `BodylessSource` is scoped to the describe block that defines it, so it
+      # is referenced by its full name from here.
+      sample = CacheInspector.history_sample(@now, source: Aiur.GitHub.CacheInspectorTest.BodylessSource)
+
+      # One validator-only entry (freshness unknown — a bodyless entry has no
+      # freshness) and one held body recorded in 1970 (expired).
+      assert sample.total == 2
+      assert sample.with_body == 1
+      assert sample.bodyless == 1
+      assert sample.expired == 1
+      assert sample.unknown == 1
+      assert sample.fresh == 0 and sample.stale == 0
+    end
+
+    test "an unavailable store answers nil rather than a fabricated zero" do
+      # The chart must not draw a flat zero over a span the sampler never
+      # observed, any more than the page renders "0 entries" over a missing
+      # store. `nil` is how the sampler records nothing.
+      assert CacheInspector.history_sample(@now, source: EmptySource) == nil
+    end
+
+    test "a corrupt store degrades to nil rather than taking the sampler down" do
+      assert CacheInspector.history_sample(@now, source: ExplodingSource) == nil
+    end
+
+    test "the real store answers a sample that matches its projection totals" do
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 525_000)
+      :ok = ResourceStore.put_resource(key, %{"body" => "sampled"}, source: :webhook, version: "v1", etag: "W/\"s\"")
+
+      projection = CacheInspector.project(source: ResourceStoreSource, limit: 100_000)
+      sample = CacheInspector.history_sample(@now, source: ResourceStoreSource)
+
+      assert sample.total == projection.total
+      assert sample.bodyless == projection.bodyless
+      assert sample.with_body == projection.with_body
+    end
+  end
+
   describe "a validator with no body" do
     defmodule BodylessSource do
       @behaviour Aiur.GitHub.CacheInspector.Source
@@ -336,30 +391,27 @@ defmodule Aiur.GitHub.CacheInspectorTest do
   end
 
   describe "view_fetches/1" do
-    test "counts only call sites that declared themselves view paths" do
+    test "counts only requests attributed to a LiveView process" do
       snapshot = %{
         callers: [
-          %{caller: "comment_poll_batch", calls: 40},
-          %{caller: "view:some_future_page", calls: 3}
+          %{caller: "comment_poll_batch", calls: 40, view_calls: 0},
+          %{caller: "issue_relationships", calls: 3, view_calls: 3}
         ]
       }
 
       assert CacheInspector.view_fetches(snapshot) == 3
     end
 
-    test "catches a caller named the way a LiveView in this tree would name itself" do
-      # The regression this tile exists to catch is a dashboard page that starts
-      # fetching. Such a page would declare a caller in this codebase's own
-      # style — a bare snake_case atom naming the module — not a `view:` prefix
-      # invented for this filter. An earlier version matched the prefix only,
-      # so it would have read zero at the exact moment it was wrong.
-      for caller <- [:github_cache_live, :dashboard_live, "AiurWeb.AnalyticsLive", :units_page] do
-        assert CacheInspector.view_fetches(%{callers: [%{caller: caller, calls: 7}]}) == 7,
-               "a fetch declared by #{inspect(caller)} would not have been noticed"
-      end
+    test "does not infer request origin from caller-name substrings" do
+      snapshot = %{
+        callers: [
+          %{caller: :review_threads_unaddressed, calls: 20, view_calls: 0},
+          %{caller: :paginated_issue_poll, calls: 100, view_calls: 0},
+          %{caller: :dashboard_live, calls: 7, view_calls: 0}
+        ]
+      }
 
-      # And the poller, which is not a view, still does not count against it.
-      assert CacheInspector.view_fetches(%{callers: [%{caller: :comment_poll_batch, calls: 40}]}) == 0
+      assert CacheInspector.view_fetches(snapshot) == 0
     end
 
     test "reads zero when nothing views and fetches, which is the steady state" do
