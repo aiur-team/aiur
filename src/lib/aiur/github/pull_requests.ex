@@ -258,6 +258,49 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
+  Fetches every OPEN pull request for the repository, regardless of label.
+
+  Unlike `fetch_open_pull_requests_by_label/2` this does not filter the list,
+  so it is the scan the PR-health checks use: the unmergeable-author case is a
+  PR opened by a configured human merger on any branch, and an ageing
+  non-draft PR can be flagged whether or not its head is an `aiur/<id>` branch.
+
+  Paginated through `per_page=100`; the caller is expected to have a bounded
+  repo where one page (or a few) covers the open set.
+  """
+  @spec fetch_open_pull_requests(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests(opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
+      fetch_all_open_pull_requests(request_fun, token, url, [])
+    end
+  end
+
+  # Follows the GitHub `Link` `rel="next"` pagination, mirroring
+  # `fetch_labeled_open_pull_requests/5`, so a repo with more than 100 open PRs
+  # cannot silently hide an unmergeable or ageing PR past the first page.
+  @spec fetch_all_open_pull_requests(function(), String.t(), String.t() | nil, [map()]) ::
+          {:ok, [map()]} | {:error, term()}
+  defp fetch_all_open_pull_requests(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_all_open_pull_requests(request_fun, token, url, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        next = Transport.parse_next_page_url(headers)
+        fetch_all_open_pull_requests(request_fun, token, next, acc ++ body)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
   Fetches the OPEN pull requests carrying `label` with `If-None-Match` support.
 
   The list-only `fetch_open_pull_requests_by_label/2` contract is unchanged for

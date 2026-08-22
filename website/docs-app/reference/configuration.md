@@ -457,6 +457,20 @@ agent:
 | `pr_watch.watch_label` | string | `watch` | Label suffix enrolling a PR for watching. |
 | `pr_watch.command_prefix` | string | `/aiur` | One-off trusted comment command prefix. |
 
+## pr_health
+
+Periodic scan of open pull requests for conditions that stall PRs silently:
+a PR authored by a configured human merger (unmergeable by construction, since
+GitHub blocks self-approval), and a non-draft PR older than `stale_hours` with
+no review. Findings raise needs-attention alerts in the Executor's alert feed
+(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed`).
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `pr_health.enabled` | boolean | false | Enables the PR-health scan. |
+| `pr_health.interval_seconds` | integer | 1800 | How often the scan lists open PRs. |
+| `pr_health.stale_hours` | integer | 24 | A non-draft PR older than this with no review is flagged. |
+
 ## events
 
 | Key | Type | Default | Controls |
