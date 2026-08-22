@@ -1438,17 +1438,34 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert [_kept] = :ets.lookup(ResourceStore.Table, fresh)
     end
 
-    # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
-    # fails both ways: a lower ceiling leaves fewer entries, a higher one leaves
-    # the overflow in place.
-    test "the entry ceiling evicts the oldest down to exactly its limit" do
+    # The hard backstop. It used to delete whole entries, which destroyed the
+    # `:etag` and `:processed_at_ms` beside the body — a comment an agent had
+    # already handled would republish once the in-memory dedup window closed or
+    # the daemon restarted, which is the one loss the retention window does not
+    # cause. The backstop now sheds only the body, so the state that is still
+    # correct survives, and the newest entries keep their answers.
+    #
+    # Asserted as "drops bodies from the oldest down to exactly the ceiling",
+    # which fails both ways: a lower ceiling leaves more bodies, a higher one
+    # leaves the overflow body in place.
+    test "the entry ceiling drops the oldest bodies and keeps their marks and validators" do
       ResourceStore.reset()
       now = System.system_time(:millisecond)
       store = Process.whereis(ResourceStore)
 
       rows =
         for index <- 1..100_001 do
-          {{:issue, "owner", "repo", Integer.to_string(index)}, %{recorded_at_ms: now - (100_001 - index)}}
+          {{:issue, "owner", "repo", Integer.to_string(index)},
+           %{
+             data: %{"number" => index, "state" => "open"},
+             etag: ~s("e#{index}"),
+             processed_at_ms: now,
+             version: "v1",
+             # `fetch/1` judges freshness on the body's own stamp, so a body
+             # with no `fetched_at_ms` reads as ancient and is declined.
+             fetched_at_ms: now,
+             recorded_at_ms: now - (100_001 - index)
+           }}
         end
 
       :ets.insert(ResourceStore.Table, rows)
@@ -1459,9 +1476,17 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       # so the sweep has finished by the time it answers.
       _state = :sys.get_state(store)
 
-      assert ResourceStore.size() == 100_000
-      assert :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "1"}) == []
-      assert [_kept] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "2"})
+      # The oldest entry is spared as an entry: its body is shed, but the
+      # validator and the processed mark survive the eviction.
+      assert [_spared] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "1"})
+      assert ResourceStore.fetch({:issue, "owner", "repo", "1"}) == :miss
+      assert ResourceStore.change_validator({:issue, "owner", "repo", "1"}) == ~s("e1")
+      assert ResourceStore.processed?({:issue, "owner", "repo", "1"}, "v1")
+
+      # Exactly the ceiling worth of bodies is left: the newest entry is served
+      # without anyone paying for it again.
+      assert ResourceStore.size() == 100_001
+      assert {:ok, %{data: %{"number" => 100_001}}} = ResourceStore.fetch({:issue, "owner", "repo", "100001"})
     end
 
     # The bound an unversioned mark suppresses for. `view_state_sweep_test.exs`

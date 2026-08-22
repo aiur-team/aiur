@@ -1532,20 +1532,55 @@ defmodule Aiur.GitHub.ResourceStore do
     ])
 
     # A hard backstop far above real volume. Crossing it means the retention
-    # window alone is not bounding the set, so drop the oldest rather than let
-    # the daemon's memory follow GitHub traffic without limit.
+    # window alone is not bounding the set, so shed the oldest *bodies* rather
+    # than let the daemon's memory follow GitHub traffic without limit.
+    #
+    # The backstop drops only `:data` — never the whole entry — because the
+    # rest of the entry is state a later read is still entitled to: the `:etag`
+    # lets a revalidating reader ask "has this changed?" for free, and the
+    # `:processed_at_ms` mark is the publisher's only durable dedup gate, so
+    # evicting it with the body would re-publish a comment an agent already
+    # handled once the in-memory window closes or the daemon restarts. A body is
+    # two orders of magnitude larger than the metadata beside it, so bounding
+    # *bodies* bounds the memory without discarding state that is still correct.
+    #
+    # `:data` and `:data_version` go together — the version describes the body,
+    # so a body that is gone must not leave a marker describing it behind — and
+    # `recorded_at_ms` is untouched, so a bodyless entry ages out of the
+    # retention sweep on its real clock rather than being renewed by its own
+    # eviction. A reader that sends `If-None-Match` afterwards is answered `304`
+    # and holds nothing; it re-reads unconditionally, which is the documented
+    # reader's half of the validator/body contract.
     overflow = (:ets.info(table, :size) || 0) - @max_entries
 
     if overflow > 0 do
-      Logger.warning("GitHub.ResourceStore exceeded #{@max_entries} entries; evicting #{overflow} oldest")
+      # Drop the body — never the whole entry — from the oldest entries that
+      # still hold one. Entries an earlier sweep already shed are skipped, so
+      # a steady-state overflow warns once about the bodies it actually
+      # dropped rather than re-announcing a condition it already handled.
+      evicted =
+        table
+        |> :ets.tab2list()
+        |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :recorded_at_ms, 0) end)
+        |> Enum.take(overflow)
+        |> Enum.filter(fn {_key, entry} -> Map.has_key?(entry, :data) end)
 
-      table
-      |> :ets.tab2list()
-      |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :recorded_at_ms, 0) end)
-      |> Enum.take(overflow)
-      # Pinned to the exact object that was sorted, so a concurrent write between
-      # the snapshot and the eviction spares the entry rather than losing it.
-      |> Enum.each(fn {key, entry} -> :ets.select_delete(table, [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [true]}]) end)
+      if evicted != [] do
+        Logger.warning("GitHub.ResourceStore exceeded #{@max_entries} entries; dropping bodies from #{length(evicted)} oldest")
+
+        # Pinned to the exact object that was sorted, so a concurrent write
+        # between the snapshot and the eviction spares the entry rather than
+        # losing it — a refreshed entry no longer matches the snapshot and
+        # keeps its new body.
+        Enum.each(evicted, fn {key, entry} ->
+          replacement = Map.drop(entry, [:data, :data_version])
+
+          :ets.select_replace(
+            table,
+            [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [{:const, {key, replacement}}]}]
+          )
+        end)
+      end
     end
 
     :ok
