@@ -126,6 +126,8 @@ Freshness thresholds follow this cadence. You do not set them separately.
   staleness against that effective interval.
 - Build Order's own refresh cadences are derived from it too, so an idle fleet
   widens the Build Order catalog sweep exactly as it widens the tracker poll.
+  Since #2312 that sweep runs only while a Build Order page is open; the cadence
+  still follows the effective interval for the pages that are open.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
@@ -560,7 +562,7 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence while a Build Order page is open. Since #2312 the catalog is demand-gated: no page open, no refresh. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
@@ -582,8 +584,14 @@ identity, member count and update time, plus a digest of its members' states —
 a watched root whose marker moved is re-read once, as is a watched root that has
 never been read.
 
-Opening the Build Order page, selecting a root, and holding it open consume zero
-GitHub reads.
+Selecting a root and holding it open consume zero GitHub reads.
+
+The **catalog** itself is different: it is the most expensive single query in the
+system, and since #2312 it is demand-gated on an open Build Order page. Opening
+`/build-orders` renders the stored snapshot immediately (with its age), then buys
+one refresh; while any Build Order page stays open the catalog reconciles on the
+cadence below; closing the last page stops it entirely, so a headless run — the
+normal case — buys none of it.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
@@ -615,8 +623,9 @@ actually scheduled.
 - It is the value `aiur status` reports as `interval=`.
 - So an idle fleet widens the Build Order catalog exactly as it widens the
   tracker, and a fleet that picks up work narrows both back together.
-- Deriving from the base interval instead made the catalog poll five times more
-  often than the tracker it projects, with nobody watching.
+- The widening matters only while a page is open: since #2312 the catalog does
+  not poll at all when no Build Order page is open, so "with nobody watching"
+  it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts
