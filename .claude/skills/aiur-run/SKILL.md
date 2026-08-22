@@ -557,7 +557,11 @@ On every observation:
   busywork or agents that pause repeatedly with nothing to do;
 - do not inflate utilization by waking `ci-wait`, human-review, dependency-
   blocked, or conflict-bound tickets. Those are external gates, not idle worker
-  lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine;
+  lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine.
+  **Reviewer capacity is something you create, not something you wait for** —
+  fan background agents out across the open PRs in parallel, one per PR, per
+  "Review the queue in parallel" below. When the queue is growing and nothing is
+  approved, raising `max-agents` makes it worse;
 - classify discoveries before ticket creation, prefer contained rework, and
   freeze creation when promoted/created tickets outpace completions;
 - keep feature critical-path counts/ETA separate from the deferred reliability
@@ -715,6 +719,52 @@ must remember. `scope` is `aiur` when the finding reproduces on any repository
 and `repo` when it names this repository's tests, CI, or code. `status` moves
 `open` -> `filed` -> `resolved`. A record left at `ticket: null` is deliberately
 visible to the unfiled gate, not an accepted completed state.
+
+### Review the queue in parallel, with background agents
+
+**Review is the Executor's own throughput ceiling, and reviewing serially is the
+single easiest way to become the bottleneck.** A fleet of N agents produces PRs
+at N times the rate one reader clears them. On 2026-08-22 twelve agents ran
+against one reviewer and the queue reached 32 non-draft PRs with **zero
+approved** — every PR had been looked at, and none could merge.
+
+So do not read PRs one at a time. **Dispatch one background agent per PR (or per
+tightly-coupled pair) and run them concurrently**, then post the reviews
+yourself. This is the same parallelism the run applies to implementation, applied
+to the lane that gates it.
+
+What a review agent needs in its prompt, every time:
+
+- **The established facts it must not re-derive.** Measured numbers, the file:line
+  of the mechanism, which claims were already corrected. A reviewer that
+  re-discovers context spends its budget on what you already know, and a
+  reviewer given a stale "fact" will confidently confirm it.
+- **The boundaries that make an approval wrong.** Name the invariants a change
+  must not violate — on this repo, the `@unsafe_selections` refusals in
+  `read_cache/policy.ex` are correct and a PR that "improves the cache hit rate"
+  by caching verdict state is a reject, not a nitpick.
+- **Mutation-testing discipline, explicitly.** Require the agent to check whether
+  each new test still passes with the production change reverted, and to **name
+  any test that does**. This is what separates a review from a summary. It has
+  repeatedly found tests that assert pre-existing behaviour: a `%{}` pattern that
+  matches any map, a vacuous global-pause test, an assertion pinned to a constant
+  the change never touches.
+- **The test-run hazard.** `mix test test/some_dir/` silently excludes
+  `test/aiur/*.exs` one level up. Require the exact command run to be reported.
+- **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,
+  push, or run a mutation. Two agents in one checkout is a data-loss bug: one
+  `git reset --hard` destroyed another agent's uncommitted work.
+- **Instruction not to post to GitHub.** The agent returns text; you post the
+  review under the merge identity. Keep authorship and authority in one place.
+
+Review **coupled PRs together in one agent**, not separately. Two PRs touching
+the same seam can each be sound and still be incoherent merged — and the trap is
+that the production files conflict while every test file auto-merges cleanly, so
+the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
+explicitly for a merge-order recommendation.
+
+After posting, relabel — see the rework note above. A review that does not move
+the ticket out of `agent:human-review` is a review nobody acts on.
 
 ### Merge mechanics
 
