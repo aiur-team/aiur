@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, Transport}
+  alias Aiur.GitHub.{DeliveredCheckRun, DeliveredPullRequest, MergeQueue, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -40,6 +40,19 @@ defmodule Aiur.GitHub.CIPollBatch do
   # from the store: `statusCheckRollup`, `mergeable` and `reviewDecision` are
   # still asked of GitHub on every cycle, because a CI verdict served from a
   # cache at any age is precisely what `Aiur.GitHub.ReadCache.Policy` refuses.
+  #
+  # A target whose CI a **webhook check-run delivery already answered**
+  # (`Aiur.GitHub.DeliveredCheckRun`) is dropped from the document entirely
+  # (#2310): a delivery that landed since the last poll read, on the head the
+  # poll last observed, for a run that poll actually saw, has already bought
+  # the read this document would pay for. The target's batch entry is then
+  # served from the deposit — never as a verdict. `GithubCIPoller` carries the
+  # served entry through as inert and the lifecycle makes no transition on it,
+  # because a CI verdict is never answered from a held body at any age (R10);
+  # the real verdict comes from the next non-displaced read. An unmatched or
+  # unknown check-run id, a moved head, a consumed delivery, or a poll-written
+  # entry all keep the target in the document: this displacement fails toward
+  # polling, which is the #2276 lesson.
   @targets_per_query 50
   @pull_requests_per_branch 2
 
@@ -58,16 +71,66 @@ defmodule Aiur.GitHub.CIPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, owner, repo, opts)) |> Enum.chunk_every(@targets_per_query)
 
-      if length(chunks) > 1 do
-        Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
+      {delivered, to_fetch} =
+        targets
+        |> Enum.map(&{&1, delivered_signal(&1, owner, repo, opts)})
+        |> Enum.split_with(fn {_target, signal} -> signal != :miss end)
+
+      result =
+        Map.new(delivered, fn {target, signal} ->
+          DeliveredCheckRun.mark_served(signal)
+          {target, delivered_entry(target, owner, repo, opts, signal)}
+        end)
+
+      if to_fetch == [] do
+        # Every target's CI was answered by a delivery since the last read;
+        # there is no document to write and nothing to ask GitHub.
+        {:ok, result}
+      else
+        fetch_targets = Enum.map(to_fetch, &elem(&1, 0))
+
+        chunks =
+          fetch_targets
+          |> Enum.map(&target_entry(&1, owner, repo, opts))
+          |> Enum.chunk_every(@targets_per_query)
+
+        if length(chunks) > 1 do
+          Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(fetch_targets)} calls=#{length(chunks)}")
+        end
+
+        Enum.reduce_while(chunks, {:ok, result}, fn chunk, {:ok, acc} ->
+          reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
+        end)
       end
-
-      Enum.reduce_while(chunks, {:ok, %{}}, fn chunk, {:ok, acc} ->
-        reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
-      end)
     end
+  end
+
+  # The store is consulted before the query is written, never after it comes
+  # back. `DeliveredCheckRun.signal_for_target/4` answers `:miss` for every
+  # state that must fetch — no entry, not delivered, stale, already processed,
+  # head mismatch, or an unmatched/unknown check-run id — so those targets keep
+  # their normal place in the document.
+  defp delivered_signal(target, owner, repo, opts) do
+    case DeliveredCheckRun.signal_for_target(target, owner, repo, opts) do
+      {:ok, signal} -> signal
+      :miss -> :miss
+    end
+  end
+
+  # The served batch entry for a displaced target. It carries no pull-request
+  # rollup and no verdict fields — the poller passes it through as inert and the
+  # lifecycle makes no transition on it (R10: a CI verdict is never answered
+  # from a held body at any age). `pr_number` rides along from the
+  # delivered-pull-request store when available so the lifecycle can name the
+  # PR if a later real poll acts.
+  defp delivered_entry(target, owner, repo, opts, signal) do
+    %{
+      delivered: true,
+      head_sha: Map.fetch!(signal, :head_sha),
+      check_run: Map.fetch!(signal, :check_run),
+      pr_number: DeliveredPullRequest.number_for_target(target, owner, repo, opts)
+    }
   end
 
   defp reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc) do
@@ -186,7 +249,7 @@ defmodule Aiur.GitHub.CIPollBatch do
               pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { name status conclusion detailsUrl startedAt completedAt }
+                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt }
                 ... on StatusContext { context state targetUrl createdAt description }
               }
             }
@@ -329,8 +392,14 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp status_contexts(_commit_node), do: {[], false}
 
+  # `"id"` is the run's numeric database id (`databaseId` in GraphQL), the same
+  # numeric id a REST `check_run` delivery carries — that identity is the
+  # contract between this poll-side shape and the webhook deposit
+  # (`Aiur.Events.GithubWebhook.Deposit`), and the id-match gate in
+  # `Aiur.GitHub.DeliveredCheckRun` reads it. Change one, change both.
   defp normalize_check_run(check_run) do
     %{
+      "id" => Map.get(check_run, "databaseId"),
       "name" => Map.get(check_run, "name"),
       "status" => Map.get(check_run, "status") |> to_string() |> String.downcase(),
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),

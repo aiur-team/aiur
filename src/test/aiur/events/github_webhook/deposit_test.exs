@@ -364,8 +364,50 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     # addresses a check run and it is deliberately excluded from the agent cache
     # (a CI verdict is never served from a cache at any age), so depositing one
     # bought nothing — the single legitimate ceasing candidate.
-    test "a check_run delivery deposits nothing" do
-      assert GithubWebhook.Deposit.deposit("check_run", %{"check_run" => %{"id" => 5501}}, @repo) == []
+    test "a check_run delivery deposits the run under the CI resource type, before publish" do
+      check_run = check_run(5501, "completed", "success", "2026-06-24T12:05:00Z")
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery(
+                 "check_run",
+                 %{"action" => "completed", "repository" => %{"full_name" => @repo}, "check_run" => check_run},
+                 repo: @repo,
+                 reconcile_fun: fn _ -> :ok end
+               )
+
+      key = ResourceStore.key_for_repo(:check_run, @repo, "42")
+      assert {:ok, %{data: ^check_run, source: :webhook}} = ResourceStore.fetch(key)
+
+      # The deposit carries the run's marker so the poll pipe can tell this
+      # delivery apart from the previous read (#2310): the completion time when
+      # present, else the start, else the id.
+      assert {:ok, %{version: "2026-06-24T12:05:00Z"}} = ResourceStore.fetch(key)
+    end
+
+    test "a check_run delivery with no resolvable ticket deposits nothing" do
+      delivery = %{
+        "action" => "completed",
+        "repository" => %{"full_name" => @repo},
+        "check_run" => check_run(5502, "completed", "success", "2026-06-24T12:05:00Z", ref: "main")
+      }
+
+      assert GithubWebhook.Deposit.deposit("check_run", delivery, @repo) == []
+      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:check_run, @repo, "42"))
+    end
+
+    test "an older check_run delivery cannot regress a newer one on the same ticket" do
+      delivery = fn check_run ->
+        %{"action" => "completed", "repository" => %{"full_name" => @repo}, "check_run" => check_run}
+      end
+
+      newer = check_run(5503, "completed", "success", "2026-06-24T12:10:00Z")
+      older = check_run(5504, "completed", "success", "2026-06-24T12:05:00Z")
+
+      assert [_key] = GithubWebhook.Deposit.deposit("check_run", delivery.(newer), @repo)
+      assert GithubWebhook.Deposit.deposit("check_run", delivery.(older), @repo) == []
+
+      key = ResourceStore.key_for_repo(:check_run, @repo, "42")
+      assert {:ok, %{data: ^newer}} = ResourceStore.fetch(key)
     end
 
     test "issues deposits the issue and label set even though the event only reconciles" do
@@ -889,6 +931,19 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       "updated_at" => updated_at,
       "html_url" => "https://example.test/comments/#{id}",
       "user" => %{"login" => author}
+    }
+  end
+
+  defp check_run(id, status, conclusion, completed_at, opts \\ []) do
+    %{
+      "id" => id,
+      "name" => "test",
+      "head_sha" => "abc123",
+      "status" => status,
+      "conclusion" => conclusion,
+      "started_at" => "2026-06-24T11:55:00Z",
+      "completed_at" => completed_at,
+      "pull_requests" => [%{"number" => 77, "head" => %{"ref" => Keyword.get(opts, :ref, "aiur/42-a-ticket")}}]
     }
   end
 
