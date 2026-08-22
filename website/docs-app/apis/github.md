@@ -127,9 +127,9 @@ Dashboard and Build Order state is not on this cadence.
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
 The ticket backlog and Ad Hoc overlay reach the page the moment a delivery
-deposits the changed issue. Pack status — the one view-state source still on a
-cadence — reflects an outside change within one sweep, which is the trade for
-it costing nothing while nobody is looking.
+deposits the changed issue, while pack status — the one view-state source still
+on a cadence — reflects an outside change within one sweep, the trade for it
+costing nothing while nobody is looking.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |

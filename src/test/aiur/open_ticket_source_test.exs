@@ -4,6 +4,7 @@ defmodule Aiur.OpenTicketSourceTest do
   alias Aiur.GitHub.{RequestOrigin, ResourceStore}
   alias Aiur.OpenTicketSource
   alias Aiur.OpenTicketSource.Snapshot
+  alias Aiur.Webhooks.ModeRegistry
 
   @owner "owner"
   @repo "repo"
@@ -298,9 +299,7 @@ defmodule Aiur.OpenTicketSourceTest do
       registry = :"mode_registry_#{System.unique_integer([:positive])}"
       now = ~U[2026-07-15 12:00:00Z]
 
-      start_supervised!(
-        {Aiur.Webhooks.ModeRegistry, name: registry, configured_repos: ["owner/repo"], silence_threshold_ms: 900_000, sweep_interval_ms: 3_600_000, alert_fun: fn _name, _message, _opts -> :ok end}
-      )
+      start_supervised!({ModeRegistry, name: registry, configured_repos: ["owner/repo"], silence_threshold_ms: 900_000, sweep_interval_ms: 3_600_000, alert_fun: fn _name, _message, _opts -> :ok end})
 
       start_source(
         poll_on_start: false,
@@ -310,9 +309,9 @@ defmodule Aiur.OpenTicketSourceTest do
         end
       )
 
-      {:ok, _mode} = Aiur.Webhooks.ModeRegistry.record_delivery("owner/repo", server: registry, at: now)
-      {:ok, _mode} = Aiur.Webhooks.ModeRegistry.record_activity("owner/repo", server: registry, at: DateTime.add(now, 901, :second))
-      {:ok, ["owner/repo"]} = Aiur.Webhooks.ModeRegistry.sweep(registry, DateTime.add(now, 1_802, :second))
+      {:ok, _mode} = ModeRegistry.record_delivery("owner/repo", server: registry, at: now)
+      {:ok, _mode} = ModeRegistry.record_activity("owner/repo", server: registry, at: DateTime.add(now, 901, :second))
+      {:ok, ["owner/repo"]} = ModeRegistry.sweep(registry, DateTime.add(now, 1_802, :second))
 
       assert_receive :listed, 2_000
     end
