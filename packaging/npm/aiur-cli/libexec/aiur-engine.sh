@@ -490,6 +490,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
+
+Bare aiur: start or attach to this directory's interactive session.
 EOF
 }
 
@@ -686,6 +688,65 @@ run_session() {
   [ -n "$tmux_bin" ] || die "tmux is required to run aiur; install tmux and retry"
 
   aiur_resolve_identity
+  prepare_distribution
+
+  local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
+  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
+  local conf launch_lock
+  conf="$(resolve_tmux_conf)"
+  [ -f "$conf" ] || die "tmux conf not found at $conf"
+  launch_lock="$(aiur_launch_lock_path)"
+  acquire_aiur_launch_lock "$launch_lock" || return 1
+
+  # An invocation targeting an existing directory session resolves here before
+  # fresh-start credentials, argv files, run logs, watchdogs, or teardown traps.
+  # Foreground attaches; background exits with explicit attach guidance.
+  if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+    if [ "$(probe_control_liveness)" = "up" ]; then
+      # Preserve the live launch's record and workspace-root handoff. Only
+      # backfill old/missing records, without pointing them at this attach
+      # invocation's transient state.
+      AIUR_WORKSPACE_ROOT_FILE="" write_aiur_instance_record "$session" "$socket" if-absent
+
+      if [ "$mode" = "background" ]; then
+        echo "aiur is already running in the background (tmux session ${session})." >&2
+        echo "Attach with: aiur" >&2
+        echo "Use: aiur status   # inspect agents" >&2
+        echo "Use: aiur stop     # stop it before starting a fresh session" >&2
+        release_aiur_launch_lock "$launch_lock"
+        return 0
+      fi
+
+      echo "aiur is already running; attaching to the running session ${session}." >&2
+      release_aiur_launch_lock "$launch_lock"
+      attach_tmux_session "$tmux_bin" "$socket" "$conf" "$session"
+      return $?
+    fi
+
+    # A tmux holder can exist while a healthy BEAM is still booting or while
+    # epmd itself is temporarily unreachable. Never turn one failed control
+    # probe into destructive cleanup unless distribution confirms the keyed
+    # node is absent.
+    case "$(probe_node_liveness)" in
+      down)
+        if ! confirm_stale_tmux_session "$tmux_bin" "$socket" "$conf" "$session"; then
+          echo "aiur found session ${session}, but it became live while checking stale state; leaving it intact." >&2
+          echo "Retry: aiur" >&2
+          release_aiur_launch_lock "$launch_lock"
+          return 1
+        fi
+        echo "aiur found stale tmux session ${session}; cleaning it up before restart" >&2
+        reap_aiur_agents "$socket" ""
+        kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+        ;;
+      up | unknown)
+        echo "aiur found session ${session}, but its control plane is not ready; leaving the running session intact." >&2
+        echo "Retry: aiur" >&2
+        release_aiur_launch_lock "$launch_lock"
+        return 1
+        ;;
+    esac
+  fi
 
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
@@ -717,19 +778,12 @@ run_session() {
   write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
 
-  prepare_distribution
   build_release_cmd
 
   # Force +fnu when no locale is set so the BEAM does not mangle non-ASCII paths.
   if [ -z "${LANG:-}" ] && [ -z "${LC_ALL:-}" ] && [ -z "${LC_CTYPE:-}" ]; then
     export ELIXIR_ERL_OPTIONS="${ELIXIR_ERL_OPTIONS:-} +fnu"
   fi
-
-  local session="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default"
-  local socket="${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}"
-  local conf
-  conf="$(resolve_tmux_conf)"
-  [ -f "$conf" ] || die "tmux conf not found at $conf"
 
   preflight_stale_manual_smoke
 
@@ -844,29 +898,9 @@ run_session() {
       _session_node="$AIUR_RELEASE_NODE" _session_pidfile="$AIUR_AGENT_TMPFILE" \
       _session_workspace_root_file="$AIUR_WORKSPACE_ROOT_FILE" \
       _session_alert_ledger_path_file="$AIUR_ALERT_LEDGER_PATH_FILE" \
-      _session_crash_dump_baseline_file="$crash_dump_baseline_file"
+      _session_crash_dump_baseline_file="$crash_dump_baseline_file" \
+      _session_launch_lock="$launch_lock"
     install_foreground_traps
-  fi
-
-  # Background starts are intentionally idempotent. A prior live node should not
-  # fall through to tmux's opaque "duplicate session" failure, and a stale tmux
-  # session whose BEAM/control plane is gone should be reclaimed before retry.
-  if [ "$mode" = "background" ] && "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
-    if [ "$(probe_control_liveness)" = "up" ]; then
-      # Write a record only when none exists. A live session's own start already
-      # wrote one — and it owns the BEAM-written AIUR_RECORD_WORKSPACE_ROOT_FILE
-      # path, which must not be overwritten by this invocation's temp file.
-      [ -f "$(aiur_instance_record_path)" ] || (AIUR_WORKSPACE_ROOT_FILE="" write_aiur_instance_record "$session" "$socket")
-      echo "aiur is already running in the background (tmux session ${session})." >&2
-      echo "Use: aiur status   # inspect agents" >&2
-      echo "Use: aiur stop     # stop it before starting a fresh session" >&2
-      rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
-      return 0
-    fi
-
-    echo "aiur found stale tmux session ${session}; cleaning it up before restart" >&2
-    reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
-    kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
   fi
 
   # An orphaned BEAM (its tmux session gone) can still hold THIS instance's node
@@ -899,6 +933,7 @@ run_session() {
     echo "❌ aiur failed to start; captured output:" >&2
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
+    release_aiur_launch_lock "$launch_lock"
     exit 1
   fi
 
@@ -924,12 +959,16 @@ run_session() {
       reap_aiur_agents "$socket" "$AIUR_AGENT_TMPFILE"
       kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
     fi
+    release_aiur_launch_lock "$launch_lock"
+    _session_launch_lock=""
     [ "$mode" = "foreground" ] && return 1
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     exit 1
   fi
 
   write_aiur_instance_record "$session" "$socket"
+  release_aiur_launch_lock "$launch_lock"
+  _session_launch_lock=""
   print_config_status "$startup_capture"
   print_dashboard_status "$no_dashboard" "$startup_capture"
   # The `aiur run` version notice: a cheap local state read (the daemon's
@@ -976,10 +1015,18 @@ run_session() {
   # Foreground: attach the UI. Do not exec — that would drop the teardown trap.
   # Avoid process substitution here: some sandboxed non-TTY launchers reject
   # opening /dev/fd/* during the real manual-test wrapper path.
+  attach_tmux_session "$tmux_bin" "$socket" "$conf" "$session"
+}
+
+attach_tmux_session() {
+  local tmux_bin="$1" socket="$2" conf="$3" session="$4"
   local attach_stderr attach_code
   attach_stderr="$(mktemp "${TMPDIR:-/tmp}/aiur-attach-stderr.XXXXXX")"
-  "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2>"$attach_stderr"
-  attach_code=$?
+  if "$tmux_bin" -L "$socket" -f "$conf" attach -t "$session" 2>"$attach_stderr"; then
+    attach_code=0
+  else
+    attach_code=$?
+  fi
   grep -v -F "[server exited]" "$attach_stderr" >&2 || true
   rm -f "$attach_stderr" 2>/dev/null || true
   return "$attach_code"
@@ -1336,8 +1383,76 @@ aiur_instance_record_path() {
   printf '%s/%s.instance' "$(aiur_instances_dir)" "$(aiur_state_slug)"
 }
 
+aiur_launch_lock_path() {
+  printf '%s/locks/%s.launch' "${AIUR_BG_STATE_DIR:?}" "$(aiur_state_slug)"
+}
+
+acquire_aiur_launch_lock() {
+  local lock="$1" owner_file="$1/owner" recovery_lock="$1.recovery"
+  local owner tick lock_age
+  local max_ticks="${AIUR_LAUNCH_LOCK_TICKS:-${AIUR_NODE_GRACE_TICKS:-1200}}"
+  local ownerless_stale_seconds="${AIUR_OWNERLESS_LOCK_STALE_SECONDS:-120}"
+  mkdir -p "$(dirname "$lock")" 2>/dev/null || return 1
+
+  for ((tick = 0; tick < max_ticks; tick++)); do
+    if mkdir "$lock" 2>/dev/null; then
+      printf '%s\n' "$$" >"$owner_file" || { rmdir "$lock" 2>/dev/null || true; return 1; }
+      return 0
+    fi
+
+    owner="$(sed -n '1p' "$owner_file" 2>/dev/null || true)"
+    if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+      sleep 0.1
+      continue
+    fi
+
+    lock_age="$(aiur_lock_age_seconds "$lock")"
+    if [ -z "$owner" ] && { [ -z "$lock_age" ] || [ "$lock_age" -lt "$ownerless_stale_seconds" ]; }; then
+      sleep 0.1
+      continue
+    fi
+
+    # Only one contender may reclaim a dead lock. Re-read ownership while the
+    # recovery mutex is held so another contender cannot delete a newly claimed
+    # launch directory after losing the original stale-lock race.
+    if mkdir "$recovery_lock" 2>/dev/null; then
+      owner="$(sed -n '1p' "$owner_file" 2>/dev/null || true)"
+      lock_age="$(aiur_lock_age_seconds "$lock")"
+      if { [ -z "$owner" ] && [ -n "$lock_age" ] && [ "$lock_age" -ge "$ownerless_stale_seconds" ]; } || \
+        { [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; }; then
+        rm -f "$owner_file" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || true
+      fi
+      rmdir "$recovery_lock" 2>/dev/null || true
+    fi
+    sleep 0.1
+  done
+
+  echo "aiur: another launch for this directory is still in progress; retry aiur" >&2
+  return 1
+}
+
+aiur_lock_age_seconds() {
+  local path="$1" now modified
+  now="$(date +%s 2>/dev/null || true)"
+  modified="$(stat -c %Y "$path" 2>/dev/null || stat -f %m "$path" 2>/dev/null || true)"
+  [[ "$now" =~ ^[0-9]+$ ]] && [[ "$modified" =~ ^[0-9]+$ ]] || return 0
+  [ "$now" -ge "$modified" ] || return 0
+  printf '%s' "$((now - modified))"
+}
+
+release_aiur_launch_lock() {
+  local lock="${1:-}" owner_file owner
+  [ -n "$lock" ] || return 0
+  owner_file="$lock/owner"
+  owner="$(sed -n '1p' "$owner_file" 2>/dev/null || true)"
+  [ "$owner" = "$$" ] || return 0
+  rm -f "$owner_file" 2>/dev/null || true
+  rmdir "$lock" 2>/dev/null || true
+}
+
 write_aiur_instance_record() {
-  local session="$1" socket="$2" record_dir record tmp root
+  local session="$1" socket="$2" write_mode="${3:-replace}" record_dir record tmp root
   record_dir="$(aiur_instances_dir)"
   record="$(aiur_instance_record_path)"
   root="$(canonical_workspace_root "${AIUR_PROJECT_ROOT:-}")"
@@ -1354,7 +1469,14 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_WRITTEN_AT=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
   } >"$tmp" || { rm -f "$tmp" 2>/dev/null || true; return 0; }
   chmod 0600 "$tmp" 2>/dev/null || true
-  mv "$tmp" "$record" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+  if [ "$write_mode" = "if-absent" ]; then
+    # Same-directory hard-link creation is atomic: a concurrent live launcher
+    # can win without an attaching shell overwriting its workspace handoff.
+    ln "$tmp" "$record" 2>/dev/null || true
+    rm -f "$tmp" 2>/dev/null || true
+  else
+    mv "$tmp" "$record" 2>/dev/null || rm -f "$tmp" 2>/dev/null || true
+  fi
 }
 
 # Marker `status` reads to tell "daemon crashed, agents may be orphaned" apart
@@ -1742,7 +1864,7 @@ wait_for_session_startup() {
 _session_socket="" _session_name="" _session_conf="" _session_tmpfile=""
 _session_capture="" _session_argv="" _session_release="" _session_tmux="" _session_node=""
 _session_pidfile="" _session_watchdog_pid="" _session_workspace_root_file=""
-_session_alert_ledger_path_file="" _session_crash_dump_baseline_file=""
+_session_alert_ledger_path_file="" _session_crash_dump_baseline_file="" _session_launch_lock=""
 _cleanup_ran=0
 session_cleanup() {
   [ "$_cleanup_ran" = 1 ] && return 0
@@ -1808,6 +1930,8 @@ session_cleanup() {
     "$_session_workspace_root_file" "$_session_alert_ledger_path_file" \
     "$_session_crash_dump_baseline_file" 2>/dev/null || true
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
+  release_aiur_launch_lock "$_session_launch_lock"
+  _session_launch_lock=""
   return $code
 }
 install_foreground_traps() {
@@ -1850,6 +1974,21 @@ probe_node_liveness() {
     return
   done
   printf 'unknown'
+}
+
+confirm_stale_tmux_session() {
+  local tmux_bin="$1" socket="$2" conf="$3" session="$4"
+  local max_ticks="${AIUR_STALE_SESSION_GRACE_TICKS:-30}" tick
+
+  for ((tick = 0; tick < max_ticks; tick++)); do
+    "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null || return 0
+    [ "$(probe_control_liveness)" = "up" ] && return 1
+    [ "$(probe_node_liveness)" = "down" ] || return 1
+    sleep 0.1
+  done
+
+  "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null || return 0
+  [ "$(probe_control_liveness)" != "up" ] && [ "$(probe_node_liveness)" = "down" ]
 }
 
 probe_named_node_liveness() {

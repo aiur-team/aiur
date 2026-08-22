@@ -283,7 +283,7 @@ on your `PATH`:
 
 | Command | What it does |
 |---|---|
-| `aiurdev` | Start the workflow in the foreground with a local-only bind |
+| `aiurdev` | Start the workflow in the foreground, or attach to this directory's live interactive session |
 | `aiurdev <config-path>` | Run an explicit YAML config in the foreground |
 | `aiurdev --test` | Reset the first pinned sandbox ticket, then start an interactive smoke run |
 | `aiurdev --test3` | Reset the pinned 3-ticket blocker-chain sandbox, then start an interactive smoke run |
@@ -382,9 +382,13 @@ configured host and port. Detachment and dashboard availability are independent:
 add `--no-dashboard` for the lean background shape, or use `--no-dashboard` in
 foreground mode to keep the terminal UI without an HTTP listener. The launcher
 still uses one detached tmux session to own the BEAM lifetime and cleanup
-watchdog. If that session is already live, `aiurdev --bg` exits successfully
-with an "already running" hint; if the tmux session is stale and the control RPC
-is down, the launcher cleans it up before starting a fresh background run.
+watchdog. If that session is already live, `aiurdev --bg` exits successfully and
+prints `Attach with: aiur`; a bare `aiurdev` or `aiur` from the same project directory
+attaches when the live run has an interactive terminal stack. Plain `--bg` is
+headless, so use `--bg --interactive` when a detached run should remain attachable
+to the terminal UI. The per-project identity keeps concurrent repositories
+separate. If a tmux session is stale and distribution confirms its keyed BEAM is
+down, the launcher cleans it up before starting a fresh background run.
 
 Claude Remote Control lifecycle hooks post to `Aiur.HttpServer`, so a
 no-listener run cannot support configured Remote Control. Startup fails with a
