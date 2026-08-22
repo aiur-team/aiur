@@ -397,8 +397,14 @@ The webhook shortens reaction time for repository events while polling continues
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
+| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, and `check_suite`. |
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
+
+Select every event listed above when creating or updating the GitHub hook. A
+`pull_request_review_thread` delivery makes a resolved or reopened thread
+reconcile immediately; the scheduled comment sweep remains the loss-recovery
+path when any delivery is missed.
 
 | Delivery | Result |
 | --- | --- |

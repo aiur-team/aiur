@@ -299,6 +299,68 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
                ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review, @repo, 9204))
     end
 
+    test "pull_request_review_thread deposits its resolution generation" do
+      payload = %{
+        "action" => "unresolved",
+        "repository" => %{"full_name" => @repo},
+        "thread" => %{"id" => 88_001, "node_id" => "PRRT_kwDOabc", "comments" => 1},
+        "updated_at" => "2026-08-21T12:00:00Z",
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
+        }
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok,
+              %{
+                data: %{
+                  "webhook_action" => "unresolved",
+                  "generation" => "2026-08-21T12:00:00Z"
+                },
+                version: "2026-08-21T12:00:00Z"
+              }} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
+    end
+
+    test "a null review-thread timestamp uses the admitted delivery id as its generation" do
+      payload = %{
+        "action" => "unresolved",
+        "repository" => %{"full_name" => @repo},
+        "thread" => %{"id" => 88_002, "node_id" => "PRRT_kwDOnull", "comments" => 1},
+        "updated_at" => nil,
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
+        }
+      }
+
+      assert %{status: :reconciled, hint: %{generation: "delivery-fallback"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 delivery_id: "delivery-fallback",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
+
+      assert %{status: :reconciled, hint: %{generation: "manual-redelivery"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 delivery_id: "manual-redelivery",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
+    end
+
     test "pull_request deposits the pull request even when the event only reconciles" do
       # `synchronize` normalizes to a CI reconcile and publishes nothing, so a
       # deposit driven off the publish outcome would miss it entirely.

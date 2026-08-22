@@ -330,6 +330,83 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("pull_request", delivery, repo: @repo)
     end
 
+    test "review-thread resolution changes request targeted comment reconciliation" do
+      parent = self()
+
+      for action <- ["resolved", "unresolved"] do
+        delivery = review_thread_delivery(action)
+
+        assert %{
+                 status: :reconciled,
+                 hint: %{
+                   kind: :review_thread,
+                   ticket: "42",
+                   action: ^action,
+                   thread_id: "PRRT_kwDOabc",
+                   generation: "2026-08-21T12:00:00Z"
+                 }
+               } =
+                 GithubWebhook.handle_delivery("pull_request_review_thread", delivery,
+                   repo: @repo,
+                   reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
+                 )
+
+        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}
+      end
+    end
+
+    test "review-thread reconciliation uses the admitted delivery id when the timestamp is null" do
+      delivery = Map.put(review_thread_delivery("unresolved"), "updated_at", nil)
+
+      assert %{hint: %{generation: "delivery-123"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", delivery,
+                 repo: @repo,
+                 delivery_id: "delivery-123",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+    end
+
+    test "review-thread deliveries reject malformed, irrelevant, and unmapped payloads" do
+      delivery = review_thread_delivery("unresolved")
+
+      assert {:drop, {:uninteresting_action, "pull_request_review_thread", "created"}} =
+               delivery
+               |> Map.put("action", "created")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      assert {:error, {:malformed_payload, "pull_request_review_thread"}} =
+               delivery
+               |> Map.delete("thread")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      assert {:drop, {:unresolved_ticket, "pull_request_review_thread", "unresolved"}} =
+               delivery
+               |> put_in(["pull_request", "head", "ref"], "feature/no-ticket")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      assert {:drop, {:untracked_head_repository, "contributor/fork"}} =
+               delivery
+               |> put_in(["pull_request", "head", "repo", "full_name"], "contributor/fork")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+    end
+
+    test "review-thread hints bypass the generic reconcile debounce" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      for action <- ["resolved", "unresolved"] do
+        assert %{status: :reconciled} =
+                 GithubWebhook.handle_delivery("pull_request_review_thread", review_thread_delivery(action),
+                   repo: @repo,
+                   orchestrator: self()
+                 )
+      end
+
+      assert_receive {:github_webhook_reconcile, %{action: "resolved"}}, 500
+      assert_receive {:github_webhook_reconcile, %{action: "unresolved"}}, 500
+      refute_receive :run_poll_cycle, 100
+    end
+
     test "the orchestrator is nudged to poll now, and a delivery burst is coalesced into one nudge" do
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
@@ -482,6 +559,23 @@ defmodule Aiur.Events.GithubWebhookTest do
         "user" => %{"login" => "its-everdred"}
       },
       "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef"}}
+    }
+  end
+
+  defp review_thread_delivery(action) do
+    %{
+      "action" => action,
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{
+        "id" => 88_001,
+        "node_id" => "PRRT_kwDOabc",
+        "comments" => 1
+      },
+      "updated_at" => "2026-08-21T12:00:00Z",
+      "pull_request" => %{
+        "number" => 901,
+        "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
+      }
     }
   end
 

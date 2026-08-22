@@ -82,6 +82,7 @@ defmodule Aiur.Events.GithubWebhook do
         publish_all(triples, opts)
 
       {:reconcile, hint} ->
+        hint = with_reconcile_generation(hint, opts)
         request_reconcile(hint, opts)
         %{status: :reconciled, hint: hint}
 
@@ -122,7 +123,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.tracked_repo(payload, opts) do
       {:ok, repo} ->
         Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
-        Deposit.deposit(event_type, payload, repo)
+        Deposit.deposit(event_type, payload, repo, Keyword.take(opts, [:delivery_id]))
         :ok
 
       _untracked_or_malformed ->
@@ -188,11 +189,18 @@ defmodule Aiur.Events.GithubWebhook do
   defp request_reconcile(hint, opts) do
     case Keyword.get(opts, :reconcile_fun) do
       fun when is_function(fun, 1) -> fun.(hint)
-      _other -> nudge_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator))
+      _other -> nudge_orchestrator(hint, Keyword.get(opts, :orchestrator, Aiur.Orchestrator))
     end
   end
 
-  defp nudge_orchestrator(target) do
+  defp nudge_orchestrator(%{kind: :review_thread} = hint, target) do
+    case resolve_orchestrator(target) do
+      pid when is_pid(pid) -> send(pid, {:github_webhook_reconcile, hint})
+      nil -> :ok
+    end
+  end
+
+  defp nudge_orchestrator(_hint, target) do
     case resolve_orchestrator(target) do
       pid when is_pid(pid) ->
         if claim_reconcile_window() do
@@ -206,6 +214,13 @@ defmodule Aiur.Events.GithubWebhook do
         :ok
     end
   end
+
+  defp with_reconcile_generation(%{kind: :review_thread, generation: generation} = hint, opts)
+       when not (is_binary(generation) and generation != "") do
+    Map.put(hint, :generation, Keyword.get(opts, :delivery_id))
+  end
+
+  defp with_reconcile_generation(hint, _opts), do: hint
 
   defp resolve_orchestrator(pid) when is_pid(pid), do: pid
   defp resolve_orchestrator(name) when is_atom(name), do: Process.whereis(name)

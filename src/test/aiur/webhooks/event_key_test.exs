@@ -76,6 +76,34 @@ defmodule Aiur.Webhooks.EventKeyTest do
     assert EventKey.derive("push", payload) == "push:owner/repo:refs/heads/main:abc123"
   end
 
+  test "review-thread keys separate later state transitions" do
+    base = %{
+      "action" => "unresolved",
+      "repository" => repo(),
+      "thread" => %{"node_id" => "PRRT_kwDOabc"},
+      "updated_at" => "2026-08-09T10:00:00Z"
+    }
+
+    later = Map.put(base, "updated_at", "2026-08-09T10:05:00Z")
+
+    assert EventKey.derive("pull_request_review_thread", base) ==
+             EventKey.derive("pull_request_review_thread", base)
+
+    refute EventKey.derive("pull_request_review_thread", base) ==
+             EventKey.derive("pull_request_review_thread", later)
+  end
+
+  test "review-thread keys fail open when GitHub omits the transition timestamp" do
+    payload = %{
+      "action" => "unresolved",
+      "repository" => repo(),
+      "thread" => %{"node_id" => "PRRT_kwDOabc"},
+      "updated_at" => nil
+    }
+
+    assert EventKey.derive("pull_request_review_thread", payload) == nil
+  end
+
   test "unknown events and incomplete payloads derive no key" do
     assert EventKey.derive("membership", %{"repository" => repo()}) == nil
     assert EventKey.derive("issue_comment", %{"repository" => repo()}) == nil

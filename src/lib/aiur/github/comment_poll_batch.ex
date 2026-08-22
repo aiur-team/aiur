@@ -74,7 +74,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, opts)) |> Enum.chunk_every(@targets_per_query)
+      expected_head_repo = "#{owner}/#{repo}"
+
+      chunks =
+        targets
+        |> Enum.map(&target_entry(&1, opts, expected_head_repo))
+        |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github comment GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -94,10 +99,10 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp target_entry(target, opts) do
+  defp target_entry(target, opts, expected_head_repo) do
     case known_branch(target, opts) do
-      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
-      branch -> %{target: target, branches: [branch], known_branch: true}
+      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false, expected_head_repo: expected_head_repo}
+      branch -> %{target: target, branches: [branch], known_branch: true, expected_head_repo: expected_head_repo}
     end
   end
 
@@ -195,6 +200,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_identity_fields do
     """
     number state headRefName headRefOid baseRefName reviewDecision
+    headRepository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate } } }
     """
   end
@@ -267,9 +273,25 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp branch_pull_request(%{known_branch: false}, []), do: :unknown
-  defp branch_pull_request(_entry, []), do: {:ok, nil}
-  defp branch_pull_request(_entry, [node | _rest]), do: {:ok, normalize_pull_request(node, false)}
+  defp branch_pull_request(entry, nodes) do
+    nodes = Enum.filter(nodes, &same_head_repo?(&1, entry.expected_head_repo))
+
+    case {entry.known_branch, nodes} do
+      {false, []} -> :unknown
+      {true, []} -> {:ok, nil}
+      {_known_branch, [node | _rest]} -> {:ok, normalize_pull_request(node, false)}
+    end
+  end
+
+  defp same_head_repo?(pull_request, expected) do
+    case get_in(pull_request, ["headRepository", "nameWithOwner"]) do
+      actual when is_binary(actual) and is_binary(expected) ->
+        String.downcase(actual) == String.downcase(expected)
+
+      _other ->
+        false
+    end
+  end
 
   # No `:issue_comments` or `:pr_issue_comments` key is ever emitted now, so the
   # poller's `batch_value/3` answers `:missing` for both and every comment read
