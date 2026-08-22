@@ -56,7 +56,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
       assert {:ok, result} =
                Reply.reply_to_review_thread("PRRT_ok", "Done.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  retry_delay_ms: 0
                )
 
@@ -104,7 +104,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
       assert {:ok, %{attempt: 2}} =
                Reply.reply_to_review_thread("PRRT_retry", "Done.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 3,
                  retry_delay_ms: 0
                )
@@ -130,7 +130,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
       assert {:error, _} =
                Reply.reply_to_review_thread("PRRT_transport", "Done.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 2,
                  retry_delay_ms: 0
                )
@@ -166,7 +166,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
       assert {:error, {:review_thread_reply_not_verified, _}} =
                Reply.reply_to_review_thread("PRRT_fail", "Done.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 1,
                  retry_delay_ms: 0
                )
@@ -217,7 +217,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
 
       Reply.reply_to_review_thread("PRRT_sleep", "Done.",
         request_fun: request_fun,
-        bot_account: "aiur-bot",
+        daemon_account: "aiur-bot",
         attempts: 2,
         retry_delay_ms: 50,
         sleep_fun: sleep_fun

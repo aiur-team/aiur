@@ -675,6 +675,28 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   expect(result.stderr).not.toContain(":noconnection");
 });
 
+test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["github-cost"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
+  );
+});
+
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(
@@ -835,6 +857,69 @@ test("control rpc timeouts terminate stuck helpers and describe the degraded sto
   expect(capture).toContain("Aiur.AgentControlCLI.agents()");
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
 });
+
+// The timeout budget must be a ceiling, never a floor. A watchdog that holds the
+// caller's stdout keeps the pipe open for its whole sleep, so a capturing caller
+// blocks past a reply that already arrived — the failure looks like a slow
+// daemon and is invisible when output goes to a terminal instead of a pipe.
+test("a fast control rpc reply returns immediately instead of waiting out the timeout budget", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+
+  for (const command of ["status", "agents", "alerts"]) {
+    const started = Date.now();
+    // spawnSync captures stdout through a pipe and reads it to EOF, which is
+    // exactly the caller shape the leaked watchdog descriptor stalls.
+    const result = runControl(
+      launcher,
+      releaseDir,
+      {
+        AIUR_FAKE_RPC_MODE: "ok",
+        AIUR_FAKE_EPMD_REGISTERED: "1",
+        AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "20",
+      },
+      [command],
+    );
+    const elapsedMs = Date.now() - started;
+
+    expect(result.status).toBe(0);
+    // Far below the 20s budget: any dependence on the budget fails here.
+    expect(elapsedMs).toBeLessThan(5000);
+  }
+});
+
+// A cancelled watchdog must leave nothing behind. The `sleep` is a separate
+// process from the subshell that spawned it, so signalling the subshell alone
+// orphans a live sleeper that still holds every descriptor it inherited.
+test("a cancelled timeout watchdog leaves no sleeping process behind", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+
+  const before = sleeperPids();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "ok",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+      AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "37",
+    },
+    ["status"],
+  );
+
+  expect(result.status).toBe(0);
+  const leaked = sleeperPids("37").filter((pid) => !before.includes(pid));
+  expect(leaked).toEqual([]);
+});
+
+// PIDs of `sleep <seconds>` processes owned by this user; the distinctive budget
+// used above keeps the match specific to the watchdog under test.
+function sleeperPids(seconds = "37") {
+  const ps = spawnSync("ps", ["-eo", "pid=,args="], { encoding: "utf8" });
+  return (ps.stdout || "")
+    .split("\n")
+    .filter((line) => new RegExp(`\\bsleep ${seconds}\\b`).test(line))
+    .map((line) => Number.parseInt(line.trim().split(/\s+/)[0], 10))
+    .filter((pid) => Number.isInteger(pid));
+}
 
 test("control rpc timeouts reap descendants that escape the wrapper process group", () => {
   if (spawnSync("which", ["setsid"], { encoding: "utf8" }).status !== 0) return;

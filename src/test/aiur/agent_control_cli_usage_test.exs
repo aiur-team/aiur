@@ -115,6 +115,17 @@ defmodule Aiur.AgentControlCLIUsageTest do
       assert output =~ "events  aiur-team/plain  polling  last delivery never  (no webhook configured)"
     end
 
+    test "a repo silent for hours with no observed activity still reads as webhook-backed", ctx do
+      output = capture_io(fn -> AgentControlCLI.usage(ctx.projection, delivery_modes: delivery_mode_rows()) end)
+
+      assert output =~ "events  aiur-team/idle  webhook  last delivery 2026-07-27T09:00:00Z",
+             "an idle repository is not a broken one — degrading it here tells the operator to go fix a working webhook"
+
+      idle_line = output |> String.split("\n") |> Enum.find(&String.contains?(&1, "aiur-team/idle"))
+
+      refute idle_line =~ "degraded"
+    end
+
     test "a webhook-backed repo is given no reason for polling", ctx do
       output = capture_io(fn -> AgentControlCLI.usage(ctx.projection, delivery_modes: delivery_mode_rows()) end)
 
@@ -133,13 +144,24 @@ defmodule Aiur.AgentControlCLIUsageTest do
   defp delivery_mode_rows do
     {proven, :proven} = "aiur-team/proven" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 12:00:00Z])
 
+    # Degraded needs corroboration, not just silence: the poller published
+    # events at 11:30 that no delivery carried, a full threshold after the
+    # 11:00 delivery. Silence on its own is an idle repo — see `idle` below.
     {fallen, :proven} = "aiur-team/degraded" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 11:00:00Z])
+    {fallen, :none} = DeliveryMode.record_activity(fallen, ~U[2026-07-27 11:30:00Z])
     {fallen, :degraded} = DeliveryMode.sweep(fallen, ~U[2026-07-27 12:00:00Z], 900_000)
+
+    # Delivered once and quiet ever since, with no observed activity. GitHub
+    # sends no heartbeat, so this is a repository nobody touched, not a broken
+    # webhook, and the operator must not be shown a degraded row for it.
+    {idle, :proven} = "aiur-team/idle" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 09:00:00Z])
+    {idle, :none} = DeliveryMode.sweep(idle, ~U[2026-07-27 12:00:00Z], 900_000)
 
     ModePresenter.rows(
       modes: [
         proven,
         fallen,
+        idle,
         DeliveryMode.new("aiur-team/silent", configured?: true),
         DeliveryMode.new("aiur-team/plain")
       ]

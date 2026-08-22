@@ -13,10 +13,33 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
     * `freshness_over_time/1` — the same totals stacked by freshness, so the
       band of a cache that is quietly going stale reads before any number does.
 
+  One covers "what is spending the budget":
+
+    * `spend_over_time/1` — one budget's spend stacked by the caller that
+      issued it, with everything this daemon did not issue as the top band.
+      The top of the stack is therefore the credential's own `used` figure, so
+      the chart reconciles by construction instead of by assertion.
+
   The x axis is elapsed time since the first retained sample, so the charts say
   what they cover (the live-session ring) rather than pretending to be history
   the sampler never recorded.
+
+  ## Colour
+
+  Caller bands take a five-slot categorical palette, `--ghc-series-1` through
+  `--ghc-series-5`, defined per theme in the page's scoped stylesheet and
+  validated for colour-vision separation against both surfaces. The slot comes
+  from `Aiur.GitHub.QuotaUsage`, which ranks once over the whole retained
+  series, so a caller keeps its colour when another overtakes it — colour
+  follows the caller, never its rank at one instant. The palette is never
+  cycled: a sixth caller folds into the neutral `other` band rather than
+  borrowing slot one's hue and claiming to be that caller.
+
+  The `outside` band is neutral and chroma-free on purpose. It is not a series
+  competing with the callers; it is the part of the bill none of them explain.
   """
+
+  alias Aiur.GitHub.QuotaUsage
 
   @w 760
 
@@ -79,6 +102,105 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
   end
 
   def freshness_over_time(_samples), do: ""
+
+  @doc """
+  One budget's spend over time, stacked by the caller that issued it.
+
+  Takes a `Aiur.GitHub.QuotaUsage.series/2` projection — which has already
+  dropped any sample where the credential's window was not observed — and draws
+  its bands bottom-up in the projection's own order. The y scale is the top of
+  the stack, which is the window's real spend, so a tall neutral band is
+  immediately readable as "most of this bill is not ours".
+
+  Answers `""` for a nil or too-short projection. The page renders its own words
+  in that case rather than an empty axis that reads as a measured zero.
+  """
+  @spec spend_over_time(map() | nil) :: String.t()
+  def spend_over_time(%{points: points, bands: bands} = series) when length(points) >= 2 do
+    {t0, t1} = spend_domain(points)
+    h = 220
+    {ml, mr, mt, mb} = {44, 14, 14, 24}
+    pw = @w - ml - mr
+    ph = h - mt - mb
+    vmax = points |> Enum.map(&stack_total(&1, bands)) |> Enum.max() |> max(1)
+    xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
+    yf = fn v -> mt + ph - v / vmax * ph end
+
+    inner =
+      y_grid(vmax, yf, ml, @w - mr, &to_string(round(&1))) <>
+        spend_bands(points, bands, xf, yf) <>
+        x_axis(t0, t1, xf, ml, @w - mr, mt + ph)
+
+    svg(h, inner, chart_label(series))
+  end
+
+  def spend_over_time(_series), do: ""
+
+  @doc """
+  The CSS custom property a band paints with.
+
+  Caller slots one to five are the validated categorical palette; the folded
+  tail and the unissued remainder are neutrals, which is the secondary encoding
+  that keeps them from reading as "just another caller".
+  """
+  @spec band_color(map()) :: String.t()
+  def band_color(%{kind: :caller, slot: slot}) when is_integer(slot) and slot >= 1 and slot <= 5,
+    do: "var(--ghc-series-#{slot})"
+
+  def band_color(%{kind: :outside}), do: "var(--ghc-series-outside)"
+  def band_color(_band), do: "var(--ghc-series-other)"
+
+  # The scope is in the label, never only in the caption: an attributed-only
+  # chart read as the whole bill is the mistake this page exists to prevent.
+  defp chart_label(%{scope: :attributed, budget: budget}),
+    do: "#{budget} spend issued by this daemon over time, by caller — not the whole bill"
+
+  defp chart_label(%{budget: budget}), do: "#{budget} spend over time, by caller"
+
+  defp stack_total(point, bands), do: Enum.reduce(bands, 0, &(Map.get(point.values, &1.key, 0) + &2))
+
+  defp spend_domain(points) do
+    first = hd(points).t_ms
+    last = List.last(points).t_ms
+    if last > first, do: {first, last}, else: {first, first + 1}
+  end
+
+  # A 2px surface gap between segments, so two adjacent bands never read as one
+  # continuous region when their hues are close.
+  defp spend_bands(points, bands, xf, yf) do
+    zero = Map.new(points, &{&1.t_ms, 0})
+
+    {_cum, out} =
+      Enum.reduce(bands, {zero, []}, fn band, {cum, acc} ->
+        next = Map.new(points, fn p -> {p.t_ms, Map.get(cum, p.t_ms) + Map.get(p.values, band.key, 0)} end)
+        top = Enum.map(points, fn p -> {xf.(p.t_ms), yf.(Map.get(next, p.t_ms))} end)
+        bot = points |> Enum.map(fn p -> {xf.(p.t_ms), yf.(Map.get(cum, p.t_ms))} end) |> Enum.reverse()
+        total = Map.get(next, List.last(points).t_ms) - Map.get(cum, List.last(points).t_ms)
+
+        path =
+          ~s|<g><title>#{escape(band.label)}: #{total} points now</title>| <>
+            ~s|<path d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
+            ~s|stroke="var(--surface)" stroke-width="2"/></g>|
+
+        {next, [path | acc]}
+      end)
+
+    out |> Enum.reverse() |> Enum.join()
+  end
+
+  # The remainder sits behind the callers rather than shouting over them: it is
+  # the largest band by far on a shared installation, and at full strength it
+  # would swamp the rows an operator came to rank.
+  defp band_opacity(%{kind: :outside}), do: "0.45"
+  defp band_opacity(_band), do: "0.85"
+
+  defp escape(text) do
+    text |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+  end
+
+  @doc "How many caller slots the palette holds, for the stylesheet and tests."
+  @spec palette_slots() :: pos_integer()
+  def palette_slots, do: QuotaUsage.top_callers()
 
   # -- shared geometry ------------------------------------------------------
 

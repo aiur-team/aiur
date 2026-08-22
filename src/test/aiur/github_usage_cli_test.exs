@@ -10,7 +10,7 @@ defmodule Aiur.GitHubUsageCLITest do
   test "builds a per-actor envelope with core and graphql figures" do
     assert {:ok, envelope} = GitHubUsageCLI.build(usage_fun: fn -> snapshot() end, now: @now)
 
-    assert envelope["schema_version"] == 1
+    assert envelope["schema_version"] == 2
     assert envelope["page"] == "github-usage"
 
     [daemon, agent] = envelope["data"]["actors"]
@@ -78,7 +78,7 @@ defmodule Aiur.GitHubUsageCLITest do
 
     decoded = Jason.decode!(output)
 
-    assert decoded["schema_version"] == 1
+    assert decoded["schema_version"] == 2
     assert decoded["page"] == "github-usage"
     assert [daemon | _] = decoded["data"]["actors"]
     assert daemon["core"]["used"] == 1200

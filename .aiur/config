@@ -14,7 +14,14 @@ tracker:
   github:
     repo: aiur-team/aiur
     label_prefix: agent
-    bot_account: aiur-daemon[bot]
+    # The login AGENTS publish as. They hold the GITHUB_TOKEN PAT, so this must
+    # name that account — an App installation token can never write as it.
+    bot_account: its-applekid
+    # The login the DAEMON writes as under App credentials. Separated from
+    # bot_account by #2229: one key naming both made every agent-authorship check
+    # demand a login no agent holds.
+    github_app:
+      account: aiur-daemon[bot]
     human_mergers:
       - its-everdred
     # Finite Build Order planning-graph safeguards. Defaults accept exactly 100 roots/members.
@@ -97,7 +104,12 @@ agent:
     turn_sandbox_policy:
       type: workspaceWrite
       writableRoots:
-        - /home/orangekid/code/aiur-workspaces
+        # Was /home/orangekid/code/aiur-workspaces — a stale path for another user,
+        # so no agent workspace was actually writable here. The shared GitHub budget
+        # root was missing entirely, which made every coordinated GitHub operation
+        # fail closed (`github-budget-root-readonly`) and paused agents mid-turn.
+        - /home/everdred/code/aiur-workspaces
+        - /home/everdred/.aiur/github-budget
         - /tmp
       networkAccess: true
 opencode:
@@ -111,6 +123,11 @@ prompt_file: prompt.md
 # The build command lives in a sibling `.aiur/prewarm` script (path relative to
 # this config), keeping the multi-line shell out of the main config.
 prewarm:
-  enabled: true
+  # Disabled 2026-08-21 to unblock dispatch: #2237 — RepoBase's `:checking` phase is
+  # absorbing, so a lost `git ls-remote` probe holds the dispatch gate forever and no
+  # refresh can start a new probe (repo_base.ex:335). Two consecutive daemon starts
+  # stalled with 31 ready tickets and 0 agents. Cold-clone workspaces are slower but
+  # they dispatch. Re-enable once #2237 lands.
+  enabled: false
   base_build_file: prewarm
-  poll_seconds: 0
+  poll_seconds: 30
