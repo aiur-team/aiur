@@ -72,8 +72,8 @@ defmodule Aiur.CoreTest do
     assert config.max_vertical_panes == 3
     assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
-    assert config.agent.max_concurrent_builds == 2
-    assert Config.max_concurrent_builds() == 2
+    assert config.agent.max_concurrent_builds == 4
+    assert Config.max_concurrent_builds() == 4
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
 

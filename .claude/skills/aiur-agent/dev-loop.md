@@ -103,6 +103,14 @@ blocking finding is the only enforcement they have.
    context. Do not run Credo locally; CI's `make ci` is the authoritative full
    lint and full-suite gate.
 
+   **Use `--trace` only with a specific `file:line`, never with a bare file or
+   directory.** `--trace` silently forces `max_cases: 1` in ExUnit, overriding
+   an explicit `--max-cases N` — a `--trace` run on a whole file serializes
+   the suite and can hold a build-gate slot for tens of minutes while the rest
+   of the fleet queues behind it (#2311). The build guard strips `--trace`
+   when you also pass `--max-cases N` (N > 1), but the right fix is not to
+   combine them at all.
+
    **Renames and signature changes need an exhaustive test-tree audit before
    push.** For every old function name, option key, or changed identifier, run
    `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` from the

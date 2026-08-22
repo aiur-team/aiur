@@ -109,13 +109,19 @@ defmodule Aiur.Config.Schema.Agent do
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
-    field(:max_concurrent_builds, :integer, default: 2)
+    field(:max_concurrent_builds, :integer, default: 4)
     # Minimum spacing between local Mix compile/test starts when more than one
     # build may run concurrently. 0 disables start pacing.
     field(:build_start_stagger_seconds, :integer, default: 0)
     # Optional Linux MemAvailable floor shared by normal dispatch and the local
     # Mix build gate. Omitted means memory admission is disabled.
     field(:min_free_memory_mb, :integer)
+    # Build-gate slot occupancy watchdog (#2311). A slot held past this many
+    # milliseconds raises a needs-attention alert naming the command and
+    # holder, independently of the turn-silence `stall_timeout_ms` watchdog
+    # (a long serial `--trace` run is never silent, so stall_timeout_ms never
+    # fires while the fleet starves). 0 disables it.
+    field(:build_gate_stall_timeout_ms, :integer, default: 300_000)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -196,6 +202,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_concurrent_builds,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
+        :build_gate_stall_timeout_ms,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
@@ -226,6 +233,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
+    |> validate_number(:build_gate_stall_timeout_ms, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)
     |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)

@@ -727,6 +727,15 @@ defmodule Aiur.Config do
     settings!().agent.min_free_memory_mb
   end
 
+  @doc """
+  Build-gate slot occupancy watchdog. A slot held longer than this (ms) raises
+  a needs-attention alert naming the command and holder. `0` disables it.
+  """
+  @spec build_gate_stall_timeout_ms() :: non_neg_integer()
+  def build_gate_stall_timeout_ms do
+    settings!().agent.build_gate_stall_timeout_ms || 0
+  end
+
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do
