@@ -806,6 +806,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> maybe_put_worker_pause_reason(status, pause_reason)
       |> maybe_clear_control_owned_pause(request, status)
       |> maybe_clear_pending_pause_reason(request, status)
+      |> maybe_clear_interrupted_turn(status)
 
     maybe_log_worker_pause(status, updated_running_entry, pause_reason)
     record_control_transition(updated_running_entry, previous_status, status, transition_cause)
@@ -827,6 +828,11 @@ defmodule Aiur.Orchestrator.PauseResume do
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
+
+  defp maybe_clear_interrupted_turn(running_entry, :paused),
+    do: Map.delete(running_entry, :interrupted_turn_observed_at)
+
+  defp maybe_clear_interrupted_turn(running_entry, _status), do: running_entry
 
   defp maybe_wake_after_first_active_resume(next_state, previous_state) do
     if State.active_running_count(previous_state.running) == 0 and
