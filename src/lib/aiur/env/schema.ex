@@ -160,7 +160,8 @@ defmodule Aiur.Env.Schema do
     {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/executor-control-center"},
 
     # --- Supervisor Decision API ---
-    {"AIUR_SUPERVISOR_TOKEN", type: :secret, group: :decision_api, purpose: "Bearer token for the Supervisor Decision API; unset refuses those requests.", fetch: "openssl rand -base64 32"},
+    {"AIUR_SUPERVISOR_TOKEN",
+     type: :secret, group: :decision_api, purpose: "Bearer-safe token (at least 32 bytes) for the Supervisor Decision API; unset disables it.", fetch: "openssl rand -base64 32"},
     {"AIUR_CI_READINESS_TOKEN", type: :secret, group: :decision_api, purpose: "Operator token `aiur init` uses to confirm PRs can auto-merge."},
 
     # --- Provider API keys ---

@@ -12,24 +12,24 @@ defmodule AiurWeb.SupervisorAuth do
 
   import Plug.Conn
 
+  alias Aiur.SupervisorToken
+
   @token_env "AIUR_SUPERVISOR_TOKEN"
-  @minimum_token_bytes 32
-  @bearer_token ~r/\A[A-Za-z0-9\-._~+\/]+=*\z/
   @actor %{kind: :supervisor, id: "supervising-agent"}
   @realm "Bearer realm=\"Aiur Supervisor\""
-  @unauthorized_body ~s({"error":{"code":"supervisor_auth_required","message":"Supervisor authentication required"}})
+  @unconfigured_body ~s({"error":{"code":"supervisor_auth_unconfigured","message":"No supervisor credential is configured on this instance"}})
+  @required_body ~s({"error":{"code":"supervisor_auth_required","message":"Supervisor authentication required"}})
+  @invalid_body ~s({"error":{"code":"supervisor_auth_invalid","message":"Supervisor credential did not match"}})
 
   @impl Plug
   def init(opts), do: opts
 
   @impl Plug
   def call(conn, _opts) do
-    with {:ok, configured_token} <- configured_token(),
-         {:ok, presented_token} <- presented_token(conn),
-         true <- token_matches?(presented_token, configured_token) do
-      assign(conn, :decision_actor, @actor)
-    else
-      _error -> unauthorized(conn)
+    case SupervisorToken.classify(System.get_env(@token_env)) do
+      {:ok, configured_token} -> authenticate(conn, configured_token)
+      :missing -> unauthorized(conn, @unconfigured_body)
+      :invalid -> unauthorized(conn, @unconfigured_body)
     end
   end
 
@@ -37,10 +37,17 @@ defmodule AiurWeb.SupervisorAuth do
   @spec actor() :: %{kind: :supervisor, id: String.t()}
   def actor, do: @actor
 
-  defp configured_token do
-    case System.get_env(@token_env) do
-      token when is_binary(token) -> if valid_token?(token), do: {:ok, token}, else: :error
-      _missing -> :error
+  defp authenticate(conn, configured_token) do
+    case presented_token(conn) do
+      {:ok, presented_token} ->
+        if token_matches?(presented_token, configured_token) do
+          assign(conn, :decision_actor, @actor)
+        else
+          unauthorized(conn, @invalid_body)
+        end
+
+      :error ->
+        unauthorized(conn, @required_body)
     end
   end
 
@@ -54,16 +61,18 @@ defmodule AiurWeb.SupervisorAuth do
   defp parse_bearer(header) when is_binary(header) do
     case String.split(header, ~r/\s+/, parts: 2, trim: true) do
       [scheme, token] ->
-        if String.downcase(scheme) == "bearer" and valid_token?(token), do: {:ok, token}, else: :error
+        if String.downcase(scheme) == "bearer", do: normalize_token(token), else: :error
 
       _malformed ->
         :error
     end
   end
 
-  defp valid_token?(token) do
-    byte_size(token) >= @minimum_token_bytes and token == String.trim(token) and
-      Regex.match?(@bearer_token, token)
+  defp normalize_token(token) do
+    case SupervisorToken.classify(token) do
+      {:ok, valid_token} -> {:ok, valid_token}
+      _missing_or_invalid -> :error
+    end
   end
 
   defp token_matches?(presented_token, configured_token) do
@@ -72,11 +81,11 @@ defmodule AiurWeb.SupervisorAuth do
     Plug.Crypto.secure_compare(presented_digest, configured_digest)
   end
 
-  defp unauthorized(conn) do
+  defp unauthorized(conn, body) do
     conn
     |> put_resp_header("www-authenticate", @realm)
     |> put_resp_content_type("application/json")
-    |> send_resp(401, @unauthorized_body)
+    |> send_resp(401, body)
     |> halt()
   end
 end

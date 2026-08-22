@@ -102,6 +102,34 @@ defmodule Aiur.EnvTest do
   end
 
   describe "validate_startup!/1 — the GitHub credential boot gate" do
+    test "aborts when AIUR_SUPERVISOR_TOKEN is present but unusable" do
+      invalid_tokens = ["", "   ", String.duplicate("a", 31), " " <> String.duplicate("a", 32), String.duplicate(":", 32)]
+
+      for token <- invalid_tokens do
+        error =
+          assert_raise ArgumentError, fn ->
+            Env.validate_startup!(%{"AIUR_SUPERVISOR_TOKEN" => token}, require_github_credential: false)
+          end
+
+        assert error.message =~ "AIUR_SUPERVISOR_TOKEN"
+        assert error.message =~ "at least 32 bytes"
+
+        if String.trim(token) != "" do
+          refute error.message =~ token
+        end
+      end
+    end
+
+    test "allows AIUR_SUPERVISOR_TOKEN to be absent or valid" do
+      assert :ok = Env.validate_startup!(%{}, require_github_credential: false)
+
+      assert :ok =
+               Env.validate_startup!(
+                 %{"AIUR_SUPERVISOR_TOKEN" => String.duplicate("a", 32)},
+                 require_github_credential: false
+               )
+    end
+
     test "aborts when no GitHub credential is configured, naming the requirement" do
       error = assert_raise ArgumentError, fn -> Env.validate_startup!(%{}, require_github_credential: true) end
       assert error.message =~ "GITHUB_TOKEN"
@@ -217,7 +245,7 @@ defmodule Aiur.EnvTest do
         "ELEVENLABS_API_KEY" => "k",
         "AIUR_DASHBOARD_USERNAME" => "u",
         "AIUR_DASHBOARD_PASSWORD" => "p",
-        "AIUR_SUPERVISOR_TOKEN" => "t",
+        "AIUR_SUPERVISOR_TOKEN" => String.duplicate("t", 32),
         "DEEPSEEK_API_KEY" => "d",
         "LINEAR_API_KEY" => "l"
       }
