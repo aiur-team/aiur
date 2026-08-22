@@ -18,6 +18,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
   alias Aiur.GithubCacheSourceSupport, as: Source
   alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
+  alias Exqlite.Basic
 
   # A deterministic history double. The page reads whichever provider is
   # configured (`:github_cache_history_provider`), so a test can hand it exact
@@ -213,11 +214,32 @@ defmodule AiurWeb.GithubCacheLiveTest do
       # Scanning only the LiveView would miss a transport introduced one module
       # down, in the projection or the source — which is where a "just fetch it
       # on a miss" would actually be written. The history sampler is on the same
-      # path (it feeds the charts), so it is scanned with the rest.
-      root = Path.expand("../../../lib/aiur/github", __DIR__)
+      # path (it feeds the charts), so it is scanned with the rest. `BudgetMap`
+      # pulls in the credential selector/registry/headroom and the webhook mode
+      # registry and presenter, so the frontier this page reads through moves
+      # one module further down with each new source and every module it
+      # reaches is scanned too.
+      root = Path.expand("../../../lib", __DIR__)
 
-      files =
-        ["cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
+      cache_inspector_files =
+        root
+        |> Path.join("aiur/github/cache_inspector")
+        |> File.ls!()
+        |> Enum.map(&"aiur/github/cache_inspector/#{&1}")
+
+      files = [
+        "aiur/github/cache_inspector.ex",
+        "aiur/github/cache_history.ex",
+        "aiur/github/budget_ledger.ex",
+        "aiur/github/budget_map.ex",
+        "aiur/github/credential_selector.ex",
+        "aiur/github/credential_registry.ex",
+        "aiur/github/credential_headroom.ex",
+        "aiur/webhooks.ex",
+        "aiur/webhooks/mode_presenter.ex",
+        "aiur/webhooks/mode_registry.ex"
+        | cache_inspector_files
+      ]
 
       for relative <- files do
         code = root |> Path.join(relative) |> File.read!() |> strip_prose()
@@ -631,6 +653,88 @@ defmodule AiurWeb.GithubCacheLiveTest do
     end
   end
 
+  # A ledger a test can seed and point the page at, so the admission panel and
+  # the zero-fetch proof run against a real broker-shaped sqlite file. Reading
+  # it (`PRAGMA query_only`) never writes, which is the property the
+  # "refresh leaves the count untouched" test asserts.
+  @ledger_admissions_schema """
+  CREATE TABLE admissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_key TEXT NOT NULL,
+    consumer_key TEXT NOT NULL DEFAULT '',
+    lease_id TEXT,
+    endpoint_family TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    billable INTEGER NOT NULL DEFAULT 1
+  )
+  """
+
+  @ledger_policies_schema """
+  CREATE TABLE policies (
+    token_key TEXT NOT NULL,
+    consumer_key TEXT NOT NULL,
+    consumer_label TEXT NOT NULL DEFAULT '',
+    max_inflight INTEGER NOT NULL,
+    max_inflight_per_endpoint INTEGER NOT NULL,
+    requests_per_minute INTEGER NOT NULL,
+    stagger_ms INTEGER NOT NULL,
+    core_limit_per_hour INTEGER NOT NULL DEFAULT 0,
+    graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0,
+    observed_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (token_key, consumer_key)
+  )
+  """
+
+  defp seed_ledger do
+    path =
+      Path.join(System.tmp_dir!(), "aiur-ghc-live-ledger-#{System.unique_integer([:positive])}.sqlite3")
+
+    {:ok, conn} = Basic.open(path)
+    _ = Basic.exec(conn, @ledger_admissions_schema)
+    _ = Basic.exec(conn, @ledger_policies_schema)
+    now = System.system_time(:millisecond)
+
+    rows = [
+      {"t", "daemon:node@host", "graphql", 1, now - 1_000},
+      {"t", "daemon:node@host", "graphql", 1, now - 2_000},
+      {"t", "daemon:node@host", "graphql", 0, now - 3_000},
+      {"t", "workspace:/x/1", "pulls", 1, now - 4_000},
+      {"t", "workspace:/x/1", "pulls", 0, now - 5_000}
+    ]
+
+    for {token, consumer, family, billable, admitted_at} <- rows do
+      _ =
+        Basic.exec(
+          conn,
+          "INSERT INTO admissions(token_key, consumer_key, endpoint_family, admitted_at_ms, billable) VALUES (?, ?, ?, ?, ?)",
+          [token, consumer, family, admitted_at, billable]
+        )
+    end
+
+    Basic.close(conn)
+    path
+  end
+
+  defp admissions_count(html) do
+    html
+    |> Floki.parse_document!()
+    |> Floki.find(~s([data-role="admissions-totals"] .ghc-bmap-split-value))
+    |> hd()
+    |> Floki.text()
+    |> String.trim()
+    |> String.to_integer()
+  end
+
+  defp split_values(document, role) do
+    document
+    |> Floki.find(~s([data-role="#{role}"] .ghc-bmap-split))
+    |> Map.new(fn split ->
+      label = split |> Floki.find(".ghc-bmap-split-label") |> Floki.text() |> String.trim()
+      value = split |> Floki.find(".ghc-bmap-split-value") |> Floki.text() |> String.trim()
+      {label, value}
+    end)
+  end
+
   defp entries(count, opts \\ []) do
     resource_type = Keyword.get(opts, :resource_type, :issue_comment)
     source = Keyword.get(opts, :source, :webhook)
@@ -955,6 +1059,299 @@ defmodule AiurWeb.GithubCacheLiveTest do
       {:ok, _view, html} = live(build_conn(), "/github-cache")
 
       assert html |> Floki.parse_document!() |> Floki.find(~s([data-role="usage-budget"])) != []
+    end
+  end
+
+  describe "the live budget map" do
+    test "renders the whole section from local state, with every panel failing open" do
+      Source.install(entries(2))
+      install_quota()
+
+      # The webhook registry is a live app process that other tests in the same
+      # CI shard may have written to; a deterministic empty view makes "fails
+      # open" about the page, not about which tests happened to run first.
+      Application.put_env(:aiur, :github_budget_map_modes_fun, fn _opts -> [] end)
+
+      # The ledger must never fall back to the operator's real
+      # ~/.aiur/github-budget/budget.sqlite3. On a live host that file exists
+      # with real rows, so "fails open" would render totals and this assertion
+      # would fail deterministically — and the suite would silently read
+      # production state. A nonexistent path makes the failing-open panel the
+      # same on every host.
+      Application.put_env(:aiur, :github_budget_ledger_path, "/nonexistent/aiur-ghc-live-failing-open.sqlite3")
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :github_budget_map_modes_fun)
+        Application.delete_env(:aiur, :github_budget_ledger_path)
+      end)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      assert document |> Floki.find(~s([data-role="budget-map"])) != []
+      assert document |> Floki.find(~s([data-role="identity-meters"])) != []
+      assert document |> Floki.find(~s([data-role="caller-map"])) != []
+      assert document |> Floki.find(~s([data-role="admissions"])) != []
+      assert document |> Floki.find(~s([data-role="resource-store"])) != []
+      assert document |> Floki.find(~s([data-role="webhooks"])) != []
+      assert document |> Floki.find(~s([data-role="agent-cache"])) != []
+
+      # Unavailable sources read as "not measured" in words, never as zero. With
+      # no ledger, no webhook registry and no agent-cache files, those panels
+      # say why instead of drawing a bare 0; the store runs in this suite, so
+      # its panel renders totals rather than an unavailable note.
+      assert document |> Floki.find(~s([data-role="admissions-unavailable"])) != []
+      assert document |> Floki.find(~s([data-role="store-totals"])) != []
+      assert document |> Floki.find(~s([data-role="webhooks-unavailable"])) != []
+      assert document |> Floki.find(~s([data-role="agent-cache-unavailable"])) != []
+
+      # Identity meters must never render a zero for unknown: either the host
+      # resolves credentials (each rendered as an observed or explicit stale
+      # meter — the dedicated test below covers the figures) or it resolves
+      # none (an explicit "not configured" note). Both are honest; a bare 0 is
+      # not.
+      meters = document |> Floki.find(~s([data-role="identity-meter"] [data-role="meter"]))
+      note = document |> Floki.find(~s([data-role="identity-meters-unavailable"]))
+      assert meters != [] or note != []
+      assert Enum.all?(meters, fn meter -> Floki.attribute(meter, "data-state") in [["observed"], ["stale"]] end)
+    end
+
+    test "identity meters render observed figures or an explicit stale marker, never zero" do
+      Source.install(entries(2))
+      install_quota()
+
+      now = DateTime.utc_now()
+
+      Application.put_env(:aiur, :github_budget_map_headroom_fun, fn _opts ->
+        [
+          %{
+            id: "primary",
+            kind: :app_installation,
+            identity: "aiur-daemon[bot]",
+            writes?: true,
+            primary?: true,
+            available?: true,
+            token_key: "a",
+            windows: %{
+              "graphql" => %{
+                used: 113,
+                limit: 5_000,
+                remaining: 4_887,
+                reset_at: DateTime.add(now, 3_600, :second),
+                observed_at: DateTime.add(now, -120, :second)
+              },
+              "core" => %{
+                used: 2,
+                limit: 5_000,
+                remaining: 4_998,
+                reset_at: DateTime.add(now, 1_800, :second),
+                observed_at: DateTime.add(now, -60, :second)
+              }
+            }
+          },
+          %{
+            id: "pat",
+            kind: :machine_user,
+            identity: "its-applekid",
+            writes?: true,
+            primary?: false,
+            available?: true,
+            token_key: "b",
+            windows: %{},
+            # The expired windows `CredentialSelector.headroom/1` keeps out of
+            # `windows` but preserves in `last_observed`, so the stale meter
+            # says how stale it is.
+            last_observed: %{
+              "graphql" => %{observed_at: DateTime.add(now, -7_200, :second), reset_at: DateTime.add(now, -1, :second)},
+              "core" => %{observed_at: DateTime.add(now, -3_600, :second), reset_at: DateTime.add(now, -1, :second)}
+            }
+          }
+        ]
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :github_budget_map_headroom_fun) end)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      assert length(Floki.find(document, ~s([data-role="identity-meter"]))) == 2
+
+      # The observed credential carries its own live figures, not the fleet
+      # meter's last-writer-wins window.
+      primary = Floki.find(document, ~s([data-role="identity-meter"][data-credential="primary"]))
+
+      graphql_meter = primary |> Floki.find(~s([data-role="meter"][data-resource="graphql"]))
+      assert Floki.attribute(graphql_meter, "data-state") == ["observed"]
+      assert graphql_meter |> Floki.find(~s([data-role="meter-value"])) |> Floki.text() =~ "113"
+
+      # A credential that has not been observed in the current window is stale
+      # with its age, never a zero standing in for "unknown": the marker names
+      # the state and says how long ago the credential's own headers were read.
+      pat = Floki.find(document, ~s([data-role="identity-meter"][data-credential="pat"]))
+
+      pat_core = pat |> Floki.find(~s([data-role="meter"][data-resource="core"]))
+      assert Floki.attribute(pat_core, "data-state") == ["stale"]
+      assert pat_core |> Floki.find(~s([data-role="meter-stale"])) |> Floki.text() =~ "no observation"
+      assert pat_core |> Floki.find(~s([data-role="meter-stale-age"])) |> Floki.text() =~ "1h ago"
+      refute Floki.text(pat) =~ "0 /"
+    end
+
+    test "a meter with an observation time it cannot state says so instead of a fresh age" do
+      Source.install(entries(2))
+      install_quota()
+
+      now = DateTime.utc_now()
+
+      # A window whose `observed_at` is missing — an observed meter with no way
+      # to say how long ago it was read. It must render "observed at an unknown
+      # time", never "observed a moment ago".
+      Application.put_env(:aiur, :github_budget_map_headroom_fun, fn _opts ->
+        [
+          %{
+            id: "primary",
+            kind: :app_installation,
+            identity: "aiur-daemon[bot]",
+            writes?: true,
+            primary?: true,
+            available?: true,
+            token_key: "a",
+            windows: %{
+              "graphql" => %{used: 113, limit: 5_000, remaining: 4_887, reset_at: DateTime.add(now, 3_600, :second)}
+            }
+          }
+        ]
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :github_budget_map_headroom_fun) end)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      graphql_meter =
+        document
+        |> Floki.find(~s([data-role="identity-meter"][data-credential="primary"] [data-role="meter"][data-resource="graphql"]))
+        |> Floki.find(~s([data-role="meter-note"]))
+        |> Floki.text()
+
+      assert graphql_meter =~ "observed at an unknown time"
+      refute graphql_meter =~ "a moment"
+    end
+
+    test "a caller that consults neither cache layer is visibly wasted; a store-backed caller is billed" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+
+      ReadCacheProvider.install(%{
+        available?: true,
+        callers: %{
+          "comment_poll_batch" => %{hit: 0, miss: 1, refused: 55},
+          "issue_relationships" => %{hit: 12, miss: 1, refused: 0}
+        }
+      })
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      # The verdict is never colour alone: each edge carries the word in a chip
+      # and a distinct class, so the wasted callers read at a glance.
+      wasted = Floki.find(document, ~s([data-role="bmap-edge"][data-caller="comment_poll_batch"]))
+      assert Floki.attribute(wasted, "data-verdict") == ["wasted"]
+      assert Floki.attribute(wasted, "class") == ["ghc-bmap-row ghc-bmap-verdict-wasted"]
+      assert wasted |> Floki.find(~s([data-role="bmap-verdict"])) |> Floki.text() == "wasted"
+      assert wasted |> Floki.find(~s([data-role="bmap-cache-layer"])) |> Floki.text() =~ "no store ref, no ETag"
+
+      billed = Floki.find(document, ~s([data-role="bmap-edge"][data-caller="issue_relationships"]))
+      assert Floki.attribute(billed, "data-verdict") == ["billed"]
+      assert Floki.attribute(billed, "class") == ["ghc-bmap-row ghc-bmap-verdict-billed"]
+      assert billed |> Floki.find(~s([data-role="bmap-verdict"])) |> Floki.text() == "billed"
+      assert billed |> Floki.find(~s([data-role="bmap-cache-layer"])) |> Floki.text() =~ "ResourceStore"
+      assert billed |> Floki.find(~s([data-role="bmap-pool"])) |> Floki.text() == "GraphQL pool"
+
+      refute Floki.attribute(wasted, "class") == Floki.attribute(billed, "class")
+    end
+
+    test "the admissions panel reads the broker ledger and labels the family caveat" do
+      Source.install(entries(2))
+      install_quota()
+
+      path = seed_ledger()
+      Application.put_env(:aiur, :github_budget_ledger_path, path)
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :github_budget_ledger_path)
+        File.rm(path)
+      end)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      splits = split_values(document, "admissions-totals")
+      assert splits["admissions"] == "5"
+      assert splits["billable"] == "3"
+      assert splits["304-free"] == "2"
+
+      rows = Floki.find(document, ~s([data-role="admissions-row"]))
+      assert length(rows) == 2
+      assert Floki.attribute(rows, "data-consumer") == ["daemon:node@host", "workspace:/x/1"]
+
+      # The broker books GraphQL-on-the-wire agent commands into core families
+      # until #2297; the page labels the caveat next to the number it qualifies.
+      caveat = document |> Floki.find(~s([data-role="admissions-caveat"])) |> Floki.text()
+      assert caveat =~ "#2297"
+      assert caveat =~ "GraphQL-on-the-wire"
+      assert caveat =~ "a family split is not a budget split"
+    end
+
+    test "the REST attribution caveat renders beside the core budget" do
+      Source.install(entries(2))
+      install_graphql_quota()
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      # Every REST request bills as `unattributed` until #2298; the page says so
+      # instead of showing a partial ranking as if it were complete.
+      caveat =
+        document
+        |> Floki.find(~s([data-role="usage-rest-caveat"]))
+        |> Floki.text()
+        |> String.replace(~r/\s+/, " ")
+        |> String.trim()
+
+      assert caveat =~ "REST spend cannot be attributed by caller"
+      assert caveat =~ "unattributed"
+      assert caveat =~ "#2298"
+    end
+
+    test "refreshing the page leaves the admission count and the quota reading untouched" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      before = reading(quota)
+
+      path = seed_ledger()
+      Application.put_env(:aiur, :github_budget_ledger_path, path)
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :github_budget_ledger_path)
+        File.rm(path)
+      end)
+
+      {:ok, view, html} = live(build_conn(), "/github-cache")
+      assert admissions_count(html) == 5
+
+      # A genuine refresh: the browser reloads and the LiveView remounts, which
+      # re-reads every source. Nothing on this page creates an admission.
+      {:ok, _reloaded, html_after_reload} = live(build_conn(), "/github-cache")
+      assert admissions_count(html_after_reload) == 5
+
+      # The live re-read on the quota sampler's cadence is the page's other
+      # refresh path, and it too must leave the ledger and the meter untouched.
+      send(view.pid, {:quota_history_sampled, 1})
+      html_sampled = render(view)
+      assert admissions_count(html_sampled) == 5
+      assert reading(quota) == before
     end
   end
 
