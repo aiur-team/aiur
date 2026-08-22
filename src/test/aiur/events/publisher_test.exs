@@ -367,6 +367,14 @@ defmodule Aiur.Events.PublisherTest do
       assert Webhooks.mode("owner/repo").last_activity_at == before
     end
 
+    test "a GitHub resource requires an explicit source" do
+      comment_id = System.unique_integer([:positive])
+
+      assert_raise KeyError, fn ->
+        Publisher.publish("ticket.42.issue.commented", %{comment: %{id: comment_id}}, resource: resource_for(comment_id))
+      end
+    end
+
     test "an event filtered as a bot self-loop still records the observation" do
       comment_id = System.unique_integer([:positive])
       before = Webhooks.mode("owner/repo").last_activity_at

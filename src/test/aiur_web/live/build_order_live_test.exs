@@ -237,7 +237,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     unknown = progress_cell(document, "Pack with no resolution claim")
 
     assert progress_state(unresolved) == "unresolved"
-    assert progress_state(empty) == "resolved"
+    assert progress_state(empty) == "empty"
     assert progress_state(partial) == "partial"
     assert progress_state(unknown) == "unknown"
 
@@ -246,9 +246,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Floki.text(unresolved) =~ "0%"
     refute Floki.text(unresolved) =~ "—"
 
-    # The empty pack is a real, resolved zero.
-    assert Floki.text(empty) =~ "0%"
+    # A resolved zero-member pack is empty, not unstarted work at 0%.
+    assert Floki.text(empty) =~ "Empty"
+    refute Floki.text(empty) =~ "0%"
     refute Floki.text(empty) =~ "unknown"
+    assert Floki.find(empty, ~s(.bo-catalog-progress-empty[role="img"])) != []
+    assert Floki.find(empty, ".bo-catalog-invalid") == []
 
     # Partial resolution keeps the number but never hides its coverage.
     assert Floki.text(partial) =~ "97%"
