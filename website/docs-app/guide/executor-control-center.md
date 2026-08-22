@@ -67,6 +67,10 @@ That is the store's own rule applied to its inspector: looking at cached state n
 
 Its headline tile, **Fetches caused by viewing**, therefore reads `0`. Beside it the page prints how many calls the quota meter attributed in total, so the zero reads as a measurement rather than a reassurance.
 
+The **What is spending the budget** table ranks each observed caller by the points that reached GitHub in the current rate-limit window. Its **Served free** column supplies the missing context: it shows caller-wide reads answered by the daemon cache since this daemon boot. A positive read count means low spend may be the cache doing its job; **none this boot** means the cache is available but has served no reads for that caller; **cache unavailable** means there is no cache measurement and must not be read as zero.
+
+Served-free reads cost no GitHub budget. They are shown alongside the ranking for diagnosis, but are excluded from points, calls, rates, shares, charts, attributed totals and outside-spend figures. Because cache counters do not identify a GitHub budget, callers seen only by the cache are not assigned to the GraphQL or core table.
+
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
 Three layers, each addressable and each reachable from the one above:
