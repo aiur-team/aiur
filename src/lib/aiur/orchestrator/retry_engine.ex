@@ -111,10 +111,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp continuation_retry_metadata(running_entry) do
+    issue = Map.get(running_entry, :issue)
+
     %{
       identifier: running_entry.identifier,
-      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
-      priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
+      tracker_identity: Issue.tracker_identity(issue),
+      priority: Map.get(issue || %{}, :priority),
+      issue_state: Map.get(issue || %{}, :state),
       delay_type: :continuation,
       prior_work: prior_work_for_retry?(running_entry),
       worker_host: Map.get(running_entry, :worker_host),
@@ -123,10 +126,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp failure_retry_metadata(running_entry, reason) do
+    issue = Map.get(running_entry, :issue)
+
     %{
       identifier: running_entry.identifier,
-      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
-      priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
+      tracker_identity: Issue.tracker_identity(issue),
+      priority: Map.get(issue || %{}, :priority),
+      issue_state: Map.get(issue || %{}, :state),
       error: "agent exited: #{inspect(reason)}",
       # Structured failure reason retained so retry exhaustion can classify it
       # as a transient infrastructure fault for the #1453 automatic
@@ -409,6 +415,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     priority = pick_retry_priority(previous_retry, metadata)
+    issue_state = pick_retry_issue_state(previous_retry, metadata)
     prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
@@ -513,6 +520,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               workspace_path: workspace_path,
               tracker_identity: tracker_identity,
               priority: priority,
+              issue_state: issue_state,
               terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
             })
       }
@@ -546,6 +554,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
           workspace_path: Map.get(retry_entry, :workspace_path),
           tracker_identity: Map.get(retry_entry, :tracker_identity),
           priority: Map.get(retry_entry, :priority),
+          issue_state: Map.get(retry_entry, :issue_state),
           terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false)
         }
 
@@ -556,32 +565,67 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  @spec handle_retry_issue(State.t(), String.t(), integer(), map()) :: {:noreply, State.t()}
-  def handle_retry_issue(%State{} = state, issue_id, attempt, metadata) do
-    case Orchestrator.ensure_tracker_preflight(state) do
-      {:ok, state} ->
-        handle_retry_tracker_poll(state, issue_id, attempt, metadata)
+  @spec handle_retry_issue(State.t(), String.t(), integer(), map(), keyword()) :: {:noreply, State.t()}
+  def handle_retry_issue(%State{} = state, issue_id, attempt, metadata, opts \\ []) do
+    if retry_capacity_available?(state, metadata) do
+      ensure_tracker_preflight = Keyword.get(opts, :ensure_tracker_preflight_fun, &Orchestrator.ensure_tracker_preflight/1)
 
-      {:error, reason, state} ->
-        formatted = format_retry_preflight_error(reason)
+      case ensure_tracker_preflight.(state) do
+        {:ok, state} ->
+          handle_retry_tracker_poll(state, issue_id, attempt, metadata, opts)
 
-        Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
+        {:error, reason, state} ->
+          formatted = format_retry_preflight_error(reason)
 
-        # Pass the structured reason (not the formatted string) so retry-poll
-        # exhaustion can classify a transient tracker fault for the #1453
-        # automatic re-dispatch.
-        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
+          Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
+
+          # Pass the structured reason (not the formatted string) so retry-poll
+          # exhaustion can classify a transient tracker fault for the #1453
+          # automatic re-dispatch.
+          {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
+      end
+    else
+      Logger.debug("No available slots for retrying issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}; retrying again")
+
+      {:noreply, schedule_capacity_retry(state, issue_id, attempt, metadata)}
     end
   end
 
-  defp handle_retry_tracker_poll(state, issue_id, attempt, metadata) do
-    with {:ok, issues} <- Tracker.fetch_candidate_issues(),
-         {:ok, issue} <- fetch_retry_issue(issues, issue_id, &Tracker.fetch_issue_states_by_ids/1) do
-      handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata)
+  defp retry_capacity_available?(%State{} = state, metadata) when is_map(metadata) do
+    Slots.available_slots(state) > 0 and
+      Slots.worker_slots_available?(state, metadata[:worker_host]) and
+      retry_state_capacity_available?(state, metadata[:issue_state])
+  end
+
+  defp retry_state_capacity_available?(%State{} = state, issue_state) when is_binary(issue_state) do
+    DispatchPolicy.state_slots_available?(%Issue{state: issue_state}, state)
+  end
+
+  defp retry_state_capacity_available?(%State{}, _issue_state), do: true
+
+  defp handle_retry_tracker_poll(state, issue_id, attempt, metadata, opts) do
+    fetch_candidate_issues = Keyword.get(opts, :fetch_candidate_issues_fun, &Tracker.fetch_candidate_issues/0)
+    fetch_issue_states_by_ids = Keyword.get(opts, :fetch_issue_states_by_ids_fun, &Tracker.fetch_issue_states_by_ids/1)
+
+    with {:ok, issues} <- fetch_candidate_issues.(),
+         {:ok, issue} <- fetch_retry_issue(issues, issue_id, fetch_issue_states_by_ids) do
+      handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts)
     else
       {:error, reason} ->
         {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
     end
+  end
+
+  defp schedule_capacity_retry(state, issue_id, attempt, metadata) do
+    schedule_issue_retry(
+      state,
+      issue_id,
+      attempt,
+      Map.merge(metadata, %{
+        error: "no available orchestrator slots",
+        delay_type: :capacity_wait
+      })
+    )
   end
 
   @spec release_issue_claim(State.t(), String.t()) :: State.t()
@@ -1063,19 +1107,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
     else
       Logger.debug("No available slots for retrying #{State.issue_context(issue)}; retrying again")
 
-      {:noreply,
-       schedule_issue_retry(
-         state,
-         issue.id,
-         attempt,
-         Map.merge(metadata, %{
-           identifier: issue.identifier,
-           tracker_identity: Issue.tracker_identity(issue),
-           priority: issue.priority,
-           error: "no available orchestrator slots",
-           delay_type: :capacity_wait
-         })
-       )}
+      capacity_metadata =
+        Map.merge(metadata, %{
+          identifier: issue.identifier,
+          tracker_identity: Issue.tracker_identity(issue),
+          priority: issue.priority,
+          issue_state: issue.state
+        })
+
+      {:noreply, schedule_capacity_retry(state, issue.id, attempt, capacity_metadata)}
     end
   end
 
@@ -1216,6 +1256,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
       Map.get(metadata, :priority)
     else
       Map.get(previous_retry, :priority)
+    end
+  end
+
+  defp pick_retry_issue_state(previous_retry, metadata) do
+    if Map.has_key?(metadata, :issue_state) do
+      Map.get(metadata, :issue_state)
+    else
+      Map.get(previous_retry, :issue_state)
     end
   end
 
