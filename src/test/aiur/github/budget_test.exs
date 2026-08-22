@@ -340,9 +340,14 @@ defmodule Aiur.GitHub.BudgetTest do
       end
 
     # The fourth request from the same agent holds because it hit the Core
-    # ceiling, and the hold names the actor budget as the reason.
+    # ceiling, and the hold names the actor budget as the reason. The
+    # broker-backed deadline is generous (1s, matching the file's other hold
+    # assertions): the actor-ceiling hold is returned as soon as the broker
+    # answers, but a deadline competitive with `python3` subprocess startup
+    # degrades the verdict to `:github_budget_broker_unavailable` on loaded
+    # CI runners (#2286).
     assert {:hold, %{reason: :actor_budget, resource: "core"}} =
-             Budget.acquire(request, Keyword.put(opts, :timeout_ms, 200))
+             Budget.acquire(request, Keyword.put(opts, :timeout_ms, 1_000))
 
     Enum.each(leases, &Budget.release(&1, opts))
 
@@ -371,16 +376,20 @@ defmodule Aiur.GitHub.BudgetTest do
     assert {:ok, c1} = Budget.acquire(core, opts)
     assert {:ok, c2} = Budget.acquire(core, opts)
 
-    # Core is at its ceiling of 2.
+    # Core is at its ceiling of 2. The broker-backed deadline is generous (1s,
+    # matching the file's other hold assertions): the actor-ceiling hold is
+    # returned as soon as the broker answers, but a 200 ms deadline races
+    # `python3` subprocess startup under parallel CI load and degrades to
+    # `:github_budget_broker_unavailable` (#2286).
     assert {:hold, %{reason: :actor_budget, resource: "core"}} =
-             Budget.acquire(core, Keyword.put(opts, :timeout_ms, 200))
+             Budget.acquire(core, Keyword.put(opts, :timeout_ms, 1_000))
 
     # GraphQL still has headroom (0 of 1 used), so it is admitted.
     assert {:ok, g1} = Budget.acquire(graphql, opts)
 
     # Now GraphQL is at its ceiling of 1, and the hold names the graphql resource.
     assert {:hold, %{reason: :actor_budget, resource: "graphql"}} =
-             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 200))
+             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 1_000))
 
     :ok = Budget.release(c1, opts)
     :ok = Budget.release(c2, opts)
