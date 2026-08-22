@@ -37,13 +37,13 @@ tracker:
     max_inflight_per_endpoint: 2
     requests_per_minute: 120
     stagger_ms: 75
-    # Per-actor hourly ceilings (0 disables): how many Core (REST) / GraphQL
-    # requests one actor may be admitted for in a rolling hour before its own
-    # requests hold. Request-count ceilings, not GraphQL point budgets.
+    # Per-actor hourly ceilings (0 disables): billable Core (REST) / GraphQL
+    # responses in a rolling hour. 304s reconcile as free. The defaults reserve
+    # daemon capacity and fit eight agents inside each 5,000-unit window.
     daemon_core_limit_per_hour: 3000
     daemon_graphql_limit_per_hour: 2000
-    agent_core_limit_per_hour: 1000
-    agent_graphql_limit_per_hour: 500
+    agent_core_limit_per_hour: 250
+    agent_graphql_limit_per_hour: 375
 build_order:
   # Three settings are intentionally absent — graph_catalog_refresh_ms,
   # graph_catalog_labels_refresh_ms and ticket_detail_freshness_ms. They derive

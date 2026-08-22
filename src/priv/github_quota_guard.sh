@@ -49,6 +49,7 @@ agent_quota_dir=${AIUR_AGENT_QUOTA_STATE_PATH:-}
 events_file=
 budget_root=${AIUR_GITHUB_BUDGET_ROOT:-"$HOME/.aiur/github-budget"}
 budget_key=${AIUR_GITHUB_BUDGET_KEY:-}
+budget_identity_key=${AIUR_GITHUB_BUDGET_IDENTITY_KEY:-}
 budget_broker=${AIUR_GITHUB_BUDGET_BROKER:-"$(dirname "$0")/aiur-github-budget"}
 budget_requested=${AIUR_GITHUB_BUDGET_ENABLED:-1}
 budget_db=
@@ -1590,7 +1591,11 @@ cache_claim_overtake=0
 cache_served=0
 
 budget_command() {
-  python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+  if [ -n "$budget_identity_key" ]; then
+    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+  else
+    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+  fi
 }
 
 budget_sleep_ms() {
@@ -1705,6 +1710,16 @@ budget_release() {
   [ -n "$budget_lease" ] || return 0
   budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
   budget_lease=
+}
+
+budget_reconcile_response() {
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ -n "$budget_lease" ] || return 0
+  [ -n "$output_file" ] && [ -f "$output_file" ] || return 0
+
+  if awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"; then
+    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+  fi
 }
 
 budget_start_renewal() {
@@ -2587,6 +2602,7 @@ record_successful_budget_hold() {
 }
 
 record_successful_budget_hold
+budget_reconcile_response
 
 # A mutation invalidates before its response is stored, so an agent that edits a
 # pull request and immediately reads it back can never be answered from the copy

@@ -542,11 +542,12 @@ defmodule Aiur.GitHub.Quota do
 
   defp secondary_topic(resource), do: "system.github.quota.#{resource}.secondary"
 
-  defp attribute_request(state, request, {:ok, %{status: status} = response}, now) when is_integer(status) do
+  defp attribute_request(state, request, result, now) do
     if rate_limit_endpoint?(request) do
       state
     else
       resource = request_resource(request)
+      {status, response} = attribution_response(result)
       {cost, cost_source} = request_cost(resource, status, response)
 
       observation = %{
@@ -564,7 +565,8 @@ defmodule Aiur.GitHub.Quota do
     end
   end
 
-  defp attribute_request(state, _request, _result, _now), do: state
+  defp attribution_response({:ok, response}) when is_map(response), do: {Map.get(response, :status), response}
+  defp attribution_response(_result), do: {nil, %{}}
 
   # What the call actually cost the budget it was billed to.
   #
