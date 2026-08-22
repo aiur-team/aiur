@@ -104,6 +104,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
       ArgumentError -> %{available?: false, measured?: false}
     end
   end
+
   @endpoint Endpoint
   @reset ~U[2030-01-01 12:00:00Z]
 
