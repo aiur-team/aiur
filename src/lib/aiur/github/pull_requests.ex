@@ -250,6 +250,12 @@ defmodule Aiur.GitHub.PullRequests do
   label filter. Each returned PR map carries at least the PR number and head
   ref so the comment poller can key on the PR number and skip
   `fetch_open_pull_request_for_branch/2` (no branch derivation for watched PRs).
+
+  The listing is `created` desc, so a page-1 validator could never answer for
+  a multi-page list — a label added to an older PR lands on page 2+ while
+  page 1 answers `304` forever (#2330). Watch-target discovery therefore reads
+  this listing **unconditionally**: correct beats quietly wrong, and the read
+  is one per poll cycle (see website/docs-app/apis/github.md).
   """
   @spec fetch_open_pull_requests_by_label(String.t(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
@@ -262,81 +268,6 @@ defmodule Aiur.GitHub.PullRequests do
       fetch_labeled_open_pull_requests(request_fun, token, url, label, [])
     end
   end
-
-  @doc """
-  Fetches the OPEN pull requests carrying `label` with `If-None-Match` support.
-
-  The list-only `fetch_open_pull_requests_by_label/2` contract is unchanged for
-  callers that need a fresh answer. The comment poll uses this variant so its
-  per-cycle watch-target discovery is a `304` in steady state — a request GitHub
-  does not bill against the primary REST limit — instead of a full-price re-read
-  of every open pull request.
-
-  The open-pull-request listing is `created` desc, so the validator kept is
-  trustworthy only while the read is single-page: page 1 then *is* the whole
-  listing, and a page-1 `304` certifies it. Once the listing paginates, a
-  page-1 validator can no longer answer the multi-page question (an edit to an
-  older PR lands on page 2+), so the validator is dropped and the next discovery
-  reads unconditionally — correct beats quietly wrong (see the conditional-read
-  rules in website/docs-app/apis/github.md).
-  """
-  @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
-          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
-  def fetch_open_pull_requests_by_label_conditional(label, opts \\ []) when is_binary(label) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      etag = Keyword.get(opts, :etag)
-      request = labeled_open_pull_requests_request(owner, repo, token, etag)
-      fetch_labeled_open_pull_requests_conditional(request_fun, request, label, etag)
-    end
-  end
-
-  defp labeled_open_pull_requests_request(owner, repo, token, etag) do
-    query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
-    url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
-    request = %{method: :get, url: url, token: token}
-
-    if is_binary(etag) and etag != "" do
-      Map.put(request, :etag, etag)
-    else
-      request
-    end
-  end
-
-  defp fetch_labeled_open_pull_requests_conditional(request_fun, request, label, etag) do
-    case request_fun.(request) do
-      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
-        match_labeled_open_pull_requests(request_fun, request, body, headers, label, etag)
-
-      {:ok, %{status: 304} = response} ->
-        {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
-
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
-    end
-  end
-
-  defp match_labeled_open_pull_requests(request_fun, request, body, headers, label, etag) do
-    matched = Enum.filter(body, &pull_request_has_label?(&1, label))
-    next = Transport.parse_next_page_url(headers)
-    first_etag = Transport.header(headers, "etag") || etag
-
-    case fetch_labeled_open_pull_requests(request_fun, request.token, next, label, matched) do
-      {:ok, pull_requests} -> {:ok, pull_requests, single_page_validator(next, first_etag)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  # #2330: the open-PR listing is `created` desc, so a label added to an older
-  # PR lands on page 2+ while page 1 answers `304` forever. Only a single-page
-  # read earns a validator; once the listing paginates the validator is dropped
-  # and the next discovery reads unconditionally.
-  defp single_page_validator(nil, etag), do: etag
-  defp single_page_validator(_next, _etag), do: nil
 
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
