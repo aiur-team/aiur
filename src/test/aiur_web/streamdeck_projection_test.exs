@@ -137,7 +137,10 @@ defmodule AiurWeb.StreamdeckProjectionTest do
       state: :observed,
       observed_at: @now,
       freshness: :fresh,
-      windows: %{"deepseek:credits" => credit_window(44, @now)}
+      windows: %{
+        "deepseek:credits" => credit_window(44, @now),
+        "local-concurrency" => rate_window(0.04, 0, @now, :fresh)
+      }
     }
 
     view = StreamdeckProjection.provider_meters(%{deepseek: meter}, @now)
@@ -145,6 +148,23 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert get_in(view, ["deepseek", "windows", "session", "used_percent"]) == 44
     assert get_in(view, ["deepseek", "windows", "session", "remaining"]) == 10.93
     refute get_in(view, ["deepseek", "windows", "weekly"])
+  end
+
+  test "does not promote a second primary window into the weekly slot" do
+    meter = %{
+      state: :observed,
+      observed_at: @now,
+      freshness: :fresh,
+      windows: %{
+        "codex:primary" => rate_window(2, 300, @now, :fresh),
+        "gpt-5:primary" => rate_window(7, 300, @now, :fresh)
+      }
+    }
+
+    view = StreamdeckProjection.provider_meters(%{codex: meter}, @now)
+
+    assert get_in(view, ["codex", "windows", "session", "used_percent"]) == 2
+    refute get_in(view, ["codex", "windows", "weekly"])
   end
 
   # The dashboard's provider cards attach a provider's durable last-known
