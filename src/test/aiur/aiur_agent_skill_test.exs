@@ -277,6 +277,27 @@ defmodule Aiur.AiurAgentSkillTest do
     assert payload["consequence_of_delay"] =~ "no timeout chooses automatically"
   end
 
+  test "Command authoring classifies routine reversible operations as delegable" do
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+    normalized = one_line(relay)
+
+    assert normalized =~ "Classify the requested action, not the topic around it"
+    assert normalized =~ "routine, reversible operational"
+    assert normalized =~ "`authority: supervisor_allowed`"
+    assert normalized =~ "irreversible actions, spend, external publication, or product direction"
+
+    [_guidance, worked_example] =
+      String.split(relay, "#### Before and after: a real Command from sandbox issue #101", parts: 2)
+
+    [_, payload_json] = Regex.run(~r/```jsonc\n(.*?)\n```/s, worked_example)
+    payload = Jason.decode!(payload_json)
+
+    assert payload["authority"] == "supervisor_allowed"
+    assert payload["reversibility"] == "reversible"
+    assert Enum.all?(payload["options"], &(&1["risk"] == "low"))
+    assert is_binary(payload["recommendation"]["option_id"])
+  end
+
   test "blocker guidance keeps unblocked work moving" do
     shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))

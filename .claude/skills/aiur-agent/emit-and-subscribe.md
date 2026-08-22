@@ -72,6 +72,22 @@ what the operator should choose, it does not belong here.
 Before emitting, perform a cold-read check: could someone answer from these
 fields alone, without knowing the ticket title? If not, rewrite it.
 
+**Classify the requested action, not the topic around it.** A routine,
+reversible operational choice with low-risk options and a recommendation must
+normally declare `authority: supervisor_allowed` and `reversibility:
+reversible`, even when it concerns credentials, permissions, CI, or another
+sensitive subsystem. Reserve `human_required` for the action boundary itself:
+irreversible actions, spend, external publication, or product direction and
+scope changes. Granting or removing a sandbox permission, lifting or restoring
+a PR draft, retrying CI, and recording an operational fact are reversible; do
+not classify them as human-only merely because their surrounding topic sounds
+sensitive.
+
+Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
+classification warning. The store does not silently override the declared
+authority: correct it with a newer request version. The Executor floor remains
+unchanged and still refuses human-required or non-reversible Commands.
+
 If the question has two to five bounded alternatives, you **must** encode them
 as `options` before emitting an `attention.*` or `pause.request` event. If you
 can phrase the question as “A or B?”, A and B belong in `options` so the
@@ -111,10 +127,10 @@ misleading.
     "option_id": "a",
     "reason": "Why this is the recommended option."
   },
-  "authority": "human_required",
+  "authority": "supervisor_allowed",
   "urgency": "normal",
   "reversibility": "reversible",
-  "kind": "product",
+  "kind": "operational",
   "consequence_of_delay": "No answer: state exactly what waits, stalls, times out, or proceeds by default."
 }
 ```
@@ -176,10 +192,10 @@ or what silence does. The same decision, rewritten for zero context, is:
     "option_id": "multiply",
     "reason": "The demo only needs a square, so direct multiplication communicates its behavior fastest."
   },
-  "authority": "human_required",
+  "authority": "supervisor_allowed",
   "urgency": "normal",
   "reversibility": "reversible",
-  "kind": "product",
+  "kind": "operational",
   "consequence_of_delay": "No answer: issue #101's agent remains paused and the three-ticket event-flow demo cannot finish; no timeout chooses automatically. If the Command is dismissed, the agent uses direct multiplication."
 }
 ```
