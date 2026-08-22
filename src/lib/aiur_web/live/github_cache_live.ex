@@ -729,6 +729,10 @@ defmodule AiurWeb.GithubCacheLive do
           </span>
         </figcaption>
         <figcaption class="ghc-usage-note">
+          <span :if={QuotaUsage.spans_previous_window?(@series)} data-role="usage-previous-window-note">
+            <strong>Shaded history is before the current credential window.</strong>
+            The headline and table describe only the current window.
+          </span>
           Stacks to the credential's own spend, so the height is the bill and the caller bands are
           the share of it this daemon can explain.
         </figcaption>
@@ -743,6 +747,10 @@ defmodule AiurWeb.GithubCacheLive do
           </span>
         </figcaption>
         <figcaption class="ghc-usage-note">
+          <span :if={QuotaUsage.spans_previous_window?(@series)} data-role="usage-previous-window-note">
+            <strong>Shaded history is before the current credential window.</strong>
+            The headline and table describe only the current window.
+          </span>
           The same callers rescaled to their own total, because on the chart beside it they are a
           sliver. This is <strong>not</strong> the bill — read the height there, the ranking here.
         </figcaption>

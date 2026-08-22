@@ -110,6 +110,43 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.ChartsTest do
       refute Charts.spend_over_time(series()) =~ "not the whole bill"
     end
 
+    test "shades and labels history from before the current credential window" do
+      series = %{series() | current_window_started_at_ms: @t0 + 60_000}
+      svg = Charts.spend_over_time(series)
+
+      assert svg =~ ~s(data-role="pre-window-history")
+      assert svg =~ ~s(data-role="current-window-boundary")
+      assert svg =~ ~s(<rect x="44" y="14" width="351.0")
+      assert svg =~ ~s(<line x1="395.0" x2="395.0")
+      assert svg =~ "before current window"
+      assert svg =~ "current window"
+    end
+
+    test "does not connect stacked bands across a credential-window reset" do
+      points =
+        series().points
+        |> Enum.with_index()
+        |> Enum.map(fn {point, index} ->
+          values = if index < 2, do: %{"comment_poll_batch" => 4_800}, else: %{"comment_poll_batch" => 2}
+          %{point | values: values}
+        end)
+
+      svg = Charts.spend_over_time(%{series() | points: points, current_window_started_at_ms: @t0 + 60_000})
+
+      assert length(Regex.scan(~r/<path/, svg)) == 6
+      assert length(Regex.scan(~r/<path[^>]+data-window="previous"/, svg)) == 3
+      assert length(Regex.scan(~r/<path[^>]+data-window="current"/, svg)) == 3
+    end
+
+    test "omits window markers when the boundary is outside retained history" do
+      for boundary <- [@t0, @t0 + 150_000, nil] do
+        svg = Charts.spend_over_time(%{series() | current_window_started_at_ms: boundary})
+
+        refute svg =~ ~s(data-role="pre-window-history")
+        refute svg =~ ~s(data-role="current-window-boundary")
+      end
+    end
+
     test "renders nothing rather than an empty axis when there is nothing to draw" do
       assert Charts.spend_over_time(nil) == ""
       assert Charts.spend_over_time(%{series() | points: Enum.take(series().points, 1)}) == ""
@@ -133,6 +170,14 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.ChartsTest do
         }
       end
 
-    %{budget: "graphql", scope: :bill, bands: bands, points: points, dropped: 0, estimated?: false}
+    %{
+      budget: "graphql",
+      scope: :bill,
+      bands: bands,
+      points: points,
+      dropped: 0,
+      estimated?: false,
+      current_window_started_at_ms: @t0
+    }
   end
 end
