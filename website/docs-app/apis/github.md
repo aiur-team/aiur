@@ -452,7 +452,7 @@ The webhook shortens reaction time for repository events while polling continues
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
 
-A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop. A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
+A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop. A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately. Repository-configuration reads are the one exception: branch protection, rulesets and workflow-file reads (`:repo_config`) ride a five-minute TTL in polling mode and still rise to an hour under a proven webhook, because every delivery also retires a repository's config reads.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
 
