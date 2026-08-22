@@ -35,7 +35,9 @@ defmodule Aiur.GitHubCostCLI do
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
-    case build(opts) do
+    error_fun = Keyword.get(opts, :error_fun, &default_error/1)
+
+    case build(Keyword.delete(opts, :error_fun)) do
       {:ok, envelope} ->
         if Keyword.get(opts, :json, false),
           do: IO.puts(Jason.encode!(envelope)),
@@ -44,21 +46,24 @@ defmodule Aiur.GitHubCostCLI do
         0
 
       {:error, reason} ->
-        IO.puts(:stderr, "aiur: github-cost #{reason}")
+        error_fun.("aiur: github-cost #{reason}")
         1
     end
   end
 
+  defp default_error(message), do: IO.puts(:stderr, message)
+
   @doc """
   The ranking envelope, with no output of its own.
 
-  `snapshot_fun` is the seam: the default reads the live `Aiur.GitHub.Quota`,
-  and tests hand in a fixed snapshot so the rendering can be asserted without a
-  daemon.
+  `snapshot_fun` is the seam: the default strictly reads the live
+  `Aiur.GitHub.Quota`, and tests hand in a fixed snapshot so the rendering can
+  be asserted without a daemon. Unlike dashboard projections, this diagnostic
+  must fail when its meter cannot be reached.
   """
   @spec build(keyword()) :: {:ok, map()} | {:error, String.t()}
   def build(opts \\ []) do
-    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot/0)
+    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot!/0)
     budget = Keyword.get(opts, :budget, "graphql")
 
     with {:ok, snapshot} <- fetch(snapshot_fun),
