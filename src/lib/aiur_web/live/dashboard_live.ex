@@ -1236,7 +1236,9 @@ defmodule AiurWeb.DashboardLive do
   end
 
   # Confirming changed the tracker, so the panel's labels and its routing
-  # prediction are both stale until the poller catches up. Ask it to re-read now.
+  # prediction are both stale until the event stream carries it. Ask the
+  # projection to re-list now, in addition to the delivery that is already on
+  # its way.
   defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
     OpenTicketSource.refresh()
     Aiur.Orchestrator.request_refresh(capacity_orchestrator())

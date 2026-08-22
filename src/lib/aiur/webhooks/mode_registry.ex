@@ -36,9 +36,31 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   @type server :: GenServer.server()
 
+  # Published to PubSub when a proven repo degrades. The event-sourced
+  # view-state sources subscribe to this so they can re-list on the gap — the
+  # one case where deliveries are known to be dropped — rather than on a clock.
+  @degraded_topic "webhooks:mode:degraded"
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
+
+  @doc """
+  Subscribes the caller to `{:webhook_degraded, repo}` broadcasts.
+
+  A degradation means the repo's webhook deliveries are known to be dropped, so
+  any projection that rides the event stream must re-list to re-converge. This
+  is the gap-based counterpart to a bootstrap listing: re-list on boot, and
+  re-list when the stream is known to have gaps.
+  """
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe do
+    Phoenix.PubSub.subscribe(Aiur.PubSub, @degraded_topic)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
   end
 
   @doc """
@@ -327,6 +349,8 @@ defmodule Aiur.Webhooks.ModeRegistry do
   defp announce(state, %DeliveryMode{repo: repo} = mode, :degraded) do
     seconds = div(state.silence_threshold_ms, 1_000)
 
+    publish_degraded(repo)
+
     emit(
       state,
       "webhook.degraded",
@@ -384,5 +408,21 @@ defmodule Aiur.Webhooks.ModeRegistry do
     error -> Logger.warning("Webhooks.ModeRegistry alert #{name} failed: #{Exception.message(error)}")
   catch
     :exit, reason -> Logger.warning("Webhooks.ModeRegistry alert #{name} exited: #{inspect(reason)}")
+  end
+
+  # Best-effort, and deliberately quiet on failure: a subscriber that misses
+  # the broadcast re-converges on the next degradation or an explicit refresh,
+  # and the alert is the operator-facing signal for the same transition. A
+  # broadcast must never take down the sweep that just did real work.
+  defp publish_degraded(repo) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @degraded_topic, {:webhook_degraded, repo})
+    end
+
+    :ok
+  rescue
+    error -> Logger.warning("Webhooks.ModeRegistry publish degraded failed: #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("Webhooks.ModeRegistry publish degraded exited: #{inspect(reason)}")
   end
 end

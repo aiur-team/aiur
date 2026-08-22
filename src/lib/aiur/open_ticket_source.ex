@@ -1,6 +1,6 @@
 defmodule Aiur.OpenTicketSource do
   @moduledoc """
-  Supervised, in-memory poller for every open ticket on the repository.
+  Event-sourced projection of every open ticket on the repository.
 
   The orchestrator only ever sees the slice of the tracker it dispatches from:
   its candidate poll is scoped to the configured `agent:*` active-state labels,
@@ -8,47 +8,55 @@ defmodule Aiur.OpenTicketSource do
   Tickets panel needs the whole open backlog — including the tickets nobody has
   routed yet — which is exactly the set no other provider holds.
 
-  This source lists open issues, keeps the last successful listing as
-  last-known-good, and reports a named stale/unavailable status on failure rather
-  than presenting an empty list as fresh truth. It is modelled on
+  ## Where the backlog comes from now
+
+  The source used to poll GitHub for the open listing on a timer. Every
+  ticket's state is now already deposited in `Aiur.GitHub.ResourceStore` by the
+  `issues` webhook delivery (`opened`, `closed`, `reopened`, `labeled`,
+  `unlabeled`, `edited`, `deleted`, `transferred`) **before** the event is
+  published — see `Aiur.Events.GithubWebhook.Deposit` — and Aiur's own label
+  and ticket mutations write through the same store. So this source subscribes
+  to `:issue` and `:issue_labels` store changes and maintains the whole open
+  backlog from that event stream, no listing required in steady state.
+
+  **Keep exactly one listing per boot**: a bootstrap read establishes the
+  baseline the event stream then maintains, so a restart never starts empty.
+  Re-listing also happens when `Aiur.Webhooks.ModeRegistry` reports the
+  repository `degraded` — the one case where deliveries are known to be dropped
+  — and on an explicit `refresh/1` (a real demand, e.g. after the dashboard's
+  own mutation). That is gap-based re-convergence, never a clock.
+
+  It holds **no timer** and performs **no GitHub reads** in steady state.
+  `Aiur.GitHub.ViewStateSweep` does not sweep it; the event stream is the
+  refresh.
+
+  The projection keeps the last successful listing as last-known-good and
+  reports a named stale/unavailable status on failure rather than presenting an
+  empty list as fresh truth. It is modelled on
   `Aiur.BuildOrder.AdHocSource`, which solves the same problem for the Ad Hoc
   overlay.
-
-  It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
-  between. Three sources each running their own interval against one API is what
-  this ticket exists to remove, and this listing in particular was the fastest
-  unconditional full-backlog read in the system.
-
-  It does not yet read the store or subscribe to its change events, so the sweep
-  is currently the only thing that refreshes it and a change made outside Aiur
-  surfaces within one sweep interval. That latency is what the store
-  subscription removes; this module's job here was removing the cost.
   """
 
   use GenServer
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Issues, RequestOrigin, Transport}
+  alias Aiur.GitHub.{Config, Issues, RequestOrigin, ResourceStore, Transport}
   alias Aiur.Issue
   alias Aiur.OpenTicketSource.Snapshot
+  alias Aiur.Webhooks.ModeRegistry
 
   @topic "open_tickets:changed"
   @max_pages 10
-  # Issue bodies are large on a planning-heavy repository, so the response is
-  # bounded rather than decoded in full.
+  # Issue bodies are large on a planning-heavy repository, so the bootstrap
+  # response is bounded rather than decoded in full.
   @max_response_bytes 4 * 1024 * 1024
-  # The Tickets panel search matches descriptions as well as titles, and this
+  # The Tickets panel search matches descriptions as well as titles, and the
   # listing already carries every body on the wire — GitHub's REST issue list
-  # returns `body` inline, so reading descriptions costs no extra request. That
-  # is worth stating, because the Build Order catalog cannot do the same: its
-  # GraphQL connection bills per parent, which is why a per-ticket body fetch
-  # was avoided there. What descriptions do cost here is retained memory — this
-  # poller holds the whole open backlog and broadcasts it to every subscribed
-  # LiveView — so only the head of each body is kept. A ticket's summary lives
-  # in its opening lines; the tail is checklists and logs, which make a search
-  # noisier rather than better.
+  # returns `body` inline, so reading descriptions costs no extra request. Only
+  # the head of each body is kept: this projection broadcasts to every
+  # subscribed LiveView, so a ticket's summary lives in its opening lines and
+  # the tail (checklists and logs) makes a search noisier rather than better.
   @body_excerpt_chars 1_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -74,12 +82,12 @@ defmodule Aiur.OpenTicketSource do
   @spec topic() :: String.t()
   def topic, do: @topic
 
-  @doc "Requests an out-of-band refresh (async)."
+  @doc "Requests an out-of-band re-list (async)."
   @spec refresh(GenServer.server()) :: :ok
   def refresh(server \\ __MODULE__),
     do: GenServer.cast(server, {:refresh, RequestOrigin.view_originated?()})
 
-  @doc "Synchronously refreshes and returns the resulting snapshot (test/support)."
+  @doc "Synchronously re-lists and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
   def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync)
 
@@ -89,8 +97,11 @@ defmodule Aiur.OpenTicketSource do
 
     state = %{
       snapshot: %Snapshot{},
-      inflight: nil,
-      task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
+      # The projection: issue number (string) => ticket. The event stream
+      # reconciles one entry at a time; the snapshot is derived from this map.
+      tickets: %{},
+      truncated?: false,
+      repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
@@ -99,6 +110,8 @@ defmodule Aiur.OpenTicketSource do
       github_fun: Keyword.get(opts, :github_fun, &github_tracker?/0)
     }
 
+    state = %{state | repo: resolve_repo(state.repo_fun)}
+    if state.github_fun.(), do: subscribe_to_events()
     if Keyword.get(opts, :poll_on_start, true), do: send(self(), :poll)
     {:ok, state}
   end
@@ -107,45 +120,139 @@ defmodule Aiur.OpenTicketSource do
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
   def handle_call(:refresh_sync, _from, state) do
-    state = apply_and_broadcast(state, fetch(state))
+    state = apply_result(state, fetch(state))
     {:reply, state.snapshot, state}
   end
 
   @impl true
-  def handle_cast({:refresh, view_originated?}, state),
-    do: {:noreply, ensure_fetch(state, view_originated?)}
-
-  @impl true
-  # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
-  # asks this source to reconcile; `:poll` remains so a boot fill and an explicit
-  # sweep both land on the same path.
-  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state, false)}
-
-  def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    {:noreply, apply_and_broadcast(%{state | inflight: nil}, result)}
+  # A demand re-list. Applied synchronously in this process, so a store event
+  # that arrives while the listing is in flight is queued behind it and applied
+  # after — a listing is a GitHub snapshot taken before the event, so the event
+  # must win. An async task would let the listing's stale full-set overwrite a
+  # newer event (a ticket opened between the listing snapshot and its
+  # application would be dropped), which is the exact divergence this design
+  # exists to prevent.
+  def handle_cast({:refresh, view_originated?}, state) do
+    {:noreply, apply_result(state, RequestOrigin.carry(view_originated?, fn -> fetch(state) end))}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{inflight: ref} = state) do
-    {:noreply, apply_and_broadcast(%{state | inflight: nil}, {:error, :task_down})}
+  @impl true
+  # The boot fill, applied synchronously for the same reason as `refresh/1`:
+  # the one listing per boot is the baseline, and the event stream maintains
+  # it. `ViewStateSweep` no longer sweeps this source.
+  def handle_info(:poll, state) do
+    {:noreply, apply_result(state, fetch(state))}
+  end
+
+  # The gap-based re-convergence: deliveries are known to be dropped while the
+  # repo is degraded, so re-list to re-establish the baseline.
+  def handle_info({:webhook_degraded, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # A store change for the source's repository. Every `issues` delivery
+  # deposits the issue body before publishing, and Aiur's own mutations write
+  # through the same store, so the current body is already in local memory when
+  # this runs — reconcile exactly that ticket, no listing.
+  def handle_info({:github_resource_changed, %{key: {type, owner, repo, id}} = change}, state)
+      when type in [:issue, :issue_labels] do
+    {:noreply, reconcile_issue(state, owner, repo, id, change)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp ensure_fetch(%{inflight: ref} = state, _view_originated?) when is_reference(ref), do: state
+  # -- event-stream projection ---------------------------------------------
 
-  # Only the four provider funs and the label prefix cross into the task; passing
-  # the whole state would copy the retained ticket list on every poll.
-  defp ensure_fetch(state, view_originated?) do
-    request = Map.take(state, [:repo_fun, :token_fun, :request_fun, :github_fun, :label_prefix])
+  # The `:issue` and `:issue_labels` type subscriptions are repo-wide, so a
+  # multi-repo fleet delivers other repos' issues here; only the source's own
+  # repository is reconciled.
+  defp reconcile_issue(%{repo: {owner, repo}} = state, owner, repo, id, change) do
+    case change do
+      # A deleted issue drops both its issue body and its label set; nothing
+      # else publishes a change with no body held. The store's own retention
+      # eviction is silent and never reaches here.
+      %{data?: false} ->
+        remove_ticket(state, id)
 
-    task =
-      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-        RequestOrigin.carry(view_originated?, fn -> fetch(request) end)
-      end)
-
-    %{state | inflight: task.ref}
+      _change ->
+        case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+          # A labels-only mutation on an issue the store never held (no webhook
+          # has deposited it and the boot listing does not write through). The
+          # projection still holds the ticket, so keep it and refresh its labels
+          # rather than dropping an open ticket because the store lacks a body
+          # it may never have had.
+          nil -> update_held_labels(state, id)
+          _gh_issue -> apply_issue_change(state, id)
+        end
+    end
   end
+
+  defp reconcile_issue(state, _owner, _repo, _id, _change), do: state
+
+  defp apply_issue_change(%{repo: {owner, repo}} = state, id) do
+    case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+      nil ->
+        remove_ticket(state, id)
+
+      gh_issue ->
+        cond do
+          # GitHub serves pull requests from the issues endpoint; only a
+          # `pull_request` key distinguishes them, and the Tickets panel is
+          # about tickets.
+          pull_request?(gh_issue) -> remove_ticket(state, id)
+          Map.get(gh_issue, "state") != "open" -> remove_ticket(state, id)
+          true -> upsert_ticket(state, Issues.normalize_issue(gh_issue, owner, repo, state.label_prefix))
+        end
+    end
+  end
+
+  # The `:issue_labels` body is GitHub's own labels array; it lets a held
+  # ticket's labels refresh even when the store holds no issue body for it.
+  defp update_held_labels(%{repo: {owner, repo}} = state, id) do
+    case Map.fetch(state.tickets, id) do
+      {:ok, ticket} ->
+        labels = label_names(ResourceStore.data(ResourceStore.key(:issue_labels, owner, repo, id)))
+
+        %{state | tickets: Map.put(state.tickets, id, %{ticket | labels: labels})}
+        |> apply_tickets()
+
+      :error ->
+        state
+    end
+  end
+
+  defp label_names(labels) when is_list(labels) do
+    Enum.map(labels, &String.downcase(Map.get(&1, "name") || ""))
+  end
+
+  defp label_names(_labels), do: []
+
+  defp upsert_ticket(state, %Issue{} = issue) do
+    ticket = ticket(issue)
+
+    %{state | tickets: Map.put(state.tickets, ticket.identifier, ticket)}
+    |> apply_tickets()
+  end
+
+  defp remove_ticket(state, id) do
+    if Map.has_key?(state.tickets, id) do
+      %{state | tickets: Map.delete(state.tickets, id)}
+      |> apply_tickets()
+    else
+      state
+    end
+  end
+
+  # Rebuild the snapshot from the projection map. A store event that does not
+  # change the projected content (an `:issue_labels` wake arriving after the
+  # same delivery's `:issue` wake already applied it) neither bumps the
+  # generation nor wakes subscribers.
+  defp apply_tickets(state) do
+    previous = state.snapshot
+    state = rebuild_snapshot(state)
+    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
+    state
+  end
+
+  # -- bootstrap listing ----------------------------------------------------
 
   @spec fetch(map()) :: {:ok, [Snapshot.ticket()], boolean()} | {:error, term()} | :unsupported
   defp fetch(state) do
@@ -237,29 +344,47 @@ defmodule Aiur.OpenTicketSource do
 
   defp body_excerpt(_description), do: nil
 
-  defp apply_result(state, {:ok, tickets, truncated?}) do
-    generation = (state.snapshot.generation || 0) + 1
+  # -- snapshot plumbing ----------------------------------------------------
 
-    snapshot = %Snapshot{
-      status: :available,
-      generation: generation,
-      observed_at: now(state),
-      truncated?: truncated?,
-      tickets: Enum.sort_by(tickets, &sort_key/1)
-    }
-
-    %{state | snapshot: snapshot}
+  defp apply_result(state, result) do
+    previous = state.snapshot
+    state = do_apply_result(state, result)
+    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
+    state
   end
 
-  defp apply_result(state, :unsupported), do: %{state | snapshot: %Snapshot{status: :unsupported}}
+  defp do_apply_result(state, {:ok, tickets, truncated?}) do
+    %{state | tickets: Map.new(tickets, &{&1.identifier, &1}), truncated?: truncated?}
+    |> rebuild_snapshot()
+  end
 
-  defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
+  defp do_apply_result(state, :unsupported) do
+    %{state | snapshot: %Snapshot{status: :unsupported}, tickets: %{}}
+  end
+
+  defp do_apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
        when is_integer(generation) do
     %{state | snapshot: %{previous | status: :stale}}
   end
 
-  defp apply_result(state, {:error, _reason}) do
-    %{state | snapshot: %Snapshot{status: :unavailable}}
+  defp do_apply_result(state, {:error, _reason}) do
+    %{state | snapshot: %Snapshot{status: :unavailable}, tickets: %{}}
+  end
+
+  # The projection map -> a snapshot. Status is `:available` because the map is
+  # maintained from the event stream; a listing failure is reported separately
+  # by `do_apply_result/2` before this runs.
+  defp rebuild_snapshot(state) do
+    %{
+      state
+      | snapshot: %Snapshot{
+          status: :available,
+          generation: (state.snapshot.generation || 0) + 1,
+          observed_at: now(state),
+          truncated?: state.truncated?,
+          tickets: state.tickets |> Map.values() |> Enum.sort_by(&sort_key/1)
+        }
+    }
   end
 
   # Newest ticket first, with the identifier as a total-order tiebreak so the
@@ -269,13 +394,6 @@ defmodule Aiur.OpenTicketSource do
       {number, ""} -> {0, -number, ""}
       _other -> {1, 0, to_string(identifier)}
     end
-  end
-
-  defp apply_and_broadcast(state, result) do
-    previous = state.snapshot
-    state = apply_result(state, result)
-    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
-    state
   end
 
   # Ignore observed_at/generation churn: only status or ticket changes warrant
@@ -303,6 +421,32 @@ defmodule Aiur.OpenTicketSource do
   defp now(state) do
     case state.now_fun.() do
       %DateTime{} = datetime -> datetime
+      _other -> nil
+    end
+  end
+
+  # -- subscriptions and delivery mode --------------------------------------
+
+  defp subscribe_to_events do
+    ResourceStore.subscribe(:issue)
+    ResourceStore.subscribe(:issue_labels)
+    ModeRegistry.subscribe()
+    :ok
+  end
+
+  defp maybe_relist(%{repo: {owner, repo}} = state, degraded_repo) do
+    if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
+      apply_result(state, fetch(state))
+    else
+      state
+    end
+  end
+
+  defp maybe_relist(state, _degraded_repo), do: state
+
+  defp resolve_repo(repo_fun) do
+    case repo_fun.() do
+      {:ok, {owner, repo}} when is_binary(owner) and is_binary(repo) -> {String.downcase(owner), String.downcase(repo)}
       _other -> nil
     end
   end

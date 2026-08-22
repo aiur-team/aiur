@@ -116,7 +116,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
-| `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the single view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. It replaced the separate ticket-backlog, ad-hoc-overlay and pack-status cadences, which had no config key at all. |
+| `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep now reconciles only the daemon-owned Build Order pack-status projection, which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too. |
 
 Freshness thresholds follow this cadence. You do not set them separately.
 

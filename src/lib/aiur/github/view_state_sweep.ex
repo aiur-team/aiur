@@ -1,6 +1,6 @@
 defmodule Aiur.GitHub.ViewStateSweep do
   @moduledoc """
-  The single slow cadence behind every view-state source.
+  The single slow cadence behind the one remaining view-state source.
 
   ## Why exactly one timer, and why it is not zero
 
@@ -15,19 +15,21 @@ defmodule Aiur.GitHub.ViewStateSweep do
   is not a refresh cadence and it must never be tuned as though shortening it
   made anything fresher.
 
-  ## What this is not, yet
+  ## Why it now sweeps only one source
 
-  Stated plainly because the gap is easy to mistake for a bug: the three sources
-  below do **not** yet read the store, subscribe to its change events, or get
-  woken by a webhook delivery. Each still performs its own listing when asked.
-  So today this sweep is not merely closing a gap left by free writers — for
-  these three it is the only thing that refreshes them at all, and a change made
-  outside Aiur surfaces within one sweep interval rather than immediately.
+  `Aiur.OpenTicketSource` and `Aiur.BuildOrder.AdHocSource` were event-sourced
+  (#2325): they subscribe to `Aiur.GitHub.ResourceStore` changes, keep one
+  bootstrap listing per boot, and re-list when `Aiur.Webhooks.ModeRegistry`
+  reports a repo `degraded` — the gap case where deliveries are known to be
+  dropped. They hold no timer and are not swept.
 
-  That is the deliberate order of work: this module removes the cost, and the
-  store subscription that removes the latency — a subscribed view re-rendering
-  the instant any writer deposits — lands with the units that make these sources
-  read the store. The interval is sized for that, not for freshness.
+  `Aiur.BuildOrder.PackStatus` remains. It is the "supervised writer for the
+  daemon-owned `status.json` projection beside every discovered Build Order
+  pack", and the planning contract names that file authoritative. Moving it to
+  an event stream changes *when a file on disk is written*, which is a
+  different risk class from the other three sources, so it is deliberately done
+  in a separate PR. Until then it keeps the sweep as its recovery bound: a
+  `status.json` entry whose delivery was lost is rewritten on the next tick.
 
   ## What it replaced
 
@@ -42,9 +44,8 @@ defmodule Aiur.GitHub.ViewStateSweep do
   together, is how the burn this ticket exists to remove was built. Measured
   against GitHub's own `rateLimit { cost }`, each of those reads costs one point,
   so the three together were 1.7 requests per minute for state nobody was
-  necessarily looking at. They now hold no timer at all: this process ticks and
-  asks each of them to reconcile, and each one still refreshes on demand through
-  its own `refresh/1`.
+  necessarily looking at. Two of the three are now event-sourced and cost
+  nothing; PackStatus still reconciles on demand and through this process.
 
   ## Bounding the sweep rather than tightening it
 
@@ -66,8 +67,6 @@ defmodule Aiur.GitHub.ViewStateSweep do
   # view-state traffic is readable in one place and a new one cannot be added
   # without this list changing.
   @sources [
-    Aiur.OpenTicketSource,
-    Aiur.BuildOrder.AdHocSource,
     Aiur.BuildOrder.PackStatus
   ]
 

@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.AdHocSource do
   @moduledoc """
-  Supervised, in-memory poller for the derived **Ad Hoc** Build Order epic.
+  Event-sourced projection of the derived **Ad Hoc** Build Order epic.
 
   The Ad Hoc epic is a runtime overlay of issues carrying the live
   `build-lane:adhoc` label — tickets created or promoted during a Build Order
@@ -8,19 +8,31 @@ defmodule Aiur.BuildOrder.AdHocSource do
   planning provider only fetches `build-order`-labelled roots and their graph
   members, so these issues never appear there.
 
-  This source lists `build-lane:adhoc` issues (including closed
-  ones, so merged/deferred/duplicate tickets stay visible), normalizes them to
-  a compact snapshot, and broadcasts changes. It keeps the last successful
-  snapshot as last-known-good and reports a named stale/unavailable status on
-  failure — never an empty healthy overlay presented as fresh truth.
+  ## Where the overlay comes from now
+
+  The source used to poll GitHub for the labelled listing on a timer. Every
+  issue's state and label set is now already deposited in
+  `Aiur.GitHub.ResourceStore` by the `issues` webhook delivery (`labeled`,
+  `unlabeled`, `opened`, `closed`, `reopened`, `edited`, `deleted`,
+  `transferred`) **before** the event is published — see
+  `Aiur.Events.GithubWebhook.Deposit` — and Aiur's own label mutations write
+  through the same store. So this source subscribes to `:issue` and
+  `:issue_labels` store changes and maintains the overlay from that event
+  stream, no listing required in steady state.
+
+  **Keep exactly one listing per boot**: a bootstrap read (labelled issues,
+  open *and* closed, so merged/deferred/duplicate tickets stay visible)
+  establishes the baseline the event stream then maintains. Re-listing also
+  happens when `Aiur.Webhooks.ModeRegistry` reports the repository `degraded`
+  — the one case where deliveries are known to be dropped — and on an explicit
+  `refresh/1`. That is gap-based re-convergence, never a clock.
+
+  It holds **no timer** and performs **no GitHub reads** in steady state.
+  `Aiur.GitHub.ViewStateSweep` does not sweep it; the event stream is the
+  refresh.
 
   The overlay is rendered separately and never contributes to the core
   completion denominator, complexity total, critical path, or feature ETA.
-
-  It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
-  between. It does not yet read the store, so the sweep is currently the only
-  thing that refreshes it.
   """
 
   use GenServer
@@ -28,8 +40,9 @@ defmodule Aiur.BuildOrder.AdHocSource do
   require Logger
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot
-  alias Aiur.GitHub.{Config, Issues, Transport}
+  alias Aiur.GitHub.{Config, Issues, ResourceStore, Transport}
   alias Aiur.Issue
+  alias Aiur.Webhooks.ModeRegistry
 
   @topic "build_order:adhoc:changed"
   @label "build-lane:adhoc"
@@ -53,11 +66,11 @@ defmodule Aiur.BuildOrder.AdHocSource do
   @spec topic() :: String.t()
   def topic, do: @topic
 
-  @doc "Requests an out-of-band refresh (async)."
+  @doc "Requests an out-of-band re-list (async)."
   @spec refresh(GenServer.server()) :: :ok
   def refresh(server \\ __MODULE__), do: GenServer.cast(server, :refresh)
 
-  @doc "Synchronously refreshes and returns the resulting snapshot (test/support)."
+  @doc "Synchronously re-lists and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
   def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync)
 
@@ -67,8 +80,10 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
     state = %{
       snapshot: %Snapshot{},
-      inflight: nil,
-      task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
+      # The projection: issue number (string) => member. The event stream
+      # reconciles one entry at a time; the snapshot is derived from this map.
+      members: %{},
+      repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
@@ -76,6 +91,8 @@ defmodule Aiur.BuildOrder.AdHocSource do
       label_prefix: Keyword.get(opts, :label_prefix, safe_label_prefix())
     }
 
+    state = %{state | repo: resolve_repo(state.repo_fun)}
+    subscribe_to_events()
     if Keyword.get(opts, :poll_on_start, true), do: send(self(), :poll)
     {:ok, state}
   end
@@ -84,35 +101,139 @@ defmodule Aiur.BuildOrder.AdHocSource do
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
   def handle_call(:refresh_sync, _from, state) do
-    state = apply_and_broadcast(state, fetch(state))
+    state = apply_result(state, fetch(state))
     {:reply, state.snapshot, state}
   end
 
   @impl true
-  def handle_cast(:refresh, state), do: {:noreply, ensure_fetch(state)}
-
-  @impl true
-  # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
-  # asks this source to reconcile.
-  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state)}
-
-  def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    {:noreply, apply_and_broadcast(%{state | inflight: nil}, result)}
+  # A demand re-list. Applied synchronously in this process, so a store event
+  # that arrives while the listing is in flight is queued behind it and applied
+  # after — a listing is a GitHub snapshot taken before the event, so the event
+  # must win. An async task would let the listing's stale full-set overwrite a
+  # newer event, which is the exact divergence this design exists to prevent.
+  def handle_cast(:refresh, state) do
+    {:noreply, apply_result(state, fetch(state))}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{inflight: ref} = state) do
-    {:noreply, apply_and_broadcast(%{state | inflight: nil}, {:error, :task_down})}
+  @impl true
+  # The boot fill, applied synchronously for the same reason as `refresh/1`:
+  # the one listing per boot is the baseline, and the event stream maintains
+  # it. `ViewStateSweep` no longer sweeps this source.
+  def handle_info(:poll, state) do
+    {:noreply, apply_result(state, fetch(state))}
+  end
+
+  # The gap-based re-convergence: deliveries are known to be dropped while the
+  # repo is degraded, so re-list to re-establish the baseline.
+  def handle_info({:webhook_degraded, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # A store change for the source's repository. Every `issues` delivery
+  # deposits the issue body before publishing, so the current body is already
+  # in local memory when this runs — reconcile exactly that issue, no listing.
+  def handle_info({:github_resource_changed, %{key: {type, owner, repo, id}} = change}, state)
+      when type in [:issue, :issue_labels] do
+    {:noreply, reconcile_issue(state, owner, repo, id, change)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp ensure_fetch(%{inflight: ref} = state) when is_reference(ref), do: state
+  # -- event-stream projection ---------------------------------------------
 
-  defp ensure_fetch(state) do
-    task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> fetch(state) end)
-    %{state | inflight: task.ref}
+  # The `:issue` and `:issue_labels` type subscriptions are repo-wide, so a
+  # multi-repo fleet delivers other repos' issues here; only the source's own
+  # repository is reconciled.
+  defp reconcile_issue(%{repo: {owner, repo}} = state, owner, repo, id, change) do
+    case change do
+      # A deleted issue drops both its issue body and its label set; nothing
+      # else publishes a change with no body held. The store's own retention
+      # eviction is silent and never reaches here.
+      %{data?: false} ->
+        remove_member(state, id)
+
+      _change ->
+        case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+          # A labels-only mutation on an issue the store never held. The
+          # projection still holds the member, so reconcile it from the label
+          # set alone rather than dropping it because the store lacks a body it
+          # may never have had.
+          nil -> update_held_member(state, id)
+          _gh_issue -> apply_issue_change(state, id)
+        end
+    end
   end
+
+  defp reconcile_issue(state, _owner, _repo, _id, _change), do: state
+
+  defp apply_issue_change(%{repo: {owner, repo}} = state, id) do
+    case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+      nil ->
+        remove_member(state, id)
+
+      gh_issue ->
+        issue = Issues.normalize_issue(gh_issue, owner, repo, state.label_prefix)
+
+        if adhoc?(issue) do
+          upsert_member(state, issue)
+        else
+          remove_member(state, id)
+        end
+    end
+  end
+
+  # The `:issue_labels` body is GitHub's own labels array. Membership is
+  # label-defined, so a held member can be reconciled from the label set alone
+  # even when the store holds no issue body for it.
+  defp update_held_member(%{repo: {owner, repo}} = state, id) do
+    case Map.fetch(state.members, id) do
+      {:ok, member} ->
+        labels = label_names(ResourceStore.data(ResourceStore.key(:issue_labels, owner, repo, id)))
+
+        if @label in labels do
+          %{state | members: Map.put(state.members, id, %{member | labels: labels})}
+          |> apply_members()
+        else
+          remove_member(state, id)
+        end
+
+      :error ->
+        state
+    end
+  end
+
+  defp label_names(labels) when is_list(labels) do
+    Enum.map(labels, &String.downcase(Map.get(&1, "name") || ""))
+  end
+
+  defp label_names(_labels), do: []
+
+  defp upsert_member(state, %Issue{} = issue) do
+    member = member(issue)
+
+    %{state | members: Map.put(state.members, member.identifier, member)}
+    |> apply_members()
+  end
+
+  defp remove_member(state, id) do
+    if Map.has_key?(state.members, id) do
+      %{state | members: Map.delete(state.members, id)}
+      |> apply_members()
+    else
+      state
+    end
+  end
+
+  # Rebuild the snapshot from the projection map. A store event that does not
+  # change the projected content (an `:issue_labels` wake arriving after the
+  # same delivery's `:issue` wake already applied it) neither bumps the
+  # generation nor wakes subscribers.
+  defp apply_members(state) do
+    previous = state.snapshot
+    state = rebuild_snapshot(state)
+    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
+    state
+  end
+
+  # -- bootstrap listing ----------------------------------------------------
 
   @spec fetch(map()) :: {:ok, [Snapshot.member()]} | {:error, term()}
   defp fetch(state) do
@@ -122,7 +243,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(@label)}&state=all&per_page=100"
 
       case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, []) do
-        {:ok, issues} -> {:ok, issues |> Enum.map(&member/1) |> Enum.filter(&adhoc?/1)}
+        {:ok, issues} -> {:ok, issues |> Enum.filter(&adhoc?/1) |> Enum.map(&member/1)}
         {:error, _reason} = error -> error
       end
     end
@@ -162,36 +283,44 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp lifecycle("Closed"), do: :closed
   defp lifecycle(_state), do: :open
 
-  defp adhoc?(%{identity: nil}), do: false
-  defp adhoc?(%{labels: labels}), do: @label in labels
+  defp adhoc?(%Issue{labels: labels}), do: @label in List.wrap(labels)
 
-  defp apply_result(state, {:ok, members}) do
-    generation = (state.snapshot.generation || 0) + 1
+  # -- snapshot plumbing ----------------------------------------------------
 
-    snapshot = %Snapshot{
-      status: :available,
-      generation: generation,
-      observed_at: now(state),
-      members: Enum.sort_by(members, & &1.identifier)
-    }
-
-    %{state | snapshot: snapshot}
+  defp apply_result(state, result) do
+    previous = state.snapshot
+    state = do_apply_result(state, result)
+    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
+    state
   end
 
-  defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
+  defp do_apply_result(state, {:ok, members}) do
+    %{state | members: Map.new(members, &{&1.identifier, &1})}
+    |> rebuild_snapshot()
+  end
+
+  defp do_apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
        when is_integer(generation) do
     %{state | snapshot: %{previous | status: :stale}}
   end
 
-  defp apply_result(state, {:error, _reason}) do
-    %{state | snapshot: %Snapshot{status: :unavailable}}
+  defp do_apply_result(state, {:error, _reason}) do
+    %{state | snapshot: %Snapshot{status: :unavailable}, members: %{}}
   end
 
-  defp apply_and_broadcast(state, result) do
-    previous = state.snapshot
-    state = apply_result(state, result)
-    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
-    state
+  # The projection map -> a snapshot. Status is `:available` because the map is
+  # maintained from the event stream; a listing failure is reported separately
+  # by `do_apply_result/2` before this runs.
+  defp rebuild_snapshot(state) do
+    %{
+      state
+      | snapshot: %Snapshot{
+          status: :available,
+          generation: (state.snapshot.generation || 0) + 1,
+          observed_at: now(state),
+          members: state.members |> Map.values() |> Enum.sort_by(& &1.identifier)
+        }
+    }
   end
 
   # Ignore observed_at/generation churn: only status or membership changes warrant
@@ -209,6 +338,32 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp now(state) do
     case state.now_fun.() do
       %DateTime{} = datetime -> datetime
+      _other -> nil
+    end
+  end
+
+  # -- subscriptions and delivery mode --------------------------------------
+
+  defp subscribe_to_events do
+    ResourceStore.subscribe(:issue)
+    ResourceStore.subscribe(:issue_labels)
+    ModeRegistry.subscribe()
+    :ok
+  end
+
+  defp maybe_relist(%{repo: {owner, repo}} = state, degraded_repo) do
+    if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
+      apply_result(state, fetch(state))
+    else
+      state
+    end
+  end
+
+  defp maybe_relist(state, _degraded_repo), do: state
+
+  defp resolve_repo(repo_fun) do
+    case repo_fun.() do
+      {:ok, {owner, repo}} when is_binary(owner) and is_binary(repo) -> {String.downcase(owner), String.downcase(repo)}
       _other -> nil
     end
   end
