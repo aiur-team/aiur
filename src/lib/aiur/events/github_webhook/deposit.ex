@@ -339,20 +339,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         []
 
       key ->
-        ResourceStore.update_resource(
-          key,
-          fn
-            held when is_list(held) ->
-              if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker, "id"))),
-                do: :unchanged,
-                else: held ++ [blocker]
-
-            _absent ->
-              [blocker]
-          end,
-          source: :webhook
-        )
-
+        ResourceStore.update_resource(key, &merge_blocked_by_edge(&1, blocker), source: :webhook)
         confirm(key)
     end
   end
@@ -371,6 +358,17 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         end
     end
   end
+
+  # The one edge a delivery names is merged into whatever the entry already
+  # holds, never replacing a fuller list the reader holds. A repeat delivery of
+  # the same edge is declined inside the store's swap.
+  defp merge_blocked_by_edge(held, blocker) when is_list(held) do
+    if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker, "id"))),
+      do: :unchanged,
+      else: held ++ [blocker]
+  end
+
+  defp merge_blocked_by_edge(_absent, blocker), do: [blocker]
 
   # The ordering guard runs *inside* the store's compare-and-swap, against the
   # marker the entry holds at the instant of the write. Asking the store first and

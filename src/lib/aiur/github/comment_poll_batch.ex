@@ -203,16 +203,16 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp deposit_thread_mapping(owner, repo, thread) do
     with thread_id when is_binary(thread_id) and thread_id != "" <- Map.get(thread, "id"),
          nodes when is_list(nodes) <- get_in(thread, ["comments", "nodes"]) do
-      Enum.each(nodes, fn comment ->
-        case Map.get(comment, "databaseId") do
-          database_id when is_integer(database_id) ->
-            key = ResourceStore.key(:pr_review_comment_thread, owner, repo, database_id)
-            if not is_nil(key), do: remember_comment_thread(key, thread_id)
+      Enum.each(nodes, &deposit_thread_comment(owner, repo, thread_id, &1))
+    else
+      _other -> :ok
+    end
+  end
 
-          _other ->
-            :ok
-        end
-      end)
+  defp deposit_thread_comment(owner, repo, thread_id, comment) do
+    with database_id when is_integer(database_id) <- Map.get(comment, "databaseId"),
+         key when not is_nil(key) <- ResourceStore.key(:pr_review_comment_thread, owner, repo, database_id) do
+      remember_comment_thread(key, thread_id)
     else
       _other -> :ok
     end

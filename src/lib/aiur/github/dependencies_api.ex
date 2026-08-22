@@ -101,18 +101,27 @@ defmodule Aiur.GitHub.DependenciesApi do
       key = ResourceStore.key(:issue_blocked_by, owner, repo, issue_number)
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/dependencies/blocked_by"
-      held = if is_nil(key), do: nil, else: ResourceStore.data(key)
-
-      cond do
-        not is_nil(key) and not Keyword.get(opts, :revalidate, false) and not is_nil(held) ->
-          {:ok, held}
-
-        true ->
-          etag = if is_nil(key), do: nil, else: ResourceStore.etag(key)
-          blocked_by_request(key, request_fun, token, url, etag)
-      end
+      blocked_by_serve(key, request_fun, token, url, opts)
     end
   end
+
+  # A held list answers unless the caller demands freshness (`revalidate: true`,
+  # which the dispatch gate passes so a blocker added outside Aiur's own writes
+  # cannot be silently missed). Revalidation sends the stored ETag, so an
+  # unchanged list costs a free `304` rather than a full read.
+  defp blocked_by_serve(key, request_fun, token, url, opts) do
+    if served_blocked_by?(key, opts) do
+      {:ok, ResourceStore.data(key)}
+    else
+      blocked_by_request(key, request_fun, token, url, stored_etag(key))
+    end
+  end
+
+  defp served_blocked_by?(key, opts) do
+    not is_nil(key) and not Keyword.get(opts, :revalidate, false) and is_list(ResourceStore.data(key))
+  end
+
+  defp stored_etag(key), do: if(is_nil(key), do: nil, else: ResourceStore.etag(key))
 
   # One conditional GET. A `304` is served from the held body; a `304` with no
   # body to serve (a validator that survived a restart) discards the stale
@@ -129,17 +138,7 @@ defmodule Aiur.GitHub.DependenciesApi do
         {:ok, body}
 
       {:ok, %{status: 304}} ->
-        case if(is_nil(key), do: nil, else: ResourceStore.data(key)) do
-          body when is_list(body) ->
-            {:ok, body}
-
-          _missing when not is_nil(etag) ->
-            if not is_nil(key), do: ResourceStore.drop_etag(key)
-            blocked_by_request(key, request_fun, token, url, nil)
-
-          _missing ->
-            {:error, :github_blocked_by_not_modified_without_cached_value}
-        end
+        blocked_by_not_modified(key, request_fun, token, url, etag)
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
@@ -148,6 +147,34 @@ defmodule Aiur.GitHub.DependenciesApi do
         {:error, Errors.classify_error({:error, reason})}
     end
   end
+
+  # A `304` answers "nothing changed"; serve the held body when there is one. A
+  # validator that outlived its body (restart, eviction) is discarded and the
+  # read is retried once without it; without a held validator this `304` is
+  # unanswerable.
+  defp blocked_by_not_modified(key, request_fun, token, url, etag) do
+    case held_blocked_by(key) do
+      {:ok, body} -> {:ok, body}
+      :missing -> retry_blocked_by(key, request_fun, token, url, etag)
+    end
+  end
+
+  defp held_blocked_by(nil), do: :missing
+
+  defp held_blocked_by(key) do
+    case ResourceStore.data(key) do
+      body when is_list(body) -> {:ok, body}
+      _other -> :missing
+    end
+  end
+
+  defp retry_blocked_by(key, request_fun, token, url, etag) when not is_nil(etag) do
+    if not is_nil(key), do: ResourceStore.drop_etag(key)
+    blocked_by_request(key, request_fun, token, url, nil)
+  end
+
+  defp retry_blocked_by(_key, _request_fun, _token, _url, _etag),
+    do: {:error, :github_blocked_by_not_modified_without_cached_value}
 
   @spec dependency_mutate(integer() | String.t(), integer(), atom(), keyword()) ::
           {:ok, map() | :removed} | {:error, term()}
@@ -209,21 +236,16 @@ defmodule Aiur.GitHub.DependenciesApi do
         :ok
 
       key ->
-        ResourceStore.update_resource(
-          key,
-          fn
-            held when is_list(held) ->
-              if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker_issue, "id"))),
-                do: :unchanged,
-                else: held ++ [blocker_issue]
-
-            _absent ->
-              [blocker_issue]
-          end,
-          source: :mutation
-        )
-
+        ResourceStore.update_resource(key, &merge_blocked_edge(&1, blocker_issue), source: :mutation)
         :ok
     end
   end
+
+  defp merge_blocked_edge(held, blocker_issue) when is_list(held) do
+    if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker_issue, "id"))),
+      do: :unchanged,
+      else: held ++ [blocker_issue]
+  end
+
+  defp merge_blocked_edge(_absent, blocker_issue), do: [blocker_issue]
 end
