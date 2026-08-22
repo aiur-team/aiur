@@ -155,6 +155,23 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert {:ok, %{body: "second"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
+
+    # #2298 acceptance 5: classifying repository-configuration reads gives the
+    # read cache a non-zero hit rate and stops counting them as `unclassified`.
+    test "a repeated repository-config read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/actions/workflows?per_page=100")
+
+      assert {:cache, :repo_config, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "config"}} =
+               ReadCache.through(request, fn -> {:ok, %{status: 200, body: "config"}} end)
+
+      assert {:ok, %{body: "config"}} =
+               ReadCache.through(request, fn -> flunk("a repo-config hit must not fetch") end)
+
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}, refused: %{}} = Metrics.snapshot()
+      assert ReadCache.snapshot().hit_rate > 0
+    end
   end
 
   describe "invalidation" do
@@ -410,15 +427,42 @@ defmodule Aiur.GitHub.ReadCacheTest do
       refute :org in Policy.classes()
     end
 
-    test "a repository file read is not mistaken for a CODEOWNERS read" do
+    test "a repository workflow-config read is cacheable but is not a CODEOWNERS read" do
       # `/contents/` once bought a five-minute TTL for any file in the repo. The
-      # only caller of one is `CIReadiness` listing `.github/workflows`, which
-      # is CI configuration — the family this cache refuses outright.
+      # only caller of one is `CIReadiness` listing `.github/workflows`, which is
+      # CI *configuration*, not a CI verdict — #2298 narrows the unsafe regex and
+      # classifies it, but it must never be mislabelled as a CODEOWNERS read.
       workflows = rest("https://api.github.com/repos/aiur-team/aiur/contents/.github/workflows?ref=main")
 
-      assert {:no_cache, reason} = Policy.classify(workflows)
-      assert reason in [:unsafe_kind, :unclassified]
+      assert {:cache, :repo_config, _ttl} = Policy.classify(workflows)
       refute :code_owners in Policy.classes()
+    end
+
+    test "CI config reads are cacheable while CI verdict reads stay refused" do
+      # The `@unsafe_rest` narrowing (#2298): `/actions/workflows` is the
+      # workflow *list* (configuration), so it is cacheable; verdict endpoints —
+      # workflow runs, check runs, commit status — stay refused.
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/actions/workflows?per_page=100"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches/main/protection"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/rulesets?includes_parents=true&per_page=100"))
+
+      for path <- ["/actions/runs", "/actions/runs/123/jobs", "/commits/abc/status", "/commits/abc/check-runs"] do
+        assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur#{path}"))
+      end
+    end
+
+    test "the bare repository read and the candidate issue list stay unclassified" do
+      # The bare `/repos/{owner}/{repo}` is the auth-preflight probe, which must
+      # exercise the current credential rather than be answered from a cache;
+      # the open-issue candidate list is dispatch authority and must not be
+      # served stale. Both are correctly left uncached.
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
     end
 
     test "caches a numbered comment read but not the repo-wide comment stream" do
@@ -435,14 +479,14 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
     test "no default TTL outruns the tightest cadence a caller can be polling on" do
       # A cache at the chokepoint overrides freshness the call site thought it
-      # controlled. Every class stays at or below the Build Order detail
-      # freshness derived from the default poll interval.
-      for class <- Policy.classes() do
-        assert Policy.ttl_ms(class) <= 30_000
-      end
-
+      # controlled. The poll-cadence classes (Build Order detail, comments) stay
+      # at or below the Build Order detail freshness derived from the default
+      # poll interval; `:repo_config` rides the CIReadiness assessment cadence
+      # instead (its assessment is cached for an hour), so it stays well below
+      # that, not below the 30-second Build Order window.
       assert Policy.ttl_ms(:issue_graph) <= 30_000
       assert Policy.ttl_ms(:comments) <= 30_000
+      assert Policy.ttl_ms(:repo_config) <= 3_600_000
     end
 
     test "an operator can tighten or disable a class without a code change" do

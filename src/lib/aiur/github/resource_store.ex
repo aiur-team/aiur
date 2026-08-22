@@ -295,7 +295,14 @@ defmodule Aiur.GitHub.ResourceStore do
     # The open pull request belonging to a ticket's head branch. Keyed by the
     # ticket number rather than the PR number, because that is the only identity
     # the caller holds before the lookup answers.
-    :branch_pull_request
+    :branch_pull_request,
+    # The conditional validator for that lookup's open-pull-request listing
+    # (`GET /pulls?state=open`), held separately from `:branch_pull_request`.
+    # The three writers of the PR-body key — webhook deposit, human-review gate,
+    # and the per-cycle Client lookup — each write a different kind of validator,
+    # so sharing one key would clobber the listing's page-1 ETag with a
+    # PR-body-derived hash it can never match (#2126, #2298).
+    :branch_pull_request_listing
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable
