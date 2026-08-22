@@ -62,4 +62,14 @@ defmodule Aiur.GitHub.CredentialHeadroomTest do
 
     assert %{"graphql" => %{remaining: 400}} = CredentialHeadroom.snapshot()[Budget.token_key("a")]
   end
+
+  test "a stable credential window survives token rotation" do
+    later = DateTime.add(DateTime.utc_now(), 900)
+    key = Budget.identity_key("app_installation:1:2:primary")
+
+    CredentialHeadroom.observe(%{token: "old-token", credential_key: key, url: "https://api.github.com/graphql"}, response("graphql", 5_000, 400, later))
+
+    assert %{remaining: 400} = CredentialHeadroom.window(key, "graphql")
+    assert %{remaining: 400} = CredentialHeadroom.snapshot()[key]["graphql"]
+  end
 end
