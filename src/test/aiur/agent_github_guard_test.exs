@@ -1632,6 +1632,28 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "refusing uncoordinated request"
+    assert output =~ budget_root
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    refute File.exists?(context.calls)
+  end
+
+  test "an unavailable budget root names the root and recovery configuration", context do
+    parent_file = Path.join(context.state_path, "not-a-directory")
+    budget_root = Path.join(parent_file, "github-budget")
+    File.mkdir_p!(context.state_path)
+    File.write!(parent_file, "blocking file")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "shared budget unavailable"
+    assert output =~ budget_root
+    assert output =~ "repair ownership/permissions and redispatch"
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
     refute File.exists?(context.calls)
   end
 
