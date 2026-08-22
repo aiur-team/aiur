@@ -262,6 +262,30 @@ Do not commit:
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
 
+## Tests must fail without the production change they guard
+
+A test that passes with its production change reverted is not coverage — it
+asserts pre-existing behaviour and will pass on the trivially wrong
+implementation. This is the single most common way a review is wasted on this
+repo, so it is enforced before review, at author time:
+
+1. **Before opening a PR, revert the production hunk each new test guards.**
+   `git stash push <the production file(s)>` (or `git checkout -- <file>` in a
+   scratch checkout), run the new test, and confirm it **fails**.
+2. **Restore the hunk and re-run the test** — it must pass with the change in
+   place.
+3. **Name the result in the PR body**: one line per new test, e.g.
+   "`sweep_once` test fails with the production hunk reverted". A test that
+   survives its own revert must be rewritten to assert the specific behaviour
+   the change adds — a `%{} = actual` pattern that matches any map, an
+   assertion pinned to a constant the change never touches, or
+   `f(x) == f(x)` are all vacuous.
+
+The reviewer-side of this same discipline is in the `aiur-run` skill
+(`SKILL.md`, "Mutation-testing discipline"); this section is the author-side
+rule that makes the reviewer's check a formality instead of the first time it
+is ever performed.
+
 ## Manual testing — the only definition
 
 When the user (or any doc) says "manually test", "run aiur and try it",
