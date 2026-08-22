@@ -428,6 +428,43 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
     end
 
+    # #2326: a commit's timestamp and a PR's changed paths are immutable per sha,
+    # so they are cacheable without ever serving a verdict that has moved.
+    test "caches an immutable-per-sha commit read and a PR files read" do
+      commit = rest("https://api.github.com/repos/aiur-team/aiur/commits/abc123")
+      files = rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100")
+
+      assert {:cache, :comments, _ttl} = Policy.classify(commit)
+      assert {:cache, :comments, _ttl} = Policy.classify(files)
+
+      # The verdict refusal is not weakened: a commit *status* read — CI — is
+      # still refused even though the bare commit read is now cacheable.
+      assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc123/status"))
+    end
+
+    # Acceptance #2326: no verdict field becomes cacheable. Every selection the
+    # policy refuses on content is asserted to stay refused, whichever call site
+    # sends it.
+    test "no verdict field becomes cacheable" do
+      for selection <- [
+            "statusCheckRollup { state }",
+            "checkSuites(first: 1) { nodes { status } }",
+            "CheckRun(id: 1) { status }",
+            "StatusContext { state }",
+            "reviewDecision",
+            "mergeStateStatus",
+            "mergeable",
+            "reviewThreads(first: 10) { nodes { id } }",
+            "latestReviews(first: 1) { nodes { state } }",
+            "reviews(first: 1) { nodes { state } }"
+          ] do
+        request = graphql("issue_relationships", "query Q { repository(owner: $o, name: $r) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { #{selection} } } } }")
+
+        assert {:no_cache, :unsafe_kind} = Policy.classify(request),
+               "#{selection} must not become cacheable"
+      end
+    end
+
     test "a declared cacheable caller is still refused on unsafe content" do
       assert {:cache, :issue_graph, _ttl} = Policy.classify(graphql("issue_relationships", safe_document(2073)))
       assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("issue_relationships", ci_document()))

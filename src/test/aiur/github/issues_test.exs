@@ -466,31 +466,31 @@ defmodule Aiur.GitHub.IssuesTest do
     end
   end
 
-  describe "fetch_issue_raw/2" do
-    test "returns raw map on 200" do
+  describe "fetch_issue_raw_conditional/2" do
+    test "returns raw map on 200 with the :fetched outcome" do
       raw_body = %{"number" => 5, "title" => "Raw"}
 
       request_fun = fn %{method: :get, url: url} ->
         assert url =~ "/issues/5"
-        {:ok, %{status: 200, body: raw_body}}
+        {:ok, %{status: 200, body: raw_body, headers: []}}
       end
 
-      assert {:ok, ^raw_body} = Issues.fetch_issue_raw(5, request_fun: request_fun)
+      assert {:ok, ^raw_body, :fetched} = Issues.fetch_issue_raw_conditional(5, request_fun: request_fun)
     end
 
     test "returns error on non-200 status" do
-      request_fun = fn _ -> {:ok, %{status: 404, body: %{"message" => "Not Found"}}} end
-      assert {:error, _} = Issues.fetch_issue_raw(999, request_fun: request_fun)
+      request_fun = fn _ -> {:ok, %{status: 404, body: %{"message" => "Not Found"}, headers: []}} end
+      assert {:error, _} = Issues.fetch_issue_raw_conditional(999, request_fun: request_fun)
     end
 
     test "uses an explicit validated repository instead of the configured fallback" do
       request_fun = fn %{url: url} ->
         assert url == "https://api.github.com/repos/explicit/repository/issues/5"
-        {:ok, %{status: 200, body: %{}}}
+        {:ok, %{status: 200, body: %{}, headers: []}}
       end
 
-      assert {:ok, %{}} =
-               Issues.fetch_issue_raw(5,
+      assert {:ok, %{}, _outcome} =
+               Issues.fetch_issue_raw_conditional(5,
                  repository: {"explicit", "repository"},
                  request_fun: request_fun
                )
@@ -505,7 +505,7 @@ defmodule Aiur.GitHub.IssuesTest do
             {"..", "repository"}
           ] do
         assert {:error, :invalid_github_repository} =
-                 Issues.fetch_issue_raw(5,
+                 Issues.fetch_issue_raw_conditional(5,
                    repository: repository,
                    request_fun: fn _request -> flunk("transport must not be called") end
                  )

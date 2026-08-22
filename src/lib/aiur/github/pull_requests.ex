@@ -40,33 +40,15 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
-  Fetches all review submissions for a pull request.
-
-  Returns a list of review objects, each containing `id`, `user`, `state`,
-  `body`, and `submitted_at`. Does not paginate beyond `per_page=100`; the
-  review count on any active PR is expected to be well under that limit.
-  """
-  @spec fetch_pull_request_reviews(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_pull_request_reviews(pr_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
-
-      Transport.fetch_json_list(request_fun, token, url)
-    end
-  end
-
-  @doc """
   Fetches a pull request's review submissions with `If-None-Match` support.
 
-  The list-only `fetch_pull_request_reviews/2` contract is unchanged for
-  foreground callers. This variant exists because the approval read behind the
-  human-review gate runs on every transition attempt and must be strictly fresh:
-  it cannot be answered from a cache, so the only way to make it cost nothing is
-  to let GitHub answer `304`. That is a request GitHub does not bill against the
-  primary REST limit.
+  This is the only reader of the review-submissions endpoint; the unconditional
+  `fetch_pull_request_reviews/2` was retired (#2326) so no new call site could
+  pick a full-price read by accident. The approval read behind the human-review
+  gate runs on every transition attempt and must be strictly fresh: it cannot be
+  answered from a cache, so the only way to make it cost nothing is to let GitHub
+  answer `304`. That is a request GitHub does not bill against the primary REST
+  limit.
   """
   @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}

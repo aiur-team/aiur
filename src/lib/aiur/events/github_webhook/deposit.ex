@@ -34,6 +34,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   belongs to, because that is the identity the one pull-request consumer reads
   by (#2126).
 
+  Three delivery types carry state the fleet otherwise buys again, and each has
+  its own clause (#2326): `pull_request_review_thread` carries a full pull
+  request (deposited under both PR keys, feeding `DeliveredPullRequest`),
+  `sub_issues` carries the full sub-issue and parent issue (deposited as
+  carried issues), and `issue_dependencies` carries the issue plus the blocker
+  edge (deposited as a carried issue, with the edge merged into the
+  `:issue_blocked_by` list the dependency reader serves).
+
   ## What a deposit never makes servable
 
   **`:pr_review` and `:pr_review_comment` must never gain a cache-serving
@@ -182,6 +190,33 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
+  # A `pull_request_review_thread` delivery (resolved/unresolved) carries a full
+  # pull request plus the thread. The PR half is the high-value deposit: it
+  # feeds `Aiur.GitHub.DeliveredPullRequest`, which decides whether the comment
+  # poller pays for its per-PR `review_threads_unaddressed` fallback on this
+  # cycle — the single most common REST GraphQL spend the audit found (#2326).
+  defp bodies("pull_request_review_thread", payload) do
+    pull_request_deposits(Map.get(payload, "pull_request"))
+  end
+
+  # A `sub_issues` delivery carries the full sub-issue and its full parent
+  # issue, so one free delivery populates both (`:issue` and `:issue_labels`
+  # per object) for the readers those resources serve.
+  defp bodies("sub_issues", payload) do
+    carried_issue_deposits(Map.get(payload, "sub_issue")) ++
+      carried_issue_deposits(Map.get(payload, "parent_issue"))
+  end
+
+  # An `issue_dependencies` delivery carries the issue whose dependency edge
+  # changed, plus the blocker edge it created or removed. The issue is deposited
+  # like any carried issue; the edge is merged into the `:issue_blocked_by` list
+  # the dependency reader serves, so a delivery that announces an edge does not
+  # make the next `fetch_blocked_by` pay for it again (#2326).
+  defp bodies("issue_dependencies", payload) do
+    issue = Map.get(payload, "issue")
+    carried_issue_deposits(issue) ++ blocked_by_edge_deposits(issue, Map.get(payload, "blocked_by_issue"))
+  end
+
   defp bodies(_event_type, _payload), do: []
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
@@ -241,6 +276,21 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     [{:issue, number, issue, issue_version}] ++ label_deposits
   end
 
+  # The `issue_dependencies` delivery names one edge: `issue` is now blocked by
+  # `edge`. That is a fact about the blocked issue's dependency list, so it is
+  # written into the `:issue_blocked_by` entry the reader serves — merged, never
+  # replacing a fuller list the reader already holds (#2326). A missing edge is
+  # a delivery about the other direction (`blocking_issue`), which has no stored
+  # reader, so it deposits nothing.
+  defp blocked_by_edge_deposits(issue, edge) when is_map(issue) and is_map(edge) do
+    case Map.get(issue, "number") do
+      number when is_integer(number) -> [{:issue_blocked_by, number, edge, nil}]
+      _other -> []
+    end
+  end
+
+  defp blocked_by_edge_deposits(_issue, _edge), do: []
+
   # A pull request is deposited under BOTH keys a consumer can address it by
   # (#2126):
   #
@@ -277,6 +327,25 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp store(_type, _repo, _id, body, _version) when not (is_map(body) or is_list(body)), do: []
 
+  # The `:issue_blocked_by` entry is the reader's answer to
+  # `GET .../dependencies/blocked_by`, so it must hold the full blocker list —
+  # a single webhook edge overwriting a held list would silently forget every
+  # blocker the reader already knew. The edge is therefore merged, inside the
+  # store's compare-and-swap, into whatever the entry already holds; an absent
+  # entry starts as the one edge the delivery carried.
+  defp store(:issue_blocked_by, repo, id, blocker, _version) when is_map(blocker) do
+    case ResourceStore.key_for_repo(:issue_blocked_by, repo, id) do
+      nil ->
+        []
+
+      key ->
+        ResourceStore.update_resource(key, &merge_blocked_by_edge(&1, blocker), source: :webhook)
+        confirm(key)
+    end
+  end
+
+  defp store(:issue_blocked_by, _repo, _id, _body, _version), do: []
+
   defp store(type, repo, id, body, version) do
     case ResourceStore.key_for_repo(type, repo, id) do
       nil ->
@@ -289,6 +358,17 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         end
     end
   end
+
+  # The one edge a delivery names is merged into whatever the entry already
+  # holds, never replacing a fuller list the reader holds. A repeat delivery of
+  # the same edge is declined inside the store's swap.
+  defp merge_blocked_by_edge(held, blocker) when is_list(held) do
+    if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker, "id"))),
+      do: :unchanged,
+      else: held ++ [blocker]
+  end
+
+  defp merge_blocked_by_edge(_absent, blocker), do: [blocker]
 
   # The ordering guard runs *inside* the store's compare-and-swap, against the
   # marker the entry holds at the instant of the write. Asking the store first and

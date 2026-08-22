@@ -205,7 +205,14 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # only prove that both call `key/4`.
   defp reachability,
     do: %{
-      issue: {:read_by, "Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)", [ResourceStore.key(:issue, "owner", "repo", 42)]},
+      issue:
+        {:read_by, "Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)",
+         [
+           ResourceStore.key(:issue, "owner", "repo", 42),
+           # The sub_issues delivery also carries the sub-issue, which shares the
+           # `:issue` reader's generic addressing.
+           ResourceStore.key(:issue, "owner", "repo", 41)
+         ]},
       issue_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:602)", [ResourceStore.key_for_repo(:issue_comment, @repo, 9401)]},
       pr_review: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:587)", [ResourceStore.key_for_repo(:pr_review, @repo, 9403)]},
       pr_review_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:650)", [ResourceStore.key_for_repo(:pr_review_comment, @repo, 9402)]},
@@ -217,7 +224,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         {:signal_only,
          "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
            "same delivery's :branch_pull_request sibling is what the human-review gate reads (#2126)"},
-      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]}
+      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]},
+      issue_blocked_by: {:read_by, "Aiur.GitHub.DependenciesApi.dependency_get/3 (dependencies_api.ex)", [ResourceStore.key(:issue_blocked_by, "owner", "repo", 42)]}
     }
 
   describe "every deposit is addressable by whoever wants it" do
@@ -374,6 +382,47 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
       assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+    end
+
+    test "pull_request_review_thread deposits the pull request under both keys" do
+      keys = GithubWebhook.Deposit.deposit("pull_request_review_thread", pull_request_review_thread_delivery(), @repo)
+
+      assert ResourceStore.key_for_repo(:pull_request, @repo, 77) in keys
+      assert ResourceStore.key_for_repo(:branch_pull_request, @repo, 42) in keys
+
+      assert {:ok, %{data: %{"number" => 77}, source: :webhook}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
+    end
+
+    test "sub_issues deposits the sub-issue and the parent issue" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issues_delivery(), repo: @repo)
+
+      assert {:ok, %{data: %{"number" => 41}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 41))
+      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+      assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 41))
+    end
+
+    test "issue_dependencies deposits the issue and merges the blocker edge into :issue_blocked_by" do
+      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
+
+      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+
+      assert {:ok, %{data: [blocker]}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42))
+
+      assert %{"id" => 80_001, "number" => 80} = blocker
+    end
+
+    test "a second issue_dependencies edge merges into the held blocker list rather than replacing it" do
+      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
+      second = %{issue_dependencies_delivery() | "blocked_by_issue" => %{"id" => 90_001, "number" => 90}}
+
+      GithubWebhook.handle_delivery("issue_dependencies", second, repo: @repo)
+
+      assert {:ok, %{data: blockers}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42))
+
+      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
     end
 
     test "a delivery for an untracked repository deposits nothing" do
@@ -706,7 +755,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     {"issues", :issues_delivery},
     {"pull_request_review_comment", :review_comment_delivery},
     {"pull_request_review", :review_delivery},
-    {"pull_request", :pull_request_delivery}
+    {"pull_request", :pull_request_delivery},
+    {"pull_request_review_thread", :pull_request_review_thread_delivery},
+    {"sub_issues", :sub_issues_delivery},
+    {"issue_dependencies", :issue_dependencies_delivery}
   ]
 
   defp deposited_keys do
@@ -736,6 +788,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         :review_comment_delivery -> review_comment_delivery(9402)
         :review_delivery -> review_delivery(9403)
         :pull_request_delivery -> pull_request_delivery()
+        :pull_request_review_thread_delivery -> pull_request_review_thread_delivery()
+        :sub_issues_delivery -> sub_issues_delivery()
+        :issue_dependencies_delivery -> issue_dependencies_delivery()
       end
 
     event
@@ -857,6 +912,41 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       "action" => "opened",
       "repository" => %{"full_name" => @repo},
       "pull_request" => pull_request(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  # GitHub's `pull_request_review_thread` delivery (resolved/unresolved) carries
+  # the thread and a full pull request; only the PR half is deposited.
+  defp pull_request_review_thread_delivery do
+    %{
+      "action" => "resolved",
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{"id" => "PRRT_kwDOTHREAD1"},
+      "pull_request" => pull_request(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  # GitHub's `sub_issues` delivery carries the full sub-issue and parent issue.
+  defp sub_issues_delivery do
+    %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "sub_issue" => %{issue() | "number" => 41, "updated_at" => "2026-06-24T10:30:00Z"},
+      "parent_issue" => issue(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  # GitHub's `issue_dependencies` delivery carries the issue whose dependency
+  # edge changed, plus the blocker edge.
+  defp issue_dependencies_delivery do
+    %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "issue" => issue(),
+      "blocked_by_issue" => %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"},
       "sender" => %{"login" => @human}
     }
   end
