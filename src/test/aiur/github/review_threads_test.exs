@@ -65,12 +65,25 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
       assert :ok = PollSnapshots.put_review_threads("owner/repo", 61, [thread])
       assert :ok = PollSnapshots.merge_review_thread("owner/repo", 61, %{thread | "updatedAt" => "2026-08-21T10:01:00Z"})
 
+      # Record rather than `flunk/1`: an exception raised inside `request_fun`
+      # is swallowed by the transport's retry path and only surfaces when the
+      # request deadline expires, so a regression would read in CI as a
+      # multi-minute timeout instead of a failed assertion.
+      test_pid = self()
+
+      request_fun = fn _request ->
+        send(test_pid, :unexpected_request)
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"pullRequest" => nil}}}}}
+      end
+
       assert {:ok, [comment]} =
                ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61,
-                 request_fun: fn _request -> flunk("delivery-fresh threads must not be re-fetched") end,
+                 request_fun: request_fun,
                  repo_root: repo_root,
                  agent_logins: ["aiur-bot"]
                )
+
+      refute_received :unexpected_request
 
       assert comment["review_thread_id"] == "PRRT_delivery"
       File.rm_rf!(repo_root)

@@ -24,11 +24,13 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
     assert :ok = PollSnapshots.merge_review_thread("owner/repo", 77, %{"id" => "PRRT_resolved", "isResolved" => true, "updatedAt" => "2026-08-21T10:00:00Z"})
 
+    # Capture the document and assert on it after the fetch returns. Asserting
+    # inline would raise inside the transport's retry path, turning a real
+    # regression into a request-deadline timeout rather than a failed test.
+    test_pid = self()
+
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
-      refute body["query"] =~ "branch_0_0"
-      refute body["query"] =~ "reviewThreads(first: 100)"
-      assert body["query"] =~ "reviewDecision"
+      send(test_pid, {:query, body["query"]})
 
       {:ok,
        %{
@@ -45,6 +47,12 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"], request_fun: request_fun)
+
+    assert_received {:query, query}
+    assert query =~ "delivered_0: pullRequest(number: 77)"
+    refute query =~ "branch_0_0"
+    refute query =~ "reviewThreads(first: 100)"
+    assert query =~ "reviewDecision"
 
     assert batch.review_thread_comments == []
   end

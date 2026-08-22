@@ -92,15 +92,13 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                %{"id" => 501, "name" => "cached", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
              )
 
+    # Capture the document and assert on it after the fetch returns. Asserting
+    # inline would raise inside the transport's retry path, turning a real
+    # regression into a request-deadline timeout rather than a failed test.
+    test_pid = self()
+
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
-      refute body["query"] =~ "branch_0_0"
-      assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
-      assert body["query"] =~ "status {"
-      assert body["query"] =~ "contexts { context state"
-      refute body["query"] =~ "statusCheckRollup"
-      refute body["query"] =~ "... on CheckRun"
-      refute body["query"] =~ "databaseId name status conclusion"
+      send(test_pid, {:query, body["query"]})
 
       node = pull_request_with_legacy_status()
 
@@ -113,6 +111,16 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
     assert {:ok, %{"42" => batch}} =
              CIPollBatch.fetch(["42"], request_fun: request_fun)
+
+    assert_received {:query, query}
+    assert query =~ "delivered_0: pullRequest(number: 77)"
+    refute query =~ "branch_0_0"
+    assert query =~ "isDraft reviewDecision mergeable mergeStateStatus"
+    assert query =~ "status {"
+    assert query =~ "contexts { context state"
+    refute query =~ "statusCheckRollup"
+    refute query =~ "... on CheckRun"
+    refute query =~ "databaseId name status conclusion"
 
     assert [%{"name" => "cached", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
