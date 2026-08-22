@@ -58,6 +58,18 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   deposit of one bought nothing. It was removed rather than kept as a dead
   write.
 
+  ## What every deposit also retires
+
+  A delivery is not only a body to hold — it is a fact that the state Aiur was
+  caching has changed. Each deposit therefore retires the `Aiur.GitHub.ReadCache`
+  identities the delivery makes stale (the numbered issue or pull request it
+  carries, plus the repository's collections when the action created or removed
+  a set member), through the same `ReadCache.invalidate/1` primitive
+  `write_through/3` uses for Aiur's own mutations. This is the second producer
+  the read cache had no knowledge of, and it is what lets the `ReadCache` TTLs
+  rise from seconds to hours: the delivery, not the clock, is the freshness
+  mechanism, and the clock is only a backstop against a missed delivery.
+
   ## What this module deliberately does not do
 
   **It never marks anything processed** (KTD5). `put_resource/3` is called
@@ -102,7 +114,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{ReadCache, ResourceStore}
   alias Aiur.TicketBranch
 
   @typedoc """
@@ -122,14 +134,18 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   """
   @spec deposit(term(), term(), term()) :: [ResourceStore.key()]
   def deposit(event_type, payload, repo) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
-    if store_running?() do
-      Enum.flat_map(bodies(event_type, payload), fn
-        {:drop, type, id} -> drop(type, repo, id)
-        {type, id, body, version} -> store(type, repo, id, body, version)
-      end)
-    else
-      []
-    end
+    keys =
+      if store_running?() do
+        Enum.flat_map(bodies(event_type, payload), fn
+          {:drop, type, id} -> drop(type, repo, id)
+          {type, id, body, version} -> store(type, repo, id, body, version)
+        end)
+      else
+        []
+      end
+
+    invalidate_read_cache(event_type, payload, repo)
+    keys
   rescue
     error ->
       Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} error=#{Exception.message(error)}")
@@ -183,6 +199,86 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
   defp bodies(_event_type, _payload), do: []
+
+  # ---------------------------------------------------------------------------
+  # Retiring the daemon read cache
+  # ---------------------------------------------------------------------------
+
+  # A delivery is a fact about GitHub state that arrived for free, and the
+  # `ReadCache` entries about the resources it touches are stale from that
+  # moment — even when `ResourceStore` refuses the body, because the state
+  # changed regardless of whether we could hold it. Retiring those entries is
+  # what lets the `ReadCache` TTLs be measured in hours instead of seconds:
+  # the delivery, not the clock, is the freshness mechanism. This is the same
+  # primitive `write_through/3` already uses for Aiur's own writes, wired to
+  # the second producer that knows about changes made outside this daemon.
+  #
+  # Identities are derived from the payload — the numbered resources the
+  # delivery is about — rather than from the `ResourceStore` keys written,
+  # because a comment's store key is its comment id, which is not a `ReadCache`
+  # identity. GitHub numbers issues and pull requests from one sequence, so a
+  # delivery about either retires the single shared `{:number, ...}` identity.
+  #
+  # Deliberately runs even when the store is not running: a delivery proves the
+  # change whether or not there is anywhere to hold its body.
+  defp invalidate_read_cache(event_type, payload, repo) do
+    identities =
+      case event_type do
+        "issue_comment" ->
+          numbered_identities(repo, get_in(payload, ["issue", "number"]), false)
+
+        event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
+          numbered_identities(repo, get_in(payload, ["pull_request", "number"]), set_changing?(:pull_request, Map.get(payload, "action")))
+
+        "issues" ->
+          numbered_identities(repo, get_in(payload, ["issue", "number"]), set_changing?(:issue, Map.get(payload, "action")))
+
+        _other ->
+          []
+      end
+
+    ReadCache.invalidate(identities)
+  end
+
+  # Which actions change an *enumerating* read's answer — a ticket list, "is
+  # there an open pull request on this branch yet" — as opposed to only changing
+  # the numbered resource itself. A resource appearing in or disappearing from a
+  # set (created, destroyed, reopened, closed) retires the collections marker as
+  # well as the number; an edit, a label, or a comment changes the resource and
+  # nothing else. Over-invalidating here costs one re-fetch of an enumerating
+  # read; under-invalidating serves a stale list for the whole TTL.
+  defp set_changing?(:issue, action), do: action in ["opened", "reopened", "deleted"]
+  defp set_changing?(:pull_request, action), do: action in ["opened", "reopened", "closed"]
+  defp set_changing?(_kind, _action), do: false
+
+  defp numbered_identities(repo, number, collections?) do
+    with {owner, name} when owner != "" and name != "" <- split_repo(repo),
+         parsed when is_integer(parsed) and parsed > 0 <- parse_number(number) do
+      [{:number, owner, name, parsed}] ++ if(collections?, do: [{:collections, owner, name}], else: [])
+    else
+      _unusable -> []
+    end
+  end
+
+  defp split_repo(repo) when is_binary(repo) do
+    case repo |> String.trim() |> String.downcase() |> String.split("/") do
+      [owner, name] when owner != "" and name != "" -> {owner, name}
+      _other -> nil
+    end
+  end
+
+  defp split_repo(_repo), do: nil
+
+  defp parse_number(number) when is_integer(number) and number > 0, do: number
+
+  defp parse_number(number) when is_binary(number) do
+    case Integer.parse(number) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _other -> nil
+    end
+  end
+
+  defp parse_number(_number), do: nil
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
 

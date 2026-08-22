@@ -452,6 +452,8 @@ The webhook shortens reaction time for repository events while polling continues
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
 
+A proven webhook also changes how long the daemon's read cache trusts GitHub answers: a **delivering** repo gets hour-long `ReadCache` TTLs, because every delivery retires the cached reads it makes stale — so the TTL is only a backstop against a missed delivery. A repo that is not proven (or has degraded back to full polling) keeps the 30-second TTLs, because for it nothing but the clock retires cached reads. Degradation therefore collapses the TTL immediately, so a webhook outage never stretches the stale window.
+
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
 
 ## Cloudflare tunnel boundary

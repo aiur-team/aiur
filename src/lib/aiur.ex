@@ -309,6 +309,11 @@ defmodule Aiur.Application do
       # Per-repo delivery mode. Starts before anything that polls or receives
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
+      #
+      # `ModeTable` owns the ETS view the read-cache TTL consults on every
+      # cacheable request, and starts first so the registry has somewhere to
+      # publish the moment it records its first mode.
+      Aiur.Webhooks.ModeTable,
       Aiur.Webhooks.ModeRegistry,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
