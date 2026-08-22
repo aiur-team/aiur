@@ -151,6 +151,35 @@ defmodule Aiur.OpenTicketSourceTest do
     assert_receive {:view_originated, true, %{method: :get}}, 2_000
   end
 
+  test "keeps a background request origin out of an asynchronous refresh" do
+    test_pid = self()
+
+    request_fun = fn request ->
+      send(test_pid, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?(), request})
+      {:ok, %{status: 200, body: [], headers: []}}
+    end
+
+    server = start_source(request_fun: request_fun)
+
+    assert :ok = OpenTicketSource.refresh(server)
+    assert_receive {:view_originated, false, %{method: :get}}, 2_000
+  end
+
+  test "keeps the periodic poll outside the LiveView request origin" do
+    test_pid = self()
+
+    request_fun = fn request ->
+      send(test_pid, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?(), request})
+      {:ok, %{status: 200, body: [], headers: []}}
+    end
+
+    server = start_source(request_fun: request_fun)
+
+    Aiur.GitHub.RequestOrigin.carry(true, fn -> send(server, :poll) end)
+
+    assert_receive {:view_originated, false, %{method: :get}}, 2_000
+  end
+
   defp start_source(opts) do
     defaults = [
       name: nil,
