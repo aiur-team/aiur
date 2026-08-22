@@ -62,6 +62,82 @@ test('flags missing metrics when a genuine empty row would otherwise mask popula
   ])
 })
 
+test('flags literal unresolved placeholders in numeric columns on populated rows', () => {
+  const broken = structuredClone(healthySnapshot)
+  broken.tables[0].rows = [
+    ['Build Order dashboard', '100%', '54', 'Unresolved', 'UNRESOLVED'],
+    ['Analytics optimizations', '100%', '11', 'Unresolved', 'UNRESOLVED'],
+    ['Analytics + Streamdeck', '0%', '0', '0', '0']
+  ]
+
+  const result = analyzeDashboardSnapshot('build-orders', broken, 14)
+
+  assert.equal(result.verdict, 'attention')
+  assert.deepEqual(result.issues.filter((issue) => issue.kind === 'metric-column-missing').map((issue) => issue.detail), [
+    'Epics is missing for 2 of 3 rows',
+    'Waves is missing for 2 of 3 rows'
+  ])
+})
+
+test('flags an All filter count below its subsets or the scoped table total', () => {
+  const broken = structuredClone(healthySnapshot)
+  broken.filterGroups = [{
+    label: 'Command filters',
+    scope: 'commands',
+    options: [
+      { label: 'Open', count: 0 },
+      { label: 'Blocking', count: 0 },
+      { label: 'Resolved', count: 174 },
+      { label: 'All', count: 0 }
+    ]
+  }]
+  broken.countSummaries = [{ label: 'History', scope: 'commands', loaded: 10, total: 174 }]
+
+  const result = analyzeDashboardSnapshot('commands', broken, 14)
+
+  assert.equal(result.verdict, 'attention')
+  assert.deepEqual(result.issues.filter((issue) => issue.kind === 'filter-count-contradiction'), [{
+    kind: 'filter-count-contradiction',
+    detail: 'Command filters All reports 0, below Resolved 174 and History total 174'
+  }])
+
+  broken.filterGroups[0].options.find((option) => option.label === 'All').count = 174
+  assert.equal(analyzeDashboardSnapshot('commands', broken, 14).verdict, 'healthy')
+
+  // A history total below the current All count can be valid; this rule catches
+  // the misleading undercount shape without requiring two populations to match.
+  broken.filterGroups[0].options.find((option) => option.label === 'All').count = 175
+  assert.equal(analyzeDashboardSnapshot('commands', broken, 14).verdict, 'healthy')
+
+  broken.filterGroups[0].options = [{ label: 'Open', count: 0 }, { label: 'All', count: 0 }]
+  broken.countSummaries[0].scope = 'unrelated-table'
+  assert.equal(analyzeDashboardSnapshot('commands', broken, 14).verdict, 'healthy')
+})
+
+test('extracts filter chips and history totals from the rendered Commands DOM', async () => {
+  const snapshot = await inspectPage(fakePage({
+    filterGroups: [{
+      label: 'Command filters',
+      scope: 'commands',
+      options: [
+        { label: 'Resolved', count: 174 },
+        { label: 'All', count: 0 }
+      ]
+    }],
+    countSummaries: [{ label: 'History', scope: 'commands', loaded: 10, total: 174 }]
+  }), 'commands')
+
+  assert.deepEqual(snapshot.filterGroups, [{
+    label: 'Command filters',
+    scope: 'commands',
+    options: [
+      { label: 'Resolved', count: 174 },
+      { label: 'All', count: 0 }
+    ]
+  }])
+  assert.deepEqual(snapshot.countSummaries, [{ label: 'History', scope: 'commands', loaded: 10, total: 174 }])
+})
+
 test('flags a missing metric on any populated row even when most values are present', () => {
   const broken = structuredClone(healthySnapshot)
   broken.tables[0].rows[0][3] = '—'
@@ -211,11 +287,32 @@ test('extracts the peak card value separately from current concurrency and its c
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'capacity-overrun').map((issue) => issue.detail), ['peak concurrency is 33 above its cap 32'])
 })
 
-function fakePage({ elements = [], primarySelectors = [] } = {}) {
+function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
   const nodes = elements.map(({ innerText, selectors }) => ({
     innerText,
     selectors,
     getClientRects: () => [{}]
+  }))
+  const filterGroupNodes = filterGroups.map((group) => ({
+    innerText: group.options.map((option) => `${option.label} ${option.count}`).join(' '),
+    getClientRects: () => [{}],
+    getAttribute: (name) => ({ 'aria-label': group.label, 'data-count-scope': group.scope }[name] || null),
+    querySelectorAll: (selector) => selector === 'button.filter-chip'
+      ? group.options.map((option) => ({
+          innerText: `${option.label} ${option.count}`,
+          childNodes: [{ textContent: '\n      ' }, { textContent: option.label }],
+          getAttribute: (name) => name === 'data-count-label' ? option.label : null,
+          querySelector: (childSelector) => childSelector === '.count' ? { innerText: String(option.count) } : null
+        }))
+      : []
+  }))
+  const countSummaryNodes = countSummaries.map((summary) => ({
+    innerText: `${summary.loaded} of ${summary.total}`,
+    getClientRects: () => [{}],
+    getAttribute: (name) => name === 'data-count-scope' ? summary.scope : null,
+    closest: (selector) => selector === 'section'
+      ? { querySelector: (childSelector) => childSelector === '.recent-subtitle' ? { innerText: summary.label } : null }
+      : null
   }))
 
   return {
@@ -226,6 +323,8 @@ function fakePage({ elements = [], primarySelectors = [] } = {}) {
         title: 'Aiur',
         body: { innerText: nodes.map((element) => element.innerText).join('\n') },
         querySelectorAll: (selector) => {
+          if (selector === '.filter-row[aria-label]') return filterGroupNodes
+          if (selector === '.history-count') return countSummaryNodes
           const requested = selector.split(',').map((value) => value.trim())
           return nodes.filter((element) => element.selectors.some((value) => requested.includes(value)))
         },
