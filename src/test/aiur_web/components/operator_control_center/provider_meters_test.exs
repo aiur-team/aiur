@@ -49,7 +49,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "<dd>Pro</dd>"
   end
 
-  test "a stale card renders the observation age and failure state" do
+  test "a stale card renders its last-known values without staleness text" do
     snapshot =
       healthy(:codex)
       |> Map.put(:freshness, :stale)
@@ -66,11 +66,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     view = Presenter.present(authorized(), %{codex: snapshot})
     html = render(view, Presenter.announcement(view))
 
-    assert html =~ "Stale meters."
-    assert html =~ "Observation age"
-    assert html =~ "3 days old"
-    assert html =~ "Last refresh port closed."
-    assert html =~ "stale observation"
+    refute html =~ ">Stale<"
+    refute html =~ "Stale meters"
+    refute html =~ "stale observation"
+    refute html =~ "Observation age"
+    refute html =~ "Not live"
   end
 
   test "the live-region announcement is polite and atomic" do

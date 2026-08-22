@@ -7,6 +7,10 @@ defmodule Aiur.GitHub.QuotaTest do
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
+  test "strict snapshots surface an unavailable meter" do
+    assert catch_exit(Quota.snapshot!(:aiur_github_quota_not_running))
+  end
+
   test "projects rate-limit headers into exact core and GraphQL windows" do
     quota = start_quota()
 
@@ -25,11 +29,72 @@ defmodule Aiur.GitHub.QuotaTest do
              used: 1250,
              used_percent: 25.0,
              reset_at: @reset,
-             observed_at: @now
+             observed_at: @now,
+             # The window's own span, not just its end. A consumer needs both to
+             # tell "another consumer spent this" from "I was not running yet".
+             started_at: DateTime.add(@reset, -3600, :second)
            }
 
     assert snapshot.windows["graphql"].remaining == 4400
     assert snapshot.windows["graphql"].used_percent == 12.0
+  end
+
+  # Every instrumented GraphQL response already carries the endpoint's own
+  # answer for the points budget. Reading it is what lets the daemon learn its
+  # real remaining budget from the calls it is already making, rather than
+  # waiting for the next `/rate_limit` refresh to discover it is out.
+  test "learns the GraphQL window from the rateLimit block a response reports" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), reported_graphql_response(1234))
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.windows["graphql"].limit == 5000
+    assert snapshot.windows["graphql"].remaining == 1234
+    assert snapshot.windows["graphql"].reset_at == @reset
+  end
+
+  test "the reported block wins over the headers, being the endpoint's own answer" do
+    quota = start_quota()
+
+    {:ok, headers_only} = response("graphql", 5000, 4400)
+    reported = put_in(headers_only.body, %{"data" => rate_limit_block(77)})
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), {:ok, reported})
+
+    assert Quota.snapshot(quota).windows["graphql"].remaining == 77
+  end
+
+  test "a GraphQL response without a reported block still falls back to its headers" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), response("graphql", 5000, 4400))
+
+    assert Quota.snapshot(quota).windows["graphql"].remaining == 4400
+  end
+
+  test "the snapshot states how far back the meter can see" do
+    # Attribution lives in this process and dies with it, while GitHub keeps
+    # counting across a restart. Without this figure a consumer cannot tell
+    # "nobody else spent it" from "I was not running when it was spent", and
+    # would blame the daemon's own forgotten calls on somebody else.
+    booted_mid_window = start_quota(started_at: DateTime.add(@reset, -1800, :second))
+    Quota.observe(booted_mid_window, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    snapshot = Quota.snapshot(booted_mid_window)
+
+    assert snapshot.observing_since == DateTime.add(@reset, -1800, :second)
+    assert DateTime.compare(snapshot.observing_since, snapshot.windows["core"].started_at) == :gt
+  end
+
+  test "a meter cannot claim to see further back than the rolling attribution window" do
+    # A long-lived daemon still only retains an hour of observations, so its
+    # reach is bounded by the rolling window rather than by its uptime.
+    long_lived = start_quota(started_at: DateTime.add(@now, -86_400, :second))
+    Quota.observe(long_lived, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 3750))
+    snapshot = Quota.snapshot(long_lived)
+
+    assert snapshot.observing_since == DateTime.add(@now, -3600, :second)
   end
 
   test "the low-water crossing alerts once per resource window and names the reset" do
@@ -379,35 +444,41 @@ defmodule Aiur.GitHub.QuotaTest do
   # remaining. The primary window is healthy, so nothing held the caller back
   # and every rejected call was retried straight away.
   test "a secondary limit holds the resource even though the primary window reads healthy" do
-    parent = self()
     {:ok, clock} = Agent.start_link(fn -> @now end)
 
     quota =
-      start_quota(
-        clock: fn -> Agent.get(clock, & &1) end,
-        recovery_fun: fn -> send(parent, :github_quota_recovered) end
-      )
+      start_quota(clock: fn -> Agent.get(clock, & &1) end)
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4077))
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
 
-    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, 45))
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), generic_rate_limit_response("core", 4077))
 
     assert {:hold, hold} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
     assert hold.resource == "core"
-    assert hold.reset_at == DateTime.add(@now, 45, :second)
+    assert hold.reset_at == DateTime.add(@now, 60, :second)
     # The backoff is resource-scoped; GraphQL was never refused.
     assert :ok = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
 
-    token = :sys.get_state(quota).recovery_timer_token
-    Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
-    send(quota, {:dispatch_recovery, token})
+    Agent.update(clock, fn _ -> DateTime.add(@now, 61, :second) end)
 
-    assert_receive :github_quota_recovered
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
   end
 
-  test "a secondary limit alerts, sheds dispatch, publishes a shell hold, and resolves on expiry" do
+  test "a secondary limit with zero remaining does not become a primary dispatch hold" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query { viewer { login } }", %{}), secondary_response("graphql", 0, 45))
+
+    snapshot = Quota.snapshot(quota)
+    refute Map.has_key?(snapshot.windows, "graphql")
+    assert [%{resource: "graphql", seconds_remaining: 45}] = snapshot.backoffs
+    assert {:hold, %{resource: "graphql", reset_at: reset_at}} = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
+    assert reset_at == DateTime.add(@now, 45, :second)
+    assert Quota.dispatch_status(quota) == :available
+  end
+
+  test "a secondary limit alerts, keeps dispatch available, publishes a shell hold, and resolves on expiry" do
     parent = self()
     hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-secondary-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(hold_dir) end)
@@ -430,8 +501,9 @@ defmodule Aiur.GitHub.QuotaTest do
     assert opts[:reason] =~ "secondary rate limit"
     assert opts[:reason] =~ DateTime.to_iso8601(DateTime.add(@now, 45, :second))
 
-    # A backoff must shed new dispatch, not merely block in-flight callers.
-    assert {:hold, %{resource: "core"}} = Quota.dispatch_status(quota)
+    # The resource preflight is backed off, but a short secondary limit must
+    # not turn into a fleet-wide dispatch hold.
+    assert Quota.dispatch_status(quota) == :available
     assert File.read!(Path.join(hold_dir, "core-secondary-hold")) == "#{DateTime.to_unix(DateTime.add(@now, 45, :second))}\n"
 
     assert [%{resource: "core", seconds_remaining: 45}] = Quota.snapshot(quota).backoffs
@@ -455,13 +527,17 @@ defmodule Aiur.GitHub.QuotaTest do
     assert {:hold, %{reset_at: ^reset_at}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
   end
 
-  test "an exhausted-window rejection is left to the window hold rather than double-counted as secondary" do
+  test "a secondary-limit signal wins even when the response reports zero remaining" do
     quota = start_quota()
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 0, 45))
 
-    assert Quota.snapshot(quota).backoffs == []
-    assert {:hold, %{reset_at: @reset}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+    snapshot = Quota.snapshot(quota)
+    refute Map.has_key?(snapshot.windows, "core")
+    assert [%{resource: "core", seconds_remaining: 45}] = snapshot.backoffs
+    assert {:hold, %{reset_at: reset_at}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+    assert reset_at == DateTime.add(@now, 45, :second)
+    assert Quota.dispatch_status(quota) == :available
   end
 
   # A false positive here would stall every agent for a minute on an ordinary
@@ -654,12 +730,43 @@ defmodule Aiur.GitHub.QuotaTest do
      }}
   end
 
+  defp generic_rate_limit_response(resource, remaining) do
+    {:ok,
+     %{
+       status: 403,
+       headers: [
+         {"x-ratelimit-resource", resource},
+         {"x-ratelimit-limit", "5000"},
+         {"x-ratelimit-remaining", Integer.to_string(remaining)},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+       ],
+       body: %{"message" => "API rate limit exceeded"}
+     }}
+  end
+
   # A GraphQL response that reports what the query spent, the way the Build
   # Order catalog query does since `rateLimit { cost }` was added to it (#1766).
   defp graphql_response(remaining, cost) do
     {:ok, response} = response("graphql", 5000, remaining)
 
     {:ok, %{response | body: %{"data" => %{"rateLimit" => %{"cost" => cost, "remaining" => remaining, "limit" => 5000}}}}}
+  end
+
+  # The block the transport's injected `rateLimit { limit cost remaining
+  # resetAt }` selection brings back on every instrumented query.
+  defp rate_limit_block(remaining) do
+    %{
+      "rateLimit" => %{
+        "cost" => 1,
+        "limit" => 5000,
+        "remaining" => remaining,
+        "resetAt" => DateTime.to_iso8601(@reset)
+      }
+    }
+  end
+
+  defp reported_graphql_response(remaining) do
+    {:ok, %{status: 200, headers: [], body: %{"data" => rate_limit_block(remaining)}}}
   end
 
   defp not_modified(resource, remaining) do

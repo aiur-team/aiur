@@ -58,10 +58,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
 
-  # Phoenix HTML keeps template whitespace between inline elements; collapse
-  # runs of whitespace so assertions on element order are not whitespace-fragile.
-  defp compact(html), do: html |> String.replace(~r/\s+/, " ")
-
   test "renders real run, per-provider usage, and rate-limit values" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
@@ -71,12 +67,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    # Per-provider tokens read number-first, with the glyph to the right.
-    assert html =~ "1.5K"
-    assert compact(html) =~ "1.5K <img class=\"rs-token-ic\""
-    assert html =~ "$2.50"
-    assert html =~ "$6.25"
+    # Token glyphs and the spend figure were removed (operator directive); the
+    # model rows now show only the provider + usage bars.
     assert html =~ "40% · resets in 30m"
+    refute html =~ "rs-token-ic"
+    refute html =~ "rs-spend"
+    refute html =~ "Tokens"
+    refute html =~ "Spend"
 
     # The Live stat was dropped: it duplicated what the Units table already
     # shows, and the extra column pushed the head row past the card's edge at
@@ -238,12 +235,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "OpenRouter"
     refute html =~ "$0.00"
 
-    # A locked usage is an unknown token count: the row keeps its token glyph
-    # alone instead of a "Tokens N/A" value, while the meter metadata names the
-    # unavailable standing without the old Limits heading.
-    assert html =~ "N/A"
+    # A locked usage means no real reading: the Limits meter names the
+    # unavailable standing, and the removed token glyphs/spend stay absent.
+    refute html =~ "N/A"
     refute html =~ "Tokens"
-    assert html =~ "rs-token-na"
+    refute html =~ "rs-token-na"
+    refute html =~ "rs-spend"
   end
 
   # The compact run summary is hidden whenever the remaining ticket count is
@@ -619,10 +616,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # A credit window whose freshness horizon has passed is not a current reading:
-  # it names its observation time and marks itself stale instead of presenting
-  # the balance as live (issue #1550).
-  test "a credit window past its freshness horizon renders an explicit stale label" do
+  # A credit window whose freshness horizon has passed is no longer a current
+  # reading (issue #1550); the dashboard no longer labels it, so the meta just
+  # keeps the balance.
+  test "a credit window past its freshness horizon keeps its balance without a stale label" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -655,16 +652,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$7.25 · as of 11:54 UTC (stale)"
-      refute html =~ "resets in"
+      assert html =~ "$7.25"
+      refute html =~ "stale"
     end)
   end
 
-  # The regression: a balance observed more than four minutes ago (within the
-  # final minute of its 300s freshness horizon, or past it) must not render as a
-  # fresh current value. The measured spend percentage keeps its row; the meta
-  # gains the explicit staleness label.
-  test "a credit balance observed more than four minutes ago renders stale, not current" do
+  # A balance observed more than four minutes ago (within the final minute of
+  # its 300s freshness horizon, or past it) still shows its measured spend; the
+  # staleness qualifier was removed (operator directive).
+  test "a credit balance observed more than four minutes ago keeps its measured spend" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -698,19 +694,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "$49.05 · 1.9% used · as of 11:55 UTC (stale)"
-      # The stale meta is not followed by the fresh "resets in" countdown; the
-      # balance is presented with its age, not as a current reading.
-      refute html =~ "· resets in"
+      assert html =~ "$49.05 · 1.9% used"
+      refute html =~ "stale"
     end)
   end
 
   # A provider that has never been observed this boot reads :unknown — a bare
   # N/A — even when the durable dispatch-limits ledger holds its last standing.
-  # The strip must degrade to that durable record with an explicit staleness
-  # label instead of rendering an empty card. A fully-consumed durable record
-  # also turns the bar red.
-  test "renders the durable last-known standing with a staleness label and red-at-100 bar" do
+  # The strip must degrade to that durable record instead of rendering an empty
+  # card. A fully-consumed durable record also turns the bar red.
+  test "renders the durable last-known standing with a red-at-100 bar" do
     observed_at = ~U[2026-08-02 08:53:00Z]
     dir = Path.join(System.tmp_dir!(), "aiur-strip-durable-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -750,9 +743,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      # A ledger-only standing is stale by construction, and the meta line is the
-      # only place that says so now that the row's head chip is gone.
-      assert html =~ "100% used · as of 08:53 UTC (stale)"
+      assert html =~ "100%"
+      refute html =~ "stale"
       assert html =~ ~s(class="is-critical" style="width:100%")
     after
       restore_app_env(:aiur, :workflow_file_path, previous_path)
@@ -760,7 +752,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end
   end
 
-  test "keeps N/A for a provider with no durable record either" do
+  test "omits the status label for a provider with no durable record either" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -784,11 +776,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "N/A"
+      refute html =~ "N/A"
+      refute html =~ "—"
     end)
   end
 
-  test "hides spend for subscription accounts" do
+  test "spend figures are removed for every account" do
     meters =
       update_in(meters_view(), [:cards], fn cards ->
         Enum.map(cards, fn
@@ -805,15 +798,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    # Codex is subscription, so its spend figure is dropped; Claude remains an
-    # API-key card and keeps its spend figure (now leading its row).
+    # The spend figure was removed entirely (operator directive): no amount on
+    # any model row, subscription or API-key.
     refute html =~ "$2.50"
-    assert html =~ "$6.25"
+    refute html =~ "$6.25"
+    refute html =~ "rs-spend"
   end
 
   # The provider logo leads the row on the far left and is the row's only mark;
-  # the spend figure closes the row on the right.
-  test "the provider logo leads the model row and the spend figure closes it" do
+  # the spend figure and token glyphs were removed (operator directive).
+  test "the provider logo leads the model row, with no spend or token glyph" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -840,12 +834,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       [before_name, after_name] = String.split(html, "DeepSeek", parts: 2)
 
       assert before_name =~ ~s(<img class="rs-logo" src=)
-      assert after_name =~ "rs-stat-spend"
-
-      # DeepSeek is not Claude or Codex, so it carries no second, right-hand
-      # token glyph — one mark per row, on the far left.
-      refute after_name =~ ~s(<img class="rs-logo" src=)
+      refute after_name =~ "rs-spend"
       refute after_name =~ "rs-token"
+      refute after_name =~ ~s(<img class="rs-logo" src=)
     end)
   end
 
@@ -989,7 +980,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   # Rule 6: an unknown token count hides the label and the "N/A", leaving the
   # token glyph alone at logo size in the row's fixed token column.
-  test "an unknown token count renders the token glyph alone" do
+  test "token glyphs are removed from the model rows" do
     usage = %{state: :ready, providers: %{codex: %{}, claude: %{}}}
 
     html =
@@ -1002,8 +993,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
     refute html =~ "Tokens"
     refute html =~ ~s(<span class="rs-stat-label">Tokens</span>)
-    assert html =~ ~s(<img class="rs-logo rs-token-na" src="/provider-assets/codex-token.svg")
-    assert html =~ ~s(<img class="rs-logo rs-token-na" src="/provider-assets/claude-token.svg")
+    refute html =~ "rs-token-na"
+    refute html =~ "rs-token-ic"
   end
 
   # Rule 9: any meter at exactly 100% used renders red, including rate-limit
@@ -1034,7 +1025,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(class="is-critical" style="width:100%")
   end
 
-  test "a non-critical bar at 99% used stays default" do
+  test "a bar at 99% used renders warning (orange), not critical" do
     meters = %{
       state: :authorized,
       cards: [
@@ -1057,8 +1048,38 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ ~s(<i class="" style="width:99%">)
+    assert html =~ ~s(<i class="is-warning" style="width:99%">)
     refute html =~ "is-critical"
+  end
+
+  test "meter stages: yellow from 80%, orange from 90%, red at 100%" do
+    render = fn percent ->
+      meters = %{
+        state: :authorized,
+        cards: [
+          %{
+            provider: :codex,
+            provider_label: "Codex",
+            state: :ready,
+            status_label: "Healthy",
+            auth_mode: %{value: :api_key},
+            windows: [scoped_window("codex:primary", percent)]
+          }
+        ]
+      }
+
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+    end
+
+    assert render.(50) =~ ~s(<i class="" style="width:50%">)
+    assert render.(80) =~ ~s(<i class="is-caution" style="width:80%">)
+    assert render.(90) =~ ~s(<i class="is-warning" style="width:90%">)
+    assert render.(100) =~ ~s(<i class="is-critical" style="width:100%">)
   end
 
   test "the run progress bar at 100% renders red in the compact summary" do
@@ -1151,8 +1172,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         assert html =~ "3750/5000 left · resets in 30m"
 
         [_, models_html] = String.split(html, "rs-models", parts: 2)
-        refute models_html =~ ">Limits<"
-        refute models_html =~ ">Primary<"
+        # The #2085 label removal is reverted: a label sits above every model
+        # bar (the window name, or "Limits" for a row with no live windows).
+        assert models_html =~ ~s(<span class="rs-limit-label">Session</span>)
+        assert models_html =~ ~s(<span class="rs-limit-label">Limits</span>)
+        # The SPEND label is deleted from the model rows; the amount keeps its
+        # accessible name on the containing stat.
+        refute models_html =~ ~s(<span class="rs-stat-label">Spend</span>)
       end)
     end)
   end
@@ -1191,9 +1217,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # The distinction the models pane exists to preserve (issue #1564): a stale
-  # or unavailable reading must never render like a healthy zero.
-  test "the models pane distinguishes stale and unavailable from a healthy zero" do
+  # The models pane shows every provider's reading as a plain percentage; the
+  # staleness qualifier was removed (operator directive), so a stale or
+  # unavailable reading renders like any other rather than carrying a label.
+  test "the models pane renders stale and unavailable readings without labels" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         html =
@@ -1208,27 +1235,29 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         # DeepSeek is a real, fresh zero-consumed reading.
         assert html =~ "0% · resets in 30m"
 
-        # Claude's window is stale: the reading is labelled rather than
-        # presented as current.
-        assert html =~ "62% · resets in 30m (stale)"
+        # Claude's window renders its percentage without a stale qualifier.
+        assert html =~ "62% · resets in 30m"
+        refute html =~ "stale"
 
-        # Kimi reported nothing at all, which is neither healthy nor a zero.
-        assert html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
+        # Kimi reported nothing at all, which is neither healthy nor a zero; its
+        # status label was deleted (operator directive) so the row is just the
+        # empty bar.
+        refute html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
+        refute html =~ "Unavailable"
 
         # The head-row freshness chip is gone (the row leads with the provider
         # logo instead); the meter's own meta line is what keeps the three
-        # readings apart, so it is the assertion that guards #1564.
+        # readings apart.
         refute html =~ "rs-state"
       end)
     end)
   end
 
-  # The case the chip used to carry alone: an adapter failure (or repeated probe
-  # failures over retained values) leaves the card standing at :stale/:partial
-  # while the windows it kept are still stamped fresh. Without a row-level
-  # qualifier those percentages read as live ones.
-  test "a card standing stale or partial qualifies windows its own freshness calls fresh" do
-    for {state, qualifier} <- [{:stale, "(stale)"}, {:partial, "(partial)"}] do
+  # An adapter failure (or repeated probe failures over retained values) leaves
+  # the card standing at :stale/:partial while the windows it kept are still
+  # stamped fresh. The reading renders as a plain percentage either way.
+  test "a card standing stale or partial renders windows without qualifiers" do
+    for state <- [:stale, :partial] do
       html =
         render_component(&RunSummaryStrip.run_summary_strip/1, %{
           run: %{state: :loading},
@@ -1249,12 +1278,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      assert html =~ "40% · resets in 30m #{qualifier}"
+      assert html =~ "40% · resets in 30m"
+      refute html =~ "stale"
+      refute html =~ "partial"
     end
   end
 
-  # ...and it is added once, not twice, when the window already says it.
-  test "a stale window is not qualified twice by a stale card" do
+  test "a stale-stamped window renders its percentage without qualifiers" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         run: %{state: :loading},
@@ -1275,8 +1305,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "40% · resets in 30m (stale)"
-    refute html =~ "(stale) (stale)"
+    assert html =~ "40% · resets in 30m"
+    refute html =~ "stale"
   end
 
   test "a GitHub card still awaiting a response shows the awaiting placeholder" do
@@ -1331,14 +1361,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     row = elevenlabs_row(html)
 
     assert html =~ "2 APIs"
-    assert html =~ "Github"
-    assert row =~ "ElevenLabs"
-    assert row =~ ~s(src="/elevenlabs-symbol.svg")
+    assert html =~ ~s(title="Github - for ticket state")
+    assert html =~ ~s(src="/elevenlabs-symbol.svg")
+    assert html =~ ~s(title="Elevenlabs - for voice to text")
     assert row =~ "Credits"
     assert row =~ "75.0K left · 25% used · resets 3d"
     assert row =~ ~s(style="width:25.0%")
-    assert row =~ "Next invoice due"
-    assert row =~ "$5.00"
+    refute row =~ "Next invoice due"
+    refute row =~ "$5.00"
     refute row =~ "100.0K"
     refute row =~ "credits left"
 

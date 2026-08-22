@@ -15,6 +15,7 @@ defmodule Aiur.AgentControlCLI do
     ExecutorListener,
     ExecutorWakeInbox,
     GitHubCostCLI,
+    GitHubUsageCLI,
     Issue,
     Orchestrator,
     PauseContainment,
@@ -40,6 +41,14 @@ defmodule Aiur.AgentControlCLI do
   @exit_marker "__AIUR_CONTROL_EXIT__:"
   @error_marker "__AIUR_CONTROL_ERROR__:"
   @status_timeout_ms 5_000
+  # `set max-agents` is a synchronous orchestrator write: if the orchestrator is
+  # wedged in a GitHub-bound poll (the post-restart initial poll or a slow
+  # reconciliation), the write queues behind it and can appear hung for up to the
+  # 5s control-call budget. When the mailbox backlog is deep enough to mean real
+  # contention, say so up front so the operator sees progress instead of silence
+  # (#2137). A healthy idle orchestrator holds only a handful of queued messages
+  # (pubsub, timers), so this fires only under genuine load.
+  @orchestrator_busy_mailbox_threshold 20
   # Leave the launcher watchdog room to receive and render the daemon's explicit
   # timeout result instead of racing it at the shared 10-second edge. Eight
   # seconds was not enough: RPC BEAM startup costs ~2s, so a saturated snapshot
@@ -338,7 +347,12 @@ defmodule Aiur.AgentControlCLI do
 
   @spec github_cost(keyword()) :: :ok
   def github_cost(opts \\ []) do
-    guarded("github-cost", fn -> GitHubCostCLI.run(opts) |> exit_marker() end)
+    guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
+  end
+
+  @spec github_usage(keyword()) :: :ok
+  def github_usage(opts \\ []) do
+    guarded("github-usage", fn -> GitHubUsageCLI.run(opts) |> exit_marker() end)
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
@@ -611,13 +625,15 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp set_max_agents_result(n) when is_integer(n) and n > 0 do
+    announce_if_orchestrator_busy()
+
     case Orchestrator.set_max_concurrent_agents(n) do
       {:ok, status} ->
         IO.puts("aiur: max-agents set to #{status.max} (#{max_agents_status_suffix(status)})")
         exit_marker(0)
 
       {:error, reason} ->
-        control_error("aiur: failed to set max-agents (#{format_reason(reason)})")
+        control_error("aiur: failed to set max-agents (#{format_reason(reason)}#{set_max_agents_timeout_detail(reason)})")
         exit_marker(control_query_exit_code(reason))
     end
   end
@@ -625,6 +641,33 @@ defmodule Aiur.AgentControlCLI do
   defp set_max_agents_result(_n) do
     control_error("aiur: max-agents must be a positive integer")
     exit_marker(1)
+  end
+
+  # A write that times out waiting for the orchestrator must say what it was
+  # waiting on, not just that the deadline elapsed (#2137): after a restart the
+  # orchestrator is busy with its initial GitHub reconciliation poll, and a
+  # `set max-agents` in that window can exhaust the 5s control call before the
+  # poll drains. "orchestrator timed out" alone reads as host load; naming the
+  # process state makes the wait legible and the retry response rational.
+  defp set_max_agents_timeout_detail(:timeout), do: "; " <> orchestrator_liveness()
+  defp set_max_agents_timeout_detail(_reason), do: ""
+
+  # Report progress instead of appearing hung when the write is likely to wait:
+  # a deep Orchestrator mailbox means it is wedged in poll work, and the write's
+  # synchronous call will queue behind it. The note rides the RPC stdout the
+  # launcher prints, so the operator sees why the command has not returned.
+  defp announce_if_orchestrator_busy do
+    with pid when is_pid(pid) <- Process.whereis(Orchestrator),
+         {:message_queue_len, depth} when is_integer(depth) <- Process.info(pid, :message_queue_len),
+         true <- depth > orchestrator_busy_mailbox_threshold() do
+      IO.puts("aiur: waiting for the orchestrator to become available (it is busy; mailbox=#{depth})…")
+    end
+
+    :ok
+  end
+
+  defp orchestrator_busy_mailbox_threshold do
+    Application.get_env(:aiur, :agent_control_cli_busy_mailbox_threshold, @orchestrator_busy_mailbox_threshold)
   end
 
   @spec todo([String.t()], keyword()) :: 0 | 1

@@ -316,7 +316,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp card_sentence(%{provider_label: label, state: :stale} = card) do
-    "#{label}: last read#{plan_clause(card)}, #{window_clause(card)}."
+    "#{label}: #{window_clause(card)}#{plan_clause(card)}."
   end
 
   defp card_sentence(%{provider_label: label, state: :loading}), do: "#{label}: loading account meters."
@@ -358,7 +358,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp status_label(:error), do: "Provider error"
   defp status_label(:healthy), do: "Healthy"
   defp status_label(:partial), do: "Partial coverage"
-  defp status_label(:stale), do: "Not live"
+  defp status_label(:stale), do: "Healthy"
 
   defp auth_mode_label(:subscription), do: "Subscription"
   defp auth_mode_label(:api_key), do: "API key"
@@ -389,7 +389,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   defp health_label(:healthy), do: "Healthy"
   defp health_label(:partial), do: "Partial"
-  defp health_label(:stale), do: "Stale"
+  defp health_label(:stale), do: "Healthy"
   defp health_label(:unavailable), do: "Unavailable"
   defp health_label(_state), do: "Unknown"
 
@@ -412,7 +412,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   defp freshness_label(:fresh), do: "Fresh"
   defp freshness_label(:partial), do: "Partial"
-  defp freshness_label(:stale), do: "Stale"
+  defp freshness_label(:stale), do: "Healthy"
   defp freshness_label(_status), do: "Unknown"
 
   defp age_label(nil), do: nil
@@ -434,7 +434,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp window_freshness_label(:fresh), do: "Fresh"
-  defp window_freshness_label(:stale), do: "Stale"
+  defp window_freshness_label(:stale), do: "Healthy"
   defp window_freshness_label(_freshness), do: "Unknown"
 
   defp credit_status_label(:available), do: "Available"

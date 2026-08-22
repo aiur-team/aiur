@@ -97,17 +97,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     assert html =~ "zero eligible weight"
   end
 
-  test "stale view shows a last-known-good banner and still renders the facts grid" do
-    view = %{ready_view() | state: :stale, retained?: true, freshness: %{status: :stale, label: "Stale"}}
+  test "stale view renders the facts grid without a staleness banner" do
+    view = %{ready_view() | state: :stale, retained?: true, freshness: %{status: :stale, label: "Healthy"}}
     html = render(view)
 
-    assert html =~ "Not live."
-    assert html =~ "Showing the values we last read for this run"
+    refute html =~ "Not live"
+    refute html =~ "last read"
     assert html =~ "run-summary-grid"
-    assert html =~ ~s(class="run-summary-progress-fill is-stale")
+    assert html =~ ~s(class="run-summary-progress-fill" style="width: 60%")
 
     complete = view |> put_progress(%{view.progress | percent: 100}) |> render()
-    assert complete =~ ~s(class="run-summary-progress-fill is-complete is-stale")
+    assert complete =~ ~s(class="run-summary-progress-fill is-complete")
   end
 
   test "unavailable view is an alert naming the health reasons" do

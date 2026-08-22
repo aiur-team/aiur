@@ -168,6 +168,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
           expanded_id={@selected_decision_id}
           expanded_decision={Enum.find(history_decisions(), &(&1.decision_id == @selected_decision_id))}
           writable={false}
+          time_zone="Etc/UTC"
         />
       </DashboardShell.dashboard_shell>
     </main>
@@ -1671,6 +1672,9 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def demand(identity), do: selected_snapshot(identity)
+
+  @impl true
+  def refresh(_identity), do: :ok
 
   @impl true
   def release(_identity), do: :ok

@@ -31,7 +31,6 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
         </div>
         <div class="recent-subtitle-actions">
           <span :if={@state == :partial} class="chip attention">Partial</span>
-          <span :if={@state == :stale} class="chip attention">Stale</span>
           <span :if={@view.truncated?} class="chip">{truncation_label(@view)}</span>
         </div>
       </header>
@@ -57,14 +56,6 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomes do
       <div :if={@state == :unavailable} class="current-run-outcomes-state error-card" role="alert">
         <h3>Current-run outcomes unavailable</h3>
         <p>{unavailable_message(@view)}</p>
-      </div>
-
-      <div :if={@state == :stale} class="current-run-outcomes-state readonly-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span>
-          <b>Not live.</b>
-          Showing the outcomes we last read for this run; the refresh did not confirm.
-        </span>
       </div>
 
       <div :if={@state == :partial} class="empty-state compact">

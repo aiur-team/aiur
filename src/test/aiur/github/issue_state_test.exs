@@ -262,10 +262,13 @@ defmodule Aiur.GitHub.IssueStateTest do
 
       assert_receive {:request, %{method: :get, url: issue_url}}
       assert issue_url =~ "/issues/42"
-      assert_receive {:request, %{method: :get, url: legacy_pull_url}}
-      assert legacy_pull_url =~ "/pulls?"
+      # One open-pull-request listing, not two: the `head=<owner>:aiur/42` probe
+      # that used to run in front of it matched only branches the listing's own
+      # filter already accepts, so it was a billed request that answered nothing
+      # the next one did not.
       assert_receive {:request, %{method: :get, url: ticket_pull_url}}
       assert ticket_pull_url =~ "/pulls?"
+      refute ticket_pull_url =~ "head="
       assert_receive {:request, %{method: :get, url: ^issue_url}}
       refute_receive {:request, %{method: _method}}, 100
     end

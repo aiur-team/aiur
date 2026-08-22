@@ -675,6 +675,28 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   expect(result.stderr).not.toContain(":noconnection");
 });
 
+test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["github-cost"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
+  );
+});
+
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(
@@ -836,6 +858,69 @@ test("control rpc timeouts terminate stuck helpers and describe the degraded sto
   expect(capture).toContain("Aiur.AgentControlCLI.pause(:all)");
 });
 
+// The timeout budget must be a ceiling, never a floor. A watchdog that holds the
+// caller's stdout keeps the pipe open for its whole sleep, so a capturing caller
+// blocks past a reply that already arrived — the failure looks like a slow
+// daemon and is invisible when output goes to a terminal instead of a pipe.
+test("a fast control rpc reply returns immediately instead of waiting out the timeout budget", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+
+  for (const command of ["status", "agents", "alerts"]) {
+    const started = Date.now();
+    // spawnSync captures stdout through a pipe and reads it to EOF, which is
+    // exactly the caller shape the leaked watchdog descriptor stalls.
+    const result = runControl(
+      launcher,
+      releaseDir,
+      {
+        AIUR_FAKE_RPC_MODE: "ok",
+        AIUR_FAKE_EPMD_REGISTERED: "1",
+        AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "20",
+      },
+      [command],
+    );
+    const elapsedMs = Date.now() - started;
+
+    expect(result.status).toBe(0);
+    // Far below the 20s budget: any dependence on the budget fails here.
+    expect(elapsedMs).toBeLessThan(5000);
+  }
+});
+
+// A cancelled watchdog must leave nothing behind. The `sleep` is a separate
+// process from the subshell that spawned it, so signalling the subshell alone
+// orphans a live sleeper that still holds every descriptor it inherited.
+test("a cancelled timeout watchdog leaves no sleeping process behind", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+
+  const before = sleeperPids();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "ok",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+      AIUR_CONTROL_RPC_TIMEOUT_SECONDS: "37",
+    },
+    ["status"],
+  );
+
+  expect(result.status).toBe(0);
+  const leaked = sleeperPids("37").filter((pid) => !before.includes(pid));
+  expect(leaked).toEqual([]);
+});
+
+// PIDs of `sleep <seconds>` processes owned by this user; the distinctive budget
+// used above keeps the match specific to the watchdog under test.
+function sleeperPids(seconds = "37") {
+  const ps = spawnSync("ps", ["-eo", "pid=,args="], { encoding: "utf8" });
+  return (ps.stdout || "")
+    .split("\n")
+    .filter((line) => new RegExp(`\\bsleep ${seconds}\\b`).test(line))
+    .map((line) => Number.parseInt(line.trim().split(/\s+/)[0], 10))
+    .filter((pid) => Number.isInteger(pid));
+}
+
 test("control rpc timeouts reap descendants that escape the wrapper process group", () => {
   if (spawnSync("which", ["setsid"], { encoding: "utf8" }).status !== 0) return;
 
@@ -850,269 +935,4 @@ test("control rpc timeouts reap descendants that escape the wrapper process grou
   expect(result.status).toBe(124);
   const childPid = Number.parseInt(readFileSync(childFile, "utf8"), 10);
   expect(() => process.kill(childPid, 0)).toThrow();
-});
-
-// --- Update notifier -------------------------------------------------------
-
-// Seeds the cache the launcher reads. A fresh lastCheck keeps it non-stale so
-// the notice tests never spawn a real background fetch.
-function seedCache({ latest, lastCheck = Date.now() } = {}) {
-  const dir = path.join(root, "aiur");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "update-check.json"), JSON.stringify({ lastCheck, latest }));
-}
-
-// XDG_CACHE_HOME points cache resolution at the temp root; the worker is the
-// only thing that ever touches the network, and only via AIUR_REGISTRY_URL.
-const notifierEnv = () => ({ XDG_CACHE_HOME: root, PATH: `${root}/fakebin:/usr/bin:/bin` });
-
-const cacheFilePath = () => path.join(root, "aiur", "update-check.json");
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// A detached background worker writes the cache after the parent exits, so poll
-// until it lands (or time out).
-async function waitForCache(predicate, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const cache = JSON.parse(readFileSync(cacheFilePath(), "utf8"));
-      if (predicate(cache)) return cache;
-    } catch (_) {
-      // not written yet, or mid-rename
-    }
-    await sleep(50);
-  }
-  return null;
-}
-
-// Listens, captures the assigned port, then closes — a deterministic
-// guaranteed-refused target (vs. assuming nothing listens on a fixed port).
-async function refusedUrl() {
-  const server = http.createServer();
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-  await new Promise((resolve) => server.close(resolve));
-  return `http://127.0.0.1:${port}/aiur-cli/latest`;
-}
-
-test("prints an update notice from cache when a newer version is published", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  seedCache({ latest: "2.0.0" });
-  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
-
-  expect(result.status).toBe(0);
-  expect(result.stderr).toContain("a new version is available — 1.0.0 → 2.0.0");
-  expect(result.stderr).toContain("npm install -g aiur-cli@latest");
-});
-
-test("uses semver, not string, comparison (1.2.10 > 1.2.3)", () => {
-  const { fakeBin } = setupPackage({ version: "1.2.3" });
-  seedCache({ latest: "1.2.10" });
-  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
-  expect(result.stderr).toContain("1.2.3 → 1.2.10");
-});
-
-test("no notice when the cached latest is not strictly newer", () => {
-  const { fakeBin } = setupPackage({ version: "2.0.0" });
-  seedCache({ latest: "2.0.0" });
-  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
-  expect(result.status).toBe(0);
-  expect(result.stderr).not.toContain("new version is available");
-});
-
-test("AIUR_NO_UPDATE_NOTIFIER=1 suppresses the notice", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  seedCache({ latest: "2.0.0" });
-  const result = runShim({
-    fakeBin,
-    forceTTY: true,
-    env: { ...notifierEnv(), AIUR_NO_UPDATE_NOTIFIER: "1" },
-  });
-  expect(result.stderr).not.toContain("new version is available");
-});
-
-test("CI=true suppresses the notice", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  seedCache({ latest: "2.0.0" });
-  const result = runShim({
-    fakeBin,
-    forceTTY: true,
-    env: { ...notifierEnv(), CI: "true" },
-  });
-  expect(result.stderr).not.toContain("new version is available");
-});
-
-test("dev sentinel version (0.0.0) never notifies", () => {
-  const { fakeBin } = setupPackage({ version: "0.0.0" });
-  seedCache({ latest: "9.9.9" });
-  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
-  expect(result.stderr).not.toContain("new version is available");
-});
-
-test("non-interactive (no TTY on stderr) stays quiet", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  seedCache({ latest: "2.0.0" });
-  // No forceTTY: spawnSync pipes stderr, so the interactive gate suppresses it.
-  const result = runShim({ fakeBin, env: notifierEnv() });
-  expect(result.stderr).not.toContain("new version is available");
-});
-
-test("background worker fetches latest and writes the cache", async () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ name: "aiur-cli", version: "9.9.9" }));
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-
-  const result = runShim({
-    fakeBin,
-    env: {
-      ...notifierEnv(),
-      AIUR_UPDATE_NOTIFIER_WORKER: "1",
-      AIUR_REGISTRY_URL: `http://127.0.0.1:${port}/aiur-cli/latest`,
-    },
-  });
-  await new Promise((resolve) => server.close(resolve));
-
-  expect(result.status).toBe(0);
-  const cachePath = path.join(root, "aiur", "update-check.json");
-  expect(existsSync(cachePath)).toBe(true);
-  const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-  expect(cache.latest).toBe("9.9.9");
-  expect(typeof cache.lastCheck).toBe("number");
-});
-
-test("background worker writes the cache even when the registry is unreachable", async () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  const result = runShim({
-    fakeBin,
-    env: {
-      ...notifierEnv(),
-      AIUR_UPDATE_NOTIFIER_WORKER: "1",
-      AIUR_REGISTRY_URL: await refusedUrl(),
-    },
-  });
-  expect(result.status).toBe(0);
-  const cache = JSON.parse(readFileSync(cacheFilePath(), "utf8"));
-  expect(cache.latest).toBe(null);
-  expect(typeof cache.lastCheck).toBe("number");
-});
-
-test("background worker preserves the last known latest when the fetch fails", async () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  // A stale cache from a prior successful check; the failing fetch must not drop it.
-  seedCache({ latest: "5.0.0", lastCheck: 0 });
-  const result = runShim({
-    fakeBin,
-    env: {
-      ...notifierEnv(),
-      AIUR_UPDATE_NOTIFIER_WORKER: "1",
-      AIUR_REGISTRY_URL: await refusedUrl(),
-    },
-  });
-  expect(result.status).toBe(0);
-  const cache = JSON.parse(readFileSync(cacheFilePath(), "utf8"));
-  expect(cache.latest).toBe("5.0.0");
-  expect(cache.lastCheck).toBeGreaterThan(0); // refreshed, so the next run is rate-limited
-});
-
-test("background worker does not hang on an over-large response", async () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  // A complete response well over the 1MB cap: the worker must trip the cap (or
-  // fail to parse the junk) and exit promptly, never hanging on the read.
-  const big = '{"version":"9.9.9","junk":"' + "x".repeat(1_500_000) + '"}';
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(big);
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-
-  const result = runShim({
-    fakeBin,
-    env: {
-      ...notifierEnv(),
-      AIUR_UPDATE_NOTIFIER_WORKER: "1",
-      AIUR_REGISTRY_URL: `http://127.0.0.1:${port}/aiur-cli/latest`,
-    },
-  });
-  await new Promise((resolve) => server.close(resolve));
-
-  // The worker exited (didn't hang) and stamped lastCheck so it won't respawn.
-  expect(result.status).toBe(0);
-  const cache = JSON.parse(readFileSync(cacheFilePath(), "utf8"));
-  expect(typeof cache.lastCheck).toBe("number");
-});
-
-test("a stale cache triggers a detached background refresh", async () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  // Stale cache (lastCheck:0): the run should detach a worker that refreshes it
-  // to the live 3.0.0. (The cached notice itself is covered by the fresh-cache
-  // test above; here we exercise the stale → spawn → refresh path.)
-  seedCache({ latest: "2.0.0", lastCheck: 0 });
-
-  const server = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ version: "3.0.0" }));
-  });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-
-  const result = runShim({
-    fakeBin,
-    env: {
-      ...notifierEnv(),
-      AIUR_REGISTRY_URL: `http://127.0.0.1:${port}/aiur-cli/latest`,
-    },
-  });
-
-  expect(result.status).toBe(0);
-  const refreshed = await waitForCache((c) => c.latest === "3.0.0");
-  await new Promise((resolve) => server.close(resolve));
-  expect(refreshed).not.toBeNull(); // the detached worker refreshed the cache
-});
-
-test("rejects a version string with trailing junk (no terminal injection)", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  // A valid core followed by control bytes must not parse as newer and must
-  // never reach the notice printer verbatim.
-  seedCache({ latest: "999.0.0 [2Jpwned" });
-  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
-  expect(result.status).toBe(0);
-  expect(result.stderr).not.toContain("new version is available");
-  expect(result.stderr).not.toContain("pwned");
-});
-
-test("release outranks a same-core prerelease; the reverse does not notify", () => {
-  // current is a prerelease, latest is the matching release → notify.
-  const a = setupPackage({ version: "1.0.0-rc.1" });
-  seedCache({ latest: "1.0.0" });
-  const up = runShim({ fakeBin: a.fakeBin, forceTTY: true, env: notifierEnv() });
-  expect(up.stderr).toContain("1.0.0-rc.1 → 1.0.0");
-});
-
-test("a prerelease is not advertised as an upgrade over the matching release", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  seedCache({ latest: "1.0.0-rc.1" });
-  const result = runShim({ fakeBin, forceTTY: true, env: notifierEnv() });
-  expect(result.stderr).not.toContain("new version is available");
-});
-
-test("a corrupt cache file is ignored (no crash, no notice)", () => {
-  const { fakeBin } = setupPackage({ version: "1.0.0" });
-  const dir = path.join(root, "aiur");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "update-check.json"), "{not valid json");
-  // No registry server: the worker spawned for the (missing-data) stale cache
-  // will fail its fetch quickly and exit; we only assert the launch is unharmed.
-  const result = runShim({
-    fakeBin,
-    forceTTY: true,
-    env: { ...notifierEnv(), AIUR_REGISTRY_URL: "http://127.0.0.1:0/none" },
-  });
-  expect(result.status).toBe(0);
-  expect(result.stderr).not.toContain("new version is available");
 });

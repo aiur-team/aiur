@@ -204,6 +204,24 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     refute Map.has_key?(batch, "42")
   end
 
+  # `put_first_pull_request/3` reads `List.first/1` of the branch connection and
+  # discards the rest, and GitHub permits one open pull request per head/base
+  # pair — so four of the five slots were nodes nothing could read. The status
+  # context page is a different matter and stays at 100: shrinking it would send
+  # a pull request with many checks to the REST fallback every cycle, and this
+  # document bills one point per call.
+  test "asks for only the branch pull requests it reads, and keeps the full context page" do
+    request_fun = fn %{body: body} ->
+      assert body["query"] =~ "direction: DESC}, first: 2)"
+      refute body["query"] =~ "direction: DESC}, first: 5)"
+      assert body["query"] =~ "contexts(first: 100)"
+
+      {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+    end
+
+    assert {:ok, _batch} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+  end
+
   test "does not query GitHub without CI targets" do
     request_fun = fn _request -> flunk("empty target batch must not make a request") end
 

@@ -25,6 +25,18 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
+  # Per-actor hourly ceilings (#2181): how many Core requests / GraphQL
+  # requests one actor (the daemon, or each agent workspace) may be admitted
+  # for in a rolling hour before its own requests hold. These are request-count
+  # ceilings read from the broker's `admissions`, not GraphQL point budgets —
+  # the broker sees the request, never the price GitHub charged for it. `0`
+  # disables a ceiling. The daemon ceiling is the lion's share because polling
+  # is the daemon; the agent ceiling is what keeps one workspace from eating the
+  # shared budget that the daemon and every other agent depend on.
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 2000
+  @default_agent_core_limit_per_hour 1000
+  @default_agent_graphql_limit_per_hour 500
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -141,6 +153,33 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
+  @doc """
+  Per-actor (daemon vs each agent workspace) Core/GraphQL usage and ceilings.
+
+  Reads the broker's whole actor inventory — one entry per consumer it has seen,
+  keyed by credential and consumer fingerprint — with the rolling-hour `used`
+  count, the configured `limit` (0 = no ceiling), and `reset_at_ms`: the wall-
+  clock moment the actor's usage next drops (the hold release when the actor is
+  over its ceiling, otherwise when its oldest in-window admission ages out).
+
+  Returns `%{actors: []}` when the broker is unavailable or disabled, so a
+  report command degrades to "nothing observed" rather than failing loudly on a
+  host without a broker.
+  """
+  @spec usage(keyword()) :: map()
+  def usage(opts \\ []) do
+    case command(["usage"], "", Keyword.put(opts, :include_token_key, false)) do
+      {:ok, output} ->
+        case Jason.decode(String.trim(output)) do
+          {:ok, %{"actors" => actors}} -> %{actors: Enum.map(actors, &atomize_actor/1)}
+          _invalid -> %{actors: []}
+        end
+
+      _unavailable ->
+        %{actors: []}
+    end
+  end
+
   @spec endpoint_family(map()) :: String.t()
   def endpoint_family(%{url: url}) when is_binary(url) do
     case URI.parse(url).path do
@@ -166,18 +205,24 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "granted " <> id} ->
         grant_or_hold(String.trim(id), request, key)
 
+      {:ok, "wait actor " <> milliseconds} ->
+        retry_admission(request, key, python, opts, deadline_at, milliseconds, :actor_budget)
+
       {:ok, "wait " <> milliseconds} ->
-        retry_admission(request, key, python, opts, deadline_at, milliseconds)
+        retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
     end
   end
 
-  defp retry_admission(request, key, python, opts, deadline_at, milliseconds) do
+  defp retry_admission(request, key, python, opts, deadline_at, milliseconds, reason) do
     case Integer.parse(String.trim(milliseconds)) do
-      {delay, ""} when delay > 0 -> retry_or_hold(request, key, python, opts, deadline_at, delay)
-      _invalid -> {:error, :github_budget_broker_unavailable}
+      {delay, ""} when delay > 0 ->
+        retry_or_hold(request, key, python, opts, deadline_at, delay, reason)
+
+      _invalid ->
+        {:error, :github_budget_broker_unavailable}
     end
   end
 
@@ -189,9 +234,9 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  defp retry_or_hold(request, key, python, opts, deadline_at, delay) do
+  defp retry_or_hold(request, key, python, opts, deadline_at, delay, reason) do
     if System.monotonic_time(:millisecond) + delay >= deadline_at do
-      {:hold, hold(request, delay)}
+      {:hold, hold(request, delay, reason)}
     else
       Process.sleep(max(delay, @retry_floor_ms))
       do_acquire(request, key, python, opts, deadline_at)
@@ -200,6 +245,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp acquire_args(request, opts) do
     settings = settings(opts)
+    {core_limit, graphql_limit} = actor_limits(consumer_identity(opts), settings)
 
     [
       "acquire",
@@ -207,6 +253,8 @@ defmodule Aiur.GitHub.Budget do
       request_resource(request),
       "--consumer-key",
       consumer_key(opts),
+      "--consumer-label",
+      consumer_identity(opts),
       "--endpoint-family",
       endpoint_family(request),
       "--max-inflight",
@@ -218,8 +266,25 @@ defmodule Aiur.GitHub.Budget do
       "--stagger-ms",
       Integer.to_string(settings.stagger_ms),
       "--lease-ttl-ms",
-      Integer.to_string(settings.lease_ttl_ms)
+      Integer.to_string(settings.lease_ttl_ms),
+      "--core-limit",
+      Integer.to_string(core_limit),
+      "--graphql-limit",
+      Integer.to_string(graphql_limit)
     ]
+  end
+
+  # The daemon and each agent workspace are separate actors with separate hourly
+  # ceilings. The daemon's own calls default to the daemon consumer and the
+  # daemon ceiling; an agent workspace (which reaches the broker through the gh
+  # wrapper, not through this module) is labelled `workspace:<path>` and would
+  # get the agent ceiling if it ever acquired here.
+  defp actor_limits(identity, settings) do
+    if String.starts_with?(identity, "workspace:") do
+      {settings.agent_core_limit_per_hour, settings.agent_graphql_limit_per_hour}
+    else
+      {settings.daemon_core_limit_per_hour, settings.daemon_graphql_limit_per_hour}
+    end
   end
 
   defp hold(key, scope, resource, delay_ms, opts) do
@@ -236,7 +301,16 @@ defmodule Aiur.GitHub.Budget do
   defp command(args, key, opts) when is_binary(key) do
     with true <- enabled?(opts),
          python when is_binary(python) <- Keyword.get(opts, :python, python_executable(opts)) do
-      command_args = [broker_path() | args] ++ ["--db", database_path(opts), "--token-key", key]
+      token_args =
+        if Keyword.get(opts, :include_token_key, true) do
+          ["--db", database_path(opts), "--token-key", key]
+        else
+          # `usage` spans every credential the broker has seen, so it takes no
+          # token key (the broker command refuses one).
+          ["--db", database_path(opts)]
+        end
+
+      command_args = [broker_path() | args] ++ token_args
 
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
@@ -366,7 +440,27 @@ defmodule Aiur.GitHub.Budget do
           @default_requests_per_minute
         ),
       stagger_ms: nonnegative(Keyword.get(opts, :stagger_ms, Map.get(github, :stagger_ms, @default_stagger_ms)), @default_stagger_ms),
-      lease_ttl_ms: positive(lease_timeout_ms, @default_timeout_ms) * 2 + @lease_grace_ms
+      lease_ttl_ms: positive(lease_timeout_ms, @default_timeout_ms) * 2 + @lease_grace_ms,
+      daemon_core_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :daemon_core_limit_per_hour, Map.get(github, :daemon_core_limit_per_hour, @default_daemon_core_limit_per_hour)),
+          @default_daemon_core_limit_per_hour
+        ),
+      daemon_graphql_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :daemon_graphql_limit_per_hour, Map.get(github, :daemon_graphql_limit_per_hour, @default_daemon_graphql_limit_per_hour)),
+          @default_daemon_graphql_limit_per_hour
+        ),
+      agent_core_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :agent_core_limit_per_hour, Map.get(github, :agent_core_limit_per_hour, @default_agent_core_limit_per_hour)),
+          @default_agent_core_limit_per_hour
+        ),
+      agent_graphql_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :agent_graphql_limit_per_hour, Map.get(github, :agent_graphql_limit_per_hour, @default_agent_graphql_limit_per_hour)),
+          @default_agent_graphql_limit_per_hour
+        )
     }
   end
 
@@ -391,17 +485,16 @@ defmodule Aiur.GitHub.Budget do
     Keyword.get_lazy(opts, :deadline_at, fn -> deadline(opts) end)
   end
 
-  defp consumer_key(opts) do
-    identity =
-      Keyword.get(opts, :consumer_key) ||
-        System.get_env("AIUR_GITHUB_BUDGET_CONSUMER") ||
-        "daemon:#{node()}"
-
-    token_key(identity)
+  defp consumer_identity(opts) do
+    Keyword.get(opts, :consumer_key) ||
+      System.get_env("AIUR_GITHUB_BUDGET_CONSUMER") ||
+      "daemon:#{node()}"
   end
 
-  defp hold(request, delay_ms) do
-    %{resource: request_resource(request), reset_at: DateTime.add(DateTime.utc_now(), ceil(delay_ms / 1_000), :second), reason: :shared_budget}
+  defp consumer_key(opts), do: token_key(consumer_identity(opts))
+
+  defp hold(request, delay_ms, reason) do
+    %{resource: request_resource(request), reset_at: DateTime.add(DateTime.utc_now(), ceil(delay_ms / 1_000), :second), reason: reason}
   end
 
   defp active_token_key(request, opts) do
@@ -421,8 +514,8 @@ defmodule Aiur.GitHub.Budget do
 
   defp limit_hold(response, headers) do
     cond do
+      GraphQLErrors.secondary_rate_limited_response?(response) -> {:token, retry_after_ms(response)}
       remaining(headers) == 0 -> primary_limit_hold(headers, response)
-      Map.get(response, :status) in [403, 429] and secondary_limit?(response) -> {:token, retry_after_ms(response)}
       true -> :none
     end
   end
@@ -432,10 +525,6 @@ defmodule Aiur.GitHub.Budget do
       delay when is_integer(delay) and delay > 0 -> {:resource, delay}
       _missing -> {:token, retry_after_ms(response)}
     end
-  end
-
-  defp secondary_limit?(response) do
-    GraphQLErrors.rate_limited_response?(response, :unknown) and remaining(Map.get(response, :headers, [])) != 0
   end
 
   defp retry_after_ms(response) do
@@ -492,6 +581,28 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp atomize_snapshot(_snapshot), do: %{cooldown_until_ms: 0, inflight: %{}, admissions: []}
+
+  defp atomize_actor(actor) when is_map(actor) do
+    %{
+      token_key: Map.get(actor, "token_key", ""),
+      consumer_key: Map.get(actor, "consumer_key", ""),
+      consumer_label: Map.get(actor, "consumer_label", ""),
+      core: atomize_usage_figure(Map.get(actor, "core")),
+      graphql: atomize_usage_figure(Map.get(actor, "graphql"))
+    }
+  end
+
+  defp atomize_actor(_actor), do: %{token_key: "", consumer_key: "", consumer_label: "", core: atomize_usage_figure(nil), graphql: atomize_usage_figure(nil)}
+
+  defp atomize_usage_figure(figure) when is_map(figure) do
+    %{
+      used: Map.get(figure, "used", 0),
+      limit: Map.get(figure, "limit", 0),
+      reset_at_ms: Map.get(figure, "reset_at_ms")
+    }
+  end
+
+  defp atomize_usage_figure(_figure), do: %{used: 0, limit: 0, reset_at_ms: nil}
 
   defp valid_lease_id?(id), do: String.match?(id, ~r/\A[a-f0-9]{32}\z/)
 

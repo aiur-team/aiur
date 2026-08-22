@@ -58,30 +58,28 @@ defmodule Aiur.DecisionDispatch do
 
   def dispatch(%Decision{}, _opts), do: {:error, :answer_missing}
 
-  @doc "Render a bounded, human-readable envelope while preserving lifecycle instructions."
+  @doc "Render a concise, product-focused answer envelope for the agent."
   @spec render(Decision.t()) :: String.t()
   def render(%Decision{answer: %DecisionAnswer{} = answer} = decision) do
-    header = """
-    Durable Executor answer for ticket #{decision.ticket.identifier}
-    Decision: #{decision.decision_id}
-    Request version: #{answer.decision_version}
-    Action: #{answer.action_id}
-    Answered by: #{answer.actor.kind}:#{answer.actor.id || "unknown"}
-    Question: #{decision.question}
-    """
-
     response = response_text(decision, answer)
-    rationale = if answer.rationale, do: "\nRationale: #{answer.rationale}\n", else: "\n"
+    rationale = if answer.rationale, do: "Rationale: #{answer.rationale}", else: nil
+    lifecycle = lifecycle_instruction()
 
-    footer = """
-
-    This answer is append-only and may be replayed after a retry or reconnect. Do not apply it twice.
-    After observing it, emit `decision.acknowledged` with decision_id `#{decision.decision_id}`, action_id `#{answer.action_id}`, and expected_version #{answer.decision_version}.
-    When the work is complete, emit `decision.resolved` with the same correlation fields.
-    """
-
-    bounded_join(header, response <> rationale, footer)
+    [response, rationale, lifecycle]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n\n")
+    |> bound(@max_message_chars)
   end
+
+  # The agent is told only what to do next, in product terms. Correlations,
+  # versions and the ticket identity live in the queue payload, not the prose,
+  # so the operator's answer reads the way it was written.
+  defp lifecycle_instruction do
+    "After applying this, emit `decision.acknowledged` and, when the work is done, `decision.resolved`."
+  end
+
+  defp bound(body, limit) when byte_size(body) <= limit, do: body
+  defp bound(body, limit), do: String.slice(body, 0, limit)
 
   defp response_text(decision, %DecisionAnswer{selected_option_id: option_id}) when is_binary(option_id) do
     label =
@@ -97,10 +95,5 @@ defmodule Aiur.DecisionDispatch do
 
   defp response_text(_decision, %DecisionAnswer{custom_response: response}) do
     "Custom response: #{response}"
-  end
-
-  defp bounded_join(header, content, footer) do
-    available = max(@max_message_chars - String.length(header) - String.length(footer), 0)
-    header <> String.slice(content, 0, available) <> footer
   end
 end

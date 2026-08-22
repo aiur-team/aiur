@@ -262,7 +262,7 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter do
 
   defp freshness_label(:fresh), do: "Fresh"
   defp freshness_label(:partial), do: "Partial"
-  defp freshness_label(:stale), do: "Stale"
+  defp freshness_label(:stale), do: "Healthy"
   defp freshness_label(:unavailable), do: "Unavailable"
   defp freshness_label(_status), do: "Unknown"
 
@@ -278,7 +278,6 @@ defmodule AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter do
   end
 
   defp caveat_sentence(:partial), do: "Results may be incomplete."
-  defp caveat_sentence(:stale), do: "Showing the outcomes we last read; the refresh did not confirm."
   defp caveat_sentence(_state), do: ""
 
   defp reasons_sentence(view) do

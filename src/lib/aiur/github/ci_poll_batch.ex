@@ -10,8 +10,29 @@ defmodule Aiur.GitHub.CIPollBatch do
   # `aiur/<id>-<slug>` branch and the legacy `aiur/<id>` one) keeps every query
   # bounded by the requested targets instead of scanning the repository's open
   # PR list, while staying at or under 100 aliases per call.
+  #
+  # `@pull_requests_per_branch` is 2 rather than 5 because the connection has
+  # exactly one consumer: `put_first_pull_request/3` reads `List.first/1` of it
+  # and discards the rest, so the newest is the answer and the second slot is
+  # margin.
+  #
+  # This is correctness-preserving but NOT semantics-preserving, and the
+  # difference matters. GitHub permits one open pull request per head/*base*
+  # pair, so three open pull requests on a single head branch is legal. At
+  # `first: 5` that answer came back from GraphQL; at `first: 2` it trips
+  # `pageInfo.hasNextPage` and `put_entry_result/4` fail-closes the target to
+  # the REST fallback — every cycle, with a warning, and at a cost rather than
+  # a saving. The answer stays correct; the path to it changes.
+  #
+  # That case is rare enough here to accept, but do not read this as free.
+  #
+  # `contexts(first: 100)` is deliberately NOT reduced. A smaller page would
+  # mean a pull request with many check contexts falls out to the REST fallback
+  # every cycle, and — measured against GitHub's own reported `rateLimit
+  # { cost }` — this whole document costs **1 point per call**, not the ~510 a
+  # naive nodes/100 estimate predicts. There is no budget to buy with that risk.
   @targets_per_query 50
-  @pull_requests_per_branch 5
+  @pull_requests_per_branch 2
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
   def fetch(targets, opts \\ []) when is_list(targets) do

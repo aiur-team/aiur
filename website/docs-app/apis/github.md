@@ -87,7 +87,11 @@ Poll spend still scales inversely with the interval, so `polling.interval_second
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
-Comments are read over conditional REST with `If-None-Match`. An unchanged comment list answers `304`, which does not count against GitHub's primary REST limit, so repeatedly sweeping quiet tickets is free rather than merely cheap. The validators are kept on disk, so a daemon restart does not force a full-price re-read.
+Comments, review submissions, and watch-target discovery are read over
+conditional REST with `If-None-Match`. An unchanged answer returns `304`, which
+does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
+tickets is free rather than merely cheap. Validators are kept on disk, so a
+restart does not force a full-price re-read.
 
 GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
 
@@ -129,7 +133,7 @@ looking.
 | --- | --- |
 | First startup sweep | Always immediate. |
 | Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
-| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
+| `aiur --todo`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
 
@@ -175,6 +179,75 @@ rows against `limit - remaining` on the credential's own window:
 The command reads the meter the daemon already keeps and issues no GitHub
 request of its own, so checking it is free.
 
+### Credential pooling
+
+GitHub's budgets are per credential. An operator who holds more than one
+credential can let the daemon spread read traffic across them instead of
+exhausting one, by listing them under `tracker.github.credentials`:
+
+```yaml
+tracker:
+  github:
+    credentials:
+      - id: app
+        kind: app_installation
+        identity: my-aiur[bot]
+        writes: true
+      - id: machine
+        kind: machine_user
+        identity: my-bot-account
+        token_env: MACHINE_USER_TOKEN
+        writes: true
+      - id: operator
+        kind: human
+        identity: my-login
+        token_env: OPERATOR_TOKEN
+```
+
+An empty list — the default — is the single-credential setup and is unchanged
+by any of this.
+
+For each request the daemon picks the eligible credential with the most
+remaining budget for that request's resource.
+
+Core and GraphQL are chosen separately. They are separate budgets on separate
+windows, so REST core sitting near-idle is not headroom a GraphQL query can
+spend.
+
+Headroom comes from the `x-ratelimit-*` headers of calls the daemon was already
+making, so selection costs no budget of its own.
+
+A credential with no observation this window is treated as probably full rather
+than as empty, and ties resolve to the primary credential.
+
+`aiur github-usage` grows a per-credential section and a pool total. Both
+commands show them only when more than one credential is configured.
+
+#### Writes stay on their own identity
+
+A `human` credential is read-only and cannot be configured otherwise.
+
+Every write GitHub records against a person's token is attributed to that
+person: their name on the comment, their account in the audit trail.
+
+Aiur's merge policy also depends on agent pull requests and the reviewing human
+being different identities. Pooling writes would break that at random.
+
+Pool the reads, which is where the budget actually goes. Leave comments, labels,
+merges and pull request creation where they belong.
+
+#### What pooling is worth
+
+Each credential carries its own hourly budget, so three credentials raise the
+ceiling roughly threefold.
+
+That is headroom, not a fix. A fleet burning more than its combined ceiling
+still exhausts it, just later.
+
+The pool total is also a ceiling rather than a balance, because the credentials'
+windows reset at different moments. Pooling buys margin while the burn itself is
+reduced.
+
 ## Comments arriving twice
 
 A comment can reach Aiur down two paths: a webhook delivery, which is free and arrives first, and the comment sweep, which reads it back from the API.
@@ -191,6 +264,12 @@ Aiur therefore records each comment it has processed by its identity, and both p
 | Daemon restarts | The record is on disk, so a comment handled before the restart is not re-published after it. |
 | A comment is edited | The agent wakes again. The record stores the comment's `updated_at`, so an edit is a new state of that comment rather than a repeat of it. |
 | No webhook installed | Nothing is ever recorded by a delivery, so nothing is ever suppressed. Polling behaves exactly as it did before. |
+
+Inline review comments on a pull request coalesce per **review thread**, not per comment. A review thread is one finding plus its replies, so a reviewer adding several comments to one thread wakes the agent once.
+
+The webhook resolves a delivered comment's thread from the comment's own node id, so both pipes key inline feedback the same way. A follow-up comment on an already-woken thread within the one-hour replay window does not wake a second time; it wakes once the thread is re-read after the window passes.
+
+If the delivery cannot be resolved to a thread, it is keyed on its own comment id as before — a duplicate wake is recoverable, a dropped delivery is not.
 
 If the record is unavailable or unreadable, Aiur behaves as though it were absent: it publishes, and the existing one-hour replay window catches short-range duplicates. A duplicate wake is recoverable; a dropped comment is not.
 

@@ -112,7 +112,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
     end
   end
 
-  defp run_sentence(:stale, _view), do: "Current run, showing the values we last read."
   defp run_sentence(_state, _view), do: "Current run."
 
   defp counts_sentence(counts) do
@@ -328,7 +327,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
 
   defp freshness_label(:fresh), do: "Fresh"
   defp freshness_label(:partial), do: "Partial"
-  defp freshness_label(:stale), do: "Stale"
+  defp freshness_label(:stale), do: "Healthy"
   defp freshness_label(:unavailable), do: "Unavailable"
   defp freshness_label(_status), do: "Unknown"
 

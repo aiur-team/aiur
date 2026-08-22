@@ -249,6 +249,8 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_STAGGER_MS", github_budget.stagger_ms |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", github_budget.agent_core_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", github_budget.agent_graphql_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
@@ -380,6 +382,8 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>
       "export AIUR_GITHUB_REQUESTS_PER_MINUTE=#{github_budget.requests_per_minute}\n" <>
       "export AIUR_GITHUB_STAGGER_MS=#{github_budget.stagger_ms}\n" <>
+      "export AIUR_GITHUB_CORE_LIMIT_PER_HOUR=#{github_budget.agent_core_limit_per_hour}\n" <>
+      "export AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR=#{github_budget.agent_graphql_limit_per_hour}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
       ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
