@@ -209,10 +209,12 @@ defmodule Aiur.GitHub.ResourceStore do
   same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels,
   pull requests and the open pull request for a ticket's head branch,
   `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
-  merges its own responses, and `Aiur.Events.Publisher` marks individual comment
-  resources processed. Readers: the poller and the
+  merges its own responses, `Aiur.GitHub.PollSnapshots` converges complete
+  review-thread and CI-context selections, and `Aiur.Events.Publisher` marks
+  individual comment resources processed. Readers: the poller and the
   command scan both serve their own `304` from the held list, `Aiur.GitHub.Issues`
-  and the dashboard read bodies.
+  and the dashboard read bodies, and the three GraphQL poll paths consult
+  delivery-fresh selection snapshots before spending.
 
   ## Two versions, deliberately kept apart
 
@@ -279,6 +281,10 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # Complete selection families shared by the GraphQL pollers and webhook
+    # deltas. They deliberately exclude strict review/merge verdict fields.
+    :pr_review_threads,
+    :ci_contexts,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
