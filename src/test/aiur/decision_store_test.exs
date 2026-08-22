@@ -31,7 +31,7 @@ defmodule Aiur.DecisionStoreTest do
 
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-store-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-decision-store-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     on_exit(fn ->

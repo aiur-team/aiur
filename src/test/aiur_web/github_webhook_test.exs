@@ -310,7 +310,7 @@ defmodule AiurWeb.GithubWebhookTest do
 
   describe "delivery admission" do
     setup do
-      dir = Path.join(System.tmp_dir!(), "aiur-webhook-receiver-#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "aiur-webhook-receiver-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       log =
         start_supervised!({DeliveryLog, name: :"receiver_delivery_log_#{System.unique_integer([:positive])}", state_dir: dir})

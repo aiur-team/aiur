@@ -4,7 +4,7 @@ defmodule Aiur.AgentCommandInstallerTest do
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-command-installer-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-command-installer-#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "workspace")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf!(root) end)

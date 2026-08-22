@@ -12,7 +12,7 @@ defmodule Aiur.Executor.TakeoverAlert.StoreTest do
   end
 
   defp tmp_state_dir do
-    dir = Path.join(System.tmp_dir!(), "takeover_store_#{System.unique_integer([:positive, :monotonic])}")
+    dir = Path.join(System.tmp_dir!(), "takeover_store_#{System.pid()}-#{System.unique_integer([:positive, :monotonic])}")
     File.mkdir_p!(dir)
     # unique_integer values are reused across VM boots, so clean the dir up to
     # prevent a later run's "fresh" store from loading a prior run's state file.

@@ -27,7 +27,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
     end
 
     test "a failed workspace cd cannot launch Claude or retain the operator token" do
-      root = Path.join(System.tmp_dir!(), "aiur-claude-command-#{System.unique_integer([:positive])}")
+      root = Path.join(System.tmp_dir!(), "aiur-claude-command-#{System.pid()}-#{System.unique_integer([:positive])}")
       bin = Path.join(root, "bin")
       missing_workspace = Path.join(root, "missing")
       File.mkdir_p!(bin)
@@ -125,7 +125,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
 
   describe "resume_session_id/2" do
     setup do
-      dir = Path.join(System.tmp_dir!(), "cmd-resume-#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "cmd-resume-#{System.pid()}-#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf(dir) end)
       %{projects_dir: dir, workspace: "/ws/aiur/613"}
     end

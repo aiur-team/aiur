@@ -55,7 +55,7 @@ defmodule Aiur.DecisionAttentionTest do
 
   test "writes a needs-attention alert with the operator question" do
     identifier = "DECISION-ALERT-#{System.unique_integer([:positive])}"
-    workspace = Path.join(System.tmp_dir!(), "aiur-decision-attention-#{System.unique_integer([:positive])}")
+    workspace = Path.join(System.tmp_dir!(), "aiur-decision-attention-#{System.pid()}-#{System.unique_integer([:positive])}")
     issue = %Issue{identifier: identifier, title: "Needs a decision"}
 
     File.mkdir_p!(workspace)
@@ -76,7 +76,7 @@ defmodule Aiur.DecisionAttentionTest do
 
   test "remote decision resolution clears the central attention feed" do
     identifier = "DECISION-REMOTE-#{System.unique_integer([:positive])}"
-    workspace = Path.join(System.tmp_dir!(), "aiur-decision-remote-#{System.unique_integer([:positive])}")
+    workspace = Path.join(System.tmp_dir!(), "aiur-decision-remote-#{System.pid()}-#{System.unique_integer([:positive])}")
     issue = %Issue{identifier: identifier, title: "Remote decision"}
 
     File.mkdir_p!(workspace)
@@ -343,7 +343,7 @@ defmodule Aiur.DecisionAttentionTest do
   test "restart import cannot revert a differently worded structured enrichment" do
     identifier = "DECISION-IMPORT-ENRICHED-#{System.unique_integer([:positive])}"
     issue = %Issue{identifier: identifier, title: "Enriched decision"}
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-import-enriched-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-decision-import-enriched-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous_dir = Application.get_env(:aiur, :decision_state_dir)
     Application.put_env(:aiur, :decision_state_dir, dir)
 

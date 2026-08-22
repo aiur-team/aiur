@@ -326,7 +326,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
   test "GET /api/v1/:issue_identifier/events returns a bounded durable feed" do
     original_log_file = Application.get_env(:aiur, :log_file)
-    tmp = Path.join(System.tmp_dir!(), "aiur-events-api-#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "aiur-events-api-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
 
     on_exit(fn ->

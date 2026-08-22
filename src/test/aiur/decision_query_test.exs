@@ -65,7 +65,7 @@ defmodule Aiur.DecisionQueryTest do
 
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-query-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-decision-query-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)

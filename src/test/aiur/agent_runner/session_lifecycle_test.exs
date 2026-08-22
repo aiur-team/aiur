@@ -316,7 +316,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       path =
         Path.join(
           System.tmp_dir!(),
-          "session-lifecycle-display-#{System.unique_integer([:positive])}.jsonl"
+          "session-lifecycle-display-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl"
         )
 
       old_record = %{

@@ -12,7 +12,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
-    log_root = Path.join(System.tmp_dir!(), "aiur-queue-drain-#{System.unique_integer([:positive])}")
+    log_root = Path.join(System.tmp_dir!(), "aiur-queue-drain-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
     on_exit(fn ->

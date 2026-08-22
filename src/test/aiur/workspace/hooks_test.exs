@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.HooksTest do
   alias Aiur.Workspace.Hooks
 
   setup do
-    test_root = Path.join(System.tmp_dir!(), "hooks_test_#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "hooks_test_#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace = Path.join(test_root, "ws")
     File.mkdir_p!(workspace)
 

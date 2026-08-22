@@ -11,7 +11,7 @@ defmodule Aiur.Opencode.ServerTest do
   end
 
   test "ticket-directory prompt resolves the slot provider and persists" do
-    root = Path.join(System.tmp_dir!(), "aiur-opencode-server-test-#{System.unique_integer([:positive, :monotonic])}")
+    root = Path.join(System.tmp_dir!(), "aiur-opencode-server-test-#{System.pid()}-#{System.unique_integer([:positive, :monotonic])}")
     slot_workspace = Path.join(root, "slot")
     ticket_workspace = Path.join(root, "ticket")
     poison_config_path = Path.join(root, "poison.json")
@@ -164,7 +164,7 @@ defmodule Aiur.Opencode.ServerTest do
     end
 
     test "the opencode child env excludes release launcher and distribution variables" do
-      release_root = Path.join(System.tmp_dir!(), "aiur-opencode-release-#{System.unique_integer([:positive])}")
+      release_root = Path.join(System.tmp_dir!(), "aiur-opencode-release-#{System.pid()}-#{System.unique_integer([:positive])}")
       release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
       release_bin = Path.join(release_root, "bin")
       File.mkdir_p!(release_erts_bin)

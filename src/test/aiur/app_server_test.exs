@@ -5,7 +5,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-cwd-guard-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-cwd-guard-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -43,7 +43,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-symlink-cwd-guard-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-symlink-cwd-guard-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -80,7 +80,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-supported-turn-policies-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-supported-turn-policies-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -179,7 +179,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-input-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-input-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -247,7 +247,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-approval-required-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-approval-required-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -310,7 +310,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-auto-approve-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-auto-approve-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -461,7 +461,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-user-input-auto-approve-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-tool-user-input-auto-approve-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -549,7 +549,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-user-input-required-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-tool-user-input-required-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -625,7 +625,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-user-input-options-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-tool-user-input-options-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -728,7 +728,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-account-generation-startup-failure-#{System.unique_integer([:positive])}"
+        "aiur-elixir-account-generation-startup-failure-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -787,7 +787,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-call-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-tool-call-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -879,7 +879,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-supported-tool-call-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-supported-tool-call-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -992,7 +992,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-call-failed-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-tool-call-failed-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1089,7 +1089,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-partial-line-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-partial-line-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1153,7 +1153,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-stderr-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-stderr-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1228,7 +1228,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-malformed-protocol-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-malformed-protocol-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1299,7 +1299,7 @@ defmodule Aiur.AppServerTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-remote-ssh-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-remote-ssh-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")

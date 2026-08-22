@@ -5,7 +5,7 @@ defmodule Aiur.AlertsBroadcastTest do
 
   test "emit_custom broadcasts an alert on the agent topic when an identifier is supplied" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alerts-bc-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alerts-bc-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(workspace_root)
     on_exit(fn -> File.rm_rf!(workspace_root) end)
@@ -29,7 +29,7 @@ defmodule Aiur.AlertsBroadcastTest do
 
   test "alerts without an identifier do not broadcast on a per-agent topic" do
     workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alerts-nobc-#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "aiur-alerts-nobc-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(workspace_root)
     on_exit(fn -> File.rm_rf!(workspace_root) end)

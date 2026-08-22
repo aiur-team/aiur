@@ -1083,7 +1083,7 @@ defmodule Aiur.ExtensionsTest do
 
   test "dashboard liveview renders and refreshes over pubsub" do
     orchestrator_name = Module.concat(__MODULE__, :DashboardOrchestrator)
-    log_root = Path.join(System.tmp_dir!(), "aiur-dashboard-log-#{System.unique_integer([:positive])}")
+    log_root = Path.join(System.tmp_dir!(), "aiur-dashboard-log-#{System.pid()}-#{System.unique_integer([:positive])}")
     log_dir = Path.join(log_root, "logs")
     File.mkdir_p!(log_dir)
 

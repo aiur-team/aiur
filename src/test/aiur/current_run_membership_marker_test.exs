@@ -6,7 +6,7 @@ defmodule Aiur.CurrentRunMembership.MarkerTest do
   @run_id "marker-codec-test"
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-membership-marker-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-membership-marker-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
     %{path: Path.join(dir, "membership.degraded.json")}
   end

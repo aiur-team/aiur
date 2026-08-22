@@ -4,7 +4,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
   alias Aiur.Workspace.Ownership
 
   test "a competing runner cannot replace the checkout owned by a paused provisioning generation" do
-    test_root = Path.join(System.tmp_dir!(), "workspace-ownership-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "workspace-ownership-#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace_root = Path.join(test_root, "workspaces")
     after_create_trace = Path.join(test_root, "after-create.trace")
     identifier = "OWN-#{System.unique_integer([:positive])}"
@@ -62,7 +62,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
   end
 
   test "a contending generation cannot replace the checkout seen by a started runner" do
-    test_root = Path.join(System.tmp_dir!(), "workspace-generation-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "workspace-generation-#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace_root = Path.join(test_root, "workspaces")
     codex_binary = Path.join(test_root, "fake-codex")
     launch_trace = Path.join(test_root, "launch.trace")

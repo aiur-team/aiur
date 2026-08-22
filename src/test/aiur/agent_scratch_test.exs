@@ -4,7 +4,7 @@ defmodule Aiur.AgentScratchTest do
   alias Aiur.AgentScratch
 
   setup do
-    workspace = Path.join(System.tmp_dir!(), "aiur-scratch-test-#{System.unique_integer([:positive])}")
+    workspace = Path.join(System.tmp_dir!(), "aiur-scratch-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf(workspace) end)
     {:ok, workspace: workspace}
@@ -45,7 +45,7 @@ defmodule Aiur.AgentScratchTest do
     end
 
     test "leaves a nonexistent workspace root alone" do
-      absent = Path.join(System.tmp_dir!(), "aiur-scratch-absent-#{System.unique_integer([:positive])}")
+      absent = Path.join(System.tmp_dir!(), "aiur-scratch-absent-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       assert :ok = AgentScratch.install(absent)
       refute File.exists?(absent)

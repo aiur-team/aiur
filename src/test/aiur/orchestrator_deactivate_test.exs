@@ -243,7 +243,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       previous_issues = Application.get_env(:aiur, :ci_watcher_issues)
       previous_update_result = Application.get_env(:aiur, :ci_watcher_update_result)
       previous_ci_approval_store_path = Application.get_env(:aiur, :ci_approval_store_path)
-      ci_approval_store_path = Path.join(System.tmp_dir!(), "aiur_ci_approvals_#{System.unique_integer([:positive])}.json")
+      ci_approval_store_path = Path.join(System.tmp_dir!(), "aiur_ci_approvals_#{System.pid()}-#{System.unique_integer([:positive])}.json")
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -1151,7 +1151,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-deactivate-#{System.unique_integer([:positive])}"
+          "aiur-orch-deactivate-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-deactivate-1"
@@ -1231,7 +1231,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-deactivate-noop-#{System.unique_integer([:positive])}"
+          "aiur-orch-deactivate-noop-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-deactivate-2"
@@ -1287,7 +1287,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-human-review-guard-#{System.unique_integer([:positive])}"
+          "aiur-orch-human-review-guard-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "57"
@@ -1371,7 +1371,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-human-review-transient-#{System.unique_integer([:positive])}"
+          "aiur-orch-human-review-transient-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "58"
@@ -1455,7 +1455,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-human-review-graphql-transient-#{System.unique_integer([:positive])}"
+          "aiur-orch-human-review-graphql-transient-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       previous_github_client = Application.get_env(:aiur, :github_client_module)
@@ -1527,7 +1527,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-human-review-graphql-permanent-#{System.unique_integer([:positive])}"
+          "aiur-orch-human-review-graphql-permanent-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "62"
@@ -1588,7 +1588,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-terminate-stream-#{System.unique_integer([:positive])}"
+          "aiur-orch-terminate-stream-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-terminate-stream"
@@ -1660,7 +1660,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-deactivate-stream-#{System.unique_integer([:positive])}"
+          "aiur-orch-deactivate-stream-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-deactivate-stream"
@@ -1737,7 +1737,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-deactivate-terminal-#{System.unique_integer([:positive])}"
+          "aiur-orch-deactivate-terminal-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-deactivate-3"
@@ -2329,7 +2329,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-slot-counting-#{System.unique_integer([:positive])}"
+          "aiur-orch-slot-counting-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_working = "issue-slot-working"
@@ -2396,7 +2396,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-slot-all-deact-#{System.unique_integer([:positive])}"
+          "aiur-orch-slot-all-deact-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       try do
@@ -2446,7 +2446,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-relabel-active-#{System.unique_integer([:positive])}"
+          "aiur-orch-relabel-active-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-relabel-1"
@@ -2549,7 +2549,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-issue-commented-#{System.unique_integer([:positive])}"
+          "aiur-orch-issue-commented-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-issue-commented-1"
@@ -2646,7 +2646,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-pr-review-comment-#{System.unique_integer([:positive])}"
+          "aiur-orch-pr-review-comment-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-pr-review-comment-1"
@@ -2725,7 +2725,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-issue-commented-capacity-#{System.unique_integer([:positive])}"
+          "aiur-orch-issue-commented-capacity-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-issue-commented-capacity"
@@ -2847,7 +2847,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-issue-commented-human-review-#{System.unique_integer([:positive])}"
+          "aiur-orch-issue-commented-human-review-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-issue-commented-hr"
@@ -2916,7 +2916,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-review-pass-merge-#{System.unique_integer([:positive])}"
+          "aiur-orch-review-pass-merge-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "560"
@@ -3025,7 +3025,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-issue-commented-missing-#{System.unique_integer([:positive])}"
+          "aiur-orch-issue-commented-missing-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-issue-commented-missing"
@@ -3094,7 +3094,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-issue-commented-refresh-error-#{System.unique_integer([:positive])}"
+          "aiur-orch-issue-commented-refresh-error-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-issue-commented-refresh-error"
@@ -3230,7 +3230,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-direct-comment-dispatch-#{System.unique_integer([:positive])}"
+          "aiur-orch-direct-comment-dispatch-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_identifier = "58"
@@ -5391,7 +5391,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # test's persisted `ticket.99.agent.unblocked` subscription leaks back in
       # and wrongly auto-resumes a blockee that should stay paused.
       tmp_dir =
-        Path.join(System.tmp_dir!(), "aiur_blockee_subscr_#{System.unique_integer([:positive])}")
+        Path.join(System.tmp_dir!(), "aiur_blockee_subscr_#{System.pid()}-#{System.unique_integer([:positive])}")
 
       File.mkdir_p!(tmp_dir)
       original_log_file = Application.get_env(:aiur, :log_file)
@@ -6338,7 +6338,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-orch-repl-teardown-#{System.unique_integer([:positive])}"
+          "aiur-orch-repl-teardown-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       issue_id = "issue-repl-teardown"
@@ -6685,7 +6685,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-pr-anchored-route-#{System.unique_integer([:positive])}"
+          "aiur-pr-anchored-route-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       File.mkdir_p!(test_root)
@@ -6888,7 +6888,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       test_root =
         Path.join(
           System.tmp_dir!(),
-          "aiur-pr-anchored-teardown-#{System.unique_integer([:positive])}"
+          "aiur-pr-anchored-teardown-#{System.pid()}-#{System.unique_integer([:positive])}"
         )
 
       File.mkdir_p!(test_root)

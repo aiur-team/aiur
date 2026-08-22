@@ -9,7 +9,7 @@ defmodule Aiur.UsageAggregate.CheckpointTest do
     only: [envelope: 1, claude_envelope: 1, record: 3, money: 1]
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-usage-aggregate-checkpoint-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-usage-aggregate-checkpoint-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf(root) end)
     %{path: Path.join(root, "checkpoint.json")}

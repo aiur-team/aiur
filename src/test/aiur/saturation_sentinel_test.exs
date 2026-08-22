@@ -68,7 +68,7 @@ defmodule Aiur.SaturationSentinelTest do
 
   describe "record/2" do
     test "appends one JSON line per sample to the target file" do
-      dir = Path.join(System.tmp_dir!(), "aiur-sat-#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "aiur-sat-#{System.pid()}-#{System.unique_integer([:positive])}")
       path = Path.join(dir, "saturation.log")
       snap = %{load1: 1.0, process_count: 2}
 

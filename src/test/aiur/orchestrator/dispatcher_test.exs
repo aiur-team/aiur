@@ -2075,7 +2075,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   # test. No `base_build` and a memory tracker keep RepoBase's own resolve/poll
   # inert while `Config.prewarm_enabled?/0` reads true.
   defp with_prewarm_enabled_config do
-    tmp = Path.join(System.tmp_dir!(), "dispatcher_prewarm_#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "dispatcher_prewarm_#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
     cfg = Path.join(tmp, "config")
     File.write!(cfg, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  poll_seconds: 0\n")

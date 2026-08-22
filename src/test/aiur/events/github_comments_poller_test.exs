@@ -1295,7 +1295,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       nil ->
         path =
-          Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+          Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.pid()}-#{System.unique_integer([:positive])}")
 
         File.write!(path, contents)
 
@@ -1306,7 +1306,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   defp ensure_configured_codeowners!(contents) do
-    path = Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+    path = Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.write!(path, contents)
 
     case Process.whereis(CodeOwners) do

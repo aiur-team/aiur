@@ -423,8 +423,8 @@ defmodule Aiur.CoreTest do
       assert List.first(candidates) == repo_local_default
       assert Workflow.workflow_file_path() == Workflow.resolve_config_path(candidates)
 
-      absent_a = Path.join(System.tmp_dir!(), "aiur-absent-a-#{System.unique_integer([:positive])}")
-      absent_b = Path.join(System.tmp_dir!(), "aiur-absent-b-#{System.unique_integer([:positive])}")
+      absent_a = Path.join(System.tmp_dir!(), "aiur-absent-a-#{System.pid()}-#{System.unique_integer([:positive])}")
+      absent_b = Path.join(System.tmp_dir!(), "aiur-absent-b-#{System.pid()}-#{System.unique_integer([:positive])}")
       assert Workflow.resolve_config_path([absent_a, absent_b]) == absent_a
     after
       Workflow.set_workflow_file_path(original_workflow_path)
@@ -573,7 +573,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-nonactive-reconcile-#{System.unique_integer([:positive])}"
+        "aiur-elixir-nonactive-reconcile-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     issue_id = "issue-1"
@@ -636,7 +636,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-error-reconcile-#{System.unique_integer([:positive])}"
+        "aiur-elixir-error-reconcile-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     issue_id = "issue-error"
@@ -709,7 +709,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-terminal-reconcile-#{System.unique_integer([:positive])}"
+        "aiur-elixir-terminal-reconcile-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     issue_id = "issue-2"
@@ -773,7 +773,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-missing-running-reconcile-#{System.unique_integer([:positive])}"
+        "aiur-elixir-missing-running-reconcile-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
@@ -1671,7 +1671,7 @@ defmodule Aiur.CoreTest do
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.WorkflowStore)
 
-    Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.unique_integer([:positive])}.md"))
+    Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.pid()}-#{System.unique_integer([:positive])}.md"))
 
     issue = %Issue{
       identifier: "MT-780",
@@ -1741,7 +1741,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-retain-workspace-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-retain-workspace-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1824,7 +1824,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-updates-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-updates-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -1924,7 +1924,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-single-host-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-single-host-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     previous_path = System.get_env("PATH")
@@ -1995,7 +1995,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-before-run-pause-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-before-run-pause-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2106,7 +2106,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-continuation-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-continuation-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2232,7 +2232,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-queued-operator-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-queued-operator-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2364,7 +2364,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-completed-codex-replacement-#{System.unique_integer([:positive])}"
+        "aiur-elixir-completed-codex-replacement-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2602,7 +2602,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-interrupt-operator-#{outcome_name}-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-interrupt-operator-#{outcome_name}-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2773,7 +2773,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-checkpoint-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-checkpoint-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -2899,7 +2899,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-checkpoint-completion-race-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-checkpoint-completion-race-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3038,7 +3038,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-pause-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-pause-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3207,7 +3207,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-pause-no-active-turn-#{order_name}-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-pause-no-active-turn-#{order_name}-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3353,7 +3353,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-requeue-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-requeue-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3536,7 +3536,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-agent-runner-max-turns-#{System.unique_integer([:positive])}"
+        "aiur-elixir-agent-runner-max-turns-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3670,7 +3670,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-args-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-args-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3807,7 +3807,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-custom-args-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-custom-args-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do
@@ -3892,7 +3892,7 @@ defmodule Aiur.CoreTest do
     test_root =
       Path.join(
         System.tmp_dir!(),
-        "aiur-elixir-app-server-policy-overrides-#{System.unique_integer([:positive])}"
+        "aiur-elixir-app-server-policy-overrides-#{System.pid()}-#{System.unique_integer([:positive])}"
       )
 
     try do

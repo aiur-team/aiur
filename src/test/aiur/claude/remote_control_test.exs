@@ -139,7 +139,7 @@ defmodule Aiur.Claude.RemoteControlTest do
       # The claude CLI names a session's transcript by its id, so resolving the
       # newest transcript and rebuilding its path from the parsed id must point
       # back at the same file (the resume existence-check relies on this).
-      dir = Path.join(System.tmp_dir!(), "rc-session-path-#{System.unique_integer([:positive])}")
+      dir = Path.join(System.tmp_dir!(), "rc-session-path-#{System.pid()}-#{System.unique_integer([:positive])}")
       on_exit(fn -> File.rm_rf(dir) end)
 
       workspace = "/ws/aiur/613"
@@ -160,7 +160,7 @@ defmodule Aiur.Claude.RemoteControlTest do
 
   describe "ensure_workspace_trusted/2" do
     setup do
-      path = Path.join(System.tmp_dir!(), "claude-#{System.unique_integer([:positive])}.json")
+      path = Path.join(System.tmp_dir!(), "claude-#{System.pid()}-#{System.unique_integer([:positive])}.json")
       on_exit(fn -> File.rm(path) end)
       {:ok, path: path}
     end
@@ -358,7 +358,7 @@ defmodule Aiur.Claude.RemoteControlTest do
       # Canonicalize the root so fake `/proc/<pid>/cwd` targets (built from `root`)
       # match the root after reap_workspace_agents canonicalizes it internally —
       # mirroring production, where the kernel reports cwd symlink-resolved.
-      raw = Path.join(System.tmp_dir!(), "rwa-root-#{System.unique_integer([:positive])}")
+      raw = Path.join(System.tmp_dir!(), "rwa-root-#{System.pid()}-#{System.unique_integer([:positive])}")
 
       root =
         case Aiur.PathSafety.canonicalize(raw) do
@@ -366,7 +366,7 @@ defmodule Aiur.Claude.RemoteControlTest do
           _ -> raw
         end
 
-      proc = Path.join(System.tmp_dir!(), "rwa-proc-#{System.unique_integer([:positive])}")
+      proc = Path.join(System.tmp_dir!(), "rwa-proc-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.mkdir_p!(proc)
       on_exit(fn -> File.rm_rf(proc) end)
       {:ok, root: root, proc: proc}
@@ -564,9 +564,9 @@ defmodule Aiur.Claude.RemoteControlTest do
   describe "reap_workspace_agents/1 (real processes under a temp workspace root)" do
     @tag :real_proc
     test "reaps a real process rooted under the workspace and spares one outside it" do
-      root = Path.join(System.tmp_dir!(), "rwa-live-#{System.unique_integer([:positive])}")
+      root = Path.join(System.tmp_dir!(), "rwa-live-#{System.pid()}-#{System.unique_integer([:positive])}")
       inside = Path.join(root, "ticket-1/src")
-      outside = Path.join(System.tmp_dir!(), "rwa-out-#{System.unique_integer([:positive])}")
+      outside = Path.join(System.tmp_dir!(), "rwa-out-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.mkdir_p!(inside)
       File.mkdir_p!(outside)
       on_exit(fn -> File.rm_rf(root) && File.rm_rf(outside) end)

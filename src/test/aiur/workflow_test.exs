@@ -14,7 +14,7 @@ defmodule Aiur.WorkflowTest do
       end
     end)
 
-    dir = Path.join(System.tmp_dir!(), "aiur-workflow-test-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-workflow-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
 

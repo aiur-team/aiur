@@ -4,7 +4,7 @@ defmodule Aiur.AgentEventLogTest do
   alias Aiur.AgentEventLog
 
   defp tmp_workspace do
-    path = Path.join(System.tmp_dir!(), "aiur-eventlog-#{System.unique_integer([:positive])}")
+    path = Path.join(System.tmp_dir!(), "aiur-eventlog-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(path)
     on_exit(fn -> File.rm_rf!(path) end)
     path
@@ -73,7 +73,7 @@ defmodule Aiur.AgentEventLogTest do
       # inside a regular file (not a directory) makes `File.mkdir_p`
       # fail with ENOTDIR, and `File.write` then raises if the rescue
       # path isn't taken.
-      blocker = Path.join(System.tmp_dir!(), "aiur-eventlog-blocker-#{System.unique_integer([:positive])}")
+      blocker = Path.join(System.tmp_dir!(), "aiur-eventlog-blocker-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.touch!(blocker)
       on_exit(fn -> File.rm!(blocker) end)
 

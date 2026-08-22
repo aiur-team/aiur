@@ -39,7 +39,7 @@ defmodule Aiur.Regression.PaneAttachQueueTest do
 
   describe "AE3: slot materializes empty models map at boot" do
     test "WorkspaceSetup.materialize_slot/5 with empty identifiers writes only the slot sentinel" do
-      workspace = Path.join(System.tmp_dir!(), "aiur-ae3-#{System.unique_integer([:positive])}")
+      workspace = Path.join(System.tmp_dir!(), "aiur-ae3-#{System.pid()}-#{System.unique_integer([:positive])}")
       _ = File.rm_rf(workspace)
 
       try do
@@ -65,7 +65,7 @@ defmodule Aiur.Regression.PaneAttachQueueTest do
 
   describe "AE4: slot materializes single-identifier models map after one select" do
     test "WorkspaceSetup.materialize_slot/5 with one identifier writes sentinel + that one" do
-      workspace = Path.join(System.tmp_dir!(), "aiur-ae4-#{System.unique_integer([:positive])}")
+      workspace = Path.join(System.tmp_dir!(), "aiur-ae4-#{System.pid()}-#{System.unique_integer([:positive])}")
       _ = File.rm_rf(workspace)
 
       try do
@@ -85,7 +85,7 @@ defmodule Aiur.Regression.PaneAttachQueueTest do
 
   describe "AE5: slot models map accumulates incrementally" do
     test "two identifiers in materialize_slot produce both + sentinel" do
-      workspace = Path.join(System.tmp_dir!(), "aiur-ae5-#{System.unique_integer([:positive])}")
+      workspace = Path.join(System.tmp_dir!(), "aiur-ae5-#{System.pid()}-#{System.unique_integer([:positive])}")
       _ = File.rm_rf(workspace)
 
       try do

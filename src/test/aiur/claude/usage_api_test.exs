@@ -22,7 +22,7 @@ defmodule Aiur.Claude.UsageApiTest do
 
   defp tmp_subdir(prefix) do
     dir =
-      Path.join(System.tmp_dir!(), "usage_api_test_#{prefix}_#{System.unique_integer([:positive])}")
+      Path.join(System.tmp_dir!(), "usage_api_test_#{prefix}_#{System.pid()}-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)

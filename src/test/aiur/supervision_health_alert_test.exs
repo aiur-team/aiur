@@ -22,7 +22,7 @@ defmodule Aiur.SupervisionHealthAlertTest do
   end
 
   test "emits production degraded and recovered alerts" do
-    root = Path.join(System.tmp_dir!(), "aiur-supervision-alert-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-supervision-alert-#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "workspace")
     log_root = Path.join(root, "log")
     previous_log_file = Application.get_env(:aiur, :log_file)

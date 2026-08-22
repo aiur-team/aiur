@@ -4,7 +4,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
   alias Aiur.Workspace
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "aiur_ws_#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "aiur_ws_#{System.pid()}-#{System.unique_integer([:positive])}")
     base = Path.join(tmp, "base")
     File.mkdir_p!(base)
 

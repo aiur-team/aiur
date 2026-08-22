@@ -4,7 +4,7 @@ defmodule Aiur.Executor.ClaimsTest do
   alias Aiur.Executor.Claims
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-executor-claims-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-executor-claims-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     %{opts: [path: Path.join(root, "claims.json")]}

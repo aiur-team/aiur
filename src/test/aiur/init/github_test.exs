@@ -67,7 +67,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "persists a ready operator assessment for the daemon and reports it" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.pid()}-#{System.unique_integer([:positive])}")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> false end}
@@ -105,7 +105,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "offers to scaffold a CI workflow when the repository has none" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.pid()}-#{System.unique_integer([:positive])}")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
@@ -151,7 +151,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "skips the CI scaffold when a workflow already exists" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.pid()}-#{System.unique_integer([:positive])}")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
@@ -190,7 +190,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "reports a CI scaffold write failure" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.pid()}-#{System.unique_integer([:positive])}")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}

@@ -628,7 +628,7 @@ defmodule Aiur.AiurAgentSkillTest do
   # Runs the real wrapper the daemon installs on agent PATH, against a stub
   # `gh`, so this asserts the shipped guard rather than a copy of its rules.
   defp run_creation_guard(arguments) do
-    root = Path.join(System.tmp_dir!(), "aiur-skill-guard-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "aiur-skill-guard-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     stub = Path.join(root, "gh")
     File.write!(stub, "#!/bin/sh\nexit 0\n")

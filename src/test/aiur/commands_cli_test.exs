@@ -11,7 +11,7 @@ defmodule Aiur.CommandsCLITest do
 
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
-    dir = Path.join(System.tmp_dir!(), "aiur-commands-cli-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-commands-cli-#{System.pid()}-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     {:ok, store} =

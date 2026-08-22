@@ -99,7 +99,7 @@ bootstrap_children = [
 
 {:ok, _} = Supervisor.start_link(bootstrap_children, strategy: :one_for_one, name: Manual.Supervisor)
 
-workflow_root = Path.join(System.tmp_dir!(), "aiur_manual_#{System.unique_integer([:positive])}")
+workflow_root = Path.join(System.tmp_dir!(), "aiur_manual_#{System.pid()}-#{System.unique_integer([:positive])}")
 File.mkdir_p!(workflow_root)
 workflow_file = Path.join(workflow_root, "config.yaml")
 

@@ -4,7 +4,7 @@ defmodule Aiur.SSHTest do
   alias Aiur.SSH
 
   test "run/3 keeps bracketed IPv6 host:port targets intact" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-ipv6-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-ipv6-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
@@ -25,7 +25,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "run/3 leaves unbracketed IPv6-style targets unchanged" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-ipv6-raw-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-ipv6-raw-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
@@ -45,7 +45,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "run/3 passes host:port targets through ssh -p" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
     previous_ssh_config = System.get_env("AIUR_SSH_CONFIG")
@@ -69,7 +69,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "run/3 keeps the user prefix when parsing user@host:port targets" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-user-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-user-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 
@@ -89,7 +89,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "run/3 returns an error when ssh is unavailable" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-missing-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-missing-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous_path = System.get_env("PATH")
 
     on_exit(fn ->
@@ -104,7 +104,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "run_script/3 streams scripts larger than the per-argument limit" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-script-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-script-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     input_file = Path.join(test_root, "ssh.input")
     previous_path = System.get_env("PATH")
@@ -134,7 +134,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "run_script/3 removes its staged input when ssh is unavailable" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-script-missing-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-script-missing-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     previous_path = System.get_env("PATH")
 
     on_exit(fn ->
@@ -151,7 +151,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "start_port/3 supports binary output without line mode" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-port-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-port-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
     previous_ssh_config = System.get_env("AIUR_SSH_CONFIG")
@@ -181,7 +181,7 @@ defmodule Aiur.SSHTest do
   end
 
   test "start_port/3 supports line mode" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-line-port-test-#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-line-port-test-#{System.pid()}-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
     previous_path = System.get_env("PATH")
 

@@ -174,7 +174,7 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   # as a permanent "Awaiting data" on the strip — two surfaces disagreeing about
   # the same account (#2185).
   test "attaches the durable last-known standing to an unobserved provider's session meter" do
-    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     workflow_path = Path.join(dir, "config.yaml")
     observed_at = ~U[2026-08-02 08:53:00Z]
@@ -211,7 +211,7 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   end
 
   test "a provider with no durable record stays unknown on the deck" do
-    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-none-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-none-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     workflow_path = Path.join(dir, "config.yaml")
     previous_path = Application.get_env(:aiur, :workflow_file_path)
@@ -237,7 +237,7 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   # cover an unobserved meter, so an observed one must never be downgraded to
   # the stale ledger value.
   test "a real observation replaces the durable fallback" do
-    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-observed-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "aiur-sd-durable-observed-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     workflow_path = Path.join(dir, "config.yaml")
     previous_path = Application.get_env(:aiur, :workflow_file_path)

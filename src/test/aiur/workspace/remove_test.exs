@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.RemoveTest do
   alias Aiur.Workspace.Remove
 
   setup do
-    test_root = Path.join(System.tmp_dir!(), "remove_test_#{System.unique_integer([:positive])}")
+    test_root = Path.join(System.tmp_dir!(), "remove_test_#{System.pid()}-#{System.unique_integer([:positive])}")
     workspace = Path.join(test_root, "ws")
     File.mkdir_p!(workspace)
 

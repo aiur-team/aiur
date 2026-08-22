@@ -8,7 +8,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
 
   # Build a claude on-disk transcript jsonl from raw record maps.
   defp write_jsonl(records) do
-    path = Path.join(System.tmp_dir!(), "display-tailer-#{System.unique_integer([:positive])}.jsonl")
+    path = Path.join(System.tmp_dir!(), "display-tailer-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl")
     body = Enum.map_join(records, "", fn rec -> Jason.encode!(rec) <> "\n" end)
     File.write!(path, body)
     on_exit(fn -> File.rm(path) end)
@@ -196,7 +196,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
 
   test "a malformed jsonl line is skipped without crashing the tailer" do
     id = "MT-DT-GARBAGE-#{System.unique_integer([:positive])}"
-    path = Path.join(System.tmp_dir!(), "display-tailer-garbage-#{System.unique_integer([:positive])}.jsonl")
+    path = Path.join(System.tmp_dir!(), "display-tailer-garbage-#{System.pid()}-#{System.unique_integer([:positive])}.jsonl")
 
     File.write!(
       path,
