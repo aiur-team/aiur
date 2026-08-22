@@ -243,11 +243,12 @@ def acquire(args):
         ).fetchone()
         if args.resource == "unknown":
             resource_hold = conn.execute(
-                "SELECT MAX(until_ms) FROM resource_holds WHERE token_key = ?", (args.token_key,)
+                "SELECT resource, until_ms FROM resource_holds WHERE token_key = ? ORDER BY until_ms DESC LIMIT 1",
+                (args.token_key,),
             ).fetchone()
         else:
             resource_hold = conn.execute(
-                "SELECT until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
+                "SELECT resource, until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
             ).fetchone()
         # SINGLE FLIGHT (#2073 U6). Thirteen agents asking for one pull request in
         # the same moment are thirteen separate processes with nothing between
@@ -270,7 +271,7 @@ def acquire(args):
             ).fetchone()
 
         token_hold = 0 if args.ignore_token_cooldown else cooldown
-        hold_until = max(token_hold, resource_hold[0] if resource_hold and resource_hold[0] else 0)
+        hold_until = max(token_hold, resource_hold[1] if resource_hold and resource_hold[1] else 0)
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
             "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
@@ -281,7 +282,8 @@ def acquire(args):
 
         if hold_until > now:
             conn.execute("COMMIT")
-            print(f"wait {hold_until - now}")
+            hold_resource = resource_hold[0] if resource_hold and resource_hold[1] == hold_until else args.resource
+            print(f"hold shared {'core' if hold_resource == 'unknown' else hold_resource} {hold_until}")
             return
 
         # Per-actor hourly ceiling (#2181). An actor — the daemon, or one agent

@@ -212,6 +212,39 @@ defmodule Aiur.GitHub.BudgetTest do
              )
   end
 
+  test "a typed shared hold preserves resource and absolute reset", %{root: root} do
+    fake_python = Path.join(root, "typed-hold-broker")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared graphql #{reset_at_ms}'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:hold, %{reason: :shared_budget, resource: "graphql", reset_at: reset_at}} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+
+    assert DateTime.to_unix(reset_at, :millisecond) == reset_at_ms
+  end
+
+  test "malformed typed shared holds are broker failures", %{root: root} do
+    fake_python = Path.join(root, "malformed-typed-hold-broker")
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared admin never'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:error, :github_budget_broker_unavailable} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+  end
+
   test "an exhausted successful response shares the resource named by GitHub", %{root: root} do
     opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
     core = request("shared-token", "/repos/owner/repo/issues/1477")

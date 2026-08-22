@@ -198,8 +198,14 @@ defmodule Aiur.Orchestrator do
   # invalidate the persisted admission verdict immediately; otherwise `status`
   # can keep reporting the historical hold until some unrelated poll succeeds.
   def handle_info(:github_quota_recovered, state) do
+    state = PushRouting.recover_github_budget_pauses(state)
     {:reply, _result, state} = Lifecycle.request_refresh(state)
     {:noreply, state}
+  end
+
+  def handle_info({:github_budget_pause_expired, identifier, generation}, state)
+      when is_binary(identifier) and is_integer(generation) and generation > 0 do
+    {:noreply, PushRouting.recover_github_budget_pause(state, identifier, generation)}
   end
 
   def handle_info(msg, state) do

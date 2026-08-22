@@ -50,6 +50,7 @@ defmodule Aiur.Orchestrator.StatusReason do
     case reason do
       reason when reason in [:operator_pause, :label_override] -> "operator"
       :global_pause -> "run paused"
+      :github_budget_hold -> "GitHub budget hold; automatic retry"
       reason when reason in [:agent_pause_request, :input_required, :blocker_dependency] -> "cooperative: #{humanize(reason)}"
       :before_run_failure -> "preflight failure"
       :usage_limit_exhausted -> "provider limit"

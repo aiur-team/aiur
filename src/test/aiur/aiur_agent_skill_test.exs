@@ -229,6 +229,19 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "agent guidance distinguishes GitHub budget holds from credential failures" do
+    dev_loop = File.read!(Path.join(@claude_skill, "dev-loop.md"))
+    taxonomy = File.read!(Path.join(@claude_skill, "event-taxonomy.md"))
+
+    for text <- [dev_loop, taxonomy] do
+      assert text =~ "github_budget_hold"
+      assert text =~ "reset_at_ms"
+    end
+
+    assert dev_loop =~ "Do not emit a\n   credential attention"
+    assert dev_loop =~ "resumes that pause automatically"
+  end
+
   test "every reference doc SKILL.md routes to exists on disk" do
     # The pre-prompt now sends the agent to the skill; a dangling reference doc
     # would strand an agent that followed the pointer.

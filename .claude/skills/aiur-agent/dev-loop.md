@@ -159,6 +159,14 @@ blocking finding is the only enforcement they have.
    not repair a prior attribution error because it contributes no reviewable
    file change; the next real content push must use the correct identity.
 
+   A guard refusal reading `aiur: github budget hold resource=<resource>
+   reset_at_ms=<milliseconds>` is not an authentication failure. Do not emit a
+   credential attention. Emit `pause.request` once with payload
+   `{reason: "github_budget_hold", resource: <resource>, reset_at_ms:
+   <milliseconds>}`; Aiur resumes that pause automatically when the advertised
+   hold clears. Any other broker diagnostic remains fail-closed and must not be
+   relabelled as this self-clearing condition.
+
    Immediately before pushing, run
    `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
    configured base and refuses a PR when its tree deletes more than 50 base

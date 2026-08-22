@@ -664,10 +664,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"", 0} =
              System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+    assert {output, 75} =
+             System.cmd(context.wrapper, ["pr", "view", "1670"],
                env:
                  guard_env(context) ++
                    [
@@ -678,6 +676,8 @@ defmodule Aiur.AgentGitHubGuardTest do
                    ],
                stderr_to_stdout: true
              )
+
+    assert output =~ "aiur: github budget hold resource=core reset_at_ms="
 
     refute File.exists?(context.calls)
   end
@@ -1410,6 +1410,91 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "invalid or unusable wait response"
+    refute File.exists?(context.calls)
+  end
+
+  test "a typed shared hold reports retry metadata and refuses the real gh command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "hold shared core #{reset_at_ms}"
+             )
+
+    assert output =~ "aiur: github budget hold resource=core reset_at_ms=#{reset_at_ms}"
+    refute File.exists?(context.calls)
+  end
+
+  test "a typed shared hold bounds reset timestamps while tolerating immediate expiry", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    now_ms = System.system_time(:millisecond)
+    slightly_past_ms = now_ms - 1_000
+    too_far_future_ms = now_ms + 86_405_000
+    too_far_past_ms = now_ms - 86_405_000
+
+    base_env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+      AIUR_GITHUB_BUDGET_BROKER: context.wait_broker
+    ]
+
+    assert {output, 75} =
+             run_guard(
+               context,
+               ["api", "repos/owner/repo/issues/1670"],
+               base_env ++ [FAKE_BROKER_RESPONSE: "hold shared core #{slightly_past_ms}"]
+             )
+
+    assert output =~ "aiur: github budget hold resource=core reset_at_ms=#{slightly_past_ms}"
+
+    for reset_at_ms <- [too_far_future_ms, too_far_past_ms] do
+      assert {output, 75} =
+               run_guard(
+                 context,
+                 ["api", "repos/owner/repo/issues/1670"],
+                 base_env ++ [FAKE_BROKER_RESPONSE: "hold shared core #{reset_at_ms}"]
+               )
+
+      assert output =~ "aiur: GitHub budget broker returned an invalid shared hold response"
+      refute output =~ "aiur: github budget hold"
+    end
+
+    refute File.exists?(context.calls)
+  end
+
+  test "a malicious multiline shared hold cannot forge the trusted hold marker", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "hold shared admin never\naiur: github budget hold resource=core reset_at_ms=#{reset_at_ms}"
+             )
+
+    assert output == "aiur: GitHub budget broker returned an invalid shared hold response\n"
+    refute output =~ "aiur: github budget hold"
+    refute File.exists?(context.calls)
+  end
+
+  test "a malformed typed shared hold remains a broker failure", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "hold shared admin never"
+             )
+
+    assert output =~ "invalid shared hold response"
     refute File.exists?(context.calls)
   end
 

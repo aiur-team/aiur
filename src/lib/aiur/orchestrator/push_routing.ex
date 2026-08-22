@@ -1,7 +1,9 @@
 defmodule Aiur.Orchestrator.PushRouting do
   @moduledoc """
   Agent pause-on-request, default-branch push notification, sleeping state, and
-  explicit blocker-unblocked auto-resume with pending_auto_resume drain.
+  generation-matched auto-resume for explicit blocker clearances and transient
+  GitHub budget recovery. Both paths retain shared `pending_auto_resume` hints
+  until the corresponding pause is confirmed or capacity becomes available.
   All functions execute inside the orchestrator GenServer process.
   """
 
@@ -12,7 +14,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, PauseResume, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -51,14 +53,14 @@ defmodule Aiur.Orchestrator.PushRouting do
             state
 
           true ->
-            running_entry = prepare_agent_pause(running_entry, event)
+            {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
 
             {_reply, state} =
               PauseResume.request_pause(
                 state,
                 running_entry,
                 Map.get(running_entry, :issue),
-                agent_pause_reason(event)
+                pause_reason
               )
 
             state
@@ -68,6 +70,16 @@ defmodule Aiur.Orchestrator.PushRouting do
         state
     end
   end
+
+  @doc false
+  @spec recover_github_budget_pauses(State.t(), integer()) :: State.t()
+  def recover_github_budget_pauses(%State{} = state, now_ms \\ System.system_time(:millisecond)),
+    do: GithubBudgetPause.recover_observed(state, now_ms)
+
+  @doc false
+  @spec recover_github_budget_pause(State.t(), String.t(), pos_integer(), integer()) :: State.t()
+  def recover_github_budget_pause(%State{} = state, identifier, generation, now_ms \\ System.system_time(:millisecond)),
+    do: GithubBudgetPause.recover_expired(state, identifier, generation, now_ms)
 
   @doc false
   @spec maybe_resume_blockee_on_cleared_dependency(
@@ -529,35 +541,42 @@ defmodule Aiur.Orchestrator.PushRouting do
   end
 
   defp maybe_drain_pending_auto_resume(state, entry, hint) do
+    case pending_auto_resume_action(entry, hint) do
+      :clear -> clear_pending_auto_resume(state, entry)
+      :wait -> state
+      :drain -> drain_pending_auto_resume(state, entry, hint)
+    end
+  end
+
+  defp pending_auto_resume_action(entry, hint) do
     cond do
-      State.deactivated_running_entry?(entry) ->
-        clear_pending_auto_resume(state, entry)
+      State.deactivated_running_entry?(entry) -> :clear
+      State.paused_running_entry?(entry) -> if matching_hint_pause?(entry, hint), do: :drain, else: :clear
+      matching_hint_context?(entry, hint) -> :wait
+      true -> :clear
+    end
+  end
 
-      not matching_hint_pause?(entry, hint) ->
-        clear_pending_auto_resume(state, entry)
+  defp drain_pending_auto_resume(state, entry, hint) do
+    if GithubBudgetPause.matching_resume_pending?(state, entry) do
+      state
+    else
+      identifier = Map.get(entry, :identifier)
+      blocker_identifier = Map.get(hint, :blocker_identifier)
+      topic = Map.get(hint, :topic)
 
-      not State.paused_running_entry?(entry) ->
-        # The readiness event may arrive between subscription and the worker's
-        # pause confirmation. Keep it durable until that transition completes.
-        state
+      # operator?: false — same automated path as attempt_auto_resume,
+      # just deferred until a slot opened; preserve the duration overrun.
+      case Orchestrator.resume_paused_issue(state, entry, false) do
+        {{:ok, :resumed}, next_state} ->
+          Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
+          maybe_clear_drained_cleared_dependency_resume(next_state, identifier, hint)
 
-      true ->
-        identifier = Map.get(entry, :identifier)
-        blocker_identifier = Map.get(hint, :blocker_identifier)
-        topic = Map.get(hint, :topic)
-
-        # operator?: false — same automated path as attempt_auto_resume,
-        # just deferred until a slot opened; preserve the duration overrun.
-        case Orchestrator.resume_paused_issue(state, entry, false) do
-          {{:ok, :resumed}, next_state} ->
-            Logger.info("Auto-resume drained: blockee=#{identifier} blocker=#{blocker_identifier} topic=#{topic}")
-            maybe_clear_drained_cleared_dependency_resume(next_state, identifier, hint)
-
-          {{:error, _reason}, next_state} ->
-            # Cap still full or another error — keep the hint for the
-            # next reconcile tick.
-            next_state
-        end
+        {{:error, _reason}, next_state} ->
+          # Cap still full or another error — keep the hint for the
+          # next reconcile tick.
+          next_state
+      end
     end
   end
 
@@ -633,6 +652,7 @@ defmodule Aiur.Orchestrator.PushRouting do
           running_entry
           |> Map.delete(:pending_auto_resume)
           |> Map.delete(:blocker_pause)
+          |> Map.delete(:github_budget_pause)
 
         %{state | running: Map.put(state.running, issue_id, updated)}
 
@@ -667,27 +687,46 @@ defmodule Aiur.Orchestrator.PushRouting do
     blocker_identifier = Map.get(payload, :blocker_identifier) || Map.get(payload, "blocker_identifier")
     reason = Map.get(payload, :reason) || Map.get(payload, "reason")
 
-    if reason == "dependency" and (is_binary(blocker_identifier) or is_integer(blocker_identifier)) do
-      generation = Map.get(entry, :blocker_pause_generation, 0) + 1
+    cond do
+      reason == "dependency" and (is_binary(blocker_identifier) or is_integer(blocker_identifier)) ->
+        generation = Map.get(entry, :blocker_pause_generation, 0) + 1
 
-      entry
-      |> Map.put(:blocker_pause_generation, generation)
-      |> Map.put(:blocker_pause, %{blocker_identifier: to_string(blocker_identifier), generation: generation})
-    else
-      entry
-      |> Map.delete(:blocker_pause)
-      |> Map.delete(:pending_auto_resume)
+        prepared =
+          entry
+          |> Map.put(:blocker_pause_generation, generation)
+          |> Map.put(:blocker_pause, %{blocker_identifier: to_string(blocker_identifier), generation: generation})
+          |> clear_budget_pause_context()
+
+        {prepared, :blocker_dependency}
+
+      budget_pause = GithubBudgetPause.parse(payload, entry) ->
+        GithubBudgetPause.schedule_expiry(
+          Map.get(entry, :identifier),
+          budget_pause.generation,
+          budget_pause.reset_at_ms
+        )
+
+        prepared =
+          entry
+          |> Map.put(:github_budget_pause_generation, budget_pause.generation)
+          |> Map.put(:github_budget_pause, budget_pause)
+          |> Map.delete(:blocker_pause)
+          |> Map.delete(:pending_auto_resume)
+
+        {prepared, :github_budget_hold}
+
+      true ->
+        prepared =
+          entry
+          |> Map.delete(:blocker_pause)
+          |> clear_budget_pause_context()
+
+        {prepared, :agent_pause_request}
     end
   end
 
-  defp agent_pause_reason(event) do
-    payload = event_payload(event)
-    blocker_identifier = Map.get(payload, :blocker_identifier) || Map.get(payload, "blocker_identifier")
-    reason = Map.get(payload, :reason) || Map.get(payload, "reason")
-
-    if reason == "dependency" and (is_binary(blocker_identifier) or is_integer(blocker_identifier)),
-      do: :blocker_dependency,
-      else: :agent_pause_request
+  defp clear_budget_pause_context(entry) do
+    GithubBudgetPause.clear_context(entry)
   end
 
   defp matching_blocker_pause_generation(entry, blocker_identifier) do
@@ -986,6 +1025,9 @@ defmodule Aiur.Orchestrator.PushRouting do
   defp cleared_dependency_reason(blocker_identifier, _blocker_state, :removed),
     do: "Dependency on blocker #{blocker_identifier} was removed; automatic resume requested."
 
+  defp matching_hint_pause?(entry, %{resume_kind: :github_budget_recovered} = hint),
+    do: GithubBudgetPause.matching_hint_pause?(entry, hint)
+
   defp matching_hint_pause?(entry, hint) do
     generation = get_in(entry, [:blocker_pause, :generation])
 
@@ -994,6 +1036,18 @@ defmodule Aiur.Orchestrator.PushRouting do
       generation == Map.get(hint, :pause_generation) and
       Map.get(entry, :blocker_pause_generation) == generation and
       Map.get(entry, :paused_reason) == :blocker_dependency
+  end
+
+  defp matching_hint_context?(entry, %{resume_kind: :github_budget_recovered} = hint),
+    do: GithubBudgetPause.matching_hint_context?(entry, hint)
+
+  defp matching_hint_context?(entry, hint) do
+    generation = get_in(entry, [:blocker_pause, :generation])
+
+    generation == Map.get(hint, :pause_generation) and
+      Map.get(entry, :blocker_pause_generation) == generation and
+      (Map.get(entry, :paused_reason) == :blocker_dependency or
+         match?(%{reason: :blocker_dependency}, Map.get(entry, :pending_pause_reason)))
   end
 
   defp validated_branch_metadata(blocker_identifier, event) do
