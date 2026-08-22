@@ -119,7 +119,7 @@ there is.
 hand unless something is broken.
 
 ```text
-aiurdev                       # foreground run, local-only bind (full interactive UI)
+aiurdev                       # start foreground, or attach to this checkout's live session
 aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
 aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
 aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener

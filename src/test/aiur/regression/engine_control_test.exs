@@ -751,8 +751,69 @@ defmodule Aiur.Regression.EngineControlTest do
 
       assert out =~ "CODE=0"
       assert out =~ "already running in the background"
+      assert out =~ "Attach with: aiur"
       refute out =~ "Config:"
       assert out =~ "RECORD_OK"
+      refute File.read!(events) =~ "NEW_SESSION"
+      refute File.exists?(Path.join(tmp, "logs"))
+    end
+
+    test "a session that becomes responsive during stale confirmation is preserved" do
+      rel = fake_release()
+      state = tmp_state()
+      tmp = Path.join(System.tmp_dir!(), "aiur-bg-race-#{System.unique_integer([:positive])}")
+      events = Path.join(tmp, "events.log")
+      counter = Path.join(tmp, "control-probes")
+      File.mkdir_p!(tmp)
+      File.write!(events, "")
+
+      tmux =
+        fake_tmux_script("""
+        case " $* " in
+          *" has-session "*) exit 0 ;;
+          *" new-session "*) echo NEW_SESSION >> "#{events}"; exit 0 ;;
+          *) exit 0 ;;
+        esac
+        """)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+        File.rm_rf(tmp)
+      end)
+
+      script = """
+      sleep() { :; }
+      probe_control_liveness() {
+        count=$(cat "$COUNTER" 2>/dev/null || printf 0)
+        count=$((count + 1))
+        printf '%s' "$count" > "$COUNTER"
+        if [ "$count" -eq 1 ]; then printf down; else printf up; fi
+      }
+      probe_node_liveness() { printf down; }
+      reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+      kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+      set +e
+      run_session background
+      code=$?
+      set -e
+      echo "CODE=$code"
+      """
+
+      {out, 0} =
+        run_sourced_engine(script, [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"COUNTER", counter},
+          {"EVENTS", events},
+          {"HOME", tmp},
+          {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"}
+        ])
+
+      assert out =~ "CODE=1"
+      assert out =~ "became live while checking stale state"
+      refute File.read!(events) =~ "REAP:"
+      refute File.read!(events) =~ "KILL_BEAM:"
       refute File.read!(events) =~ "NEW_SESSION"
     end
 
@@ -762,7 +823,7 @@ defmodule Aiur.Regression.EngineControlTest do
       tmp = Path.join(System.tmp_dir!(), "aiur-bg-stale-#{System.unique_integer([:positive])}")
       events = Path.join(tmp, "events.log")
       tmux_state = Path.join(tmp, "tmux-session")
-      counter = Path.join(tmp, "counter")
+      reaped = Path.join(tmp, "reaped")
       File.mkdir_p!(tmp)
       File.write!(events, "")
       File.write!(tmux_state, "")
@@ -785,14 +846,10 @@ defmodule Aiur.Regression.EngineControlTest do
       script = """
       sleep() { :; }
       probe_control_liveness() {
-        if [ ! -f "$COUNTER" ]; then
-          echo 1 > "$COUNTER"
-          printf down
-        else
-          printf up
-        fi
+        if [ -f "$REAPED" ]; then printf up; else printf down; fi
       }
-      reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; rm -f "$TMUX_STATE"; }
+      probe_node_liveness() { printf down; }
+      reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; touch "$REAPED"; rm -f "$TMUX_STATE"; }
       kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
       start_beam_death_watchdog() { printf '424242\\n'; }
       disown() { :; }
@@ -807,9 +864,9 @@ defmodule Aiur.Regression.EngineControlTest do
           {"AIUR_BG_STATE_DIR", state},
           {"AIUR_LOGS_ROOT", Path.join(tmp, "logs")},
           {"AIUR_NODE_GRACE_TICKS", "2"},
-          {"COUNTER", counter},
           {"EVENTS", events},
           {"HOME", tmp},
+          {"REAPED", reaped},
           {"TMUX_STATE", tmux_state},
           {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"}
         ])

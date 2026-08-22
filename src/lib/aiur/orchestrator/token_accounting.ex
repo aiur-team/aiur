@@ -53,8 +53,9 @@ defmodule Aiur.Orchestrator.TokenAccounting do
     turn_count = Map.get(running_entry, :turn_count, 0)
     completed_turn_count = Map.get(running_entry, :completed_turn_count, 0)
 
-    {
-      Map.merge(running_entry, %{
+    updated_running_entry =
+      running_entry
+      |> Map.merge(%{
         last_codex_timestamp: timestamp,
         last_codex_message: summarize_codex_update(update),
         session_id: session_id_for_update(running_entry.session_id, update),
@@ -68,10 +69,59 @@ defmodule Aiur.Orchestrator.TokenAccounting do
         agent_last_reported_total_tokens: max(last_reported_total, token_delta.total_reported),
         turn_count: turn_count_for_update(turn_count, running_entry.session_id, update),
         completed_turn_count: completed_turn_count_for_update(completed_turn_count, update)
-      }),
-      token_delta
-    }
+      })
+      |> record_runtime_terminal_evidence(update)
+
+    {updated_running_entry, token_delta}
   end
+
+  defp record_runtime_terminal_evidence(running_entry, %{event: :startup_failed} = update) do
+    existing_control = Map.get(running_entry, :control, %{})
+
+    running_entry
+    |> Map.put(:control, Map.put(existing_control, :status, :error))
+    |> Map.put(:runtime_terminal_failure, %{
+      kind: :startup_failed,
+      reason: Map.get(update, :reason),
+      observed_at: Map.get(update, :timestamp)
+    })
+  end
+
+  defp record_runtime_terminal_evidence(running_entry, update) do
+    cond do
+      interrupted_turn?(update) ->
+        Map.put(running_entry, :interrupted_turn_observed_at, Map.get(update, :timestamp))
+
+      recovery_started?(update) ->
+        Map.delete(running_entry, :interrupted_turn_observed_at)
+
+      true ->
+        running_entry
+    end
+  end
+
+  defp interrupted_turn?(update) do
+    payload = Map.get(update, :payload, %{})
+
+    status =
+      payload
+      |> payload_value(:params)
+      |> payload_value(:turn)
+      |> payload_value(:status)
+
+    payload_value(payload, :method) in ["turn/completed", :turn_completed] and
+      status in ["interrupted", :interrupted]
+  end
+
+  defp recovery_started?(%{event: :session_started}), do: true
+
+  defp recovery_started?(update) do
+    method = update |> Map.get(:payload, %{}) |> payload_value(:method)
+    method in ["turn/started", :turn_started]
+  end
+
+  defp payload_value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp payload_value(_value, _key), do: nil
 
   defp codex_app_server_pid_for_update(_existing, %{codex_app_server_pid: pid})
        when is_binary(pid),
