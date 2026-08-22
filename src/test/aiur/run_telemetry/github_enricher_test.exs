@@ -190,13 +190,16 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
 
       pid ->
         Process.unregister(CodeOwners)
-
-        on_exit(fn ->
-          if Process.alive?(pid), do: Process.register(pid, CodeOwners)
-        end)
+        restore_code_owners_on_exit(pid)
     end
 
     assert Process.whereis(CodeOwners) == nil
+  end
+
+  defp restore_code_owners_on_exit(pid) do
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.register(pid, CodeOwners)
+    end)
   end
 
   defp identity_request(%{url: url}) do
