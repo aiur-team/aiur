@@ -191,10 +191,11 @@ defmodule Aiur.AgentProcessLogTest do
     assert content =~ argv_sha
   end
 
-  # Arbitrary argv bytes must not be able to break the TSV: a literal newline
-  # in a command line would otherwise end the row early and a tab would forge
-  # extra columns.
-  test "escapes control bytes in argv so they cannot forge rows" do
+  # Arbitrary bytes must not be able to break the TSV: a literal newline in a
+  # recorded field would otherwise end the row early and a tab would forge
+  # extra columns. argv is already normalized by tokenization, so this proves
+  # the escaping on the verbatim fields (cwd can contain control bytes).
+  test "escapes control bytes so they cannot forge rows" do
     path = tmp_path()
 
     AgentProcessLog.sweep_once(
@@ -202,20 +203,24 @@ defmodule Aiur.AgentProcessLogTest do
       processes_fun: fn ->
         %{
           100 => %{pid: 100, ppid: 0, comm: "codex", cmdline: "codex exec"},
-          201 => %{pid: 201, ppid: 100, comm: "sh", cmdline: "sh -c $'a\\nb'"}
+          201 => %{pid: 201, ppid: 100, comm: "mix", cmdline: "mix test"}
         }
       end,
-      cwd_fun: fn _ -> "/ws" end,
+      cwd_fun: fn
+        201 -> "/ws/weird\ncwd\tpath"
+        _other -> "/ws"
+      end,
       path: path,
       clock: fn -> @now end
     )
 
     lines = File.read!(path) |> String.split("\n", trim: true)
-    # Two rows only — the embedded newline must not have split the argv row.
+    # Two rows only — the embedded newline must not have split the cwd row.
     assert length(lines) == 2
 
-    argv_row = Enum.find(lines, &String.contains?(&1, "sh -c"))
-    assert String.contains?(argv_row, "\\n")
+    row = Enum.find(lines, &String.contains?(&1, "\tmix\t"))
+    assert String.contains?(row, "\\n")
+    assert String.contains?(row, "\\t")
   end
 
   # A pid is only an identity while it is the same process. A pid that exits

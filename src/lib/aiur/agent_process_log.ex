@@ -315,11 +315,13 @@ defmodule Aiur.AgentProcessLog do
 
   defp unix(now), do: Integer.to_string(DateTime.to_unix(now))
 
-  # Every cell is escaped so an arbitrary byte in argv (a literal newline from
-  # `sh -c $'a\nb'`, a tab, a backslash) cannot break the line structure or
-  # forge a fake row. Backslash first, then the three control characters, so
-  # the encoding is round-trippable and a literal backslash is never confused
-  # with an escape.
+  # Every cell is escaped so an arbitrary byte in a recorded field (a literal
+  # newline in cwd, a tab, a backslash) cannot break the line structure or
+  # forge a fake row. argv itself is already whitespace-normalized by
+  # `argv_record`, so the escaping is what protects the verbatim fields and is
+  # defense-in-depth for every other cell. Backslash first, then the control
+  # characters, so the encoding is round-trippable and a literal backslash is
+  # never confused with an escape.
   defp join(fields) do
     Enum.map_join(fields, "\t", fn field ->
       field
