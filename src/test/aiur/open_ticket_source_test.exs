@@ -181,6 +181,93 @@ defmodule Aiur.OpenTicketSourceTest do
     assert_receive {:view_originated, false, %{method: :get}}, 2_000
   end
 
+  describe "demand tracking" do
+    test "subscribing registers the caller as a demander" do
+      server = start_source(request_fun: one_page([]))
+      parent = self()
+
+      # The watcher stands in for a LiveView session: it subscribes and then
+      # stays alive, exactly as an open page would. A watcher that exited at
+      # once would be released by its monitor before the count was read, which
+      # is the real closed-tab behaviour, not the open-page one this asserts.
+      watcher = watch(server, parent)
+
+      assert_receive :subscribed, 1_000
+
+      assert eventually(fn -> OpenTicketSource.demanded?(server) end)
+      assert eventually(fn -> OpenTicketSource.demander_count(server) == 1 end)
+
+      Process.exit(watcher, :kill)
+    end
+
+    test "the first demander buys one refresh, viewed as view-originated" do
+      test_pid = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        send(test_pid, {:requested, url, RequestOrigin.view_originated?()})
+        {:ok, %{status: 200, body: [], headers: []}}
+      end
+
+      server = start_source(request_fun: request_fun)
+      watch(server, test_pid)
+
+      assert_receive :subscribed, 1_000
+      assert_receive {:requested, url, true}, 2_000
+      assert url =~ "state=open"
+    end
+
+    test "a second demander does not buy a second refresh" do
+      test_pid = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        send(test_pid, {:requested, url})
+        {:ok, %{status: 200, body: [], headers: []}}
+      end
+
+      server = start_source(request_fun: request_fun)
+
+      first = watch(server, test_pid)
+      assert_receive :subscribed, 1_000
+      assert_receive {:requested, _url}, 2_000
+
+      second = watch(server, test_pid)
+      assert_receive :subscribed, 1_000
+      assert eventually(fn -> OpenTicketSource.demander_count(server) == 2 end)
+
+      refute_receive {:requested, _url}, 500
+
+      Process.exit(first, :kill)
+      Process.exit(second, :kill)
+    end
+
+    test "closing the last session releases the demand; the count reaches zero" do
+      server = start_source(request_fun: one_page([]))
+      parent = self()
+
+      watcher = watch(server, parent)
+
+      assert_receive :subscribed, 1_000
+      assert eventually(fn -> OpenTicketSource.demander_count(server) == 1 end)
+
+      Process.exit(watcher, :kill)
+
+      assert eventually(fn -> OpenTicketSource.demander_count(server) == 0 end)
+      refute OpenTicketSource.demanded?(server)
+    end
+
+    test "undemand releases the caller's demand explicitly" do
+      server = start_source(request_fun: one_page([]))
+
+      assert :ok = OpenTicketSource.subscribe(server)
+      assert eventually(fn -> OpenTicketSource.demander_count(server) == 1 end)
+
+      assert :ok = OpenTicketSource.undemand(server)
+
+      assert eventually(fn -> OpenTicketSource.demander_count(server) == 0 end)
+      refute OpenTicketSource.demanded?(server)
+    end
+  end
+
   defp start_source(opts) do
     defaults = [
       name: nil,
@@ -236,5 +323,25 @@ defmodule Aiur.OpenTicketSourceTest do
       "updated_at" => "2026-07-15T09:00:00Z",
       "labels" => Enum.map(labels, &%{"name" => &1})
     }
+  end
+
+  defp eventually(fun, attempts \\ 100) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(10) && eventually(fun, attempts - 1)
+    end
+  end
+
+  # Spawns a stand-in LiveView session: it subscribes to `server` as a demander
+  # and then stays alive until the test kills it. A watcher that exited at once
+  # would be released by its monitor before the count was read — the real
+  # closed-tab behaviour — so the open-page assertions need it to persist.
+  defp watch(server, parent) do
+    spawn(fn ->
+      OpenTicketSource.subscribe(server)
+      send(parent, :subscribed)
+      Process.sleep(:infinity)
+    end)
   end
 end

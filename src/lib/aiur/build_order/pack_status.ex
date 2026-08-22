@@ -25,6 +25,18 @@ defmodule Aiur.BuildOrder.PackStatus do
   cadence and asks this source to reconcile; `refresh/1` covers a real demand in
   between. It does not yet read the store, so the sweep is currently the only
   thing that refreshes it.
+
+  ## Deliberately not demand-gated
+
+  Unlike the two view-only sources the sweep reconciles, this one is **always
+  reconciled on every sweep**, never skipped when no page is open. The reason is
+  that it writes a file on disk: `status.json` is the daemon-owned projection the
+  planning contract names authoritative, and making its writer demand-driven
+  would change *when that file is written* — a different risk class from "refresh
+  a view nobody is looking at". `demanded?/0` therefore answers `true`
+  unconditionally, and the sweep keeps refreshing it regardless of viewers. That
+  decision is recorded here so it is not silently "fixed" later into the same
+  demand-gating the view-only sources use.
   """
 
   use GenServer
@@ -65,6 +77,18 @@ defmodule Aiur.BuildOrder.PackStatus do
   @doc "Subscribes the caller to status-projection health and generation changes."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+
+  @doc """
+  Answers whether the sweep should reconcile this source on a given tick.
+
+  Always `true`. This source writes the daemon-owned `status.json` projection
+  the planning contract names authoritative, so it is reconciled on every sweep
+  regardless of whether a Build Order page is open — see the moduledoc for why
+  that is a deliberate divergence from the view-only sources rather than an
+  oversight.
+  """
+  @spec demanded?(GenServer.server()) :: true
+  def demanded?(_server \\ __MODULE__), do: true
 
   @impl true
   def init(opts) do

@@ -12,6 +12,10 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
   # A view-state source is a module the sweep calls `refresh/0` on, registered
   # under its own name — so the stand-ins have to be real modules, not named
   # processes, or the test would not exercise the call the sweep actually makes.
+  # Each also answers `demanded?/0`, which the sweep consults before reconciling;
+  # the stand-in defaults to demanded so the "every running source is
+  # reconciled" tests keep passing, and a test can start one undemanded to
+  # assert the sweep skips it.
   defmodule Source do
     @moduledoc false
     defmacro __using__(_opts) do
@@ -21,12 +25,18 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
         def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
         def refresh, do: GenServer.cast(__MODULE__, :refresh)
         def calls, do: GenServer.call(__MODULE__, :calls)
+        def demanded?, do: GenServer.call(__MODULE__, :demanded?)
+        def demander_count, do: GenServer.call(__MODULE__, :demander_count)
 
         @impl true
-        def init(_opts), do: {:ok, %{calls: 0}}
+        def init(opts), do: {:ok, %{calls: 0, demanders: if(Keyword.get(opts, :demanded, true), do: 1, else: 0)}}
 
         @impl true
         def handle_call(:calls, _from, state), do: {:reply, state.calls, state}
+
+        def handle_call(:demanded?, _from, state), do: {:reply, state.demanders > 0, state}
+
+        def handle_call(:demander_count, _from, state), do: {:reply, state.demanders, state}
 
         @impl true
         def handle_cast(:refresh, state), do: {:noreply, %{state | calls: state.calls + 1}}
@@ -61,6 +71,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
     def refresh, do: GenServer.cast(__MODULE__, :refresh)
     def published, do: GenServer.call(__MODULE__, :published)
+    def demanded?, do: true
 
     @impl true
     def init(opts), do: {:ok, %{upstream: Keyword.fetch!(opts, :upstream), published: []}}
@@ -148,6 +159,21 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
 
       assert ViewStateSweep.sweep_now(pid) == [SourceA]
       assert Process.whereis(SourceAbsent) == nil
+    end
+
+    # The demand half of the same rule: a running source with no watching
+    # LiveView is not reconciled either. This is the entire saving the ticket
+    # exists for — a 900-second sweep against a 30-second cache TTL is a
+    # guaranteed miss, so the only honest reason to run it is that someone is
+    # looking.
+    test "a source nobody is watching is skipped rather than reconciled" do
+      start_supervised!({SourceA, demanded: false})
+
+      pid =
+        start_supervised!({ViewStateSweep, name: :sweep_skip_undemanded_test, sources: [SourceA], interval_ms: 3_600_000})
+
+      assert ViewStateSweep.sweep_now(pid) == []
+      assert SourceA.calls() == 0
     end
 
     # Without this the module could sweep once at boot and never again — every

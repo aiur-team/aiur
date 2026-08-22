@@ -3,6 +3,11 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
+  One deliberate exception: opening the Build Order page registers the first
+  demander on the Ad Hoc overlay source, which buys a single view-originated
+  refresh (held state renders first, then one listing). That one request is
+  asserted explicitly below; every other route stays at zero.
+
   ## Why this file is hermetic and the `:external` one is not
 
   There is a companion measurement that reads real `x-ratelimit-used` deltas from
@@ -41,18 +46,18 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   @endpoint AiurWeb.Endpoint
 
-  # Every dashboard route an operator can open directly, paired with a marker
-  # only that route renders. `/build-orders` and `/build-orders/:root_number`
-  # are the routes whose data path this change actually rewrote; without them
-  # every assertion in this file evaluated identically before the change, since
-  # the other four read local GenServer state and could never have fetched.
-  @pages [
+  # The dashboard routes that must never fetch when opened, paired with a marker
+  # only that route renders. Each of these reads local GenServer state and could
+  # never have fetched. `/build-orders` and `/build-orders/:root_number` are
+  # deliberately NOT here: opening them now performs one view-originated refresh
+  # of the Ad Hoc overlay (see "the Build Order page" describe below), so their
+  # open does not cost zero and they assert the exact shape of that one request
+  # instead.
+  @zero_fetch_pages [
     {"/", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
-    {"/streamdeck", "streamdeck-page"},
-    {"/build-orders", "build-order-page"},
-    {"/build-orders/2073", "build-order-page"}
+    {"/streamdeck", "streamdeck-page"}
   ]
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -108,8 +113,34 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   end
 
   describe "opening a dashboard page" do
+    setup do
+      # The Build Order page's one view-originated refresh must be deterministic,
+      # so the transport has to be open for it: `require_token/0` answers from
+      # GITHUB_TOKEN, which CI does not set. Without this, "opening /build-orders
+      # makes one request" would silently become "zero" on a tokenless runner and
+      # the assertion would mean nothing.
+      previous_token = System.get_env("GITHUB_TOKEN")
+      previous_cached = :persistent_term.get(@token_cache_key, :unset)
+      :persistent_term.erase(@token_cache_key)
+      System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+      on_exit(fn ->
+        case previous_token do
+          nil -> System.delete_env("GITHUB_TOKEN")
+          value -> System.put_env("GITHUB_TOKEN", value)
+        end
+
+        case previous_cached do
+          :unset -> :persistent_term.erase(@token_cache_key)
+          token -> :persistent_term.put(@token_cache_key, token)
+        end
+      end)
+
+      :ok
+    end
+
     test "reaches GitHub zero times on every route", %{counter: counter} do
-      Enum.each(@pages, fn {path, marker} ->
+      Enum.each(@zero_fetch_pages, fn {path, marker} ->
         assert {:ok, view, html} = live(build_conn(), path)
 
         # A page that failed to render is also a page that made no requests, so
@@ -130,13 +161,46 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "opening #{length(@pages)} dashboard pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
+             "opening #{length(@zero_fetch_pages)} dashboard pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       # The zero above and a zero caused by an exhausted budget look identical:
       # `Transport` short-circuits a quota hold before the plug is ever reached.
       # Driving one real request now proves the egress path was open for the
       # whole of this test, so the zero means "did not fetch" and not "could
       # not".
+      assert_egress_open!(counter)
+    end
+
+    # The one deliberate exception to "viewing never fetches": opening the Build
+    # Order page registers the first demander on the Ad Hoc source, which buys a
+    # single view-originated refresh of the labelled overlay. Held state renders
+    # first; the listing is the one request this page is allowed. A second Build
+    # Order page coalesces on the in-flight guard, so the total stays one.
+    test "opening /build-orders performs exactly one view-originated refresh", %{counter: counter} do
+      for path <- ["/build-orders", "/build-orders/2073"] do
+        assert {:ok, view, html} = live(build_conn(), path)
+        assert html =~ "dashboard-shell", "#{path} did not render the dashboard shell"
+        assert html =~ "build-order-page", "#{path} rendered a shell but not its own page"
+        assert render(view) =~ "build-order-page"
+      end
+
+      # The refresh is async — a cast from the LiveView to the Ad Hoc source,
+      # then a Task — so the listing can land after the render round trip above.
+      # Poll until it does, so the assertion is about the request's shape, not
+      # about winning a race.
+      assert eventually(fn -> Agent.get(counter, & &1) != [] end),
+             "opening /build-orders never performed its view-originated refresh"
+
+      requests = Agent.get(counter, & &1)
+
+      assert [{method, path}] = requests,
+             "opening the Build Order pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
+
+      assert method == "GET"
+      assert path == "/repos/aiur-team/aiur/issues"
+
+      # A view-originated refresh that quietly stopped firing would show up as
+      # this request disappearing, so a positive control belongs here too.
       assert_egress_open!(counter)
     end
 
@@ -268,6 +332,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       )
 
     identity
+  end
+
+  defp eventually(fun, attempts \\ 200) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(10) && eventually(fun, attempts - 1)
+    end
   end
 
   defp held_issue(number) do

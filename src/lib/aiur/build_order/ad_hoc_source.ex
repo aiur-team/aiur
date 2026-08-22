@@ -18,9 +18,19 @@ defmodule Aiur.BuildOrder.AdHocSource do
   completion denominator, complexity total, critical path, or feature ETA.
 
   It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile; `refresh/1` covers a real demand in
-  between. It does not yet read the store, so the sweep is currently the only
-  thing that refreshes it.
+  cadence and asks this source to reconcile only while a LiveView is watching
+  it — the sweep skips any source with no demander, so an idle daemon with no
+  Build Order page open makes no request from here at all. `refresh/1` covers
+  a real demand in between.
+
+  Demand is registered by `subscribe/0`: every Build Order LiveView that shows
+  the overlay already subscribes, and the first subscriber also buys one
+  immediate refresh, so opening the page renders the held snapshot and then the
+  fresh overlay. A monitor releases the demand when the session dies, so closing
+  the last tab returns the source to the sweep's skip list.
+
+  It does not yet read the store, so the sweep is currently the only thing that
+  refreshes it.
   """
 
   use GenServer
@@ -28,7 +38,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   require Logger
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot
-  alias Aiur.GitHub.{Config, Issues, Transport}
+  alias Aiur.GitHub.{Config, Issues, Transport, ViewStateDemand}
   alias Aiur.Issue
 
   @topic "build_order:adhoc:changed"
@@ -46,12 +56,49 @@ defmodule Aiur.BuildOrder.AdHocSource do
   @spec snapshot(GenServer.server()) :: Snapshot.t()
   def snapshot(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
-  @doc "Subscribes the caller to Ad Hoc overlay change broadcasts."
-  @spec subscribe() :: :ok | {:error, term()}
-  def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
+  @doc """
+  Subscribes the caller to Ad Hoc overlay change broadcasts and registers it as
+  a demander.
+
+  The demand half is what keeps the sweep's reconcile honest: with no demander
+  the sweep skips this source entirely, so an idle daemon costs nothing.
+  Registering the **first** demander triggers one refresh, so an opening page
+  renders its held snapshot first and then receives the fresh overlay.
+  """
+  @spec subscribe(GenServer.server()) :: :ok | {:error, term()}
+  def subscribe(server \\ __MODULE__) do
+    case Phoenix.PubSub.subscribe(Aiur.PubSub, @topic) do
+      :ok ->
+        GenServer.cast(server, {:demand, self()})
+        :ok
+
+      error ->
+        error
+    end
+  end
 
   @spec topic() :: String.t()
   def topic, do: @topic
+
+  @doc "Whether any LiveView session is currently watching this source."
+  @spec demanded?(GenServer.server()) :: boolean()
+  def demanded?(server \\ __MODULE__) do
+    GenServer.call(server, :demanded?)
+  catch
+    :exit, _reason -> false
+  end
+
+  @doc "The number of LiveView sessions currently watching this source."
+  @spec demander_count(GenServer.server()) :: non_neg_integer()
+  def demander_count(server \\ __MODULE__) do
+    GenServer.call(server, :demander_count)
+  catch
+    :exit, _reason -> 0
+  end
+
+  @doc "Explicitly releases the caller's demand on this source."
+  @spec undemand(GenServer.server()) :: :ok
+  def undemand(server \\ __MODULE__), do: GenServer.cast(server, {:undemand, self()})
 
   @doc "Requests an out-of-band refresh (async)."
   @spec refresh(GenServer.server()) :: :ok
@@ -68,6 +115,8 @@ defmodule Aiur.BuildOrder.AdHocSource do
     state = %{
       snapshot: %Snapshot{},
       inflight: nil,
+      demanders: MapSet.new(),
+      demand_monitors: %{},
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
@@ -83,12 +132,27 @@ defmodule Aiur.BuildOrder.AdHocSource do
   @impl true
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
+  def handle_call(:demanded?, _from, state), do: {:reply, ViewStateDemand.demanded?(state), state}
+
+  def handle_call(:demander_count, _from, state), do: {:reply, ViewStateDemand.count(state), state}
+
   def handle_call(:refresh_sync, _from, state) do
     state = apply_and_broadcast(state, fetch(state))
     {:reply, state.snapshot, state}
   end
 
   @impl true
+  def handle_cast({:demand, pid}, state) do
+    {state, first?} = ViewStateDemand.demand(state, pid)
+    # The first demander is the page opening: render held state, then buy the
+    # fresh overlay once. Later sessions coalesce on the in-flight guard, and
+    # the sweep's cadence keeps the source current while it stays demanded.
+    state = if first?, do: ensure_fetch(state), else: state
+    {:noreply, state}
+  end
+
+  def handle_cast({:undemand, pid}, state), do: {:noreply, ViewStateDemand.undemand(state, pid)}
+
   def handle_cast(:refresh, state), do: {:noreply, ensure_fetch(state)}
 
   @impl true
@@ -103,6 +167,13 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{inflight: ref} = state) do
     {:noreply, apply_and_broadcast(%{state | inflight: nil}, {:error, :task_down})}
+  end
+
+  # A demander's session process died: release its demand. Clauses above match
+  # the in-flight task's own reference first; anything else reaching here that is
+  # not a demander monitor is returned untouched by `handle_down/2`.
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
+    {:noreply, ViewStateDemand.handle_down(state, ref)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
