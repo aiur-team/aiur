@@ -88,6 +88,7 @@ defmodule Aiur.TestSupport do
     :build_gate_dir_override,
     :global_pause_store_path,
     :github_resource_store_path,
+    :github_cache_inspector_source,
     :repo_base_root,
     :executor_state_dir,
     :loadavg_source_override,
