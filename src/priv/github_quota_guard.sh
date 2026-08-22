@@ -55,6 +55,7 @@ budget_db=
 budget_enabled=0
 budget_required=0
 budget_unavailable_reason=
+budget_recovery="budget root $budget_root; repair ownership/permissions and redispatch (current runtimes derive this grant); stale runtimes must add $budget_root to agent.codex.turn_sandbox_policy.writableRoots"
 budget_lease=
 budget_renewal_pid=
 budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
@@ -704,7 +705,7 @@ if [ "$agent_guard" -eq 1 ] && undecidable_agent_command "$@"; then
 fi
 
 if [ "$admission_required" -eq 1 ] && [ "$budget_required" -eq 1 ] && [ "$budget_enabled" -ne 1 ]; then
-  printf 'aiur: GitHub shared budget unavailable (%s); refusing uncoordinated request\n' "$budget_unavailable_reason" >&2
+  printf 'aiur: GitHub shared budget unavailable (%s; %s); refusing uncoordinated request\n' "$budget_unavailable_reason" "$budget_recovery" >&2
   exit 75
 fi
 
@@ -1595,7 +1596,7 @@ budget_acquire() {
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
       --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
-      printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
+      printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
       return 75
     fi
     unset budget_ignore_flag budget_cache_flags

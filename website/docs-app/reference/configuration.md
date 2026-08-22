@@ -346,7 +346,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
 | `agent.codex.approval_policy` | string or map | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
 | `agent.codex.thread_sandbox` | string | `workspace-write` | Thread sandbox mode. |
-| `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. |
+| `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. For local `workspaceWrite`, `writableRoots` contains optional daemon-host extras; every entry must already exist and be writable. Aiur derives the current issue workspace and enabled shared GitHub budget root. Configured extras are not forwarded to SSH workers. |
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
