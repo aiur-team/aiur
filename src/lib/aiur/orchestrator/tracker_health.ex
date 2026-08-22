@@ -120,12 +120,16 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   end
 
   # The fleet is only actually idle when it has nothing to do AND has observed
-  # that. Three conditions, all required:
+  # that. Four conditions, all required:
   #
   #   * at least one poll cycle has completed (`poll_cycles_completed > 0`) — a
   #     freshly restarted daemon has observed no idleness, so it polls at the
   #     base interval first (#2138);
   #   * no agent is actively running;
+  #   * the candidate snapshot is fresh — a cycle whose fetch failed observed
+  #     nothing, so an unobserved queue must never count as an idle one. This is
+  #     the daemon-side half of the CLI's "has not polled yet" rule (#2138,
+  #     #2278);
   #   * either the daemon is globally paused or there is no queued dispatch
   #     demand — a live fleet with claimable tickets is not idle, it simply has
   #     not looked yet, and backing off there is exactly the "idles up to 20
@@ -137,20 +141,25 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   defp idle_fleet?(%State{} = state) do
     State.active_running_count(state.running) == 0 and
       state.poll_cycles_completed > 0 and
+      state.candidate_snapshot_fresh? == true and
       (state.globally_paused == true or not queued_dispatch_demand?(state))
   end
 
   # Reuses the same dispatch-eligibility scan as the capacity snapshot so the
-  # backoff never widens the poll while dispatchable work is waiting. Matches
-  # `idle_widen_factor/1`'s tolerance: if the config cannot be read, treat the
-  # fleet as having no demand rather than crashing the poll loop.
+  # backoff never widens the poll while dispatchable work is waiting. Fails
+  # toward demand (a prompt poll) rather than toward backoff: an unreadable
+  # config — or any unexpected `ArgumentError` inside the scan — must never
+  # silently become "no dispatchable demand" and widen the poll to the 10-minute
+  # ceiling under a condition nobody will notice (#2138 review P1).
   defp queued_dispatch_demand?(%State{} = state) do
     DispatchPolicy.queued_dispatch_demand?(
       Map.values(state.last_polled_issues),
       state
     )
   rescue
-    ArgumentError -> false
+    ArgumentError ->
+      Logger.warning("Idle-backoff demand scan failed; assuming dispatchable demand (poll stays at base)")
+      true
   end
 
   defp idle_widen_factor(opts) do

@@ -103,6 +103,24 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
              TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
   end
 
+  # A cycle whose candidate fetch failed observed nothing, so the fleet must
+  # not be treated as idle and backed off — an unobserved queue must never
+  # count as an idle one (#2138 review P1, #2278). This is the daemon-side half
+  # of the CLI's "has not polled yet" rule: a stale snapshot means the fleet has
+  # not looked recently enough to know there is no work.
+  test "does not widen while the candidate snapshot is stale (last fetch failed)" do
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1,
+      candidate_snapshot_fresh?: false
+    }
+
+    assert %{delay_ms: 120_000, idle_backoff?: false} =
+             TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
+  end
+
   # A globally paused fleet cannot dispatch even with tickets waiting, so it
   # still backs off; unpausing wakes a prompt poll instead (#2138).
   test "widens a paused fleet even with tickets waiting" do
