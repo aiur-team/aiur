@@ -148,7 +148,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
              }
 
       assert result.running["issue-1"].paused_reason == :github_budget_hold
-      assert_receive {:github_budget_pause_expired, "ISSUE-1", 1}
+      assert is_reference(result.running["issue-1"].github_budget_pause_timer)
 
       recovered = PushRouting.recover_github_budget_pause(result, "ISSUE-1", 1)
 
@@ -173,7 +173,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       }
 
       state = %{base_state() | running: %{"issue-1" => entry}, max_concurrent_agents: 2}
-      result = PushRouting.recover_github_budget_pauses(state, now_ms)
+      result = PushRouting.recover_github_budget_pause(state, "ISSUE-1", 1, now_ms)
 
       assert_receive {:resume_agent, _request_id}
       assert result.running["issue-1"].control.status == :working
@@ -189,7 +189,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       refute_receive {:resume_agent, _request_id}
     end
 
-    test "observed quota recovery waits for the current pause's recorded reset" do
+    test "observed quota recovery waits for the recorded reset and wakes per entry" do
       now_ms = System.system_time(:millisecond)
 
       entry = %{
@@ -213,7 +213,14 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       assert result == state
       refute_receive {:resume_agent, _request_id}
 
-      recovered = PushRouting.recover_github_budget_pauses(state, now_ms + 60_000)
+      # Fleet recovery does not resume synchronously: it wakes each eligible
+      # entry on its own jittered timer, and the expiry path resumes it. This
+      # keeps a recovered fleet from stampeding the same credential at once.
+      woken = PushRouting.recover_github_budget_pauses(state, now_ms + 60_000)
+      assert woken == state
+      refute_receive {:resume_agent, _request_id}
+
+      recovered = PushRouting.recover_github_budget_pause(woken, "ISSUE-1", 3, now_ms + 60_000)
 
       assert_receive {:resume_agent, _request_id}
       assert recovered.running["issue-1"].control.status == :working

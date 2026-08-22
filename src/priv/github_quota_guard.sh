@@ -1579,9 +1579,14 @@ valid_budget_hold_reset() {
 import sys
 import time
 
+# Mirrors the Elixir-side bounded window in `GithubBudgetPause.parse/3`: a
+# reset no more than 24h in the future or 5 minutes in the past is a live
+# hold; anything older in the past is a stale or forged value and must not be
+# accepted as a typed hold (which would clamp to a zero delay and re-pause
+# immediately).
 reset_at_ms = int(sys.argv[1])
 now_ms = time.time_ns() // 1_000_000
-sys.exit(0 if abs(reset_at_ms - now_ms) <= 86_400_000 else 1)
+sys.exit(0 if now_ms - 300_000 <= reset_at_ms <= now_ms + 86_400_000 else 1)
 PY
 }
 

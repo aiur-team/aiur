@@ -28,6 +28,13 @@ HOURLY_WINDOW_MS = 3600000
 # not keep its old max_inflight constraining the fleet for the whole hour that
 # the usage report now retains it for.
 POLICY_RECONCILE_WINDOW_MS = 120000
+# A shared hold below this duration is reported as an in-guard `wait <ms>`
+# (sleep-and-retry) rather than the typed `hold shared <resource> <until>`
+# response that aborts the command and pauses the agent's whole turn. A routine
+# secondary-rate-limit token cooldown defaults to 60 seconds and must keep
+# sleeping inside the guard, exactly as it did before typed holds existed; only
+# holds long enough to warrant a real pause are surfaced to the agent.
+SHARED_HOLD_MIN_MS = 10000
 
 
 def now_ms():
@@ -326,8 +333,24 @@ def acquire(args):
 
         if hold_until > now:
             conn.execute("COMMIT")
-            hold_resource = resource_hold[0] if resource_hold and resource_hold[1] == hold_until else args.resource
-            print(f"hold shared {'core' if hold_resource == 'unknown' else hold_resource} {hold_until}")
+            remaining = hold_until - now
+            if remaining >= SHARED_HOLD_MIN_MS:
+                hold_resource = resource_hold[0] if resource_hold and resource_hold[1] == hold_until else args.resource
+                if hold_resource == "unknown":
+                    # A token-wide cooldown from a secondary rate limit is not
+                    # resource-attributed in the broker. Prefer the longest-lived
+                    # resource hold we do know about (the likely trigger of the
+                    # shared backoff) so the pause/alert metadata does not blindly
+                    # say `core` for GraphQL-on-the-wire traffic; `core` is only
+                    # the last resort when no resource hold exists at all.
+                    hold_resource = resource_hold[0] if resource_hold else "core"
+                print(f"hold shared {hold_resource} {hold_until}")
+            else:
+                # A routine short hold (for example the ordinary 60-second
+                # secondary-rate-limit token cooldown) is absorbed in the
+                # guard's sleep-and-retry loop instead of aborting the command
+                # and pausing the whole agent turn.
+                print(f"wait {remaining}")
             return
 
         # Per-actor hourly ceiling (#2181). An actor — the daemon, or one agent

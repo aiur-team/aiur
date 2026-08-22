@@ -5555,7 +5555,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
         })
 
       receive_barrier({:ci_wait_control, {:pause_agent, _pause_request_id, 101}})
-      ready = PushRouting.recover_github_budget_pauses(pause_pending, reset_at_ms)
+      # The fleet recovery signal schedules a jittered per-entry wake rather
+      # than resuming synchronously; drive the expiry path the way the
+      # orchestrator's timer handler does.
+      recover_signaled = PushRouting.recover_github_budget_pauses(pause_pending, reset_at_ms)
+      ready = PushRouting.recover_github_budget_pause(recover_signaled, identifier, 1, reset_at_ms)
       assert get_in(ready.running, [issue_id, :pending_auto_resume, :pause_generation]) == 1
 
       paused = confirm_pending_control(ready, issue_id, :paused)
@@ -5612,7 +5616,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       }
 
       full = put_in(paused.running[busy_issue_id], busy_entry)
-      deferred = PushRouting.recover_github_budget_pauses(full, reset_at_ms)
+      recover_signaled = PushRouting.recover_github_budget_pauses(full, reset_at_ms)
+      deferred = PushRouting.recover_github_budget_pause(recover_signaled, identifier, 1, reset_at_ms)
 
       assert get_in(deferred.running, [issue_id, :pending_auto_resume, :pause_generation]) == 1
       refute_received {:ci_wait_control, {:resume_agent, _request_id, 101}}

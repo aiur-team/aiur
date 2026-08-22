@@ -653,6 +653,7 @@ defmodule Aiur.Orchestrator.PushRouting do
           |> Map.delete(:pending_auto_resume)
           |> Map.delete(:blocker_pause)
           |> Map.delete(:github_budget_pause)
+          |> Map.delete(:github_budget_pause_timer)
 
         %{state | running: Map.put(state.running, issue_id, updated)}
 
@@ -700,16 +701,22 @@ defmodule Aiur.Orchestrator.PushRouting do
         {prepared, :blocker_dependency}
 
       budget_pause = GithubBudgetPause.parse(payload, entry) ->
-        GithubBudgetPause.schedule_expiry(
-          Map.get(entry, :identifier),
-          budget_pause.generation,
-          budget_pause.reset_at_ms
-        )
+        GithubBudgetPause.cancel_timer(entry)
+        GithubBudgetPause.emit_escalation_if_needed(entry, budget_pause.generation)
+
+        timer_ref =
+          GithubBudgetPause.schedule_expiry(
+            Map.get(entry, :identifier),
+            budget_pause.generation,
+            budget_pause.reset_at_ms
+          )
 
         prepared =
           entry
           |> Map.put(:github_budget_pause_generation, budget_pause.generation)
+          |> Map.put(:github_budget_last_pause_ms, System.system_time(:millisecond))
           |> Map.put(:github_budget_pause, budget_pause)
+          |> Map.put(:github_budget_pause_timer, timer_ref)
           |> Map.delete(:blocker_pause)
           |> Map.delete(:pending_auto_resume)
 
