@@ -51,6 +51,23 @@ defmodule Aiur.TestSupportIsolationTest do
     assert {:ok, %{globally_paused: true, source: "test"}} = GlobalPauseStore.load()
   end
 
+  test "cache inspector source overrides are restored between TestSupport cases" do
+    previous = Application.fetch_env(:aiur, :github_cache_inspector_source)
+
+    on_exit(fn ->
+      case previous do
+        :error -> Application.delete_env(:aiur, :github_cache_inspector_source)
+        {:ok, source} -> Application.put_env(:aiur, :github_cache_inspector_source, source)
+      end
+    end)
+
+    captured = Aiur.TestSupport.capture_app_env()
+    Application.put_env(:aiur, :github_cache_inspector_source, __MODULE__)
+    Aiur.TestSupport.restore_app_env(captured)
+
+    assert Application.fetch_env(:aiur, :github_cache_inspector_source) == previous
+  end
+
   test "ModelAvailability reads and writes its default ledger store in the per-test workflow root" do
     workflow_dir = Path.dirname(Aiur.Workflow.workflow_file_path())
     default = ModelAvailability.path()
