@@ -35,7 +35,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -64,6 +64,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # estimate predicts, and a smaller thread page would push every busy pull
   # request onto the paginated fallback each cycle. There is no budget worth
   # buying with review-comment risk.
+  #
+  # A target whose pull request a **webhook delivery already identified**
+  # (`Aiur.GitHub.DeliveredPullRequest`) skips the speculation entirely: it
+  # contributes one `pullRequest(number:)` alias instead of an
+  # `issueOrPullRequest` alias plus up to two `pullRequests(headRefName:)`
+  # connections. Three aliases become one, and because the surviving alias is a
+  # pull request rather than a maybe-issue it carries `reviewThreads` that are
+  # actually used, so the poller's separate per-pull-request
+  # `review_threads_unaddressed` call for that target does not happen at all.
+  # Nothing whose staleness could mislead the daemon is taken from the store —
+  # only the number.
   @targets_per_query 33
   @pull_requests_per_branch 2
 
@@ -74,12 +85,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      expected_head_repo = "#{owner}/#{repo}"
-
-      chunks =
-        targets
-        |> Enum.map(&target_entry(&1, opts, expected_head_repo))
-        |> Enum.chunk_every(@targets_per_query)
+      chunks = targets |> Enum.map(&target_entry(&1, owner, repo, opts)) |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github comment GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -99,7 +105,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp target_entry(target, opts, expected_head_repo) do
+  # The store is consulted before the query is written, not after it comes back:
+  # a delivered number removes aliases from the document rather than discarding
+  # their answers.
+  defp target_entry(target, owner, repo, opts) do
+    case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
+      number when is_integer(number) -> %{target: target, pull_request_number: number}
+      nil -> branch_target_entry(target, opts, "#{owner}/#{repo}")
+    end
+  end
+
+  defp branch_target_entry(target, opts, expected_head_repo) do
     case known_branch(target, opts) do
       nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false, expected_head_repo: expected_head_repo}
       branch -> %{target: target, branches: [branch], known_branch: true, expected_head_repo: expected_head_repo}
@@ -163,6 +179,18 @@ defmodule Aiur.GitHub.CommentPollBatch do
         #{aliases}
       }
     }
+    """
+  end
+
+  # A delivery already named the pull request, so the speculative half of the
+  # document goes away. The `issueOrPullRequest` alias goes with it: it exists to
+  # catch a target that is itself a pull request, and a target the store holds a
+  # `:branch_pull_request` body for is a *ticket* — GitHub numbers issues and
+  # pull requests in one sequence, so the pull request opened for ticket N always
+  # has a number greater than N and can never be N itself.
+  defp target_aliases(%{pull_request_number: number}, index) when is_integer(number) do
+    """
+    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields()} }
     """
   end
 
@@ -243,6 +271,24 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp pull_request_for_entry(_entry, %{kind: :pull_request} = direct, _repository, _index), do: {:ok, direct}
 
+  # The delivered number is an identity claim, and this is where GitHub either
+  # confirms it or does not. A pull request that has since closed is *not*
+  # answered as "no open pull request for this ticket" — a closed one is exactly
+  # the state in which a newer one may exist — so the target falls out to the
+  # poller's own lookup for this cycle. The next `pull_request` delivery
+  # overwrites the store entry with `"state" => "closed"` and the identity stops
+  # being offered at all.
+  defp pull_request_for_entry(%{pull_request_number: _number} = entry, _direct, repository, index) do
+    case Map.get(repository, "delivered_#{index}") do
+      %{"headRefName" => _ref} = node ->
+        if open_pull_request_node?(node), do: {:ok, normalize_pull_request(node, true)}, else: :unknown
+
+      _other ->
+        Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
+        :unknown
+    end
+  end
+
   defp pull_request_for_entry(entry, _direct, repository, index) do
     connections =
       entry.branches
@@ -292,6 +338,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
         false
     end
   end
+
+  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
 
   # No `:issue_comments` or `:pr_issue_comments` key is ever emitted now, so the
   # poller's `batch_value/3` answers `:missing` for both and every comment read
