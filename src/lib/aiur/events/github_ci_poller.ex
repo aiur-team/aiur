@@ -299,7 +299,11 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp evaluate(check_runs, commit_status) do
-    check_runs = blocking_check_runs(check_runs)
+    check_runs =
+      check_runs
+      |> blocking_check_runs()
+      |> latest_check_runs_per_name()
+
     statuses = commit_status |> Map.get("statuses", []) |> Enum.filter(&is_map/1)
     failed_checks = failed_check_runs(check_runs) ++ failed_commit_statuses(statuses)
 
@@ -321,6 +325,34 @@ defmodule Aiur.Events.GithubCIPoller do
       end
 
     evaluation(classification, failed_checks)
+  end
+
+  # A head sha can carry check runs from several runs of the same workflow when
+  # a run was superseded by a re-run on the same sha. A superseded run's
+  # failure is not a failure of the head — the current run is the verdict — so
+  # the gate considers only the latest run per workflow name (#2337 cause 4).
+  # `started_at` is the recency key (falls back to `completed_at`); ISO8601
+  # strings compare chronologically. Output preserves each name's first-seen
+  # position so downstream failure lists keep their input order.
+  defp latest_check_runs_per_name(check_runs) do
+    {latest, ordered_names} =
+      Enum.reduce(check_runs, {%{}, []}, fn run, {latest, ordered_names} ->
+        name = Map.get(run, "name")
+
+        if Map.has_key?(latest, name) do
+          current = Map.fetch!(latest, name)
+          updated = if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
+          {Map.put(latest, name, updated), ordered_names}
+        else
+          {Map.put(latest, name, run), ordered_names ++ [name]}
+        end
+      end)
+
+    Enum.map(ordered_names, &Map.fetch!(latest, &1))
+  end
+
+  defp check_run_recency_key(check_run) do
+    Map.get(check_run, "started_at") || Map.get(check_run, "completed_at") || ""
   end
 
   defp non_blocking_check?(check_run) do

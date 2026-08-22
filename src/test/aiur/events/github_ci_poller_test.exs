@@ -244,6 +244,53 @@ defmodule Aiur.Events.GithubCIPollerTest do
              GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
   end
 
+  # #2337 cause 4: a head sha carries check runs from both a superseded run and
+  # the current run of the same workflow. A superseded run's failure is not a
+  # failure of the head — the gate must consider the latest run per name.
+  describe "superseded runs on the same head sha" do
+    test "passes when the latest run per name is green despite an older failed run" do
+      check_runs = [
+        %{"name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "coverage (2/4)", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"},
+        %{"name" => "coverage (2/4)", "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :passed, failures: []} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "fails when the latest run on a name is itself failed" do
+      check_runs = [
+        %{"name" => "test", "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :failed} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "waits when the latest run is still in progress" do
+      check_runs = [
+        %{"name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "status" => "in_progress", "conclusion" => nil, "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :pending, pending_reason: :check_runs_incomplete} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "falls back to completed_at when started_at is absent" do
+      check_runs = [
+        %{"name" => "test", "status" => "completed", "conclusion" => "failure", "completed_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :passed, failures: []} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+  end
+
   test "waits for every check before reporting the complete failure set" do
     partial_snapshot = [
       %{"name" => "lint", "status" => "completed", "conclusion" => "failure"},
