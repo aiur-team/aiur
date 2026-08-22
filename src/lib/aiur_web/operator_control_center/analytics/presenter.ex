@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   as elapsed time.
   """
 
-  alias Aiur.RunTelemetry
+  alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
 
   @default_buckets 180
@@ -28,6 +28,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_observed_at: String.t() | nil,
           cap: non_neg_integer(),
+          cap_available?: boolean(),
+          configured_cap: non_neg_integer(),
           cores: pos_integer(),
           cpu_ceiling: number(),
           host_mem_bytes: number(),
@@ -162,6 +164,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @spec model(map(), keyword()) :: model()
   def model(dataset, opts \\ []) do
     cap = Keyword.get(opts, :cap, @default_cap)
+    cap_available? = Keyword.get(opts, :cap_available?, true)
+    configured_cap = Keyword.get(opts, :configured_cap, cap)
     cores = Keyword.get(opts, :cores, System.schedulers_online())
     host_mem = Keyword.get(opts, :host_mem_bytes, @default_host_mem_bytes)
     buckets = Keyword.get(opts, :buckets, @default_buckets)
@@ -205,6 +209,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
       cap: cap,
+      cap_available?: cap_available?,
+      configured_cap: configured_cap,
       cores: cores,
       cpu_ceiling: cores * 100,
       host_mem_bytes: host_mem,
@@ -215,6 +221,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       kpis: kpis
     }
   end
+
+  @doc "Formats the effective analytics cap and annotates a different configured value."
+  @spec cap_label(model()) :: String.t()
+  def cap_label(%{cap_available?: false, configured_cap: configured}),
+    do: "unknown cap (configured #{configured})"
+
+  def cap_label(%{cap: cap, configured_cap: configured}) when configured != cap,
+    do: "#{cap} cap (configured #{configured})"
+
+  def cap_label(%{cap: cap}), do: "#{cap} cap"
 
   # ---- per-actor summary ----
 
@@ -607,11 +623,44 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp clamp(v, lo, hi), do: v |> max(lo) |> min(hi)
 
   defp runtime_opts(opts) do
+    {runtime_cap, configured_cap, cap_available?} = runtime_caps(opts)
+
     opts
-    |> Keyword.put_new(:cap, safe_cap())
+    |> Keyword.put_new(:cap, runtime_cap)
+    |> Keyword.put_new(:configured_cap, configured_cap)
+    |> Keyword.put_new(:cap_available?, cap_available?)
     |> Keyword.put_new(:cores, System.schedulers_online())
     |> Keyword.put_new(:host_mem_bytes, host_mem_bytes())
     |> Keyword.put_new(:buckets, @default_buckets)
+  end
+
+  defp runtime_caps(opts) do
+    case Keyword.fetch(opts, :cap) do
+      {:ok, cap} -> {cap, Keyword.get(opts, :configured_cap, cap), Keyword.get(opts, :cap_available?, true)}
+      :error -> runtime_caps_from_status(capacity_status(opts))
+    end
+  end
+
+  defp runtime_caps_from_status(%{effective: effective, configured: configured})
+       when is_integer(effective) and effective > 0 and is_integer(configured) and configured > 0,
+       do: {effective, configured, true}
+
+  defp runtime_caps_from_status(%{effective: effective}) when is_integer(effective) and effective > 0,
+    do: {effective, safe_cap(), true}
+
+  defp runtime_caps_from_status(_status) do
+    fallback = safe_cap()
+    {fallback, fallback, false}
+  end
+
+  defp capacity_status(opts) do
+    orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+    timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
+
+    case Orchestrator.dashboard_snapshot(orchestrator, timeout) do
+      {status, %{capacity: %{} = capacity}, _freshness} when status in [:current, :stale] -> capacity
+      _other -> :unavailable
+    end
   end
 
   defp safe_cap do
