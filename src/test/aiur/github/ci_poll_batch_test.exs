@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CIPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{CIPollBatch, ResourceStore}
+  alias Aiur.GitHub.{CIPollBatch, DeliveredCheckRun, ResourceStore}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -428,9 +428,9 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       deliver_check_run(42)
 
       {:ok, signal} =
-        Aiur.GitHub.DeliveredCheckRun.signal_for_target("42", "owner", "repo", @displacement_opts)
+        DeliveredCheckRun.signal_for_target("42", "owner", "repo", @displacement_opts)
 
-      Aiur.GitHub.DeliveredCheckRun.mark_served(signal)
+      DeliveredCheckRun.mark_served(signal)
 
       request_fun = fn %{body: body} ->
         assert body["query"] =~ "branch_0_0"

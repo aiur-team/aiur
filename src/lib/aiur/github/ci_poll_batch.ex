@@ -83,27 +83,38 @@ defmodule Aiur.GitHub.CIPollBatch do
           {target, delivered_entry(target, owner, repo, opts, signal)}
         end)
 
-      if to_fetch == [] do
-        # Every target's CI was answered by a delivery since the last read;
-        # there is no document to write and nothing to ask GitHub.
-        {:ok, result}
-      else
-        fetch_targets = Enum.map(to_fetch, &elem(&1, 0))
-
-        chunks =
-          fetch_targets
-          |> Enum.map(&target_entry(&1, owner, repo, opts))
-          |> Enum.chunk_every(@targets_per_query)
-
-        if length(chunks) > 1 do
-          Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(fetch_targets)} calls=#{length(chunks)}")
-        end
-
-        Enum.reduce_while(chunks, {:ok, result}, fn chunk, {:ok, acc} ->
-          reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
-        end)
-      end
+      fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result)
     end
+  end
+
+  # Every target's CI was answered by a delivery since the last read; there is
+  # no document to write and nothing to ask GitHub.
+  defp fetch_remaining([], _request_fun, _token, _owner, _repo, _opts, result), do: {:ok, result}
+
+  defp fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result) do
+    fetch_targets = Enum.map(to_fetch, &elem(&1, 0))
+
+    chunks =
+      fetch_targets
+      |> Enum.map(&target_entry(&1, owner, repo, opts))
+      |> Enum.chunk_every(@targets_per_query)
+
+    warn_on_chunk_overflow(chunks, fetch_targets)
+    fetch_chunks(chunks, request_fun, token, owner, repo, result)
+  end
+
+  defp warn_on_chunk_overflow(chunks, fetch_targets) do
+    if length(chunks) > 1 do
+      Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(fetch_targets)} calls=#{length(chunks)}")
+    end
+  end
+
+  # The per-chunk fetch loop is a named function so the anonymous reducer stays
+  # at nesting depth 2 (credo Refactor.Nesting, strict).
+  defp fetch_chunks(chunks, request_fun, token, owner, repo, result) do
+    Enum.reduce_while(chunks, {:ok, result}, fn chunk, {:ok, acc} ->
+      reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
+    end)
   end
 
   # The store is consulted before the query is written, never after it comes
