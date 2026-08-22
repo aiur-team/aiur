@@ -187,9 +187,11 @@ defmodule Aiur.Config.SchemaTest do
     test "defaults per-actor hourly ceilings and accepts explicit tuning" do
       assert {:ok, defaults} = Schema.parse(%{})
       assert defaults.tracker.github.daemon_core_limit_per_hour == 3000
-      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 2000
+      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 4500
+      assert defaults.tracker.github.daemon_search_limit_per_hour == 600
       assert defaults.tracker.github.agent_core_limit_per_hour == 250
-      assert defaults.tracker.github.agent_graphql_limit_per_hour == 375
+      assert defaults.tracker.github.agent_graphql_limit_per_hour == 600
+      assert defaults.tracker.github.agent_search_limit_per_hour == 600
 
       assert {:ok, settings} =
                Schema.parse(%{
@@ -197,16 +199,20 @@ defmodule Aiur.Config.SchemaTest do
                    "github" => %{
                      "daemon_core_limit_per_hour" => 2000,
                      "daemon_graphql_limit_per_hour" => 1500,
+                     "daemon_search_limit_per_hour" => 900,
                      "agent_core_limit_per_hour" => 600,
-                     "agent_graphql_limit_per_hour" => 300
+                     "agent_graphql_limit_per_hour" => 300,
+                     "agent_search_limit_per_hour" => 450
                    }
                  }
                })
 
       assert settings.tracker.github.daemon_core_limit_per_hour == 2000
       assert settings.tracker.github.daemon_graphql_limit_per_hour == 1500
+      assert settings.tracker.github.daemon_search_limit_per_hour == 900
       assert settings.tracker.github.agent_core_limit_per_hour == 600
       assert settings.tracker.github.agent_graphql_limit_per_hour == 300
+      assert settings.tracker.github.agent_search_limit_per_hour == 450
     end
 
     test "rejects a negative per-actor hourly ceiling" do

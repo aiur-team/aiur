@@ -25,17 +25,27 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
-  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL
-  # responses one actor (the daemon, or each agent workspace) may consume in a
-  # rolling hour before its own requests hold. A completed `304` is reconciled
-  # as free. These remain request counts, not GraphQL point budgets. `0`
-  # disables a ceiling. Defaults reserve 3,000 Core / 2,000 GraphQL for the
-  # daemon and divide the remaining independent 5,000-unit windows across the
-  # documented eight-agent fleet.
+  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL /
+  # search responses one actor (the daemon, or each agent workspace) may consume
+  # in a rolling hour before its own requests hold. A completed `304` is
+  # reconciled as free. These remain request counts, not GraphQL point budgets.
+  # `0` disables a ceiling.
+  #
+  # The GraphQL defaults were raised in #2299 because the guard now books the
+  # high-level `gh` reads (`pr view|list|status|checks`, `issue view|list`,
+  # `gh api graphql`) to the GraphQL window: the App-token daemon measured
+  # ~3,400-4,300 GraphQL-wire requests/hour, so the pre-fix daemon default of
+  # 2,000 would have stalled the fleet on merge. The agent GraphQL ceiling is
+  # raised too so a single agent's normal loop has headroom under the re-booked
+  # window. These stay request counts, never GraphQL point budgets. `search` is
+  # a third, much lower GitHub window (~30 requests/minute), so it gets its own
+  # ceiling instead of folding into core or graphql.
   @default_daemon_core_limit_per_hour 3000
-  @default_daemon_graphql_limit_per_hour 2000
+  @default_daemon_graphql_limit_per_hour 4500
+  @default_daemon_search_limit_per_hour 600
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 375
+  @default_agent_graphql_limit_per_hour 600
+  @default_agent_search_limit_per_hour 600
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -309,7 +319,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp acquire_args(request, opts) do
     settings = settings(opts)
-    {core_limit, graphql_limit} = actor_limits(consumer_identity(opts), settings)
+    {core_limit, graphql_limit, search_limit} = actor_limits(consumer_identity(opts), settings)
 
     [
       "acquire",
@@ -334,7 +344,9 @@ defmodule Aiur.GitHub.Budget do
       "--core-limit",
       Integer.to_string(core_limit),
       "--graphql-limit",
-      Integer.to_string(graphql_limit)
+      Integer.to_string(graphql_limit),
+      "--search-limit",
+      Integer.to_string(search_limit)
     ]
   end
 
@@ -345,9 +357,9 @@ defmodule Aiur.GitHub.Budget do
   # get the agent ceiling if it ever acquired here.
   defp actor_limits(identity, settings) do
     if String.starts_with?(identity, "workspace:") do
-      {settings.agent_core_limit_per_hour, settings.agent_graphql_limit_per_hour}
+      {settings.agent_core_limit_per_hour, settings.agent_graphql_limit_per_hour, settings.agent_search_limit_per_hour}
     else
-      {settings.daemon_core_limit_per_hour, settings.daemon_graphql_limit_per_hour}
+      {settings.daemon_core_limit_per_hour, settings.daemon_graphql_limit_per_hour, settings.daemon_search_limit_per_hour}
     end
   end
 
@@ -521,6 +533,11 @@ defmodule Aiur.GitHub.Budget do
           Keyword.get(opts, :daemon_graphql_limit_per_hour, Map.get(github, :daemon_graphql_limit_per_hour, @default_daemon_graphql_limit_per_hour)),
           @default_daemon_graphql_limit_per_hour
         ),
+      daemon_search_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :daemon_search_limit_per_hour, Map.get(github, :daemon_search_limit_per_hour, @default_daemon_search_limit_per_hour)),
+          @default_daemon_search_limit_per_hour
+        ),
       agent_core_limit_per_hour:
         nonnegative(
           Keyword.get(opts, :agent_core_limit_per_hour, Map.get(github, :agent_core_limit_per_hour, @default_agent_core_limit_per_hour)),
@@ -530,6 +547,11 @@ defmodule Aiur.GitHub.Budget do
         nonnegative(
           Keyword.get(opts, :agent_graphql_limit_per_hour, Map.get(github, :agent_graphql_limit_per_hour, @default_agent_graphql_limit_per_hour)),
           @default_agent_graphql_limit_per_hour
+        ),
+      agent_search_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :agent_search_limit_per_hour, Map.get(github, :agent_search_limit_per_hour, @default_agent_search_limit_per_hour)),
+          @default_agent_search_limit_per_hour
         )
     }
   end
@@ -654,7 +676,15 @@ defmodule Aiur.GitHub.Budget do
     %{
       cooldown_until_ms: cooldown,
       inflight: inflight,
-      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], admitted_at_ms: &1["admitted_at_ms"]})
+      admissions:
+        Enum.map(
+          admissions,
+          &%{
+            endpoint_family: &1["endpoint_family"],
+            resource: &1["resource"],
+            admitted_at_ms: &1["admitted_at_ms"]
+          }
+        )
     }
   end
 
@@ -666,11 +696,20 @@ defmodule Aiur.GitHub.Budget do
       consumer_key: Map.get(actor, "consumer_key", ""),
       consumer_label: Map.get(actor, "consumer_label", ""),
       core: atomize_usage_figure(Map.get(actor, "core")),
-      graphql: atomize_usage_figure(Map.get(actor, "graphql"))
+      graphql: atomize_usage_figure(Map.get(actor, "graphql")),
+      search: atomize_usage_figure(Map.get(actor, "search"))
     }
   end
 
-  defp atomize_actor(_actor), do: %{token_key: "", consumer_key: "", consumer_label: "", core: atomize_usage_figure(nil), graphql: atomize_usage_figure(nil)}
+  defp atomize_actor(_actor),
+    do: %{
+      token_key: "",
+      consumer_key: "",
+      consumer_label: "",
+      core: atomize_usage_figure(nil),
+      graphql: atomize_usage_figure(nil),
+      search: atomize_usage_figure(nil)
+    }
 
   defp atomize_usage_figure(figure) when is_map(figure) do
     %{

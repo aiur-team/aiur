@@ -362,6 +362,22 @@ before an agent acted on it.
 
 An answer is kept for 60 seconds.
 
+**Why there is no conditional request.** The daemon's own REST reads recover a
+fifth of their traffic with `If-None-Match`/`ETag`, so it is natural to ask why
+the agent cache does not do the same. It cannot, structurally: the reads this
+cache serves are predominantly GraphQL.
+
+`gh pr view`, `gh pr list`, `gh issue view` and `gh issue list` all hit
+GitHub's GraphQL endpoint, which returns no `ETag` and no `Last-Modified`, so
+there is no validator to send and no `304` to receive.
+
+The REST reads the wrapper does serve run inside the `gh` binary, which does not
+expose request-header injection for subcommand reads.
+
+The TTL body cache with invalidation markers is therefore the only mechanism
+this path has, and the free share it cannot recover is GraphQL's — which no
+cache on either side can recover.
+
 Editing a ticket or a pull request discards the kept answers for it at once, so
 an agent never reads back what it just replaced.
 
