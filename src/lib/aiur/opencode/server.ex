@@ -215,7 +215,11 @@ defmodule Aiur.Opencode.Server do
     if wait_for_process_exit(pid, @terminate_grace_ms) do
       :ok
     else
+      # Group signals are the norm (os_pid == pgid), but fall back to the
+      # single pid so a platform or setup where the port is not a group leader
+      # still cannot leave the serve behind.
       _ = System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+      _ = System.cmd("kill", ["-KILL", to_string(pid)], stderr_to_stdout: true)
       :ok
     end
   end
