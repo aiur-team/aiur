@@ -223,23 +223,30 @@ case "${1:-} ${2:-}" in
     ;;
   # `gh pr view|list|status|checks`, `gh issue view|list|status`, and
   # `gh search *` speak GraphQL on the wire and are billed in points against the
-  # GraphQL window, so they must book to the graphql resource — not core. `pr
-  # diff` is REST and stays in the pulls family (it must not inherit the
-  # graphql booking from its read-arm sibling).
-  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=graphql ;;
-  "pr diff") endpoint_family=pulls ;;
-  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=graphql ;;
+  # GraphQL window, so they must book to the graphql resource — not core. They
+  # KEEP their descriptive families (pulls / issues / search): `endpoint_family`
+  # is also the lease-pool key and the audit histogram, so collapsing every
+  # GraphQL arm onto one family would merge four in-flight pools into one (a
+  # fleet-wide throughput regression) and destroy the family breakdown this bug
+  # was found with. The broker's hourly accounting buckets on the booked
+  # `resource`, not on the family. `pr diff` is REST and stays in the pulls
+  # family with resource=core (it must not inherit the graphql booking from its
+  # read-arm sibling).
+  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=pulls ;;
+  "pr diff") resource=core; endpoint_family=pulls ;;
+  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=issues ;;
   "run view"|"run list"|"run watch") endpoint_family=actions ;;
-  "search "*) resource=graphql; endpoint_family=graphql ;;
+  "search "*) resource=graphql; endpoint_family=search ;;
   # The `pr`/`issue` write subcommands are a GraphQL/REST mix and must be
   # classified per subcommand rather than as one bucket: `pr create|merge|review`
   # and `issue create` mutate through GraphQL, while the rest (close, reopen,
   # comment, edit, ready, lock/unlock, update-branch, transfer, ...) go through
-  # REST and keep the pulls/issues families.
-  "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=graphql; direction=write ;;
-  "pr "*) endpoint_family=pulls; direction=write ;;
-  "issue create") resource=graphql; endpoint_family=graphql; direction=write ;;
-  "issue "*) endpoint_family=issues; direction=write ;;
+  # REST. Each keeps its descriptive pulls/issues family for the lease pool and
+  # books the resource its wire traffic actually consumes.
+  "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=pulls; direction=write ;;
+  "pr "*) resource=core; endpoint_family=pulls; direction=write ;;
+  "issue create") resource=graphql; endpoint_family=issues; direction=write ;;
+  "issue "*) resource=core; endpoint_family=issues; direction=write ;;
   "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
   "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
   # Commands that change repository state without touching an issue or a pull

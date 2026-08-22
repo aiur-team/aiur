@@ -213,7 +213,13 @@ def resolve_credential_identity(conn, args):
 
 
 # The rolling-hour billable responses of one actor and one resource, oldest
-# first. Core is every REST family; GraphQL is the graphql family. A `resource`
+# first. Core is every REST booking; GraphQL is the graphql booking. The bucket
+# is the booked `resource` column, NOT the descriptive `endpoint_family`:
+# high-level GraphQL commands keep their family (pulls/issues/search) for the
+# lease pool and the audit histogram while booking `resource=graphql`, so a
+# family can no longer double as the bucket — bucketing on family again would
+# count `pr view` against the core window. Anything not booked graphql (core,
+# or an unclassified `unknown`) counts against the core window. A `resource`
 # ceiling is a request-count ceiling: the broker sees admissions, never the
 # GraphQL point price GitHub charged, so this is the coarsest thing that still
 # stops one actor from exhausting the shared hourly budget. A reconciled 304 is
@@ -221,17 +227,21 @@ def resolve_credential_identity(conn, args):
 # excluded here.
 def actor_usage_rows(conn, token_key, consumer_key, resource, now):
     if resource == "graphql":
-        family_clause = "endpoint_family = ?"
-        family_value = "graphql"
+        resource_clause = "resource = ?"
+        resource_value = "graphql"
     else:
-        family_clause = "endpoint_family != ?"
-        family_value = "graphql"
+        # Parentheses are load-bearing: without them `AND resource IS NULL OR
+        # resource != ?` binds as `(AND resource IS NULL) OR (resource != ?)`,
+        # and the OR branch then matches every non-graphql row on any token or
+        # consumer regardless of billable.
+        resource_clause = "(resource IS NULL OR resource != ?)"
+        resource_value = "graphql"
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
         "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
-        + family_clause
+        + resource_clause
         + " ORDER BY admitted_at_ms ASC",
-        (token_key, consumer_key, now - HOURLY_WINDOW_MS, family_value),
+        (token_key, consumer_key, now - HOURLY_WINDOW_MS, resource_value),
     ).fetchall()
 
 

@@ -186,10 +186,10 @@ defmodule Aiur.Config.SchemaTest do
 
     test "defaults per-actor hourly ceilings and accepts explicit tuning" do
       assert {:ok, defaults} = Schema.parse(%{})
-      assert defaults.tracker.github.daemon_core_limit_per_hour == 3000
-      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 2000
+      assert defaults.tracker.github.daemon_core_limit_per_hour == 1000
+      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 3000
       assert defaults.tracker.github.agent_core_limit_per_hour == 250
-      assert defaults.tracker.github.agent_graphql_limit_per_hour == 375
+      assert defaults.tracker.github.agent_graphql_limit_per_hour == 750
 
       assert {:ok, settings} =
                Schema.parse(%{

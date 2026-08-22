@@ -13,10 +13,10 @@ defmodule Aiur.Config.Schema.Github do
   @default_max_inflight_per_endpoint 2
   @default_requests_per_minute 120
   @default_stagger_ms 75
-  @default_daemon_core_limit_per_hour 3000
-  @default_daemon_graphql_limit_per_hour 2000
+  @default_daemon_core_limit_per_hour 1000
+  @default_daemon_graphql_limit_per_hour 3000
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 375
+  @default_agent_graphql_limit_per_hour 750
 
   @primary_key false
   embedded_schema do
@@ -40,6 +40,14 @@ defmodule Aiur.Config.Schema.Github do
     # GraphQL responses one actor may consume in a rolling hour before its own
     # requests hold. `304` responses are reconciled as free; `0` disables the
     # ceiling. GraphQL remains request-counted rather than point-priced.
+    #
+    # Re-derived against the corrected bucket counts (#2297): the measured
+    # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core, so the
+    # GraphQL windows are the load-bearing ones. `daemon_graphql` covers the
+    # daemon's dominant share of that GraphQL volume; `agent_graphql` must clear
+    # a single agent's normal loop (which crossed the old 375 and stalled it);
+    # the Core windows come way down because Core traffic is a small fraction of
+    # the volume they used to be sized against.
     field(:daemon_core_limit_per_hour, :integer, default: @default_daemon_core_limit_per_hour)
     field(:daemon_graphql_limit_per_hour, :integer, default: @default_daemon_graphql_limit_per_hour)
     field(:agent_core_limit_per_hour, :integer, default: @default_agent_core_limit_per_hour)

@@ -29,13 +29,19 @@ defmodule Aiur.GitHub.Budget do
   # responses one actor (the daemon, or each agent workspace) may consume in a
   # rolling hour before its own requests hold. A completed `304` is reconciled
   # as free. These remain request counts, not GraphQL point budgets. `0`
-  # disables a ceiling. Defaults reserve 3,000 Core / 2,000 GraphQL for the
-  # daemon and divide the remaining independent 5,000-unit windows across the
-  # documented eight-agent fleet.
-  @default_daemon_core_limit_per_hour 3000
-  @default_daemon_graphql_limit_per_hour 2000
+  # disables a ceiling.
+  #
+  # Re-derived against the corrected bucket counts (#2297): the measured
+  # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core. The
+  # GraphQL windows are now the load-bearing ones — `daemon_graphql` covers the
+  # daemon's dominant share, `agent_graphql` must clear a single agent's normal
+  # loop (which crossed the old 375 and stalled it) — while the Core windows
+  # come down because the volume they were sized against was mostly miscounted
+  # GraphQL.
+  @default_daemon_core_limit_per_hour 1000
+  @default_daemon_graphql_limit_per_hour 3000
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 375
+  @default_agent_graphql_limit_per_hour 750
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}

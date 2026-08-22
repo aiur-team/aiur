@@ -774,16 +774,21 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    # `pr list` is GraphQL on the wire, so its single guarded admission lands in
-    # the graphql endpoint family, not the core pulls bucket.
-    assert %{"admissions" => [%{"endpoint_family" => "graphql"}]} = Jason.decode!(snapshot)
+    # `pr list` is GraphQL on the wire but keeps the descriptive pulls family
+    # (the lease-pool and audit key), so its single guarded admission books
+    # resource=graphql while the family stays pulls.
+    assert %{"admissions" => [%{"endpoint_family" => "pulls", "resource" => "graphql"}]} = Jason.decode!(snapshot)
   end
 
   # The family/bucket split this issue exists for: `pr view|list|status|checks`,
   # `issue view|list|status`, and `search` all speak GraphQL on the wire and must
-  # be booked to the graphql resource — not core. The broker records the `resource`
-  # the guard booked each admission to, so a regression that books `pr view` to
-  # core fails here on both `endpoint_family` and `resource`.
+  # be booked to the graphql resource — not core. They KEEP their descriptive
+  # families (pulls / issues / search) so the lease pool and the audit histogram
+  # stay separated — the broker's hourly accounting buckets on the booked
+  # `resource`, not on the family. The broker records the `resource` the guard
+  # booked each admission to, so a regression that books `pr view` to core fails
+  # here on `resource`, and a regression that collapses every GraphQL arm onto
+  # one family (merging the lease pools) fails here on `endpoint_family`.
   test "high-level GraphQL commands book the graphql resource, not core", context do
     budget_root = Path.join(context.state_path, "graphql-read-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -796,17 +801,17 @@ defmodule Aiur.AgentGitHubGuardTest do
     ]
 
     graphql_commands = [
-      ["pr", "view", "1670"],
-      ["pr", "list"],
-      ["pr", "status"],
-      ["pr", "checks", "1670"],
-      ["issue", "view", "1670"],
-      ["issue", "list"],
-      ["issue", "status"],
-      ["search", "issues", "state:open"]
+      {["pr", "view", "1670"], "pulls"},
+      {["pr", "list"], "pulls"},
+      {["pr", "status"], "pulls"},
+      {["pr", "checks", "1670"], "pulls"},
+      {["issue", "view", "1670"], "issues"},
+      {["issue", "list"], "issues"},
+      {["issue", "status"], "issues"},
+      {["search", "issues", "state:open"], "search"}
     ]
 
-    for args <- graphql_commands do
+    for {args, _family} <- graphql_commands do
       assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
     end
 
@@ -816,8 +821,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     admissions = Jason.decode!(snapshot)["admissions"]
     assert length(admissions) == length(graphql_commands)
 
-    for admission <- admissions do
-      assert admission["endpoint_family"] == "graphql"
+    for {{_args, family}, admission} <- Enum.zip(graphql_commands, admissions) do
+      assert admission["endpoint_family"] == family
       assert admission["resource"] == "graphql"
     end
   end
@@ -835,13 +840,13 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     rest_commands = [
       # `pr diff` is REST even though `pr view|list|status|checks` are GraphQL.
-      ["pr", "diff", "1670"],
-      ["pr", "close", "1670"],
-      ["issue", "edit", "1670", "--body", "x"],
-      ["issue", "comment", "1670", "--body", "x"]
+      {["pr", "diff", "1670"], "pulls"},
+      {["pr", "close", "1670"], "pulls"},
+      {["issue", "edit", "1670", "--body", "x"], "issues"},
+      {["issue", "comment", "1670", "--body", "x"], "issues"}
     ]
 
-    for args <- rest_commands do
+    for {args, _family} <- rest_commands do
       assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
     end
 
@@ -851,11 +856,12 @@ defmodule Aiur.AgentGitHubGuardTest do
     admissions = Jason.decode!(snapshot)["admissions"]
     assert length(admissions) == length(rest_commands)
 
-    for admission <- admissions do
-      # REST commands book to core: the family is not graphql and the booked
-      # resource is not graphql.
-      assert admission["endpoint_family"] != "graphql"
-      assert admission["resource"] != "graphql"
+    for {{_args, family}, admission} <- Enum.zip(rest_commands, admissions) do
+      # REST commands book to core and keep their descriptive family. Asserting
+      # the positive family (rather than `!= "graphql"`) makes this fail if a
+      # future change ever moved `pr diff` into the graphql family.
+      assert admission["endpoint_family"] == family
+      assert admission["resource"] == "core"
     end
   end
 
@@ -884,8 +890,12 @@ defmodule Aiur.AgentGitHubGuardTest do
     admissions = Jason.decode!(snapshot)["admissions"]
     assert length(admissions) == 4
 
+    # The GraphQL write subcommands keep their descriptive family (pulls for
+    # `pr create|review|merge`, issues for `issue create`) while booking the
+    # graphql resource — the broker buckets the hourly accounting on `resource`.
+    assert Enum.map(admissions, & &1["endpoint_family"]) == ["pulls", "pulls", "issues", "pulls"]
+
     for admission <- admissions do
-      assert admission["endpoint_family"] == "graphql"
       assert admission["resource"] == "graphql"
     end
   end
