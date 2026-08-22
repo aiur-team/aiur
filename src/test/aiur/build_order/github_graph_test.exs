@@ -1451,11 +1451,12 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
         refute query =~ "body"
         assert query =~ "subIssues(first: 100)"
 
-        # Lifecycle only. A nested `labels` connection under `subIssues` is
-        # billed per parent root, and reinstating it here is what took the
+        # Lifecycle plus the identity scalars the rare reconciliation needs to
+        # deposit `:sub_issue` edges and member bodies (#2313). No nested
+        # `labels` connection under `subIssues` — that is what took the
         # measured page cost from 1 point to 26 (#1766).
         assert String.replace(query, ~r/\s+/, " ") =~
-                 "subIssues(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { state stateReason } }"
+                 "subIssues(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { id databaseId number title url createdAt updatedAt repository { name owner { login } } parent { id databaseId number url repository { name owner { login } } } state stateReason } }"
 
         catalog_response([], 0)
       end
@@ -1682,10 +1683,35 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     lines = String.split(query, "\n")
     start = Enum.find_index(lines, &String.contains?(&1, "subIssues(first: 100)"))
 
+    # The member selection is the whole `nodes { ... }` block under `subIssues`,
+    # balanced across its nested braces. It is multi-line now that the catalog
+    # member carries identity scalars for the reconciliation deposit (#2313),
+    # so a single `nodes {` line no longer represents it.
     lines
     |> Enum.drop(start)
-    |> Enum.find(&String.contains?(&1, "nodes {"))
+    |> Enum.drop_while(&(not String.contains?(&1, "nodes {")))
+    |> take_balanced_braces()
+    |> Enum.join("\n")
     |> String.trim()
+  end
+
+  defp take_balanced_braces(lines) do
+    {selected, _depth} =
+      Enum.reduce_while(lines, {[], 0}, fn line, {acc, depth} ->
+        depth = depth + brace_delta(line)
+        acc = [line | acc]
+
+        if depth == 0,
+          do: {:halt, {Enum.reverse(acc), depth}},
+          else: {:cont, {acc, depth}}
+      end)
+
+    selected
+  end
+
+  defp brace_delta(line) do
+    chars = String.to_charlist(line)
+    Enum.count(chars, &(&1 == ?{)) - Enum.count(chars, &(&1 == ?}))
   end
 
   defp member(number, root, opts \\ []) do
