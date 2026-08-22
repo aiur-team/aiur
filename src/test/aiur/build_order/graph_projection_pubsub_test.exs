@@ -97,14 +97,18 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
     repository = repository()
     identity = identity(1, "I1", repository)
     {:ok, projection} = start_projection(repository)
-    catalog_reader = await_reader(:catalog)
 
+    # The catalog is demand-gated since #2312: the catalog subscriber is the
+    # viewer, and subscribing is what starts the (single, coalesced) catalog
+    # read — so subscribe before awaiting the reader it triggers.
     catalog_subscriber = forwarding_subscriber(self(), fn -> GraphProjection.subscribe_catalog(projection) end)
+
+    assert_receive {:subscribed, ^catalog_subscriber, :ok}, 2_000
+    catalog_reader = await_reader(:catalog)
 
     selected_subscriber =
       forwarding_subscriber(self(), fn -> GraphProjection.subscribe_selected(projection, identity) end)
 
-    assert_receive {:subscribed, ^catalog_subscriber, :ok}, 2_000
     assert_receive {:subscribed, ^selected_subscriber, :ok}, 2_000
     refute_receive {:reader_started, {:selected, ^identity}, _reader}
 

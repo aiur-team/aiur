@@ -59,6 +59,24 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   reads those strict pull-request fields and legacy commit statuses live; it
   omits only the check-run fields a newer delivery already supplied.
 
+  ## What every deposit also retires
+
+  A delivery is not only a body to hold — it is a fact that the state Aiur was
+  caching has changed. Each deposit therefore retires the `Aiur.GitHub.ReadCache`
+  identities the delivery makes stale: the numbered issue or pull request it
+  carries and, unconditionally, the repository's collections. The collections
+  marker goes on every delivery rather than only on actions that create or
+  destroy a set member, because any change to a numbered resource changes what
+  a list of that repository's tickets answers — a label changes what a
+  `labels: [...]` enumeration answers, an edit changes what a ticket list
+  renders — and the `build_order_catalog` enumeration names no number, so the
+  collections marker is the only thing that retires it. This is
+  `ReadCache.invalidate_number/2`, the same primitive `write_through/3` uses
+  for Aiur's own mutations, wired to the second producer the read cache had no
+  knowledge of; it is what lets the `ReadCache` TTLs rise from seconds to
+  hours, with the delivery rather than the clock as the freshness mechanism and
+  the clock only a backstop against a missed delivery.
+
   ## What this module deliberately does not do
 
   **It never marks anything processed** (KTD5). `put_resource/3` is called
@@ -103,7 +121,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.{PollSnapshots, ResourceStore}
+  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
   alias Aiur.TicketBranch
 
   @typedoc """
@@ -126,17 +144,21 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   """
   @spec deposit(term(), term(), term()) :: [ResourceStore.key()]
   def deposit(event_type, payload, repo) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
-    if store_running?() do
-      Enum.flat_map(bodies(event_type, payload), fn
-        {:drop, type, id} -> drop(type, repo, id)
-        {:invalidate_review_threads, pr_number} -> invalidate_review_threads(repo, pr_number)
-        {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
-        {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
-        {type, id, body, version} -> store(type, repo, id, body, version)
-      end)
-    else
-      []
-    end
+    keys =
+      if store_running?() do
+        Enum.flat_map(bodies(event_type, payload), fn
+          {:drop, type, id} -> drop(type, repo, id)
+          {:invalidate_review_threads, pr_number} -> invalidate_review_threads(repo, pr_number)
+          {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
+          {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
+          {type, id, body, version} -> store(type, repo, id, body, version)
+        end)
+      else
+        []
+      end
+
+    invalidate_read_cache(event_type, payload, repo)
+    keys
   rescue
     error ->
       Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} error=#{Exception.message(error)}")
@@ -256,6 +278,79 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       "output" => Map.get(check_run, "output", %{})
     }
   end
+
+  # ---------------------------------------------------------------------------
+  # Retiring the daemon read cache
+  # ---------------------------------------------------------------------------
+
+  # A delivery is a fact about GitHub state that arrived for free, and the
+  # `ReadCache` entries about the resources it touches are stale from that
+  # moment — even when `ResourceStore` refuses the body, because the state
+  # changed regardless of whether we could hold it. Retiring those entries is
+  # what lets the `ReadCache` TTLs be measured in hours instead of seconds:
+  # the delivery, not the clock, is the freshness mechanism. This is the same
+  # primitive `write_through/3` already uses for Aiur's own writes, wired to
+  # the second producer that knows about changes made outside this daemon.
+  #
+  # Deliberately runs even when the store is not running: a delivery proves the
+  # change whether or not there is anywhere to hold its body.
+  defp invalidate_read_cache(event_type, payload, repo) do
+    number =
+      case event_type do
+        "issue_comment" ->
+          get_in(payload, ["issue", "number"])
+
+        event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
+          get_in(payload, ["pull_request", "number"])
+
+        "issues" ->
+          get_in(payload, ["issue", "number"])
+
+        _other ->
+          nil
+      end
+
+    invalidate_numbered(repo, number)
+  end
+
+  # The delivery retires what it changed through the same primitive
+  # `write_through/3` uses for Aiur's own writes — `ReadCache.invalidate_number/2`
+  # — which marks the numbered issue-or-pull-request and, unconditionally, the
+  # repository's collections. The collections marker has to go on *every*
+  # delivery, not only on actions that create or destroy a set member: a
+  # `labeled` delivery changes what a `labels: [...]` enumeration answers, an
+  # edit changes what a ticket list renders, a comment changes what a list of
+  # the repository's tickets answers. The `build_order_catalog` enumeration
+  # names no numbers, so its entry carries only the collections identity, and a
+  # delivery that skipped it would serve pre-delivery bytes for the whole TTL.
+  # Over-invalidating costs one re-fetch of an enumerating read;
+  # under-invalidating serves a stale list for the whole TTL.
+  #
+  # The number is read from the payload rather than from the `ResourceStore`
+  # keys written, because a comment's store key is its comment id, which is not
+  # a `ReadCache` identity; GitHub numbers issues and pull requests from one
+  # sequence, so a delivery about either retires the single shared
+  # `{:number, ...}` identity. A delivery with no nameable number (defensive;
+  # every handled event carries one) falls back to retiring the whole
+  # repository — the only thing known is that something in it changed, and
+  # guessing which read is the failure mode this cache cannot afford.
+  defp invalidate_numbered(repo, number) do
+    case parse_number(number) do
+      parsed when is_integer(parsed) -> ReadCache.invalidate_number(repo, parsed)
+      _unusable -> ReadCache.invalidate_repo(repo)
+    end
+  end
+
+  defp parse_number(number) when is_integer(number) and number > 0, do: number
+
+  defp parse_number(number) when is_binary(number) do
+    case Integer.parse(number) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _other -> nil
+    end
+  end
+
+  defp parse_number(_number), do: nil
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
 
