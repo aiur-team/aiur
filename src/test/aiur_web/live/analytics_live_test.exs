@@ -7,6 +7,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{RunTelemetry, TrackerIdentity}
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
@@ -41,6 +42,11 @@ defmodule AiurWeb.AnalyticsLiveTest do
   setup context do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
+    orchestrator = {:global, {__MODULE__, context.test}}
+
+    if capacity = Map.get(context, :analytics_capacity) do
+      SnapshotStore.publish(orchestrator, %{capacity: capacity})
+    end
 
     endpoint_config =
       :aiur
@@ -49,7 +55,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
-        dashboard_auth_required: false
+        dashboard_auth_required: false,
+        orchestrator: orchestrator
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
@@ -57,6 +64,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     start_supervised!({Endpoint, []})
 
     on_exit(fn ->
+      SnapshotStore.forget(orchestrator)
       reset_env(Endpoint, previous_endpoint)
       reset_env(:analytics_telemetry_file, previous_telemetry)
     end)
@@ -81,6 +89,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
+    assert html =~ ~r/\d+ now \/ unknown cap \(configured \d+\)/
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
@@ -88,6 +97,16 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Complexity breakdown"
     assert html =~ "<svg"
     refute html =~ "No run telemetry to analyze yet"
+  end
+
+  @tag analytics_capacity: %{effective: 3, max: 8, configured: 16}
+  test "renders the runtime cap and annotates a different configured cap" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ ~r/\d+ now \/ 3 cap \(configured 16\)/
+    refute html =~ ~r/\d+ now \/ 16 cap/
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do

@@ -101,6 +101,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     m = model()
     assert m.kpis.peak_conc == 2
     assert m.kpis.cap == 4
+    assert Presenter.cap_label(m) == "4 cap"
+    assert Presenter.cap_label(%{m | configured_cap: 16}) == "4 cap (configured 16)"
+    assert Presenter.cap_label(%{m | cap_available?: false, configured_cap: 16}) == "unknown cap (configured 16)"
   end
 
   test "counts merged tickets and derives lifecycle status from real phases" do
