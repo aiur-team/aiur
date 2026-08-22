@@ -162,12 +162,20 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       seed()
 
       assert {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
+      view_pid = view.pid
+
+      # `render/1` is sent by the test process, while PubSub delivers from a
+      # different sender, so it is not a mailbox-ordering barrier for the store
+      # event. Trace the LiveView receiving that exact event before rendering.
+      :erlang.trace(view_pid, true, [:receive])
 
       # A writer deposits while somebody is watching. The page re-reads ETS and
       # re-renders; the change event carries no body precisely so that re-read
       # stays free.
       key = ResourceStore.key(:issue_comment, "owner", "repo", 9002)
       :ok = ResourceStore.put_resource(key, %{"body" => "landed"}, source: :webhook, version: "v2")
+
+      receive_barrier({:trace, ^view_pid, :receive, {:github_resource_changed, %{key: ^key}}})
 
       assert render(view) =~ "issue_comment:owner:repo:9002"
 
