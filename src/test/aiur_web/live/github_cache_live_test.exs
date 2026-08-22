@@ -679,12 +679,14 @@ defmodule AiurWeb.GithubCacheLiveTest do
     test "shows served-free reads without changing the spend ranking or totals" do
       Source.install(entries(2))
       quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
 
       ReadCacheProvider.install(%{
         available?: true,
         callers: %{
-          "comment_poll_batch" => %{hit: 12},
-          "review_threads_unaddressed" => %{hit: 0}
+          "comment_poll_batch" => %{hit: 0, refused: 55},
+          "issue_relationships" => %{hit: 12, miss: 1}
         }
       })
 
@@ -695,32 +697,39 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert callers(graphql) == [
                {"comment_poll_batch", "93"},
                {"review_threads_unaddressed", "50"},
+               {"issue_relationships", "2"},
                {"ci_poll_batch", "1"}
              ]
 
-      assert served_free(graphql, "comment_poll_batch") == "12 reads"
-      assert served_free(graphql, "review_threads_unaddressed") == "none this boot"
-      assert served_free(graphql, "ci_poll_batch") == "none this boot"
+      assert served_free(graphql, "comment_poll_batch") == "55 policy refusals"
+      assert served_free(graphql, "review_threads_unaddressed") == "not observed by ReadCache"
+      assert served_free(graphql, "issue_relationships") == "12 reads"
+      assert served_free(graphql, "ci_poll_batch") == "not observed by ReadCache"
 
       outside = Floki.find(graphql, ~s([data-role="usage-outside"]))
-      assert Floki.attribute(outside, "data-value") == ["856"]
+      assert Floki.attribute(outside, "data-value") == ["854"]
       assert graphql |> Floki.find(~s([data-role="usage-served-free-outside"])) |> Floki.text() =~ "not applicable"
       assert reading(quota) == before
     end
 
     test "distinguishes an unavailable cache from an available cache with no hits" do
       Source.install(entries(2))
-      install_graphql_quota()
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
 
       ReadCacheProvider.install(%{
-        available?: false,
-        callers: %{"comment_poll_batch" => %{hit: 0}}
+        available?: true,
+        callers: %{"issue_relationships" => %{hit: 0, miss: 1}}
       })
 
-      {:ok, _view, html} = live(build_conn(), "/github-cache")
-      graphql = budget_block(html)
+      {:ok, view, html} = live(build_conn(), "/github-cache")
+      assert html |> budget_block() |> served_free("issue_relationships") == "none this boot"
 
-      assert served_free(graphql, "comment_poll_batch") == "cache unavailable"
+      ReadCacheProvider.install(%{available?: false, callers: %{}})
+      send(view.pid, {:quota_history_sampled, 1})
+
+      assert view |> render() |> budget_block() |> served_free("issue_relationships") == "cache unavailable"
     end
 
     test "keeps the ranking available when the cache provider raises or exits" do
@@ -741,16 +750,18 @@ defmodule AiurWeb.GithubCacheLiveTest do
     test "refreshes served-free reads on the quota sampler cadence without spending quota" do
       Source.install(entries(2))
       quota = install_graphql_quota()
-      ReadCacheProvider.install(%{available?: true, callers: %{"comment_poll_batch" => %{hit: 1}}})
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+      ReadCacheProvider.install(%{available?: true, callers: %{"issue_relationships" => %{hit: 1}}})
 
       before = reading(quota)
       {:ok, view, _html} = live(build_conn(), "/github-cache")
-      assert view |> render() |> budget_block() |> served_free("comment_poll_batch") == "1 read"
+      assert view |> render() |> budget_block() |> served_free("issue_relationships") == "1 read"
 
-      ReadCacheProvider.install(%{available?: true, callers: %{"comment_poll_batch" => %{hit: 5}}})
+      ReadCacheProvider.install(%{available?: true, callers: %{"issue_relationships" => %{hit: 5}}})
       send(view.pid, {:quota_history_sampled, 1})
 
-      assert view |> render() |> budget_block() |> served_free("comment_poll_batch") == "5 reads"
+      assert view |> render() |> budget_block() |> served_free("issue_relationships") == "5 reads"
       assert reading(quota) == before
     end
 

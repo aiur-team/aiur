@@ -636,15 +636,15 @@ defmodule AiurWeb.GithubCacheLive do
         >
           <table class="ghc-usage-table" data-role="usage-table">
             <caption class="ghc-usage-split-label">
-              {resource} spend by caller, this window. Served free is caller-wide since daemon boot and is not spend.
-              Share is of the attributed total, not of the bill.
+              {resource} spend by caller, this window. ReadCache activity is caller-wide since daemon boot and is not
+              spend. Share is of the attributed total, not of the bill.
             </caption>
             <thead>
               <tr>
                 <th scope="col">Caller</th>
                 <th scope="col">Points</th>
                 <th scope="col">Calls</th>
-                <th scope="col">Served free</th>
+                <th scope="col">ReadCache served free</th>
                 <th scope="col">Points/hr</th>
                 <th scope="col">Share of attributed</th>
                 <th scope="col">Source</th>
@@ -681,7 +681,8 @@ defmodule AiurWeb.GithubCacheLive do
         <p class="ghc-usage-note" data-role="usage-cache-caveat">
           This ranks what reached GitHub. A read the daemon's own cache answered never reaches the
           meter — that is the saving — so it contributes no points, calls, share or totals here.
-          The served-free column reports those reads separately for each caller since daemon boot.
+          The ReadCache column reports those reads separately for each caller since daemon boot, and says when
+          ReadCache refused or never observed that caller instead of presenting either state as zero served.
         </p>
       </article>
     </section>
@@ -689,14 +690,17 @@ defmodule AiurWeb.GithubCacheLive do
   end
 
   defp served_free(%{available?: true, callers: callers}, caller) when is_map(callers) do
-    case get_in(callers, [caller, :hit]) do
-      1 -> "1 read"
-      hits when is_integer(hits) and hits > 1 -> "#{hits} reads"
-      _no_hits -> "none this boot"
+    case Map.fetch(callers, caller) do
+      {:ok, %{hit: 1}} -> "1 read"
+      {:ok, %{hit: hits}} when is_integer(hits) and hits > 1 -> "#{hits} reads"
+      {:ok, %{refused: 1}} -> "1 policy refusal"
+      {:ok, %{refused: refusals}} when is_integer(refusals) and refusals > 1 -> "#{refusals} policy refusals"
+      {:ok, _observed} -> "none this boot"
+      :error -> "not observed by ReadCache"
     end
   end
 
-  defp served_free(%{available?: true}, _caller), do: "none this boot"
+  defp served_free(%{available?: true}, _caller), do: "not observed by ReadCache"
   defp served_free(_snapshot, _caller), do: "cache unavailable"
 
   # An empty ring and an unobserved window are different facts and get different
