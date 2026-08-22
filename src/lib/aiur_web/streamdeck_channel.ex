@@ -232,10 +232,13 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({:decision_changed, decision_id, _version}, %{assigns: %{focused_agent: identifier}} = socket)
       when is_binary(identifier) do
-    socket = push(socket, "decisions", StreamdeckProjection.decisions())
+    # `push/3` returns `:ok`, not a socket: rebinding `socket` from it would
+    # poison the type for the next push below. Call it for its side effect and
+    # keep the original socket, exactly like `push_decisions/1`.
+    push(socket, "decisions", StreamdeckProjection.decisions())
 
     if focused_command?(socket, decision_id, identifier) do
-      socket = push(socket, "commands", commands_projection(identifier))
+      push(socket, "commands", commands_projection(identifier))
       {:noreply, socket}
     else
       {:noreply, socket}
