@@ -40,8 +40,12 @@ defmodule Aiur.RepoBase do
   # on the second of two hosts sharing one state root.
   @migration_lock_timeout_ms 300_000
   @remote_probe_timeout_ms 30_000
-  # The probe owns its 30-second timeout; this separately bounds the whole
-  # fleet dispatch hold, including a lost probe record/timer or stuck build.
+  # The probe owns its 30-second timeout, so a *live* probe self-resolves. This
+  # watchdog instead bounds *idle* dispatch holds: it re-arms while the hold's
+  # worker (probe or build) is alive, and fires only once the worker has been
+  # dead for a full interval — releasing the gate for cold-clone fallback. A
+  # slow-but-progressing cold build (deps + compile + dialyzer PLT) is never
+  # killed by it; only a hold whose completion signal was lost is.
   @dispatch_hold_timeout_ms 600_000
 
   ## ---- Public API ----
@@ -307,7 +311,7 @@ defmodule Aiur.RepoBase do
 
     case result do
       {:ok, base} ->
-        {:noreply, %{state | phase: :ready, base_path: base, ready_head: head, freshness: :unknown}}
+        {:noreply, state |> Map.merge(%{phase: :ready, base_path: base, ready_head: head, freshness: :unknown}) |> clear_released_watchdog()}
 
       {:error, reason} ->
         {:noreply, state |> Map.put(:phase, {:error, reason}) |> clear_dispatch_watchdog()}
@@ -341,16 +345,31 @@ defmodule Aiur.RepoBase do
   end
 
   def handle_info({:dispatch_hold_timeout, watchdog_ref}, %{dispatch_watchdog: %{ref: watchdog_ref}} = state) do
-    stalled_phase = state.phase
-    reason = {:repo_base_dispatch_hold_stalled, stalled_phase}
-    log_and_emit_error(reason)
+    if hold_phase?(state.phase) do
+      if hold_progress?(state) do
+        # The hold's worker is still alive, so the operation is progressing (a
+        # live probe self-resolves via its own 30-second timeout; a live build
+        # is a real process that may legitimately run for many minutes). Re-arm
+        # the idle watchdog instead of tearing the work down.
+        {:noreply, rearm_dispatch_watchdog(state)}
+      else
+        # The worker is dead with no completion signal in flight — the absorbing
+        # hold from #2237. Abort any residue and release the dispatch gate.
+        stalled_phase = state.phase
+        reason = {:repo_base_dispatch_hold_stalled, stalled_phase}
+        log_and_emit_error(reason)
 
-    {:noreply,
-     state
-     |> abort_probe()
-     |> abort_build()
-     |> clear_dispatch_watchdog()
-     |> Map.merge(%{phase: {:error, reason}, freshness: :unknown})}
+        {:noreply,
+         state
+         |> abort_probe()
+         |> abort_build()
+         |> clear_dispatch_watchdog()
+         |> Map.merge(%{phase: {:error, reason}, freshness: :unknown})}
+      end
+    else
+      # The hold ended while this timer was in flight (e.g. a build completed).
+      {:noreply, clear_dispatch_watchdog(state)}
+    end
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -490,9 +509,34 @@ defmodule Aiur.RepoBase do
 
   defp ensure_dispatch_watchdog(state), do: state
 
-  defp clear_released_watchdog(%{phase: :ready, freshness: :unknown} = state), do: state
-  defp clear_released_watchdog(%{phase: phase} = state) when phase in [:cloning, :fetching, :building, :checking], do: state
+  # A hold is "progressing" while its worker is alive. There is no continuous
+  # deadline across phases: any successful transition is itself progress, so
+  # leaving a hold clears the watchdog and a fresh hold arms a fresh one.
+  defp clear_released_watchdog(%{phase: phase} = state) when phase in [:cloning, :fetching, :building, :checking],
+    do: state
+
   defp clear_released_watchdog(state), do: clear_dispatch_watchdog(state)
+
+  # Restart the idle clock for a hold whose worker is still alive: cancel the
+  # fired timer and arm a fresh interval. A fresh ref keeps a stale in-flight
+  # message from matching the new record.
+  defp rearm_dispatch_watchdog(%{dispatch_watchdog: %{timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
+    ensure_dispatch_watchdog(%{state | dispatch_watchdog: nil})
+  end
+
+  defp rearm_dispatch_watchdog(state), do: state
+
+  defp hold_phase?(phase), do: phase in [:cloning, :fetching, :building, :checking]
+
+  defp hold_progress?(%{phase: phase, build: %{pid: pid}})
+       when phase in [:building, :cloning, :fetching] and is_pid(pid),
+       do: Process.alive?(pid)
+
+  defp hold_progress?(%{phase: :checking, probe: %{pid: pid}}) when is_pid(pid),
+    do: Process.alive?(pid)
+
+  defp hold_progress?(_state), do: false
 
   defp clear_dispatch_watchdog(%{dispatch_watchdog: %{timer: timer}} = state) do
     if is_reference(timer), do: Process.cancel_timer(timer)

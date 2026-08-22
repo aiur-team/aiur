@@ -125,4 +125,8 @@ prompt_file: prompt.md
 prewarm:
   enabled: true
   base_build_file: prewarm
-  poll_seconds: 0
+  # Periodic refresh is an independent recovery path alongside the dispatch
+  # watchdog: #2237 showed a single probe can be lost, so polling stays enabled
+  # even though dispatch-time freshness checks and the idle watchdog cover the
+  # hold on their own.
+  poll_seconds: 30
