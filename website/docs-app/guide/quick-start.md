@@ -33,7 +33,7 @@ The bare `aiur` command discovers `.aiur/config` and starts a foreground run, wh
 | Read-only loopback | Set `observability.dashboard_writable: false` and configure both dashboard credentials. Without them the listener may bind, but every dashboard request returns `503`. |
 | Listener disabled | No URL is printed. |
 
-Continue with the [Dashboard](/guide/executor-control-center) guide.
+Continue with the [GUI](/guide/gui) guide.
 
 ## Core subcommands
 
