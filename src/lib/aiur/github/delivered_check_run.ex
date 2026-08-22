@@ -15,11 +15,11 @@ defmodule Aiur.GitHub.DeliveredCheckRun do
   **Only whether a delivery displaced the target's read.** The batch still asks
   GitHub, on every non-displaced cycle, for the full rollup and every merge
   verdict; this module never answers a verdict from the held body. The served
-  (displaced) result is classified conservatively by `GithubCIPoller` and can
-  never yield `:passed` — the R10 boundary (`read_cache/policy.ex` refuses
-  `statusCheckRollup`/`CheckRun` on purpose) is preserved because a CI verdict
-  is still never *answered* from a cache, only the redundant *read* is skipped
-  on the strength of a fresh delivery.
+  (displaced) result is passed through as **inert** by `GithubCIPoller` and the
+  lifecycle makes no transition on it — the R10 boundary (`read_cache/policy.ex`
+  refuses `statusCheckRollup`/`CheckRun` on purpose) is preserved because a CI
+  verdict is still never *answered* from a cache, only the redundant *read* is
+  skipped on the strength of a fresh delivery.
 
   ## "Has this been deposited since I last read it?"
 
