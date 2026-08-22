@@ -1002,12 +1002,31 @@ resolve_tmux_conf() {
 # name (covers orphans from any release dir): under the unified identity a dev
 # `_build` BEAM and an installed BEAM both claim the same node name, so a
 # release-path pgrep misses whichever one this run didn't launch.
+# TERM the node(s) matching $pattern, give them $grace_ticks (0.1s) to exit
+# gracefully, then SIGKILL whatever remains. The default grace is short (3s)
+# because startup reclaim wants to clear a stale BEAM quickly; the stop paths
+# pass a longer grace so the BEAM can finish its own agent reap + session
+# deletion instead of being SIGKILLed mid-cleanup (which is what orphaned agent
+# processes on `aiur stop`). Callers may override the grace internally; invalid
+# or excessive values fall back to the 3s startup-reclaim default instead of
+# skipping the wait and jumping straight to SIGKILL.
 kill_beams_matching() {
-  local pattern="$1" pids pid waited=0
+  local pattern="$1" grace_ticks="${2:-30}" pids pid waited=0
+  case "$grace_ticks" in
+    "" | *[!0-9]*) grace_ticks=30 ;;
+    *)
+      # Reject overlong digit strings before numeric comparison so shell integer
+      # overflow cannot turn an excessive grace into an immediate SIGKILL.
+      if [ "${#grace_ticks}" -gt 5 ] ||
+        { [ "${#grace_ticks}" -eq 5 ] && [ "$grace_ticks" -gt 36000 ]; }; then
+        grace_ticks=30
+      fi
+      ;;
+  esac
   pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
   [ -n "$pids" ] || return 0
   for pid in $pids; do kill -TERM "$pid" 2>/dev/null || true; done
-  while [ "$waited" -lt 30 ]; do
+  while [ "$waited" -lt "$grace_ticks" ]; do
     pids="$(pgrep -f -- "$pattern" 2>/dev/null || true)"
     [ -z "$pids" ] && break
     sleep 0.1
@@ -1469,6 +1488,16 @@ record_beam_crash() {
 
 canonical_workspace_root() {
   local root="$1"
+  # The BEAM hands off Config.workspace_root() verbatim, which may be a `~/...`
+  # path (e.g. this repo's `workspace.root: ~/code/aiur-workspaces`). `cd` does
+  # not expand `~` inside a quoted variable, so without this a `~`-rooted cwd
+  # sweep compared against the literal `~/...` string, matched no /proc cwd, and
+  # silently reaped nothing — the exact backstop that must catch workspace-rooted
+  # agents on stop. Expand a leading `~` before canonicalizing so the sweep and
+  # the /proc cwd values (always absolute) agree.
+  case "$root" in
+    "~" | "~/"*) root="${HOME:-}${root#\~}" ;;
+  esac
   if [ -d "$root" ]; then
     (cd "$root" 2>/dev/null && pwd -P) || printf '%s\n' "$root"
   else
@@ -1769,8 +1798,11 @@ session_cleanup() {
   reap_aiur_agents "$_session_socket" "$_session_pidfile"
 
   # Reap only this instance's BEAM. Multiple keyed instances can share the same
-  # release dir, so release-path pgrep would terminate sibling workflows.
-  [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}"
+  # release dir, so release-path pgrep would terminate sibling workflows. Give
+  # the BEAM a generous TERM grace (the stop grace, not the 3s startup reclaim
+  # default) so its own graceful shutdown — ProcessReaper reaping the agent tree
+  # plus the BEAM-side workspace sweep — completes before any SIGKILL lands.
+  [ -n "$_session_node" ] && kill_beams_matching "-name ${_session_node}" 300
 
   # Final cwd-sweep backstop after the BEAM is gone: catches workspace-rooted
   # agents or test children that registered too late, reparented during the
@@ -3215,8 +3247,13 @@ cmd_stop() {
   fi
 
   # Reap any BEAM holding our node name regardless of which release dir launched
-  # it. Do not sweep by release dir: sibling instances share dev releases.
-  kill_beams_matching "-name ${AIUR_RELEASE_NODE}"
+  # it. Do not sweep by release dir: sibling instances share dev releases. Use
+  # the generous stop TERM grace: the BEAM, once TERM'd, runs its own graceful
+  # shutdown (ProcessReaper reaping the agent tree, opencode session deletes,
+  # then the BEAM-side workspace sweep) and the short 3s startup default would
+  # SIGKILL it mid-cleanup, orphaning exactly the agents this stop must reap.
+  # The loop exits the moment the BEAM is gone, so a fast stop costs nothing.
+  kill_beams_matching "-name ${AIUR_RELEASE_NODE}" 300
 
   # Final cwd-sweep backstop after the BEAM is dead. The launcher's instance
   # record points to the BEAM-written root handoff, so degraded stop never has
