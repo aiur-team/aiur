@@ -445,7 +445,7 @@ defmodule Aiur.AgentEnvironmentTest do
 
     test "exposes repository-node hex/mix homes and the agent-workspace marker" do
       repo_url = "https://github.com/owner/project.git"
-      env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration", repo_url: repo_url)
+      env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration", repo_url: repo_url, github_budget_identity: "aiur-bot")
       repo_state = Aiur.RepoBase.repo_path(repo_url)
       hex_home = Path.join(repo_state, ".aiur-hex")
       mix_home = Path.join(repo_state, ".aiur-mix")
@@ -498,7 +498,8 @@ defmodule Aiur.AgentEnvironmentTest do
         AgentEnvironment.workspace_env("/work/aiur/440",
           base_branch: "integration",
           repo_url: repo_url,
-          label_prefix: "team"
+          label_prefix: "team",
+          github_budget_identity: "aiur-bot"
         )
 
       assert {~c"AIUR_GITHUB_LABEL_PREFIX", ~c"team"} =
@@ -513,9 +514,15 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_AGENT_QUOTA_STATE_PATH", ~c"/work/aiur/440/.aiur-runtime/github-quota"} =
                List.keyfind(env, ~c"AIUR_AGENT_QUOTA_STATE_PATH", 0)
 
-      # The guard fingerprints the credential that `gh` actually uses. Passing
-      # the daemon credential's key here would merge unrelated App/PAT budgets.
+      # The wrapper hashes the current token separately and receives the stable
+      # machine-user identity it publishes as.
       assert {~c"AIUR_GITHUB_BUDGET_KEY", false} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_KEY", 0)
+
+      expected_publication_key = Budget.identity_key("machine_user:primary:aiur-bot") |> String.to_charlist()
+
+      assert {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", ^expected_publication_key} =
+               List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", 0)
+
       assert {~c"AIUR_GITHUB_BUDGET_ROOT", budget_root} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_ROOT", 0)
       assert to_string(budget_root) == Budget.state_dir()
 
@@ -554,6 +561,20 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_BUILD_START_STAGGER_SECONDS", ~c"0"} =
                List.keyfind(env, ~c"AIUR_BUILD_START_STAGGER_SECONDS", 0)
+    end
+
+    test "keeps a stable publication budget identity when the bot account is unset" do
+      env =
+        AgentEnvironment.workspace_env("/work/aiur/440",
+          base_branch: "integration",
+          repo_url: "https://github.com/owner/project.git",
+          github_budget_identity: nil
+        )
+
+      expected_key = Budget.identity_key("machine_user:primary:primary") |> String.to_charlist()
+
+      assert {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", ^expected_key} =
+               List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", 0)
     end
 
     test "unsets inherited parent log env while preserving agent workspace env" do
@@ -597,7 +618,8 @@ defmodule Aiur.AgentEnvironmentTest do
       prefix =
         AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
           base_branch: "integration",
-          repo_url: repo_url
+          repo_url: repo_url,
+          github_budget_identity: "aiur-bot"
         )
 
       assert prefix =~ "MISE_TRUSTED_CONFIG_PATHS='/work/aiur/440'"
@@ -628,6 +650,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
       assert prefix =~ "unset AIUR_GITHUB_BUDGET_KEY"
+      assert prefix =~ "export AIUR_GITHUB_BUDGET_IDENTITY_KEY='#{Budget.identity_key("machine_user:primary:aiur-bot")}'"
       refute prefix =~ "AIUR_BUILD_GATE_BIN='"
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
@@ -638,7 +661,8 @@ defmodule Aiur.AgentEnvironmentTest do
         AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
           base_branch: "integration",
           repo_url: repo_url,
-          label_prefix: "team"
+          label_prefix: "team",
+          github_budget_identity: "aiur-bot"
         )
 
       assert custom_prefix =~ "AIUR_GITHUB_LABEL_PREFIX='team'"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Host-local GitHub request admission broker.
 
-The broker deliberately persists only SHA-256 credential and consumer fingerprints.  A
+The broker deliberately persists only SHA-256 credential and consumer fingerprints. A
 single SQLite transaction covers every decision so independently started Aiur
 nodes and their shell wrappers share the same leases, rate ceiling, stagger,
 and cooldowns without a resident daemon or a network service.
@@ -68,6 +68,10 @@ def connection(path):
           token_key TEXT PRIMARY KEY,
           cooldown_until_ms INTEGER NOT NULL DEFAULT 0,
           next_admission_ms INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS credential_bindings (
+          identity_key TEXT PRIMARY KEY,
+          token_key TEXT NOT NULL UNIQUE
         );
         CREATE TABLE IF NOT EXISTS resource_holds (
           token_key TEXT NOT NULL,
@@ -163,6 +167,36 @@ def cleanup(conn, now):
     conn.execute("DELETE FROM cache_claims WHERE expires_at_ms <= ?", (now,))
 
 
+def resolve_credential_identity(conn, args):
+    """Resolve a stable identity to compatibility storage under one transaction.
+
+    The first stable identity to present a token adopts that token's existing
+    ledger. A later rotation resolves back to the adopted key. If two configured
+    credentials present the same token, only the first may adopt its hash; the
+    second uses its distinct stable key and remains isolated.
+    """
+    identity_key = getattr(args, "identity_key", None)
+    if not identity_key:
+        return
+
+    binding = conn.execute(
+        "SELECT token_key FROM credential_bindings WHERE identity_key = ?", (identity_key,)
+    ).fetchone()
+    if binding:
+        args.token_key = binding[0]
+        return
+
+    claimed = conn.execute(
+        "SELECT identity_key FROM credential_bindings WHERE token_key = ?", (args.token_key,)
+    ).fetchone()
+    storage_key = identity_key if claimed else args.token_key
+    conn.execute(
+        "INSERT INTO credential_bindings(identity_key, token_key) VALUES (?, ?)",
+        (identity_key, storage_key),
+    )
+    args.token_key = storage_key
+
+
 # The rolling-hour admissions of one actor and one resource, oldest first. Core
 # is every REST family; GraphQL is the graphql family. A `resource` ceiling is a
 # request-count ceiling: the broker sees admissions, never the GraphQL point
@@ -206,6 +240,7 @@ def acquire(args):
 
     try:
         conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
         cleanup(conn, now)
         conn.execute(
             "INSERT OR IGNORE INTO budgets(token_key, cooldown_until_ms, next_admission_ms) VALUES (?, 0, 0)",
@@ -405,8 +440,8 @@ def renew(args):
     conn = connection(args.db)
     try:
         conn.execute(
-            "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ? AND token_key = ?",
-            (now_ms() + args.lease_ttl_ms, args.lease_id, args.token_key),
+            "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ?",
+            (now_ms() + args.lease_ttl_ms, args.lease_id),
         )
     finally:
         conn.close()
@@ -417,6 +452,7 @@ def hold(args):
     conn = connection(args.db)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
         conn.execute(
             "INSERT OR IGNORE INTO budgets(token_key, cooldown_until_ms, next_admission_ms) VALUES (?, 0, 0)",
             (args.token_key,),
@@ -448,6 +484,7 @@ def snapshot(args):
     conn = connection(args.db)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        resolve_credential_identity(conn, args)
         cleanup(conn, now)
         cooldown = conn.execute(
             "SELECT cooldown_until_ms FROM budgets WHERE token_key = ?", (args.token_key,)
@@ -510,18 +547,20 @@ def usage(args):
         conn.execute("BEGIN IMMEDIATE")
         cleanup(conn, now)
         policies = conn.execute(
-            "SELECT token_key, consumer_key, consumer_label, core_limit_per_hour, graphql_limit_per_hour "
-            "FROM policies ORDER BY token_key, consumer_key"
+            "SELECT COALESCE(bindings.identity_key, policies.token_key), policies.token_key, "
+            "policies.consumer_key, policies.consumer_label, policies.core_limit_per_hour, policies.graphql_limit_per_hour "
+            "FROM policies LEFT JOIN credential_bindings AS bindings ON bindings.token_key = policies.token_key "
+            "ORDER BY COALESCE(bindings.identity_key, policies.token_key), policies.consumer_key"
         ).fetchall()
         actors = [
             {
-                "token_key": token_key,
+                "token_key": reported_key,
                 "consumer_key": consumer_key,
                 "consumer_label": consumer_label,
-                "core": usage_figure(conn, token_key, consumer_key, "core", core_limit, now),
-                "graphql": usage_figure(conn, token_key, consumer_key, "graphql", graphql_limit, now),
+                "core": usage_figure(conn, storage_key, consumer_key, "core", core_limit, now),
+                "graphql": usage_figure(conn, storage_key, consumer_key, "graphql", graphql_limit, now),
             }
-            for token_key, consumer_key, consumer_label, core_limit, graphql_limit in policies
+            for reported_key, storage_key, consumer_key, consumer_label, core_limit, graphql_limit in policies
         ]
         conn.execute("COMMIT")
         print(json.dumps({"schema_version": 1, "actors": actors}))
@@ -537,6 +576,7 @@ def parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", required=True)
     common.add_argument("--token-key", required=True)
+    common.add_argument("--identity-key")
 
     root = argparse.ArgumentParser()
     commands = root.add_subparsers(dest="command", required=True)

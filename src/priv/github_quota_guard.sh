@@ -49,6 +49,7 @@ agent_quota_dir=${AIUR_AGENT_QUOTA_STATE_PATH:-}
 events_file=
 budget_root=${AIUR_GITHUB_BUDGET_ROOT:-"$HOME/.aiur/github-budget"}
 budget_key=${AIUR_GITHUB_BUDGET_KEY:-}
+budget_identity_key=${AIUR_GITHUB_BUDGET_IDENTITY_KEY:-}
 budget_broker=${AIUR_GITHUB_BUDGET_BROKER:-"$(dirname "$0")/aiur-github-budget"}
 budget_requested=${AIUR_GITHUB_BUDGET_ENABLED:-1}
 budget_db=
@@ -1552,7 +1553,11 @@ cache_claim_overtake=0
 cache_served=0
 
 budget_command() {
-  python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+  if [ -n "$budget_identity_key" ]; then
+    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key" --identity-key "$budget_identity_key"
+  else
+    python3 "$budget_broker" "$@" --db "$budget_db" --token-key "$budget_key"
+  fi
 }
 
 budget_sleep_ms() {
