@@ -459,6 +459,50 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       assert :miss = PollSnapshots.review_threads(@repo, 77)
     end
 
+    test "a delivered thread collection survives a store restart and is still delivery-fresh" do
+      path = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}.json")
+      on_exit(fn -> File.rm_rf!(path) end)
+
+      # Run against a real checkpoint file before depositing: an in-memory store
+      # would let the restart pass without ever writing the round trip.
+      :ok = restart_store!(path)
+
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{
+                   "id" => "PRRT_5503",
+                   "isResolved" => false,
+                   "updatedAt" => "2026-06-24T12:00:00Z",
+                   "path" => "src/lib/example.ex",
+                   "line" => 7,
+                   "comments" => %{"nodes" => [%{"databaseId" => 1, "body" => "fix"}]}
+                 }
+               ])
+
+      delivery = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}},
+        "thread" => %{
+          "node_id" => "PRRT_5503",
+          "is_resolved" => true,
+          "updated_at" => "2026-06-24T12:01:00Z",
+          "path" => "src/lib/example.ex",
+          "line" => 7
+        }
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+
+      :ok = ResourceStore.flush()
+      :ok = restart_store!(path)
+
+      # The collection came back complete, still carrying the delivery's advance
+      # and still attributed to the webhook — so a poller that consults it after
+      # a daemon restart still stands down rather than paying to re-ask.
+      assert {:ok, [%{"id" => "PRRT_5503", "isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
+    end
+
     test "issues deposits the issue and label set even though the event only reconciles" do
       assert %{status: :reconciled} =
                GithubWebhook.handle_delivery("issues", issues_delivery("labeled"), repo: @repo, reconcile_fun: fn _ -> :ok end)
