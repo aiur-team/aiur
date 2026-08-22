@@ -9,6 +9,8 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   alias Aiur.{Alerts, Config, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, PauseResume, RetryEngine, State}
 
+  @interrupted_turn_grace_ms 30_000
+
   @spec apply_overrun_check(State.t(), non_neg_integer()) :: State.t()
   def apply_overrun_check(%State{} = state, max_seconds)
       when is_integer(max_seconds) and max_seconds >= 0 do
@@ -26,6 +28,20 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
     Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
       restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
     end)
+  end
+
+  @doc false
+  @spec apply_runtime_health_check(State.t(), DateTime.t(), keyword()) :: State.t()
+  def apply_runtime_health_check(%State{} = state, %DateTime{} = now, opts \\ []) do
+    Enum.reduce(state.running, state, fn {issue_id, running_entry}, state_acc ->
+      check_runtime_health(state_acc, issue_id, running_entry, now, opts)
+    end)
+  end
+
+  @doc false
+  @spec reconcile_runtime_health(State.t()) :: State.t()
+  def reconcile_runtime_health(%State{} = state) do
+    apply_runtime_health_check(state, DateTime.utc_now())
   end
 
   # Safety check-in, not a kill: pause any agent that has been actively
@@ -114,6 +130,117 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
           restart_stalled_issue(state_acc, issue_id, running_entry, now, timeout_ms)
         end)
     end
+  end
+
+  defp check_runtime_health(state, issue_id, running_entry, now, opts) do
+    cond do
+      match?(%{kind: :startup_failed}, Map.get(running_entry, :runtime_terminal_failure)) ->
+        failure = Map.fetch!(running_entry, :runtime_terminal_failure)
+        reason = "startup failed: #{inspect(Map.get(failure, :reason))}"
+        restart_unhealthy_issue(state, issue_id, running_entry, reason, "startup-failed", opts)
+
+      working_entry?(running_entry) and interrupted_turn_expired?(running_entry, now, opts) ->
+        restart_unhealthy_issue(
+          state,
+          issue_id,
+          running_entry,
+          "interrupted turn did not restart within the bounded grace period",
+          "interrupted-turn",
+          opts
+        )
+
+      working_entry?(running_entry) ->
+        sample_working_runtime(state, issue_id, running_entry, now, opts)
+
+      true ->
+        clear_runtime_sample(state, issue_id, running_entry)
+    end
+  end
+
+  defp working_entry?(running_entry) do
+    State.active_running_entry?(running_entry) and
+      (get_in(running_entry, [:control, :status]) || :working) == :working
+  end
+
+  defp interrupted_turn_expired?(running_entry, now, opts) do
+    grace_ms = Keyword.get(opts, :interrupted_grace_ms, @interrupted_turn_grace_ms)
+
+    case Map.get(running_entry, :interrupted_turn_observed_at) do
+      %DateTime{} = observed_at -> DateTime.diff(now, observed_at, :millisecond) > grace_ms
+      _ -> false
+    end
+  end
+
+  defp sample_working_runtime(state, issue_id, running_entry, now, opts) do
+    runtime_seconds = State.effective_runtime_seconds(running_entry, now)
+
+    case Map.get(running_entry, :runtime_health_sample) do
+      %{runtime_seconds: ^runtime_seconds, observed_at: %DateTime{} = observed_at} ->
+        if DateTime.diff(now, observed_at, :millisecond) >= 1_000 do
+          restart_unhealthy_issue(
+            state,
+            issue_id,
+            running_entry,
+            "working runtime remained frozen across two consecutive samples",
+            "frozen-runtime",
+            opts
+          )
+        else
+          state
+        end
+
+      _sample ->
+        put_runtime_sample(
+          state,
+          issue_id,
+          Map.put(running_entry, :runtime_health_sample, %{
+            runtime_seconds: runtime_seconds,
+            observed_at: now
+          })
+        )
+    end
+  end
+
+  defp put_runtime_sample(%State{} = state, issue_id, running_entry) do
+    %{state | running: Map.put(state.running, issue_id, running_entry)}
+  end
+
+  defp clear_runtime_sample(state, issue_id, running_entry) do
+    if Map.has_key?(running_entry, :runtime_health_sample) do
+      put_runtime_sample(state, issue_id, Map.delete(running_entry, :runtime_health_sample))
+    else
+      state
+    end
+  end
+
+  defp restart_unhealthy_issue(state, issue_id, running_entry, reason, alert_slug, opts) do
+    identifier = Map.get(running_entry, :identifier, issue_id)
+    emit_alert = Keyword.get(opts, :emit_alert, &Alerts.emit_custom/3)
+
+    _ =
+      emit_alert.(
+        "ticket.#{identifier}.agent.#{alert_slug}",
+        "Agent #{reason}; terminating it and scheduling a retry",
+        issue: Map.get(running_entry, :issue),
+        workspace: Map.get(running_entry, :workspace_path),
+        worker_host: Map.get(running_entry, :worker_host),
+        reason: reason,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
+
+    state
+    |> AgentTeardown.terminate_running_issue(issue_id, false)
+    |> RetryEngine.schedule_issue_retry(issue_id, next_attempt, %{
+      identifier: identifier,
+      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+      error: reason,
+      prior_work: RetryEngine.prior_work_for_retry?(running_entry),
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    })
   end
 
   @doc false
