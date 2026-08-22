@@ -30,6 +30,17 @@ defmodule Aiur.AgentEnvironment do
   @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY\z/
+  # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
+  # as the bot account and carry its `GITHUB_TOKEN` PAT; the App installation is
+  # deliberately a different login (see `AgentGitHubGuard`), and it is the
+  # branch-protection bypass actor. An agent holding the App id, installation id
+  # and private key can mint its own installation token, which passes through
+  # neither `Aiur.GitHub.Transport` (so `Quota` never sees it) nor the `gh` guard
+  # (so no `admissions` row exists) — unmetered spend against the App's GraphQL
+  # pool. Scrubbed by prefix rather than by name so a credential added later
+  # (`GITHUB_APP_CLIENT_SECRET`, …) is covered the day it is introduced.
+  @app_credential_env_names ~w(GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH)
+  @app_credential_env_pattern ~r/\AGITHUB_APP_/
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
@@ -96,13 +107,14 @@ defmodule Aiur.AgentEnvironment do
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
            @restart_build_env_names ++
-           @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
+           @parent_log_env_names ++
+           @operator_only_env_names ++ @provider_credential_env_names ++ @app_credential_env_names,
          " "
        ) <>
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|GITHUB_APP_*) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -178,6 +190,18 @@ defmodule Aiur.AgentEnvironment do
   end
 
   @doc """
+  Every GitHub App credential variable to remove from an agent's environment:
+  the known names plus anything the daemon inherited under the same
+  `GITHUB_APP_` prefix. See the attribute comment for why agents must not hold
+  these (#2266).
+  """
+  @spec app_credential_env_names() :: [String.t()]
+  def app_credential_env_names do
+    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@app_credential_env_pattern, &1))
+    Enum.uniq(@app_credential_env_names ++ inherited)
+  end
+
+  @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
   repository-node `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` plus the
   workflow's authoritative `AIUR_BASE_BRANCH`. The agent inherits these so it
@@ -208,7 +232,8 @@ defmodule Aiur.AgentEnvironment do
           @daemon_dump_env_names ++
           @restart_build_env_names ++
           @parent_log_env_names ++
-          @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
+          @operator_only_env_names ++
+          provider_credential_env_names() ++ app_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
       )
 
