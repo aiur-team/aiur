@@ -360,7 +360,52 @@ A verdict is refused rather than kept briefly because a push and a completing
 check run do not pass through the wrapper, so nothing could retire the answer
 before an agent acted on it.
 
+The same refusal applies to direct REST paths for check runs, check suites,
+commit statuses, reviews, requested reviewers, the pull-request resource
+itself, merge state, and Actions run or job state. Spelling a verdict read as
+`gh api` does not make it safe to cache.
+
+Stable Actions workflow *definitions* (`actions/workflows`) are still shared.
+
+A workflow definition changes when its YAML is edited, which is a
+wrapper-passing write that retires it, while a run's status is a verdict that
+nothing retires. This is a deliberate divergence from the daemon's `ReadCache`
+policy, which refuses every `/actions` path wholesale — the two stores serve
+different callers with different invalidation reach.
+
 An answer is kept for 60 seconds.
+
+The GitHub cache page reports whether this sharing is effective. Its **Agent gh
+exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
+alongside the raw hit and miss counts.
+
+It reads the durable `agent-cache.tsv` counters from agent workspaces on the
+daemon host; workspaces on remote SSH workers are not included.
+
+If no readable counter exists, or the readable files contain no hit or miss in
+that window, the page says **Not measured** instead of presenting zero as a
+measurement. Malformed or unreadable sources are retained as partial coverage
+rather than hiding the valid samples.
+
+The cache key intentionally includes the exact requested output shape. Two
+reads of one pull request that request different JSON fields, templates, or
+queries cannot share an answer without changing `gh`'s output, so each shape
+misses independently.
+
+Likewise, a write or daemon delivery retires every shape of the changed
+resource to protect correctness.
+
+Different output requests cannot share bytes, and a changed resource cannot
+safely reuse an older answer. The cache therefore keeps its byte-exact key,
+correctness invalidation, and 60-second lifetime.
+
+The wrapper now records a reason with every miss (`absent`, `expired`,
+`invalidated`, `bypassed`, `clock-skewed`, `corrupt`, or `torn`).
+
+That lets a later regression distinguish expected correctness misses from
+entries expiring before reuse, and can tell a cold cache from a
+store-integrity failure — a present stamp whose body has vanished is `torn`,
+never `absent`.
 
 Editing a ticket or a pull request discards the kept answers for it at once, so
 an agent never reads back what it just replaced.
