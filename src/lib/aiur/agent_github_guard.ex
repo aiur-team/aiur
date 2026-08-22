@@ -19,6 +19,29 @@ defmodule Aiur.AgentGitHubGuard do
   @external_resource @broker_path
   @gh_script File.read!(@gh_script_path)
   @git_script File.read!(@git_script_path)
+  # The budget broker is embedded at compile time and re-installed into every
+  # workspace on each local dispatch (`Provisioner.maybe_install_agent_support`
+  # runs `install/1` on every worker attempt). A workspace therefore runs the
+  # broker of the daemon's currently-compiled release — never the stale
+  # `src/priv/github_budget.py` from the workspace's own checkout — which is
+  # what keeps the shared ledger free of rows a newer broker cannot read (#2307).
+  #
+  # Staleness is bounded by the daemon's own release, not by dispatch: because
+  # `@broker` is a compile-time embed, a workspace built under an older release
+  # keeps the older broker until (a) a new release is built and installed and
+  # (b) the workspace next dispatches. Until then it is exactly the stale
+  # population #2307 describes, and the guard's marker plus the daemon's alert
+  # are what surface it; `maybe_log_stale_broker` records the replacement when
+  # it finally happens.
+  #
+  # Chosen over resolving the broker from the daemon's installed `priv/`
+  # directly: an agent workspace must stay self-contained on a remote worker,
+  # and a workspace-local copy that is re-installed on every dispatch is just as
+  # fresh once the release moves. The accepted tension is that the agent that
+  # *writes* a broker change exercises it through `Aiur.GitHub.BudgetTest`
+  # (which resolves the broker from the source `priv/`), not through the
+  # daemon-run broker in its own workspace — the same tension the issue called
+  # out for either choice.
   @broker File.read!(@broker_path)
   @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}]
   @relative_bin_dir ".aiur-runtime/bin"
@@ -112,6 +135,8 @@ defmodule Aiur.AgentGitHubGuard do
 
   @spec install(Path.t() | nil) :: :ok | {:error, term()}
   def install(workspace) when is_binary(workspace) do
+    maybe_log_stale_broker(workspace)
+
     result =
       Enum.reduce_while(@scripts, :ok, fn {name, script}, :ok ->
         case AgentCommandInstaller.install(workspace, @relative_bin_dir, [name], script, :agent_guard_install_failed) do
@@ -131,6 +156,23 @@ defmodule Aiur.AgentGitHubGuard do
   end
 
   def install(_workspace), do: :ok
+
+  # A workspace provisioned under an older release keeps its old broker until
+  # its next dispatch replaces it. That replacement is the fix for #2307, so
+  # make it observable: a log line records when a stale broker was just
+  # overwritten with the current release's broker, which is also the evidence
+  # that agent-side 304 reconciliation has been restored for this workspace.
+  defp maybe_log_stale_broker(workspace) do
+    installed = Path.join(bin_dir(workspace), "aiur-github-budget")
+
+    case File.read(installed) do
+      {:ok, existing} when existing != @broker ->
+        Logger.warning("refreshing stale agent budget broker workspace=#{workspace}")
+
+      _current_or_missing ->
+        :ok
+    end
+  end
 
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do

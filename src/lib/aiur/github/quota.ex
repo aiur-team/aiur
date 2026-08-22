@@ -72,6 +72,14 @@ defmodule Aiur.GitHub.Quota do
   # malformed `Retry-After` from parking the whole fleet for hours.
   @secondary_backoff_seconds 60
   @max_secondary_backoff_seconds 60 * 60
+  # Written by the agent `gh` guard exactly once per stale period: by
+  # `budget_acquire` when the ledger's schema trigger or version stamp refuses
+  # the workspace broker's write, or by `budget_reconcile_response` when the
+  # broker cannot reconcile 304s. This process turns it into one fleet alert per
+  # workspace and rearms when the guard clears it (a refreshed broker
+  # self-heals). See #2307.
+  @stale_broker_marker "broker-reconcile-stale"
+  @stale_broker_alert_topic "system.github.budget.broker_reconcile_stale"
 
   @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{
@@ -161,6 +169,8 @@ defmodule Aiur.GitHub.Quota do
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
+      stale_broker_path: Keyword.get_lazy(opts, :stale_broker_path, &default_stale_broker_path/0),
+      stale_broker_alerts: MapSet.new(),
       hold_dir: Keyword.get_lazy(opts, :hold_dir, &default_hold_dir/0),
       refresh_fun: Keyword.get(opts, :refresh_fun, &refresh_from_github/0),
       recovery_fun: Keyword.get(opts, :recovery_fun, &notify_orchestrator_recovery/0),
@@ -199,7 +209,7 @@ defmodule Aiur.GitHub.Quota do
   @impl true
   def handle_call(:snapshot, _from, state) do
     now = state.clock.()
-    state = state |> prune_backoffs(now) |> prune_observations(now) |> refresh_shell_observations(now)
+    state = state |> prune_backoffs(now) |> prune_observations(now) |> refresh_shell_observations(now) |> refresh_stale_broker_alerts()
 
     in_window = observations_in_window(state, now)
 
@@ -255,7 +265,7 @@ defmodule Aiur.GitHub.Quota do
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{refresh_ref: ref} = state) do
     Process.send_after(self(), :refresh, state.refresh_interval_ms)
-    {:noreply, %{state | refresh_ref: nil}}
+    {:noreply, %{refresh_stale_broker_alerts(state) | refresh_ref: nil}}
   end
 
   def handle_info({:dispatch_recovery, token}, %{recovery_timer_token: token} = state) do
@@ -969,6 +979,91 @@ defmodule Aiur.GitHub.Quota do
     |> Path.join("*/.aiur-runtime/github-quota/agent-requests.tsv")
   rescue
     _unavailable -> nil
+  end
+
+  # Same workspace glob as `default_shell_log_path/0`, matching the stale-broker
+  # marker the agent `gh` guard writes next to its request log. `match_dot: true`
+  # is mandatory for the same reason as the request log: the marker lives under
+  # each workspace's dot-directory.
+  defp default_stale_broker_path do
+    Config.workspace_root()
+    |> Path.expand()
+    |> Layout.issue_workspace_path("__github_quota_probe__")
+    |> Path.dirname()
+    |> Path.join("*/.aiur-runtime/github-quota/#{@stale_broker_marker}")
+  rescue
+    _unavailable -> nil
+  end
+
+  # A workspace running a broker that cannot coordinate with the current shared
+  # ledger writes exactly one marker per stale period (the guard's own dedup:
+  # it is written on the first structural acquire/reconcile failure and cleared
+  # on recovery). Turn each distinct marker into one fleet alert, latch on the
+  # marker path so a persistent marker does not re-alert on every refresh, and
+  # rearm once the marker disappears (a refreshed broker has recovered).
+  defp refresh_stale_broker_alerts(state) do
+    found = stale_broker_markers(state.stale_broker_path)
+    seen = state.stale_broker_alerts
+
+    seen =
+      Enum.reduce(seen, seen, fn path, acc ->
+        if Enum.member?(found, path), do: acc, else: MapSet.delete(acc, path)
+      end)
+
+    seen =
+      Enum.reduce(found, seen, fn path, acc ->
+        if MapSet.member?(acc, path) do
+          acc
+        else
+          emit_stale_broker_alert(state, path)
+          MapSet.put(acc, path)
+        end
+      end)
+
+    %{state | stale_broker_alerts: seen}
+  end
+
+  # The marker list, not a MapSet: a MapSet built here and passed to
+  # `MapSet.member?/2` at the call site would cross a function boundary with an
+  # opaque type dialyzer cannot keep opaque (`call_without_opaque`). The seen-set
+  # stays a MapSet inside `refresh_stale_broker_alerts/1`, where its opaque type
+  # is tracked through the state field.
+  @spec stale_broker_markers(String.t() | nil) :: [String.t()]
+  defp stale_broker_markers(nil), do: []
+
+  defp stale_broker_markers(path) when is_binary(path) do
+    path |> Path.wildcard(match_dot: true)
+  end
+
+  defp emit_stale_broker_alert(state, marker_path) do
+    consumer = marker_consumer(marker_path)
+    workspace = marker_workspace(marker_path)
+
+    message =
+      "Agent workspace #{workspace} (#{consumer}) is running a GitHub budget broker that cannot reconcile 304 responses " <>
+        "or write to the current shared ledger (stale broker); its budget accounting is disabled until the current broker is installed"
+
+    state.emit_fun.(@stale_broker_alert_topic,
+      message: message,
+      reason: message,
+      severity: "warning",
+      needs_attention: true
+    )
+
+    :ok
+  end
+
+  defp marker_consumer(path) do
+    case File.read(path) do
+      {:ok, content} -> content |> String.split("\n", trim: true) |> List.first() || path
+      {:error, _reason} -> path
+    end
+  end
+
+  # `<workspace_root>/<workspace>/.aiur-runtime/github-quota/<marker>` — three
+  # dirnames land on the workspace directory itself.
+  defp marker_workspace(path) do
+    path |> Path.dirname() |> Path.dirname() |> Path.dirname() |> Path.basename()
   end
 
   defp refresh_from_github do

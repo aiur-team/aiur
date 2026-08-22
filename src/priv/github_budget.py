@@ -28,6 +28,20 @@ HOURLY_WINDOW_MS = 3600000
 # not keep its old max_inflight constraining the fleet for the whole hour that
 # the usage report now retains it for.
 POLICY_RECONCILE_WINDOW_MS = 120000
+# The version of this broker's ledger interpretation, stamped into `broker_meta`
+# by the newest broker to write. A broker that *carries this check* and is older
+# than the stamp refuses to write, loudly, rather than silently writing rows the
+# newer broker cannot read. This is forward-looking: pre-#2307 brokers have no
+# such check, so the currently-deployed stale population is stopped by the
+# `admissions_require_lease` trigger instead. The stamp is what protects the
+# *next* schema change, when the brokers being refused will be #2307-era ones
+# that do carry this check. Bump it whenever the on-disk shape or meaning of any
+# table changes in a way an older broker would get wrong (#2307).
+BROKER_VERSION = 1
+
+
+class LedgerTooNewError(Exception):
+    """Raised when this broker is older than the ledger's version stamp."""
 
 
 def now_ms():
@@ -118,6 +132,10 @@ def connection(path):
           PRIMARY KEY (token_key, cache_key)
         );
         CREATE INDEX IF NOT EXISTS cache_claims_lease ON cache_claims(lease_id);
+        CREATE TABLE IF NOT EXISTS broker_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
         """
     )
     migrate(conn)
@@ -153,6 +171,61 @@ def migrate(conn):
         conn.execute("ALTER TABLE policies ADD COLUMN core_limit_per_hour INTEGER NOT NULL DEFAULT 0")
     if "graphql_limit_per_hour" not in policies_columns:
         conn.execute("ALTER TABLE policies ADD COLUMN graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0")
+
+
+def _ledger_version(conn):
+    row = conn.execute("SELECT value FROM broker_meta WHERE key = 'broker_version'").fetchone()
+    if row is None:
+        return None
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+# The newest broker to open a ledger stamps its version. A broker older than the
+# stamp refuses every write below (`_ensure_writable`); it never downgrades the
+# stamp, so a freshly-written ledger cannot be silently regressed by an older
+# writer. A broker at or above the stamp (or opening a ledger with no stamp yet,
+# e.g. one created by a pre-#2307 broker) advances the stamp to its own version,
+# which is the designed upgrade path.
+def _stamp_ledger(conn):
+    version = _ledger_version(conn)
+    if version is None or version <= BROKER_VERSION:
+        conn.execute(
+            "INSERT INTO broker_meta(key, value) VALUES ('broker_version', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(BROKER_VERSION),),
+        )
+
+
+def _ensure_writable(conn):
+    version = _ledger_version(conn)
+    if version is not None and version > BROKER_VERSION:
+        raise LedgerTooNewError(
+            f"refusing to write: ledger is stamped version {version}, this broker is version {BROKER_VERSION}; "
+            "install the current broker (a dispatch re-installs the daemon's broker into the workspace)"
+        )
+
+
+# Write commands run this after `_ensure_writable` and before touching data. It
+# installs the schema trigger that refuses a pre-#2284 broker's lease-less
+# admission INSERT and advances the ledger's version stamp. Both are writes, so
+# read-only commands (snapshot/usage/meter) must not run them against the shared
+# ledger just to report on it; the first current-broker write after a deploy
+# installs them, which is the earliest a stale broker can be stopped (#2307).
+def _prepare_writable(conn):
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS admissions_require_lease
+        BEFORE INSERT ON admissions
+        WHEN NEW.lease_id IS NULL OR NEW.lease_id = ''
+        BEGIN
+          SELECT RAISE(ABORT, 'refusing admission without a lease_id: this broker predates the ledger schema');
+        END;
+        """
+    )
+    _stamp_ledger(conn)
 
 
 def cleanup(conn, now):
@@ -246,6 +319,8 @@ def actor_ceiling_hold(conn, args, now):
 def acquire(args):
     now = now_ms()
     conn = connection(args.db)
+    _ensure_writable(conn)
+    _prepare_writable(conn)
 
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -435,6 +510,8 @@ def jitter_wait(delay_ms):
 
 def release(args):
     conn = connection(args.db)
+    _ensure_writable(conn)
+    _prepare_writable(conn)
     try:
         conn.execute("DELETE FROM leases WHERE lease_id = ?", (args.lease_id,))
         # The claim goes with the lease. The caller releases only after its answer
@@ -454,6 +531,8 @@ def release(args):
 # the predicate.
 def reconcile(args):
     conn = connection(args.db)
+    _ensure_writable(conn)
+    _prepare_writable(conn)
     try:
         conn.execute("BEGIN IMMEDIATE")
         resolve_credential_identity(conn, args)
@@ -473,6 +552,8 @@ def reconcile(args):
 
 def renew(args):
     conn = connection(args.db)
+    _ensure_writable(conn)
+    _prepare_writable(conn)
     try:
         conn.execute(
             "UPDATE leases SET expires_at_ms = ? WHERE lease_id = ?",
@@ -485,6 +566,8 @@ def renew(args):
 def hold(args):
     until = now_ms() + args.delay_ms
     conn = connection(args.db)
+    _ensure_writable(conn)
+    _prepare_writable(conn)
     try:
         conn.execute("BEGIN IMMEDIATE")
         resolve_credential_identity(conn, args)

@@ -1599,7 +1599,20 @@ budget_acquire() {
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
-      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
+      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" 2>&1); then
+      # A broker that predates the ledger schema (the trigger refuses its
+      # lease-less admission INSERT) or the ledger's version stamp cannot be
+      # admitted to this ledger. That is exactly the stale-broker population
+      # #2307 exists for, and failing closed here would turn a working-but-
+      # over-billing workspace into a hard `gh` outage with zero alerts: acquire
+      # aborts before a lease exists, so the reconcile marker machinery would
+      # never run. Fail OPEN instead — the request proceeds uncoordinated, just
+      # as the stale broker behaved before the ledger was versioned — and write
+      # the marker once so the daemon raises a fleet alert.
+      if budget_stale_abort "$budget_result"; then
+        budget_mark_stale_broker
+        return 0
+      fi
       printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
       return 75
     fi
@@ -1674,14 +1687,67 @@ budget_release() {
   budget_lease=
 }
 
+# A stale-broker acquire abort: the ledger's schema trigger refused this
+# broker's lease-less admission INSERT, or the version stamp refused the write.
+# Both strings are this project's own (the trigger and `_ensure_writable`), so
+# this is not coupled to argparse or Python wording. Every other acquire failure
+# stays fail-closed exactly as before.
+budget_stale_abort() {
+  case "$1" in
+    *"refusing admission without a lease_id"*|*"refusing to write: ledger is stamped"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+# The marker write and the one-time stderr are the same event: the first
+# structural stale-broker failure in a period surfaces once, and every later
+# failure in that period (while the marker still stands) stays quiet so a fleet
+# of 304s does not become per-request noise (#2307). The daemon's quota reader
+# turns the marker into one fleet alert per workspace and rearms it when the
+# marker disappears (a refreshed broker self-heals).
+budget_mark_stale_broker() {
+  if [ -n "$agent_quota_dir" ] && [ ! -f "$agent_quota_dir/broker-reconcile-stale" ]; then
+    printf '%s\n' "$budget_consumer_label" > "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
+    printf '%s\n' 'aiur: GitHub budget broker is stale for this ledger (missing reconcile subcommand, or predates the ledger schema/version stamp); budget accounting for this workspace is disabled until the current broker is installed' >&2
+  fi
+}
+
+# A reconcile failure is structural — broker predates the `reconcile`
+# subcommand, is older than the ledger's version stamp, cannot write to the
+# ledger, or cannot run at all — unless it is a transient SQLite lock that can
+# succeed on the next attempt. Distinguish by content, not by exit code: every
+# structural case must be surfaced once rather than silently swallowed on every
+# 304, and the argparse "invalid choice" wording is deliberately not matched
+# (it is not a stability contract across Python versions; the trigger and stamp
+# messages above are this project's own).
+budget_reconcile_transient() {
+  case "$1" in
+    *"database is locked"*|*"database table is locked"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 budget_reconcile_response() {
   [ "$budget_enabled" -eq 1 ] || return 0
   [ -n "$budget_lease" ] || return 0
   [ -n "$output_file" ] && [ -f "$output_file" ] || return 0
 
   if awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"; then
-    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+    if budget_reconcile_output=$(budget_command reconcile --lease-id "$budget_lease" --status 304 2>&1); then
+      # Reconcile succeeded: a refreshed broker has recovered, so clear any
+      # stale-broker marker left by an earlier structural failure.
+      if [ -n "$agent_quota_dir" ] && [ -f "$agent_quota_dir/broker-reconcile-stale" ]; then
+        rm -f "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
+      fi
+    elif ! budget_reconcile_transient "$budget_reconcile_output"; then
+      budget_mark_stale_broker
+    fi
   fi
+  unset budget_reconcile_output
 }
 
 budget_start_renewal() {
