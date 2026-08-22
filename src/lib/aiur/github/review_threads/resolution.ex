@@ -18,6 +18,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
       thread {
         id
         isResolved
+        pullRequest { number }
       }
     }
   }
@@ -29,6 +30,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
       thread {
         id
         isResolved
+        pullRequest { number }
       }
     }
   }
