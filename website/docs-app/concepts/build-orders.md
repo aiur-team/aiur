@@ -29,7 +29,9 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 | `aiur build-orders [<root>]` | The same projection in a terminal. |
 | `--json` | Machine-readable Build Order rows. |
 
-On the catalog, epic and wave counts remain numeric when resolution succeeds, including a real `0`. When the labelled tracker read cannot resolve those dimensions, the cells instead show `Budget exhausted`, `Timed out`, or `Upstream error`; an unclassified failure remains `Unresolved`. These states are intentionally not estimates—retry after provider budget or health recovers.
+On the catalog, epic and wave counts remain numeric when resolution succeeds, including a real `0`. When the labelled tracker read cannot resolve those dimensions, the cells instead show `Budget exhausted`, `Timed out`, or `Upstream error`; an unclassified failure remains `Unresolved`.
+
+These states are intentionally not estimates—retry after provider budget or health recovers.
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
