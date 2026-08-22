@@ -1410,7 +1410,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
     cond do
       is_nil(catalog) ->
-        apply_store_catalog_result(state, StoreCatalog.build(state |> active_repository_for() |> repo_name()))
+        repository = active_repository_for(state)
+        apply_store_catalog_result(state, StoreCatalog.build(repo_name(repository)))
 
       true ->
         new_entries = fun.(catalog.entries)
@@ -1444,12 +1445,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp root_number(_root), do: nil
 
   defp sort_roots(roots) do
-    Enum.sort_by(roots, &root_number/1, fn a, b ->
-      case {Integer.parse(a || ""), Integer.parse(b || "")} do
-        {{na, ""}, {nb, ""}} -> na <= nb
-        _other -> (a || "") <= (b || "")
-      end
-    end)
+    Enum.sort_by(roots, &sort_number(root_number(&1)))
+  end
+
+  # Numeric identifiers sort first (1, 2, 10), everything else after, so the
+  # merged list never reshuffles between two equally-ordered reads.
+  defp sort_number(nil), do: {1, 0}
+
+  defp sort_number(identifier) do
+    case Integer.parse(identifier) do
+      {number, ""} -> {0, number}
+      _other -> {1, 0}
+    end
   end
 
   defp subscribe_scope(topic_fun) do
