@@ -514,8 +514,8 @@ defmodule Aiur.GitHub.Budget do
 
   defp limit_hold(response, headers) do
     cond do
+      GraphQLErrors.secondary_rate_limited_response?(response) -> {:token, retry_after_ms(response)}
       remaining(headers) == 0 -> primary_limit_hold(headers, response)
-      Map.get(response, :status) in [403, 429] and secondary_limit?(response) -> {:token, retry_after_ms(response)}
       true -> :none
     end
   end
@@ -525,10 +525,6 @@ defmodule Aiur.GitHub.Budget do
       delay when is_integer(delay) and delay > 0 -> {:resource, delay}
       _missing -> {:token, retry_after_ms(response)}
     end
-  end
-
-  defp secondary_limit?(response) do
-    GraphQLErrors.rate_limited_response?(response, :unknown) and remaining(Map.get(response, :headers, [])) != 0
   end
 
   defp retry_after_ms(response) do

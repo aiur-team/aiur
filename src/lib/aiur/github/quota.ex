@@ -108,10 +108,20 @@ defmodule Aiur.GitHub.Quota do
 
   @spec snapshot(GenServer.server()) :: map()
   def snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :snapshot)
+    snapshot!(server)
   catch
     :exit, _reason -> @unknown_snapshot
   end
+
+  @doc """
+  Reads the quota meter without replacing an unavailable process with an
+  unknown snapshot.
+
+  Diagnostic callers use this form when an unreachable meter must be reported
+  as an error rather than presented as an empty measurement.
+  """
+  @spec snapshot!(GenServer.server()) :: map()
+  def snapshot!(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do
@@ -271,16 +281,18 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
-  # Every instrumented GraphQL response carries `rateLimit { limit remaining
-  # resetAt }` in its body, and that block is the endpoint's own answer for the
-  # points budget — no header parsing, no assumption, and no dependence on the
-  # `x-ratelimit-*` headers being present on a GraphQL response. Reading it here
-  # is what lets the daemon learn its real remaining budget from every call it
-  # already makes, instead of waiting for the next `/rate_limit` refresh.
+  # Successful instrumented GraphQL responses report `rateLimit { limit
+  # remaining resetAt }` in their body. Secondary-limit responses are excluded
+  # before window ingestion because their headers do not establish primary
+  # exhaustion.
   defp observe_response(state, request, {:ok, response}, now) when is_map(response) do
-    case graphql_rate_limit_values(request, response) do
-      %{} = values -> put_window_from_values(state, "graphql", values, now)
-      nil -> observe_response_headers(state, request, response, now)
+    if GraphQLErrors.secondary_rate_limited_response?(response) do
+      state
+    else
+      case graphql_rate_limit_values(request, response) do
+        %{} = values -> put_window_from_values(state, "graphql", values, now)
+        nil -> observe_response_headers(state, request, response, now)
+      end
     end
   end
 
@@ -426,7 +438,7 @@ defmodule Aiur.GitHub.Quota do
 
   defp dispatch_status(state, now) do
     Enum.find_value(@primary_resources, :available, fn resource ->
-      case resource_status(state, resource, @low_water_percent, now) do
+      case window_status(state, resource, @low_water_percent, now) do
         :available -> nil
         hold -> hold
       end
@@ -449,11 +461,11 @@ defmodule Aiur.GitHub.Quota do
   defp cancel_recovery_timer(%{recovery_timer_ref: ref}) when is_reference(ref), do: Process.cancel_timer(ref)
   defp cancel_recovery_timer(_state), do: false
 
-  # GitHub signals a secondary limit with a 403 or 429 whose primary window is
-  # still healthy. A rejection that *did* drain the window is already covered
-  # by the window hold, so only the former needs its own backoff.
+  # Retry-After or explicit secondary/abuse wording identifies the short-lived
+  # limiter independently of the primary remaining header. Keep it as a bounded
+  # resource backoff rather than converting it into a primary window.
   defp observe_rejection(state, request, {:ok, %{status: status} = response}, now) when status in [403, 429] do
-    if rate_limit_endpoint?(request) or not secondary_limit?(response) do
+    if rate_limit_endpoint?(request) or not GraphQLErrors.secondary_rate_limited_response?(response) do
       state
     else
       put_backoff(state, request_resource(request), backoff_until(response, now), now)
@@ -461,10 +473,6 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp observe_rejection(state, _request, _result, _now), do: state
-
-  defp secondary_limit?(response) do
-    GraphQLErrors.rate_limited_response?(response, :unknown) and GraphQLErrors.rate_limit_remaining(response) != 0
-  end
 
   # Only `Retry-After` describes a secondary limit. The `x-ratelimit-reset` on
   # the same response belongs to the primary window — often an hour out — and
