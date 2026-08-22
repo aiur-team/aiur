@@ -17,8 +17,8 @@ defmodule AiurWeb.BuildOrder.AnalyticsRuntime do
   import Phoenix.LiveView, only: [connected?: 1, start_async: 3]
 
   alias Aiur.{PollCadence, TrackerIdentity}
-  alias AiurWeb.Endpoint
   alias AiurWeb.BuildOrder.{AnalyticsScope, RouteState}
+  alias AiurWeb.Endpoint
   alias AiurWeb.OperatorControlCenter.Analytics.Presenter
   alias Phoenix.LiveView.Socket
 
