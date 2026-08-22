@@ -145,7 +145,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp fetch_pages(request_fun, url, token, owner, repo, prefix, etag, acc) do
     case request_fun.(adhoc_request(url, token, etag)) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        adhoc_page(request_fun, token, owner, repo, prefix, etag, acc, response, body)
+        adhoc_page(request_fun, token, owner, repo, prefix, etag, acc, response)
 
       {:ok, %{status: 304}} ->
         {:not_modified, etag}
@@ -165,8 +165,8 @@ defmodule Aiur.BuildOrder.AdHocSource do
     if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
   end
 
-  defp adhoc_page(request_fun, token, owner, repo, prefix, etag, acc, response, body) do
-    issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
+  defp adhoc_page(request_fun, token, owner, repo, prefix, etag, acc, response) do
+    issues = Enum.map(response.body, &Issues.normalize_issue(&1, owner, repo, prefix))
     retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
 
     case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
