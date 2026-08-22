@@ -143,18 +143,9 @@ defmodule Aiur.BuildOrder.AdHocSource do
   # the recurring repo-wide listing previously paid full price and carried no
   # `caller:`; now it revalidates for free and is attributed.
   defp fetch_pages(request_fun, url, token, owner, repo, prefix, etag, acc) do
-    request = %{method: :get, url: url, token: token, caller: "adhoc_source"}
-    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
-
-    case request_fun.(request) do
+    case request_fun.(adhoc_request(url, token, etag)) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
-        retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
-
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, acc ++ issues, retained}
-          next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, retained, acc ++ issues)
-        end
+        adhoc_page(request_fun, token, owner, repo, prefix, etag, acc, response, body)
 
       {:ok, %{status: 304}} ->
         {:not_modified, etag}
@@ -166,6 +157,21 @@ defmodule Aiur.BuildOrder.AdHocSource do
       {:error, reason} ->
         Logger.warning("Ad Hoc overlay fetch failed: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  defp adhoc_request(url, token, etag) do
+    request = %{method: :get, url: url, token: token, caller: "adhoc_source"}
+    if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+  end
+
+  defp adhoc_page(request_fun, token, owner, repo, prefix, etag, acc, response, body) do
+    issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
+    retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
+
+    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      nil -> {:ok, acc ++ issues, retained}
+      next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, retained, acc ++ issues)
     end
   end
 

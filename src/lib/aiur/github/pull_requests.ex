@@ -181,23 +181,7 @@ defmodule Aiur.GitHub.PullRequests do
 
       case request_fun.(branch_pull_request_request(url, token, etag, opts)) do
         {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-          headers = Map.get(response, :headers, [])
-          first_etag = Transport.header(headers, "etag") || etag
-
-          case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
-            nil ->
-              fetch_open_ticket_pull_request_pages(
-                request_fun,
-                token,
-                Transport.parse_next_page_url(headers),
-                issue_number,
-                first_etag,
-                opts
-              )
-
-            pull_request ->
-              {:ok, pull_request, first_etag}
-          end
+          open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts)
 
         {:ok, %{status: 304} = response} ->
           {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
@@ -215,6 +199,26 @@ defmodule Aiur.GitHub.PullRequests do
     request = %{method: :get, url: url, token: token}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
     Transport.put_caller(request, opts)
+  end
+
+  defp open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts) do
+    headers = Map.get(response, :headers, [])
+    first_etag = Transport.header(headers, "etag") || etag
+
+    case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+      nil ->
+        fetch_open_ticket_pull_request_pages(
+          request_fun,
+          token,
+          Transport.parse_next_page_url(headers),
+          issue_number,
+          first_etag,
+          opts
+        )
+
+      pull_request ->
+        {:ok, pull_request, first_etag}
+    end
   end
 
   defp fetch_open_ticket_pull_request_pages(_request_fun, _token, nil, _issue_number, first_etag, _opts),

@@ -205,27 +205,14 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events, _etag), do: {:error, :timeline_page_limit_exceeded}
 
   defp fetch_timeline_pages(request_fun, token, url, pages_left, events, etag) do
-    request = %{
-      method: :get,
-      url: url,
-      token: token,
-      max_response_bytes: @max_timeline_response_bytes,
-      caller: "dispatch_authorization"
-    }
-
-    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+    request = timeline_request(url, token, etag)
 
     case request_fun.(request) do
       {:ok, %{status: 304} = response} ->
-        {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+        {:not_modified, response_etag(response, etag)}
 
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
-
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, events ++ page, retained}
-          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, retained)
-        end
+        timeline_page(request_fun, token, page, response, pages_left, events, etag)
 
       {:ok, %{status: 200}} ->
         # A 200 whose body is not a JSON list means the page was truncated at
@@ -243,6 +230,31 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
       _ ->
         {:error, :invalid_timeline_response}
+    end
+  end
+
+  defp timeline_request(url, token, etag) do
+    request = %{
+      method: :get,
+      url: url,
+      token: token,
+      max_response_bytes: @max_timeline_response_bytes,
+      caller: "dispatch_authorization"
+    }
+
+    if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+  end
+
+  defp response_etag(response, fallback) do
+    Transport.header(Map.get(response, :headers, []), "etag") || fallback
+  end
+
+  defp timeline_page(request_fun, token, page, response, pages_left, events, etag) do
+    retained = response_etag(response, etag)
+
+    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      nil -> {:ok, events ++ page, retained}
+      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, retained)
     end
   end
 
