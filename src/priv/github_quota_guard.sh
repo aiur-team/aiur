@@ -236,7 +236,15 @@ case "${1:-} ${2:-}" in
   "pr diff") resource=core; endpoint_family=pulls ;;
   "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=issues ;;
   "run view"|"run list"|"run watch") endpoint_family=actions ;;
-  "search "*) resource=graphql; endpoint_family=search ;;
+  # `gh search` splits across two wire transports (measured with GH_DEBUG=api):
+  # `search issues|prs` are GraphQL (`X-Ratelimit-Resource: graphql`), while
+  # `search code|commits|repos|users` hit REST `/search/*` and GitHub meters
+  # them as a third pool, `search` (~30 req/min rather than 5,000/hr). The
+  # `search` pool is its own resource so something paces against it; booking it
+  # to core or graphql mis-states the spend and protects the wrong window.
+  "search issues"|"search prs") resource=graphql; endpoint_family=search ;;
+  "search code"|"search commits"|"search repos"|"search users") resource=search; endpoint_family=search ;;
+  "search "*) resource=search; endpoint_family=search ;;
   # The `pr`/`issue` write subcommands are a GraphQL/REST mix and must be
   # classified per subcommand rather than as one bucket: `pr create|merge|review`
   # and `issue create` mutate through GraphQL, while the rest (close, reopen,
@@ -1619,7 +1627,8 @@ budget_acquire() {
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
       --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" \
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
-      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
+      --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
+      --search-limit "${AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
       printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
       return 75
     fi
@@ -2298,7 +2307,7 @@ consider_hold() {
 # while the primary window still reads healthy.
 consider_resource_holds() {
   case "$2" in
-    core|graphql)
+    core|graphql|search)
       consider_hold "$1/$2-hold"
       consider_hold "$1/$2-secondary-hold"
       ;;

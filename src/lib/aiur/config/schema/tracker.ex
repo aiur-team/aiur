@@ -17,6 +17,10 @@ defmodule Aiur.Config.Schema.Github do
   @default_daemon_graphql_limit_per_hour 3000
   @default_agent_core_limit_per_hour 250
   @default_agent_graphql_limit_per_hour 750
+  # GitHub meters `/search/*` against a third pool (~30 req/min rather than
+  # 5,000/hr), so `search` gets its own per-actor ceilings (#2297).
+  @default_daemon_search_limit_per_hour 1000
+  @default_agent_search_limit_per_hour 250
 
   @primary_key false
   embedded_schema do
@@ -50,8 +54,10 @@ defmodule Aiur.Config.Schema.Github do
     # the volume they used to be sized against.
     field(:daemon_core_limit_per_hour, :integer, default: @default_daemon_core_limit_per_hour)
     field(:daemon_graphql_limit_per_hour, :integer, default: @default_daemon_graphql_limit_per_hour)
+    field(:daemon_search_limit_per_hour, :integer, default: @default_daemon_search_limit_per_hour)
     field(:agent_core_limit_per_hour, :integer, default: @default_agent_core_limit_per_hour)
     field(:agent_graphql_limit_per_hour, :integer, default: @default_agent_graphql_limit_per_hour)
+    field(:agent_search_limit_per_hour, :integer, default: @default_agent_search_limit_per_hour)
     # Additional GitHub credentials the daemon may spread API load across. An
     # empty list is the single-credential default and changes nothing.
     embeds_many(:credentials, GithubCredential, on_replace: :delete)
@@ -82,8 +88,10 @@ defmodule Aiur.Config.Schema.Github do
         :stagger_ms,
         :daemon_core_limit_per_hour,
         :daemon_graphql_limit_per_hour,
+        :daemon_search_limit_per_hour,
         :agent_core_limit_per_hour,
-        :agent_graphql_limit_per_hour
+        :agent_graphql_limit_per_hour,
+        :agent_search_limit_per_hour
       ],
       empty_values: []
     )
@@ -97,8 +105,10 @@ defmodule Aiur.Config.Schema.Github do
       :stagger_ms,
       :daemon_core_limit_per_hour,
       :daemon_graphql_limit_per_hour,
+      :daemon_search_limit_per_hour,
       :agent_core_limit_per_hour,
-      :agent_graphql_limit_per_hour
+      :agent_graphql_limit_per_hour,
+      :agent_search_limit_per_hour
     ])
     |> cast_embed(:credentials, with: &GithubCredential.changeset/2)
     |> cast_embed(:github_app, with: &GithubApp.changeset/2)
@@ -123,8 +133,10 @@ defmodule Aiur.Config.Schema.Github do
     |> validate_number(:stagger_ms, greater_than_or_equal_to: 0, less_than_or_equal_to: 5_000)
     |> validate_number(:daemon_core_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_number(:daemon_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:daemon_search_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_number(:agent_core_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_number(:agent_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
+    |> validate_number(:agent_search_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_endpoint_concurrency()
   end
 

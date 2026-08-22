@@ -344,11 +344,19 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.cp!(context.wrapper, executor_wrapper)
     File.chmod!(executor_wrapper, 0o755)
 
+    # `System.cmd` merges the parent environment rather than replacing it, so
+    # "remove the marker" is not enough when the test VM itself runs inside an
+    # Aiur agent workspace (AIUR_AGENT_WORKSPACE is inherited back in). The
+    # guard treats an empty AIUR_AGENT_WORKSPACE as absent
+    # (`-z "${AIUR_AGENT_WORKSPACE:-}"`), so pin it to "" exactly as
+    # `run_executor_guard` does.
     assert {"ok\n", 0} =
              System.cmd(
                executor_wrapper,
                ["pr", "merge", "1670"],
-               env: Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end),
+               env:
+                 Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end) ++
+                   [{"AIUR_AGENT_WORKSPACE", ""}],
                stderr_to_stdout: true
              )
   end
@@ -827,6 +835,46 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
   end
 
+  # `gh search` splits across two wire transports (measured with `GH_DEBUG=api`):
+  # `search issues|prs` are GraphQL, while `search repos|code|commits|users`
+  # hit REST `/search/*`, which GitHub meters as a third pool, `search` (~30
+  # req/min rather than 5,000/hr). Booking the search subcommands to core or
+  # graphql mis-states the spend and paces nothing against the pool that
+  # throttles first, so the `search` resource is its own bucket.
+  test "gh search subcommands book the search resource, not core or graphql", context do
+    budget_root = Path.join(context.state_path, "search-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    search_commands = [
+      ["search", "repos", "state:open"],
+      ["search", "code", "foobar"],
+      ["search", "commits", "fix"],
+      ["search", "users", "everdred"]
+    ]
+
+    for args <- search_commands do
+      assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
+    end
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == length(search_commands)
+
+    for admission <- admissions do
+      assert admission["endpoint_family"] == "search"
+      assert admission["resource"] == "search"
+    end
+  end
+
   test "REST high-level commands stay in the core bucket", context do
     budget_root = Path.join(context.state_path, "rest-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -960,6 +1008,48 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], core_env)
     assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], core_env)
+  end
+
+  test "a search subcommand consumes the search actor ceiling, not the core one", context do
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    # `gh search repos` is metered as `search` (~30 req/min), its own pool, so
+    # it must spend against a search ceiling rather than the core or graphql
+    # windows. A search limit of 1 holds the second call; if `search repos` were
+    # still booked to core or graphql this hold would never fire.
+    consumer = "search-ceiling-test"
+    search_budget = Path.join(context.state_path, "search-ceiling-budget")
+
+    search_env = [
+      AIUR_GITHUB_BUDGET_ROOT: search_budget,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_CONSUMER: consumer,
+      AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR: "1",
+      AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "0",
+      AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["search", "repos", "state:open"], search_env)
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "search", "repos", "state:open"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", search_budget},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_BUDGET_CONSUMER", consumer},
+                     {"AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR", "1"},
+                     {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"},
+                     {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "0"}
+                   ],
+               stderr_to_stdout: true
+             )
   end
 
   test "a paginated api call preserves its original command shape", context do
