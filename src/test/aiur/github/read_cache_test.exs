@@ -30,6 +30,10 @@ defmodule Aiur.GitHub.ReadCacheTest do
   setup do
     await_read_cache()
     ReadCache.reset()
+    # The TTL is mode-aware now, and these tests exercise the 30-second bucket
+    # for `@repo`. Ensure it is in polling mode so a stray webhook-backed record
+    # (from any test anywhere) cannot turn a 31-second ageing into a hit.
+    ModeTable.delete(@repo)
     on_exit(&ReadCache.reset/0)
     :ok
   end

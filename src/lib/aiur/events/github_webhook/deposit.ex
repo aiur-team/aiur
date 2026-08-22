@@ -249,7 +249,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # read; under-invalidating serves a stale list for the whole TTL.
   defp set_changing?(:issue, action), do: action in ["opened", "reopened", "deleted"]
   defp set_changing?(:pull_request, action), do: action in ["opened", "reopened", "closed"]
-  defp set_changing?(_kind, _action), do: false
 
   defp numbered_identities(repo, number, collections?) do
     with {owner, name} when owner != "" and name != "" <- split_repo(repo),
@@ -266,8 +265,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       _other -> nil
     end
   end
-
-  defp split_repo(_repo), do: nil
 
   defp parse_number(number) when is_integer(number) and number > 0, do: number
 
