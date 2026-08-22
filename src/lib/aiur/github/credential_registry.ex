@@ -74,7 +74,7 @@ defmodule Aiur.GitHub.CredentialRegistry do
   @spec pooled?(keyword()) :: boolean()
   def pooled?(opts \\ []), do: length(credentials(opts)) > 1
 
-  @doc "The credential whose current token hashes to `token_key`, or `nil`."
+  @doc "The credential whose stable accounting identity matches `token_key`, or `nil`."
   @spec by_token_key(String.t() | nil, keyword()) :: Credential.t() | nil
   def by_token_key(token_key, opts \\ [])
 

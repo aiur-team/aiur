@@ -83,6 +83,19 @@ defmodule Aiur.AiurAgentSkillTest do
     assert overview =~ "`git -C \"$workspace\" ls-remote`"
   end
 
+  test "aiur-agent dev loop audits the complete test tree for renames" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md"))
+    normalized = String.replace(content, ~r/\s+/, " ")
+
+    assert content =~ "Renames and signature changes need an exhaustive test-tree audit"
+    assert content =~ "rg -n --fixed-strings -- '<old-name>' src/test/"
+
+    assert normalized =~
+             "`test/aiur/github/` does not collect the sibling `test/aiur/github_client_test.exs`"
+
+    assert content =~ "account for every hit"
+  end
+
   test "issue-worker prompts require explicit repository context for git commands" do
     for path <- [".aiur/prompt.md", ".aiur/examples/prompt.md.example"] do
       content = File.read!(Path.join(@repo_root, path))
@@ -288,6 +301,27 @@ defmodule Aiur.AiurAgentSkillTest do
     assert payload["recommendation"]["option_id"] == "multiply"
     assert payload["consequence_of_delay"] =~ "No answer: issue #101's agent remains paused"
     assert payload["consequence_of_delay"] =~ "no timeout chooses automatically"
+  end
+
+  test "Command authoring classifies routine reversible operations as delegable" do
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+    normalized = one_line(relay)
+
+    assert normalized =~ "Classify the requested action, not the topic around it"
+    assert normalized =~ "routine, reversible operational"
+    assert normalized =~ "`authority: supervisor_allowed`"
+    assert normalized =~ "irreversible actions, spend, external publication, or product direction"
+
+    [_guidance, worked_example] =
+      String.split(relay, "#### Before and after: a real Command from sandbox issue #101", parts: 2)
+
+    [_, payload_json] = Regex.run(~r/```jsonc\n(.*?)\n```/s, worked_example)
+    payload = Jason.decode!(payload_json)
+
+    assert payload["authority"] == "supervisor_allowed"
+    assert payload["reversibility"] == "reversible"
+    assert Enum.all?(payload["options"], &(&1["risk"] == "low"))
+    assert is_binary(payload["recommendation"]["option_id"])
   end
 
   test "blocker guidance keeps unblocked work moving" do

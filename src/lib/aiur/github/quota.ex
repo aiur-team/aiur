@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.RequestOrigin
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
@@ -100,7 +101,7 @@ defmodule Aiur.GitHub.Quota do
 
   @spec observe(GenServer.server(), request(), {:ok, map()} | {:error, term()}) :: :ok
   def observe(server \\ __MODULE__, request, result) do
-    GenServer.cast(server, {:observe, request, result})
+    GenServer.cast(server, {:observe, RequestOrigin.mark(request), result})
   catch
     :exit, _reason -> :ok
   end
@@ -541,16 +542,18 @@ defmodule Aiur.GitHub.Quota do
 
   defp secondary_topic(resource), do: "system.github.quota.#{resource}.secondary"
 
-  defp attribute_request(state, request, {:ok, %{status: status} = response}, now) when is_integer(status) do
+  defp attribute_request(state, request, result, now) do
     if rate_limit_endpoint?(request) do
       state
     else
       resource = request_resource(request)
+      {status, response} = attribution_response(result)
       {cost, cost_source} = request_cost(resource, status, response)
 
       observation = %{
         consumer: request_consumer(request),
         caller: GraphQLCost.derive(request),
+        view_originated?: Map.get(request, :view_originated?, false) == true,
         direction: request_direction(request),
         resource: resource,
         cost: cost,
@@ -562,7 +565,8 @@ defmodule Aiur.GitHub.Quota do
     end
   end
 
-  defp attribute_request(state, _request, _result, _now), do: state
+  defp attribution_response({:ok, response}) when is_map(response), do: {Map.get(response, :status), response}
+  defp attribution_response(_result), do: {nil, %{}}
 
   # What the call actually cost the budget it was billed to.
   #
@@ -690,6 +694,7 @@ defmodule Aiur.GitHub.Quota do
         caller: caller,
         resource: resource,
         calls: length(entries),
+        view_calls: Enum.count(entries, &(Map.get(&1, :view_originated?, false) == true)),
         reads: reads,
         writes: length(entries) - reads,
         points: points,

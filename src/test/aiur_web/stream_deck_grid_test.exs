@@ -136,6 +136,20 @@ defmodule AiurWeb.StreamDeckGridTest do
     refute Map.has_key?(held, :dependency_ready)
   end
 
+  test "omits idle tickets whose dispatch was declined" do
+    payload =
+      StreamDeckGrid.project(%{
+        running: [],
+        retrying: [],
+        idle: [
+          agent("queued"),
+          agent("decision-blocked", dispatch_decline_reason: :blocked_on_decision)
+        ]
+      })
+
+    assert Enum.map(payload.agents, & &1.identifier) == ["queued"]
+  end
+
   test "derives queued readiness from complete fleet dependencies" do
     snapshot = %{
       running: [

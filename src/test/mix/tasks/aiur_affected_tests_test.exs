@@ -107,3 +107,49 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSinksTest do
     assert AffectedTests.xref_sinks(["src/test/aiur/foo_test.exs", "README.md"], dir) == []
   end
 end
+
+defmodule Mix.Tasks.Aiur.AffectedTests.DeletedReferencesTest do
+  use ExUnit.Case, async: true
+
+  alias Mix.Tasks.Aiur.AffectedTests
+
+  test "discovers root-level tests retaining deleted structural references" do
+    repo = Path.join(System.tmp_dir!(), "affected-task-references-#{System.unique_integer([:positive])}")
+    source = Path.join(repo, "src/lib/aiur/github/reply.ex")
+    root_test = Path.join(repo, "src/test/aiur/github_client_test.exs")
+    File.mkdir_p!(Path.dirname(source))
+    File.mkdir_p!(Path.dirname(root_test))
+
+    File.write!(source, """
+    def old_name, do: :ok
+    def state(opts), do: Keyword.get(opts, :bot_account)
+    """)
+
+    File.write!(root_test, """
+    assert old_name() == :ok
+    assert state(bot_account: account)
+    """)
+
+    try do
+      git!(repo, ["init", "-q"])
+      git!(repo, ["config", "user.email", "test@example.com"])
+      git!(repo, ["config", "user.name", "Test"])
+      git!(repo, ["add", "."])
+      git!(repo, ["commit", "-qm", "baseline"])
+
+      File.write!(source, """
+      def new_name, do: :ok
+      def status(opts), do: Keyword.get(opts, :daemon_account)
+      """)
+
+      assert AffectedTests.deleted_reference_tests(repo, "HEAD") ==
+               {:ok, ["src/test/aiur/github_client_test.exs"]}
+    after
+      File.rm_rf!(repo)
+    end
+  end
+
+  defp git!(repo, args) do
+    assert {_output, 0} = System.cmd("git", args, cd: repo, stderr_to_stdout: true)
+  end
+end
