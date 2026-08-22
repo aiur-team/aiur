@@ -8,6 +8,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
   alias Aiur.TrackerIdentity
 
@@ -2921,6 +2922,22 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.build_orders(root: "") end)
 
     assert output =~ "__AIUR_CONTROL_ERROR__:aiur: build-orders accepts one non-empty Build Order root"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
+  test "github-cost routes meter failures through the control marker" do
+    meter = Process.whereis(Quota)
+    assert is_pid(meter)
+    assert Process.unregister(Quota)
+
+    output =
+      try do
+        capture_io(fn -> AgentControlCLI.github_cost() end)
+      after
+        assert Process.register(meter, Quota)
+      end
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: github-cost the GitHub quota meter is not running"
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 

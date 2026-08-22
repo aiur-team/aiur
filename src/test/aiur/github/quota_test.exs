@@ -7,6 +7,10 @@ defmodule Aiur.GitHub.QuotaTest do
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
+  test "strict snapshots surface an unavailable meter" do
+    assert catch_exit(Quota.snapshot!(:aiur_github_quota_not_running))
+  end
+
   test "projects rate-limit headers into exact core and GraphQL windows" do
     quota = start_quota()
 
