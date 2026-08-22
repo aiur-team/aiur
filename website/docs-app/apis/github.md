@@ -93,6 +93,33 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
+### What a validator may answer
+
+The savings above depend on the validator being the right one for the question
+asked. Two rules keep a `304` honest.
+
+**A page-1 ETag cannot answer a multi-page question.** GitHub orders most
+collections so page 1 becomes effectively immutable while the interesting
+changes land elsewhere: issue timelines are oldest-first, and issue and pull
+request listings are `created` desc. If `If-None-Match: <page-1 etag>` answers
+`304`, the reader must treat that as "page 1 is unchanged", never as "the whole
+list is unchanged" — a page-1 `304` on a churned ticket is permanently stale,
+with no self-healing, because the change that would refresh it is exactly the
+change that lands on a later page. Only trust a `304` for a paginated read when
+the read was single-page (then page 1 *is* the list), or when the validator kept
+is the last page's rather than the first's. If neither is practical, do not make
+the read conditional: an unconditional read that is correct beats a conditional
+one that is quietly wrong.
+
+**A validator belongs to the thing it describes.** A read of one resource earns
+a validator for that resource; a read of a query earns a validator for that
+query. Writing a query's validator into a resource's key means any other writer
+of that key destroys or corrupts it — a body change deletes the ETag, a webhook
+deposit writes a body-derived validator that is then sent on a URL where it can
+never match, and either way a later conditional request is answered wrongly.
+Store a validator where the thing it describes lives, and only answer it against
+the read that earned it.
+
 GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
