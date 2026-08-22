@@ -155,6 +155,12 @@ defmodule Aiur.GitHub.CredentialSelector do
   Each row carries the credential, its `token_key`, and the observed window per
   resource — `nil` where nothing has been observed, never `0`. Unobserved and
   exhausted are opposite facts and the report must not conflate them.
+
+  `last_observed` carries the raw table's most recent window per resource even
+  when its reset has passed, so a consumer that renders a stale credential can
+  say *how* stale it is rather than merely that it is unobserved. `windows`
+  stays fresh-only: the selector and the usage reports only spend headroom that
+  is still valid, and `last_observed` is additive for the views that want age.
   """
   @spec headroom(keyword()) :: [map()]
   def headroom(opts \\ []) do
@@ -175,9 +181,17 @@ defmodule Aiur.GitHub.CredentialSelector do
         primary?: credential.primary?,
         available?: available?,
         token_key: token_key,
-        windows: Map.get(windows, token_key, %{})
+        windows: Map.get(windows, token_key, %{}),
+        last_observed: last_observed(token_key)
       }
     end)
+  end
+
+  # The most recent window per resource from the raw headroom table, fresh or
+  # expired. `snapshot/1` above drops expired windows; this keeps the last one
+  # so a stale meter can carry how long ago the credential was observed.
+  defp last_observed(token_key) do
+    Map.new(CredentialHeadroom.resources(), &{&1, CredentialHeadroom.last_observed(token_key, &1)})
   end
 
   # A document we cannot read is a write. Misreading a read as a write only
