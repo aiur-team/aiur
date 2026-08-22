@@ -38,6 +38,7 @@ defmodule Aiur.DecisionStore do
     Config,
     Decision,
     DecisionAnswer,
+    DecisionAuthority,
     DecisionDispatch,
     DecisionDispatchTasks,
     DecisionEnrichment,
@@ -67,10 +68,6 @@ defmodule Aiur.DecisionStore do
   @default_reconcile_delay_ms 250
   @decision_dispatch_monitor_retry_ms 25
   @default_retry_delays_ms [250, 1_000, 5_000]
-  # Code-enforced ceiling on what the Executor may answer without the operator.
-  # Kept as explicit allowlists so an unknown or missing value fails closed.
-  @executor_answerable_authorities [:supervisor_allowed, :supervisor_preferred]
-  @executor_answerable_reversibilities [:reversible]
   # Creation-time dedup (#2099): two Commands from one agent on one ticket inside
   # a short window that *paraphrase* the same question collapse to one at
   # creation. Only paraphrases are collapsed: an exact-identical re-file is the
@@ -1294,10 +1291,10 @@ defmodule Aiur.DecisionStore do
   # a non-operator answer to the Decision's own declared policy fields.
   defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, %Decision{} = request) do
     cond do
-      request.authority not in @executor_answerable_authorities ->
+      not DecisionAuthority.executor_authority_answerable?(request) ->
         {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
 
-      request.reversibility not in @executor_answerable_reversibilities ->
+      not DecisionAuthority.executor_reversibility_answerable?(request) ->
         {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}}
 
       true ->

@@ -180,6 +180,25 @@ Rules:
 
 When you complete `ce-plan` on a ticket that is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if `ce-plan` surfaced an unresolved operator decision, a dependency blocker, or a scope question that genuinely requires human input before implementation can begin. Interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
 
+### Rename and signature-change test audit
+
+Directory-scoped test commands are not proof that a rename or signature change
+updated every caller. Before pushing one of those changes, search the entire test
+tree for each old function name, option key, and other changed identifier:
+
+```bash
+mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/
+```
+
+Account for every hit before push, whether it needs changing or is deliberately
+still valid. Do this in addition to running affected tests. The
+`mix aiur.affected_tests` selector also mines deleted references from source
+diff hunks and adds every matching test file regardless of directory depth.
+`src/test/aiur/` contains both topic subdirectories and test files directly: for
+example, a run of `test/aiur/github/` does not collect
+`test/aiur/github_client_test.exs`. Never treat a large green directory-scoped
+test count as evidence that sibling root-level test files ran.
+
 ### Docs ship in the same PR as the change
 
 Documentation is part of the work, never a follow-up ticket. Update

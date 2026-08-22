@@ -338,14 +338,30 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     path = IssueLog.transcript_path(identifier)
     File.mkdir_p!(Path.dirname(path))
 
-    File.write!(
-      path,
-      Jason.encode!(%{"role" => "assistant", "body" => "ready", "timestamp" => "2026-07-30T00:00:00Z", "payload" => nil}) <> "\n"
-    )
+    diff_event =
+      Jason.encode!(%{
+        "role" => "tool",
+        "body" => "edit a.ex",
+        "timestamp" => "2026-07-30T00:00:00Z",
+        "payload" => %{"tool" => "edit", "changes" => [%{"path" => "a.ex", "diff" => "++x = 1\n-y = 2"}]}
+      })
+
+    message_event = Jason.encode!(%{"role" => "assistant", "body" => "ready", "timestamp" => "2026-07-30T00:00:01Z", "payload" => nil})
+
+    File.write!(path, diff_event <> "\n" <> message_event <> "\n")
 
     conn = call(conn(:get, "/api/v1/#{identifier}/events?limit=1") |> authed())
     assert conn.status == 200
     assert %{"events" => [%{"badge" => "AGENT", "body" => "ready"}], "pagination" => %{"limit" => 1}} = Jason.decode!(conn.resp_body)
+
+    all = call(conn(:get, "/api/v1/#{identifier}/events?limit=2") |> authed()) |> json_response(200)
+
+    assert %{
+             "events" => [
+               %{"badge" => "AGENT", "body" => "ready"},
+               %{"type" => "diff", "line" => "+x = 1", "signed_line" => "++x = 1"}
+             ]
+           } = all
 
     invalid = call(conn(:get, "/api/v1/#{identifier}/events?cursor=not-a-cursor") |> authed())
     assert invalid.status == 422
