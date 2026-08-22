@@ -256,6 +256,24 @@ defmodule Aiur.Application do
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
+      # The next three are passive tables a GitHub request consults, started in
+      # the order a request touches them: choose a credential, then look for a
+      # cached answer, then price and admit what is left. Neither of the first
+      # two depends on the other — `ReadCache` is keyed on the request's shape
+      # and never asks who is authenticating, and `CredentialHeadroom` is filled
+      # from response headers and never asks what was cached — so the order is
+      # chosen to be explicable rather than because either would fail otherwise.
+      #
+      # Owns the per-credential rate-limit table the selector reads. First of the
+      # three because selection happens in `default_request_fun`, outside the
+      # cache: a request has picked its credential before a lookup is attempted.
+      Aiur.GitHub.CredentialHeadroom,
+      # The daemon's read-through cache, owning the tables `Aiur.GitHub.Transport`
+      # consults on every request. It starts before `Quota` and before anything
+      # that polls, because a request issued while its tables do not exist is a
+      # request that pays: the lookup degrades to a miss rather than failing, and
+      # a miss is the full price. Reads never call this process.
+      Aiur.GitHub.ReadCache,
       Aiur.GitHub.Quota,
       # The ElevenLabs account credit quota, read on its own schedule. Absent an
       # API key it observes nothing at all, so an unconfigured account costs a
@@ -276,7 +294,12 @@ defmodule Aiur.Application do
       # boot fill; it reads ETS only, so it changes nothing about the page's
       # zero-fetch property. Gated on the dashboard like the HTTP server that
       # serves the page — there is no point sampling a cache nobody can view.
-      if(dashboard?, do: Aiur.GitHub.CacheHistory),
+      #
+      # `QuotaHistory` is the sibling ring behind the same page's "what is
+      # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
+      # observations — a GenServer call, no client and no transport — so it too
+      # changes nothing about the page's zero-fetch property.
+      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.

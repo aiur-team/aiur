@@ -137,6 +137,16 @@ defmodule Aiur.GitHub.Quota do
       shell_observations: [],
       shell_refreshed_at: nil,
       alerts: MapSet.new(),
+      # When this meter started observing. Attribution lives in this process's
+      # memory and does not survive a restart, while the credential's window
+      # does — GitHub keeps counting across the restart and `/rate_limit`
+      # reports the whole hour on the next refresh. Without this, a consumer
+      # cannot tell "nobody else spent it" from "I was not running when it was
+      # spent", and would attribute the daemon's own forgotten calls to
+      # somebody else.
+      # Overridable so a test can place the boot before or after a window's
+      # start without also moving the clock that prices everything else.
+      started_at: Keyword.get_lazy(opts, :started_at, fn -> Keyword.get(opts, :clock, &DateTime.utc_now/0).() end),
       clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
       emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
@@ -186,7 +196,11 @@ defmodule Aiur.GitHub.Quota do
 
     snapshot = %{
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
-      windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
+      windows:
+        Map.new(state.windows, fn {resource, window} ->
+          {resource, window |> present_window() |> Map.put(:started_at, window_start(state.windows, resource, now))}
+        end),
+      observing_since: observing_since(state, now),
       attribution: summarize_attribution(in_window),
       callers: summarize_callers(in_window, state.windows, now),
       coverage: coverage,
@@ -256,7 +270,35 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
+  # Successful instrumented GraphQL responses report `rateLimit { limit
+  # remaining resetAt }` in their body. Secondary-limit responses are excluded
+  # before window ingestion because their headers do not establish primary
+  # exhaustion.
   defp observe_response(state, request, {:ok, response}, now) when is_map(response) do
+    if GraphQLErrors.secondary_rate_limited_response?(response) do
+      state
+    else
+      case graphql_rate_limit_values(request, response) do
+        %{} = values -> put_window_from_values(state, "graphql", values, now)
+        nil -> observe_response_headers(state, request, response, now)
+      end
+    end
+  end
+
+  defp observe_response(state, _request, _result, _now), do: state
+
+  defp graphql_rate_limit_values(request, response) do
+    with "graphql" <- request_resource(request),
+         %{limit: limit, remaining: remaining, reset_at: reset_at} when is_integer(limit) and is_integer(remaining) <-
+           GraphQLCost.reported(response),
+         {:ok, reset, _offset} <- reset_at |> to_string() |> DateTime.from_iso8601() do
+      %{"limit" => limit, "remaining" => remaining, "reset" => DateTime.to_unix(reset)}
+    else
+      _unreported -> nil
+    end
+  end
+
+  defp observe_response_headers(state, request, response, now) do
     headers = Map.get(response, :headers, [])
 
     # GitHub reports `core` for an anonymous read too, but that is a different
@@ -280,8 +322,6 @@ defmodule Aiur.GitHub.Quota do
       state
     end
   end
-
-  defp observe_response(state, _request, _result, _now), do: state
 
   defp put_window_from_values(state, resource, values, now) do
     with {:ok, limit} <- integer_value(Map.get(values, "limit")),
@@ -387,7 +427,7 @@ defmodule Aiur.GitHub.Quota do
 
   defp dispatch_status(state, now) do
     Enum.find_value(@primary_resources, :available, fn resource ->
-      case resource_status(state, resource, @low_water_percent, now) do
+      case window_status(state, resource, @low_water_percent, now) do
         :available -> nil
         hold -> hold
       end
@@ -410,11 +450,11 @@ defmodule Aiur.GitHub.Quota do
   defp cancel_recovery_timer(%{recovery_timer_ref: ref}) when is_reference(ref), do: Process.cancel_timer(ref)
   defp cancel_recovery_timer(_state), do: false
 
-  # GitHub signals a secondary limit with a 403 or 429 whose primary window is
-  # still healthy. A rejection that *did* drain the window is already covered
-  # by the window hold, so only the former needs its own backoff.
+  # Retry-After or explicit secondary/abuse wording identifies the short-lived
+  # limiter independently of the primary remaining header. Keep it as a bounded
+  # resource backoff rather than converting it into a primary window.
   defp observe_rejection(state, request, {:ok, %{status: status} = response}, now) when status in [403, 429] do
-    if rate_limit_endpoint?(request) or not secondary_limit?(response) do
+    if rate_limit_endpoint?(request) or not GraphQLErrors.secondary_rate_limited_response?(response) do
       state
     else
       put_backoff(state, request_resource(request), backoff_until(response, now), now)
@@ -422,10 +462,6 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp observe_rejection(state, _request, _result, _now), do: state
-
-  defp secondary_limit?(response) do
-    GraphQLErrors.rate_limited_response?(response, :unknown) and GraphQLErrors.rate_limit_remaining(response) != 0
-  end
 
   # Only `Retry-After` describes a secondary limit. The `x-ratelimit-reset` on
   # the same response belongs to the primary window — often an hour out — and
@@ -566,6 +602,28 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp rolling_start(now), do: DateTime.add(now, -@attribution_window_seconds, :second)
+
+  @doc """
+  The earliest moment this meter could have attributed a call.
+
+  Not "when the first call happened" — a daemon that has been up for hours and
+  was simply idle for the first ten minutes of a window can still account for
+  the whole window. This is the boundary of what the meter is *able* to have
+  seen: its own boot, or the edge of the rolling attribution window, whichever
+  is later.
+
+  A consumer compares this against a window's `started_at` to know whether the
+  shortfall between `attributed` and `spend` means "another consumer spent it"
+  or only "I was not running yet". The two are different facts and only one of
+  them names somebody else.
+  """
+  @spec observing_since(map(), DateTime.t()) :: DateTime.t()
+  def observing_since(%{started_at: %DateTime{} = started_at}, now) do
+    rolling = rolling_start(now)
+    if DateTime.compare(started_at, rolling) == :gt, do: started_at, else: rolling
+  end
+
+  def observing_since(_state, now), do: rolling_start(now)
 
   defp within_window?(observation, starts, now) do
     start = Map.get(starts, observation_resource(observation)) || rolling_start(now)

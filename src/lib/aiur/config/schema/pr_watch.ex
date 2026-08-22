@@ -13,7 +13,7 @@ defmodule Aiur.Config.Schema.PrWatch do
     # with the github `label_prefix` (e.g. "agent" + "watch" -> "agent:watch").
     field(:watch_label, :string, default: "watch")
     # One-off per-comment command prefix. A trusted comment beginning with this
-    # (or mentioning the configured `bot_account`) wakes an agent for that one
+    # (or mentioning the configured `daemon_account`) wakes an agent for that one
     # comment, no label required.
     field(:command_prefix, :string, default: "/aiur")
   end
