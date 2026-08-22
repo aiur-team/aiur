@@ -40,20 +40,21 @@ defmodule Aiur.Usage.PriceTable.Window do
     with {:ok, offset_hours} <- offset_hours(schedule),
          {:ok, weekday_windows} <- weekday_peak_windows(schedule),
          {:ok, weekend_effective} <- weekend_off_peak_effective(schedule) do
-      beijing = shift(occurred_at, offset_hours)
-
-      if weekend_off_peak?(beijing, weekend_effective) do
-        :off_peak
-      else
-        utc_time = DateTime.to_time(occurred_at)
-        if in_peak_window?(utc_time, weekday_windows), do: :peak, else: :off_peak
-      end
+      window_at(occurred_at, shift(occurred_at, offset_hours), weekday_windows, weekend_effective)
     else
       _ -> :unknown
     end
   end
 
   def classify(_occurred_at, _schedule), do: :unknown
+
+  defp window_at(occurred_at, beijing, weekday_windows, weekend_effective) do
+    cond do
+      weekend_off_peak?(beijing, weekend_effective) -> :off_peak
+      in_peak_window?(DateTime.to_time(occurred_at), weekday_windows) -> :peak
+      true -> :off_peak
+    end
+  end
 
   @doc """
   The next UTC instant after `now` at which the in-force window changes, and

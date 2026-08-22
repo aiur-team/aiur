@@ -801,15 +801,9 @@ defmodule Aiur.CodingAgent do
   end
 
   defp peak_priced_route?(route, now, schedule_for) do
-    case route_price_identity(route) do
-      %{provider: provider} when is_atom(provider) ->
-        case schedule_for.(provider) do
-          nil -> false
-          schedule -> Window.classify(now, schedule) == :peak
-        end
-
-      _other_identity ->
-        false
+    case schedule_for.(route_price_identity(route).provider) do
+      nil -> false
+      schedule -> Window.classify(now, schedule) == :peak
     end
   end
 
