@@ -1,7 +1,34 @@
 defmodule Aiur.RunTelemetry.GitHubEnricherTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.RunTelemetry.GitHubEnricher
+
+  test "fallback trusts both split Aiur identities without trusting outsiders" do
+    write_split_identity_config!()
+    unregister_code_owners!()
+
+    result = GitHubEnricher.enrich("owner/repo", ["930"], token: "token", request_fun: &identity_request/1)
+
+    assert Enum.map(result.events, & &1.author) == ["aiur-daemon[bot]", "its-applekid"]
+    assert Enum.all?(result.events, & &1.author_trusted?)
+    refute Enum.any?(result.events, &(&1.author == "outsider"))
+  end
+
+  test "fallback keeps single-identity behavior deduplicated" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_bot_account: "aiur-bot"
+    )
+
+    unregister_code_owners!()
+
+    result = GitHubEnricher.enrich("owner/repo", ["930"], token: "token", request_fun: &single_identity_request/1)
+
+    assert [%{author: "aiur-bot", author_trusted?: true}] = result.events
+    refute Enum.any?(result.events, &(&1.author == "outsider"))
+  end
 
   test "adds ticket-matched PR boundaries and trusted actionable comments without bodies" do
     request_fun = fn %{url: url} ->
@@ -145,5 +172,59 @@ defmodule Aiur.RunTelemetry.GitHubEnricherTest do
       "state" => state,
       "user" => %{"login" => login}
     }
+  end
+
+  defp write_split_identity_config! do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_bot_account: "its-applekid",
+      tracker_github_app_account: "aiur-daemon[bot]"
+    )
+  end
+
+  defp unregister_code_owners! do
+    case Process.whereis(CodeOwners) do
+      nil ->
+        :ok
+
+      pid ->
+        Process.unregister(CodeOwners)
+        restore_code_owners_on_exit(pid)
+    end
+
+    assert Process.whereis(CodeOwners) == nil
+  end
+
+  defp restore_code_owners_on_exit(pid) do
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.register(pid, CodeOwners)
+    end)
+  end
+
+  defp identity_request(%{url: url}) do
+    body =
+      if String.contains?(url, "/issues/930/comments") do
+        [
+          comment(201, "aiur-daemon[bot]", "daemon comment"),
+          comment(202, "its-applekid", "agent comment"),
+          comment(203, "outsider", "outsider comment")
+        ]
+      else
+        []
+      end
+
+    {:ok, %{status: 200, body: body, headers: %{}}}
+  end
+
+  defp single_identity_request(%{url: url}) do
+    body =
+      if String.contains?(url, "/issues/930/comments") do
+        [comment(204, "aiur-bot", "bot comment"), comment(205, "outsider", "outsider comment")]
+      else
+        []
+      end
+
+    {:ok, %{status: 200, body: body, headers: %{}}}
   end
 end

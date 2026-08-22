@@ -14,9 +14,30 @@ defmodule Aiur.Workflow do
   @config_basename "config"
   @legacy_config_file_name ".aiurconfig"
 
+  # Per-process config-path override, pinned by `set_workflow_file_path/1,2`
+  # and dropped by `clear_workflow_file_path/0,1`. Lives in the process
+  # dictionary so it is scoped to the process that set it and dies with it.
+  @workflow_file_path_override_key :workflow_file_path_override
+
+  @doc """
+  The active config path, by precedence: a per-process override (pinned by
+  `set_workflow_file_path/1,2`), then the VM-global `:workflow_file_path` app
+  env, then run-folder discovery.
+
+  The per-process override is what makes the path injectable per test (#2287).
+  The path used to live only in the VM-global app env, so every concurrent
+  `use Aiur.TestSupport` case re-pointed the same global key from its `setup` —
+  one test's write-then-read could observe another test's config. A process
+  that calls `set_workflow_file_path/1,2` now pins its own view in its process
+  dictionary, so its reads stay stable even while a sibling test clobbers the
+  global env. The override is process-scoped and dies with the process, so
+  background workers and teardown processes never inherit a test's pin.
+  """
   @spec workflow_file_path() :: Path.t()
   def workflow_file_path do
-    Application.get_env(:aiur, :workflow_file_path) || detect_run_folder_config()
+    Process.get(@workflow_file_path_override_key) ||
+      Application.get_env(:aiur, :workflow_file_path) ||
+      detect_run_folder_config()
   end
 
   @doc """
@@ -77,17 +98,43 @@ defmodule Aiur.Workflow do
 
   defp raise_legacy_config!(legacy), do: raise(ArgumentError, legacy_config_error(legacy))
 
+  @doc """
+  Points the config path at `path`, both in the calling process (a per-process
+  override) and in the VM-global `:workflow_file_path` app env.
+
+  The app-env write keeps the historical production contract — the `WorkflowStore`
+  and other processes resolve the path from the global env — while the
+  process-scoped write keeps the calling process's own reads stable against a
+  concurrent re-pointing of the global env (the #2287 test race). The override
+  is scoped to the calling process and dies with it.
+
+  Accepts `reload: false` to move the path without forcing the shared
+  `WorkflowStore` cache to reload — used when the caller deliberately wants to
+  leave the store's cache pointing at the previous path (exercising the #2133
+  read fence) or when the store should reload from disk on its own poll.
+  """
   @spec set_workflow_file_path(Path.t()) :: :ok
-  def set_workflow_file_path(path) when is_binary(path) do
+  @spec set_workflow_file_path(Path.t(), keyword()) :: :ok
+  def set_workflow_file_path(path, opts \\ []) when is_binary(path) do
+    Process.put(@workflow_file_path_override_key, path)
     Application.put_env(:aiur, :workflow_file_path, path)
-    maybe_reload_store()
+    if Keyword.get(opts, :reload, true), do: maybe_reload_store()
     :ok
   end
 
+  @doc """
+  Removes the per-process config-path override and the VM-global
+  `:workflow_file_path` app env, restoring run-folder discovery.
+
+  Accepts `reload: false` to skip forcing the shared `WorkflowStore` cache
+  reload, mirroring `set_workflow_file_path/2`.
+  """
   @spec clear_workflow_file_path() :: :ok
-  def clear_workflow_file_path do
+  @spec clear_workflow_file_path(keyword()) :: :ok
+  def clear_workflow_file_path(opts \\ []) do
+    Process.delete(@workflow_file_path_override_key)
     Application.delete_env(:aiur, :workflow_file_path)
-    maybe_reload_store()
+    if Keyword.get(opts, :reload, true), do: maybe_reload_store()
     :ok
   end
 
