@@ -450,10 +450,12 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   defp source_kind(boot_id, current) when is_binary(boot_id) and boot_id != "" and boot_id == current, do: :live
-  defp source_kind(_boot_id, _current), do: :retained
+  defp source_kind(boot_id, _current) when is_binary(boot_id) and boot_id != "", do: :retained
+  defp source_kind(_boot_id, _current), do: :history
 
   defp source_kind_label(:live), do: "live boot"
   defp source_kind_label(:retained), do: "retained run"
+  defp source_kind_label(:history), do: "retained history"
 
   defp source_title(%{boot_id: boot_id, observed_at: observed_at}) do
     [
