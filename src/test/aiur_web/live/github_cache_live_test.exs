@@ -46,12 +46,37 @@ defmodule AiurWeb.GithubCacheLiveTest do
     end
   end
 
+  defmodule AgentMetricsProvider do
+    @table __MODULE__.Table
+
+    @spec install(map()) :: :ok
+    def install(snapshot) do
+      if :ets.whereis(@table) == :undefined do
+        :ets.new(@table, [:named_table, :public, :set])
+      end
+
+      :ets.insert(@table, {:snapshot, snapshot})
+      Application.put_env(:aiur, :github_agent_cache_metrics_provider, __MODULE__)
+      :ok
+    end
+
+    def snapshot do
+      case :ets.lookup(@table, :snapshot) do
+        [{:snapshot, snapshot}] -> snapshot
+        _none -> %{available?: false, measured?: false}
+      end
+    rescue
+      ArgumentError -> %{available?: false, measured?: false}
+    end
+  end
+
   @endpoint Endpoint
   @reset ~U[2030-01-01 12:00:00Z]
 
   setup context do
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
+    previous_agent_metrics = Application.get_env(:aiur, :github_agent_cache_metrics_provider)
 
     endpoint_config =
       :aiur
@@ -73,9 +98,63 @@ defmodule AiurWeb.GithubCacheLiveTest do
       Application.delete_env(:aiur, :github_quota_history_provider)
       restore_application_env(Endpoint, previous_endpoint)
       restore_application_env(:github_quota_server, previous_quota)
+      restore_application_env(:github_agent_cache_metrics_provider, previous_agent_metrics)
     end)
 
     :ok
+  end
+
+  describe "agent cache effectiveness" do
+    test "renders the rolling ratio and raw sample without moving the quota meter" do
+      Source.install(entries(2))
+      quota = install_quota()
+      before = reading(quota)
+      AgentMetricsProvider.install(agent_metrics(hits: 1, misses: 3))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      tile = html |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate"]))
+
+      assert Floki.attribute(tile, "data-value") == ["25.0"]
+      assert Floki.text(tile) =~ "25.0%"
+      assert Floki.text(tile) =~ "1 hit · 3 misses"
+      assert Floki.text(tile) =~ "previous 24 hours"
+      assert Floki.text(tile) =~ "daemon-host agent workspaces"
+      assert reading(quota) == before
+    end
+
+    test "renders unavailable and zero-denominator sources as not measured" do
+      Source.install(entries(2))
+      install_quota()
+
+      AgentMetricsProvider.install(agent_metrics(available?: false, measured?: false, hits: 0, misses: 0))
+      {:ok, _view, unavailable} = live(build_conn(), "/github-cache")
+      unavailable_tile = unavailable |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate"])) |> Floki.text()
+      assert unavailable_tile =~ "Not measured"
+      refute unavailable_tile =~ "0.0%"
+
+      AgentMetricsProvider.install(agent_metrics(available?: true, measured?: false, hits: 0, misses: 0, stores: 4))
+      {:ok, _view, zero_denominator} = live(build_conn(), "/github-cache")
+      zero_denominator_tile = zero_denominator |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate"])) |> Floki.text()
+      assert zero_denominator_tile =~ "Not measured"
+      refute zero_denominator_tile =~ "0.0%"
+    end
+
+    test "refreshes the durable ratio on the quota history cadence and labels partial coverage" do
+      Source.install(entries(2))
+      install_quota()
+      AgentMetricsProvider.install(agent_metrics(available?: false, measured?: false, hits: 0, misses: 0))
+
+      {:ok, view, initial} = live(build_conn(), "/github-cache")
+      assert initial =~ "Not measured"
+
+      AgentMetricsProvider.install(agent_metrics(hits: 4, misses: 1, partial?: true, malformed_rows: 2))
+      send(view.pid, {:quota_history_sampled, 2})
+      refreshed = render(view)
+
+      assert refreshed =~ "80.0%"
+      assert refreshed =~ "Partial coverage"
+      assert refreshed =~ "2 malformed rows"
+    end
   end
 
   describe "viewing costs nothing" do
@@ -180,7 +259,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
       root = Path.expand("../../../lib/aiur/github", __DIR__)
 
       files =
-        ["cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
+        ["agent_cache_metrics.ex", "cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
 
       for relative <- files do
         code = root |> Path.join(relative) |> File.read!() |> strip_prose()
@@ -954,6 +1033,34 @@ defmodule AiurWeb.GithubCacheLiveTest do
        ],
        body: %{}
      }}
+  end
+
+  defp agent_metrics(opts) do
+    values = Enum.into(opts, %{})
+    hits = Map.get(values, :hits, 2)
+    misses = Map.get(values, :misses, 2)
+    sample_size = hits + misses
+
+    Map.merge(
+      %{
+        available?: true,
+        measured?: sample_size > 0,
+        partial?: false,
+        hits: hits,
+        misses: misses,
+        stores: 1,
+        coalesced: 0,
+        sample_size: sample_size,
+        hit_ratio: if(sample_size > 0, do: hits / sample_size, else: nil),
+        miss_reasons: %{},
+        sources_read: 3,
+        skipped_sources: 0,
+        malformed_rows: 0,
+        window_started_at: DateTime.add(@reset, -86_400, :second),
+        window_ended_at: @reset
+      },
+      values
+    )
   end
 
   defp awaiting_commands_config(context) do

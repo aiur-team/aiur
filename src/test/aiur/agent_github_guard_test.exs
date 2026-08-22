@@ -3,7 +3,7 @@ defmodule Aiur.AgentGitHubGuardTest do
   @moduletag :tmp_dir
 
   alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.{AgentCache, ResourceStore}
+  alias Aiur.GitHub.{AgentCache, AgentCacheMetrics, ResourceStore}
   alias Aiur.GitHub.Budget
 
   setup %{tmp_dir: root} do
@@ -2278,19 +2278,97 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 1
     end
 
-    test "hits and misses are recorded for cost attribution", context do
-      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
-      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+    test "ten identical reads spend once and report a ninety percent hit rate", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      outputs =
+        for _read <- 1..10 do
+          assert {output, 0} = run_cached_guard(context, args)
+          output
+        end
+
+      assert Enum.uniq(outputs) |> length() == 1
+      assert upstream_calls(context) == 1
+
+      events = Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
 
       rows =
-        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        events
         |> File.read!()
         |> String.split("\n", trim: true)
         |> Enum.map(&String.split(&1, "\t"))
 
-      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670"], &1))
-      assert Enum.any?(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1))
-      assert Enum.any?(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1))
+      assert Enum.count(rows, &match?([_at, _consumer, "miss", "pr", "1670", "absent"], &1)) == 1
+      assert Enum.count(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1)) == 1
+      assert Enum.count(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1)) == 9
+
+      metrics = AgentCacheMetrics.snapshot(paths: [events])
+      assert metrics.hits == 9
+      assert metrics.misses == 1
+      assert metrics.hit_ratio == 0.9
+    end
+
+    test "multiple rotations retain one complete measurement window", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+      assert {_, 0} = run_cached_guard(context, args)
+
+      events = Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+      row = "#{System.os_time(:second)}\tticket:1670\thit\tpr\t1670\n"
+      oversized = String.duplicate(row, div(1_048_576, byte_size(row)) + 1)
+
+      File.write!(events, oversized)
+      assert {_, 0} = run_cached_guard(context, args)
+      File.write!(events, oversized)
+      assert {_, 0} = run_cached_guard(context, args)
+
+      archives = Path.wildcard(events <> ".*")
+      assert length(archives) == 2
+
+      metrics = AgentCacheMetrics.snapshot(paths: [events | archives])
+      assert metrics.sources_read == 3
+      assert metrics.hits > 50_000
+      assert upstream_calls(context) == 1
+    end
+
+    test "miss rows classify every cache lookup failure", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      # No artifact exists yet.
+      assert {_, 0} = run_cached_guard(context, args)
+      [{_key, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+
+      # A caller explicitly refusing replay.
+      assert {_, 0} = run_cached_guard(context, args, AIUR_GITHUB_STATE_CACHE_BYPASS: "1")
+
+      # An unreadable body and timestamp are both corrupt artifacts.
+      File.chmod!(body, 0o000)
+      assert {_, 0} = run_cached_guard(context, args)
+      assert last_cache_miss_reason(context) == "corrupt"
+
+      File.write!(meta, "not-a-timestamp\n")
+      assert {_, 0} = run_cached_guard(context, args)
+
+      # Future timestamp and timestamp outside the TTL have distinct causes.
+      File.write!(meta, "#{System.os_time(:second) + 60}\n")
+      assert {_, 0} = run_cached_guard(context, args)
+      File.write!(meta, "1\n")
+      assert {_, 0} = run_cached_guard(context, args)
+
+      # A daemon-side resource retirement is the final independent cause.
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+      assert {_, 0} = run_cached_guard(context, args)
+
+      reasons =
+        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.split(&1, "\t"))
+        |> Enum.filter(&(Enum.at(&1, 2) == "miss"))
+        |> Enum.map(&Enum.at(&1, 5))
+        |> MapSet.new()
+
+      assert reasons == MapSet.new(~w(absent bypassed corrupt clock-skewed expired invalidated))
     end
 
     # -------------------------------------------------------------------------
@@ -2587,19 +2665,37 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 2
     end
 
-    test "a vanished body falls through instead of answering with nothing", context do
+    test "a body vanishing after lookup is fetched and recorded as corrupt", context do
       assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
       [{_shape, body}] = cached_shapes(context)
 
-      # The entry's stamp survives its body — the window between a writer removing
-      # a body it could not commit and the reader that already passed the
-      # readability check.
-      File.rm!(body)
+      real_cat = System.find_executable("cat") || flunk("cat is required")
+      fake_cat = Path.join(Path.dirname(context.fake_gh), "cat")
 
-      assert {output, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      File.write!(
+        fake_cat,
+        """
+        #!/bin/sh
+        if [ -n "${FAKE_CAT_VANISH:-}" ]; then
+          case "${1:-}" in *.body) rm -f -- "$1" ;; esac
+        fi
+        exec "#{real_cat}" "$@"
+        """
+      )
+
+      File.chmod!(fake_cat, 0o755)
+
+      env = [
+        FAKE_CAT_VANISH: body,
+        PATH: "#{Path.dirname(context.fake_gh)}:#{System.get_env("PATH")}"
+      ]
+
+      assert {output, 0} =
+               run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
 
       assert output != ""
       assert upstream_calls(context) == 2
+      assert last_cache_miss_reason(context) == "corrupt"
     end
 
     test "the merge gate still refuses with the store enabled", context do
@@ -2694,6 +2790,20 @@ defmodule Aiur.AgentGitHubGuardTest do
       _missing ->
         0
     end
+  end
+
+  defp last_cache_miss_reason(context) do
+    [context.state_path, "github-quota", "agent-cache.tsv"]
+    |> Path.join()
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.reverse()
+    |> Enum.find_value(fn row ->
+      case String.split(row, "\t") do
+        [_at, _consumer, "miss", _kind, _id, reason] -> reason
+        _other -> nil
+      end
+    end)
   end
 
   # Each stored answer as the broker names it: `owner/repo/kind/id/<shape>`.

@@ -1288,11 +1288,26 @@ cache_record() {
     ''|*[!0-9]*) cache_events_size=0 ;;
   esac
   if [ "$cache_events_size" -gt 1048576 ]; then
-    mv -f "$cache_events_file" "$cache_events_file.1" 2>/dev/null || true
+    # Timestamped rotations retain the complete 24-hour measurement window.
+    # The pid keeps simultaneous writers from replacing one another's archive;
+    # row timestamps, not filenames, decide which samples enter the ratio.
+    mv -f "$cache_events_file" "$cache_events_file.$cache_started_at.$$" 2>/dev/null || true
+
+    # Pruning is outside the call's output descriptors and keeps a one-hour
+    # safety margin beyond the reader's window. The exact prefix confines the
+    # deletion to this bounded effectiveness log.
+    (
+      find "$agent_quota_dir" -type f -name 'agent-cache.tsv.*' -mmin +1500 -delete || true
+    ) >/dev/null 2>&1 &
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" \
-    >> "$cache_events_file" 2>/dev/null || true
+  if [ -n "${2:-}" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" "$2" \
+      >> "$cache_events_file" 2>/dev/null || true
+  else
+    printf '%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" \
+      >> "$cache_events_file" 2>/dev/null || true
+  fi
   unset cache_events_size
   return 0
 }
@@ -1315,15 +1330,17 @@ cache_marker_at() {
 }
 
 cache_lookup() {
+  cache_miss_reason=absent
   [ -n "$cache_body" ] || return 1
-  [ "$cache_bypass" -eq 0 ] || return 1
+  if [ "$cache_bypass" -ne 0 ]; then cache_miss_reason=bypassed; return 1; fi
   [ -f "$cache_meta" ] || return 1
-  [ -r "$cache_body" ] || return 1
+  [ -f "$cache_body" ] || return 1
+  if [ ! -r "$cache_body" ]; then cache_miss_reason=corrupt; return 1; fi
 
   cache_fetched_at=
-  IFS= read -r cache_fetched_at < "$cache_meta" 2>/dev/null || return 1
+  IFS= read -r cache_fetched_at < "$cache_meta" 2>/dev/null || { cache_miss_reason=corrupt; return 1; }
   case "$cache_fetched_at" in
-    ''|*[!0-9]*) return 1 ;;
+    ''|*[!0-9]*) cache_miss_reason=corrupt; return 1 ;;
   esac
 
   # A clock that moved backwards, or an entry stamped in the future, is not
@@ -1333,8 +1350,8 @@ cache_lookup() {
   # coalesced follower looks again after waiting: measured from its start, an
   # entry the leader wrote one second later reads as stamped in the future and is
   # refused, which is precisely the duplicate fetch the wait existed to avoid.
-  [ "$cache_fetched_at" -le "$cache_now" ] || return 1
-  [ $((cache_now - cache_fetched_at)) -le "$cache_ttl" ] || return 1
+  if [ "$cache_fetched_at" -gt "$cache_now" ]; then cache_miss_reason=clock-skewed; return 1; fi
+  if [ $((cache_now - cache_fetched_at)) -gt "$cache_ttl" ]; then cache_miss_reason=expired; return 1; fi
 
   cache_invalidated_at=0
   cache_marker_at "$cache_root/v1/.invalidated"
@@ -1342,7 +1359,8 @@ cache_lookup() {
   [ "$cache_collection" -eq 0 ] || cache_marker_at "$cache_repo_dir/.collections-invalidated"
   cache_marker_at "$cache_entry_dir/.invalidated"
 
-  [ "$cache_fetched_at" -gt "$cache_invalidated_at" ] || return 1
+  if [ "$cache_fetched_at" -le "$cache_invalidated_at" ]; then cache_miss_reason=invalidated; return 1; fi
+  cache_miss_reason=
   return 0
 }
 
@@ -1484,7 +1502,10 @@ cache_prune() {
 # reads as "the body is empty". A refusal here falls through to the real `gh`,
 # which is the same answer every other doubt in this file produces.
 cache_serve() {
-  cat "$cache_body" || return 1
+  if ! cat "$cache_body"; then
+    cache_miss_reason=corrupt
+    return 1
+  fi
   cache_record "$1"
   return 0
 }
@@ -1506,7 +1527,7 @@ if cache_lookup && cache_serve hit; then
   exit 0
 fi
 
-[ -z "$cache_body" ] || cache_record miss
+[ -z "$cache_body" ] || cache_record miss "${cache_miss_reason:-absent}"
 
 # COALESCING (#2073 U6). A hit above costs no `python3` and no network, so the
 # store already removes the second and later reads of a resource. It cannot
