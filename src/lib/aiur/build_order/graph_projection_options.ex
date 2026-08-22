@@ -8,6 +8,12 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   alias Aiur.Webhooks.DeliveryModeEvents
 
   @defaults [
+    # No longer a refresh cadence: the catalog is event-sourced from the store
+    # and rebuilt on change (#2313), so nothing polls on this. The value survives
+    # as the failure-backoff base for the catalog scope, the window after which
+    # the catalog snapshot is shown as ageing, and the floor the labelled-read
+    # cadence rides on. The shipped value is a floor; production derives it from
+    # the tracker's effective poll interval (see `Aiur.BuildOrder.Cadence`).
     catalog_refresh_ms: 60_000,
     # The catalog's per-member `labels` connection costs ~26 GraphQL points
     # against the 5,000-points/hour budget versus ~1 without it (#1766), so the

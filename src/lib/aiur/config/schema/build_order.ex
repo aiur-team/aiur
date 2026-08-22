@@ -19,6 +19,10 @@ defmodule Aiur.Config.Schema.BuildOrder do
     field(:ticket_history_limit, :integer, default: 50)
     field(:ticket_history_max_identities, :integer, default: 100)
     field(:ticket_history_stale_after_ms, :integer, default: 60_000)
+    # Failure-backoff and age-display base for the catalog snapshot. The catalog
+    # is event-sourced from daemon-owned store state and does not refresh on this
+    # cadence; `nil` means "derive from the tracker poll interval" (see
+    # `Aiur.BuildOrder.Cadence`).
     field(:graph_catalog_refresh_ms, :integer, default: nil)
     field(:graph_catalog_labels_refresh_ms, :integer, default: nil)
     # `graph_selected_refresh_ms` and `graph_demand_refresh_ms` are gone. They

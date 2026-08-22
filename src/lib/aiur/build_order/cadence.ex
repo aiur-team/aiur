@@ -12,13 +12,17 @@ defmodule Aiur.BuildOrder.Cadence do
   is looking rather than what has changed. A selected root is now read when a
   writer or an explicit `GraphProjection.refresh/2` asks for it.
 
-  What is left here is the cadence of things that run **whether or not anyone is
-  watching**, plus one freshness window. For those a number is still needed, and
-  the durable statement is the *relationship*: **Build Order displays state the
-  tracker produces, so it cannot be fresher than the tracker's own cycle.** The
-  shipped constants were chosen when the tracker polled every 5 seconds; #2064
-  moved it to 120 and they did not follow, because nothing tied them together.
-  Expressing them against the poll interval is what stops that recurring.
+  What is left here is the cadence of things the event-sourced catalog still
+  derives a number from — its failure-backoff and age-display base, its labelled
+  read cadence, and one freshness window — rather than the cadence of a periodic
+  catalog poll. The catalog itself no longer polls on any of these: it is
+  projected from daemon-owned store state and rebuilt when a delivery or
+  mutation changes it (#2313). For the numbers that survive, the durable
+  statement is the *relationship*: **Build Order displays state the tracker
+  produces, so it cannot be fresher than the tracker's own cycle.** The shipped
+  constants were chosen when the tracker polled every 5 seconds; #2064 moved it
+  to 120 and they did not follow, because nothing tied them together. Expressing
+  them against the poll interval is what stops that recurring.
 
   ## Which poll interval — the effective one, not the configured one
 
@@ -38,11 +42,13 @@ defmodule Aiur.BuildOrder.Cadence do
 
   ## The ratios
 
-    * `catalog_refresh_ms` — **one effective poll interval.** The catalog
-      reconciliation is daemon-owned: it runs at boot and on its own timer, for
-      nobody in particular, and it is what notices a root appearing or changing.
-      Refreshing faster than the tracker cannot show anything new. It cannot be
-      revalidated (see below), so cadence is the only control it has.
+    * `catalog_refresh_ms` — **one effective poll interval.** No longer a refresh
+      cadence: the catalog is event-sourced from daemon-owned store state and
+      does not poll on a clock (#2313). The value survives as the failure-backoff
+      base for the catalog scope, the window after which the catalog snapshot is
+      shown as ageing, and the floor the labelled-read cadence rides on, so it
+      still follows the tracker's own cycle and the derivation below stays
+      accurate.
 
     * `catalog_labels_refresh_ms` — **five effective poll intervals, and never less than
       ten minutes.** This is the variant that resolves per-member labels, and it
@@ -77,7 +83,8 @@ defmodule Aiur.BuildOrder.Cadence do
   no matter how they are written. For those three, *when* they run and how large
   a connection they ask for are the entire cost story — which is why the two that
   ran on a viewer's behalf were removed outright and the one that does not is
-  tied to the tracker here.
+  tied to the tracker here: the labelled read rides the derived `catalog_refresh_ms`
+  floor, and both still follow the effective interval.
 
   An explicit setting always wins. These are defaults for operators who have not
   expressed a requirement, not a ceiling on ones who have.
