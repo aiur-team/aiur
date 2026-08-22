@@ -22,6 +22,11 @@ token, and the `agent:*` lifecycle labels. Re-running resumes from your saved
 answers. When setup finishes, label the issues you want worked `agent:todo` and
 run `aiur`.
 
+To have a coding agent operate the run as its Executor, install the repository's
+[`aiur-intro`, `aiur-run`, and `aiur-monitor` skills](https://aiur.team/docs/skills#executor-skills)
+through the agent's supported skill mechanism, then ask it to "run aiur." The npm
+package installs the CLI, not those skills. [Learn about the Executor role](https://aiur.team/docs/concepts/executor).
+
 ## Features
 
 - **Issue Monitoring** — Dispatch agents automatically via GitHub or Linear tickets.
@@ -86,4 +91,4 @@ live directory-scoped session; detaching leaves the run healthy.
 > Provided "as is", without warranty of any kind. You assume all risk for any
 > cost, token spend, data loss, or damage from running it.
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+This project is licensed under the [Apache License 2.0](https://github.com/aiur-team/aiur/blob/main/LICENSE).
