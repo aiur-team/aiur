@@ -13,6 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.LatestRun do
 
   @spec load(Path.t(), String.t() | nil, (map() -> boolean())) ::
           {:ok, map()} | {:error, term()}
+  @spec load(Path.t(), String.t() | nil, (map() -> boolean()), keyword()) ::
+          {:ok, map()} | {:error, term()}
   def load(file, current_boot, analyzable?, opts \\ []) when is_function(analyzable?, 1) do
     live = Dataset.build(file, session: :current, boot_id: current_boot)
 

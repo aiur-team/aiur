@@ -7,6 +7,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{RunTelemetry, TrackerIdentity}
+  alias Aiur.RunTelemetry.Summaries
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
@@ -172,7 +173,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   test "reuses decoded prior summaries while the current boot remains empty" do
-    {:ok, dataset} = @summary_fixture |> File.read!() |> Aiur.RunTelemetry.Summaries.decode_summary()
+    {:ok, dataset} = @summary_fixture |> File.read!() |> Summaries.decode_summary()
     cache_identity = make_ref()
     parent = self()
 
