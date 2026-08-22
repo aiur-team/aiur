@@ -46,10 +46,10 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | --- | --- | --- | --- |
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
-  | `:repo_config` | 5 min | 5 min | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a 5-minute body cache costs little. It does not take the long bucket: the deliveries that retire `ReadCache` entries are issue- and pull-scoped, so a webhook-backed repo has no correction path for a stale workflow file, and the 5-minute clock stays the freshness mechanism. |
+  | `:repo_config` | 5 min | 1 h | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a five-minute polling body cache costs little; every webhook delivery retires it via the collections marker, which is what lets it ride the same long bucket as the other classes. |
 
   There are two buckets, and which one applies is decided by the repository's
-  delivery mode. A repo that is not proven webhook-backed —
+  delivery mode, not by the class. A repo that is not proven webhook-backed —
   never configured, configured-but-unproven, or degraded from silence — gets
   the short bucket, because for it the TTL is the only freshness mechanism:
   nothing but the clock retires its entries. A repo proven webhook-backed gets
@@ -59,10 +59,6 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   to the short bucket the moment the repo degrades (silence past
   `webhooks.silence_threshold_seconds`), which is the measured bound on how
   long a missed delivery can go uncorrected. One hour is four times that bound.
-  `:repo_config` is the exception, and stays on its 5-minute value in both
-  buckets: deliveries retire issue- and pull-scoped entries, so there is no
-  correction path for repository configuration and the clock must remain the
-  freshness mechanism.
 
   Every TTL here is an upper bound on staleness only in the absence of news. An
   invalidation retires the entry immediately, so the observed staleness for
@@ -146,7 +142,10 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # never configured, configured-but-unproven, or degraded from silence. For
   # those repos the TTL *is* the freshness mechanism — nothing else retires
   # their entries — so it stays at the value chosen against the poll cadence
-  # below.
+  # below. `:repo_config` is the one exception: it rides the CIReadiness
+  # assessment cadence (its assessment is itself cached for an hour) rather
+  # than the 30-second Build Order window, so its short value is five minutes,
+  # not thirty seconds.
   @default_ttls %{comments: 30_000, issue_graph: 30_000, repo_config: 300_000}
 
   # The long bucket, in force only for a repo proven webhook-backed. Once a
@@ -163,11 +162,15 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # (`build_order_catalog` above all) from a 30-second re-fetch into an
   # hourly one while leaving the correction path intact.
   #
-  # `:repo_config` deliberately keeps its short-bucket value here. The deliveries
-  # that retire `ReadCache` entries are issue- and pull-scoped, so a webhook-backed
-  # repo gains no correction path for branch protection, rulesets or a workflow
-  # file; the 5-minute clock is still the only thing that retires those entries.
-  @webhook_backed_ttls %{comments: 3_600_000, issue_graph: 3_600_000, repo_config: 300_000}
+  # `:repo_config` rides the same long bucket because every delivery also
+  # retires the repository's collections — `invalidate_number/2` writes the
+  # `{:collections, ...}` marker unconditionally, and a repo-config read is a
+  # number-less REST read that carries exactly that identity (see `Identity`).
+  # Repository configuration is also the class that changes *with* a delivery —
+  # a push updates `.github/workflows`, branch protection or a ruleset — rather
+  # than independently of one, so the delivery is precisely the correction path
+  # the long bucket requires.
+  @webhook_backed_ttls %{comments: 3_600_000, issue_graph: 3_600_000, repo_config: 3_600_000}
 
   # Declared callers, keyed by the string `Transport` stamps on the request from
   # `opts[:caller]`. A caller absent from this table falls through to the REST

@@ -628,6 +628,9 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:cache, :comments, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/comments?per_page=100"))
 
+      assert {:cache, :repo_config, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
+
       ModeTable.put(@ttl_repo, degraded_mode())
 
       assert {:cache, :issue_graph, 30_000} =
@@ -635,6 +638,9 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert {:cache, :comments, 30_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/comments?per_page=100"))
+
+      assert {:cache, :repo_config, 300_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
     end
 
     test "a webhook-backed entry is still a hit past the old 30-second TTL" do
