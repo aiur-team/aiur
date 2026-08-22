@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute RetryEngine.failure_retry?(%{delay_type: :model_limit_wait})
       refute RetryEngine.failure_retry?(%{delay_type: :precondition})
       refute RetryEngine.failure_retry?(%{delay_type: :terminal_verification})
+      refute RetryEngine.failure_retry?(%{delay_type: :local_budget_hold})
     end
 
     test "returns true for failure-counted retries" do
@@ -36,6 +37,12 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
     test "model_limit_wait uses a bounded polling delay" do
       assert RetryEngine.retry_delay(1, %{delay_type: :model_limit_wait}) >= 10_000
+    end
+
+    test "local budget holds use their reset while respecting the retry cap" do
+      reset_at = DateTime.add(DateTime.utc_now(), 3_600, :second)
+
+      assert RetryEngine.retry_delay(1, %{delay_type: :local_budget_hold, local_budget_hold: %{reset_at: reset_at}}) == 300_000
     end
 
     test "failure attempts use exponential backoff" do
@@ -234,6 +241,70 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       retry = next.retry_attempts["issue-3"]
       assert retry.tracker_identity == nil
       Process.cancel_timer(retry.timer_ref)
+    end
+  end
+
+  describe "local budget retry polling" do
+    test "three local holds preserve the claim and poll-failure budget" do
+      issue_id = "issue-local-budget"
+
+      initial = %State{
+        claimed: MapSet.new([issue_id]),
+        released_claims: %{},
+        retry_attempts: %{}
+      }
+
+      hold = %{reason: :actor_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 3_600, :second)}
+
+      # Thread each scheduled retry's metadata back in, exactly as the poll loop
+      # does, so a regression that counts a local hold as a tracker failure
+      # reaches the release threshold instead of quietly staying under it.
+      final =
+        Enum.reduce(1..3, {initial, seed_metadata()}, fn attempt, {state, metadata} ->
+          next = RetryEngine.handle_retry_poll_failure(state, issue_id, attempt, metadata, {:aiur, :locally_held, hold})
+
+          retry = next.retry_attempts[issue_id]
+          Process.cancel_timer(retry.timer_ref)
+          {next, retry}
+        end)
+        |> elem(0)
+
+      assert MapSet.member?(final.claimed, issue_id)
+      assert final.released_claims == %{}
+      assert final.retry_attempts[issue_id].error =~ "retry poll locally held"
+      assert final.retry_attempts[issue_id].retry_poll_failures == 0
+    end
+
+    test "a genuine tracker failure still counts and releases at exhaustion" do
+      issue_id = "issue-tracker-failure"
+
+      initial = %State{
+        claimed: MapSet.new([issue_id]),
+        released_claims: %{},
+        retry_attempts: %{}
+      }
+
+      final =
+        Enum.reduce(1..3, {initial, seed_metadata()}, fn attempt, {state, metadata} ->
+          next = RetryEngine.handle_retry_poll_failure(state, issue_id, attempt, metadata, {:error, :bad_gateway})
+
+          case next.retry_attempts[issue_id] do
+            %{timer_ref: timer_ref} = retry when timer_ref != nil ->
+              Process.cancel_timer(timer_ref)
+              {next, retry}
+
+            _released ->
+              {next, metadata}
+          end
+        end)
+        |> elem(0)
+
+      refute MapSet.member?(final.claimed, issue_id)
+      assert Map.has_key?(final.released_claims, issue_id)
+    end
+
+    defp seed_metadata do
+      %{identifier: "repo#2278", retry_poll_failures: 0, terminal_membership_pending?: false}
     end
   end
 

@@ -1674,6 +1674,16 @@ budget_release() {
   budget_lease=
 }
 
+budget_reconcile_response() {
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ -n "$budget_lease" ] || return 0
+  [ -n "$output_file" ] && [ -f "$output_file" ] || return 0
+
+  if awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"; then
+    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+  fi
+}
+
 budget_start_renewal() {
   [ -n "$budget_lease" ] || return 0
   budget_renew_interval=$((budget_lease_ttl_ms / 3 / 1000))
@@ -2554,6 +2564,7 @@ record_successful_budget_hold() {
 }
 
 record_successful_budget_hold
+budget_reconcile_response
 
 # A mutation invalidates before its response is stored, so an agent that edits a
 # pull request and immediately reads it back can never be answered from the copy
