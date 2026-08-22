@@ -102,6 +102,16 @@ blocking finding is the only enforcement they have.
    Running only the affected tests also keeps full-suite log volume out of your
    context. Do not run Credo locally; CI's `make ci` is the authoritative full
    lint and full-suite gate.
+
+   **Renames and signature changes need an exhaustive test-tree audit before
+   push.** For every old function name, option key, or changed identifier, run
+   `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` from the
+   repository root and account for every hit. This is separate from selecting
+   affected tests, though `mix aiur.affected_tests` also mines deleted source
+   references and adds every matching test file. `src/test/aiur/` contains both
+   topic directories and files directly, so `test/aiur/github/` does not
+   collect the sibling `test/aiur/github_client_test.exs`. A large green
+   directory-scoped run does not prove those root-level files ran.
 5. Fix every verification failure from the scoped local gate before continuing.
    Do not gate PR-opening on a clean full-suite `mix test` run or loop on
    unrelated suite flakes; CI runs the full `make ci` on every PR and is the

@@ -66,7 +66,7 @@ defmodule AiurWeb.StreamdeckStrip do
   defp entry(%{kind: :diff, path: path, additions: additions, deletions: deletions, line: line}) do
     additions = additions || 0
     deletions = deletions || 0
-    line = diff_line(line, additions, deletions)
+    line = to_string(line || "")
 
     %{
       shape: :diff,
@@ -142,17 +142,6 @@ defmodule AiurWeb.StreamdeckStrip do
   defp line_kind("+" <> _line), do: :addition
   defp line_kind("-" <> _line), do: :deletion
   defp line_kind(_line), do: :context
-
-  defp diff_line(line, additions, deletions) do
-    line = to_string(line || "")
-
-    cond do
-      line == "" or String.starts_with?(line, ["+", "-"]) -> line
-      additions > 0 -> "+#{line}"
-      deletions > 0 -> "-#{line}"
-      true -> line
-    end
-  end
 
   defp relative_time(timestamp) when is_binary(timestamp) do
     case DateTime.from_iso8601(timestamp) do
