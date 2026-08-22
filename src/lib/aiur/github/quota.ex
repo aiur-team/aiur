@@ -138,9 +138,31 @@ defmodule Aiur.GitHub.Quota do
     :exit, _reason -> :available
   end
 
+  @doc false
+  # Forces the durable request log's delayed-write buffer to disk, so a caller
+  # that observed through the public path can read its own rows
+  # deterministically (the request-log mutation test relies on this).
+  @spec flush_request_log(GenServer.server()) :: :ok
+  def flush_request_log(server \\ __MODULE__) do
+    GenServer.call(server, :flush_request_log)
+  catch
+    :exit, _reason -> :ok
+  end
+
   @impl true
   def init(opts) do
     refresh? = Keyword.get(opts, :refresh?, Application.get_env(:aiur, :github_quota_refresh?, true))
+
+    # Resolved once at boot: every observe appends to the same durable file,
+    # and re-resolving `GitHub.Config.repo()` per request would add a config
+    # read to the hot path. An explicit `nil` disables the log (tests); an
+    # absent value resolves the configured default.
+    request_log_path =
+      case Keyword.fetch(opts, :request_log_path) do
+        {:ok, nil} -> nil
+        {:ok, path} -> path
+        :error -> RequestLog.default_path()
+      end
 
     state = %{
       windows: %{},
@@ -163,16 +185,15 @@ defmodule Aiur.GitHub.Quota do
       emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
       hold_dir: Keyword.get_lazy(opts, :hold_dir, &default_hold_dir/0),
-      # Resolved once at boot: every observe appends to the same durable file,
-      # and re-resolving `GitHub.Config.repo()` per request would add a config
-      # read to the hot path. An explicit `nil` disables the log (tests); an
-      # absent value resolves the configured default.
-      request_log_path:
-        case Keyword.fetch(opts, :request_log_path) do
-          {:ok, nil} -> nil
-          {:ok, path} -> path
-          :error -> RequestLog.default_path()
-        end,
+      request_log_path: request_log_path,
+      # The durable request log's io_device, opened once here in
+      # `:delayed_write` and closed on terminate (#2255). Holding it keeps an
+      # observe from paying an open/close/stat on this GenServer's message
+      # loop, which gates every agent's GitHub access.
+      request_log_io: RequestLog.open_writer(request_log_path),
+      # Bytes written to the current file, tracked so rotation happens at the
+      # cap without a `stat` per request.
+      request_log_bytes: 0,
       refresh_fun: Keyword.get(opts, :refresh_fun, &refresh_from_github/0),
       recovery_fun: Keyword.get(opts, :recovery_fun, &notify_orchestrator_recovery/0),
       observed_dispatch_hold?: false,
@@ -191,17 +212,16 @@ defmodule Aiur.GitHub.Quota do
     now = state.clock.()
     held_before? = state.observed_dispatch_hold?
 
-    # Durable per-request record (#2255). Every GitHub request this daemon
-    # makes lands one row in `daemon-requests.tsv` — timestamp, pid, caller,
-    # method, path/operation, status, cost, credential fingerprint — so a
-    # budget question is answerable from logs alone after the window has
+    # Durable per-request record (#2255). Every request routed through this
+    # chokepoint lands one row in `daemon-requests.tsv` — timestamp, pid,
+    # caller, method, path/operation, status, cost, credential fingerprint —
+    # so a budget question is answerable from logs alone after the window has
     # closed. It runs for every observe (including `/rate_limit` probes) and
-    # is deliberately independent of the in-memory attribution below: the
-    # log is the evidence, the attribution is the ranking.
-    :ok = RequestLog.append(request, result, now, path: state.request_log_path)
-
+    # is deliberately independent of the in-memory attribution below: the log
+    # is the evidence, the attribution is the ranking.
     state =
       state
+      |> log_request(request, result, now)
       |> prune_backoffs(now)
       |> observe_response(request, result, now)
       |> observe_rejection(request, result, now)
@@ -264,6 +284,16 @@ defmodule Aiur.GitHub.Quota do
     {:reply, dispatch_status(state, now), state}
   end
 
+  def handle_call(:flush_request_log, _from, state) do
+    reply =
+      case state.request_log_io do
+        nil -> :ok
+        io -> RequestLog.sync(io)
+      end
+
+    {:reply, reply, state}
+  end
+
   @impl true
   def handle_info(:refresh, %{refresh_ref: nil} = state) do
     refresh_fun = state.refresh_fun
@@ -291,6 +321,14 @@ defmodule Aiur.GitHub.Quota do
   end
 
   def handle_info({:dispatch_recovery, _stale_token}, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    # Flush and close the request log's delayed-write io_device so the last
+    # buffered rows are not lost on shutdown.
+    if state.request_log_io, do: :file.close(state.request_log_io)
+    :ok
+  end
 
   defp observe_response(state, _request, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
     Enum.reduce(@primary_resources, state, fn resource, acc ->
@@ -607,6 +645,39 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp request_cost(_resource, _status, _response), do: {1, :reported}
+
+  # Durable per-request record. Written through the io_device held in state,
+  # so an observe never pays an open/close/stat on this message loop. Rotation
+  # is driven by the byte count tracked here; a failed write (disk full, io
+  # error) drops the device and later observes skip the log rather than retry
+  # a dead device or take this GenServer down.
+  defp log_request(state, request, result, now) do
+    case state.request_log_io do
+      nil ->
+        state
+
+      io ->
+        case RequestLog.append_io(io, request, result, now) do
+          {:ok, bytes} ->
+            total = state.request_log_bytes + bytes
+
+            if total > RequestLog.max_bytes() do
+              rotate_request_log(state)
+            else
+              %{state | request_log_bytes: total}
+            end
+
+          {:error, _reason} ->
+            %{state | request_log_io: nil, request_log_bytes: 0}
+        end
+    end
+  end
+
+  defp rotate_request_log(state) do
+    if state.request_log_io, do: :file.close(state.request_log_io)
+    RequestLog.rotate(state.request_log_path)
+    %{state | request_log_io: RequestLog.open_writer(state.request_log_path), request_log_bytes: 0}
+  end
 
   defp prune_observations(state, now) do
     cutoff = DateTime.add(now, -@attribution_window_seconds, :second)

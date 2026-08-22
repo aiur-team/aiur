@@ -1,6 +1,7 @@
 defmodule Aiur.GitHub.RequestLog do
   @moduledoc """
-  Durable per-request record of every GitHub request the daemon makes.
+  Durable per-request record of every GitHub request routed through the
+  `Aiur.GitHub.Quota` chokepoint.
 
   `Aiur.GitHub.Quota` keeps a rolling-hour, in-memory attribution that answers
   *how much* each caller spent; nothing on disk answered *which* requests were
@@ -8,8 +9,19 @@ defmodule Aiur.GitHub.RequestLog do
   agent `gh` guard wrapper, stored neither method, path, status nor cost, and
   pruned to a rolling hour — so when the burn window closed, the evidence was
   already gone (#2255). This module appends one TSV row per daemon request at
-  the `Quota` chokepoint, so "which requests consumed budget in window W" is
-  answerable from logs alone, after the window has closed.
+  the `Quota` chokepoint — the single place every `Transport` response flows
+  through — so "which requests consumed budget in window W" is answerable from
+  logs alone, after the window has closed.
+
+  "Every request that spent budget", not literally every GitHub request the
+  process makes. Requests that never pass through `Quota.observe/3` leave no
+  row here: the raw `Req.get/2` calls outside `Transport` (the PAT validation
+  in `Aiur.GitHub.Config` and the label reads in `Aiur.Init.Github`), the
+  daemon-side `git` invocations in `Aiur.RepoBase`, and shared-state cache
+  (`ReadCache`) hits that are served without a network request at all. The
+  agent-side `gh` guard preflight in `Aiur.Workspace.Hooks` is *not* one of the
+  exceptions: it routes through `Aiur.GitHubTracker.auth_preflight/0` into
+  `Transport`, so it is covered like any other request.
 
   ## Record shape
 
@@ -38,6 +50,13 @@ defmodule Aiur.GitHub.RequestLog do
   still prunes to its rolling hour (that retention is what its per-actor hourly
   ceiling is counted against); the request log is the multi-hour evidence the
   ticket's acceptance criterion #4 demands.
+
+  ## Writing
+
+  The `Quota` GenServer holds the log's io_device, opened once at boot in
+  `:delayed_write` and written through `append_io/4`, so an observe never pays
+  an open/close/stat per request on the message loop that gates the fleet's
+  GitHub access. `append/4` (path-based) is kept for direct callers and tests.
   """
 
   alias Aiur.GitHub.{Budget, GraphQLCost}
@@ -47,6 +66,8 @@ defmodule Aiur.GitHub.RequestLog do
   @max_bytes 1_048_576
   @generations 2
   @columns ~w(ts pid consumer caller method host path status resource direction cost cost_source token_key)
+  @delayed_write_bytes 65_536
+  @delayed_write_ms 1_000
 
   @spec append(map(), {:ok, map()} | {:error, term()}, DateTime.t(), keyword()) :: :ok
   def append(request, result, now, opts \\ []) do
@@ -56,14 +77,18 @@ defmodule Aiur.GitHub.RequestLog do
     end
   end
 
-  @doc "The resolved log path for a run, or `nil` when logging is disabled/unconfigured."
+  @doc """
+  The log path explicitly configured for this call, or `nil` when the caller
+  did not set one (which includes an explicit `path: nil`, meaning the log is
+  disabled for this caller).
+
+  This never resolves the run's default — that happens once at boot in
+  `Quota.init`, which keeps the hot path free of a per-request config read.
+  """
   @spec log_path(keyword()) :: String.t() | nil
   def log_path(opts \\ []) do
     case Keyword.get(opts, :path) do
       path when is_binary(path) and path != "" -> path
-      # `nil` means the caller explicitly disabled the request log (tests,
-      # no repository configured); it must not silently fall back to the
-      # default path.
       _explicitly_disabled -> nil
     end
   end
@@ -80,6 +105,57 @@ defmodule Aiur.GitHub.RequestLog do
       resolve_default_path()
     end
   end
+
+  @doc false
+  @spec max_bytes() :: pos_integer()
+  def max_bytes, do: @max_bytes
+
+  @doc false
+  # Opens (or reopens) the run's io_device in `:delayed_write`, so the Quota
+  # GenServer can append without an open/close/stat per request. Any existing
+  # file already over the cap is rotated first, keeping boot cheap and the
+  # active file bounded. `nil` disables the log.
+  @spec open_writer(String.t() | nil) :: :file.io_device() | nil
+  def open_writer(path) when is_binary(path) and path != "" do
+    _ = File.mkdir_p(Path.dirname(path))
+    rotate_if_large(path)
+
+    case :file.open(path, [:append, {:delayed_write, @delayed_write_bytes, @delayed_write_ms}]) do
+      {:ok, io} -> io
+      {:error, _reason} -> nil
+    end
+  rescue
+    _unavailable -> nil
+  end
+
+  def open_writer(_path), do: nil
+
+  @doc false
+  # Appends one row through an io_device opened by `open_writer/1`. Returns the
+  # number of bytes written so the caller can drive rotation without a `stat`.
+  @spec append_io(:file.io_device(), map(), {:ok, map()} | {:error, term()}, DateTime.t()) ::
+          {:ok, pos_integer()} | {:error, term()}
+  def append_io(io, request, result, now) do
+    line = row(record(request, result, now)) <> "\n"
+
+    case :file.write(io, line) do
+      :ok -> {:ok, byte_size(line)}
+      error -> error
+    end
+  end
+
+  @doc false
+  # Forces the `:delayed_write` buffer out so a caller can read its own write
+  # deterministically (the request-log mutation test does exactly this).
+  @spec sync(:file.io_device()) :: :ok | {:error, term()}
+  def sync(io), do: :file.sync(io)
+
+  @doc false
+  # Unconditionally rotates the active file to `.1` … `.N`. The io-driven path
+  # calls this when its byte count passes the cap, after closing the held
+  # io_device so the rename lands on the right inode.
+  @spec rotate(String.t()) :: :ok
+  def rotate(path), do: rotate(path, @generations)
 
   defp resolve_default_path do
     case GitHubConfig.repo() do
@@ -117,10 +193,31 @@ defmodule Aiur.GitHub.RequestLog do
     }
   end
 
+  defp row(fields) do
+    Enum.map_join(@columns, "\t", fn column ->
+      fields
+      |> Map.fetch!(column)
+      |> to_string()
+      |> escape_cell()
+    end)
+  end
+
+  # Backslash-escape tab/newline/CR/backslash so no field can break the line
+  # structure or forge a row. The request-log fields are derived (URL paths,
+  # statuses), so this is latent hardening rather than a live injection, but a
+  # malformed URL path can still carry control bytes.
+  defp escape_cell(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\t", "\\t")
+    |> String.replace("\n", "\\n")
+    |> String.replace("\r", "\\r")
+  end
+
   defp append_to(path, fields) do
     :ok = File.mkdir_p(Path.dirname(path))
     rotate_if_large(path)
-    File.write(path, Enum.map_join(@columns, "\t", &Map.fetch!(fields, &1)) <> "\n", [:append])
+    File.write(path, row(fields) <> "\n", [:append])
     :ok
   rescue
     _unavailable -> :ok

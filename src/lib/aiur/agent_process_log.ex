@@ -21,27 +21,51 @@ defmodule Aiur.AgentProcessLog do
 
   Tab-separated, one row per lifecycle event:
 
-  `ts, state, root_pid, ticket, pid, ppid, comm, cmdline, cwd, duration_s`
+  `ts, state, root_pid, ticket, pid, ppid, comm, argv, argv_sha, cwd, duration_s`
 
   * `state` — `start` (spawned) or `exit` (no longer observed).
   * `root_pid` — the registered agent root process the subprocess descends from.
   * `ticket` — the ticket whose workspace owns the root.
   * `comm` — the executable name, from `ps`.
-  * `cmdline` — the full command line with obvious credentials redacted. Tokens
-    in argv are the one thing this log must never record verbatim (#2255, #2245).
+  * `argv` — an allowlisted view of the command line, never the full argv
+    (#2255, #2245): the first `@max_argv_tokens` tokens with credential-shaped
+    substrings scrubbed, with `<...>` elision plus an `argv_sha` fingerprint
+    when the command line is longer. A denylist over unbounded agent argv
+    cannot be made correct — an agent can put a credential anywhere, in any
+    shape — so the token cap, not a blacklist, is the boundary: anything past
+    the cap is never written at all.
+  * `argv_sha` — SHA-256 of the full command line when it exceeded the token
+    cap, so two observations of the same long command can be correlated without
+    storing its content; blank when the command line fit in the allowlist.
   * `duration_s` — set on `exit` rows, blank on `start`.
+
+  ## Scope and the sub-interval gap
+
+  The observer samples the agent process trees every 2 seconds. Any subprocess
+  alive at a sample instant is recorded and attributed to the ticket whose
+  workspace spawned it. A subprocess that spawns and exits between two samples
+  cannot be seen by a poller at all. Calls routed through the `gh` guard are
+  covered by `agent-requests.tsv` regardless (its wrapper-pid column joins this
+  log's pid), but a wrapper-bypassing call that finishes inside the interval —
+  a short-lived `curl`, `Req`, or `git-remote-https` living a few hundred
+  milliseconds — leaves this log silent. That is a documented partial for the
+  wrapper-bypassing case: budget questions about sub-interval bypasses still
+  need live observation, exactly as before this ticket. What this log
+  guarantees is that every subprocess that outlives a sample is named and
+  ticket-attributed.
 
   ## Cost and retention
 
-  Each sweep takes a single `ps -eo pid=,ppid=,comm=,args=` snapshot, builds a
-  children index in memory, and walks the agent roots' trees with no per-process
-  subprocess spawns. The active file rotates to `.1` then `.2` at 1 MiB, so
-  several hours of process evidence survive, the same multi-generation shape as
-  the request logs.
-
-  A subprocess that lives shorter than the sweep interval can still be missed;
-  the default interval is short (2s) and the wrapper's own pid column catches
-  the `gh`/`git` calls regardless.
+  Each sweep takes one `ps -eo pid=,ppid=,comm=,args=` snapshot plus one
+  `ps -eo pid=,lstart=` snapshot (the start time keeps a reused pid from being
+  mistaken for the same process), builds a children index in memory, and walks
+  the agent roots' trees with no per-process subprocess spawns. The active
+  file rotates to `.1` … `.8` at 4 MiB (~36 MiB self-capped), which at the
+  capped-argv row size is hours to days of process evidence — comfortably
+  outliving the broker `admissions` table's rolling hour. The files live under
+  `<repo-state>/github-quota/`, outside `~/.aiur/logs`, so
+  `Aiur.Logs.Retention` / `max_log_history_mb` does not govern them; the
+  rotation cap is the bound.
   """
 
   use GenServer
@@ -52,8 +76,17 @@ defmodule Aiur.AgentProcessLog do
   alias Aiur.RepoBase
 
   @default_interval_ms 2_000
-  @max_bytes 1_048_576
-  @generations 2
+  # Sized separately from the request logs on purpose: agent builds spawn far
+  # more processes than the daemon makes requests, and this log exists to
+  # outlive the broker's rolling-hour `admissions` window (#2255). The allowlist
+  # argv cap keeps rows ~200 B, so 4 MiB x 8 generations ~ 36 MiB is hours to
+  # days of evidence, not the sub-hour retention full argv would produce.
+  @max_bytes 4_194_304
+  @generations 8
+  # The argv allowlist: only this many leading tokens of a command line are ever
+  # recorded. Credentials live anywhere in argv, so this cap — not a denylist of
+  # "known credential shapes" — is the real security boundary.
+  @max_argv_tokens 8
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -62,7 +95,7 @@ defmodule Aiur.AgentProcessLog do
   end
 
   @doc false
-  @spec sweep_once(keyword()) :: keyword()
+  @spec sweep_once(keyword()) :: map()
   def sweep_once(opts \\ []) do
     opts
     |> new_state()
@@ -113,16 +146,24 @@ defmodule Aiur.AgentProcessLog do
 
     seen =
       Map.new(tree, fn {pid, info} ->
+        # A pid is only an identity while it is the same process: Linux reuses
+        # pids, so a pid that exits and is reallocated inside one sweep window
+        # must not inherit the dead process's first_seen (which would fabricate
+        # a duration against the wrong command). `start_time` (from
+        # `ps -o lstart=`) distinguishes the two; synthetic entries without one
+        # key on `{pid, nil}`.
+        key = {pid, Map.get(info, :start_time)}
+
         # Preserve the original first_seen for processes that persist across
         # sweeps, so an exit row reports the process's whole lifetime rather
         # than just the interval since the previous sweep.
         first_seen =
-          case Map.get(state.processes, pid) do
+          case Map.get(state.processes, key) do
             %{first_seen: %DateTime{} = previous} -> previous
             _new -> now
           end
 
-        {pid,
+        {key,
          info
          |> Map.put(:ticket, Map.get(tickets, info.root_pid))
          |> Map.put(:first_seen, first_seen)
@@ -131,15 +172,15 @@ defmodule Aiur.AgentProcessLog do
 
     {starts, exits} = diff_processes(state.processes, seen)
 
-    Enum.each(starts, fn {pid, entry} -> append(state.path, start_row(now, pid, entry)) end)
-    Enum.each(exits, fn {pid, entry} -> append(state.path, exit_row(now, pid, entry)) end)
+    Enum.each(starts, fn {_key, entry} -> append(state.path, start_row(now, entry)) end)
+    Enum.each(exits, fn {_key, entry} -> append(state.path, exit_row(now, entry)) end)
 
     %{state | processes: seen}
   end
 
   # Returns `{tree, tickets}` where `tree` is `%{pid => %{root_pid, ppid, comm,
-  # cmdline, cwd}}` for every process under every registered agent root and
-  # `tickets` maps the root pid to its reaper `ticket` meta.
+  # cmdline, cwd, start_time}}` for every process under every registered agent
+  # root and `tickets` maps the root pid to its reaper `ticket` meta.
   defp observe_tree(state) do
     roots = state.roots_fun.()
     tickets = Map.new(roots, fn {root_pid, ticket} -> {root_pid, ticket} end)
@@ -202,8 +243,10 @@ defmodule Aiur.AgentProcessLog do
           Map.put_new(tree, pid, %{
             root_pid: root_pid,
             ppid: ppid,
+            pid: pid,
             comm: comm,
             cmdline: Map.get(info, :cmdline, ""),
+            start_time: Map.get(info, :start_time),
             cwd: cwd_fun.(pid)
           })
 
@@ -230,22 +273,25 @@ defmodule Aiur.AgentProcessLog do
     {starts, exits}
   end
 
-  defp start_row(now, pid, entry) do
+  defp start_row(now, entry) do
+    {argv, argv_sha} = argv_record(entry.cmdline)
+
     join([
       unix(now),
       "start",
       entry.root_pid,
       entry.ticket || "",
-      pid,
+      entry.pid,
       entry.ppid,
       entry.comm,
-      redact_cmdline(entry.cmdline),
+      argv,
+      argv_sha,
       entry.cwd,
       ""
     ])
   end
 
-  defp exit_row(now, pid, entry) do
+  defp exit_row(now, entry) do
     duration =
       case Map.get(entry, :first_seen) do
         %DateTime{} = first -> max(DateTime.diff(now, first, :second), 0)
@@ -257,9 +303,10 @@ defmodule Aiur.AgentProcessLog do
       "exit",
       entry.root_pid,
       entry.ticket || "",
-      pid,
+      entry.pid,
       entry.ppid,
       entry.comm,
+      "",
       "",
       "",
       duration
@@ -267,20 +314,68 @@ defmodule Aiur.AgentProcessLog do
   end
 
   defp unix(now), do: Integer.to_string(DateTime.to_unix(now))
-  defp join(fields), do: Enum.map_join(fields, "\t", &to_string/1)
 
-  # Obvious credential shapes in argv are redacted, never logged. git-remote
-  # helpers receive URLs on stdin rather than argv, so the common leak is a
-  # curl/Req call carrying `Authorization` or a token query parameter.
-  defp redact_cmdline(cmdline) when is_binary(cmdline) do
-    cmdline
-    |> String.replace(~r/(ghp|gho|ghu|ghs|github_pat)_[A-Za-z0-9_]+/, "\\1_<redacted>")
-    |> String.replace(~r/(Authorization:\s*Bearer\s+)\S+/i, "\\1<redacted>")
-    |> String.replace(~r/(x-access-token:\s*)\S+/i, "\\1<redacted>")
-    |> String.replace(~r/([?&](?:token|access_token|private_key|password)=)[^&\s]+/, "\\1<redacted>")
+  # Every cell is escaped so an arbitrary byte in argv (a literal newline from
+  # `sh -c $'a\nb'`, a tab, a backslash) cannot break the line structure or
+  # forge a fake row. Backslash first, then the three control characters, so
+  # the encoding is round-trippable and a literal backslash is never confused
+  # with an escape.
+  defp join(fields) do
+    Enum.map_join(fields, "\t", fn field ->
+      field
+      |> to_string()
+      |> String.replace("\\", "\\\\")
+      |> String.replace("\t", "\\t")
+      |> String.replace("\n", "\\n")
+      |> String.replace("\r", "\\r")
+    end)
   end
 
-  defp redact_cmdline(_other), do: ""
+  # The argv allowlist. Only the first `@max_argv_tokens` tokens are ever
+  # written; when the command line is longer, the remainder is never recorded
+  # and only a SHA-256 fingerprint of the whole line is written in its place so
+  # two observations of the same long command can still be correlated. The
+  # recorded prefix is additionally scrubbed of credential-shaped substrings,
+  # which is best-effort on top of the cap: a secret in the first tokens that
+  # takes a shape this scrub does not list would still be recorded, so the cap
+  # (not the scrub) is the actual security boundary.
+  defp argv_record(cmdline) when is_binary(cmdline) and cmdline != "" do
+    tokens = String.split(cmdline, ~r/\s+/, trim: true)
+    {kept, dropped} = Enum.split(tokens, @max_argv_tokens)
+    shown = scrub_cmdline(Enum.join(kept, " "))
+
+    case dropped do
+      [] -> {shown, ""}
+      _tail -> {shown <> " <...>", argv_fingerprint(cmdline)}
+    end
+  end
+
+  defp argv_record(_other), do: {"", ""}
+
+  defp argv_fingerprint(cmdline) do
+    :crypto.hash(:sha256, cmdline) |> Base.encode16(case: :lower)
+  end
+
+  defp scrub_cmdline(cmdline) do
+    cmdline
+    # URL userinfo: https://user:pass@host -> https://<redacted>@host
+    |> String.replace(~r{(://)[^/@\s]+@}, "\\1<redacted>@")
+    # GitHub PATs / fine-grained tokens / Anthropic API keys
+    |> String.replace(~r/(gh[pous]|github_pat)_[A-Za-z0-9_]+/, "\\1_<redacted>")
+    |> String.replace(~r/sk-ant-[A-Za-z0-9_-]+/, "<redacted>")
+    # Authorization / x-access-token header values (Bearer, basic, token schemes)
+    |> String.replace(~r/((?:authorization|x-access-token)\s*:\s*)\S+/i, "\\1<redacted>")
+    # git extraheader config values (the daemon's own GIT_CONFIG_VALUE_0 is
+    # passed exactly this way and must never appear here)
+    |> String.replace(~r/((?:http|https)\.extraheader\s*=\s*)\S+/i, "\\1<redacted>")
+    # credential key=value and --key <value> forms
+    |> String.replace(~r/(--?[^\s=]*(?:token|secret|password|api[_-]?key|private[_-]?key|auth|credential)[^\s=]*=)\S+/i, "\\1<redacted>")
+    |> String.replace(~r/(--?[^\s=]*(?:token|secret|password|api[_-]?key|private[_-]?key|auth|credential)[^\s=]*\s+)\S+/i, "\\1<redacted>")
+    # -u user:pass
+    |> String.replace(~r/(--?u(?:ser(?:name)?)?\s+)[^\s]+:[^\s]+/, "\\1<redacted>")
+    # long base64 blobs (the common shape of an encoded token passed inline)
+    |> String.replace(~r([A-Za-z0-9+/]{16,}={1,2}), "<redacted>")
+  end
 
   defp append(nil, _row), do: :ok
 
@@ -347,13 +442,31 @@ defmodule Aiur.AgentProcessLog do
         %{}
 
       ps ->
-        case System.cmd(ps, ["-eo", "pid=,ppid=,comm=,args="], stderr_to_stdout: true) do
-          {out, 0} -> parse_ps(out)
-          _other -> %{}
-        end
+        ps_snapshot_with(ps)
     end
   rescue
     _ -> %{}
+  end
+
+  defp ps_snapshot_with(ps) do
+    with {out, 0} <- System.cmd(ps, ["-eo", "pid=,ppid=,comm=,args="], stderr_to_stdout: true) do
+      starts = parse_ps(out)
+
+      case System.cmd(ps, ["-eo", "pid=,lstart="], stderr_to_stdout: true) do
+        {lstarts, 0} ->
+          lstart_by_pid = parse_lstarts(lstarts)
+
+          Map.new(starts, fn {pid, info} ->
+            {pid, Map.put(info, :start_time, Map.get(lstart_by_pid, pid))}
+          end)
+
+        # Start times unavailable; degrade to pid-only identity.
+        _other ->
+          starts
+      end
+    else
+      _other -> %{}
+    end
   end
 
   defp parse_ps(out) do
@@ -376,6 +489,27 @@ defmodule Aiur.AgentProcessLog do
     else
       _invalid -> nil
     end
+  end
+
+  # `lstart` itself contains spaces (`Sat Aug  9 21:00:00 2026`), so it is
+  # parsed as the whole remainder of the line after the pid. The raw string is
+  # used as an identity, not a timestamp: a reused pid is distinguished by its
+  # start time differing, which needs no timezone or locale parsing.
+  defp parse_lstarts(out) do
+    out
+    |> String.split("\n", trim: true)
+    |> Enum.reduce(%{}, fn line, acc ->
+      case String.split(String.trim_leading(line), ~r/\s+/, parts: 2) do
+        [pid_s, lstart] ->
+          case Integer.parse(pid_s) do
+            {pid, ""} when pid > 0 -> Map.put(acc, pid, lstart)
+            _invalid -> acc
+          end
+
+        _malformed ->
+          acc
+      end
+    end)
   end
 
   defp proc_cwd(pid) when is_integer(pid) and pid > 0 do

@@ -53,9 +53,33 @@ defmodule Aiur.GitHub.RequestLogTest do
 
     assert [^ts, ^pid, "ticket:1670", caller, "get", "api.github.com", "/repos/owner/repo/issues/1670", "200", "core", "read", "1", "reported", token_key] = columns(line)
 
-    assert is_binary(caller) and caller != ""
+    # The caller is the REST route shape (numeric segments collapsed). This is
+    # exactly the fix that closes the "REST requests billed unattributed" hole,
+    # so it is pinned precisely rather than as "non-empty".
+    assert caller == "rest:GET /repos/owner/repo/issues/:n"
     assert token_key == Budget.token_key("secret-token")
     refute line =~ "secret-token"
+  end
+
+  test "records the path without its query string" do
+    path = tmp_path()
+
+    :ok =
+      RequestLog.append(
+        request(:get, "/repos/owner/repo/issues/1670?access_token=SUPERSECRET&page=2"),
+        response("core", 5000, 3750),
+        @now,
+        path: path
+      )
+
+    [line] = File.read!(path) |> String.split("\n", trim: true)
+    ts = Integer.to_string(DateTime.to_unix(@now))
+    assert [^ts, _, _, _, "get", _, path_column, _, _, _, _, _, _] = columns(line)
+
+    # A token in the query string must never reach the log.
+    assert path_column == "/repos/owner/repo/issues/1670"
+    refute path_column =~ "access_token"
+    refute line =~ "SUPERSECRET"
   end
 
   test "GraphQL requests record the operation name as caller and the reported cost" do
@@ -136,6 +160,9 @@ defmodule Aiur.GitHub.RequestLogTest do
     Quota.observe(quota, graphql_request("query Ticket { repository { issue(number: 1790) { id } } }", %{"number" => 1790}), graphql_response())
     # The call settles the two casts above (they run before any later message).
     _snapshot = Quota.snapshot(quota)
+    # The request log is written through a delayed-write io_device held by the
+    # Quota GenServer; flush it so the rows are on disk before we read them.
+    :ok = Quota.flush_request_log(quota)
 
     rows = File.read!(path) |> String.split("\n", trim: true)
     assert length(rows) == 2
