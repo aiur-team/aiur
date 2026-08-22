@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.Budget do
   @moduledoc """
   Coordinates GitHub request admission across local Aiur instances.
 
-  The broker is host-local and keyed by one-way token and consumer fingerprints. It shares
+  The broker is host-local and keyed by one-way credential and consumer fingerprints. It shares
   rate ceilings, global and endpoint-family in-flight leases, jittered request
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
@@ -52,6 +52,12 @@ defmodule Aiur.GitHub.Budget do
 
   @spec token_key(String.t() | nil) :: String.t() | nil
   def token_key(_token), do: nil
+
+  @doc "A domain-separated, one-way key for a stable configured credential identity."
+  @spec identity_key(String.t()) :: String.t()
+  def identity_key(identity) when is_binary(identity) and identity != "" do
+    token_key("aiur-github-credential-v1\0" <> identity)
+  end
 
   @spec state_dir(keyword()) :: Path.t()
   def state_dir(opts \\ []) do
@@ -108,7 +114,7 @@ defmodule Aiur.GitHub.Budget do
          token when is_binary(token) <- Map.get(request, :token),
          key when is_binary(key) <- token_key(token),
          python when is_binary(python) <- python_executable(opts) do
-      do_acquire(request, key, python, opts, deadline(opts))
+      do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
     else
       false -> :bypass
       _unavailable -> {:error, :github_budget_broker_unavailable}
@@ -128,7 +134,10 @@ defmodule Aiur.GitHub.Budget do
   @doc "Observes a response before releasing its lease so accounting and rejections are global immediately."
   @spec observe(map(), lease(), {:ok, map()} | {:error, term()}, keyword()) :: :ok
   def observe(request, lease, result, opts) do
-    reconcile_response(lease, result, opts)
+    # The reconcile must carry the same credential identity the admission did,
+    # or the broker resolves it to a different storage key than the one the
+    # lease was admitted under.
+    reconcile_response(lease, result, identity_opts(request, opts))
     observe(request, result, opts)
   end
 
@@ -154,7 +163,7 @@ defmodule Aiur.GitHub.Budget do
   def snapshot(token, opts \\ []) when is_binary(token) do
     key = token_key(token)
 
-    case command(["snapshot"], key, opts) do
+    case command(["snapshot"], key, identity_opts(%{}, opts)) do
       {:ok, output} ->
         case Jason.decode(String.trim(output)) do
           {:ok, snapshot} -> atomize_snapshot(snapshot)
@@ -365,7 +374,13 @@ defmodule Aiur.GitHub.Budget do
           ["--db", database_path(opts)]
         end
 
-      command_args = [broker_path() | args] ++ token_args
+      identity_args =
+        case Keyword.get(opts, :credential_key) do
+          identity_key when is_binary(identity_key) and identity_key != "" -> ["--identity-key", identity_key]
+          _missing -> []
+        end
+
+      command_args = [broker_path() | args] ++ token_args ++ identity_args
 
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
@@ -557,6 +572,7 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp observe_response(key, request, response, opts) do
+    opts = identity_opts(request, opts)
     headers = Map.get(response, :headers, [])
     resource = response_resource(headers, request)
 
@@ -564,6 +580,13 @@ defmodule Aiur.GitHub.Budget do
       {:resource, delay} -> hold(key, :resource, resource, delay, opts)
       {:token, delay} -> hold(key, :token, resource, delay, opts)
       :none -> :ok
+    end
+  end
+
+  defp identity_opts(request, opts) do
+    case Map.get(request, :credential_key) || Keyword.get(opts, :credential_key) do
+      key when is_binary(key) and key != "" -> Keyword.put(opts, :credential_key, key)
+      _missing -> opts
     end
   end
 

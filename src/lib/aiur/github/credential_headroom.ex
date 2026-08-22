@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.CredentialHeadroom do
   keeps one window per resource because it was written when there was one
   credential; folding a second credential's headers into the same slot would
   make the meter oscillate between two accounts and mean nothing. This module
-  keeps the same headers keyed by the broker's one-way token key, so
+  keeps the same headers keyed by the broker's stable one-way credential key, so
   `core` and `graphql` headroom can be compared across credentials.
 
   It is a plain ETS-backed GenServer with no polling of its own. Every figure
@@ -52,7 +52,7 @@ defmodule Aiur.GitHub.CredentialHeadroom do
   @spec observe(map(), {:ok, map()} | {:error, term()}) :: :ok
   def observe(request, result) do
     with %{token: token} <- request,
-         key when is_binary(key) <- Budget.token_key(token),
+         key when is_binary(key) <- Map.get(request, :credential_key) || Budget.token_key(token),
          {:ok, %{headers: headers}} <- result,
          %{} = window <- window_from(headers) do
       put(key, resource(headers, request), window)
