@@ -358,8 +358,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tticket:1670\tread\tcore\n"
-    assert events =~ "\tticket:1670\twrite\tcore\n"
+    assert events =~ "\tticket:1670\tread\tcore\t"
+    assert events =~ "\tticket:1670\twrite\tcore\t"
     refute events =~ "secret body"
   end
 
@@ -371,8 +371,49 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tread\tgraphql\n"
-    assert events =~ "\tread\tcore\n"
+    assert events =~ "\tread\tgraphql\t"
+    assert events =~ "\tread\tcore\t"
+  end
+
+  # The agent-side record now carries the credential fingerprint (never the
+  # token) and the wrapper pid, so a request is attributable to its ticket's
+  # pool and to the exact subprocess that made it without a live /proc sweep
+  # (#2255).
+  test "records a credential-fingerprint and pid column on every agent request", context do
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    [row | _] = String.split(events, "\n", trim: true)
+    [_unix, "ticket:1670", "read", "core", token_key, pid] = String.split(row, "\t")
+
+    # Budget is disabled in this harness, so the fingerprint column is blank
+    # (never a refused call) while the pid names the wrapper subprocess.
+    assert token_key == ""
+    assert pid =~ ~r/^\d+$/
+  end
+
+  test "carries the configured credential fingerprint into the agent request record", context do
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"], AIUR_GITHUB_BUDGET_KEY: "fingerprint-abc")
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert events =~ "\tread\tcore\tfingerprint-abc\t"
+  end
+
+  # Retention (#2255): the agent request record keeps the previous two
+  # generations so evidence survives the detection latency of a budget anomaly.
+  test "keeps two rotated generations of the agent request record", context do
+    events_file = Path.join(context.state_path, "github-quota/agent-requests.tsv")
+    # A current file past the 1 MiB rotation cap plus one prior generation; the
+    # next call rotates current to `.1` and moves the old `.1` to `.2`.
+    File.mkdir_p!(Path.dirname(events_file))
+    File.write!(events_file, String.duplicate("x", 1_048_577) <> "\n")
+    File.write!("#{events_file}.1", "old-generation-1\n")
+
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
+
+    assert File.read!("#{events_file}.2") == "old-generation-1\n"
+    assert File.read!("#{events_file}.1") == String.duplicate("x", 1_048_577) <> "\n"
+    assert File.read!(events_file) =~ "\tticket:1670\tread\tcore\t"
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do

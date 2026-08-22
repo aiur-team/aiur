@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.RequestLog
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
@@ -161,6 +162,16 @@ defmodule Aiur.GitHub.Quota do
       emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
       hold_dir: Keyword.get_lazy(opts, :hold_dir, &default_hold_dir/0),
+      # Resolved once at boot: every observe appends to the same durable file,
+      # and re-resolving `GitHub.Config.repo()` per request would add a config
+      # read to the hot path. An explicit `nil` disables the log (tests); an
+      # absent value resolves the configured default.
+      request_log_path:
+        case Keyword.fetch(opts, :request_log_path) do
+          {:ok, nil} -> nil
+          {:ok, path} -> path
+          :error -> RequestLog.default_path()
+        end,
       refresh_fun: Keyword.get(opts, :refresh_fun, &refresh_from_github/0),
       recovery_fun: Keyword.get(opts, :recovery_fun, &notify_orchestrator_recovery/0),
       observed_dispatch_hold?: false,
@@ -178,6 +189,15 @@ defmodule Aiur.GitHub.Quota do
   def handle_cast({:observe, request, result}, state) do
     now = state.clock.()
     held_before? = state.observed_dispatch_hold?
+
+    # Durable per-request record (#2255). Every GitHub request this daemon
+    # makes lands one row in `daemon-requests.tsv` — timestamp, pid, caller,
+    # method, path/operation, status, cost, credential fingerprint — so a
+    # budget question is answerable from logs alone after the window has
+    # closed. It runs for every observe (including `/rate_limit` probes) and
+    # is deliberately independent of the in-memory attribution below: the
+    # log is the evidence, the attribution is the ranking.
+    :ok = RequestLog.append(request, result, now, path: state.request_log_path)
 
     state =
       state
@@ -920,9 +940,14 @@ defmodule Aiur.GitHub.Quota do
 
   # The resource column was added with cost-weighted attribution; rows written
   # before it are still valid and are read as core (see `observation_resource/1`).
-  # An agent shell cannot see what a GraphQL query cost, so its rows carry one
-  # point and are marked estimated rather than silently counted as exact.
-  defp parse_shell_observation(line) do
+  # The credential fingerprint and wrapper pid columns came with #2255 so the
+  # agent record answers "which pool" and names the exact subprocess; rows
+  # written before them simply have no value in those columns. An agent shell
+  # cannot see what a GraphQL query cost, so its rows carry one point and are
+  # marked estimated rather than silently counted as exact.
+  @doc false
+  @spec parse_shell_observation(String.t()) :: map() | nil
+  def parse_shell_observation(line) do
     with [unix, consumer, direction | rest] <- line |> String.trim() |> String.split("\t"),
          {unix, ""} <- Integer.parse(unix),
          {:ok, observed_at} <- DateTime.from_unix(unix),
@@ -943,6 +968,8 @@ defmodule Aiur.GitHub.Quota do
         resource: resource,
         cost: 1,
         cost_source: if(resource == "graphql", do: :assumed, else: :reported),
+        token_key: shell_column(rest, 1),
+        pid: shell_pid(rest),
         observed_at: observed_at
       }
     else
@@ -952,6 +979,25 @@ defmodule Aiur.GitHub.Quota do
 
   defp shell_resource([resource | _rest]) when resource in @primary_resources, do: resource
   defp shell_resource(_columns), do: "core"
+
+  defp shell_column(columns, index), do: Enum.at(columns, index) |> shell_blank()
+
+  defp shell_pid(columns) do
+    case Enum.at(columns, 2) do
+      pid when is_binary(pid) ->
+        case Integer.parse(pid) do
+          {value, ""} when value > 0 -> value
+          _invalid -> nil
+        end
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp shell_blank(nil), do: nil
+  defp shell_blank(""), do: nil
+  defp shell_blank(value), do: value
 
   # `Path.wildcard/1` does not expand a leading `~`, so a configured workspace
   # root written in tilde form matched nothing and every agent-shell call went

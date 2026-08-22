@@ -244,6 +244,7 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.AgentProcessLog,
       Aiur.SaturationSentinel,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
