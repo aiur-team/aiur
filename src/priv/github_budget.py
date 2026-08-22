@@ -136,6 +136,13 @@ def migrate(conn):
         conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
     if "billable" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
+    # A lease-less admission cannot be reconciled, so it must not sit in the
+    # billable ledger. The `actor_usage_rows` query refuses such rows outright;
+    # this UPDATE heals the ones a pre-#2284 writer or an interrupted
+    # transaction left behind so the stored flag agrees with the query. It is
+    # idempotent and runs on every connection, so a stale writer that later
+    # inserts a lease-less row is self-healed on the next broker command.
+    conn.execute("UPDATE admissions SET billable = 0 WHERE lease_id IS NULL AND billable = 1")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -218,9 +225,17 @@ def actor_usage_rows(conn, token_key, consumer_key, resource, now):
     else:
         family_clause = "endpoint_family != ?"
         family_value = "graphql"
+    # A `304` is reconciled to `billable = 0`. A row that carries no lease is
+    # structurally outside the reconciliation path (nothing can refund it), so
+    # it must never be counted as spend: the ledger only ever bills admissions
+    # a lease can be matched against. The lease is written atomically with the
+    # admission, so a lease-less row can only come from a pre-#2284 writer or a
+    # failed transaction; excluding it here (and healing it in `migrate`) means
+    # "every admission either carries a lease or is excluded from the billable
+    # query" holds even while such a row still exists.
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
-        "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
+        "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND lease_id IS NOT NULL AND admitted_at_ms > ? AND "
         + family_clause
         + " ORDER BY admitted_at_ms ASC",
         (token_key, consumer_key, now - HOURLY_WINDOW_MS, family_value),

@@ -442,6 +442,51 @@ defmodule Aiur.GitHub.BudgetTest do
     assert actor.core.used == 0
   end
 
+  test "a lease-less admission is excluded from the actor billable ledger", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/lease-less-reader",
+      agent_core_limit_per_hour: 1,
+      agent_graphql_limit_per_hour: 1
+    ]
+
+    request = request("lease-less-token", "/repos/owner/repo/issues/1477")
+
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # Break the lease linkage the way a pre-#2284 writer (one that wrote the
+    # admission without taking a lease) would. The admission stays in the
+    # ledger for RPM accounting but must never count as billable spend.
+    db = Budget.database_path(state_dir: root)
+    assert :ok = null_admission_lease(db, "lease-less-token")
+
+    actor =
+      opts
+      |> Budget.usage()
+      |> Map.fetch!(:actors)
+      |> Enum.find(&(&1.consumer_key == Budget.token_key("workspace:/lease-less-reader")))
+
+    assert actor.core.used == 0
+  end
+
+  test "existing lease-less admissions are healed to unbilled by the broker migration", %{root: root} do
+    # Prime the broker schema, then inject the exact row a stale writer leaves
+    # behind: an admission with no lease that is still flagged billable.
+    assert %{admissions: []} = Budget.snapshot("heal-token", state_dir: root)
+    db = Budget.database_path(state_dir: root)
+    assert :ok = insert_lease_less_admission(db, "heal-token", "daemon:legacy", "issues", 1)
+
+    # Any broker command runs the migration, which heals the row to unbilled so
+    # the stored flag agrees with the billable-ledger query that excludes it.
+    assert %{admissions: [%{billable: false, endpoint_family: "issues"}]} =
+             Budget.snapshot("heal-token", state_dir: root)
+  end
+
   test "an existing admissions table migrates before response reconciliation", %{root: root} do
     db = Budget.database_path(state_dir: root)
     create_legacy_budget_database(db)
@@ -715,6 +760,37 @@ defmodule Aiur.GitHub.BudgetTest do
         "c.commit()"
 
     assert {_output, 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
+  end
+
+  # The admission a pre-#2284 writer produced: linked to no lease, still flagged
+  # billable. Injected straight into the broker database so the migration heal
+  # and the billable-ledger exclusion are exercised against real storage.
+  defp insert_lease_less_admission(db, token, consumer_key, endpoint_family, billable) do
+    key = Budget.token_key(token)
+    now = System.system_time(:millisecond)
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute('INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms, billable) " <>
+        "VALUES (?,?,NULL,?,?,?)', (sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6]))); c.commit()"
+
+    case System.cmd("python3", ["-c", script, db, key, consumer_key, endpoint_family, Integer.to_string(now), Integer.to_string(billable)], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("could not inject lease-less admission: #{status}: #{output}")
+    end
+  end
+
+  defp null_admission_lease(db, token) do
+    key = Budget.token_key(token)
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute('UPDATE admissions SET lease_id = NULL WHERE token_key = ? AND billable = 1', (sys.argv[2],)); c.commit()"
+
+    case System.cmd("python3", ["-c", script, db, key], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("could not null admission lease: #{status}: #{output}")
+    end
   end
 
   defp close_port(port) do
