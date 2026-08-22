@@ -51,19 +51,21 @@ defmodule Aiur.Config do
   This is the single most-called read in the system, so it must be cheap and it
   must not serialize. Two things make it so (#1731):
 
-    * `Workflow.current_with_generation/0` is an ETS lookup, not a
+    * `Workflow.current_with_cache_identity/0` is an ETS lookup, not a
       `GenServer.call` into `Aiur.WorkflowStore`.
-    * the `Schema.parse/1` result is memoized against the store generation, so
-      the schema work happens once per *config change* rather than once per
-      read. Before this, every caller re-prepared and re-parsed the same map.
+    * the `Schema.parse/1` result is memoized against the store generation and
+      collision-free publication reference, plus the environment epoch, so the
+      schema work happens once per *config or environment change* rather than
+      once per read. Before this, every caller re-prepared and re-parsed the
+      same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
-    case Workflow.current_with_generation() do
-      {:ok, workflow, generation} when is_integer(generation) ->
-        cached_settings(workflow, generation)
+    case Workflow.current_with_cache_identity() do
+      {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
+        cached_settings(workflow, {generation, publication})
 
-      {:ok, workflow, _unknown} ->
+      {:ok, workflow, _unknown_generation, _unknown_publication} ->
         settings_from({:ok, workflow})
 
       {:error, reason} ->
@@ -76,11 +78,15 @@ defmodule Aiur.Config do
   # the process environment at parse time. Keying the memo on the config
   # generation alone would freeze a resolved secret for the life of the config —
   # and would break every test that sets an env var and re-reads settings. So
-  # the key carries an environment epoch as well; a `System.put_env` to any
-  # variable the parse depends on invalidates the memo exactly like a config
-  # edit does. See `env_epoch/2` for why that is not the whole environment.
-  defp cached_settings(workflow, generation) do
-    key = {generation, env_epoch(workflow, generation)}
+  # the key carries a collision-free publication reference and an environment
+  # epoch as well; a
+  # `System.put_env` to any variable the parse depends on invalidates the memo
+  # exactly like a config edit does. The publication reference prevents a late
+  # reader from republishing settings for older content if a generation is
+  # reused, without copying the full config term on this hot path. See
+  # `env_epoch/2` for why that is not the whole environment.
+  defp cached_settings(workflow, cache_identity) do
+    key = {cache_identity, env_epoch(workflow, cache_identity)}
 
     case WorkflowStoreCache.fetch_settings(key) do
       {:ok, settings} ->
@@ -115,21 +121,21 @@ defmodule Aiur.Config do
   # The dependency set is a superset of what is really read (every `$NAME`
   # anywhere in the config, not just in fields that resolve one), so the key
   # can only expire too eagerly, never too late.
-  defp env_epoch(workflow, generation) do
+  defp env_epoch(workflow, cache_identity) do
     workflow
-    |> env_names(generation)
+    |> env_names(cache_identity)
     |> Enum.map(&System.get_env/1)
     |> :erlang.phash2()
   end
 
-  defp env_names(workflow, generation) do
-    case WorkflowStoreCache.fetch_env_names(generation) do
+  defp env_names(workflow, cache_identity) do
+    case WorkflowStoreCache.fetch_env_names(cache_identity) do
       {:ok, names} ->
         names
 
       :error ->
         names = referenced_env_names(workflow)
-        WorkflowStoreCache.put_env_names(generation, names)
+        WorkflowStoreCache.put_env_names(cache_identity, names)
         names
     end
   end
