@@ -92,7 +92,8 @@ defmodule Aiur.Events.Publisher do
       comment to correct an agent is a normal workflow. Absent, suppression
       falls back to identity alone.
     * `:resource_source` — which pipe produced this event (`:webhook` or
-      `:poll`), recorded alongside the resource. Defaults to `:poll`.
+      `:poll`), recorded alongside the resource. Required when `:resource` is
+      present.
     * `:bypass_contamination` — when `true`, skip the tracked-issue
       filter for this publish. Used for external reactivation triggers
       (firehose `issue.commented` / `pr.review_comment`): a `:deactivated`
@@ -109,6 +110,7 @@ defmodule Aiur.Events.Publisher do
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
+    _resource_source = require_resource_source!(opts)
     outcome = rejection(topic, payload, opts)
     record_webhook_activity(outcome, opts)
 
@@ -146,6 +148,9 @@ defmodule Aiur.Events.Publisher do
   # and filtered traffic is precisely what this recorder exists to carry.
   # Inferring novelty from a store the path never writes to was the mistake;
   # the registry keys on the resource itself, which every path supplies.
+  # Review-thread comments deliberately share one resource key, and edits reuse
+  # it because resource versions are excluded from observations; both can only
+  # under-count corroboration, never manufacture evidence that did not happen.
   #
   # `deduped?/1` is still honoured through `outcome`, because it catches a
   # replay keyed to a resource the registry has not seen. It is not re-checked:
@@ -165,12 +170,16 @@ defmodule Aiur.Events.Publisher do
   defp record_webhook_activity(:deduped, _opts), do: :ok
 
   defp record_webhook_activity(_outcome, opts) do
-    with :poll <- Keyword.get(opts, :resource_source, :poll),
-         {_type, owner, repo, _id} = resource <- Keyword.get(opts, :resource) do
+    with {_type, owner, repo, _id} = resource <- Keyword.get(opts, :resource),
+         :poll <- Keyword.fetch!(opts, :resource_source) do
       Webhooks.record_activity("#{owner}/#{repo}", observation: resource)
     else
       _not_a_polled_github_resource -> :ok
     end
+  end
+
+  defp require_resource_source!(opts) do
+    if Keyword.has_key?(opts, :resource), do: Keyword.fetch!(opts, :resource_source)
   end
 
   # The gates, in the order they are cheapest to answer and most decisive.
