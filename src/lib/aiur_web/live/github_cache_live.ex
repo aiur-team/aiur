@@ -302,6 +302,12 @@ defmodule AiurWeb.GithubCacheLive do
         _unset -> opts
       end
 
+    opts =
+      case Application.get_env(:aiur, :github_budget_map_modes_fun) do
+        fun when is_function(fun, 1) -> Keyword.put(opts, :modes_fun, fun)
+        _unset -> opts
+      end
+
     BudgetMap.snapshot(opts)
   rescue
     _unavailable -> empty_budget_map()

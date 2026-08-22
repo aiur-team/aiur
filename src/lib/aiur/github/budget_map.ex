@@ -63,8 +63,11 @@ defmodule Aiur.GitHub.BudgetMap do
   # hand. It is authoritative for these three callers: a live read-cache
   # counter would be a signal worth reading the source about, not an automatic
   # upgrade, and a caller outside all three lists renders `:unclassified`
-  # rather than being guessed either way.
-  @wasted_callers MapSet.new(["ci_poll_batch", "comment_poll_batch", "review_threads_unaddressed"])
+  # rather than being guessed either way. Kept as a plain list rather than a
+  # `MapSet`: a `MapSet` return leaks the concrete set type through dialyzer's
+  # opaque boundary (`contract_with_opaque`), and every consumer here just
+  # enumerates the names.
+  @wasted_callers ["ci_poll_batch", "comment_poll_batch", "review_threads_unaddressed"]
 
   # Callers free by nature: their reads arrive without a metered call.
   @free_by_nature %{
@@ -95,8 +98,8 @@ defmodule Aiur.GitHub.BudgetMap do
   @spec resources() :: [String.t()]
   def resources, do: @resources
 
-  @doc "The static set of callers whose spend buys no reuse."
-  @spec wasted_callers() :: MapSet.t(String.t())
+  @doc "The static list of callers whose spend buys no reuse."
+  @spec wasted_callers() :: [String.t()]
   def wasted_callers, do: @wasted_callers
 
   @doc """
@@ -198,7 +201,7 @@ defmodule Aiur.GitHub.BudgetMap do
   def verdict(%{caller: caller} = row) do
     cond do
       Map.has_key?(@free_by_nature, caller) -> :free
-      MapSet.member?(@wasted_callers, caller) -> :wasted
+      caller in @wasted_callers -> :wasted
       reuse_hint?(caller) -> :billed
       served?(row) -> :billed
       true -> :unclassified

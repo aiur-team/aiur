@@ -1052,6 +1052,12 @@ defmodule AiurWeb.GithubCacheLiveTest do
       Source.install(entries(2))
       install_quota()
 
+      # The webhook registry is a live app process that other tests in the same
+      # CI shard may have written to; a deterministic empty view makes "fails
+      # open" about the page, not about which tests happened to run first.
+      Application.put_env(:aiur, :github_budget_map_modes_fun, fn _opts -> [] end)
+      on_exit(fn -> Application.delete_env(:aiur, :github_budget_map_modes_fun) end)
+
       {:ok, _view, html} = live(build_conn(), "/github-cache")
       document = Floki.parse_document!(html)
 
