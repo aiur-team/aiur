@@ -61,6 +61,55 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
     end
   end
 
+  describe "demand tracking" do
+    test "subscribing registers the caller as a demander" do
+      server = start_source(request_fun: one_page([]))
+      parent = self()
+
+      # The watcher stands in for a LiveView session: it subscribes and then
+      # stays alive, exactly as an open page would.
+      watcher = watch(server, parent)
+
+      assert_receive :subscribed, 1_000
+
+      assert eventually(fn -> AdHocSource.demanded?(server) end)
+      assert eventually(fn -> AdHocSource.demander_count(server) == 1 end)
+
+      Process.exit(watcher, :kill)
+    end
+
+    test "the first demander buys one refresh" do
+      test_pid = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        send(test_pid, {:requested, url})
+        {:ok, %{status: 200, body: [], headers: []}}
+      end
+
+      server = start_source(request_fun: request_fun)
+      watch(server, test_pid)
+
+      assert_receive :subscribed, 1_000
+      assert_receive {:requested, url}, 2_000
+      assert url =~ "labels=build-lane:adhoc"
+    end
+
+    test "closing the last session releases the demand; the count reaches zero" do
+      server = start_source(request_fun: one_page([]))
+      parent = self()
+
+      watcher = watch(server, parent)
+
+      assert_receive :subscribed, 1_000
+      assert eventually(fn -> AdHocSource.demander_count(server) == 1 end)
+
+      Process.exit(watcher, :kill)
+
+      assert eventually(fn -> AdHocSource.demander_count(server) == 0 end)
+      refute AdHocSource.demanded?(server)
+    end
+  end
+
   defp start_source(opts) do
     defaults = [
       name: nil,
@@ -101,5 +150,23 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
       "state" => state,
       "labels" => Enum.map(labels, &%{"name" => &1})
     }
+  end
+
+  defp eventually(fun, attempts \\ 100) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(10) && eventually(fun, attempts - 1)
+    end
+  end
+
+  # Spawns a stand-in LiveView session: it subscribes to `server` as a demander
+  # and then stays alive until the test kills it.
+  defp watch(server, parent) do
+    spawn(fn ->
+      AdHocSource.subscribe(server)
+      send(parent, :subscribed)
+      Process.sleep(:infinity)
+    end)
   end
 end
