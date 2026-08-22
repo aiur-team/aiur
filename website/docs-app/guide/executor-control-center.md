@@ -57,8 +57,8 @@ Each page renders a durable concept whose detail lives in Concepts.
 
 ### Read fleet and build pressure
 
-Analytics records the fleet and build gate as whole-host sources alongside daemon
-process telemetry. The pressure chart shows occupied agents, configured/max/effective
+Analytics records fleet and build-gate whole-host sources alongside daemon process
+telemetry. The pressure chart shows occupied agents, configured/max/effective
 agent capacity, active and queued builds, and the oldest live build wait. Its source
 state strip and timestamped data table distinguish current, stale, degraded, partial,
 and empty observations.

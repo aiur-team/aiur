@@ -33,6 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           host_mem_bytes: number(),
           actors: [map()],
           series: [map()],
+          pressure: map(),
           tickets: [map()],
           complexity_breakdown: [map()],
           kpis: map()
@@ -341,13 +342,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp put_latest_metrics(cell, ts, metrics) do
     if ts >= Map.get(cell, :metric_ts, -1) do
       metrics
-      |> Enum.reduce(Map.put(cell, :metric_ts, ts), fn {key, value}, acc ->
-        Map.put(acc, key, if(is_number(value), do: value, else: nil))
-      end)
+      |> Enum.reduce(Map.put(cell, :metric_ts, ts), &put_numeric_metric/2)
     else
       cell
     end
   end
+
+  defp put_numeric_metric({key, value}, cell), do: Map.put(cell, key, if(is_number(value), do: value, else: nil))
 
   defp put_max(cell, _key, value) when not is_number(value), do: cell
   defp put_max(cell, key, value), do: Map.update(cell, key, value, &max(&1, value))

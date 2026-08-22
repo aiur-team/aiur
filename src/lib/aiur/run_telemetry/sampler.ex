@@ -303,27 +303,28 @@ defmodule Aiur.RunTelemetry.Sampler do
       build_gate_observed_at_ms: observed_at_ms
     }
 
-    cond do
-      is_integer(oldest_wait) and oldest_wait >= 0 ->
-        Map.merge(base, %{
-          build_gate_status: if(enabled, do: "measured", else: "disabled"),
-          build_queue_oldest_wait_seconds: oldest_wait,
-          build_partial_fields: []
-        })
-
-      queued > 0 ->
-        Map.merge(base, %{
-          build_gate_status: "partial",
-          build_queue_oldest_wait_seconds: nil,
-          build_partial_fields: [:build_queue_oldest_wait_seconds]
-        })
-
-      true ->
-        unavailable_build("unavailable")
-    end
+    build_measurement(base, enabled, queued, oldest_wait)
   end
 
   defp build_observation(_result, _observed_at_ms), do: unavailable_build("unavailable")
+
+  defp build_measurement(base, enabled, _queued, oldest_wait) when is_integer(oldest_wait) and oldest_wait >= 0 do
+    Map.merge(base, %{
+      build_gate_status: if(enabled, do: "measured", else: "disabled"),
+      build_queue_oldest_wait_seconds: oldest_wait,
+      build_partial_fields: []
+    })
+  end
+
+  defp build_measurement(base, _enabled, queued, _oldest_wait) when queued > 0 do
+    Map.merge(base, %{
+      build_gate_status: "partial",
+      build_queue_oldest_wait_seconds: nil,
+      build_partial_fields: [:build_queue_oldest_wait_seconds]
+    })
+  end
+
+  defp build_measurement(_base, _enabled, _queued, _oldest_wait), do: unavailable_build("unavailable")
 
   defp unavailable_build(status) do
     %{

@@ -145,10 +145,10 @@ Every `--json` result is one versioned envelope with `schema_version`, `page`, `
 
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
-Fleet-capacity and build-gate evidence have independent source states. A stale fleet
-sample does not erase a current build measurement, and unavailable daemon process
-metrics do not erase current whole-host pressure. Missing pressure values remain
-`null` in JSON and `unavailable` in human output rather than becoming zero.
+Fleet-capacity and build-gate evidence have independent source states: stale fleet
+samples do not erase current build measurements; unavailable daemon process metrics
+do not erase whole-host pressure; and missing values remain `null` in JSON and
+`unavailable` in human output rather than becoming zero.
 
 | Source condition | Output contract |
 | --- | --- |

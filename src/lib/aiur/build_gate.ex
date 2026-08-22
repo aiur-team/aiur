@@ -198,19 +198,26 @@ defmodule Aiur.BuildGate do
   end
 
   defp scan_locks(gate_dir, lock_dir, capacity) do
-    with python when is_binary(python) <- System.find_executable("python3") do
-      with_scan_manifest(%{gate_dir: gate_dir, lock_dir: lock_dir, capacity: capacity}, fn manifest_path ->
-        case System.cmd(python, [holder_path(), "--scan-locks-manifest", manifest_path], stderr_to_stdout: true) do
-          {output, 0} when byte_size(output) <= @scan_output_budget_bytes -> Jason.decode(String.trim(output))
-          {output, 0} -> {:error, %{reason: :output_budget_exceeded, bytes: byte_size(output)}}
-          {output, status} -> {:error, %{status: status, output: String.slice(String.trim(output), 0, 1_024)}}
-        end
-      end)
-    else
-      nil -> {:error, :safe_reader_unavailable}
+    case System.find_executable("python3") do
+      nil ->
+        {:error, :safe_reader_unavailable}
+
+      python ->
+        with_scan_manifest(
+          %{gate_dir: gate_dir, lock_dir: lock_dir, capacity: capacity},
+          &run_lock_scan(python, &1)
+        )
     end
   rescue
     error -> {:error, Exception.message(error)}
+  end
+
+  defp run_lock_scan(python, manifest_path) do
+    case System.cmd(python, [holder_path(), "--scan-locks-manifest", manifest_path], stderr_to_stdout: true) do
+      {output, 0} when byte_size(output) <= @scan_output_budget_bytes -> Jason.decode(String.trim(output))
+      {output, 0} -> {:error, %{reason: :output_budget_exceeded, bytes: byte_size(output)}}
+      {output, status} -> {:error, %{status: status, output: String.slice(String.trim(output), 0, 1_024)}}
+    end
   end
 
   defp with_scan_manifest(request, fun) do
@@ -294,9 +301,8 @@ defmodule Aiur.BuildGate do
   end
 
   defp inspected_metadata(%{"contents" => encoded}, %{kind: kind, slot: slot, metadata_path: path}) do
-    with {:ok, contents} <- Base.decode64(encoded) do
-      inspect_metadata_contents(contents, path, kind, slot)
-    else
+    case Base.decode64(encoded) do
+      {:ok, contents} -> inspect_metadata_contents(contents, path, kind, slot)
       :error -> {nil, [status_issue(:metadata_unreadable, path, :invalid_encoding)]}
     end
   end

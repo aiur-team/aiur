@@ -106,9 +106,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
   test "buckets exact fleet pressure independently of process availability" do
     daemon = %{
       samples: [
-        pressure_sample(@t0 + 10_000, "unavailable", "current", "measured", 3, 4, 2, 1, 7, 12),
-        pressure_sample(@t0 + 20_000, "measured", "current", "measured", 5, 6, 4, 2, 9, 18),
-        pressure_sample(@t0 + 300_000, "measured", "stale", "degraded", 99, 99, 99, 99, 99, 99)
+        pressure_sample(@t0 + 10_000, availability: "unavailable", occupied: 3, max_agents: 4, effective: 2, active: 1, queued: 7, wait: 12),
+        pressure_sample(@t0 + 20_000, occupied: 5, max_agents: 6, effective: 4, active: 2, queued: 9, wait: 18),
+        pressure_sample(@t0 + 300_000, fleet_status: "stale", build_status: "degraded", occupied: 99, max_agents: 99, effective: 99, active: 99, queued: 99, wait: 99)
       ],
       profile: profile(0, 0, 0, 0)
     }
@@ -137,8 +137,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
   test "keeps missing source observation times unavailable in a later bucket" do
     daemon = %{
       samples: [
-        pressure_sample(@t0 + 10_000, "measured", "current", "measured", 3, 4, 2, 1, 7, 12),
-        pressure_sample(@t0 + 20_000, "measured", "current", "partial", 5, 6, 4, 2, 9, 18)
+        pressure_sample(@t0 + 10_000, occupied: 3, max_agents: 4, effective: 2, active: 1, queued: 7, wait: 12),
+        pressure_sample(@t0 + 20_000, build_status: "partial", occupied: 5, max_agents: 6, effective: 4, active: 2, queued: 9, wait: 18)
         |> Map.put(:fleet_capacity_observed_at_ms, nil)
         |> Map.put(:build_gate_observed_at_ms, nil)
         |> Map.put("build_gate_capacity", nil)
@@ -167,21 +167,21 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert by_id["6"].status == :rework
   end
 
-  defp pressure_sample(ts, availability, fleet_status, build_status, occupied, max_agents, effective, active, queued, wait) do
+  defp pressure_sample(ts, opts) do
     sample("_daemon", "daemon", ts, 0.0, 0)
     |> Map.merge(%{
-      :availability => availability,
-      :fleet_capacity_status => fleet_status,
-      "fleet_agents_occupied" => occupied,
-      "fleet_agents_configured" => max_agents,
-      "fleet_agents_max" => max_agents,
-      "fleet_agents_effective" => effective,
+      :availability => Keyword.get(opts, :availability, "measured"),
+      :fleet_capacity_status => Keyword.get(opts, :fleet_status, "current"),
+      "fleet_agents_occupied" => Keyword.fetch!(opts, :occupied),
+      "fleet_agents_configured" => Keyword.fetch!(opts, :max_agents),
+      "fleet_agents_max" => Keyword.fetch!(opts, :max_agents),
+      "fleet_agents_effective" => Keyword.fetch!(opts, :effective),
       :fleet_capacity_observed_at_ms => ts - 2,
-      :build_gate_status => build_status,
+      :build_gate_status => Keyword.get(opts, :build_status, "measured"),
       "build_gate_capacity" => 2,
-      "build_gate_active" => active,
-      "build_gate_queued" => queued,
-      "build_queue_oldest_wait_seconds" => wait,
+      "build_gate_active" => Keyword.fetch!(opts, :active),
+      "build_gate_queued" => Keyword.fetch!(opts, :queued),
+      "build_queue_oldest_wait_seconds" => Keyword.fetch!(opts, :wait),
       :build_gate_observed_at_ms => ts - 1
     })
   end
