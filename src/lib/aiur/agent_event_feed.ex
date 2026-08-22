@@ -186,6 +186,8 @@ defmodule Aiur.AgentEventFeed do
   defp provider_diff_entry(_event, _change), do: nil
 
   defp diff_entry(event, output, path) do
+    signed_line = changed_line(output)
+
     %{
       type: "diff",
       badge: badge(:tool),
@@ -199,7 +201,8 @@ defmodule Aiur.AgentEventFeed do
       path: path || diff_path(output),
       additions: changed_line_count(output, "+"),
       deletions: changed_line_count(output, "-"),
-      line: changed_line(output),
+      line: changed_line_body(signed_line),
+      signed_line: signed_line,
       lines: diff_lines(output)
     }
   end
@@ -389,4 +392,8 @@ defmodule Aiur.AgentEventFeed do
     Enum.find(lines, &changed_line?(&1, "+")) ||
       Enum.find(lines, "", &changed_line?(&1, "-"))
   end
+
+  defp changed_line_body("+" <> line), do: line
+  defp changed_line_body("-" <> line), do: line
+  defp changed_line_body(line), do: line
 end
