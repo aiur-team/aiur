@@ -467,6 +467,44 @@ defmodule Aiur.GitHub.QuotaTest do
            ] = Quota.snapshot(quota).attribution
   end
 
+  # The call-site column lets `github-cost` name the agent-side spend by gh
+  # subcommand instead of folding the whole fleet into one `agent-shell:gh`
+  # row (#2299). A row written before the column existed still parses and keeps
+  # the undifferentiated caller.
+  test "names agent-shell callers by gh subcommand from the call-site column" do
+    path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
+    now_unix = DateTime.to_unix(@now)
+
+    File.write!(
+      path,
+      "#{now_unix}\tticket:1670\tread\tgraphql\tpr view\n" <>
+        "#{now_unix}\tticket:1671\tread\tgraphql\tissue list\n" <>
+        "#{now_unix}\tticket:1672\tread\tcore\tapi\n" <>
+        "#{now_unix}\tticket:1673\tread\tcore\n"
+    )
+
+    on_exit(fn -> File.rm(path) end)
+    quota = start_quota(shell_log_path: path)
+
+    callers = Quota.snapshot(quota).callers
+
+    # Ranked within budget: core rows first, then graphql, each by caller name.
+    assert Enum.map(callers, & &1.caller) == [
+             "agent-shell:gh",
+             "agent-shell:gh api",
+             "agent-shell:gh issue list",
+             "agent-shell:gh pr view"
+           ]
+
+    # The ranking still splits by budget: the GraphQL subcommands stay out of
+    # the core list and the REST ones stay out of the GraphQL list.
+    assert [%{caller: "agent-shell:gh pr view", resource: "graphql"}] =
+             Enum.filter(callers, &(&1.caller == "agent-shell:gh pr view"))
+
+    assert [%{caller: "agent-shell:gh api", resource: "core"}] =
+             Enum.filter(callers, &(&1.caller == "agent-shell:gh api"))
+  end
+
   # Agent-shell attribution never reached the panel: the log lives under each
   # workspace's dot directory, which `Path.wildcard/1` will not descend into
   # without `match_dot: true`, and a workspace root written in tilde form

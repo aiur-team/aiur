@@ -358,8 +358,10 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tticket:1670\tread\tcore\n"
-    assert events =~ "\tticket:1670\twrite\tcore\n"
+    # `issue view` is GraphQL on the wire and `issue edit` a core write; the
+    # fifth column names the gh subcommand that made each call.
+    assert events =~ "\tticket:1670\tread\tgraphql\tissue view\n"
+    assert events =~ "\tticket:1670\twrite\tcore\tissue edit\n"
     refute events =~ "secret body"
   end
 
@@ -371,8 +373,44 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tread\tgraphql\n"
-    assert events =~ "\tread\tcore\n"
+    # REST `gh api` reads normalise their call site to `api` rather than one
+    # row per endpoint URL.
+    assert events =~ "\tread\tgraphql\tapi graphql\n"
+    assert events =~ "\tread\tcore\tapi\n"
+  end
+
+  # `gh pr view/list/status/checks` and `gh issue view/list/status` go through
+  # GitHub's GraphQL endpoint on the wire, so they bill the credential's
+  # GraphQL window, not core (#2299). `gh pr diff` and `gh search` are REST and
+  # stay in core. This is the bucketing that makes the agent GraphQL admissions
+  # reconcilable with `/rate_limit` at all.
+  test "files GraphQL-on-the-wire gh commands against the GraphQL budget", context do
+    graphql_commands = [
+      ["pr", "view", "1670"],
+      ["pr", "list", "--json", "number"],
+      ["pr", "status"],
+      ["pr", "checks", "1670"],
+      ["issue", "view", "1670"],
+      ["issue", "list", "--json", "number"],
+      ["issue", "status"]
+    ]
+
+    Enum.each(graphql_commands, fn command ->
+      assert {"ok\n", 0} = run_guard(context, command)
+    end)
+
+    assert {"ok\n", 0} = run_guard(context, ["pr", "diff", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["search", "issues", "repo:owner/repo"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+
+    Enum.each(graphql_commands, fn [_name, _sub | _] = command ->
+      call_site = Enum.take(command, 2) |> Enum.join(" ")
+      assert events =~ "\tread\tgraphql\t#{call_site}\n"
+    end)
+
+    assert events =~ "\tread\tcore\tpr diff\n"
+    assert events =~ "\tread\tcore\tsearch issues\n"
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do
@@ -679,30 +717,54 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
   end
 
-  test "a core resource hold blocks high-level gh commands", context do
-    budget_root = Path.join(context.state_path, "host-budget")
+  test "a resource hold blocks the high-level command it covers", context do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
-
-    assert {"", 0} =
-             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
-
     timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
+    # Separate databases so the graphql hold from the first scenario cannot
+    # outlive the budget it was made against and hold the second one.
+    graphql_root = Path.join(context.state_path, "graphql-hold-budget")
+    core_root = Path.join(context.state_path, "core-hold-budget")
+
+    graphql_env =
+      guard_env(context) ++
+        [
+          {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+          {"AIUR_GITHUB_BUDGET_ROOT", graphql_root},
+          {"AIUR_GITHUB_BUDGET_KEY", key},
+          {"AIUR_GITHUB_BUDGET_BROKER", broker}
+        ]
+
+    core_env =
+      guard_env(context) ++
+        [
+          {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+          {"AIUR_GITHUB_BUDGET_ROOT", core_root},
+          {"AIUR_GITHUB_BUDGET_KEY", key},
+          {"AIUR_GITHUB_BUDGET_BROKER", broker}
+        ]
+
+    # `pr view` is GraphQL on the wire, so a graphql resource hold blocks it
+    # (#2299) and no upstream call is made.
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "graphql", "--delay-ms", "60000", "--db", Path.join(graphql_root, "budget.sqlite3"), "--token-key", key])
+
     assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
-               env:
-                 guard_env(context) ++
-                   [
-                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
-                     {"AIUR_GITHUB_BUDGET_KEY", key},
-                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
-                   ],
-               stderr_to_stdout: true
-             )
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"], env: graphql_env, stderr_to_stdout: true)
 
     refute File.exists?(context.calls)
+
+    # A core hold leaves the GraphQL read alone and blocks a REST high-level
+    # read (`pr diff`) instead — the same hold, the command's own budget.
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(core_root, "budget.sqlite3"), "--token-key", key])
+
+    assert {"ok\n", 0} =
+             System.cmd(context.wrapper, ["pr", "view", "1670"], env: core_env, stderr_to_stdout: true)
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "diff", "1670"], env: core_env, stderr_to_stdout: true)
   end
 
   test "a guarded high-level command fails closed before native pagination can bypass admissions", context do
@@ -744,7 +806,9 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    assert %{"admissions" => [%{"endpoint_family" => "pulls"}]} = Jason.decode!(snapshot)
+    # `gh pr list` is GraphQL on the wire, so its guarded admission bills the
+    # GraphQL window rather than a core `pulls` row (#2299).
+    assert %{"admissions" => [%{"endpoint_family" => "graphql"}]} = Jason.decode!(snapshot)
   end
 
   test "a paginated api call preserves its original command shape", context do
@@ -2333,9 +2397,40 @@ defmodule Aiur.AgentGitHubGuardTest do
         |> String.split("\n", trim: true)
         |> Enum.map(&String.split(&1, "\t"))
 
-      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670"], &1))
+      # The miss carries a sixth-column reason so the 97% miss rate can be
+      # classified rather than guessed (#2299); the first read of a cold store
+      # misses as `absent`.
+      assert Enum.any?(
+               rows,
+               &match?([_at, _consumer, "miss", "pr", "1670", reason] when reason in ~w(absent bypassed corrupt clock-skewed expired invalidated), &1)
+             )
+
       assert Enum.any?(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1))
       assert Enum.any?(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1))
+    end
+
+    test "a stale entry's miss is classified as expired rather than absent", context do
+      # A fresh read writes a store row; aging the entry past the window makes
+      # the next read miss because the answer is too old to replay, not because
+      # nothing was ever cached.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 1
+
+      [{_shape, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+      File.write!(meta, "#{DateTime.to_unix(DateTime.utc_now()) - 3600}\n")
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 2
+
+      rows =
+        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.split(&1, "\t"))
+
+      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670", "absent"], &1))
+      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670", "expired"], &1))
     end
 
     # -------------------------------------------------------------------------

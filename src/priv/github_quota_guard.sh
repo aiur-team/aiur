@@ -221,8 +221,15 @@ case "${1:-} ${2:-}" in
     done
     unset api_options
     ;;
-  "pr view"|"pr list"|"pr status"|"pr checks"|"pr diff") endpoint_family=pulls ;;
-  "issue view"|"issue list"|"issue status") endpoint_family=issues ;;
+  # `gh pr view/list/status/checks` and `gh issue view/list/status` are GraphQL
+  # on the wire: gh issues them against the GraphQL API, which bills points to
+  # the separate GraphQL window. Setting only `endpoint_family` left
+  # `resource=unknown`, so the broker filed every one of them as core and the
+  # credential's GraphQL spend had no local record (#2299). `pr diff` and
+  # `search` are REST and stay in core.
+  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=graphql ;;
+  "pr diff") endpoint_family=pulls ;;
+  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=graphql ;;
   "run view"|"run list"|"run watch") endpoint_family=actions ;;
   "search "*) endpoint_family=search ;;
   "pr "*) endpoint_family=pulls; direction=write ;;
@@ -756,6 +763,28 @@ fi
 # on `Aiur.AgentGitHubGuard.gh_config_dir/1`, and it is not widened here: an
 # agent able to do that can already write the other agent's workspace. Real
 # containment needs a separate UID per agent.
+#
+# WHY THERE IS NO CONDITIONAL REQUEST. The daemon's own REST reads recover a
+# fifth of their traffic with `If-None-Match`/`ETag` (see
+# `Aiur.GitHub.Transport.fetch_json_list_conditional/4`), and one might expect
+# the same validator handling here. The agent cache cannot have it, for two
+# structural reasons (#2299):
+#
+#  1. The reads it serves are predominantly GraphQL — `gh pr view`, `gh pr list`,
+#     `gh issue view`, `gh issue list` all hit GitHub's GraphQL endpoint — and
+#     that endpoint returns no `ETag` and no `Last-Modified`, so there is no
+#     validator to send and no `304` to receive. The daemon's own read cache
+#     documents the same fact for the same endpoint
+#     (`Aiur.GitHub.ReadCache`, "Why a cache and not conditional requests").
+#  2. The REST reads the guard does serve — `gh api` GETs, `gh search` — run
+#     inside the `gh` binary, which does not expose request-header injection for
+#     subcommand reads. The one subcommand that does accept headers (`gh api
+#     -H`) is replayed through the shared store rather than re-validated, and it
+#     is a small fraction of the traffic this cache serves.
+#
+# So the TTL body cache with invalidation markers is the only mechanism this
+# path has, and the agent-side free share it cannot recover is GraphQL's, which
+# no cache on either side can recover.
 # ---------------------------------------------------------------------------
 
 # The store sits beside the budget broker's database because that is already the
@@ -1292,8 +1321,16 @@ cache_record() {
     mv -f "$cache_events_file" "$cache_events_file.1" 2>/dev/null || true
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" \
-    >> "$cache_events_file" 2>/dev/null || true
+  # The sixth column is the miss reason. It is written only where there is one
+  # — every miss — so the 97% miss rate can be classified rather than guessed
+  # (#2299). Hits, stores and coalesced replays are 5-column rows by design.
+  if [ -n "${2:-}" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" "$2" \
+      >> "$cache_events_file" 2>/dev/null || true
+  else
+    printf '%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" \
+      >> "$cache_events_file" 2>/dev/null || true
+  fi
   unset cache_events_size
   return 0
 }
@@ -1316,15 +1353,17 @@ cache_marker_at() {
 }
 
 cache_lookup() {
+  cache_miss_reason=absent
   [ -n "$cache_body" ] || return 1
-  [ "$cache_bypass" -eq 0 ] || return 1
+  if [ "$cache_bypass" -ne 0 ]; then cache_miss_reason=bypassed; return 1; fi
   [ -f "$cache_meta" ] || return 1
-  [ -r "$cache_body" ] || return 1
+  [ -f "$cache_body" ] || return 1
+  if [ ! -r "$cache_body" ]; then cache_miss_reason=corrupt; return 1; fi
 
   cache_fetched_at=
-  IFS= read -r cache_fetched_at < "$cache_meta" 2>/dev/null || return 1
+  IFS= read -r cache_fetched_at < "$cache_meta" 2>/dev/null || { cache_miss_reason=corrupt; return 1; }
   case "$cache_fetched_at" in
-    ''|*[!0-9]*) return 1 ;;
+    ''|*[!0-9]*) cache_miss_reason=corrupt; return 1 ;;
   esac
 
   # A clock that moved backwards, or an entry stamped in the future, is not
@@ -1334,8 +1373,8 @@ cache_lookup() {
   # coalesced follower looks again after waiting: measured from its start, an
   # entry the leader wrote one second later reads as stamped in the future and is
   # refused, which is precisely the duplicate fetch the wait existed to avoid.
-  [ "$cache_fetched_at" -le "$cache_now" ] || return 1
-  [ $((cache_now - cache_fetched_at)) -le "$cache_ttl" ] || return 1
+  if [ "$cache_fetched_at" -gt "$cache_now" ]; then cache_miss_reason=clock-skewed; return 1; fi
+  if [ $((cache_now - cache_fetched_at)) -gt "$cache_ttl" ]; then cache_miss_reason=expired; return 1; fi
 
   cache_invalidated_at=0
   cache_marker_at "$cache_root/v1/.invalidated"
@@ -1343,7 +1382,8 @@ cache_lookup() {
   [ "$cache_collection" -eq 0 ] || cache_marker_at "$cache_repo_dir/.collections-invalidated"
   cache_marker_at "$cache_entry_dir/.invalidated"
 
-  [ "$cache_fetched_at" -gt "$cache_invalidated_at" ] || return 1
+  if [ "$cache_fetched_at" -le "$cache_invalidated_at" ]; then cache_miss_reason=invalidated; return 1; fi
+  cache_miss_reason=
   return 0
 }
 
@@ -1485,7 +1525,13 @@ cache_prune() {
 # reads as "the body is empty". A refusal here falls through to the real `gh`,
 # which is the same answer every other doubt in this file produces.
 cache_serve() {
-  cat "$cache_body" || return 1
+  if ! cat "$cache_body"; then
+    # The body vanished between the lookup's readability test and this read — a
+    # concurrent writer whose stamp failed removes its own body. The miss the
+    # caller falls through to is named `corrupt`, not the optimistic `absent`.
+    cache_miss_reason=corrupt
+    return 1
+  fi
   cache_record "$1"
   return 0
 }
@@ -1507,7 +1553,7 @@ if cache_lookup && cache_serve hit; then
   exit 0
 fi
 
-[ -z "$cache_body" ] || cache_record miss
+[ -z "$cache_body" ] || cache_record miss "${cache_miss_reason:-absent}"
 
 # COALESCING (#2073 U6). A hit above costs no `python3` and no network, so the
 # store already removes the second and later reads of a resource. It cannot
@@ -2383,7 +2429,26 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
     *) track_resource=core ;;
   esac
 
-  printf '%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" >> "$events_file" 2>/dev/null || true
+  # The call-site column lets the daemon rank the agent-shell caller by gh
+  # subcommand (`agent-shell:gh pr view`, `agent-shell:gh issue list`) instead
+  # of one undifferentiated `agent-shell:gh` row (#2299). An `api` endpoint path
+  # is not a useful grouping — it would fragment REST `gh api` reads into one
+  # row per URL — so it normalises to the command plus the budget it billed to.
+  call_site=$command_key
+  if [ "$command_name" = api ]; then
+    case "$resource" in
+      graphql) call_site="api graphql" ;;
+      *) call_site="api" ;;
+    esac
+  fi
+  # A bare `gh` with no subcommand has an empty `command_key`; keep a caller
+  # row for it rather than writing a blank call-site column.
+  case "$call_site" in
+    ''|' ') call_site=gh ;;
+  esac
+
+  printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" \
+    >> "$events_file" 2>/dev/null || true
 fi
 
 error_file=
