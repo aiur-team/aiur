@@ -86,19 +86,25 @@ defmodule Aiur.AlertFeed do
   """
   @spec condition_state(String.t(), keyword()) :: :firing | :resolved | :unknown
   def condition_state(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
-    resolution = topic <> @resolution_suffix
+    Map.fetch!(condition_states([topic], opts), topic)
+  end
+
+  @doc false
+  @spec condition_states([String.t()], keyword()) :: %{String.t() => :firing | :resolved | :unknown}
+  def condition_states(topics, opts \\ [])
+
+  def condition_states([], _opts), do: %{}
+
+  def condition_states(topics, opts) when is_list(topics) and is_list(opts) do
+    topics = topics |> Enum.filter(&is_binary/1) |> Enum.uniq()
+    topic_set = MapSet.new(topics)
+    initial = Map.new(topics, &{&1, :unknown})
 
     opts
     |> AlertLedger.paths()
     |> Enum.flat_map(&read_alerts(&1, opts))
-    |> Enum.filter(&(Map.get(&1, "topic") in [topic, resolution]))
     |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
-    |> List.last()
-    |> case do
-      nil -> :unknown
-      %{"topic" => ^resolution} -> :resolved
-      _firing -> :firing
-    end
+    |> Enum.reduce(initial, &update_condition_state(&1, &2, topic_set))
   end
 
   @doc """
@@ -153,6 +159,22 @@ defmodule Aiur.AlertFeed do
       ^topic -> nil
       "" -> nil
       condition -> condition
+    end
+  end
+
+  defp update_condition_state(alert, states, topics) do
+    topic = Map.get(alert, "topic") || ""
+
+    if MapSet.member?(topics, topic) do
+      Map.put(states, topic, :firing)
+    else
+      case condition_topic(topic) do
+        condition when is_binary(condition) ->
+          if MapSet.member?(topics, condition), do: Map.put(states, condition, :resolved), else: states
+
+        nil ->
+          states
+      end
     end
   end
 

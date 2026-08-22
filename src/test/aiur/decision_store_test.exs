@@ -2179,6 +2179,49 @@ defmodule Aiur.DecisionStoreTest do
     assert durable.answer == answer
   end
 
+  test "a reversible low-risk operational recommendation is Executor-answerable only when classified delegable", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    payload = %{
+      "question" => "Resume after the reversible sandbox grant?",
+      "blocking" => true,
+      "authority" => "supervisor_allowed",
+      "reversibility" => "reversible",
+      "kind" => "operational",
+      "options" => [
+        %{"id" => "resume", "label" => "Resume", "description" => "Resume the agent.", "risk" => "low"},
+        %{"id" => "wait", "label" => "Wait", "description" => "Leave the agent paused.", "risk" => "low"}
+      ],
+      "recommendation" => %{"option_id" => "resume", "reason" => "The grant is already verified."}
+    }
+
+    assert {:ok, %{decision: delegable}} = request(pid, payload)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               delegable.decision_id,
+               %{"idempotency_key" => "executor-delegable", "expected_version" => 1, "option_id" => "resume"},
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert {:ok, %{decision: human_only}} =
+             request(
+               pid,
+               payload
+               |> Map.put("question", "Resume the second agent after the reversible sandbox grant?")
+               |> Map.put("authority", "human_required")
+             )
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               human_only.decision_id,
+               %{"idempotency_key" => "executor-human-only", "expected_version" => 1, "option_id" => "resume"},
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+  end
+
   test "refuses an Executor answer for any Command the operator should see", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 

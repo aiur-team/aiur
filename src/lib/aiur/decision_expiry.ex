@@ -16,10 +16,11 @@ defmodule Aiur.DecisionExpiry do
 
   require Logger
 
-  alias Aiur.{Decision, DecisionStore}
+  alias Aiur.{Decision, DecisionAttentionSignals, DecisionAuthority, DecisionStore}
 
   @interval_ms 60_000
   @grace_seconds 300
+  @stale_after_seconds 86_400
   @reason_class "agent_not_running"
   @orchestrator_timeout 1_000
 
@@ -36,13 +37,25 @@ defmodule Aiur.DecisionExpiry do
       active = MapSet.new(active_identifiers)
       now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
       grace_seconds = Keyword.get(opts, :grace_seconds, @grace_seconds)
+      stale_after_seconds = Keyword.get(opts, :stale_after_seconds, @stale_after_seconds)
 
-      expired_count =
+      expired_decisions =
         decisions
         |> Enum.filter(&expired_candidate?(&1, active, now, grace_seconds))
-        |> Enum.count(&expire(&1, now, opts))
+        |> Enum.filter(&expire(&1, now, opts))
 
-      {:ok, expired_count}
+      projected_decisions = project_expired(decisions, expired_decisions)
+      stale_decisions = Enum.filter(projected_decisions, &stale_blocking?(&1, now, stale_after_seconds))
+
+      expired_unanswerable_decisions =
+        Enum.filter(
+          projected_decisions,
+          &(&1.decision_status == :expired and not DecisionAuthority.executor_answerable?(&1))
+        )
+
+      sync_reconciliation(projected_decisions, stale_decisions, expired_unanswerable_decisions, now, opts)
+
+      {:ok, length(expired_decisions)}
     end
   end
 
@@ -119,6 +132,54 @@ defmodule Aiur.DecisionExpiry do
       end
 
     match?({:ok, %{status: status}} when status in [:accepted, :duplicate], result)
+  end
+
+  defp stale_blocking?(decision, now, stale_after_seconds) do
+    decision.decision_status in [:open, :deferred] and decision.blocking and
+      DateTime.diff(now, decision.created_at, :second) >= stale_after_seconds
+  end
+
+  defp project_expired(decisions, expired_decisions) do
+    expired_ids = MapSet.new(expired_decisions, & &1.decision_id)
+
+    Enum.map(decisions, fn decision ->
+      if MapSet.member?(expired_ids, decision.decision_id), do: %{decision | decision_status: :expired}, else: decision
+    end)
+  end
+
+  defp sync_reconciliation(decisions, stale_decisions, expired_decisions, now, opts) do
+    result =
+      case Keyword.get(opts, :attention_reconcile_fun) do
+        fun when is_function(fun, 4) ->
+          fun.(decisions, stale_decisions, expired_decisions, now)
+
+        nil ->
+          sync_reconciliation_with_legacy_injections(decisions, stale_decisions, expired_decisions, now, opts)
+      end
+
+    case result do
+      {:error, reason} -> Logger.warning("aiur_decision_expiry attention_failed signal=reconcile reason=#{inspect(reason)}")
+      _result -> :ok
+    end
+  rescue
+    error -> Logger.warning("aiur_decision_expiry attention_failed signal=reconcile reason=#{Exception.message(error)}")
+  catch
+    kind, reason -> Logger.warning("aiur_decision_expiry attention_failed signal=reconcile reason=#{inspect({kind, reason})}")
+  end
+
+  defp sync_reconciliation_with_legacy_injections(decisions, stale_decisions, expired_decisions, now, opts) do
+    case {Keyword.get(opts, :classification_sync_fun), Keyword.get(opts, :attention_sync_fun)} do
+      {nil, nil} ->
+        DecisionAttentionSignals.reconcile(decisions, stale_decisions, expired_decisions, now)
+
+      {classification_sync_fun, attention_sync_fun} ->
+        if is_function(classification_sync_fun, 1), do: classification_sync_fun.(decisions)
+
+        if is_function(attention_sync_fun, 3) do
+          Enum.each(stale_decisions, &attention_sync_fun.(&1, :stale_blocking, now))
+          Enum.each(expired_decisions, &attention_sync_fun.(&1, :expired_unanswerable, now))
+        end
+    end
   end
 
   defp schedule_sweep(delay_ms), do: Process.send_after(self(), :sweep, delay_ms)
