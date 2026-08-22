@@ -661,8 +661,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def stalled_build_gate_slots(%{holders: holders}, threshold_seconds)
       when is_integer(threshold_seconds) and threshold_seconds > 0 do
     holders
-    |> Enum.filter(&(&1[:kind] == :slot))
-    |> Enum.filter(&(is_integer(&1[:held_for_seconds]) and &1[:held_for_seconds] > threshold_seconds))
+    |> Enum.filter(&(&1[:kind] == :slot and is_integer(&1[:held_for_seconds]) and &1[:held_for_seconds] > threshold_seconds))
     |> Enum.sort_by(&(-(&1[:held_for_seconds] || 0)))
   end
 
