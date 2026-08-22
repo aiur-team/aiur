@@ -2,7 +2,10 @@
 """Own a Linux build slot until a Mix process tree exits."""
 
 import ctypes
+import base64
 import errno
+import fcntl
+import json
 import os
 import signal
 import stat
@@ -13,6 +16,11 @@ import time
 
 POLL_SECONDS = 0.01
 TERM_GRACE_SECONDS = 1.0
+SCAN_CANDIDATE_LIMIT = 512
+SCAN_DETAIL_LIMIT = 64
+SCAN_ISSUE_LIMIT = 32
+SCAN_METADATA_BUDGET = 64 * 1024
+SCAN_MANIFEST_LIMIT = 16 * 1024
 _cancel_signal = None
 
 
@@ -128,6 +136,153 @@ def read_regular(path: str) -> int:
             os.close(descriptor)
 
 
+def scan_locks_manifest(manifest_path: str) -> int:
+    try:
+        request = json.loads(read_bounded_regular_bytes(manifest_path, SCAN_MANIFEST_LIMIT))
+        gate_dir = request["gate_dir"]
+        lock_dir = request["lock_dir"]
+        capacity = request["capacity"]
+        if not isinstance(gate_dir, str) or not isinstance(lock_dir, str):
+            return 125
+        if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 0:
+            return 125
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError):
+        return 125
+
+    scan = {"active": 0, "queued": 0, "scanned": 0, "details": [], "issues": []}
+    budget_reasons = set()
+    metadata_bytes = 0
+
+    def add_issue(reason: str, path: str, detail=None) -> None:
+        if len(scan["issues"]) >= SCAN_ISSUE_LIMIT:
+            budget_reasons.add("issue_budget")
+            return
+        issue = {"reason": reason, "path": path}
+        if detail is not None:
+            issue["detail"] = detail
+        scan["issues"].append(issue)
+
+    def inspect_candidate(kind: str, slot, lock_path: str, metadata_path: str) -> bool:
+        nonlocal metadata_bytes
+        if scan["scanned"] >= SCAN_CANDIDATE_LIMIT:
+            budget_reasons.add("candidate_budget")
+            return False
+
+        scan["scanned"] += 1
+        result = probe_lock(lock_path, metadata_path)
+        state = result.get("state")
+
+        if state == "locked":
+            if kind == "slot":
+                scan["active"] += 1
+            elif kind == "queue":
+                scan["queued"] += 1
+
+            encoded = result.get("contents")
+            encoded_bytes = len(encoded) if isinstance(encoded, str) else 0
+            if len(scan["details"]) >= SCAN_DETAIL_LIMIT:
+                budget_reasons.add("holder_detail_budget")
+            elif metadata_bytes + encoded_bytes > SCAN_METADATA_BUDGET:
+                budget_reasons.add("metadata_budget")
+            else:
+                metadata_bytes += encoded_bytes
+                scan["details"].append(
+                    {
+                        "kind": kind,
+                        "slot": slot,
+                        "lock_path": lock_path,
+                        "metadata_path": metadata_path,
+                        "result": result,
+                    }
+                )
+        elif state == "error":
+            add_issue("lock_probe_failed", lock_path, result)
+
+        return True
+
+    for slot in range(1, capacity + 1):
+        if not inspect_candidate(
+            "slot",
+            slot,
+            os.path.join(lock_dir, f"slot-{slot}.lock"),
+            os.path.join(gate_dir, f"slot-{slot}.owner"),
+        ):
+            break
+
+    queue_dir = os.path.join(gate_dir, "queue")
+    try:
+        with os.scandir(queue_dir) as entries:
+            for entry in entries:
+                if entry.name.startswith("lease-v2-"):
+                    path = os.path.join(queue_dir, entry.name)
+                    if not inspect_candidate("queue", None, path, path):
+                        break
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        add_issue("queue_unreadable", queue_dir, str(error.errno))
+
+    phase_lock = os.path.join(lock_dir, "phase-start.lock")
+    phase_metadata = os.path.join(gate_dir, "phase-start.owner")
+    if os.path.exists(phase_lock) or os.path.exists(phase_metadata):
+        inspect_candidate("phase", None, phase_lock, phase_metadata)
+
+    for reason in sorted(budget_reasons):
+        add_issue("scan_budget_exceeded", gate_dir, reason)
+
+    scan["degraded"] = bool(scan["issues"])
+    print(json.dumps(scan, separators=(",", ":")))
+    return 0
+
+
+def probe_lock(lock_path: str, cleanup_path: str) -> dict:
+    descriptor = None
+    try:
+        flags = os.O_RDONLY | os.O_NONBLOCK
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        descriptor = os.open(lock_path, flags)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            return {"state": "error", "reason": "not_regular", "type": file_type(metadata.st_mode)}
+
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            result = {"state": "locked"}
+            try:
+                contents = read_regular_bytes(cleanup_path)
+                result["contents"] = base64.b64encode(contents).decode("ascii")
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                result["metadata_error"] = "not_regular" if error.errno in (errno.ELOOP, errno.EINVAL) else str(error.errno)
+            return result
+
+        try:
+            os.unlink(cleanup_path)
+        except FileNotFoundError:
+            pass
+        return {"state": "unlocked"}
+    except FileNotFoundError:
+        return {"state": "error", "reason": "missing"}
+    except OSError as error:
+        reason = "not_regular" if error.errno in (errno.ELOOP, errno.EINVAL, errno.ENXIO) else str(error.errno)
+        return {"state": "error", "reason": reason, "type": "other"}
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def file_type(mode: int) -> str:
+    if stat.S_ISFIFO(mode):
+        return "other"
+    if stat.S_ISDIR(mode):
+        return "directory"
+    return "other"
+
+
 def become_subreaper() -> None:
     libc = ctypes.CDLL(None, use_errno=True)
 
@@ -184,6 +339,17 @@ def read_regular_bytes(path: str) -> bytes:
         if len(contents) == 4096:
             raise OSError(errno.EFBIG, "build-gate metadata is too large")
         return contents
+    finally:
+        os.close(descriptor)
+
+
+def read_bounded_regular_bytes(path: str, limit: int) -> str:
+    descriptor = open_regular(path, os.O_RDONLY)
+    try:
+        contents = os.read(descriptor, limit + 1)
+        if len(contents) > limit:
+            raise OSError(errno.EFBIG, "bounded input is too large")
+        return contents.decode("utf-8")
     finally:
         os.close(descriptor)
 
@@ -450,5 +616,8 @@ if __name__ == "__main__":
             sys.exit(0)
         except OSError:
             sys.exit(125)
+
+    if len(sys.argv) == 3 and sys.argv[1] == "--scan-locks-manifest":
+        sys.exit(scan_locks_manifest(sys.argv[2]))
 
     sys.exit(main())

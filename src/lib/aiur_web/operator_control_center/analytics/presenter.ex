@@ -33,6 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           host_mem_bytes: number(),
           actors: [map()],
           series: [map()],
+          pressure: map(),
           tickets: [map()],
           complexity_breakdown: [map()],
           kpis: map()
@@ -190,7 +191,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         {key, {actor_kind(key, a), bucket_actor(Map.get(a, :samples, []), timeline, axis0, bw, buckets)}}
       end)
 
-    series = build_series(bucketed, display, display_keys, axis0, bw, buckets)
+    pressure_buckets =
+      actors
+      |> Map.get("_daemon", %{})
+      |> Map.get(:samples, [])
+      |> bucket_pressure(timeline, axis0, bw, buckets)
+
+    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets)
     kpis = compute_kpis(series, tickets, %{cap: cap, cores: cores, host_mem: host_mem, bw: bw, dataset: dataset}, opts)
     complexity_breakdown = complexity_breakdown(tickets)
 
@@ -210,6 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       host_mem_bytes: host_mem,
       actors: display,
       series: series,
+      pressure: pressure_summary(series),
       tickets: rows,
       complexity_breakdown: complexity_breakdown,
       kpis: kpis
@@ -264,12 +272,166 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp bucket_index(ts, t0, bw, buckets), do: ((ts - t0) / bw) |> trunc() |> clamp(0, buckets - 1)
 
-  defp build_series(bucketed, display, display_keys, t0, bw, buckets) do
+  defp bucket_pressure(samples, timeline, axis0, bw, buckets) do
+    Enum.reduce(samples, %{}, fn sample, acc ->
+      case Map.get(sample, :timestamp_ms) do
+        ts when is_integer(ts) ->
+          index = bucket_index(Timeline.project(timeline, ts), axis0, bw, buckets)
+          Map.update(acc, index, pressure_cell(sample), &merge_pressure_cell(&1, sample))
+
+        _other ->
+          acc
+      end
+    end)
+  end
+
+  defp pressure_cell(sample), do: merge_pressure_cell(%{}, sample)
+
+  defp merge_pressure_cell(cell, sample) do
+    fleet_status = field(sample, :fleet_capacity_status)
+    build_status = field(sample, :build_gate_status)
+    ts = Map.get(sample, :timestamp_ms, 0)
+
+    cell
+    |> put_latest_state(:fleet_capacity_status, :fleet_state_ts, fleet_status, ts)
+    |> put_latest_state(:build_gate_status, :build_state_ts, build_status, ts)
+    |> put_latest_observation(:fleet_capacity_observed_at_ms, :fleet_observed_ts, field(sample, :fleet_capacity_observed_at_ms), ts)
+    |> put_latest_observation(:build_gate_observed_at_ms, :build_observed_ts, field(sample, :build_gate_observed_at_ms), ts)
+    |> then(fn acc ->
+      if fleet_status == "current" do
+        acc
+        |> put_max(:fleet_agents_occupied, field(sample, :fleet_agents_occupied))
+        |> put_latest_metrics(ts,
+          fleet_agents_configured: field(sample, :fleet_agents_configured),
+          fleet_agents_max: field(sample, :fleet_agents_max),
+          fleet_agents_effective: field(sample, :fleet_agents_effective)
+        )
+      else
+        acc
+      end
+    end)
+    |> then(fn acc ->
+      if build_status in ["measured", "disabled", "partial"] do
+        acc
+        |> put_max(:build_gate_active, field(sample, :build_gate_active))
+        |> put_max(:build_gate_queued, field(sample, :build_gate_queued))
+        |> put_max(:build_queue_oldest_wait_seconds, field(sample, :build_queue_oldest_wait_seconds))
+        |> put_latest_metrics(ts, build_gate_capacity: field(sample, :build_gate_capacity))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp put_latest_state(cell, _key, _ts_key, nil, _ts), do: cell
+
+  defp put_latest_state(cell, key, ts_key, value, ts) do
+    if ts >= Map.get(cell, ts_key, -1), do: cell |> Map.put(key, value) |> Map.put(ts_key, ts), else: cell
+  end
+
+  defp put_latest_observation(cell, key, ts_key, value, ts) do
+    if ts >= Map.get(cell, ts_key, -1) do
+      cell
+      |> Map.put(key, if(is_number(value), do: value, else: nil))
+      |> Map.put(ts_key, ts)
+    else
+      cell
+    end
+  end
+
+  defp put_latest_metrics(cell, ts, metrics) do
+    if ts >= Map.get(cell, :metric_ts, -1) do
+      metrics
+      |> Enum.reduce(Map.put(cell, :metric_ts, ts), &put_numeric_metric/2)
+    else
+      cell
+    end
+  end
+
+  defp put_numeric_metric({key, value}, cell), do: Map.put(cell, key, if(is_number(value), do: value, else: nil))
+
+  defp put_max(cell, _key, value) when not is_number(value), do: cell
+  defp put_max(cell, key, value), do: Map.update(cell, key, value, &max(&1, value))
+
+  defp field(sample, key), do: Map.get(sample, key, Map.get(sample, Atom.to_string(key)))
+
+  defp build_series(bucketed, pressure_buckets, display, display_keys, t0, bw, buckets) do
     for b <- 0..(buckets - 1) do
       bucketed
       |> Enum.reduce({0.0, 0.0, 0.0, 0.0, 0, %{}}, &fold_cell(&1, &2, b, display_keys))
       |> series_bucket(b, t0, bw, display)
+      |> Map.merge(pressure_bucket(Map.get(pressure_buckets, b)))
     end
+  end
+
+  defp pressure_bucket(nil), do: %{pressure_state: :empty}
+
+  defp pressure_bucket(cell) do
+    fleet = Map.get(cell, :fleet_capacity_status)
+    build = Map.get(cell, :build_gate_status)
+
+    state =
+      cond do
+        fleet == "stale" -> :stale_fleet
+        build == "degraded" -> :degraded_build
+        build == "partial" or fleet != "current" or build not in ["measured", "disabled"] -> :partial
+        true -> :measured
+      end
+
+    cell
+    |> Map.drop([:metric_ts, :fleet_state_ts, :build_state_ts, :fleet_observed_ts, :build_observed_ts])
+    |> drop_unavailable_fleet(fleet)
+    |> drop_unavailable_build(build)
+    |> Map.put(:pressure_state, state)
+  end
+
+  defp drop_unavailable_fleet(cell, "current"), do: cell
+
+  defp drop_unavailable_fleet(cell, _status),
+    do: Map.drop(cell, [:fleet_agents_occupied, :fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective])
+
+  defp drop_unavailable_build(cell, status) when status in ["measured", "disabled", "partial"], do: cell
+
+  defp drop_unavailable_build(cell, _status),
+    do: Map.drop(cell, [:build_gate_capacity, :build_gate_active, :build_gate_queued, :build_queue_oldest_wait_seconds])
+
+  @doc false
+  @spec pressure_summary([map()]) :: map()
+  def pressure_summary(series) do
+    %{
+      peak_occupied: max_value(series, :fleet_agents_occupied),
+      peak_active_builds: max_value(series, :build_gate_active),
+      peak_queued_builds: max_value(series, :build_gate_queued),
+      longest_wait_seconds: max_value(series, :build_queue_oldest_wait_seconds),
+      latest_configured_capacity: latest_value(series, :fleet_agents_configured),
+      latest_max_capacity: latest_value(series, :fleet_agents_max),
+      latest_effective_capacity: latest_value(series, :fleet_agents_effective),
+      latest_build_capacity: latest_source_value(series, :build_gate_status, ["measured", "disabled", "partial"], :build_gate_capacity),
+      latest_fleet_observed_at_ms: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_capacity_observed_at_ms),
+      latest_build_observed_at_ms:
+        latest_source_value(
+          series,
+          :build_gate_status,
+          ["measured", "disabled", "partial"],
+          :build_gate_observed_at_ms
+        )
+    }
+  end
+
+  defp latest_source_value(series, status_key, valid_statuses, value_key) do
+    case Enum.find(Enum.reverse(series), &(Map.get(&1, status_key) in valid_statuses)) do
+      nil -> nil
+      sample -> Map.get(sample, value_key)
+    end
+  end
+
+  defp latest_value(series, key) do
+    series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1) |> List.last()
+  end
+
+  defp max_value(series, key) do
+    values = series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1)
+    Enum.max(values, fn -> nil end)
   end
 
   defp fold_cell({key, {kind, arr}}, {ex, ot, tc, tm, cc, per}, b, display_keys) do

@@ -10,6 +10,7 @@ logs.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 # Cost is expressed in CPU-seconds, matching the design ("Cost per ticket" means
@@ -128,7 +129,9 @@ def run_summary_kpis(summary: dict, cap: int) -> dict:
     agents = {key: actor for key, actor in summary.get("actors", {}).items() if _agent_key(key)}
     cpu_hours = round(sum(cpu_seconds(actor) for actor in agents.values()) / 3600, 1)
 
-    peak_concurrency, wasted_slot_hours = _concurrency(summary, agents, cap)
+    pressure = fleet_pressure(summary, cap)
+    peak_concurrency = pressure["peak_occupied"] or 0
+    wasted_slot_hours = pressure["wasted_slot_hours"]
 
     top_cost = sorted(
         ((key, cpu_seconds(actor)) for key, actor in summary.get("actors", {}).items()),
@@ -148,6 +151,7 @@ def run_summary_kpis(summary: dict, cap: int) -> dict:
         "peak_concurrency": peak_concurrency,
         "cap": cap,
         "wasted_slot_hours": round(wasted_slot_hours, 1),
+        "fleet_pressure": pressure,
         "top_cost": top_cost,
         "provenance": summary.get("provenance", {}),
     }
@@ -176,6 +180,37 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
     else:
         lines.append("  (no resource samples)")
 
+    pressure = kpis["fleet_pressure"]
+    lines.extend(["", "Fleet-wide build pressure:"])
+    if pressure["legacy_fallback"]:
+        lines.append("  Occupancy: CPU-derived legacy fallback (exact fleet samples unavailable)")
+    else:
+        lines.append(
+            "  Peak occupied: %s; latest capacity: configured %s, max %s, effective %s"
+            % (
+                _display(pressure["peak_occupied"]),
+                _display(pressure["latest_configured_capacity"]),
+                _display(pressure["latest_max_capacity"]),
+                _display(pressure["latest_effective_capacity"]),
+            )
+        )
+    lines.append(
+        "  Peak builds: active %s, queued %s; capacity %s; longest live wait: %s"
+        % (
+            _display(pressure["peak_active_builds"]),
+            _display(pressure["peak_queued_builds"]),
+            _display(pressure["latest_build_capacity"]),
+            _duration_display(pressure["longest_wait_seconds"]),
+        )
+    )
+    lines.append(
+        "  Latest source observations: fleet %s; build %s"
+        % (
+            _timestamp_display(pressure["latest_fleet_observed_at_ms"]),
+            _timestamp_display(pressure["latest_build_observed_at_ms"]),
+        )
+    )
+
     time_range = provenance.get("time_range")
     if time_range:
         lines.append("")
@@ -186,6 +221,79 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
     if provenance.get("enrich"):
         lines.append("Enriched: true (GitHub anchors applied)")
     return "\n".join(lines) + "\n"
+
+
+def fleet_pressure(summary: dict, cap: int = 10) -> dict:
+    """Return exact whole-host pressure, falling back only for legacy streams."""
+    daemon = (summary.get("actors") or {}).get("_daemon") or {}
+    samples = sorted(daemon.get("samples") or [], key=lambda sample: sample.get("timestamp_ms") or 0)
+    fleet = [sample for sample in samples if sample.get("fleet_capacity_status") == "current"]
+    build = [sample for sample in samples if sample.get("build_gate_status") in ("measured", "disabled", "partial")]
+
+    if fleet:
+        latest = fleet[-1]
+        peak = _maximum(fleet, "fleet_agents_occupied")
+        legacy_fallback = False
+        wasted = _sampled_waste(fleet, cap)
+    else:
+        agents = {key: actor for key, actor in (summary.get("actors") or {}).items() if _agent_key(key)}
+        peak, wasted = _concurrency(summary, agents, cap)
+        latest = {}
+        legacy_fallback = True
+
+    latest_build = build[-1] if build else {}
+
+    return {
+        "peak_occupied": peak,
+        "latest_configured_capacity": _number(latest.get("fleet_agents_configured")),
+        "latest_max_capacity": _number(latest.get("fleet_agents_max")),
+        "latest_effective_capacity": _number(latest.get("fleet_agents_effective")),
+        "latest_build_capacity": _number(latest_build.get("build_gate_capacity")),
+        "latest_fleet_observed_at_ms": _number(latest.get("fleet_capacity_observed_at_ms")),
+        "latest_build_observed_at_ms": _number(latest_build.get("build_gate_observed_at_ms")),
+        "peak_active_builds": _maximum(build, "build_gate_active"),
+        "peak_queued_builds": _maximum(build, "build_gate_queued"),
+        "longest_wait_seconds": _maximum(build, "build_queue_oldest_wait_seconds"),
+        "wasted_slot_hours": wasted,
+        "legacy_fallback": legacy_fallback,
+    }
+
+
+def _number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _maximum(samples: list[dict], key: str):
+    values = [_number(sample.get(key)) for sample in samples]
+    values = [value for value in values if value is not None]
+    return max(values, default=None)
+
+
+def _sampled_waste(samples: list[dict], fallback_cap: int) -> float:
+    bucket_hours = SAMPLE_SECONDS / 3600
+    total = 0.0
+    for sample in samples:
+        occupied = _number(sample.get("fleet_agents_occupied"))
+        capacity = _number(sample.get("fleet_agents_effective"))
+        if occupied is not None:
+            total += max((fallback_cap if capacity is None else capacity) - occupied, 0) * bucket_hours
+    return total
+
+
+def _display(value) -> str:
+    return "unavailable" if value is None else str(value)
+
+
+def _duration_display(value) -> str:
+    numeric = _number(value)
+    return "unavailable" if numeric is None else "%ss" % numeric
+
+
+def _timestamp_display(value) -> str:
+    numeric = _number(value)
+    if numeric is None:
+        return "unavailable"
+    return datetime.fromtimestamp(numeric / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _concurrency(summary: dict, agents: dict, cap: int) -> tuple[int, float]:

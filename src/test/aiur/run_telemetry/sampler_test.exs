@@ -3,6 +3,123 @@ defmodule Aiur.RunTelemetry.SamplerTest do
 
   alias Aiur.RunTelemetry.Sampler
 
+  test "samples current fleet and healthy build pressure once onto the daemon record" do
+    test_pid = self()
+
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:ok, process_table(), []} end,
+        measure_fun: measure_from(metrics(0)),
+        entries_fun: &reaper_entries/0,
+        daemon_pid: 1,
+        operator_pid: 30,
+        monotonic_ms: 1_000,
+        clock_ticks_per_second: 100,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> System.unique_integer([:positive, :monotonic]) end,
+        fleet_snapshot_fun: fn ->
+          send(test_pid, :fleet_read)
+
+          {:current, %{capacity: %{occupied: 13, configured: 16, max: 12, effective: 10}}, %{status: :current, age_ms: 0, observed_at: "1970-01-01T00:00:00.001Z"}}
+        end,
+        build_status_fun: fn ->
+          send(test_pid, :build_read)
+
+          %{
+            enabled?: true,
+            capacity: 2,
+            active: 2,
+            queued: 8,
+            oldest_wait_seconds: 189,
+            holders: []
+          }
+        end
+      )
+
+    assert_receive :fleet_read
+    refute_receive :fleet_read
+    assert_receive :build_read
+    refute_receive :build_read
+
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.fleet_capacity_status == "current"
+    assert daemon.fleet_agents_occupied == 13
+    assert daemon.fleet_agents_configured == 16
+    assert daemon.fleet_agents_max == 12
+    assert daemon.fleet_agents_effective == 10
+    assert daemon.build_gate_status == "measured"
+    assert daemon.build_gate_enabled == true
+    assert daemon.build_gate_capacity == 2
+    assert daemon.build_gate_active == 2
+    assert daemon.build_gate_queued == 8
+    assert daemon.build_queue_oldest_wait_seconds == 189
+    assert daemon.fleet_capacity_observed_at_ms < daemon.build_gate_observed_at_ms
+    refute :fleet_agents_occupied in daemon.partial_fields
+    refute :build_gate_queued in daemon.partial_fields
+  end
+
+  test "keeps fleet and build source availability independent of procfs" do
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:error, {:procfs_unavailable, :enoent}} end,
+        entries_fun: &reaper_entries/0,
+        daemon_pid: 1,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> 42 end,
+        fleet_snapshot_fun: fn ->
+          {:stale, %{capacity: %{occupied: 9, configured: 16, max: 16, effective: 8}}, %{age_ms: 6_000}}
+        end,
+        build_status_fun: fn ->
+          %{enabled?: true, capacity: 2, active: 0, queued: 0, oldest_wait_seconds: 0, holders: []}
+        end
+      )
+
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.availability == "unavailable"
+    assert daemon.fleet_capacity_status == "stale"
+    assert daemon.fleet_capacity_age_ms == 6_000
+    assert daemon.fleet_capacity_observed_at_ms == nil
+    assert daemon.fleet_agents_occupied == nil
+    assert daemon.fleet_agents_configured == nil
+    assert daemon.fleet_agents_max == nil
+    assert daemon.fleet_agents_effective == nil
+    assert daemon.build_gate_status == "measured"
+    assert daemon.build_gate_active == 0
+    assert daemon.build_gate_queued == 0
+    assert daemon.build_queue_oldest_wait_seconds == 0
+    assert :fleet_agents_occupied in daemon.partial_fields
+  end
+
+  test "degraded build status remains unavailable while current fleet values survive" do
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:error, :reader_failed} end,
+        entries_fun: fn -> [] end,
+        daemon_pid: nil,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> 42 end,
+        fleet_snapshot_fun: fn ->
+          {:current, %{capacity: %{occupied: 3, configured: 4, max: 4, effective: 3}}, %{age_ms: 0}}
+        end,
+        build_status_fun: fn ->
+          %{enabled?: true, capacity: 2, active: 0, queued: 0, holders: [], degraded?: true, issues: [%{}]}
+        end
+      )
+
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.fleet_agents_occupied == 3
+    assert daemon.build_gate_status == "degraded"
+    assert daemon.build_gate_observed_at_ms == nil
+    assert daemon.build_gate_enabled == nil
+    assert daemon.build_gate_capacity == nil
+    assert daemon.build_gate_active == nil
+    assert daemon.build_gate_queued == nil
+    assert daemon.build_queue_oldest_wait_seconds == nil
+    assert :build_gate_capacity in daemon.partial_fields
+  end
+
   test "sample_once/2 attributes mutually exclusive actor trees and real FD headroom" do
     table = process_table()
     first_metrics = metrics(0)

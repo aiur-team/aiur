@@ -52,8 +52,21 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Units | [Fleet, tickets, and meters](/concepts/units). |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
-| Analytics | Lifecycle time, CPU, memory, concurrency, and cost; missing telemetry stays explicit. |
+| Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | GitHub cache | What the shared GitHub state cache holds right now, and which writer put it there. |
+
+### Read fleet and build pressure
+
+Analytics records fleet and build-gate whole-host sources alongside daemon process
+telemetry. The pressure chart shows occupied agents, configured/max/effective
+agent capacity, active and queued builds, and the oldest live build wait. Its source
+state strip and timestamped data table distinguish current, stale, degraded, partial,
+and empty observations.
+
+A gap means the source was not current enough to support that value; it is never
+silently plotted as zero. Build-queue wait is the oldest waiter still live at the
+sample time, not a completed-build latency. These measurements expose when the build
+gate is the fleet constraint; they do not automatically change the agent cap.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 

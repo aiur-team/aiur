@@ -86,8 +86,29 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Per-unit CPU"
     assert html =~ "Cost per ticket"
     assert html =~ "Complexity breakdown"
+    assert html =~ "Fleet-wide build pressure"
+    assert html =~ "Accessible fleet pressure data"
+    assert html =~ "stale fleet"
+    assert html =~ ">empty<"
     assert html =~ "<svg"
     refute html =~ "No run telemetry to analyze yet"
+  end
+
+  test "renders exact source-gated values in the keyboard-reachable pressure table" do
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id()))
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ ~s(<table id="analytics-pressure-table">)
+    assert html =~ "13"
+    assert html =~ "16 / 16 / 12"
+    assert html =~ ">2<"
+    assert html =~ "2 / 8"
+    assert html =~ "189s"
+    assert html =~ "2026-07-11T00:00:40.000Z"
+    assert html =~ "2026-07-11T00:00:55.000Z"
+    assert html =~ ">current<"
+    assert html =~ ">measured<"
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -227,14 +248,14 @@ defmodule AiurWeb.AnalyticsLiveTest do
       render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
 
     assert zoomed =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 6
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 6
     assert zoomed =~ "phx-click=\"reset-time-domain\""
 
     patched = render_click(view, "sort", %{"by" => "mem"})
     assert patched =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 5
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 6
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 6
 
     nav_patched = render_click(view, "toggle-nav", %{})
     assert nav_patched =~ ~s(class="an-zoombar")
@@ -245,8 +266,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 5
-    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 6
+    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 6
   end
 
   test "a degenerate domain event leaves the full chart range intact" do
@@ -364,6 +385,48 @@ defmodule AiurWeb.AnalyticsLiveTest do
       route_record(current_boot_id, 2, "dispatch", ~U[2026-07-11 00:01:01Z], "941"),
       route_record(current_boot_id, 3, "pr_opened", ~U[2026-07-11 00:01:02Z], "941"),
       route_record(current_boot_id, 4, "pr_merged", ~U[2026-07-11 00:01:03Z], "941")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+    path
+  end
+
+  defp pressure_fixture!(boot_id) do
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+    timestamp = ~U[2026-07-11 00:01:01Z]
+
+    records = [
+      route_record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], nil),
+      %{
+        schema_version: 2,
+        kind: "resource",
+        timestamp: DateTime.to_iso8601(timestamp),
+        recorded_at: DateTime.to_iso8601(timestamp),
+        boot_id: boot_id,
+        sequence: 2,
+        record_id: "#{boot_id}:2",
+        attributes: %{
+          "actor" => "_daemon",
+          "actor_type" => "daemon",
+          "availability" => "unavailable",
+          "fleet_capacity_status" => "current",
+          "fleet_agents_occupied" => 13,
+          "fleet_agents_configured" => 16,
+          "fleet_agents_max" => 16,
+          "fleet_agents_effective" => 12,
+          "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond),
+          "build_gate_status" => "measured",
+          "build_gate_capacity" => 2,
+          "build_gate_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:55Z], :millisecond),
+          "build_gate_active" => 2,
+          "build_gate_queued" => 8,
+          "build_queue_oldest_wait_seconds" => 189
+        }
+      },
+      route_record(boot_id, 3, "dispatch", ~U[2026-07-11 00:01:02Z], "941")
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
