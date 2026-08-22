@@ -448,11 +448,14 @@ agent:
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
 `poll_seconds: 0` disables periodic refreshes, not dispatch-time freshness checks.
+
 When a prewarm build or freshness probe holds fleet dispatch, an independent idle
 watchdog releases the gate for cold-clone fallback once the hold has been stalled
-(its worker process dead, with no completion signal in flight) for 10 minutes. A
-build that is still progressing — however slow a cold `deps` + `compile` +
-`dialyzer` run may be — is never killed by the watchdog.
+for 10 minutes.
+
+"Stalled" means the hold's worker process is dead with no completion signal in
+flight. A build that is still progressing — however slow a cold `deps` +
+`compile` + `dialyzer` run may be — is never killed by the watchdog.
 
 ## pr_watch
 
