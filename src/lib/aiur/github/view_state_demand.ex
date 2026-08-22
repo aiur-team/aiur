@@ -16,6 +16,7 @@ defmodule Aiur.GitHub.ViewStateDemand do
   """
 
   @type t :: %{
+          optional(atom()) => any(),
           demanders: MapSet.t(pid()),
           demand_monitors: %{reference() => pid()}
         }

@@ -128,9 +128,9 @@ Dashboard and Build Order state is not on this cadence.
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
 A change made outside Aiur reaches the backlog and Ad Hoc overlay within one
-sweep while their page is open; with nobody looking, they cost nothing. Pack
-status is reconciled every sweep regardless of viewers because it writes the
-daemon-owned `status.json` projection that the planning contract names
+sweep while their page is open — with nobody looking they cost nothing — and
+pack status is reconciled every sweep regardless of viewers because it writes
+the daemon-owned `status.json` projection the planning contract names
 authoritative.
 
 | Immediate wake | Why idle backoff does not delay it |
