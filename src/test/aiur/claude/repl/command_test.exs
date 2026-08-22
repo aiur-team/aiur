@@ -10,7 +10,11 @@ defmodule Aiur.Claude.Repl.CommandTest do
       assert String.starts_with?(cmd, "cd '/ws/foo' && {")
       assert cmd =~ "${HEX_HOME#\\~/}"
       assert cmd =~ "AIUR_CI_READINESS_TOKEN"
-      assert cmd =~ "*_API_KEY) unset "
+      # Assert the glob arms individually: the case arm grows as credential
+      # families are added, so matching its whole literal makes every future
+      # addition look like a regression here.
+      assert cmd =~ "*_API_KEY|"
+      assert cmd =~ "GITHUB_APP_*) unset "
       assert cmd =~ "export HEX_HOME"
       assert cmd =~ "AIUR_BUILD_GATE_BIN='/ws/foo/.aiur-runtime/build-bin'"
       assert cmd =~ "BASH_ENV="
@@ -58,7 +62,11 @@ defmodule Aiur.Claude.Repl.CommandTest do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
 
       assert cmd =~ "OPENROUTER_MANAGEMENT_KEY"
-      assert cmd =~ "*_API_KEY) unset "
+      # Assert the glob arms individually: the case arm grows as credential
+      # families are added, so matching its whole literal makes every future
+      # addition look like a regression here.
+      assert cmd =~ "*_API_KEY|"
+      assert cmd =~ "GITHUB_APP_*) unset "
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
       {exec_pos, _len} = :binary.match(cmd, "exec claude")
