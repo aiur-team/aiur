@@ -1575,6 +1575,17 @@ valid_budget_lease() {
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
+  # The rate_limit family is GitHub's zero-charge endpoint (#2328). A probe is
+  # still paced — it takes an RPM slot, an in-flight lease, and a stagger, the
+  # same #2284 distinction that a free request can still cost a slot — but it
+  # is written to the ledger non-billable, so it never counts toward the
+  # per-actor hourly core ceiling or the core family total the ceilings are
+  # re-derived from. This covers both an explicit `gh api rate_limit` and the
+  # internal 403/secondary-limit probe, which both run with
+  # `endpoint_family=rate_limit`.
+  budget_billable=1
+  [ "$endpoint_family" = rate_limit ] && budget_billable=0
+
   while :; do
     # Whatever this loop last waited for — a hold, a full lease table, another
     # agent's identical fetch — the answer may have arrived meanwhile. Looking
@@ -1592,7 +1603,7 @@ budget_acquire() {
       budget_cache_flags="--cache-key $cache_claim_key --cache-claim-ttl-ms $budget_lease_ttl_ms"
       [ "$cache_claim_overtake" -eq 1 ] && budget_cache_flags="$budget_cache_flags --cache-ignore-claim"
     fi
-    if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --consumer-label "$budget_consumer_label" --endpoint-family "$endpoint_family" \
+    if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --consumer-label "$budget_consumer_label" --endpoint-family "$endpoint_family" --billable "$budget_billable" \
       $budget_ignore_flag $budget_cache_flags \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
