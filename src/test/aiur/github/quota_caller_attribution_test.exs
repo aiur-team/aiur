@@ -239,6 +239,46 @@ defmodule Aiur.GitHub.QuotaCallerAttributionTest do
 
   defp graphql_callers(snapshot), do: Enum.filter(snapshot.callers, &(&1.resource == "graphql"))
 
+  # #2298 structural half: REST reads carry a declared `caller:` so the core
+  # breakdown names the call site rather than folding every REST request into
+  # one endpoint-shape or `unattributed` bucket.
+  test "attributes a REST request to its declared caller, not to an endpoint shape" do
+    quota = start_quota()
+
+    Quota.observe(quota, rest_request("open_pull_request_for_branch"), rest_response(1))
+
+    [caller] = Enum.filter(Quota.snapshot(quota).callers, &(&1.resource == "core"))
+
+    assert caller.caller == "open_pull_request_for_branch"
+    assert caller.points == 1
+    assert caller.calls == 1
+    refute caller.caller =~ "rest:"
+    refute caller.caller == "unattributed"
+  end
+
+  defp rest_request(caller) do
+    %{
+      method: :get,
+      url: "https://api.github.com/repos/owner/repo/pulls?state=open&per_page=100",
+      token: "secret",
+      caller: caller
+    }
+  end
+
+  defp rest_response(remaining) do
+    {:ok,
+     %{
+       status: 200,
+       headers: [
+         {"x-ratelimit-resource", "core"},
+         {"x-ratelimit-limit", "5000"},
+         {"x-ratelimit-remaining", Integer.to_string(remaining)},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+       ],
+       body: []
+     }}
+  end
+
   defp observe(quota, caller, cost, remaining) do
     Quota.observe(quota, graphql_request(caller), graphql_response(cost, remaining))
   end

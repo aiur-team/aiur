@@ -280,6 +280,44 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert Agent.get(counter, & &1) == 2
   end
 
+  # #2298 item 2: the timeline read carries a validator, so a repeat dispatch
+  # whose decision-cache fingerprint moved (the issue updated) but whose
+  # timeline is unchanged revalidates with `If-None-Match` and reuses the held
+  # timeline instead of refetching it at full price.
+  test "a repeat dispatch on an unchanged issue revalidates rather than refetches" do
+    parent = self()
+    etag = ~s("timeline-v1")
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+
+    request_fun = fn request ->
+      case Map.get(request, :etag) do
+        nil ->
+          send(parent, :unconditional)
+          {:ok, %{status: 200, headers: [{"etag", etag}], body: events}}
+
+        ^etag ->
+          send(parent, :conditional)
+          {:ok, %{status: 304, headers: [{"etag", etag}]}}
+      end
+    end
+
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-01 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive :unconditional
+
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-02 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive :conditional
+  end
+
   test "retries an ambiguous timeline fetch on the next poll" do
     counter = start_supervised!({Agent, fn -> 0 end})
 

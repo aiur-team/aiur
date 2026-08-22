@@ -59,6 +59,38 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
 
       assert snapshot.status == :unavailable
     end
+
+    # #2298 item 6: the recurring repo-wide listing carries a validator, so a
+    # repeat refresh on an unchanged listing revalidates with `If-None-Match`
+    # and reuses the held snapshot instead of paying full price.
+    test "revalidates the listing and reuses the held snapshot on 304" do
+      parent = self()
+      etag = ~s("adhoc-v1")
+      issues = [gh_issue(10, "Ad hoc", ["build-lane:adhoc"], "open")]
+
+      request_fun = fn request ->
+        case Map.get(request, :etag) do
+          nil ->
+            send(parent, :unconditional)
+            {:ok, %{status: 200, body: issues, headers: [{"etag", etag}]}}
+
+          ^etag ->
+            send(parent, :conditional)
+            {:ok, %{status: 304, headers: [{"etag", etag}]}}
+        end
+      end
+
+      server = start_source(request_fun: request_fun)
+
+      fresh = AdHocSource.refresh_sync(server)
+      assert fresh.status == :available and length(fresh.members) == 1
+      assert_receive :unconditional
+
+      revalidated = AdHocSource.refresh_sync(server)
+      assert revalidated.status == :available
+      assert length(revalidated.members) == 1
+      assert_receive :conditional
+    end
   end
 
   defp start_source(opts) do

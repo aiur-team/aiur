@@ -149,9 +149,16 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       url =
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/timeline?per_page=100"
 
-      case fetch_timeline_pages(request_fun, token, url, @max_timeline_pages, []) do
-        {:ok, events} ->
+      held = held_timeline(issue.id)
+      etag = if is_map(held), do: held.etag, else: nil
+
+      case fetch_timeline_pages(request_fun, token, url, @max_timeline_pages, [], etag) do
+        {:ok, events, new_etag} ->
+          store_timeline(issue.id, new_etag, events)
           timeline_decision(issue, label, prefix, events)
+
+        {:not_modified, _etag} ->
+          timeline_decision_or_retry(issue, label, prefix, held, request_fun, token, url)
 
         {:error, reason} ->
           {:ambiguous, reason}
@@ -161,14 +168,63 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     end
   end
 
-  defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events), do: {:error, :timeline_page_limit_exceeded}
+  # A `304` is only reusable while the decision cache still holds the timeline it
+  # revalidated. When it does, the decision is recomputed from the held events —
+  # the label provenance has not changed, so the decision is the same one the
+  # fingerprint miss was about to re-derive. When nothing is held the request was
+  # spent for nothing, so retry once unconditionally rather than return an empty
+  # answer.
+  defp timeline_decision_or_retry(issue, label, prefix, %{events: events}, _request_fun, _token, _url)
+       when is_list(events) do
+    timeline_decision(issue, label, prefix, events)
+  end
 
-  defp fetch_timeline_pages(request_fun, token, url, pages_left, events) do
-    case request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @max_timeline_response_bytes}) do
+  defp timeline_decision_or_retry(issue, label, prefix, _held, request_fun, token, url) do
+    case fetch_timeline_pages(request_fun, token, url, @max_timeline_pages, [], nil) do
+      {:ok, events, new_etag} ->
+        store_timeline(issue.id, new_etag, events)
+        timeline_decision(issue, label, prefix, events)
+
+      {:error, reason} ->
+        {:ambiguous, reason}
+    end
+  end
+
+  defp held_timeline(issue_id) when is_binary(issue_id), do: Map.get(cache().timelines, issue_id)
+  defp held_timeline(_issue_id), do: nil
+
+  defp store_timeline(issue_id, etag, events) when is_binary(issue_id) do
+    cache = cache()
+    timelines = Map.put(cache.timelines, issue_id, %{etag: etag, events: events})
+    timelines = if map_size(timelines) > @max_cache_entries, do: %{}, else: timelines
+    :persistent_term.put(@cache_key, %{cache | timelines: timelines})
+  end
+
+  defp store_timeline(_issue_id, _etag, _events), do: :ok
+
+  defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events, _etag), do: {:error, :timeline_page_limit_exceeded}
+
+  defp fetch_timeline_pages(request_fun, token, url, pages_left, events, etag) do
+    request = %{
+      method: :get,
+      url: url,
+      token: token,
+      max_response_bytes: @max_timeline_response_bytes,
+      caller: "dispatch_authorization"
+    }
+
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    case request_fun.(request) do
+      {:ok, %{status: 304} = response} ->
+        {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
+        retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
+
         case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, events ++ page}
-          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page)
+          nil -> {:ok, events ++ page, retained}
+          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, retained)
         end
 
       {:ok, %{status: 200}} ->
@@ -326,10 +382,17 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     updated = %{
       fingerprints: Map.put(cache.fingerprints, fingerprint, event_id),
       decisions: Map.put(cache.decisions, {id, label, event_id}, decision),
+      timelines: cache.timelines,
       alerted: cache.alerted
     }
 
-    :persistent_term.put(@cache_key, if(map_size(updated.decisions) > @max_cache_entries, do: %{fingerprints: %{}, decisions: %{}, alerted: %{}}, else: updated))
+    :persistent_term.put(
+      @cache_key,
+      if(map_size(updated.decisions) > @max_cache_entries,
+        do: %{fingerprints: %{}, decisions: %{}, timelines: %{}, alerted: %{}},
+        else: updated
+      )
+    )
   end
 
   defp cache_decision(_issue, _label, _event_id, _decision), do: :ok
@@ -378,7 +441,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp maybe_alert_ambiguity(issue, reason), do: alert_ambiguity(issue, reason)
 
   defp cache do
-    :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, alerted: %{}})
+    :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, timelines: %{}, alerted: %{}})
   end
 
   defp bounded_alert_cache(alerted) when map_size(alerted) >= @max_cache_entries, do: %{}

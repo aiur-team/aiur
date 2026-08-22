@@ -647,6 +647,39 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, nil} =
                Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
     end
+
+    # #2298 item 1: the busiest REST call site routes through `ResourceStore`
+    # under the `:branch_pull_request` key, so a second cycle on an unchanged
+    # branch revalidates with `If-None-Match` instead of paying full price for
+    # the open-pull-request listing again. Asserted on the request map itself
+    # (the validator is what the transport turns into the header), then on the
+    # `304` being served back as the held pull request.
+    test "a second cycle on an unchanged branch issues a conditional request" do
+      parent = self()
+      etag = ~s("open-pulls-v1")
+
+      request_fun = fn request ->
+        case Map.get(request, :etag) do
+          nil ->
+            send(parent, :unconditional)
+            {:ok, %{status: 200, headers: [{"etag", etag}], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+
+          ^etag ->
+            send(parent, :conditional)
+            {:ok, %{status: 304, headers: [{"etag", etag}]}}
+        end
+      end
+
+      assert {:ok, %{"number" => 49}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+
+      assert_receive :unconditional
+
+      assert {:ok, %{"number" => 49}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+
+      assert_receive :conditional
+    end
   end
 
   describe "fetch_commit_ci_status/2" do

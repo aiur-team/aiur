@@ -67,6 +67,11 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
     state = %{
       snapshot: %Snapshot{},
+      # The first-page validator for the adhoc listing. Held here (not in the
+      # store) because the listing is a repo collection with no single resource
+      # identity, and because this GenServer owns the last-known-good snapshot a
+      # `304` serves back.
+      etag: nil,
       inflight: nil,
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
@@ -114,28 +119,64 @@ defmodule Aiur.BuildOrder.AdHocSource do
     %{state | inflight: task.ref}
   end
 
-  @spec fetch(map()) :: {:ok, [Snapshot.member()]} | {:error, term()}
+  @spec fetch(map()) ::
+          {:ok, [Snapshot.member()], String.t() | nil}
+          | {:not_modified, String.t() | nil}
+          | {:error, term()}
   defp fetch(state) do
     with {:ok, {owner, repo}} <- state.repo_fun.(),
          {:ok, token} <- state.token_fun.() do
       url =
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(@label)}&state=all&per_page=100"
 
-      case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, []) do
-        {:ok, issues} -> {:ok, issues |> Enum.map(&member/1) |> Enum.filter(&adhoc?/1)}
+      case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, state.etag, []) do
+        {:ok, issues, etag} -> {:ok, issues |> Enum.map(&member/1) |> Enum.filter(&adhoc?/1), etag}
+        {:not_modified, etag} -> {:not_modified, etag}
         {:error, _reason} = error -> error
       end
     end
   end
 
-  defp fetch_pages(request_fun, url, token, owner, repo, prefix, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+  # First page is conditional (the validator belongs to it); later pages ride
+  # along unconditionally on a `200`. A `304` means the whole listing is
+  # unchanged, so the caller serves its last-known-good snapshot. #2298 item 6:
+  # the recurring repo-wide listing previously paid full price and carried no
+  # `caller:`; now it revalidates for free and is attributed.
+  defp fetch_pages(request_fun, url, token, owner, repo, prefix, etag, acc) do
+    request = %{method: :get, url: url, token: token, caller: "adhoc_source"}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    case request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
+        retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
+
+        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+          nil -> {:ok, acc ++ issues, retained}
+          next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, retained, acc ++ issues)
+        end
+
+      {:ok, %{status: 304}} ->
+        {:not_modified, etag}
+
+      {:ok, %{status: status}} ->
+        Logger.warning("Ad Hoc overlay fetch failed status=#{status}")
+        {:error, {:github_status, status}}
+
+      {:error, reason} ->
+        Logger.warning("Ad Hoc overlay fetch failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp fetch_pages_unconditional(request_fun, url, token, owner, repo, prefix, first_etag, acc) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "adhoc_source"}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
 
         case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, acc ++ issues}
-          next_url -> fetch_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)
+          nil -> {:ok, acc ++ issues, first_etag}
+          next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, first_etag, acc ++ issues)
         end
 
       {:ok, %{status: status}} ->
@@ -165,7 +206,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp adhoc?(%{identity: nil}), do: false
   defp adhoc?(%{labels: labels}), do: @label in labels
 
-  defp apply_result(state, {:ok, members}) do
+  defp apply_result(state, {:ok, members, etag}) do
     generation = (state.snapshot.generation || 0) + 1
 
     snapshot = %Snapshot{
@@ -175,8 +216,19 @@ defmodule Aiur.BuildOrder.AdHocSource do
       members: Enum.sort_by(members, & &1.identifier)
     }
 
-    %{state | snapshot: snapshot}
+    %{state | snapshot: snapshot, etag: etag}
   end
+
+  defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:not_modified, etag})
+       when is_integer(generation) do
+    # The listing is unchanged: keep the held snapshot (back to :available if a
+    # prior poll had gone stale) and refresh the validator.
+    %{state | snapshot: %{previous | status: :available}, etag: etag}
+  end
+
+  # Unreachable with a validator held (a 304 implies a prior 200), but fail
+  # closed rather than raise if it ever arrives.
+  defp apply_result(state, {:not_modified, _etag}), do: %{state | snapshot: %Snapshot{status: :unavailable}}
 
   defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
        when is_integer(generation) do
