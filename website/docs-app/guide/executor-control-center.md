@@ -67,9 +67,23 @@ That is the store's own rule applied to its inspector: looking at cached state n
 
 Its headline tile, **Fetches caused by viewing**, therefore reads `0`. Beside it the page prints how many calls the quota meter attributed in total, so the zero reads as a measurement rather than a reassurance.
 
-The **What is spending the budget** table ranks each observed caller by the points that reached GitHub in the current rate-limit window. Its **ReadCache served free** column supplies the missing context from `ReadCache` only: it shows caller-wide reads answered since this daemon boot. A positive read count means low spend may be the cache doing its job; **none this boot** means `ReadCache` observed the caller but served no reads; a **policy refusal** means the caller reached `ReadCache` but was deliberately not cached; **not observed by ReadCache** means the caller did not reach that store; and **cache unavailable** means there is no cache measurement. None of those last four states is rendered as zero.
+The **What is spending the budget** table ranks each observed caller by the points that reached GitHub in the current rate-limit window. Its **ReadCache served free** column adds context from `ReadCache` only: caller-wide reads answered since this daemon boot.
 
-Served-free reads cost no GitHub budget. They are shown alongside the ranking for diagnosis, but are excluded from points, calls, rates, shares, charts, attributed totals and outside-spend figures. Because cache counters do not identify a GitHub budget, callers seen only by the cache are not assigned to the GraphQL or core table. Reads served by `ResourceStore` are also outside this column; the header names `ReadCache` so absence from one store is not presented as absence from every shared-state path.
+Read the column as follows:
+
+- A positive read count means low spend may be the cache doing its job.
+- **none this boot** means `ReadCache` observed the caller but served no reads.
+- A **policy refusal** means the caller reached `ReadCache` but was deliberately not cached.
+- **not observed by ReadCache** means the caller did not reach that store.
+- **cache unavailable** means there is no cache measurement.
+
+None of the four non-count states is rendered as a bare zero.
+
+Served-free reads cost no GitHub budget. They are shown alongside the ranking for diagnosis, but are excluded from points, calls, rates, shares, charts, attributed totals and outside-spend figures.
+
+Cache counters do not identify a GitHub budget, so callers seen only by the cache are not assigned to the GraphQL or core table.
+
+Reads served by `ResourceStore` are also outside this column. The header explicitly names `ReadCache`, so absence from one store is not presented as absence from every shared-state path.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
