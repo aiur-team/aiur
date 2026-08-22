@@ -30,7 +30,7 @@ defmodule Aiur.OpenTicketSource do
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Issues, Transport}
+  alias Aiur.GitHub.{Config, Issues, RequestOrigin, Transport}
   alias Aiur.Issue
   alias Aiur.OpenTicketSource.Snapshot
 
@@ -76,7 +76,8 @@ defmodule Aiur.OpenTicketSource do
 
   @doc "Requests an out-of-band refresh (async)."
   @spec refresh(GenServer.server()) :: :ok
-  def refresh(server \\ __MODULE__), do: GenServer.cast(server, :refresh)
+  def refresh(server \\ __MODULE__),
+    do: GenServer.cast(server, {:refresh, RequestOrigin.view_originated?()})
 
   @doc "Synchronously refreshes and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
@@ -111,13 +112,14 @@ defmodule Aiur.OpenTicketSource do
   end
 
   @impl true
-  def handle_cast(:refresh, state), do: {:noreply, ensure_fetch(state)}
+  def handle_cast({:refresh, view_originated?}, state),
+    do: {:noreply, ensure_fetch(state, view_originated?)}
 
   @impl true
   # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
   # asks this source to reconcile; `:poll` remains so a boot fill and an explicit
   # sweep both land on the same path.
-  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state)}
+  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state, false)}
 
   def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
@@ -130,13 +132,18 @@ defmodule Aiur.OpenTicketSource do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp ensure_fetch(%{inflight: ref} = state) when is_reference(ref), do: state
+  defp ensure_fetch(%{inflight: ref} = state, _view_originated?) when is_reference(ref), do: state
 
   # Only the four provider funs and the label prefix cross into the task; passing
   # the whole state would copy the retained ticket list on every poll.
-  defp ensure_fetch(state) do
+  defp ensure_fetch(state, view_originated?) do
     request = Map.take(state, [:repo_fun, :token_fun, :request_fun, :github_fun, :label_prefix])
-    task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> fetch(request) end)
+
+    task =
+      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+        RequestOrigin.carry(view_originated?, fn -> fetch(request) end)
+      end)
+
     %{state | inflight: task.ref}
   end
 
