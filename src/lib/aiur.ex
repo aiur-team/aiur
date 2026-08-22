@@ -304,6 +304,11 @@ defmodule Aiur.Application do
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
       Aiur.GitHub.AgentCacheBridge,
+      # Carries store changes into the daemon's own read cache, so a webhook
+      # delivery retires the reads it supersedes instead of leaving them stale
+      # for a whole TTL. Starts after the store for the same reason. `ReadCache`
+      # itself starts earlier, so the tables this writes markers into exist.
+      Aiur.GitHub.ReadCacheBridge,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       # Per-repo delivery mode. Starts before anything that polls or receives
