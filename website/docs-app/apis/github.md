@@ -179,6 +179,44 @@ rows against `limit - remaining` on the credential's own window:
 The command reads the meter the daemon already keeps and issues no GitHub
 request of its own, so checking it is free.
 
+### Reading these numbers without fooling yourself
+
+Three traps have each cost a run more than an hour. All three produce a figure
+that looks like a leak and is not.
+
+**A daemon restart invalidates reconciliation for the rest of the window.**
+
+The daemon's attribution window restarts with the process; GitHub's does not.
+Points spent before the restart stay in `limit - remaining` and appear in no row
+of the ranking.
+
+So the unattributed figure is inflated by exactly that much until the GitHub
+window rolls. Wait for the reset before comparing attribution against the
+credential's window.
+
+**The unattributed figure is not a leak.**
+
+As the table above says, it is expected. It counts anything sharing the
+credential that this process did not issue: a shell `gh` call, a script minting
+its own installation token, another Aiur instance.
+
+A monitoring loop sampling the API on the same credential *is itself*
+unattributed spend, so an investigation can widen the gap it is measuring.
+Baseline with the fleet quiet and your own tooling stopped.
+
+**Agent `gh` calls do not bill the daemon's credential.**
+
+Agents hold the bot PAT; the daemon under App auth holds an installation token.
+Separate budgets, separate windows.
+
+An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and
+never spends the App pool. Agent activity correlating with App-pool spend means
+something else scales with the fleet.
+
+Related: a low read-cache hit rate is not automatically a defect. See
+[Shared agent reads](#shared-agent-reads) for what the cache refuses on purpose
+and why refusing is correct.
+
 ### Credential pooling
 
 GitHub's budgets are per credential. An operator who holds more than one
@@ -413,6 +451,8 @@ The webhook shortens reaction time for repository events while polling continues
 | Configured but never delivered | Polls at the full interval until a verified delivery proves the path works. |
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
+
+A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop. A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
 

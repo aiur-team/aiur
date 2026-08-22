@@ -263,6 +263,70 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Quota.snapshot(quota).coverage.estimated?
   end
 
+  test "transport errors still attribute estimated GraphQL spend" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query TimedOut { repository { id } }", %{"number" => 1670}), {:error, :fetch_deadline_exceeded})
+    Quota.observe(quota, graphql_request("query Exited { repository { id } }", %{"number" => 1671}), {:error, {:github_request_task_exit, :timeout}})
+
+    assert [
+             %{consumer: "ticket:1670", total: 1, cost: 1, estimated?: true},
+             %{consumer: "ticket:1671", total: 1, cost: 1, estimated?: true}
+           ] = Quota.snapshot(quota).attribution
+  end
+
+  test "a Core transport error retains the API's fixed one-request charge" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), {:error, :fetch_deadline_exceeded})
+
+    assert [%{consumer: "ticket:1670", total: 1, cost: 1, estimated?: false}] = Quota.snapshot(quota).attribution
+  end
+
+  test "a 502 without a reported GraphQL cost is visibly estimated" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query FailedGateway { repository { id } }", %{"number" => 1670}),
+      {:ok, %{status: 502, headers: [], body: %{"message" => "Bad Gateway"}}}
+    )
+
+    assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
+  end
+
+  test "a 200 GraphQL errors body without rateLimit is visibly estimated" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query Rejected { repository { id } }", %{"number" => 1670}),
+      {:ok, %{status: 200, headers: [], body: %{"data" => nil, "errors" => [%{"message" => "rejected"}]}}}
+    )
+
+    assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
+  end
+
+  test "preserves process-scoped view attribution in the caller summary" do
+    quota = start_quota()
+    {:label, previous_label} = Process.info(self(), :label)
+    Process.set_label({Phoenix.LiveView, AiurWeb.DashboardLive, "lv:test"})
+
+    try do
+      Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4999))
+      Quota.observe(quota, request(:patch, "/repos/owner/repo/issues/1670"), response("core", 5000, 4997))
+    after
+      Process.set_label(previous_label)
+    end
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4998))
+
+    callers = Quota.snapshot(quota).callers
+
+    assert %{calls: 2, view_calls: 1} = Enum.find(callers, &(&1.caller == "rest:GET /repos/owner/repo/issues/:n"))
+    assert %{calls: 1, view_calls: 1} = Enum.find(callers, &(&1.caller == "rest:PATCH /repos/owner/repo/issues/:n"))
+  end
+
   # A conditional request answered `304` is served from GitHub's cache and is
   # never billed, so attributing a point to it invents spend that never
   # happened and inflates the coverage figure operators rely on.
@@ -378,6 +442,7 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Map.keys(snapshot.windows) |> Enum.sort() == ["core", "graphql"]
     assert snapshot.windows["core"].remaining == 4200
     assert snapshot.windows["graphql"].remaining == 3900
+    assert snapshot.attribution == []
   end
 
   test "includes recent agent-shell attribution and ignores stale or malformed rows" do
