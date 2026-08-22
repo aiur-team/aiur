@@ -10,6 +10,7 @@ defmodule Aiur.Config do
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.EnvResolver
+  alias Aiur.GitHub.Budget
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
 
@@ -1085,7 +1086,8 @@ defmodule Aiur.Config do
     with {:ok, turn_sandbox_policy} <-
            Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts),
          {:ok, turn_sandbox_policy} <-
-           maybe_add_package_manager_roots(turn_sandbox_policy, opts) do
+           maybe_add_package_manager_roots(turn_sandbox_policy, opts),
+         {:ok, turn_sandbox_policy} <- maybe_add_github_budget_root(turn_sandbox_policy, opts) do
       maybe_add_build_gate_root(turn_sandbox_policy, settings, opts)
     end
   end
@@ -1100,6 +1102,24 @@ defmodule Aiur.Config do
 
       true ->
         Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, AgentEnvironment.package_cache_paths(opts))
+    end
+  end
+
+  defp maybe_add_github_budget_root(turn_sandbox_policy, opts) do
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy}
+
+      not Budget.enabled?() ->
+        {:ok, turn_sandbox_policy}
+
+      true ->
+        with :ok <- Budget.ensure_state_dir() do
+          Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, [Budget.state_dir()])
+        end
     end
   end
 
@@ -1148,7 +1168,8 @@ defmodule Aiur.Config do
   end
 
   defp validate_semantics(settings) do
-    with :ok <- validate_kinds_and_secrets(settings) do
+    with :ok <- validate_kinds_and_secrets(settings),
+         :ok <- Schema.validate_turn_sandbox_policy(settings) do
       Aiur.Opencode.Config.validate!()
     end
   end
