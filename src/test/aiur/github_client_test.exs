@@ -667,6 +667,9 @@ defmodule Aiur.GitHub.ClientTest do
           ^etag ->
             send(parent, :conditional)
             {:ok, %{status: 304, headers: [{"etag", etag}]}}
+
+          other ->
+            flunk("unexpected If-None-Match validator #{inspect(other)}")
         end
       end
 
@@ -679,6 +682,27 @@ defmodule Aiur.GitHub.ClientTest do
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
 
       assert_receive :conditional
+    end
+
+    # #2298 structural half (rework B5): the call site stamps the declared
+    # `caller:` onto the request it builds. That stamping — not `Quota` reading
+    # a field it always read — is the changed line the REST-attribution
+    # acceptance depends on, so it is asserted on the request map the real
+    # `Client` path produces.
+    test "the branch pull-request call site stamps a caller on the request" do
+      parent = self()
+
+      request_fun = fn request ->
+        send(parent, {:request, request})
+        {:ok, %{status: 200, headers: [], body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+      end
+
+      assert {:ok, %{"number" => 49}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+
+      assert_receive {:request, request}
+      assert request.caller == "open_pull_request_for_branch"
+      assert request.url =~ "/pulls?"
     end
   end
 

@@ -77,6 +77,9 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
           ^etag ->
             send(parent, :conditional)
             {:ok, %{status: 304, headers: [{"etag", etag}]}}
+
+          other ->
+            flunk("unexpected If-None-Match validator #{inspect(other)}")
         end
       end
 
@@ -90,6 +93,46 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
       assert revalidated.status == :available
       assert length(revalidated.members) == 1
       assert_receive :conditional
+    end
+
+    # #2298 rework B2: the listing is `created`-desc, so page 1 is the newest
+    # issues and freezes once no new adhoc issue is filed, while label changes
+    # on older issues land on later pages. A page-1 `304` therefore cannot vouch
+    # for a multi-page listing: it must be refetched every poll, or removing the
+    # label from a page-2 issue would keep it in the held snapshot forever.
+    test "a multi-page listing is refetched, never answered from a page-1 304" do
+      etag = ~s("adhoc-v1")
+      first_page = [gh_issue(10, "Ad hoc", ["build-lane:adhoc"], "open")]
+      second_page = [gh_issue(20, "Ad hoc", ["build-lane:adhoc"], "closed")]
+      next = ~s(<https://api.github.com/repos/owner/repo/issues?labels=build-lane%3Aadhoc&state=all&per_page=100&page=2>; rel="next")
+
+      counter = start_supervised!({Agent, fn -> 0 end})
+
+      request_fun = fn request ->
+        refute Map.has_key?(request, :etag),
+               "a multi-page held listing must never revalidate page 1"
+
+        case Agent.get_and_update(counter, fn n -> {n, n + 1} end) do
+          0 -> {:ok, %{status: 200, body: first_page, headers: [{"etag", etag}, {"link", next}]}}
+          1 -> {:ok, %{status: 200, body: second_page, headers: []}}
+          2 -> {:ok, %{status: 200, body: first_page, headers: [{"etag", etag}, {"link", next}]}}
+          3 -> {:ok, %{status: 200, body: [gh_issue(20, "Ad hoc", [], "closed")], headers: []}}
+        end
+      end
+
+      server = start_source(request_fun: request_fun)
+
+      first = AdHocSource.refresh_sync(server)
+      assert first.status == :available
+      assert Enum.map(first.members, & &1.identifier) == ["10", "20"]
+
+      # Page 2's issue lost the label between polls; because the held listing was
+      # multi-page the poll refetches both pages and drops it from the snapshot.
+      second = AdHocSource.refresh_sync(server)
+      assert second.status == :available
+      assert Enum.map(second.members, & &1.identifier) == ["10"]
+
+      assert Agent.get(counter, & &1) == 4
     end
   end
 

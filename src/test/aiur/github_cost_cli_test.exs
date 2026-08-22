@@ -163,36 +163,12 @@ defmodule Aiur.GitHubCostCLITest do
     assert length(all["data"]["callers"]) == 4
   end
 
-  # #2298 acceptance 3: REST reads now declare `caller:`, so the core section of
-  # `aiur github-cost` names the call site instead of folding every REST request
-  # into one endpoint shape or `unattributed`.
-  test "a REST caller with a declared caller renders as the call site, not an endpoint shape" do
-    snapshot = %{
-      snapshot()
-      | callers: [
-          %{
-            caller: "open_pull_request_for_branch",
-            resource: "core",
-            calls: 3,
-            reads: 3,
-            writes: 0,
-            points: 3,
-            points_per_hour: 6.0,
-            elapsed_seconds: 1800,
-            estimated?: false
-          }
-        ]
-    }
-
-    assert {:ok, core} = GitHubCostCLI.build(snapshot_fun: fn -> snapshot end, budget: "core", now: @now)
-    [caller] = core["data"]["callers"]
-
-    assert caller["caller"] == "open_pull_request_for_branch"
-    assert caller["resource"] == "core"
-    refute caller["caller"] =~ "rest:"
-    refute caller["caller"] == "unattributed"
-  end
-
+  # #2298 acceptance 3: REST call sites stamp `caller:` (asserted on the request
+  # map in `Aiur.GitHub.ClientTest`), and the core section of `aiur github-cost`
+  # names the call site rather than folding every REST request into one endpoint
+  # shape or `unattributed`. Rendering a declared REST caller is unchanged
+  # behaviour of the CLI — covered by the existing caller-rendering tests below —
+  # so this file asserts the CLI surface, not the stamping.
   test "rejects an unknown budget rather than silently showing everything" do
     assert {:error, message} = GitHubCostCLI.build(snapshot_fun: fn -> snapshot() end, budget: "points")
     assert message =~ "--budget accepts graphql, core or all"

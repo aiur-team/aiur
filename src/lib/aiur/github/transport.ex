@@ -634,13 +634,7 @@ defmodule Aiur.GitHub.Transport do
     {:error, {:graphql_cost_ceiling, details}, nil}
   end
 
-  defp maybe_put_caller(request, opts) do
-    case Keyword.get(opts, :caller) do
-      caller when is_atom(caller) and not is_nil(caller) -> Map.put(request, :caller, Atom.to_string(caller))
-      caller when is_binary(caller) and caller != "" -> Map.put(request, :caller, caller)
-      _undeclared -> request
-    end
-  end
+  defp maybe_put_caller(request, opts), do: put_caller(request, opts)
 
   defp maybe_put_max_response_bytes(request, opts) do
     case Keyword.get(opts, :max_response_bytes) do
