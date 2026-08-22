@@ -114,6 +114,39 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert get_in(deck, ["codex", "windows", "weekly", "used_percent"]) == dashboard.windows |> Enum.find(&(&1.limit_id == "secondary")) |> Map.fetch!(:used_percent)
   end
 
+  test "maps native codex account windows while ignoring its non-balance credit facts" do
+    meter = %{
+      state: :observed,
+      observed_at: @now,
+      freshness: :fresh,
+      windows: %{
+        "codex:primary" => rate_window(2, 300, @now, :fresh),
+        "codex:secondary" => rate_window(18, 10_080, @now, :fresh),
+        "codex:credits" => credit_window(44, @now)
+      }
+    }
+
+    view = StreamdeckProjection.provider_meters(%{codex: meter}, @now)
+
+    assert get_in(view, ["codex", "windows", "session", "used_percent"]) == 2
+    assert get_in(view, ["codex", "windows", "weekly", "used_percent"]) == 18
+  end
+
+  test "projects a prepaid provider credit window into the governing session slot" do
+    meter = %{
+      state: :observed,
+      observed_at: @now,
+      freshness: :fresh,
+      windows: %{"deepseek:credits" => credit_window(44, @now)}
+    }
+
+    view = StreamdeckProjection.provider_meters(%{deepseek: meter}, @now)
+
+    assert get_in(view, ["deepseek", "windows", "session", "used_percent"]) == 44
+    assert get_in(view, ["deepseek", "windows", "session", "remaining"]) == 10.93
+    refute get_in(view, ["deepseek", "windows", "weekly"])
+  end
+
   # The dashboard's provider cards attach a provider's durable last-known
   # standing from the dispatch-limits ledger when the live meter has no
   # observation (`put_durable_observation` in RunSummaryStrip). The deck must
@@ -237,6 +270,16 @@ defmodule AiurWeb.StreamdeckProjectionTest do
       duration_minutes: duration_minutes,
       observed_at: observed_at,
       freshness: freshness
+    }
+  end
+
+  defp credit_window(used_percent, observed_at) do
+    %{
+      kind: :credit,
+      used_percent: used_percent,
+      remaining: 10.93,
+      observed_at: observed_at,
+      freshness: :fresh
     }
   end
 

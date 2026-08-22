@@ -247,7 +247,7 @@ defmodule AiurWeb.StreamdeckProjection do
         plan: field(meter, :plan),
         freshness: freshness,
         health: field(meter, :health),
-        windows: normalized_windows(meter, observed_at, now, freshness)
+        windows: normalized_windows(provider, meter, observed_at, now, freshness)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -343,30 +343,45 @@ defmodule AiurWeb.StreamdeckProjection do
     end
   end
 
-  defp normalized_windows(meter, provider_observed_at, now, provider_freshness) do
+  defp normalized_windows(provider, meter, provider_observed_at, now, provider_freshness) do
     meter
     |> field(:windows)
-    |> rate_limit_windows()
+    |> meter_windows(provider)
     |> semantic_windows()
     |> Map.new(fn {slot, {_limit_id, window}} ->
       {slot, normalize_window(window, provider_observed_at, now, provider_freshness)}
     end)
   end
 
-  defp rate_limit_windows(windows) when is_map(windows) do
+  # The dashboard shows prepaid credit windows for every provider except Codex,
+  # whose credit facts are account capabilities rather than a dollar balance.
+  # Keep the same distinction here so both surfaces describe the same account
+  # standing. A credit window is governing, so `semantic_windows/1` gives it
+  # the primary Session position on the two-slot deck.
+  defp meter_windows(windows, provider) when is_map(windows) do
     windows
-    |> Enum.filter(fn {_limit_id, window} -> is_map(window) and field(window, :kind) in [:rate_limit, "rate_limit"] end)
+    |> Enum.filter(fn {_limit_id, window} -> eligible_window?(window, provider) end)
     |> Enum.sort_by(fn {limit_id, window} -> {window_duration(window), to_string(limit_id)} end)
   end
 
-  defp rate_limit_windows(_windows), do: []
+  defp meter_windows(_windows, _provider), do: []
+
+  defp eligible_window?(window, provider) when is_map(window) do
+    case field(window, :kind) do
+      kind when kind in [:rate_limit, "rate_limit"] -> true
+      kind when kind in [:credit, "credit"] -> provider != :codex
+      _kind -> false
+    end
+  end
+
+  defp eligible_window?(_window, _provider), do: false
 
   defp semantic_windows([]), do: []
 
   defp semantic_windows(windows) do
-    session = Enum.find(windows, &window_matches?(&1, @session_window_tokens))
+    session = Enum.find(windows, &credit_window?/1) || Enum.find(windows, &window_matches?(&1, @session_window_tokens))
     weekly = windows |> List.delete(session) |> Enum.find(&window_matches?(&1, @weekly_window_tokens))
-    remaining = unclassified_windows(windows) |> List.delete(session) |> List.delete(weekly)
+    remaining = windows |> List.delete(session) |> List.delete(weekly)
 
     session = session || fallback_window(remaining, :shortest)
     weekly = weekly || remaining |> List.delete(session) |> fallback_window(:longest)
@@ -375,8 +390,7 @@ defmodule AiurWeb.StreamdeckProjection do
     |> Enum.reject(fn {_slot, window} -> is_nil(window) end)
   end
 
-  defp unclassified_windows(windows),
-    do: Enum.reject(windows, &(window_matches?(&1, @session_window_tokens) or window_matches?(&1, @weekly_window_tokens)))
+  defp credit_window?({_limit_id, window}), do: field(window, :kind) in [:credit, "credit"]
 
   defp window_matches?({limit_id, _window}, tokens) do
     limit_id
