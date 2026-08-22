@@ -119,12 +119,12 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       end
     end
 
-    test "the sources it sweeps are the three that hold GitHub view state" do
-      assert ViewStateSweep.sources() == [
-               Aiur.OpenTicketSource,
-               Aiur.BuildOrder.AdHocSource,
-               Aiur.BuildOrder.PackStatus
-             ]
+    test "the source it sweeps is the one view-state writer left on a cadence" do
+      # OpenTicketSource and AdHocSource were event-sourced (#2325) and hold no
+      # timer; PackStatus writes `status.json` on disk and stays on the sweep
+      # until its own event-stream PR lands. The acceptance for #2325 is that the
+      # sweep "is deleted, or documents what it still sweeps and why".
+      assert ViewStateSweep.sources() == [Aiur.BuildOrder.PackStatus]
     end
 
     test "one tick reconciles every running source exactly once" do

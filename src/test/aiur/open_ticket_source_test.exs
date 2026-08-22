@@ -1,12 +1,18 @@
 defmodule Aiur.OpenTicketSourceTest do
-  use ExUnit.Case, async: true
+  use Aiur.TestSupport
 
-  alias Aiur.GitHub.RequestOrigin
+  alias Aiur.GitHub.{RequestOrigin, ResourceStore}
   alias Aiur.OpenTicketSource
   alias Aiur.OpenTicketSource.Snapshot
 
   @owner "owner"
   @repo "repo"
+
+  setup do
+    ensure_resource_store!()
+    ensure_pubsub!()
+    :ok
+  end
 
   describe "refresh_sync/1" do
     test "lists every open issue, newest first, whatever labels it carries" do
@@ -181,6 +187,137 @@ defmodule Aiur.OpenTicketSourceTest do
     assert_receive {:view_originated, false, %{method: :get}}, 2_000
   end
 
+  describe "event-sourced projection" do
+    setup do
+      ResourceStore.reset()
+      on_exit(fn -> ResourceStore.reset() end)
+      :ok
+    end
+
+    # The acceptance for #2325: creating/labelling/closing/reopening an issue in
+    # the GitHub UI is reflected on the Tickets panel with no fetch, because the
+    # `issues` delivery is already deposited in the store before it is published
+    # and this source rides that deposit. The `request_fun` below would record a
+    # listing if one happened, so its silence is the whole assertion.
+    test "an open issue deposited by a webhook appears in the projection with zero listings" do
+      test_pid = self()
+
+      server =
+        start_source(
+          poll_on_start: false,
+          request_fun: fn _request ->
+            send(test_pid, :listed)
+            {:ok, %{status: 200, body: [], headers: []}}
+          end
+        )
+
+      deposit_issue(10, title: "Event-sourced ticket", labels: ["agent:todo", "complexity:3"])
+
+      assert eventually(fn -> OpenTicketSource.snapshot(server).tickets != [] end)
+
+      snapshot = OpenTicketSource.snapshot(server)
+      assert Enum.map(snapshot.tickets, & &1.identifier) == ["10"]
+      assert Enum.find(snapshot.tickets, &(&1.identifier == "10")).labels == ["agent:todo", "complexity:3"]
+      refute_received :listed
+    end
+
+    test "an unlabelled open ticket deposited by a webhook appears in the projection" do
+      server = start_source(poll_on_start: false)
+      deposit_issue(31, title: "Unlabelled backlog ticket", labels: [])
+
+      assert eventually(fn -> OpenTicketSource.snapshot(server).tickets != [] end)
+      assert Enum.map(OpenTicketSource.snapshot(server).tickets, & &1.identifier) == ["31"]
+    end
+
+    test "closing a held issue removes it from the projection" do
+      server = start_source(poll_on_start: false)
+      deposit_issue(10, state: "open")
+      assert eventually(fn -> OpenTicketSource.snapshot(server).tickets != [] end)
+
+      deposit_issue(10, state: "closed")
+      assert eventually(fn -> OpenTicketSource.snapshot(server).tickets == [] end)
+      assert OpenTicketSource.snapshot(server).tickets == []
+    end
+
+    test "a pull request served by the issues endpoint is excluded from the projection" do
+      server = start_source(poll_on_start: false)
+      deposit_issue(20, title: "A pull request", pull_request?: true)
+
+      Process.sleep(100)
+      assert OpenTicketSource.snapshot(server).tickets == []
+    end
+
+    test "deleting a held issue removes it from the projection" do
+      server = start_source(poll_on_start: false)
+      deposit_issue(10, state: "open")
+      assert eventually(fn -> OpenTicketSource.snapshot(server).tickets != [] end)
+
+      delete_issue(10)
+      assert eventually(fn -> OpenTicketSource.snapshot(server).tickets == [] end)
+    end
+
+    # The gap-based re-convergence: a repo whose deliveries are known to be
+    # dropped must re-list, because no event stream will converge it.
+    test "a degraded event for the source's repo triggers a re-list" do
+      test_pid = self()
+
+      server =
+        start_source(
+          poll_on_start: false,
+          request_fun: fn _request ->
+            send(test_pid, :listed)
+            {:ok, %{status: 200, body: [], headers: []}}
+          end
+        )
+
+      send(server, {:webhook_degraded, "owner/repo"})
+      assert_receive :listed, 2_000
+    end
+
+    test "a degraded event for another repo does not re-list" do
+      test_pid = self()
+
+      server =
+        start_source(
+          poll_on_start: false,
+          request_fun: fn _request ->
+            send(test_pid, :listed)
+            {:ok, %{status: 200, body: [], headers: []}}
+          end
+        )
+
+      send(server, {:webhook_degraded, "someone/else"})
+      refute_receive :listed, 200
+    end
+
+    # The acceptance's dropped-delivery path, at the integration seam: a real
+    # ModeRegistry detects corroborated silence, degrades the repo, and the
+    # source re-lists off that broadcast — no clock involved.
+    test "a real ModeRegistry degradation re-lists the source" do
+      test_pid = self()
+      registry = :"mode_registry_#{System.unique_integer([:positive])}"
+      now = ~U[2026-07-15 12:00:00Z]
+
+      start_supervised!(
+        {Aiur.Webhooks.ModeRegistry, name: registry, configured_repos: ["owner/repo"], silence_threshold_ms: 900_000, sweep_interval_ms: 3_600_000, alert_fun: fn _name, _message, _opts -> :ok end}
+      )
+
+      start_source(
+        poll_on_start: false,
+        request_fun: fn _request ->
+          send(test_pid, :listed)
+          {:ok, %{status: 200, body: [], headers: []}}
+        end
+      )
+
+      {:ok, _mode} = Aiur.Webhooks.ModeRegistry.record_delivery("owner/repo", server: registry, at: now)
+      {:ok, _mode} = Aiur.Webhooks.ModeRegistry.record_activity("owner/repo", server: registry, at: DateTime.add(now, 901, :second))
+      {:ok, ["owner/repo"]} = Aiur.Webhooks.ModeRegistry.sweep(registry, DateTime.add(now, 1_802, :second))
+
+      assert_receive :listed, 2_000
+    end
+  end
+
   defp start_source(opts) do
     defaults = [
       name: nil,
@@ -236,5 +373,60 @@ defmodule Aiur.OpenTicketSourceTest do
       "updated_at" => "2026-07-15T09:00:00Z",
       "labels" => Enum.map(labels, &%{"name" => &1})
     }
+  end
+
+  # -- event-sourcing helpers -------------------------------------------------
+
+  defp deposit_issue(number, attrs) do
+    gh_issue = gh_issue(number, Keyword.get(attrs, :title, "Ticket #{number}"), Keyword.get(attrs, :labels, []))
+
+    gh_issue =
+      gh_issue
+      |> Map.put("state", Keyword.get(attrs, :state, "open"))
+      |> maybe_pull_request(Keyword.get(attrs, :pull_request?, false))
+
+    key = ResourceStore.key(:issue, @owner, @repo, number)
+    ResourceStore.put_resource(key, gh_issue, source: :webhook, version: Map.get(gh_issue, "updated_at"))
+
+    ResourceStore.put_resource(ResourceStore.key(:issue_labels, @owner, @repo, number), gh_issue["labels"],
+      source: :webhook,
+      version: Map.get(gh_issue, "updated_at")
+    )
+
+    gh_issue
+  end
+
+  defp delete_issue(number) do
+    ResourceStore.drop_data(ResourceStore.key(:issue, @owner, @repo, number))
+    ResourceStore.drop_data(ResourceStore.key(:issue_labels, @owner, @repo, number))
+    :ok
+  end
+
+  defp maybe_pull_request(gh_issue, true), do: Map.put(gh_issue, "pull_request", %{"url" => "https://example.test/pull"})
+  defp maybe_pull_request(gh_issue, false), do: gh_issue
+
+  defp ensure_resource_store! do
+    if Process.whereis(ResourceStore) == nil do
+      Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+    end
+
+    :ok
+  end
+
+  defp ensure_pubsub! do
+    unless Process.whereis(Aiur.PubSub) do
+      {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    end
+
+    :ok
+  end
+
+  defp eventually(fun, attempts \\ 100) do
+    cond do
+      fun.() -> true
+      attempts <= 0 -> false
+      true -> Process.sleep(10) && eventually(fun, attempts - 1)
+    end
   end
 end
