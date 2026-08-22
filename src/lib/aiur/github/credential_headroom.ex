@@ -105,6 +105,28 @@ defmodule Aiur.GitHub.CredentialHeadroom do
 
   def window(_token_key, _resource, _now), do: nil
 
+  @doc """
+  The last observed window for one credential and resource, fresh or expired.
+
+  `snapshot/1` and `window/3` only return windows inside the current reset
+  window, because the selector only spends headroom that is still valid. A
+  window whose reset has since passed is *stale*: the credential was observed,
+  its own headers were read, and the cache page wants that age to say how
+  stale. This reads the raw table so a stale marker can carry how long ago the
+  credential was last seen without a second source of truth.
+  """
+  @spec last_observed(String.t() | nil, String.t()) :: window() | nil
+  def last_observed(token_key, resource) when is_binary(token_key) and is_binary(resource) do
+    case :ets.lookup(@table, {token_key, resource}) do
+      [{_key, window}] -> window
+      _absent -> nil
+    end
+  rescue
+    ArgumentError -> nil
+  end
+
+  def last_observed(_token_key, _resource), do: nil
+
   @doc "The resources this module meters."
   @spec resources() :: [String.t()]
   def resources, do: @resources

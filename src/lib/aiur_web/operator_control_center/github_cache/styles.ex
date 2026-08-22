@@ -286,9 +286,100 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
 
   .ghc-empty p { margin: 0.35rem 0 0; }
 
+  /* The live budget map: per-credential identity meters, the caller → cache /
+     store → pool map, and the admissions / store / webhook / agent panels. */
+  .ghc-bmap { display: flex; flex-direction: column; gap: 0.9rem; }
+
+  .ghc-bmap-identities {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    gap: 0.75rem;
+  }
+
+  .ghc-bmap-credential {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .ghc-bmap-credential-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+  .ghc-bmap-credential-name { font-weight: 600; color: var(--fg); }
+  .ghc-bmap-credential-note { font-size: 0.72rem; color: var(--muted); }
+
+  .ghc-bmap-meter-row { display: flex; align-items: baseline; gap: 0.5rem; }
+  .ghc-bmap-meter-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); min-width: 4.5rem; }
+  .ghc-bmap-meter { display: flex; flex-direction: column; gap: 0.1rem; }
+  .ghc-bmap-meter-value { font-size: 1.125rem; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .ghc-bmap-meter-limit { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+  .ghc-bmap-meter-note { font-size: 0.72rem; color: var(--muted); }
+  .ghc-bmap-meter-stale {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--attention-ink);
+    border: 1px dashed var(--attention-ink);
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--radius);
+  }
+
+  .ghc-bmap-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .ghc-bmap-panel-title { margin: 0; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg); }
+
+  .ghc-bmap-table-scroll { max-width: 100%; overflow-x: auto; }
+  .ghc-bmap-table-scroll:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+  .ghc-bmap-table { width: 100%; min-width: 44rem; border-collapse: collapse; font-size: 0.8125rem; }
+  .ghc-bmap-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 0.25rem 0.5rem; }
+  .ghc-bmap-table td { padding: 0.3rem 0.5rem; border-top: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
+  .ghc-bmap-table td:first-child { font-variant-numeric: normal; }
+
+  /* The verdict is never colour alone — the chip carries the word, and the row
+     gets a left border in the same token so the map reads at a glance. */
+  .ghc-bmap-chip {
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .ghc-bmap-chip-free { background: color-mix(in srgb, var(--good-ink) 12%, transparent); color: var(--good-ink); }
+  .ghc-bmap-chip-billed { background: color-mix(in srgb, var(--accent-ink) 12%, transparent); color: var(--accent-ink); }
+  .ghc-bmap-chip-wasted { background: color-mix(in srgb, var(--blocking-ink) 12%, transparent); color: var(--blocking-ink); }
+  .ghc-bmap-chip-unclassified { background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted); }
+  .ghc-bmap-row td:first-child { border-left: 3px solid transparent; }
+  .ghc-bmap-verdict-free td:first-child { border-left-color: var(--good-ink); }
+  .ghc-bmap-verdict-billed td:first-child { border-left-color: var(--accent-ink); }
+  .ghc-bmap-verdict-wasted td:first-child { border-left-color: var(--blocking-ink); }
+  .ghc-bmap-verdict-unclassified td:first-child { border-left-color: var(--muted); }
+
+  .ghc-bmap-splits { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+  .ghc-bmap-split { display: flex; flex-direction: column; gap: 0.1rem; }
+  .ghc-bmap-split-value { font-size: 1.25rem; font-weight: 600; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .ghc-bmap-split-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+  .ghc-bmap-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+  .ghc-bmap-list li { display: flex; gap: 0.35rem 1rem; flex-wrap: wrap; font-size: 0.8125rem; }
+  .ghc-bmap-type-name { color: var(--fg); font-weight: 600; }
+  .ghc-bmap-type-count { color: var(--muted); }
+  .ghc-bmap-type-bodyless { color: var(--attention-ink); }
+
   @media (max-width: 40rem) {
     .ghc-tile-wide { grid-column: span 1; }
     .ghc-table { display: block; overflow-x: auto; }
+    .ghc-bmap-table { display: block; overflow-x: auto; }
   }
   """
 
