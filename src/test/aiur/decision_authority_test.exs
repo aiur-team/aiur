@@ -82,6 +82,16 @@ defmodule Aiur.DecisionAuthorityTest do
            ]
   end
 
+  test "Executor answerability is the narrow reversible authority floor" do
+    for authority <- [:supervisor_allowed, :supervisor_preferred] do
+      assert DecisionAuthority.executor_answerable?(%{authority: authority, reversibility: :reversible})
+      refute DecisionAuthority.executor_answerable?(%{authority: authority, reversibility: :partially_reversible})
+    end
+
+    refute DecisionAuthority.executor_answerable?(%{authority: :human_required, reversibility: :reversible})
+    refute DecisionAuthority.executor_answerable?(%{authority: :future_authority, reversibility: :reversible})
+  end
+
   defp evaluate(authority, kind, reversibility, policy) do
     DecisionAuthority.evaluate(
       %{authority: authority, kind: kind, reversibility: reversibility},

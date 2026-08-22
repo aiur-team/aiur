@@ -121,7 +121,8 @@ defmodule AiurEngineTest do
   # A minimal stub release: start_erl.data + a fake `elixir` that echoes its args
   # so dispatch/boot-shape can be asserted without a real BEAM.
   defp fake_release do
-    dir = Path.join(System.tmp_dir!(), "aiur-engine-rel-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-engine-rel")
+    on_exit(fn -> File.rm_rf!(dir) end)
     vsn = Path.join([dir, "releases", "0.1.1"])
     File.mkdir_p!(vsn)
     File.mkdir_p!(Path.join(dir, "bin"))
@@ -133,6 +134,10 @@ defmodule AiurEngineTest do
     File.write!(Path.join([dir, "bin", "aiur"]), "#!/usr/bin/env bash\necho \"BIN: $*\"\n")
     File.chmod!(Path.join([dir, "bin", "aiur"]), 0o755)
     dir
+  end
+
+  test "fake release roots include the host process identity" do
+    assert Path.basename(fake_release()) =~ "aiur-engine-rel-#{System.pid()}-"
   end
 
   defp run_engine(args, env) do

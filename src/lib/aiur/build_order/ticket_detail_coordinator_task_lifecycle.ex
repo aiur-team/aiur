@@ -5,13 +5,14 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator.TaskLifecycle do
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot}
   alias Aiur.BuildOrder.TicketDetail.Repository
   alias Aiur.BuildOrder.TicketDetailCoordinator.Policy
+  alias Aiur.GitHub.RequestOrigin
 
-  @spec start_refresh(Policy.entry(), map(), Aiur.TrackerIdentity.repository()) :: {Policy.entry(), map(), list()}
-  def start_refresh(entry, state, repository) do
+  @spec start_refresh(Policy.entry(), map(), Aiur.TrackerIdentity.repository(), boolean()) :: {Policy.entry(), map(), list()}
+  def start_refresh(entry, state, repository, view_originated?) do
     generation = state.next_generation
     now = now(state)
 
-    case start_task(state, entry.identity, repository) do
+    case start_task(state, entry.identity, repository, view_originated?) do
       {:ok, task} ->
         timeout_ref =
           Process.send_after(
@@ -157,13 +158,14 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator.TaskLifecycle do
     end
   end
 
-  defp start_task(state, identity, repository) do
+  defp start_task(state, identity, repository, view_originated?) do
     owner = self()
 
     {:ok,
      Task.Supervisor.async_nolink(state.task_supervisor, fn ->
        receive do
-         {:ticket_detail_coordinator_start, ^owner} -> read(state, identity, repository)
+         {:ticket_detail_coordinator_start, ^owner} ->
+           RequestOrigin.carry(view_originated?, fn -> read(state, identity, repository) end)
        end
      end)}
     |> link_and_start(owner)
