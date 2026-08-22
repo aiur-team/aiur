@@ -624,7 +624,11 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
       "updated_at" => updated_at,
       "pull_request" => %{
         "number" => 901,
-        "head" => %{"ref" => "aiur/42-reopen", "sha" => "deadbeef"}
+        "head" => %{
+          "ref" => "aiur/42-reopen",
+          "sha" => "deadbeef",
+          "repo" => %{"full_name" => @repo}
+        }
       }
     }
   end

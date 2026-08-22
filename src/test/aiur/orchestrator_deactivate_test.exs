@@ -3532,7 +3532,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61, "head" => %{"ref" => "aiur/57"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 61, "head" => %{"ref" => "aiur/57", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -3686,7 +3690,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
           # open pull request and lets `TicketBranch.ticket_branch?/2` do the
           # filtering: ticket 57 matches `aiur/57`, ticket 42 matches nothing.
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61, "head" => %{"ref" => "aiur/57"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 61, "head" => %{"ref" => "aiur/57", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}

@@ -406,36 +406,6 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       assert Process.alive?(second_pid)
     end
 
-    test "an expired targeted poll reclaims its target before replacement" do
-      test_pid = self()
-
-      hanging_fetcher = fn _states ->
-        send(test_pid, {:targeted_comment_poll_started, self()})
-        Process.sleep(:infinity)
-      end
-
-      opts = comment_poll_opts(hanging_fetcher) ++ [reconcile_only: true]
-
-      state = %Aiur.Orchestrator.State{
-        running: %{},
-        github_comment_reconcile_targets: MapSet.new(["42"])
-      }
-
-      first_state = CommentPolling.start_async(state, opts)
-      first_state = await_async_started(first_state)
-      assert_receive {:targeted_comment_poll_started, first_pid}, 5_000
-      assert first_state.github_comment_reconcile_targets == MapSet.new()
-
-      expired_at = System.monotonic_time(:millisecond) - first_state.github_comment_poll.abandon_after_ms - 1
-      expired_state = put_in(first_state.github_comment_poll.started_at_ms, expired_at)
-      second_state = CommentPolling.start_async(expired_state, opts)
-      second_state = await_async_started(second_state)
-
-      wait_until(fn -> not Process.alive?(first_pid) end)
-      assert second_state.github_comment_poll.reconcile_targets == MapSet.new(["42"])
-      assert second_state.github_comment_reconcile_targets == MapSet.new()
-    end
-
     test "terminates target descendants before replacing an expired poll" do
       test_pid = self()
 

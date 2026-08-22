@@ -100,6 +100,41 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
     assert_received :run_github_comment_reconcile
   end
 
+  test "an expired targeted poll reclaims its target before replacement" do
+    test_pid = self()
+
+    hanging_request = fn _request ->
+      send(test_pid, {:targeted_comment_poll_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    opts = [
+      tracker_kind: "github",
+      repo: "owner/repo",
+      reconcile_only: true,
+      comment_batch_fetcher: fn _targets, _opts -> {:ok, %{"42" => %{open_pull_request: nil}}} end,
+      request_fun: hanging_request
+    ]
+
+    state = %State{github_comment_reconcile_targets: MapSet.new(["42"])}
+
+    first_state = state |> CommentPolling.start_async(opts) |> await_async_started()
+    assert_receive {:targeted_comment_poll_started, first_pid}, 5_000
+    assert first_state.github_comment_reconcile_targets == MapSet.new()
+
+    expired_at = System.monotonic_time(:millisecond) - first_state.github_comment_poll.abandon_after_ms - 1
+    expired_state = put_in(first_state.github_comment_poll.started_at_ms, expired_at)
+    second_state = expired_state |> CommentPolling.start_async(opts) |> await_async_started()
+
+    wait_until(fn -> not Process.alive?(first_pid) end)
+    assert second_state.github_comment_poll.reconcile_targets == MapSet.new(["42"])
+    assert second_state.github_comment_reconcile_targets == MapSet.new()
+    assert_receive {:targeted_comment_poll_started, second_pid}, 5_000
+    assert second_pid != first_pid
+
+    CommentPolling.terminate_poll(second_state.github_comment_poll)
+  end
+
   test "forced reconcile targets bypass ordinary discovery omission and caps" do
     state = %State{
       github_comment_reconcile_targets: MapSet.new(["42", "43"]),
@@ -157,5 +192,26 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
     state = %State{poll_frozen: true}
     assert CommentPolling.request_reconcile(state, %{kind: :ci, ticket: "42"}) == state
     assert CommentPolling.request_reconcile(state, %{kind: :review_thread, ticket: nil}) == state
+  end
+
+  defp await_async_started(%State{github_comment_poll: %{ref: ref, owner: owner}} = state) do
+    receive do
+      {:github_comment_poll_started, ^ref, ^owner, pid} ->
+        CommentPolling.apply_async_started(state, ref, owner, pid)
+    after
+      5_000 -> flunk("comment poll did not start")
+    end
+  end
+
+  defp wait_until(fun, attempts \\ 100)
+  defp wait_until(fun, 0), do: assert(fun.(), "condition did not become true")
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until(fun, attempts - 1)
+    end
   end
 end

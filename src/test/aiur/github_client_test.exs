@@ -1640,7 +1640,11 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1685,7 +1689,11 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn req ->
         cond do
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1739,7 +1747,11 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.url == "https://api.github.com/graphql" ->
             review_threads_page_response([
@@ -1800,7 +1812,12 @@ defmodule Aiur.GitHub.ClientTest do
 
           {:get, 1} ->
             assert req.url =~ "/pulls?"
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           {:post, 2} ->
             assert req.url == "https://api.github.com/graphql"
