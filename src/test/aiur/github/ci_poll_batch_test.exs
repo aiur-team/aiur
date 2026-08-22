@@ -330,6 +330,133 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     end
   end
 
+  # #2310 — a `check_run` delivery answers a target, so the batch drops it from
+  # the document entirely (zero GraphQL when every target is answered), per
+  # target, and fails toward polling on an unmatched or unknown check-run id.
+  #
+  # Asserted on the document sent AND on the transport call count, not on an
+  # interval: reverting the displacement fails these with a request where zero
+  # were expected.
+  describe "a target a check_run delivery already answered" do
+    setup do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+      :ok
+    end
+
+    @displacement_opts [
+      ci_heads_by_target: %{"42" => "head-77"},
+      ci_check_run_ids_by_target: %{"42" => [5501]}
+    ]
+
+    test "issues zero GraphQL calls when every target was answered, and serves the delivery" do
+      deliver_check_run(42)
+
+      request_fun = fn _request -> flunk("an all-answered cycle must not call the transport") end
+
+      assert {:ok, %{"42" => entry}} =
+               CIPollBatch.fetch(["42"], @displacement_opts ++ [request_fun: request_fun])
+
+      assert entry.delivered == true
+      assert entry.head_sha == "head-77"
+      assert %{"id" => 5501, "conclusion" => "success"} = entry.check_run
+    end
+
+    test "a target with no delivery keeps its cadence in the same cycle" do
+      deliver_check_run(42)
+
+      request_fun = fn %{body: body} ->
+        # 42 was answered; 43 was not, so 43's alias stays and 42's is gone.
+        assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/43-batch")
+        refute body["query"] =~ "branch_0_1"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, %{"42" => delivered, "43" => _polled}} =
+               CIPollBatch.fetch(["42", "43"],
+                 @displacement_opts ++
+                   [branch_names_by_target: %{"43" => "aiur/43-batch"}, request_fun: request_fun]
+               )
+
+      assert delivered.delivered == true
+    end
+
+    # The #2276 failure: a run registered after the baseline must be fetched,
+    # never served — answering it would let the poller call a queued required
+    # check passed.
+    test "an unknown check-run id fetches, not serves" do
+      deliver_check_run(42, id: 5502)
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "branch_0_0"
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+      end
+
+      assert {:ok, batch} =
+               CIPollBatch.fetch(["42"], @displacement_opts ++ [request_fun: request_fun])
+
+      refute Map.has_key?(batch, "42")
+    end
+
+    test "a delivery on a head the last poll did not observe fetches" do
+      deliver_check_run(42, head_sha: "other-head")
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "branch_0_0"
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+      end
+
+      assert {:ok, batch} =
+               CIPollBatch.fetch(["42"], @displacement_opts ++ [request_fun: request_fun])
+
+      refute Map.has_key?(batch, "42")
+    end
+
+    test "a delivery a prior poll already served fetches" do
+      deliver_check_run(42)
+
+      {:ok, signal} =
+        Aiur.GitHub.DeliveredCheckRun.signal_for_target("42", "owner", "repo", @displacement_opts)
+
+      Aiur.GitHub.DeliveredCheckRun.mark_served(signal)
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "branch_0_0"
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+      end
+
+      assert {:ok, batch} =
+               CIPollBatch.fetch(["42"], @displacement_opts ++ [request_fun: request_fun])
+
+      refute Map.has_key?(batch, "42")
+    end
+
+    test "a body a poll wrote, not a delivery, fetches" do
+      deliver_check_run(42, source: :poll)
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "branch_0_0"
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+      end
+
+      assert {:ok, batch} =
+               CIPollBatch.fetch(["42"], @displacement_opts ++ [request_fun: request_fun])
+
+      refute Map.has_key?(batch, "42")
+    end
+  end
+
   defp deliver_pull_request(target, number, opts \\ []) do
     :branch_pull_request
     |> ResourceStore.key_for_repo("owner/repo", target)
@@ -337,6 +464,25 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       %{"number" => number, "state" => "open", "head" => %{"ref" => "aiur/#{target}-ci-batch"}},
       source: Keyword.get(opts, :source, :webhook),
       version: "2026-08-20T00:00:00Z"
+    )
+  end
+
+  defp deliver_check_run(target, opts \\ []) do
+    check_run = %{
+      "id" => Keyword.get(opts, :id, 5501),
+      "name" => "test",
+      "head_sha" => Keyword.get(opts, :head_sha, "head-77"),
+      "status" => "completed",
+      "conclusion" => "success",
+      "started_at" => "2026-08-22T11:55:00Z",
+      "completed_at" => "2026-08-22T12:05:00Z"
+    }
+
+    :check_run
+    |> ResourceStore.key_for_repo("owner/repo", target)
+    |> ResourceStore.put_resource(check_run,
+      source: Keyword.get(opts, :source, :webhook),
+      version: Keyword.get(opts, :marker, "2026-08-22T12:05:00Z")
     )
   end
 

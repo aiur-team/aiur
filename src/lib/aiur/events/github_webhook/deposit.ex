@@ -52,11 +52,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   free, not a cached one. Holding the body is what permits that, because
   `ResourceStore.etag/1` answers only beside a held body.
 
-  **`:check_run` is not deposited at all** (#2126). No store reader addresses a
-  check run, and it is deliberately excluded from the agent cache on the
-  grounds that a CI verdict must never be served from a cache at any age, so a
-  deposit of one bought nothing. It was removed rather than kept as a dead
-  write.
+  **`:check_run` is deposited as a displacement signal** (#2310). It was
+  removed in #2126 because no store reader addressed a check run and a CI
+  verdict must never be served from a cache at any age. It is restored because
+  the CI poll pipe now reads it: `Aiur.GitHub.CIPollBatch` drops a target from
+  its GraphQL document when a delivered check run answers that target's head —
+  saving the read GitHub just paid for, without ever answering a verdict from
+  the held body. The held run is a freshness and identity signal (head match,
+  id match, "deposited since the last poll read"), never a source of a verdict
+  at all; that boundary holds in R10 and in the displacement gate below.
 
   ## What this module deliberately does not do
 
@@ -182,6 +186,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
+  # A `check_run` delivery carries the run's id, `head_sha`, `status`,
+  # `conclusion`, `started_at` and `completed_at` — most of what the CI batch
+  # pays GraphQL for — plus the pull requests it hangs off, which is how the
+  # ticket (and therefore the store key) is derived. The deposit is a
+  # displacement signal for the CI poll pipe (#2310), not a verdict to serve.
+  defp bodies("check_run", payload) do
+    check_run_deposits(Map.get(payload, "check_run"))
+  end
+
   defp bodies(_event_type, _payload), do: []
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
@@ -269,6 +282,56 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       nil -> []
       ticket_id -> [{:branch_pull_request, ticket_id, pr, version}]
     end
+  end
+
+  # A check run is deposited under `{:check_run, owner, repo, ticket}` — keyed
+  # by the TICKET its head branch belongs to, which is the identity the CI poll
+  # pipe holds before it has done any lookup (#2310). The body is GitHub's own
+  # delivered run, the same object a conditional re-read of the run returns.
+  #
+  # The run's marker (`completed_at` when it has one, else `started_at`, else
+  # the id) is the version for both the deposit's ordering guard and the poll's
+  # "has this been deposited since I last read it" check: a completion, a
+  # re-run, or a new run all move the marker, so a fresh delivery always
+  # displaces the next poll and an unchanged redelivery never re-displaces.
+  defp check_run_deposits(check_run) when not is_map(check_run), do: []
+
+  defp check_run_deposits(check_run) do
+    id = Map.get(check_run, "id")
+    head_sha = Map.get(check_run, "head_sha")
+
+    if is_nil(id) or not is_binary(head_sha) or head_sha == "" do
+      []
+    else
+      version = check_run_marker(check_run)
+
+      check_run |> check_run_tickets() |> Enum.map(&{:check_run, &1, check_run, version})
+    end
+  end
+
+  # A check run's `pull_requests` carries the head refs it hangs off; each that
+  # is an Aiur ticket branch maps to the ticket key the poll pipe reads by. A
+  # head that is not an Aiur ticket branch (`main`, a watched PR's own branch)
+  # derives no ticket and is not deposited — there is no CI poll key for it.
+  defp check_run_tickets(check_run) do
+    check_run
+    |> Map.get("pull_requests")
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      %{"head" => %{"ref" => ref}} when is_binary(ref) and ref != "" ->
+        case TicketBranch.ticket_id(ref) do
+          nil -> []
+          ticket_id -> [ticket_id]
+        end
+
+      _other ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp check_run_marker(check_run) do
+    Map.get(check_run, "completed_at") || Map.get(check_run, "started_at") || Map.get(check_run, "id")
   end
 
   # ---------------------------------------------------------------------------

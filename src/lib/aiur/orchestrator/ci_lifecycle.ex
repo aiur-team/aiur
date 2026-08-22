@@ -375,16 +375,34 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp poll_github_ci_targets(state, issues_by_target, targets, poller, opts) do
     poll_opts =
-      Keyword.put(
-        opts,
+      opts
+      |> Keyword.put(
         :base_repair_invalidations,
         Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
+      # The last poll's per-target observation, threaded into the batch so the
+      # displacement gate can tell a delivery on the current head for a known
+      # check run from one on a moved head or for a run the poll never saw
+      # (#2310). A target with no prior observation matches neither and fetches.
+      |> Keyword.put(:ci_heads_by_target, ci_heads_by_target(state))
+      |> Keyword.put(:ci_check_run_ids_by_target, ci_check_run_ids_by_target(state))
 
     case put_ci_batch(poll_opts, targets, issues_by_target) do
       {:ok, poll_opts} -> poll_github_ci_targets_with_opts(state, targets, issues_by_target, poller, poll_opts, opts)
       {:skip, _local_hold} -> state
     end
+  end
+
+  defp ci_heads_by_target(%State{} = state) do
+    state.ci_lifecycle
+    |> Map.get(:poll_cache, %{})
+    |> Enum.into(%{}, fn {target, projection} -> {target, Map.get(projection, :head_sha)} end)
+  end
+
+  defp ci_check_run_ids_by_target(%State{} = state) do
+    state.ci_lifecycle
+    |> Map.get(:poll_cache, %{})
+    |> Enum.into(%{}, fn {target, projection} -> {target, Map.get(projection, :check_run_ids, [])} end)
   end
 
   defp poll_github_ci_targets_with_opts(state, targets, issues_by_target, poller, poll_opts, opts) do
@@ -513,12 +531,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp apply_ci_poll_result_for_target(state, result, issues_by_target, opts) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
-        state
-        |> reconcile_draft_stall_alert(issue, result, opts)
-        |> reconcile_parked_ready_alert(issue, result, opts)
-        |> reconcile_base_repair_invalidation(issue, result)
-        |> stash_last_ci_result(issue, result)
-        |> apply_ci_poll_result(issue, result)
+        if Map.get(result, :delivered) do
+          # A target the batch displaced because a webhook delivery answered it:
+          # the read was skipped, and nothing rides on the delivery — no state
+          # transition, no alert, no cache projection — because a CI verdict is
+          # never answered from a held body at any age (R10). The next
+          # non-displaced read produces the real verdict.
+          state
+        else
+          state
+          |> reconcile_draft_stall_alert(issue, result, opts)
+          |> reconcile_parked_ready_alert(issue, result, opts)
+          |> reconcile_base_repair_invalidation(issue, result)
+          |> stash_last_ci_result(issue, result)
+          |> apply_ci_poll_result(issue, result)
+        end
 
       _ ->
         state
@@ -918,7 +945,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       pr_number: Map.get(result, :pr_number),
       head_sha: Map.get(result, :head_sha),
       draft?: projection_value(result, previous, :draft?, false) == true,
-      review_decision: projection_value(result, previous, :review_decision, nil)
+      review_decision: projection_value(result, previous, :review_decision, nil),
+      # The check-run ids this poll actually saw, so the next cycle's
+      # displacement can tell a delivery for a known run from a new one (the
+      # #2276 id-match gate). A result with none (a delivered/inert result is
+      # never stashed; a REST fallback without check runs) records `[]`, which
+      # matches nothing and therefore fetches — the fail-toward-polling default.
+      check_run_ids: Map.get(result, :check_run_ids, [])
     }
   end
 
