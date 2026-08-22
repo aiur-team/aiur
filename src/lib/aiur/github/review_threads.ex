@@ -81,14 +81,18 @@ defmodule Aiur.GitHub.ReviewThreads do
           unaddressed_thread_comments_result(threads, opts)
 
         :miss ->
-          with {:ok, token} <- Transport.require_token(opts),
-               request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
-               started_at_ms = System.system_time(:millisecond),
-               {:ok, threads} <- fetch_unaddressed_review_thread_pages(request_fun, token, owner, repo, number, nil, []) do
-            PollSnapshots.put_review_threads(repo_identity, number, threads, started_at_ms: started_at_ms)
-            unaddressed_thread_comments_result(threads, opts)
-          end
+          fetch_live_unaddressed_threads(owner, repo, repo_identity, number, opts)
       end
+    end
+  end
+
+  defp fetch_live_unaddressed_threads(owner, repo, repo_identity, number, opts) do
+    with {:ok, token} <- Transport.require_token(opts),
+         request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+         started_at_ms = System.system_time(:millisecond),
+         {:ok, threads} <- fetch_unaddressed_review_thread_pages(request_fun, token, owner, repo, number, nil, []) do
+      PollSnapshots.put_review_threads(repo_identity, number, threads, started_at_ms: started_at_ms)
+      unaddressed_thread_comments_result(threads, opts)
     end
   end
 

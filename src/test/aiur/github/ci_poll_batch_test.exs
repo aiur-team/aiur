@@ -72,7 +72,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
 
-  test "omits delivery-fresh CI contexts while retaining strict pull request fields" do
+  test "omits delivery-fresh check runs while retaining live legacy statuses and strict pull request fields" do
     deliver_pull_request(42, 77)
 
     assert :ok =
@@ -81,7 +81,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                "42",
                "head-77",
                [%{"id" => 501, "name" => "cached", "status" => "queued", "conclusion" => nil}],
-               %{"state" => "pending", "statuses" => []}
+               %{"state" => "failure", "statuses" => [%{"context" => "legacy", "state" => "failure"}]}
              )
 
     assert :ok =
@@ -96,10 +96,13 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
       refute body["query"] =~ "branch_0_0"
       assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
+      assert body["query"] =~ "status {"
+      assert body["query"] =~ "contexts { context state"
       refute body["query"] =~ "statusCheckRollup"
-      refute body["query"] =~ "contexts(first: 100)"
+      refute body["query"] =~ "... on CheckRun"
+      refute body["query"] =~ "databaseId name status conclusion"
 
-      node = Map.delete(pull_request(), "commits")
+      node = pull_request_with_legacy_status()
 
       {:ok,
        %{
@@ -112,7 +115,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              CIPollBatch.fetch(["42"], request_fun: request_fun)
 
     assert [%{"name" => "cached", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
-    assert %{"state" => "pending", "statuses" => []} = batch.commit_status
+    assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
 
   test "writes a complete polled CI selection back for later webhook advancement" do
@@ -147,6 +150,87 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert {:ok, %{"check_runs" => [%{"id" => 501, "conclusion" => "failure"}]}} = PollSnapshots.ci_contexts("owner/repo", "42")
+  end
+
+  test "a poll-only snapshot does not suppress check-run fields" do
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               "owner/repo",
+               "42",
+               "head-77",
+               [%{"id" => 501, "status" => "completed", "conclusion" => "failure"}],
+               %{"state" => "failure", "statuses" => []}
+             )
+
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "... on CheckRun { databaseId name status conclusion"
+      ci_response(pull_request())
+    end
+
+    assert {:ok, %{"42" => _batch}} =
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
+             )
+  end
+
+  test "an expired delivery snapshot restores the full check-run selection" do
+    deliver_pull_request(42, 77)
+
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               "owner/repo",
+               "42",
+               "head-77",
+               [%{"id" => 501, "status" => "queued", "conclusion" => nil}],
+               %{"state" => "pending", "statuses" => []}
+             )
+
+    assert :ok =
+             PollSnapshots.merge_check_run(
+               "owner/repo",
+               "42",
+               "head-77",
+               %{"id" => 501, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
+             )
+
+    assert {:ok, %{fetched_at_ms: fetched_at_ms}} = ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
+
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "... on CheckRun { databaseId name status conclusion"
+      ci_response(pull_request_with_legacy_status(), "delivered_0")
+    end
+
+    assert {:ok, %{"42" => _batch}} =
+             CIPollBatch.fetch(["42"], request_fun: request_fun, now_ms: fetched_at_ms + 30_001)
+  end
+
+  test "a delivery snapshot for an older head leaves the target to exact fallback" do
+    deliver_pull_request(42, 77)
+
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               "owner/repo",
+               "42",
+               "old-head",
+               [%{"id" => 501, "status" => "queued", "conclusion" => nil}],
+               %{"state" => "pending", "statuses" => []}
+             )
+
+    assert :ok =
+             PollSnapshots.merge_check_run(
+               "owner/repo",
+               "42",
+               "old-head",
+               %{"id" => 501, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
+             )
+
+    request_fun = fn %{method: :post, body: body} ->
+      refute body["query"] =~ "... on CheckRun"
+      ci_response(pull_request_with_legacy_status(), "delivered_0")
+    end
+
+    assert {:ok, %{}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
   end
 
   # Regression guard: GitHub issues have no branch name, so without the
@@ -304,6 +388,17 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn _request -> flunk("empty target batch must not make a request") end
 
     assert {:ok, %{}} = CIPollBatch.fetch([], request_fun: request_fun)
+  end
+
+  defp ci_response(node, alias_name \\ "branch_0_0") do
+    value =
+      if String.starts_with?(alias_name, "branch_") do
+        %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [node]}
+      else
+        node
+      end
+
+    {:ok, %{status: 200, body: %{"data" => %{"repository" => %{alias_name => value}}}}}
   end
 
   # #2265 — the poll pipe reads the store the webhook pipe writes.
@@ -464,5 +559,24 @@ defmodule Aiur.GitHub.CIPollBatchTest do
         ]
       }
     }
+  end
+
+  defp pull_request_with_legacy_status do
+    put_in(pull_request(), ["commits", "nodes"], [
+      %{
+        "commit" => %{
+          "status" => %{
+            "contexts" => [
+              %{
+                "context" => "legacy",
+                "state" => "SUCCESS",
+                "createdAt" => "2026-07-30T12:01:00Z",
+                "description" => "green"
+              }
+            ]
+          }
+        }
+      }
+    ])
   end
 end

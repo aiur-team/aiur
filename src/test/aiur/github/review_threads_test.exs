@@ -80,7 +80,11 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
       System.delete_env("GITHUB_TOKEN")
       :persistent_term.erase(@token_cache_key)
 
-      assert :ok = PollSnapshots.put_review_threads("owner/repo", 61, [])
+      assert :ok =
+               PollSnapshots.put_review_threads("owner/repo", 61, [
+                 %{"id" => "PRRT_resolved", "isResolved" => false}
+               ])
+
       assert :ok = PollSnapshots.merge_review_thread("owner/repo", 61, %{"id" => "PRRT_resolved", "isResolved" => true})
 
       assert {:ok, []} = ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61)

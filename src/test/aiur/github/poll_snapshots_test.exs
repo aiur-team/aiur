@@ -35,6 +35,15 @@ defmodule Aiur.GitHub.PollSnapshotsTest do
     assert {:ok, [%{"isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
   end
 
+  test "an unknown thread delta cannot make an incomplete collection delivery-fresh" do
+    assert :ok = PollSnapshots.put_review_threads(@repo, 77, [thread("PRRT_1", false, "2026-08-21T10:00:00Z")])
+
+    assert :unchanged =
+             PollSnapshots.merge_review_thread(@repo, 77, thread("PRRT_unknown", true, "2026-08-21T10:01:00Z"))
+
+    assert :miss = PollSnapshots.review_threads(@repo, 77)
+  end
+
   test "a webhook check run advances only a complete snapshot for the same head" do
     assert :ok =
              PollSnapshots.put_ci_contexts(
@@ -53,9 +62,26 @@ defmodule Aiur.GitHub.PollSnapshotsTest do
     assert {:ok,
             %{
               "head_sha" => "head-1",
-              "check_runs" => [%{"id" => 501, "status" => "completed", "conclusion" => "success"}],
-              "commit_status" => %{"state" => "pending"}
+              "check_runs" => [%{"id" => 501, "status" => "completed", "conclusion" => "success"}]
             }} = PollSnapshots.ci_contexts(@repo, 42)
+  end
+
+  test "an unversioned check-run delivery cannot roll a versioned run backward" do
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               @repo,
+               42,
+               "head-1",
+               [check_run(501, "completed", "success", "2026-08-21T10:01:00Z")],
+               %{"state" => "success", "statuses" => []}
+             )
+
+    delivered =
+      check_run(501, "queued", nil, nil)
+      |> Map.put("started_at", nil)
+
+    assert :unchanged = PollSnapshots.merge_check_run(@repo, 42, "head-1", delivered)
+    assert :miss = PollSnapshots.ci_contexts(@repo, 42)
   end
 
   test "a poll that began before a webhook write cannot replace it" do

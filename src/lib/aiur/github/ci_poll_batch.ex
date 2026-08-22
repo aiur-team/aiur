@@ -84,8 +84,8 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   # Both store reads happen before the query is written. DeliveredPullRequest
-  # chooses the exact identity; PollSnapshots decides whether contexts can be
-  # omitted for that target.
+  # chooses the exact identity; PollSnapshots decides whether delivered check
+  # run fields can be omitted for that target. Legacy statuses remain live.
   defp target_entry(target, owner, repo, opts, repo_identity, started_at_ms) do
     entry =
       case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
@@ -199,7 +199,19 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp contexts_selection(%{cached_contexts: %{} = _contexts}), do: ""
+  defp contexts_selection(%{cached_contexts: %{} = _contexts}) do
+    """
+    commits(last: 1) {
+      nodes {
+        commit {
+          status {
+            contexts { context state targetUrl createdAt description }
+          }
+        }
+      }
+    }
+    """
+  end
 
   defp contexts_selection(_entry) do
     """
@@ -307,13 +319,17 @@ defmodule Aiur.GitHub.CIPollBatch do
     result = normalize_pull_request(node)
 
     cond do
-      cached_contexts_match?(entry, result) ->
+      cached_contexts_match?(entry, result) and not Map.get(result, :contexts_overflow) ->
         Map.put(acc, entry.target, put_cached_contexts(result, entry.cached_contexts))
+
+      cached_contexts_match?(entry, result) ->
+        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+        acc
 
       is_map(entry.cached_contexts) ->
         # The held selection belongs to an older head. This query deliberately
-        # omitted contexts, so leave the target to its exact fallback rather
-        # than returning an invented empty CI result.
+        # omitted check-run fields, so leave the target to its exact fallback
+        # rather than returning an invented empty CI result.
         acc
 
       Map.get(result, :contexts_overflow) ->
@@ -342,7 +358,6 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_cached_contexts(result, cached_contexts) do
     result
     |> Map.put(:check_runs, Map.fetch!(cached_contexts, "check_runs"))
-    |> Map.put(:commit_status, Map.fetch!(cached_contexts, "commit_status"))
     |> Map.put(:contexts_overflow, false)
   end
 
@@ -380,8 +395,19 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp status_contexts(nil), do: {[], false}
 
   defp status_contexts(commit_node) when is_map(commit_node) do
-    contexts = get_in(commit_node, ["commit", "statusCheckRollup", "contexts"]) || %{}
-    {Map.get(contexts, "nodes", []), get_in(contexts, ["pageInfo", "hasNextPage"]) == true}
+    commit = Map.get(commit_node, "commit") || %{}
+
+    case Map.fetch(commit, "status") do
+      {:ok, %{"contexts" => statuses}} when is_list(statuses) ->
+        {Enum.map(statuses, &Map.put(&1, "__typename", "StatusContext")), false}
+
+      {:ok, _nil_or_malformed} ->
+        {[], false}
+
+      :error ->
+        contexts = get_in(commit, ["statusCheckRollup", "contexts"]) || %{}
+        {Map.get(contexts, "nodes", []), get_in(contexts, ["pageInfo", "hasNextPage"]) == true}
+    end
   end
 
   defp status_contexts(_commit_node), do: {[], false}

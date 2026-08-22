@@ -17,7 +17,11 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
   test "omits delivered review threads while keeping strict review context live" do
     deliver_pull_request(42, 77)
 
-    assert :ok = PollSnapshots.put_review_threads("owner/repo", 77, [])
+    assert :ok =
+             PollSnapshots.put_review_threads("owner/repo", 77, [
+               %{"id" => "PRRT_resolved", "isResolved" => false, "updatedAt" => "2026-08-21T09:59:00Z"}
+             ])
+
     assert :ok = PollSnapshots.merge_review_thread("owner/repo", 77, %{"id" => "PRRT_resolved", "isResolved" => true, "updatedAt" => "2026-08-21T10:00:00Z"})
 
     request_fun = fn %{method: :post, body: body} ->

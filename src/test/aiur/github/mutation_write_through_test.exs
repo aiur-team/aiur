@@ -24,7 +24,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubWebhook}
-  alias Aiur.GitHub.{Comments, DependenciesApi, IssueState, PullRequests, ResourceStore, WriteThrough}
+  alias Aiur.GitHub.{Comments, DependenciesApi, IssueState, PollSnapshots, PullRequests, ResourceStore, WriteThrough}
   alias Aiur.GitHub.ReviewThreads.{Reply, Resolution}
 
   @repo "owner/repo"
@@ -468,6 +468,11 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     end
 
     test "resolving a thread deposits its resolution state" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 7, [
+                 %{"id" => "PRRT_thread", "isResolved" => false, "comments" => %{"nodes" => []}}
+               ])
+
       {_calls, result} =
         record(&resolve_thread_response/1, fn fun ->
           Resolution.resolve_review_thread_mutation(fun, "token", "PRRT_thread")
@@ -477,6 +482,22 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
 
       assert %{"isResolved" => true} =
                ResourceStore.data(ResourceStore.key(:pr_review_thread, "owner", "repo", "PRRT_thread"))
+
+      assert :miss = PollSnapshots.review_threads(@repo, 7)
+
+      assert {:ok, %{source: :mutation, data: %{"threads" => [%{"id" => "PRRT_thread", "isResolved" => true}]}}} =
+               ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 7))
+
+      WriteThrough.review_thread(%{
+        "id" => "PRRT_thread",
+        "isResolved" => false,
+        "pullRequest" => %{"number" => 7}
+      })
+
+      assert :miss = PollSnapshots.review_threads(@repo, 7)
+
+      assert {:ok, %{source: :mutation, data: %{"threads" => [%{"id" => "PRRT_thread", "isResolved" => false}]}}} =
+               ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 7))
     end
   end
 
@@ -669,7 +690,13 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     {:ok,
      %{
        status: 200,
-       body: %{"data" => %{"resolveReviewThread" => %{"thread" => %{"id" => "PRRT_thread", "isResolved" => true}}}}
+       body: %{
+         "data" => %{
+           "resolveReviewThread" => %{
+             "thread" => %{"id" => "PRRT_thread", "isResolved" => true, "pullRequest" => %{"number" => 7}}
+           }
+         }
+       }
      }}
   end
 

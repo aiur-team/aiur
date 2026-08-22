@@ -20,28 +20,21 @@ defmodule Aiur.GitHub.PollSnapshots do
 
   @spec review_threads(String.t(), term(), keyword()) :: {:ok, [map()]} | :miss
   def review_threads(repo, pr_number, opts \\ []) do
-    with {:ok, %{"complete" => true, "threads" => threads}} when is_list(threads) <-
-           delivery_snapshot(review_threads_key(repo, pr_number), opts) do
-      {:ok, threads}
-    else
+    case delivery_snapshot(review_threads_key(repo, pr_number), opts) do
+      {:ok, %{"complete" => true, "threads" => threads}} when is_list(threads) -> {:ok, threads}
       _other -> :miss
     end
   end
 
   @spec ci_contexts(String.t(), term(), keyword()) :: {:ok, map()} | :miss
   def ci_contexts(repo, target, opts \\ []) do
-    with {:ok,
-          %{
-            "complete" => true,
-            "head_sha" => head_sha,
-            "check_runs" => check_runs,
-            "commit_status" => commit_status
-          } = snapshot}
-         when is_binary(head_sha) and head_sha != "" and is_list(check_runs) and is_map(commit_status) <-
-           delivery_snapshot(ci_contexts_key(repo, target), opts) do
-      {:ok, Map.drop(snapshot, ["complete"])}
-    else
-      _other -> :miss
+    case delivery_snapshot(ci_contexts_key(repo, target), opts) do
+      {:ok, %{"complete" => true, "head_sha" => head_sha, "check_runs" => check_runs}}
+      when is_binary(head_sha) and head_sha != "" and is_list(check_runs) ->
+        {:ok, %{"head_sha" => head_sha, "check_runs" => check_runs}}
+
+      _other ->
+        :miss
     end
   end
 
@@ -69,28 +62,36 @@ defmodule Aiur.GitHub.PollSnapshots do
     )
   end
 
-  @spec merge_review_thread(String.t(), term(), map()) :: :ok | :unchanged
-  def merge_review_thread(repo, pr_number, %{"id" => id} = delivered) when is_binary(id) and id != "" do
+  @spec merge_review_thread(String.t(), term(), map(), keyword()) :: :ok | :unchanged
+  def merge_review_thread(repo, pr_number, delivered, opts \\ [])
+
+  def merge_review_thread(repo, pr_number, %{"id" => id} = delivered, opts) when is_binary(id) and id != "" do
     ResourceStore.update_resource(
       review_threads_key(repo, pr_number),
       fn
         %{"complete" => true, "threads" => threads} = held when is_list(threads) ->
           existing = Enum.find(threads, &(Map.get(&1, "id") == id))
-          merged = if is_map(existing), do: Map.merge(existing, delivered), else: delivered
 
-          if is_map(existing) and newer_than?(existing, delivered, &thread_marker/1),
-            do: :unchanged,
-            else: Map.put(held, "threads", replace_resource(threads, id, merged))
+          cond do
+            not is_map(existing) ->
+              :unchanged
+
+            newer_than?(existing, delivered, &thread_marker/1) ->
+              :unchanged
+
+            true ->
+              Map.put(held, "threads", replace_resource(threads, id, Map.merge(existing, delivered)))
+          end
 
         _other ->
           :unchanged
       end,
-      source: :webhook,
+      source: Keyword.get(opts, :source, :webhook),
       version: &snapshot_version/1
     )
   end
 
-  def merge_review_thread(_repo, _pr_number, _delivered), do: :unchanged
+  def merge_review_thread(_repo, _pr_number, _delivered, _opts), do: :unchanged
 
   @spec merge_check_run(String.t(), term(), String.t(), map()) :: :ok | :unchanged
   def merge_check_run(repo, target, head_sha, %{"id" => id} = delivered)
@@ -107,7 +108,7 @@ defmodule Aiur.GitHub.PollSnapshots do
         when is_list(check_runs) and is_map(commit_status) ->
           existing = Enum.find(check_runs, &(Map.get(&1, "id") == id))
 
-          if is_map(existing) and newer_than?(existing, delivered, &check_run_marker/1),
+          if is_map(existing) and stale_or_unversioned?(existing, delivered, &check_run_marker/1),
             do: :unchanged,
             else: Map.put(held, "check_runs", replace_resource(check_runs, id, delivered))
 
@@ -120,6 +121,11 @@ defmodule Aiur.GitHub.PollSnapshots do
   end
 
   def merge_check_run(_repo, _target, _head_sha, _delivered), do: :unchanged
+
+  @spec invalidate_review_threads(String.t(), term()) :: :ok
+  def invalidate_review_threads(repo, pr_number) do
+    ResourceStore.drop_data(review_threads_key(repo, pr_number))
+  end
 
   defp delivery_snapshot(key, opts) do
     now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
@@ -152,11 +158,13 @@ defmodule Aiur.GitHub.PollSnapshots do
   end
 
   defp replace_resource(resources, id, delivered) do
-    if Enum.any?(resources, &(Map.get(&1, "id") == id)) do
-      Enum.map(resources, fn resource -> if Map.get(resource, "id") == id, do: delivered, else: resource end)
-    else
-      resources ++ [delivered]
-    end
+    {replaced, found?} =
+      Enum.map_reduce(resources, false, fn
+        %{"id" => ^id}, _found? -> {delivered, true}
+        resource, found? -> {resource, found?}
+      end)
+
+    if found?, do: replaced, else: replaced ++ [delivered]
   end
 
   defp newer_than?(existing, delivered, marker_fun) do
@@ -166,6 +174,14 @@ defmodule Aiur.GitHub.PollSnapshots do
 
       _other ->
         false
+    end
+  end
+
+  defp stale_or_unversioned?(existing, delivered, marker_fun) do
+    case {marker_fun.(existing), marker_fun.(delivered)} do
+      {existing_marker, nil} when is_binary(existing_marker) -> true
+      {existing_marker, delivered_marker} when is_binary(existing_marker) and is_binary(delivered_marker) -> existing_marker > delivered_marker
+      _other -> false
     end
   end
 
@@ -182,7 +198,8 @@ defmodule Aiur.GitHub.PollSnapshots do
     |> Enum.max(fn -> nil end)
   end
 
-  defp check_run_marker(run), do: Map.get(run, "completed_at") || Map.get(run, "started_at")
+  defp check_run_marker(run),
+    do: Map.get(run, "updated_at") || Map.get(run, "completed_at") || Map.get(run, "started_at")
 
   defp snapshot_version(nil), do: nil
 

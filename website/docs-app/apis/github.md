@@ -304,14 +304,18 @@ A deposit records what Aiur is *holding*, never what it has *handled*. The two a
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
 
 Comment, CI, and review-thread pollers consult these complete snapshots before
-building their GraphQL documents. A snapshot written by a poll is only a
-baseline; it does not suppress the next poll. When a verified delivery advances
-that baseline, the matching collection is eligible for 30 seconds. During that
-window Aiur omits only `reviewThreads` or `statusCheckRollup.contexts`, while
-continuing to read `reviewDecision`, `mergeable`, and other strict verdict state
-live. Successful polls write their complete selections back so the next
-delivery and poll converge on the same state. Partial, stale, poll-only,
-head-mismatched, or unavailable entries always fall back to GitHub.
+building their GraphQL documents. A poll-written snapshot is only a baseline;
+it does not suppress the next poll. When a verified delivery advances that
+baseline, the matching collection is eligible for 30 seconds.
+
+During that window Aiur omits `reviewThreads` or the delivered `CheckRun`
+fields. Legacy commit statuses, `reviewDecision`, `mergeable`, and other strict
+verdict state remain live reads.
+
+Successful polls write complete selections back so the next delivery and poll
+converge on the same state. Partial, stale, poll-only, head-mismatched, or
+unavailable entries fall back to GitHub. A review-comment delivery invalidates
+the complete thread snapshot because one comment cannot prove the collection.
 
 ## Shared agent reads
 

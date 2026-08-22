@@ -74,7 +74,7 @@ defmodule Aiur.GitHub.WriteThrough do
 
   require Logger
 
-  alias Aiur.GitHub.{ResourceStore, Transport}
+  alias Aiur.GitHub.{PollSnapshots, ResourceStore, Transport}
 
   @doc """
   Deposits an issue comment from a `POST .../issues/:number/comments` response.
@@ -195,6 +195,14 @@ defmodule Aiur.GitHub.WriteThrough do
   def review_thread(thread, opts \\ []) do
     guarded(fn ->
       deposit(:pr_review_thread, node_id(thread), thread, nil, opts)
+
+      with %{} <- thread,
+           pr_number when not is_nil(pr_number) <- get_in(thread, ["pullRequest", "number"]),
+           {:ok, owner, repo} <- repo_identity(thread, opts) do
+        PollSnapshots.merge_review_thread("#{owner}/#{repo}", pr_number, thread, source: :mutation)
+      else
+        _other -> :ok
+      end
     end)
   end
 

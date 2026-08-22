@@ -56,8 +56,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   `:ci_contexts` snapshot that a poll already established for the same head.
   It never invents the rest of the collection from one run, and it never makes
   review, merge, or CI verdict fields generally cacheable. The CI poller still
-  reads those strict pull-request fields live; it omits only the exact contexts
-  selection a newer delivery already supplied.
+  reads those strict pull-request fields and legacy commit statuses live; it
+  omits only the check-run fields a newer delivery already supplied.
 
   ## What this module deliberately does not do
 
@@ -113,6 +113,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   @type work ::
           {ResourceStore.resource_type(), term(), term(), String.t() | nil}
           | {:drop, ResourceStore.resource_type(), term()}
+          | {:invalidate_review_threads, term()}
           | {:merge_review_thread, term(), map()}
           | {:merge_check_run, term(), String.t(), map()}
 
@@ -128,6 +129,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     if store_running?() do
       Enum.flat_map(bodies(event_type, payload), fn
         {:drop, type, id} -> drop(type, repo, id)
+        {:invalidate_review_threads, pr_number} -> invalidate_review_threads(repo, pr_number)
         {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
         {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
         {type, id, body, version} -> store(type, repo, id, body, version)
@@ -172,7 +174,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     comment = Map.get(payload, "comment")
     action = Map.get(payload, "action")
 
-    comment_deposits(:pr_review_comment, action, comment) ++
+    review_thread_invalidation(payload) ++
+      comment_deposits(:pr_review_comment, action, comment) ++
       pull_request_deposits(Map.get(payload, "pull_request"))
   end
 
@@ -198,15 +201,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     with %{} = check_run <- Map.get(payload, "check_run"),
          head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(check_run, "head_sha"),
          %{"id" => id} = normalized when not is_nil(id) <- normalize_check_run(check_run) do
-      check_run
-      |> Map.get("pull_requests", [])
-      |> Enum.flat_map(fn pull_request ->
-        case pull_request |> get_in(["head", "ref"]) |> TicketBranch.ticket_id() do
-          nil -> []
-          target -> [{:merge_check_run, target, head_sha, normalized}]
-        end
-      end)
-      |> Enum.uniq_by(fn {:merge_check_run, target, _head_sha, _run} -> target end)
+      check_run_deposits(check_run, head_sha, normalized)
     else
       _other -> []
     end
@@ -217,6 +212,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
   defp bodies(_event_type, _payload), do: []
+
+  defp check_run_deposits(check_run, head_sha, normalized) do
+    check_run
+    |> Map.get("pull_requests", [])
+    |> Enum.map(&(&1 |> get_in(["head", "ref"]) |> TicketBranch.ticket_id()))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(&{:merge_check_run, &1, head_sha, normalized})
+  end
 
   defp normalize_review_thread(thread) do
     %{
@@ -237,6 +241,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       "conclusion" => Map.get(check_run, "conclusion"),
       "started_at" => Map.get(check_run, "started_at"),
       "completed_at" => Map.get(check_run, "completed_at"),
+      "updated_at" => Map.get(check_run, "updated_at"),
       "output" => Map.get(check_run, "output", %{})
     }
   end
@@ -253,6 +258,13 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # about the comment body, so it deposits nothing rather than re-writing what
   # is already held.
   defp comment_deposits(_type, _action, _comment), do: []
+
+  defp review_thread_invalidation(payload) do
+    case get_in(payload, ["pull_request", "number"]) do
+      pr_number when not is_nil(pr_number) -> [{:invalidate_review_threads, pr_number}]
+      _other -> []
+    end
+  end
 
   defp review_deposits("submitted", review) when is_map(review) do
     [{:pr_review, Map.get(review, "id"), Normalizer.review_shape(review), version(review)}]
@@ -348,6 +360,11 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       :ok -> confirm(key)
       :unchanged -> []
     end
+  end
+
+  defp invalidate_review_threads(repo, pr_number) do
+    PollSnapshots.invalidate_review_threads(repo, pr_number)
+    []
   end
 
   defp store(_type, _repo, _id, body, _version) when not (is_map(body) or is_list(body)), do: []

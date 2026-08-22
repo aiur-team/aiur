@@ -283,6 +283,11 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
 
     test "pull_request_review_comment deposits the comment and the pull request" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{"id" => "PRRT_old", "isResolved" => false, "comments" => %{"nodes" => []}}
+               ])
+
       GithubWebhook.handle_delivery("pull_request_review_comment", review_comment_delivery(9203), repo: @repo)
 
       assert {:ok, %{data: %{"id" => 9203}, source: :webhook}} =
@@ -290,6 +295,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert {:ok, %{data: %{"number" => 77}}} =
                ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
+
+      assert :miss = ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 77))
     end
 
     test "pull_request_review deposits the review with the poller's state casing" do
@@ -437,6 +444,19 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
                   "comments" => %{"nodes" => [%{"databaseId" => 1}]}
                 }
               ]} = PollSnapshots.review_threads(@repo, 77)
+    end
+
+    test "a resolved delivery for an unknown thread does not bless an incomplete collection" do
+      assert :ok = PollSnapshots.put_review_threads(@repo, 77, [])
+
+      delivery = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77},
+        "thread" => %{"node_id" => "PRRT_unknown", "updated_at" => "2026-06-24T12:01:00Z"}
+      }
+
+      assert [] == GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+      assert :miss = PollSnapshots.review_threads(@repo, 77)
     end
 
     test "issues deposits the issue and label set even though the event only reconciles" do
