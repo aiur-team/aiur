@@ -122,8 +122,7 @@ defmodule Aiur.AffectedTests do
     hunk
     |> String.split("\n")
     |> Enum.filter(&String.starts_with?(&1, prefix))
-    |> Enum.map(&String.replace_prefix(&1, prefix, ""))
-    |> Enum.join("\n")
+    |> Enum.map_join("\n", &String.replace_prefix(&1, prefix, ""))
   end
 
   defp reference_terms(text) do
