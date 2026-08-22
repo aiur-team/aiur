@@ -79,6 +79,86 @@ defmodule Aiur.DecisionExpiryTest do
     assert_received {:expired, _decision_id, "agent_not_running", @now}
   end
 
+  test "raises one attention when a blocking Command is older than a day" do
+    test_pid = self()
+    stale = decision("stale", "STALE-1", DateTime.add(@now, -86_400, :second))
+
+    assert {:ok, 0} =
+             DecisionExpiry.sweep(
+               now: @now,
+               grace_seconds: 300,
+               stale_after_seconds: 86_400,
+               active_identifiers_fun: fn -> {:ok, ["STALE-1"]} end,
+               decisions_fun: fn -> {:ok, [stale]} end,
+               attention_sync_fun: fn decision, signal, occurred_at ->
+                 send(test_pid, {:attention, decision.decision_id, signal, occurred_at})
+                 :ok
+               end
+             )
+
+    assert_received {:attention, decision_id, :stale_blocking, @now}
+    assert decision_id == stale.decision_id
+  end
+
+  test "an expired Executor-unanswerable Command raises an attention" do
+    test_pid = self()
+    command = decision("expired-unanswerable", "DONE-1", DateTime.add(@now, -600, :second), blocking: false)
+
+    assert {:ok, 1} =
+             DecisionExpiry.sweep(
+               now: @now,
+               grace_seconds: 300,
+               active_identifiers_fun: fn -> {:ok, []} end,
+               decisions_fun: fn -> {:ok, [command]} end,
+               expire_fun: fn _decision_id, _reason_class, _occurred_at ->
+                 {:ok, %{status: :accepted}}
+               end,
+               attention_sync_fun: fn decision, signal, occurred_at ->
+                 send(test_pid, {:attention, decision.decision_id, signal, occurred_at})
+                 :ok
+               end
+             )
+
+    assert_received {:attention, decision_id, :expired_unanswerable, @now}
+    assert decision_id == command.decision_id
+  end
+
+  test "reconciles classification and previously expired attention on every sweep" do
+    test_pid = self()
+    suspicious = decision("suspicious", "ACTIVE-1", DateTime.add(@now, -600, :second))
+    expired = decision("expired", "DONE-1", DateTime.add(@now, -600, :second), status: :expired, blocking: false)
+
+    assert {:ok, 0} =
+             DecisionExpiry.sweep(
+               now: @now,
+               active_identifiers_fun: fn -> {:ok, ["ACTIVE-1"]} end,
+               decisions_fun: fn -> {:ok, [suspicious, expired]} end,
+               attention_reconcile_fun: fn decisions, stale, expired_unanswerable, occurred_at ->
+                 send(test_pid, {:reconciled, decisions, stale, expired_unanswerable, occurred_at})
+                 :ok
+               end
+             )
+
+    assert_received {:reconciled, decisions, [], [replayed_expired], @now}
+    assert Enum.map(decisions, & &1.decision_id) == [suspicious.decision_id, expired.decision_id]
+    assert replayed_expired.decision_id == expired.decision_id
+  end
+
+  test "attention reconciliation failure never blocks durable expiry" do
+    command = decision("failure-isolated", "DONE-1", DateTime.add(@now, -600, :second), blocking: false)
+
+    assert {:ok, 1} =
+             DecisionExpiry.sweep(
+               now: @now,
+               active_identifiers_fun: fn -> {:ok, []} end,
+               decisions_fun: fn -> {:ok, [command]} end,
+               expire_fun: fn _decision_id, _reason_class, _occurred_at -> {:ok, %{status: :accepted}} end,
+               attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at ->
+                 raise "alert ledger unavailable"
+               end
+             )
+  end
+
   test "fails closed when the orchestrator live set is unavailable" do
     test_pid = self()
 
