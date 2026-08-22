@@ -48,6 +48,9 @@ defmodule Aiur.AgentProcessLog do
 
   require Logger
 
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.RepoBase
+
   @default_interval_ms 2_000
   @max_bytes 1_048_576
   @generations 2
@@ -397,10 +400,10 @@ defmodule Aiur.AgentProcessLog do
   end
 
   defp resolve_default_path do
-    case Aiur.GitHub.Config.repo() do
+    case GitHubConfig.repo() do
       repo when is_binary(repo) and repo != "" ->
         repo
-        |> Aiur.RepoBase.repo_path()
+        |> RepoBase.repo_path()
         |> Path.join("github-quota")
         |> Path.join("agent-processes.tsv")
 
