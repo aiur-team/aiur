@@ -1390,6 +1390,28 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{"endpoint_family" => "rate_limit"}]} = Jason.decode!(snapshot)
   end
 
+  test "a guarded 304 response is reconciled as unbilled", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"billable" => false}]} = Jason.decode!(snapshot)
+  end
+
   test "auth token remains local when a configured budget cannot start", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))

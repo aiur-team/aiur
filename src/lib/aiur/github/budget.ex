@@ -7,8 +7,8 @@ defmodule Aiur.GitHub.Budget do
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
 
-  alias Aiur.Config
-  alias Aiur.GitHub.{GraphQLErrors, Transport}
+  alias Aiur.{Alerts, Config}
+  alias Aiur.GitHub.{CredentialHeadroom, GraphQLErrors, Transport}
 
   require Logger
 
@@ -25,18 +25,17 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
-  # Per-actor hourly ceilings (#2181): how many Core requests / GraphQL
-  # requests one actor (the daemon, or each agent workspace) may be admitted
-  # for in a rolling hour before its own requests hold. These are request-count
-  # ceilings read from the broker's `admissions`, not GraphQL point budgets —
-  # the broker sees the request, never the price GitHub charged for it. `0`
-  # disables a ceiling. The daemon ceiling is the lion's share because polling
-  # is the daemon; the agent ceiling is what keeps one workspace from eating the
-  # shared budget that the daemon and every other agent depend on.
+  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL
+  # responses one actor (the daemon, or each agent workspace) may consume in a
+  # rolling hour before its own requests hold. A completed `304` is reconciled
+  # as free. These remain request counts, not GraphQL point budgets. `0`
+  # disables a ceiling. Defaults reserve 3,000 Core / 2,000 GraphQL for the
+  # daemon and divide the remaining independent 5,000-unit windows across the
+  # documented eight-agent fleet.
   @default_daemon_core_limit_per_hour 3000
   @default_daemon_graphql_limit_per_hour 2000
-  @default_agent_core_limit_per_hour 1000
-  @default_agent_graphql_limit_per_hour 500
+  @default_agent_core_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 375
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -132,7 +131,16 @@ defmodule Aiur.GitHub.Budget do
 
   def release(_lease, _opts), do: :ok
 
-  @doc "Observes a response before releasing its lease so a rejection is global immediately."
+  @doc "Observes a response before releasing its lease so accounting and rejections are global immediately."
+  @spec observe(map(), lease(), {:ok, map()} | {:error, term()}, keyword()) :: :ok
+  def observe(request, lease, result, opts) do
+    # The reconcile must carry the same credential identity the admission did,
+    # or the broker resolves it to a different storage key than the one the
+    # lease was admitted under.
+    reconcile_response(lease, result, identity_opts(request, opts))
+    observe(request, result, opts)
+  end
+
   @spec observe(map(), {:ok, map()} | {:error, term()}, keyword()) :: :ok
   def observe(request, {:ok, %{} = response}, opts) do
     case active_token_key(request, opts) do
@@ -142,6 +150,14 @@ defmodule Aiur.GitHub.Budget do
   end
 
   def observe(_request, _result, _opts), do: :ok
+
+  defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
+       when is_binary(id) and is_binary(key) do
+    _ = command(["reconcile", "--lease-id", id, "--status", "304"], key, opts)
+    :ok
+  end
+
+  defp reconcile_response(_lease, _result, _opts), do: :ok
 
   @spec snapshot(String.t(), keyword()) :: map()
   def snapshot(token, opts \\ []) when is_binary(token) do
@@ -242,10 +258,52 @@ defmodule Aiur.GitHub.Budget do
 
   defp retry_or_hold(request, key, python, opts, deadline_at, delay, reason) do
     if System.monotonic_time(:millisecond) + delay >= deadline_at do
+      maybe_alert_meter_disagreement(request, key, reason, opts)
       {:hold, hold(request, delay, reason)}
     else
       Process.sleep(max(delay, @retry_floor_ms))
       do_acquire(request, key, python, opts, deadline_at)
+    end
+  end
+
+  defp maybe_alert_meter_disagreement(request, key, :actor_budget, opts) do
+    resource = request_resource(request)
+
+    with %{} = window <- CredentialHeadroom.window(key, resource),
+         %{} = local <- local_usage(key, resource, opts) do
+      CredentialHeadroom.reconcile_budget_meter(key, resource, local, window, alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2))
+    else
+      _unavailable -> :ok
+    end
+  end
+
+  # A shared hold is the token-wide cooldown, not an hourly ledger, so there is
+  # no local count to compare — the contradiction is the hold itself standing
+  # while the credential's own window still reports headroom.
+  defp maybe_alert_meter_disagreement(request, key, :shared_budget, opts) do
+    resource = request_resource(request)
+
+    case CredentialHeadroom.window(key, resource) do
+      %{} = window ->
+        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2))
+
+      _unavailable ->
+        :ok
+    end
+  end
+
+  defp local_usage(key, resource, opts) do
+    usage_opts = opts |> Keyword.drop([:deadline_at]) |> Keyword.put(:timeout_ms, 1_000)
+
+    case command(["meter", "--consumer-key", consumer_key(opts), "--resource", resource], key, usage_opts) do
+      {:ok, output} ->
+        case Jason.decode(String.trim(output)) do
+          {:ok, meter} -> atomize_usage_figure(meter)
+          _invalid -> nil
+        end
+
+      _unavailable ->
+        nil
     end
   end
 
