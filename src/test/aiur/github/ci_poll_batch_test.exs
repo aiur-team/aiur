@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.CIPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.CIPollBatch
+  alias Aiur.GitHub.{CIPollBatch, ResourceStore}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -226,6 +226,118 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn _request -> flunk("empty target batch must not make a request") end
 
     assert {:ok, %{}} = CIPollBatch.fetch([], request_fun: request_fun)
+  end
+
+  # #2265 — the poll pipe reads the store the webhook pipe writes.
+  #
+  # Asserted on the document sent, not the value returned: a poller that kept
+  # issuing speculative branch discovery for a target a delivery already
+  # identified fails `refute query =~ "branch_0_0"` while every returned value
+  # stays correct. Reverting the store read fails these; nothing else notices.
+  describe "a pull request a webhook delivery already identified" do
+    setup do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+      :ok
+    end
+
+    test "is not rediscovered, and its CI verdict is still read from GitHub this cycle" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post, body: body} ->
+        assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
+        refute body["query"] =~ "branch_0_0"
+
+        # The line this ticket must not cross. Only the *number* came from the
+        # store; the rollup, the mergeability and the review decision are all
+        # still asked of GitHub, because a CI verdict served from a cache at
+        # any age is what `ReadCache.Policy` refuses on purpose.
+        assert body["query"] =~ "statusCheckRollup"
+        assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => pull_request()}}}}}
+      end
+
+      assert {:ok, %{"42" => batch}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+
+      assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
+      assert [%{"name" => "test", "conclusion" => "success"}] = batch.check_runs
+    end
+
+    test "must have been delivered, not polled, for the store to answer" do
+      deliver_pull_request(42, 77, source: :poll)
+
+      request_fun = fn %{method: :post, body: body} ->
+        assert body["query"] =~ "branch_0_0"
+        refute body["query"] =~ "delivered_0"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, %{"42" => _batch}} =
+               CIPollBatch.fetch(["42"], request_fun: request_fun, branch_names_by_target: %{"42" => "aiur/42-ci-batch"})
+    end
+
+    # Keyed on `fetched_at_ms` — the age of the body — never `recorded_at_ms`,
+    # which every write touches including a bodyless processed-mark (#2174).
+    test "is bought again once the held body is older than the freshness bound" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post, body: body} ->
+        refute body["query"] =~ "delivered_0"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, %{"42" => _batch}} =
+               CIPollBatch.fetch(["42"],
+                 request_fun: request_fun,
+                 branch_names_by_target: %{"42" => "aiur/42-ci-batch"},
+                 delivered_identity_max_age_ms: 0
+               )
+    end
+
+    test "leaves the target to REST fallback when GitHub reports it closed" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node = Map.put(pull_request(), "state", "CLOSED")
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, batch} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+      refute Map.has_key?(batch, "42")
+    end
+  end
+
+  defp deliver_pull_request(target, number, opts \\ []) do
+    :branch_pull_request
+    |> ResourceStore.key_for_repo("owner/repo", target)
+    |> ResourceStore.put_resource(
+      %{"number" => number, "state" => "open", "head" => %{"ref" => "aiur/#{target}-ci-batch"}},
+      source: Keyword.get(opts, :source, :webhook),
+      version: "2026-08-20T00:00:00Z"
+    )
   end
 
   defp pull_request do
