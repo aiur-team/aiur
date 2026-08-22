@@ -715,12 +715,7 @@ defmodule Aiur.GitHub.Transport do
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         log_rate_budget_pressure(response)
-
-        if parse_next_page_url(Map.get(response, :headers, [])) do
-          {:error, :pagination_unexpected}
-        else
-          {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
-        end
+        single_page_list(body, response, etag)
 
       {:ok, %{status: 304} = response} ->
         log_rate_budget_pressure(response)
@@ -731,6 +726,18 @@ defmodule Aiur.GitHub.Transport do
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  # A 200 that points at a `rel="next"` page is refused rather than handed to a
+  # caller that would trust a partial list: a page-1 validator cannot answer a
+  # multi-page question, so a caller that needs more than one page must use a
+  # per-page reader or read unconditionally (website/docs-app/apis/github.md).
+  defp single_page_list(body, response, etag) do
+    if parse_next_page_url(Map.get(response, :headers, [])) do
+      {:error, :pagination_unexpected}
+    else
+      {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
     end
   end
 
