@@ -178,21 +178,28 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
     parent = self()
     task_supervisor = start_supervised!({Task.Supervisor, name: nil})
 
-    GraphProjection.start_link(
-      name: nil,
-      task_supervisor: task_supervisor,
-      authority_snapshot: fn -> authority() end,
-      configuration_subscriber: fn _pid -> :ok end,
-      catalog_reader: fn _reader_opts -> blocking_read(parent, :catalog) end,
-      selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
-      now: fn -> @now end,
-      clock_ms: fn -> 0 end,
-      catalog_refresh_ms: @idle_refresh_ms,
-      refresh_timeout_ms: 30_000,
-      max_selected_roots: 4,
-      max_inflight: 4,
-      after_broadcast: fn event -> send(parent, {:projection_event, event}) end
-    )
+    {:ok, projection} =
+      GraphProjection.start_link(
+        name: nil,
+        task_supervisor: task_supervisor,
+        authority_snapshot: fn -> authority() end,
+        configuration_subscriber: fn _pid -> :ok end,
+        catalog_reader: fn _reader_opts -> blocking_read(parent, :catalog) end,
+        selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
+        now: fn -> @now end,
+        clock_ms: fn -> 0 end,
+        catalog_refresh_ms: @idle_refresh_ms,
+        refresh_timeout_ms: 30_000,
+        max_selected_roots: 4,
+        max_inflight: 4,
+        after_broadcast: fn event -> send(parent, {:projection_event, event}) end
+      )
+
+    # The catalog is demand-gated since #2312: these tests exercise its cadence,
+    # so register the test process as the viewer a page would be.
+    GraphProjection.subscribe_catalog(projection)
+
+    {:ok, projection}
   end
 
   defp authority do
