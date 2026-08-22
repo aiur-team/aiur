@@ -164,17 +164,12 @@ defmodule Aiur.AlertFeed do
 
   defp update_condition_state(alert, states, topics) do
     topic = Map.get(alert, "topic") || ""
+    condition = condition_topic(topic)
 
-    if MapSet.member?(topics, topic) do
-      Map.put(states, topic, :firing)
-    else
-      case condition_topic(topic) do
-        condition when is_binary(condition) ->
-          if MapSet.member?(topics, condition), do: Map.put(states, condition, :resolved), else: states
-
-        nil ->
-          states
-      end
+    cond do
+      MapSet.member?(topics, topic) -> Map.put(states, topic, :firing)
+      is_binary(condition) and MapSet.member?(topics, condition) -> Map.put(states, condition, :resolved)
+      true -> states
     end
   end
 

@@ -40,9 +40,9 @@ defmodule Aiur.DecisionExpiry do
       stale_after_seconds = Keyword.get(opts, :stale_after_seconds, @stale_after_seconds)
 
       expired_decisions =
-        decisions
-        |> Enum.filter(&expired_candidate?(&1, active, now, grace_seconds))
-        |> Enum.filter(&expire(&1, now, opts))
+        Enum.filter(decisions, fn decision ->
+          expired_candidate?(decision, active, now, grace_seconds) and expire(decision, now, opts)
+        end)
 
       projected_decisions = project_expired(decisions, expired_decisions)
       stale_decisions = Enum.filter(projected_decisions, &stale_blocking?(&1, now, stale_after_seconds))
