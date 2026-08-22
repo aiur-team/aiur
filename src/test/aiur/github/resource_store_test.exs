@@ -483,6 +483,73 @@ defmodule Aiur.GitHub.ResourceStoreTest do
                "2026-08-14T00:00:00Z"
              )
     end
+
+    # The boot filter must agree with the sweep and with `fetch/1` about what is
+    # outdated. The trap this pins: `recorded_at_ms` is refreshed by every write,
+    # so a body past retention whose entry was re-touched would reload from disk
+    # and survive the next checkpoint too — the very entry the sweep is supposed
+    # to remove. The stale entry is asserted absent, and a fresh body is asserted
+    # present, so an over-aggressive filter fails the test too.
+    test "a body past retention is not reloaded even when recorded_at is fresh", %{path: path} do
+      now = System.system_time(:millisecond)
+      body_ms = now - 73 * 60 * 60 * 1000
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5155" => %{
+              "data" => %{"number" => 5155},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "fetched_at_ms" => body_ms,
+              "recorded_at_ms" => now
+            },
+            "issue|owner|repo|5156" => %{
+              "data" => %{"number" => 5156},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "fetched_at_ms" => now - 1000,
+              "recorded_at_ms" => now
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      assert :ets.lookup(ResourceStore.Table, ResourceStore.key(:issue, "owner", "repo", 5155)) == [],
+             "an expired body must not survive a restart on the strength of a fresh recorded_at"
+
+      assert ResourceStore.fetch(ResourceStore.key(:issue, "owner", "repo", 5156)) != :miss,
+             "a body inside the retention window must still reload"
+    end
+
+    # The nil edge of the same agreement. `fetch/1` reads a body with no
+    # `fetched_at_ms` as expired (`nil` is treated as the epoch, long past the
+    # window), so a boot filter that kept such an entry would hold a body the
+    # read can never serve — "stale" forever, at the one age no record exists
+    # for. A corrupt or hand-written checkpoint is exactly where this lands, and
+    # the module's fail-open contract says that must degrade, not linger.
+    test "a body with no fetched_at_ms is not reloaded", %{path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5157" => %{
+              "data" => %{"number" => 5157},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "recorded_at_ms" => System.system_time(:millisecond)
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      assert :ets.lookup(ResourceStore.Table, ResourceStore.key(:issue, "owner", "repo", 5157)) == [],
+             "a body with no fetched_at_ms must be dropped at boot, matching fetch/1's decline"
+    end
   end
 
   describe "degrading" do
@@ -1436,6 +1503,35 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       assert :ets.lookup(ResourceStore.Table, stale) == []
       assert [_kept] = :ets.lookup(ResourceStore.Table, fresh)
+    end
+
+    # The trap the old sweep fell into: `recorded_at_ms` is bumped by *every*
+    # write, so a body past retention whose entry a later non-body write touched
+    # (a poll republish re-marking a processed comment, a `304` re-recording a
+    # validator) never looked old to a sweep that judged the entry by that field.
+    # The body must be judged by `fetched_at_ms` — the same field `fetch/1`
+    # refuses on — so "past retention" means the same thing to the sweep, the
+    # read and the page.
+    test "the sweep evicts a body past retention even when a later write refreshed recorded_at" do
+      ResourceStore.reset()
+      now = System.system_time(:millisecond)
+      store = Process.whereis(ResourceStore)
+
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 9101)
+      ResourceStore.put_resource(key, %{"body" => "ancient"}, source: :webhook, version: "v1")
+
+      # Age the body past retention, then let a non-body write touch the entry —
+      # exactly what a steady-state republish does to a long-lived comment.
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+      aged = Map.put(entry, :fetched_at_ms, now - 73 * 60 * 60 * 1000)
+      :ets.insert(ResourceStore.Table, {key, aged})
+      ResourceStore.mark_processed(key, :webhook, "v1")
+
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      assert :ets.lookup(ResourceStore.Table, key) == [],
+             "a body past retention must be evicted even though mark_processed refreshed recorded_at"
     end
 
     # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
