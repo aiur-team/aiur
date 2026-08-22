@@ -77,6 +77,11 @@ defmodule Aiur.BuildOrder.ProviderResult do
     {:github, classification, Map.take(detail, [:status, :remaining, :reset_at, :retry_after, :poll_interval])}
   end
 
+  defp safe_error({:aiur, :locally_held, %{reason: reason, resource: "graphql"} = detail})
+       when reason in [:shared_budget, :actor_budget] do
+    {:aiur, :locally_held, Map.take(detail, [:reason, :resource, :reset_at])}
+  end
+
   defp safe_error(:graphql_partial), do: :graphql_partial
   defp safe_error({:github_graphql_errors, _errors}), do: :graphql_partial
   defp safe_error(reason) when reason in [:invalid_connection, :invalid_graphql_response, :invalid_root], do: :schema

@@ -10,6 +10,8 @@ defmodule Aiur.BuildOrder.Catalog do
 
   @max_entries 100
 
+  @type count_resolution_failure :: :budget | :timeout | :upstream | nil
+
   @type selection ::
           {:ok, RootSummary.t()}
           | {:structurally_invalid, RootSummary.t()}
@@ -20,10 +22,11 @@ defmodule Aiur.BuildOrder.Catalog do
           entries: [RootSummary.t()],
           provider: ProviderHealth.t(),
           diagnostics: [Diagnostic.t()],
-          search_paths: [Path.t()]
+          search_paths: [Path.t()],
+          count_resolution_failure: count_resolution_failure()
         }
 
-  defstruct entries: [], provider: %ProviderHealth{}, diagnostics: [], search_paths: []
+  defstruct entries: [], provider: %ProviderHealth{}, diagnostics: [], search_paths: [], count_resolution_failure: nil
 
   @spec new(term(), term(), keyword()) :: t()
   def new(entries, provider, opts \\ [])
@@ -49,6 +52,12 @@ defmodule Aiur.BuildOrder.Catalog do
       diagnostics: [Diagnostic.new(:catalog_overflow)],
       search_paths: search_paths(opts)
     }
+
+  @doc "Attaches the bounded reason epic and wave counts could not be resolved."
+  @spec put_count_resolution_failure(t(), count_resolution_failure()) :: t()
+  def put_count_resolution_failure(%__MODULE__{} = catalog, failure)
+      when failure in [:budget, :timeout, :upstream, nil],
+      do: %{catalog | count_resolution_failure: failure}
 
   # Most catalog polls deliberately skip the per-member `labels` connection
   # (#1766), so they cannot resolve `epic_count`/`phase_count` and report nil.

@@ -168,7 +168,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   # and it would also leave the catalog publishing nothing at all. So the retry
   # after a failed labelled read is the cheap variant, and the labelled read
   # comes back once its backoff elapses rather than being abandoned.
-  test "backs off a failed labelled catalog read instead of retrying it on every poll" do
+  test "retains a labelled-read budget failure across a cheap success and clears it on recovery" do
     parent = self()
     first = identity(1, "I1")
     {:ok, clock} = Agent.start_link(fn -> 0 end)
@@ -181,18 +181,48 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     {:ok, projection} = start_projection(clock: clock, catalog_reader: reader)
 
     assert_receive {:catalog_read, true}, 2_000
-    finish(await_reader(:catalog), {:error, ProviderResult.failed(:transport)})
+    finish(await_reader(:catalog), {:error, ProviderResult.failed(:call_budget_exhausted)})
     assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog}}}, 2_000
 
     # The catalog keeps publishing on the cheap query while the labelled one is
     # in backoff, rather than failing over and over on the expensive one.
     assert_receive {:catalog_read, false}, 3_000
-    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
-    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1}}}, 2_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([counted_root(first)]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1} = fallback}}, 2_000
+    assert fallback.data.count_resolution_failure == :budget
 
     Agent.update(clock, fn _ -> 60_001 end)
     GraphProjection.refresh_catalog(projection)
     assert_receive {:catalog_read, true}, 2_000
+
+    resolved = counted_root(first, epic_count: 2, phase_count: 4)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([resolved]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 2} = recovered}}, 2_000
+    assert recovered.data.count_resolution_failure == nil
+  end
+
+  test "retains a labelled-read timeout across a cheap success" do
+    parent = self()
+    first = identity(1, "I1")
+
+    reader = fn reader_opts ->
+      send(parent, {:catalog_read, Keyword.get(reader_opts, :member_labels)})
+      blocking_read(parent, :catalog)
+    end
+
+    {:ok, _projection} = start_projection(catalog_reader: reader)
+
+    assert_receive {:catalog_read, true}, 2_000
+    finish(await_reader(:catalog), {:error, ProviderResult.failed({:github, :timeout, %{reason: :timeout}})})
+    assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert_receive {:catalog_read, false}, 3_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([counted_root(first)]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{} = fallback}}, 2_000
+    assert fallback.data.count_resolution_failure == :timeout
   end
 
   # A labelled read is authoritative. If it read the member labels and still
@@ -217,6 +247,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 2} = published}}, 2_000
     assert [%RootSummary{epic_count: nil, phase_count: nil}] = published.data.entries
+    assert published.data.count_resolution_failure == :upstream
   end
 
   # Carrying bridges the gap between labelled reads; it is not a substitute for

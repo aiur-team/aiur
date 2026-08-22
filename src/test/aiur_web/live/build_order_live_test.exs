@@ -282,46 +282,56 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
     ]
 
-    :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
+    classified_failures = [
+      {:budget, "Budget exhausted", "planning query budget was exhausted"},
+      {:timeout, "Timed out", "planning request timed out"},
+      {:upstream, "Upstream error", "tracker returned an upstream error"}
+    ]
 
-    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
-    document = Floki.parse_document!(html)
+    rendered_failures =
+      Enum.map(classified_failures, fn {failure, visible_text, title_detail} ->
+        snapshot = catalog_snapshot(entries, 1, :healthy)
+        snapshot = %{snapshot | data: Catalog.put_count_resolution_failure(snapshot.data, failure)}
+        :ok = FakeDataSource.put_catalog(source, snapshot)
 
-    unresolved_counts = catalog_count_cells(document, "Pack with unfetched dimensions")
-    empty_counts = catalog_count_cells(document, "Pack with no members")
+        assert {:ok, view, html} = live(build_conn(), "/build-orders")
+        document = Floki.parse_document!(html)
+        unresolved_counts = catalog_count_cells(document, "Pack with unfetched dimensions")
+        empty_counts = catalog_count_cells(document, "Pack with no members")
+        unresolved_markers = unresolved_counts |> Enum.drop(1) |> Enum.flat_map(&Floki.find(&1, ".bo-catalog-count-unresolved"))
 
-    assert Enum.map(unresolved_counts, &catalog_count_text/1) == ["35", "Unresolved", "Unresolved"]
-    assert Enum.map(empty_counts, &catalog_count_text/1) == ["0", "0", "0"]
+        assert Enum.map(unresolved_counts, &catalog_count_text/1) == ["35", visible_text, visible_text]
+        assert Enum.map(empty_counts, &catalog_count_text/1) == ["0", "0", "0"]
+        assert Enum.map(unresolved_markers, &Floki.attribute(&1, "data-count-state")) == [["unresolved"], ["unresolved"]]
+        assert Enum.map(unresolved_markers, &Floki.attribute(&1, "role")) == [["img"], ["img"]]
 
-    assert unresolved_counts
-           |> Enum.drop(1)
-           |> Enum.all?(
-             &(Floki.find(
-                 &1,
-                 ~s(.bo-catalog-count-unresolved[data-count-state="unresolved"])
-               ) != [])
-           )
+        assert Enum.map(unresolved_markers, &Floki.attribute(&1, "aria-label")) == [
+                 ["Epics not counted: #{String.downcase(visible_text)}"],
+                 ["Waves not counted: #{String.downcase(visible_text)}"]
+               ]
 
-    unresolved_markers =
-      unresolved_counts
-      |> Enum.drop(1)
-      |> Enum.flat_map(&Floki.find(&1, ".bo-catalog-count-unresolved"))
+        assert Enum.map(unresolved_markers, &Floki.attribute(&1, "title")) == [
+                 ["Epics could not be counted because the #{title_detail}."],
+                 ["Waves could not be counted because the #{title_detail}."]
+               ]
 
-    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "role")) == [["img"], ["img"]]
+        refute Enum.any?(Enum.drop(unresolved_counts, 1), &(catalog_count_text(&1) == "0"))
+        refute Floki.find(unresolved_counts, ".bo-catalog-invalid") != []
+        assert Enum.all?(empty_counts, &(Floki.find(&1, "[data-count-state]") == []))
+        refute Floki.raw_html(unresolved_counts) =~ "—"
+        GenServer.stop(view.pid)
 
-    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "aria-label")) == [
-             ["Epics not counted"],
-             ["Waves not counted"]
-           ]
+        Enum.map(Enum.drop(unresolved_counts, 1), &Floki.raw_html/1)
+      end)
 
-    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "title")) == [
-             ["Epics could not be counted for this Build Order"],
-             ["Waves could not be counted for this Build Order"]
-           ]
+    snapshot = catalog_snapshot(entries, 2, :healthy)
+    :ok = FakeDataSource.put_catalog(source, snapshot)
+    assert {:ok, _view, generic_html} = live(build_conn(), "/build-orders")
+    generic_document = Floki.parse_document!(generic_html)
+    generic_counts = catalog_count_cells(generic_document, "Pack with unfetched dimensions")
 
-    refute Floki.find(unresolved_counts, ".bo-catalog-invalid") != []
-    assert Enum.all?(empty_counts, &(Floki.find(&1, "[data-count-state]") == []))
-    refute Floki.raw_html(unresolved_counts) =~ "—"
+    assert Enum.map(generic_counts, &catalog_count_text/1) == ["35", "Unresolved", "Unresolved"]
+    assert length(Enum.uniq(rendered_failures ++ [Enum.map(Enum.drop(generic_counts, 1), &Floki.raw_html/1)])) == 4
   end
 
   # The companion to the test above: once a catalog read resolves the label-

@@ -213,6 +213,19 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
     assert Policy.failure_class(:structurally_invalid) == :structurally_invalid
   end
 
+  test "classifies bounded count-resolution failures without provider payloads" do
+    for {reason, expected} <- [call_budget_exhausted: :call_budget, page_budget_exhausted: :page_budget] do
+      assert Policy.failure_class(reason) == expected
+    end
+
+    for hold_reason <- [:shared_budget, :actor_budget] do
+      assert Policy.failure_class({:aiur, :locally_held, %{reason: hold_reason, resource: "graphql"}}) == :budget
+    end
+
+    assert Policy.failure_class({:github, :timeout, %{reason: :timeout}}) == :timeout
+    assert Policy.failure_class({:github, :transport, %{reason: :closed}}) == :provider_unavailable
+  end
+
   test "a provider-sourced candidate defect is reported as a read fault, not a malformed graph" do
     first = identity(1, "I1")
 

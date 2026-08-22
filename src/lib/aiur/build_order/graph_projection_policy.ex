@@ -166,6 +166,12 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
   def failure_class({:github, classification, _detail}) when classification in [:rate_limited, :secondary_rate_limit],
     do: :rate_limited
 
+  def failure_class({:github, :timeout, _detail}), do: :timeout
+
+  def failure_class({:aiur, :locally_held, %{reason: reason, resource: "graphql"}})
+      when reason in [:shared_budget, :actor_budget],
+      do: :budget
+
   def failure_class(reason) when reason in [:catalog_overflow, :member_overflow], do: reason
   def failure_class(:page_budget_exhausted), do: :page_budget
   def failure_class(:call_budget_exhausted), do: :call_budget
