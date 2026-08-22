@@ -112,24 +112,52 @@ Filters are carried in the query string, so a filtered view such as `/github-cac
 
 ### The live budget map
 
-Above the spend ranking, the **budget map** answers "who is calling, what stands in front of the call, and which pool pays" for the current run. Every figure comes from local state — the quota meter, per-credential `x-ratelimit-*` headers, the broker admission ledger, the read cache, the resource store, the webhook registry, and the agents' `agent-cache.tsv` event files — so opening and refreshing the page issues zero GitHub requests, and the admission count is unchanged by viewing.
+Above the spend ranking, the **budget map** answers "who is calling, what stands
+in front of the call, and which pool pays" for the current run.
 
-Three **identity meters** show each configured credential's GraphQL and REST-core usage against its own limit, with the window reset time. A credential with no recent observation renders as **stale with its age**; it is never a zero standing in for unknown.
+Every figure comes from local state — the quota meter, per-credential
+`x-ratelimit-*` headers, the broker admission ledger, the read cache, the
+resource store, the webhook registry, and the agents' `agent-cache.tsv` event
+files.
 
-The **caller → cache / store → pool** table draws one edge per attributed caller, weighted by live volume and labelled with a verdict:
+Opening and refreshing the page issues zero GitHub requests, and the admission
+count is unchanged by viewing.
+
+Three **identity meters** show each configured credential's GraphQL and REST-core
+usage against its own limit, with the window reset time. A credential with no
+recent observation renders as **stale with its age**; it is never a zero standing
+in for unknown.
+
+The **caller → cache / store → pool** table draws one edge per attributed caller,
+weighted by live volume and labelled with a verdict:
 
 - **free** — reconciled 304s, git traffic, inbound webhooks.
-- **billed** — metered spend with a reuse path: a stored body, an ETag, or a read-cache hit next cycle.
-- **wasted** — no validator, no stored body, no reuse: the caller pays full price every cycle.
+- **billed** — metered spend with a reuse path: a stored body, an ETag, or a
+  read-cache hit next cycle.
+- **wasted** — no validator, no stored body, no reuse: the caller pays full price
+  every cycle.
 - **unclassified** — no evidence either way; never guessed.
 
-A caller that consults neither cache layer is therefore visibly distinct from one that does, without reading the source.
+A caller that consults neither cache layer is therefore visibly distinct from one
+that does, without reading the source.
 
-The **Broker admissions** panel reads the rolling-hour ledger directly (billable vs 304-free, by consumer and family). The **ResourceStore** panel shows size, retention and per-type entries. The **Webhook delivery** panel shows each repo's delivery mode and freshness. The **Agent-side cache** panel shows per-workspace `agent-cache.tsv` hit rates.
+The **Broker admissions** panel reads the rolling-hour ledger directly (billable
+vs 304-free, by consumer and family). The **ResourceStore** panel shows size,
+retention and per-type entries. The **Webhook delivery** panel shows each repo's
+delivery mode and freshness. The **Agent-side cache** panel shows per-workspace
+`agent-cache.tsv` hit rates.
 
-Two caveats render next to the numbers they qualify. REST spend cannot be attributed by caller — `caller:` is attached only on the GraphQL send path — so the core ranking shows one shared row rather than a partial ranking until that changes (#2298). And the broker books GraphQL-on-the-wire `gh` commands into core families, so a family split is not a budget split until that changes (#2297).
+Two caveats render next to the numbers they qualify.
 
-The section re-reads on the store's existing change channel and the quota sampler's cadence — no new timer, and none of it is a fetch.
+REST spend cannot be attributed by caller — `caller:` is attached only on the
+GraphQL send path — so the core ranking shows one shared row rather than a
+partial ranking until that changes (#2298).
+
+The broker books GraphQL-on-the-wire `gh` commands into core families, so a
+family split is not a budget split until that changes (#2297).
+
+The section re-reads on the store's existing change channel and the quota
+sampler's cadence — no new timer, and none of it is a fetch.
 
 ### Read "validator only, no body" carefully
 

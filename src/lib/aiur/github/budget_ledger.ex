@@ -105,44 +105,40 @@ defmodule Aiur.GitHub.BudgetLedger do
   defp read(path, now) do
     cutoff = now - @hour_ms
 
-    with {:ok, conn} <- Basic.open(path) do
-      try do
-        _ = Basic.exec(conn, "PRAGMA busy_timeout = #{@busy_timeout_ms}")
-        _ = Basic.exec(conn, "PRAGMA query_only = ON")
+    case Basic.open(path) do
+      {:ok, conn} ->
+        try do
+          _ = Basic.exec(conn, "PRAGMA busy_timeout = #{@busy_timeout_ms}")
+          _ = Basic.exec(conn, "PRAGMA query_only = ON")
 
-        %{
-          available?: true,
-          captured_at_ms: now,
-          admission_count: scalar(conn, "SELECT COUNT(*) FROM admissions WHERE admitted_at_ms > ?", [cutoff]),
-          billable: billed(conn, cutoff, 1),
-          free: billed(conn, cutoff, 0),
-          by_family: family_totals(conn, cutoff),
-          by_consumer: consumer_totals(conn, cutoff),
-          rows: rows(conn, cutoff)
-        }
-      after
-        Basic.close(conn)
-      end
-    else
-      _unreadable -> unavailable()
+          %{
+            available?: true,
+            captured_at_ms: now,
+            admission_count: scalar(conn, "SELECT COUNT(*) FROM admissions WHERE admitted_at_ms > ?", [cutoff]),
+            billable: billed(conn, cutoff, 1),
+            free: billed(conn, cutoff, 0),
+            by_family: family_totals(conn, cutoff),
+            by_consumer: consumer_totals(conn, cutoff),
+            rows: rows(conn, cutoff)
+          }
+        after
+          Basic.close(conn)
+        end
+
+      _unreadable ->
+        unavailable()
     end
   end
 
   defp scalar(conn, sql, args) do
-    with {:ok, [[value]], _columns} <- Basic.rows(Basic.exec(conn, sql, args)) do
-      value
-    else
+    case Basic.rows(Basic.exec(conn, sql, args)) do
+      {:ok, [[value]], _columns} -> value
       _unreadable -> nil
     end
   end
 
   defp billed(conn, cutoff, billable) do
-    with {:ok, [[count]], _columns} <-
-           Basic.rows(Basic.exec(conn, "SELECT COUNT(*) FROM admissions WHERE admitted_at_ms > ? AND billable = ?", [cutoff, billable])) do
-      count
-    else
-      _unreadable -> nil
-    end
+    scalar(conn, "SELECT COUNT(*) FROM admissions WHERE admitted_at_ms > ? AND billable = ?", [cutoff, billable])
   end
 
   # `consumer_label` is the human-readable actor name the broker records on the
@@ -161,18 +157,15 @@ defmodule Aiur.GitHub.BudgetLedger do
     GROUP BY consumer, a.endpoint_family, a.billable
     """
 
-    with {:ok, data, _columns} <- Basic.rows(Basic.exec(conn, sql, [cutoff])) do
-      data
-      |> Enum.reduce(%{}, fn [consumer, family, billable, count], acc ->
-        key = {consumer, family}
-        current = Map.get(acc, key, %{consumer: consumer, family: family, billable: 0, free: 0})
+    case Basic.rows(Basic.exec(conn, sql, [cutoff])) do
+      {:ok, data, _columns} ->
+        data
+        |> Enum.reduce(%{}, &tally_row/2)
+        |> Map.values()
+        |> Enum.sort_by(&{&1.consumer, &1.family})
 
-        Map.put(acc, key, if(billable == 1, do: %{current | billable: count}, else: %{current | free: count}))
-      end)
-      |> Map.values()
-      |> Enum.sort_by(&{&1.consumer, &1.family})
-    else
-      _unreadable -> []
+      _unreadable ->
+        []
     end
   end
 
@@ -184,14 +177,8 @@ defmodule Aiur.GitHub.BudgetLedger do
     GROUP BY a.endpoint_family, a.billable
     """
 
-    with {:ok, data, _columns} <- Basic.rows(Basic.exec(conn, sql, [cutoff])) do
-      Enum.reduce(data, %{}, fn [family, billable, count], acc ->
-        key = to_string(family)
-        current = Map.get(acc, key, %{billable: 0, free: 0})
-
-        Map.put(acc, key, if(billable == 1, do: %{current | billable: count}, else: %{current | free: count}))
-      end)
-    else
+    case Basic.rows(Basic.exec(conn, sql, [cutoff])) do
+      {:ok, data, _columns} -> Enum.reduce(data, %{}, &tally_bucket/2)
       _unreadable -> %{}
     end
   end
@@ -207,15 +194,34 @@ defmodule Aiur.GitHub.BudgetLedger do
     GROUP BY consumer, a.billable
     """
 
-    with {:ok, data, _columns} <- Basic.rows(Basic.exec(conn, sql, [cutoff])) do
-      Enum.reduce(data, %{}, fn [consumer, billable, count], acc ->
-        key = to_string(consumer)
-        current = Map.get(acc, key, %{billable: 0, free: 0})
-
-        Map.put(acc, key, if(billable == 1, do: %{current | billable: count}, else: %{current | free: count}))
-      end)
-    else
+    case Basic.rows(Basic.exec(conn, sql, [cutoff])) do
+      {:ok, data, _columns} -> Enum.reduce(data, %{}, &tally_bucket/2)
       _unreadable -> %{}
+    end
+  end
+
+  # One row of a consumer × family × billable count, folded into a map keyed by
+  # `{consumer, family}`. The billable bucket chooses which side of the split
+  # receives the count.
+  defp tally_row([consumer, family, billable, count], acc) do
+    key = {consumer, family}
+    current = Map.get(acc, key, %{consumer: consumer, family: family, billable: 0, free: 0})
+
+    case billable do
+      1 -> Map.put(acc, key, %{current | billable: count})
+      _free -> Map.put(acc, key, %{current | free: count})
+    end
+  end
+
+  # One row of a family-or-consumer × billable count, folded into a map keyed by
+  # the label, used by both one-axis totals.
+  defp tally_bucket([label, billable, count], acc) do
+    key = to_string(label)
+    current = Map.get(acc, key, %{billable: 0, free: 0})
+
+    case billable do
+      1 -> Map.put(acc, key, %{current | billable: count})
+      _free -> Map.put(acc, key, %{current | free: count})
     end
   end
 

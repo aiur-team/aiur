@@ -50,9 +50,9 @@ defmodule Aiur.GitHub.BudgetMap do
 
   alias Aiur.Config
   alias Aiur.GitHub.{BudgetLedger, CacheInspector, CredentialSelector, Quota, QuotaUsage, ReadCache, ResourceStore}
-  alias Aiur.Workspace.Layout
   alias Aiur.Webhooks
   alias Aiur.Webhooks.ModePresenter
+  alias Aiur.Workspace.Layout
 
   @resources ["graphql", "core"]
 
@@ -96,7 +96,7 @@ defmodule Aiur.GitHub.BudgetMap do
   def resources, do: @resources
 
   @doc "The static set of callers whose spend buys no reuse."
-  @spec wasted_callers() :: MapSet.t()
+  @spec wasted_callers() :: MapSet.t(String.t())
   def wasted_callers, do: @wasted_callers
 
   @doc """
