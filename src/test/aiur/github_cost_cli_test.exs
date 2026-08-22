@@ -3,6 +3,7 @@ defmodule Aiur.GitHubCostCLITest do
 
   import ExUnit.CaptureIO
 
+  alias Aiur.GitHub.Quota
   alias Aiur.GitHubCostCLI
 
   @now ~U[2026-08-17 12:00:00Z]
@@ -174,10 +175,75 @@ defmodule Aiur.GitHubCostCLITest do
     assert stderr =~ "aiur: github-cost --budget accepts"
   end
 
-  test "survives a meter that is not running" do
-    assert {:error, message} = GitHubCostCLI.build(snapshot_fun: fn -> exit(:noproc) end)
+  test "fails when the production meter cannot be reached" do
+    meter = Process.whereis(Quota)
+    assert is_pid(meter)
+    assert Process.unregister(Quota)
 
+    result =
+      try do
+        GitHubCostCLI.build()
+      after
+        assert Process.register(meter, Quota)
+      end
+
+    assert {:error, message} = result
     assert message =~ "not running"
+  end
+
+  test "reads reported GraphQL attribution from the production meter" do
+    request = %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "secret",
+      caller: :github_cost_live_test,
+      body: %{"query" => "query CostTest { viewer { login } }", "variables" => %{}}
+    }
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [],
+         body: %{
+           "data" => %{
+             "rateLimit" => %{
+               "cost" => 37,
+               "limit" => 5000,
+               "remaining" => 4963,
+               "resetAt" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+             }
+           }
+         }
+       }}
+
+    Quota.observe(request, response)
+
+    assert {:ok, envelope} = GitHubCostCLI.build()
+    assert caller = Enum.find(envelope["data"]["callers"], &(&1["caller"] == "github_cost_live_test"))
+    assert caller["resource"] == "graphql"
+    assert caller["points"] == 37
+    assert caller["calls"] == 1
+    assert caller["estimated?"] == false
+  end
+
+  test "surfaces a transport error as estimated GraphQL spend from the production meter" do
+    request = %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "secret",
+      caller: :github_cost_error_test,
+      body: %{"query" => "query CostErrorTest { viewer { login } }", "variables" => %{}}
+    }
+
+    Quota.observe(request, {:error, :fetch_deadline_exceeded})
+
+    assert {:ok, envelope} = GitHubCostCLI.build()
+    assert caller = Enum.find(envelope["data"]["callers"], &(&1["caller"] == "github_cost_error_test"))
+    assert caller["resource"] == "graphql"
+    assert caller["points"] == 1
+    assert caller["calls"] == 1
+    assert caller["estimated?"] == true
   end
 
   test "emits a machine-readable envelope under --json" do

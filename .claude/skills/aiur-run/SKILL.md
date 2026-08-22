@@ -22,7 +22,23 @@ Identify the working repository and first read its machine-local Executor
 handoff at `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`, then read its
 `AGENTS.md`, `CONTRIBUTING.md`, and Aiur config. The handoff is the first
 source of truth for run-specific context, ahead of repository documentation;
-it does not replace GitHub or Aiur for live facts. Record the authority envelope from the
+it does not replace GitHub or Aiur for live facts.
+
+That last clause is the one runs keep violating. A handoff's *standing items* are
+claims about live state — what is broken, what is disabled, what is blocked — and
+they are exactly the content that goes stale. **Re-verify each one against the
+system that owns it before acting on it or repeating it**, and prefer the
+external system of record over any local file: `gh api` over `.aiur/config`,
+delivery history over a tunnel's status, the running daemon's behaviour over a
+merge commit.
+
+On 2026-08-22 a run inherited "webhook ingress was never enabled", confirmed it
+by checking a tunnel that was never the transport in use, repeated it in five
+hourly logs, and asked the operator to build infrastructure that already
+existed. One `gh api /repos/O/R/hooks/<id>/deliveries` would have shown `202 OK`
+at any point. Treat an inherited claim as a lead, never as a finding.
+
+Record the authority envelope from the
 Executor reference: scope, issue creation/comment, review, merge, self-fix,
 concurrency, cadence, debug mode, and terminal condition. Record external issue
 mutation authority separately from debug mode; one never implies the other.

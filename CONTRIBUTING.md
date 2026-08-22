@@ -49,6 +49,17 @@ not fail a build on line count alone.
 - **Every bug fix ships a regression test that fails without the fix.**
   Reproduce the bug as a failing test first, then make it pass. A fix without
   a test that would have caught it is incomplete.
+- **Directory-targeted runs do not cover sibling test files.** `test/aiur/`
+  contains both topic subdirectories and files directly. For example,
+  `mix test test/aiur/github/` does not collect
+  `test/aiur/github_client_test.exs`; a large green count from the directory is
+  not evidence that the sibling file ran. For a function rename, option-key
+  rename, or signature change, also search the complete test tree from the
+  repository root with
+  `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` and account for
+  every hit before pushing. `mix aiur.affected_tests` also mines deleted source
+  references and adds every matching test file to its scoped command. The audit
+  and selector are independent of the full suite.
 - **A test encodes WHY behavior matters, not just what it does.** A test that
   cannot fail when the business logic changes is not pulling its weight.
 - **Flaky tests are fixed or deleted — never retried, never ignored.** Wall-clock

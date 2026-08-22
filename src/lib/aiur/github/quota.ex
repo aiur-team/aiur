@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.RequestOrigin
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
@@ -100,17 +101,27 @@ defmodule Aiur.GitHub.Quota do
 
   @spec observe(GenServer.server(), request(), {:ok, map()} | {:error, term()}) :: :ok
   def observe(server \\ __MODULE__, request, result) do
-    GenServer.cast(server, {:observe, request, result})
+    GenServer.cast(server, {:observe, RequestOrigin.mark(request), result})
   catch
     :exit, _reason -> :ok
   end
 
   @spec snapshot(GenServer.server()) :: map()
   def snapshot(server \\ __MODULE__) do
-    GenServer.call(server, :snapshot)
+    snapshot!(server)
   catch
     :exit, _reason -> @unknown_snapshot
   end
+
+  @doc """
+  Reads the quota meter without replacing an unavailable process with an
+  unknown snapshot.
+
+  Diagnostic callers use this form when an unreachable meter must be reported
+  as an error rather than presented as an empty measurement.
+  """
+  @spec snapshot!(GenServer.server()) :: map()
+  def snapshot!(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do
@@ -270,16 +281,18 @@ defmodule Aiur.GitHub.Quota do
     end)
   end
 
-  # Every instrumented GraphQL response carries `rateLimit { limit remaining
-  # resetAt }` in its body, and that block is the endpoint's own answer for the
-  # points budget — no header parsing, no assumption, and no dependence on the
-  # `x-ratelimit-*` headers being present on a GraphQL response. Reading it here
-  # is what lets the daemon learn its real remaining budget from every call it
-  # already makes, instead of waiting for the next `/rate_limit` refresh.
+  # Successful instrumented GraphQL responses report `rateLimit { limit
+  # remaining resetAt }` in their body. Secondary-limit responses are excluded
+  # before window ingestion because their headers do not establish primary
+  # exhaustion.
   defp observe_response(state, request, {:ok, response}, now) when is_map(response) do
-    case graphql_rate_limit_values(request, response) do
-      %{} = values -> put_window_from_values(state, "graphql", values, now)
-      nil -> observe_response_headers(state, request, response, now)
+    if GraphQLErrors.secondary_rate_limited_response?(response) do
+      state
+    else
+      case graphql_rate_limit_values(request, response) do
+        %{} = values -> put_window_from_values(state, "graphql", values, now)
+        nil -> observe_response_headers(state, request, response, now)
+      end
     end
   end
 
@@ -425,7 +438,7 @@ defmodule Aiur.GitHub.Quota do
 
   defp dispatch_status(state, now) do
     Enum.find_value(@primary_resources, :available, fn resource ->
-      case resource_status(state, resource, @low_water_percent, now) do
+      case window_status(state, resource, @low_water_percent, now) do
         :available -> nil
         hold -> hold
       end
@@ -448,11 +461,11 @@ defmodule Aiur.GitHub.Quota do
   defp cancel_recovery_timer(%{recovery_timer_ref: ref}) when is_reference(ref), do: Process.cancel_timer(ref)
   defp cancel_recovery_timer(_state), do: false
 
-  # GitHub signals a secondary limit with a 403 or 429 whose primary window is
-  # still healthy. A rejection that *did* drain the window is already covered
-  # by the window hold, so only the former needs its own backoff.
+  # Retry-After or explicit secondary/abuse wording identifies the short-lived
+  # limiter independently of the primary remaining header. Keep it as a bounded
+  # resource backoff rather than converting it into a primary window.
   defp observe_rejection(state, request, {:ok, %{status: status} = response}, now) when status in [403, 429] do
-    if rate_limit_endpoint?(request) or not secondary_limit?(response) do
+    if rate_limit_endpoint?(request) or not GraphQLErrors.secondary_rate_limited_response?(response) do
       state
     else
       put_backoff(state, request_resource(request), backoff_until(response, now), now)
@@ -460,10 +473,6 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp observe_rejection(state, _request, _result, _now), do: state
-
-  defp secondary_limit?(response) do
-    GraphQLErrors.rate_limited_response?(response, :unknown) and GraphQLErrors.rate_limit_remaining(response) != 0
-  end
 
   # Only `Retry-After` describes a secondary limit. The `x-ratelimit-reset` on
   # the same response belongs to the primary window — often an hour out — and
@@ -533,16 +542,18 @@ defmodule Aiur.GitHub.Quota do
 
   defp secondary_topic(resource), do: "system.github.quota.#{resource}.secondary"
 
-  defp attribute_request(state, request, {:ok, %{status: status} = response}, now) when is_integer(status) do
+  defp attribute_request(state, request, result, now) do
     if rate_limit_endpoint?(request) do
       state
     else
       resource = request_resource(request)
+      {status, response} = attribution_response(result)
       {cost, cost_source} = request_cost(resource, status, response)
 
       observation = %{
         consumer: request_consumer(request),
         caller: GraphQLCost.derive(request),
+        view_originated?: Map.get(request, :view_originated?, false) == true,
         direction: request_direction(request),
         resource: resource,
         cost: cost,
@@ -554,7 +565,8 @@ defmodule Aiur.GitHub.Quota do
     end
   end
 
-  defp attribute_request(state, _request, _result, _now), do: state
+  defp attribution_response({:ok, response}) when is_map(response), do: {Map.get(response, :status), response}
+  defp attribution_response(_result), do: {nil, %{}}
 
   # What the call actually cost the budget it was billed to.
   #
@@ -682,6 +694,7 @@ defmodule Aiur.GitHub.Quota do
         caller: caller,
         resource: resource,
         calls: length(entries),
+        view_calls: Enum.count(entries, &(Map.get(&1, :view_originated?, false) == true)),
         reads: reads,
         writes: length(entries) - reads,
         points: points,

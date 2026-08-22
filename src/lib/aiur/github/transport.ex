@@ -174,7 +174,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:ok, held_response(hold)}
+        {:error, {:aiur, :locally_held, hold}}
     end
   end
 
@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.Transport do
           result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
 
           :ok =
-            Budget.observe(request, result,
+            Budget.observe(request, lease, result,
               timeout_ms: max(remaining_deadline_ms(deadline_at_ms), 1),
               deadline_at: deadline_at_ms
             )
@@ -202,7 +202,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:ok, held_response(hold)}
+        {:error, {:aiur, :locally_held, hold}}
 
       {:error, _reason} = error ->
         error
@@ -494,23 +494,6 @@ defmodule Aiur.GitHub.Transport do
     observed
   end
 
-  defp held_response(hold) do
-    reset_unix = DateTime.to_unix(hold.reset_at)
-    remaining = Map.get(hold, :remaining, 0)
-    limit = Map.get(hold, :limit, 1)
-
-    %{
-      status: 429,
-      headers: [
-        {"x-ratelimit-resource", hold.resource},
-        {"x-ratelimit-limit", Integer.to_string(limit)},
-        {"x-ratelimit-remaining", Integer.to_string(remaining)},
-        {"x-ratelimit-reset", Integer.to_string(reset_unix)}
-      ],
-      body: %{"message" => "GitHub #{hold.resource} quota is exhausted locally; retry after #{DateTime.to_iso8601(hold.reset_at)}"}
-    }
-  end
-
   defp request_options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
@@ -667,6 +650,7 @@ defmodule Aiur.GitHub.Transport do
   end
 
   defp validate_graphql_response({:ok, response}), do: validate_graphql_http_response(response)
+  defp validate_graphql_response({:error, {:aiur, :locally_held, _hold} = reason}), do: {:error, reason, nil}
   defp validate_graphql_response({:error, reason}), do: {:error, Errors.classify_error({:error, reason}), nil}
   defp validate_graphql_response(_response), do: {:error, :invalid_graphql_response, nil}
 
