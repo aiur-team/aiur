@@ -122,7 +122,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.tracked_repo(payload, opts) do
       {:ok, repo} ->
         Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
-        Deposit.deposit(event_type, payload, repo)
+        Deposit.deposit(event_type, payload, repo, Keyword.take(opts, [:at]))
         :ok
 
       _untracked_or_malformed ->

@@ -295,7 +295,17 @@ defmodule Aiur.GitHub.ResourceStore do
     # The open pull request belonging to a ticket's head branch. Keyed by the
     # ticket number rather than the PR number, because that is the only identity
     # the caller holds before the lookup answers.
-    :branch_pull_request
+    :branch_pull_request,
+    # Build Order graph edges (#2313). One entry per edge, keyed by the two
+    # issue numbers it connects (`"parent:sub"` / `"blocked:blocker"`). The body
+    # carries the edge facts plus `present`, the last operation observed: a
+    # webhook `sub_issue_added`/`blocked_by_added` deposits `present: true` and
+    # the matching `*_removed` deposits a tombstone. Both types are written by
+    # `Aiur.Events.GithubWebhook.Deposit` (and the rare GraphQL reconciliation),
+    # and they are the Build Order catalog's event-sourced membership and
+    # dependency inputs.
+    :sub_issue,
+    :issue_dependency
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable
@@ -309,7 +319,21 @@ defmodule Aiur.GitHub.ResourceStore do
   # fetch), so a late delivery can roll the held PR back — the same reason
   # `:pull_request` is here. `:check_run` was removed from the store entirely
   # when its deposit was ceased (#2126); a CI verdict is never cached.
-  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :branch_pull_request]
+  #
+  # `:sub_issue` and `:issue_dependency` are here because an edge's *order*
+  # decides its state: a `*_added` then `*_removed` arriving out of order
+  # inverts the edge, exactly like a whole resource rolling back. The deposit
+  # versions every edge with its delivery's arrival time so the store's
+  # stale-delivery guard refuses a late add or remove (#2313).
+  @order_sensitive_types [
+    :issue,
+    :issue_labels,
+    :pull_request,
+    :pr_review_thread,
+    :branch_pull_request,
+    :sub_issue,
+    :issue_dependency
+  ]
 
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}
@@ -974,6 +998,69 @@ defmodule Aiur.GitHub.ResourceStore do
       :miss -> nil
     end
   end
+
+  @doc """
+  Removes every entry of one resource type in one repository.
+
+  This is the store operation behind a *set* reconciliation: when the Build
+  Order reconciliation re-fetches the graph from GitHub, it clears the repo's
+  `:sub_issue` edges and re-deposits the fetched membership, so an edge whose
+  `*_removed` delivery was dropped cannot linger as `present: true` (#2313).
+  Only the reconciled type is cleared — shared resources like `:issue` are left
+  alone, because other consumers read them and their events keep them fresh.
+
+  Returns `:ok` even when no store is running.
+  """
+  @spec clear(resource_type(), String.t(), String.t()) :: :ok
+  def clear(resource_type, owner, repo) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
+    if resource_type in @resource_types do
+      owner = String.downcase(owner)
+      repo = String.downcase(repo)
+
+      with_table(:ok, fn table ->
+        :ets.match_delete(table, {{resource_type, owner, repo, :_}, :_})
+        ResourceEvents.publish_cleared(resource_type, owner, repo)
+        :ok
+      end)
+    else
+      :ok
+    end
+  end
+
+  def clear(_resource_type, _owner, _repo), do: :ok
+
+  @doc """
+  Enumerates every entry the store holds for one resource type in one
+  repository.
+
+  This is what lets a projection treat the store as a source of truth rather
+  than a per-key cache: the Build Order catalog reads all `:issue`,
+  `:issue_labels`, `:sub_issue` and `:issue_dependency` entries for the active
+  repository in one pass and derives the graph from them (#2313).
+
+  Returns `[{key, entry}]` with the same entry shape `fetch/1` returns, or `[]`
+  when no store is running. `owner`/`repo` are down-cased exactly as `key/4`
+  down-cases them, so a caller spelling the repository either way meets the
+  entries.
+
+  No write is performed: the store table is `:public` and this reads it from
+  the caller's process like every other reader.
+  """
+  @spec list(resource_type(), String.t(), String.t()) :: [{key(), entry()}]
+  def list(resource_type, owner, repo) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
+    if resource_type in @resource_types do
+      owner = String.downcase(owner)
+      repo = String.downcase(repo)
+
+      with_table([], fn table ->
+        :ets.match_object(table, {{resource_type, owner, repo, :_}, :_})
+      end)
+    else
+      []
+    end
+  end
+
+  def list(_resource_type, _owner, _repo), do: []
 
   @doc """
   PubSub topic carrying changes to one resource.

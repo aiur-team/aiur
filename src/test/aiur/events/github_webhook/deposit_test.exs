@@ -210,9 +210,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       pr_review: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:587)", [ResourceStore.key_for_repo(:pr_review, @repo, 9403)]},
       pr_review_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:650)", [ResourceStore.key_for_repo(:pr_review_comment, @repo, 9402)]},
       issue_labels:
-        {:signal_only,
-         "retires the agent `gh` wrapper's cache through AgentCacheBridge's @invalidating_types; " <>
-           "no module builds an :issue_labels key to read one"},
+        {:read_by,
+         "Aiur.BuildOrder.GitHubGraph.Reconciliation re-deposits each root's label set during the rare " <>
+           "catalog reconciliation (reconciliation.ex:143)", [ResourceStore.key_for_repo(:issue_labels, @repo, 42)]},
       pull_request:
         {:signal_only,
          "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
