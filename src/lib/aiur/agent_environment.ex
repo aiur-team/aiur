@@ -245,7 +245,7 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
-        {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", port_env_value(publication_credential_key(opts))},
+        {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", publication_credential_key(opts) |> String.to_charlist()},
         {~c"AIUR_GITHUB_MAX_INFLIGHT", github_budget.max_inflight |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
@@ -411,14 +411,8 @@ defmodule Aiur.AgentEnvironment do
   end
 
   defp publication_credential_export(opts) do
-    case publication_credential_key(opts) do
-      key when is_binary(key) -> "export AIUR_GITHUB_BUDGET_IDENTITY_KEY=#{Aiur.Shell.escape(key)}\n"
-      nil -> "unset AIUR_GITHUB_BUDGET_IDENTITY_KEY\n"
-    end
+    "export AIUR_GITHUB_BUDGET_IDENTITY_KEY=#{Aiur.Shell.escape(publication_credential_key(opts))}\n"
   end
-
-  defp port_env_value(value) when is_binary(value), do: String.to_charlist(value)
-  defp port_env_value(nil), do: false
 
   defp build_gate_export_prefix(workspace, opts) do
     if Keyword.get(opts, :build_gate, false) do
