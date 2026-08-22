@@ -895,6 +895,14 @@ defmodule Aiur.AgentGitHubGuardTest do
     key = "a" <> String.duplicate("0", 63)
     timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
+    # The per-actor ceiling is keyed by the broker consumer. Pin it to one
+    # literal so the two invocations below — one spawned directly, one through
+    # `timeout`, whose wrapper PPID differs — are the same actor and the ceiling
+    # accumulates deterministically in every environment. Relying on the ambient
+    # AIUR_GITHUB_BUDGET_CONSUMER made this pass in agent workspaces (where it is
+    # set) and fail in CI (where it is not).
+    consumer = "pr-view-ceiling-test"
+
     # A graphql ceiling of 1: the second `pr view` holds, proving `pr view`
     # spends against the GraphQL budget. If it were still booked to core (the
     # pre-fix behaviour) this hold would never fire.
@@ -904,6 +912,7 @@ defmodule Aiur.AgentGitHubGuardTest do
       AIUR_GITHUB_BUDGET_ROOT: graphql_budget,
       AIUR_GITHUB_BUDGET_KEY: key,
       AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_CONSUMER: consumer,
       AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "1",
       AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "0"
     ]
@@ -919,6 +928,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                      {"AIUR_GITHUB_BUDGET_ROOT", graphql_budget},
                      {"AIUR_GITHUB_BUDGET_KEY", key},
                      {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_BUDGET_CONSUMER", consumer},
                      {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "1"},
                      {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"}
                    ],
@@ -933,6 +943,7 @@ defmodule Aiur.AgentGitHubGuardTest do
       AIUR_GITHUB_BUDGET_ROOT: core_budget,
       AIUR_GITHUB_BUDGET_KEY: key,
       AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_CONSUMER: consumer,
       AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
       AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "0"
     ]
