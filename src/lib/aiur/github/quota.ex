@@ -1005,7 +1005,7 @@ defmodule Aiur.GitHub.Quota do
 
     seen =
       Enum.reduce(seen, seen, fn path, acc ->
-        if MapSet.member?(found, path), do: acc, else: MapSet.delete(acc, path)
+        if Enum.member?(found, path), do: acc, else: MapSet.delete(acc, path)
       end)
 
     seen =
@@ -1021,10 +1021,16 @@ defmodule Aiur.GitHub.Quota do
     %{state | stale_broker_alerts: seen}
   end
 
-  defp stale_broker_markers(nil), do: MapSet.new()
+  # The marker list, not a MapSet: a MapSet built here and passed to
+  # `MapSet.member?/2` at the call site would cross a function boundary with an
+  # opaque type dialyzer cannot keep opaque (`call_without_opaque`). The seen-set
+  # stays a MapSet inside `refresh_stale_broker_alerts/1`, where its opaque type
+  # is tracked through the state field.
+  @spec stale_broker_markers(String.t() | nil) :: [String.t()]
+  defp stale_broker_markers(nil), do: []
 
   defp stale_broker_markers(path) when is_binary(path) do
-    path |> Path.wildcard(match_dot: true) |> MapSet.new()
+    path |> Path.wildcard(match_dot: true)
   end
 
   defp emit_stale_broker_alert(state, marker_path) do
