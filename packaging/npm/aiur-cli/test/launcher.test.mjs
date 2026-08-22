@@ -675,6 +675,28 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   expect(result.stderr).not.toContain(":noconnection");
 });
 
+test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["github-cost"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
+  );
+});
+
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(

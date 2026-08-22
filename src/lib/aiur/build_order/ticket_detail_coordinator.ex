@@ -31,6 +31,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
   alias Aiur.BuildOrder.TicketDetail
   alias Aiur.BuildOrder.TicketDetail.{Failure, State}
   alias Aiur.BuildOrder.TicketDetailCoordinator.{Configuration, Options, Policy, TaskLifecycle}
+  alias Aiur.GitHub.RequestOrigin
 
   @reset_topic "build_order:ticket_detail_coordinator:reset"
 
@@ -43,7 +44,8 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
   end
 
   @spec request(GenServer.server(), Aiur.TrackerIdentity.t()) :: {:ok, State.t()} | {:error, Failure.t()}
-  def request(server \\ __MODULE__, identity), do: GenServer.call(server, {:request, identity})
+  def request(server \\ __MODULE__, identity),
+    do: GenServer.call(server, {:request, identity, RequestOrigin.view_originated?()})
 
   @spec current(GenServer.server(), Aiur.TrackerIdentity.t()) :: {:ok, State.t()} | {:error, Failure.t()}
   def current(server \\ __MODULE__, identity), do: GenServer.call(server, {:current, identity})
@@ -71,14 +73,14 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
   end
 
   @impl true
-  def handle_call({:request, identity}, _from, state) do
+  def handle_call({:request, identity, view_originated?}, _from, state) do
     case authorize(state, identity) do
       {:error, %Failure{} = failure, state, updates} ->
         broadcast_all(updates)
         {:reply, {:error, failure}, state}
 
       {:ok, identity, repository, state, updates} ->
-        request_detail(state, identity, repository, updates)
+        request_detail(state, identity, repository, updates, view_originated?)
     end
   end
 
@@ -127,7 +129,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
     end
   end
 
-  defp request_detail(state, identity, repository, updates) do
+  defp request_detail(state, identity, repository, updates, view_originated?) do
     case Policy.ensure_entry(state, identity) do
       {:error, %Failure{} = failure} ->
         broadcast_all(updates)
@@ -136,15 +138,15 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinator do
       {:ok, state, evictions} ->
         broadcast_all(updates ++ evictions)
         {entry, state} = Policy.touch(state, identity)
-        refresh_or_reply(entry, state, repository)
+        refresh_or_reply(entry, state, repository, view_originated?)
     end
   end
 
-  defp refresh_or_reply(entry, state, repository) do
+  defp refresh_or_reply(entry, state, repository, view_originated?) do
     if Policy.fresh?(entry, state) or entry.inflight do
       {:reply, {:ok, Policy.state_for(entry, state)}, state}
     else
-      {entry, state, updates} = TaskLifecycle.start_refresh(entry, state, repository)
+      {entry, state, updates} = TaskLifecycle.start_refresh(entry, state, repository, view_originated?)
       broadcast_all(updates)
       {:reply, {:ok, Policy.state_for(entry, state)}, state}
     end

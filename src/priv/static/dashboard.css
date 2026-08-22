@@ -638,6 +638,16 @@ textarea:focus-visible,
   padding: 0 0.35rem;
 }
 
+/* A zero-member Build Order is empty, not unstarted work at 0%. */
+.bo-catalog-progress-empty {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* An unresolved catalog count reads as a word rather than a fabricated zero. */
 .bo-catalog-count-unresolved {
   display: inline-block;

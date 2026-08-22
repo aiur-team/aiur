@@ -84,6 +84,7 @@ defmodule AiurWeb.GithubCacheLive do
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.GitHub.QuotaHistory
   alias Aiur.GitHub.QuotaUsage
+  alias Aiur.GitHub.ReadCache
 
   alias AiurWeb.OperatorControlCenter.{
     AwaitingCommands,
@@ -180,6 +181,7 @@ defmodule AiurWeb.GithubCacheLive do
      socket
      |> assign(:quota, quota)
      |> assign(:usage, QuotaUsage.sample(quota))
+     |> assign(:read_cache, read_cache_snapshot())
      |> assign(:quota_history, quota_history())}
   end
 
@@ -224,8 +226,23 @@ defmodule AiurWeb.GithubCacheLive do
     |> assign(:projection, projection)
     |> assign(:quota, quota)
     |> assign(:usage, QuotaUsage.sample(quota))
+    |> Phoenix.Component.assign_new(:read_cache, &read_cache_snapshot/0)
     |> assign(:history, history())
     |> assign(:quota_history, quota_history())
+  end
+
+  # Cache metrics are observational and independent from quota accounting. The
+  # provider seam keeps an unavailable process distinct from a live cache with
+  # no hits, and lets tests exercise that boundary without depending on the
+  # production cache's ETS state.
+  defp read_cache_snapshot do
+    :aiur
+    |> Application.get_env(:github_read_cache_provider, ReadCache)
+    |> then(& &1.snapshot())
+  rescue
+    _unavailable -> %{available?: false, callers: %{}}
+  catch
+    :exit, _reason -> %{available?: false, callers: %{}}
   end
 
   # The same provider seam `history/0` uses, for the same reason.
@@ -317,7 +334,7 @@ defmodule AiurWeb.GithubCacheLive do
 
         <.trends :if={@projection.available? and is_nil(@group)} history={@history} />
 
-        <.usage_layer :if={is_nil(@group)} usage={@usage} quota_history={@quota_history} />
+        <.usage_layer :if={is_nil(@group)} usage={@usage} quota_history={@quota_history} read_cache={@read_cache} />
 
         <.group_layer
           :if={@projection.available? and not is_nil(@group) and is_nil(@entry_identity)}
@@ -506,7 +523,7 @@ defmodule AiurWeb.GithubCacheLive do
   # surface for the question. Two wrong diagnoses were made in one night against
   # the CLI's blind spot.
   #
-  # Three rules the rendering must not break:
+  # Four rules the rendering must not break:
   #
   #   * GraphQL and core are never summed. They are separate budgets on separate
   #     windows with separate limits; core sat at 88/5000 while GraphQL hit
@@ -519,10 +536,8 @@ defmodule AiurWeb.GithubCacheLive do
   #     whose reset has passed each say so in words.
   #   * The ranking is of calls that reached GitHub, and says so. Since the
   #     read cache landed, a hit never reaches `Quota` at all — which is the
-  #     whole saving, and which also means a caller can fall down this table
-  #     because it is being served from cache rather than because it went
-  #     quiet. Those are opposite conclusions from identical columns, so the
-  #     page names the ambiguity instead of leaving it to be inferred.
+  #     whole saving. Served-free reads therefore get a separate, boot-scoped
+  #     column that never participates in spend arithmetic.
   #
   # It renders even when the cache store is absent: the meter is a different
   # process and a budget can be burning while nothing at all is cached.
@@ -612,40 +627,52 @@ defmodule AiurWeb.GithubCacheLive do
 
         <.usage_chart series={QuotaUsage.series(@quota_history, resource)} resource={resource} />
 
-        <table class="ghc-usage-table" data-role="usage-table">
-          <caption class="ghc-usage-split-label">
-            {resource} spend by caller, this window. Share is of the attributed total, not of the bill.
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Caller</th>
-              <th scope="col">Points</th>
-              <th scope="col">Calls</th>
-              <th scope="col">Points/hr</th>
-              <th scope="col">Share of attributed</th>
-              <th scope="col">Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={caller <- QuotaUsage.ranked_callers(budget)} data-role="usage-caller" data-caller={caller.caller}>
-              <td>{caller.caller}</td>
-              <td>{caller.points}</td>
-              <td>{caller.calls}</td>
-              <td>{measured(caller.points_per_hour)}</td>
-              <td>{share_text(QuotaUsage.share_of_attributed(caller, budget))}</td>
-              <td class={source_class(caller.estimated?)}>{source_text(caller.estimated?)}</td>
-            </tr>
+        <div
+          class="ghc-usage-table-scroll"
+          data-role="usage-table-scroll"
+          role="region"
+          aria-label={"#{resource} spend ranking"}
+          tabindex="0"
+        >
+          <table class="ghc-usage-table" data-role="usage-table">
+            <caption class="ghc-usage-split-label">
+              {resource} spend by caller, this window. ReadCache activity is caller-wide since daemon boot and is not
+              spend. Share is of the attributed total, not of the bill.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Caller</th>
+                <th scope="col">Points</th>
+                <th scope="col">Calls</th>
+                <th scope="col">ReadCache served free</th>
+                <th scope="col">Points/hr</th>
+                <th scope="col">Share of attributed</th>
+                <th scope="col">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={caller <- QuotaUsage.ranked_callers(budget)} data-role="usage-caller" data-caller={caller.caller}>
+                <td>{caller.caller}</td>
+                <td>{caller.points}</td>
+                <td>{caller.calls}</td>
+                <td data-role="usage-served-free">{served_free(@read_cache, caller.caller)}</td>
+                <td>{measured(caller.points_per_hour)}</td>
+                <td>{share_text(QuotaUsage.share_of_attributed(caller, budget))}</td>
+                <td class={source_class(caller.estimated?)}>{source_text(caller.estimated?)}</td>
+              </tr>
 
-            <tr class="ghc-usage-row-outside" data-role="usage-outside-row">
-              <td>{QuotaUsage.outside_label(QuotaUsage.observation_complete?(budget))}</td>
-              <td>{measured(budget.outside)}</td>
-              <td>unknown</td>
-              <td>unknown</td>
-              <td>not attributed</td>
-              <td class="ghc-usage-source">{outside_source(budget)}</td>
-            </tr>
-          </tbody>
-        </table>
+              <tr class="ghc-usage-row-outside" data-role="usage-outside-row">
+                <td>{QuotaUsage.outside_label(QuotaUsage.observation_complete?(budget))}</td>
+                <td>{measured(budget.outside)}</td>
+                <td>unknown</td>
+                <td data-role="usage-served-free-outside">not applicable</td>
+                <td>unknown</td>
+                <td>not attributed</td>
+                <td class="ghc-usage-source">{outside_source(budget)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <p class="ghc-usage-note" data-role="usage-outside-explainer">
           {outside_explainer(budget)}
@@ -653,15 +680,28 @@ defmodule AiurWeb.GithubCacheLive do
 
         <p class="ghc-usage-note" data-role="usage-cache-caveat">
           This ranks what reached GitHub. A read the daemon's own cache answered never reaches the
-          meter — that is the saving — so it contributes no points and no calls here. A caller can
-          therefore fall down this table because it is being served from cache rather than because
-          it stopped polling, and the two look identical from these columns alone. The cache's own
-          hit rate, per caller, is what separates them.
+          meter — that is the saving — so it contributes no points, calls, share or totals here.
+          The ReadCache column reports those reads separately for each caller since daemon boot, and says when
+          ReadCache refused or never observed that caller instead of presenting either state as zero served.
         </p>
       </article>
     </section>
     """
   end
+
+  defp served_free(%{available?: true, callers: callers}, caller) when is_map(callers) do
+    case Map.fetch(callers, caller) do
+      {:ok, %{hit: 1}} -> "1 read"
+      {:ok, %{hit: hits}} when is_integer(hits) and hits > 1 -> "#{hits} reads"
+      {:ok, %{refused: 1}} -> "1 policy refusal"
+      {:ok, %{refused: refusals}} when is_integer(refusals) and refusals > 1 -> "#{refusals} policy refusals"
+      {:ok, _observed} -> "none this boot"
+      :error -> "not observed by ReadCache"
+    end
+  end
+
+  defp served_free(%{available?: true}, _caller), do: "not observed by ReadCache"
+  defp served_free(_snapshot, _caller), do: "cache unavailable"
 
   # An empty ring and an unobserved window are different facts and get different
   # words. Neither draws an axis: an empty chart reads as a measured flat zero,

@@ -139,6 +139,21 @@ defmodule Aiur.PromptBuilderTest do
     assert String.contains?(prompt, "aiur-agent")
   end
 
+  @tag config: @config
+  test "shared prompt requires exhaustive test-tree audits for renames" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+    normalized = String.replace(prompt, ~r/\s+/, " ")
+
+    assert prompt =~ "Rename and signature-change test audit"
+    assert prompt =~ "rg -n --fixed-strings -- '<old-name>' src/test/"
+
+    assert normalized =~
+             "`test/aiur/github/` does not collect `test/aiur/github_client_test.exs`"
+
+    assert prompt =~ "Account for every hit before push"
+    assert prompt =~ "selector also mines deleted references"
+  end
+
   @tag config: """
        tracker:
          kind: github

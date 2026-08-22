@@ -347,7 +347,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec github_cost(keyword()) :: :ok
   def github_cost(opts \\ []) do
-    guarded("github-cost", fn -> GitHubCostCLI.run(opts) |> exit_marker() end)
+    guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
   end
 
   @spec github_usage(keyword()) :: :ok
