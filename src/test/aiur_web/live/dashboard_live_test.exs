@@ -2598,6 +2598,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     store = start_decision_store(decision_store_name, dispatcher)
     decision = request_dashboard_decision(store, "dashboard-action")
+    decision_id = decision.decision_id
     start_counting_orchestrator(orchestrator_name)
 
     # The delivery outcome is produced asynchronously: the store dispatches on
@@ -2606,10 +2607,10 @@ defmodule AiurWeb.DashboardLiveTest do
     # reload. The default reload path throttles that reload by
     # @reload_min_interval_ms (400ms), and under load the whole async chain
     # can outrun any wall-clock wait — the flake #1920 observed (fails
-    # ~1-in-10 under load). render/1 already synchronizes with the LiveView
-    # process (a ping that drains its mailbox), so removing the artificial
-    # reload delay here is a real synchronization point: as soon as the store
-    # records the failure, the next render reflects it. This uses the same
+    # ~1-in-10 under load). Removing the artificial reload delay and reloading
+    # explicitly (reload_view/1 below) makes the render deterministic: once the
+    # store records the failure the reload reflects it, with no budget on how
+    # fast the LiveView happened to schedule its own reload. This uses the same
     # control_center_reload_timer hook the burst-throttle test relies on, and
     # changes no production timing.
     reload_timer = fn destination, message, _delay_ms ->
@@ -2642,6 +2643,13 @@ defmodule AiurWeb.DashboardLiveTest do
       "answer" => %{"choice" => "option:ship", "rationale" => "Checks are green"}
     }
 
+    # The store publishes {:decision_changed, ...} synchronously after each
+    # lifecycle append (answer, then delivery failure), so subscribing before
+    # the submit lets the test wait on that message — the delivery-failure
+    # signal — instead of polling the rendered output on a wall-clock deadline
+    # (the #2343 flake: the 100ms budget ran out on a loaded box ~1-in-9).
+    :ok = DecisionPubSub.subscribe()
+
     # render_submit returns the render produced by the submit handler itself,
     # before the async delivery-failure broadcast reaches the LiveView, so the
     # transient "Answer recorded" notice is still visible here. With the
@@ -2651,18 +2659,24 @@ defmodule AiurWeb.DashboardLiveTest do
     html = render_submit(view, "answer-decision", params)
     assert html =~ "Answer recorded"
 
+    # The answer append published one broadcast; consume it so the
+    # assert_receive below can only match the delivery-failure broadcast.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+
     assert eventually(fn ->
              {:ok, current} = DecisionStore.get(decision.decision_id, store)
              current.delivery_status == :failed
            end)
 
     # The delivery outcome is produced asynchronously: background dispatch task
-    # -> store records the failure -> {:decision_changed, ...} broadcast. With
-    # the immediate reload timer, render/1 (whose ping drains the LiveView
-    # mailbox) reflects that failure on the next call, so this wait is
-    # deterministic rather than a wall-clock guess at the whole async chain.
-    assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
-    html = render(view)
+    # -> store records the failure -> {:decision_changed, ...} broadcast
+    # (published synchronously in notify_lifecycle, so it is on the wire once
+    # the eventually/1 above observes the failure). Wait for that message, then
+    # reload explicitly: reload_view/1 sends :reload_payload and drains the
+    # LiveView mailbox, so the rendered payload is deterministically fresh — no
+    # wall-clock budget on the reload chain.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+    html = reload_view(view)
     assert html =~ "Recorded answer"
     assert html =~ "Delivery failed"
     assert html =~ ~s(phx-click="retry-decision")
@@ -2675,7 +2689,9 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :queued
            end)
 
-    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 100)
+    # Once the retry lands the store at :queued, the explicit reload reflects it
+    # and the retry affordance disappears — deterministic, no render-poll budget.
+    refute reload_view(view) =~ ~s(phx-click="retry-decision")
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
     assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1
