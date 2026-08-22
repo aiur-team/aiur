@@ -23,6 +23,22 @@ The Commands page is dashboard `/decisions` and CLI `aiur commands`.
 | Defer | Leave the Command for a designated Executor agent to investigate and decide. |
 | Revise | Append a corrected action without rewriting the original record. |
 
+## Authority and attention signals
+
+Agents classify the action, not the subsystem around it. Routine,
+reversible operational choices should use `supervisor_allowed`; irreversible
+actions, spend, external publication, and product direction remain
+`human_required`. The Executor can answer only a Command that declares
+`supervisor_allowed` or `supervisor_preferred` together with `reversible`.
+
+Aiur warns when a human-required Command is reversible and all of its
+options are low-risk. It also raises attention when a blocking Command remains
+unanswered for a day, or when an Executor-unanswerable Command expires without a
+decision. These signals expose stale context and upstream misclassification;
+they do not weaken the answer-authorization floor.
+
+Deferred Commands remain visible in the Open and Blocking dashboard counts until they are answered or retired. Their cards show both the deferred lifecycle and the age of the outstanding Command.
+
 ## Durability
 
 | Contract | Why it matters |

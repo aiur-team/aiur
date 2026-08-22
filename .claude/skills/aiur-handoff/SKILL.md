@@ -54,6 +54,31 @@ path. This is the single highest-value content in the document.
 **Name what you did not do.** Silence reads as coverage. An unreviewed PR, an
 unverified ticket, a check you skipped — say so.
 
+**Stamp every standing item with its evidence and when it was last checked.**
+A standing item is the most dangerous content in a handoff: it is repeated by
+every subsequent Executor and re-verified by none of them. Write them as
+
+```
+- #2212 webhook ingress — UNVERIFIED since 2026-08-20. Last checked how: read
+  the ticket title. Re-verify with: gh api /repos/O/R/hooks/<id>/deliveries
+```
+
+not as
+
+```
+- #2212 webhook ingress (Funnel never enabled)
+```
+
+The second form reads as an established fact. On 2026-08-22 exactly that line
+was carried through five hourly logs and a full day of planning; webhooks had
+been delivering `202 OK` the whole time, through a tunnel the operator had
+already built. Nobody re-checked because the handoff did not say it needed
+checking.
+
+**Every standing item must name the command that would disprove it.** If you
+cannot write that command, you do not understand the item well enough to pass it
+on — say so instead.
+
 **Carry the operator's words verbatim** where the wording matters: authority
 grants, ownership boundaries, what "finished" means, communication preferences.
 Paraphrase loses the constraint.

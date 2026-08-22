@@ -48,7 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
     <section class="section-card command-history" aria-labelledby="decision-history-title">
       <div class="recent-subtitle-row">
         <p class="recent-subtitle" id="decision-history-title">History</p>
-        <span class="history-count mono">{count_label(@loaded, @total)}</span>
+        <span class="history-count mono" data-count-scope="commands">{count_label(@loaded, @total)}</span>
       </div>
       <div :if={@provider_health == :unavailable} class="empty-state compact">Command history is unavailable right now.</div>
       <div :if={@provider_health == :degraded} class="empty-state compact">

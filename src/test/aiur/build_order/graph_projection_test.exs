@@ -133,9 +133,12 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 2}}}, 2_000
 
-    # Point the projection at a different repository.
+    # Point the projection at a different repository. A new authority discards
+    # the catalog and its demanders, so the open page re-subscribes — exactly
+    # what `SourceRuntime.reset_projection/1` does on a projection reset.
     Agent.update(authority, fn _ -> authority({"owner", "other-repo"}, 2, 4) end)
     send(projection, {:workflow_config_updated, 2})
+    GraphProjection.subscribe_catalog(projection)
 
     assert_receive {:catalog_read, true}, 2_000
   end
@@ -599,6 +602,11 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     new_repository = {"other", "repo"}
     Agent.update(authority, fn _ -> authority(new_repository, 2, 4) end)
     send(projection, {:workflow_config_updated, 2})
+
+    # The new authority discarded the catalog and its demanders; the page
+    # re-subscribes, as `SourceRuntime.reset_projection/1` would on the reset.
+    GraphProjection.subscribe_catalog(projection)
+
     new_reader = await_reader(:catalog)
 
     old_candidate = catalog([root(identity(1, "I1"))])
@@ -698,21 +706,29 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
     clock_ms = if clock, do: fn -> Agent.get(clock, & &1) end, else: fn -> 0 end
 
-    GraphProjection.start_link(
-      name: nil,
-      task_supervisor: task_supervisor,
-      authority_snapshot: authority_snapshot,
-      configuration_subscriber: fn _pid -> :ok end,
-      catalog_reader: Keyword.get(opts, :catalog_reader, blocking_reader(parent, :catalog)),
-      selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
-      now: fn -> @now end,
-      clock_ms: clock_ms,
-      catalog_refresh_ms: 60_000,
-      refresh_timeout_ms: 30_000,
-      max_selected_roots: max_selected_roots,
-      max_inflight: 4,
-      after_broadcast: fn event -> send(parent, {:projection_event, event}) end
-    )
+    {:ok, projection} =
+      GraphProjection.start_link(
+        name: nil,
+        task_supervisor: task_supervisor,
+        authority_snapshot: authority_snapshot,
+        configuration_subscriber: fn _pid -> :ok end,
+        catalog_reader: Keyword.get(opts, :catalog_reader, blocking_reader(parent, :catalog)),
+        selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
+        now: fn -> @now end,
+        clock_ms: clock_ms,
+        catalog_refresh_ms: 60_000,
+        refresh_timeout_ms: 30_000,
+        max_selected_roots: max_selected_roots,
+        max_inflight: 4,
+        after_broadcast: fn event -> send(parent, {:projection_event, event}) end
+      )
+
+    # The catalog is demand-gated since #2312: no viewer, no read. These tests
+    # all exercise catalog reads, so register the test process as the viewer,
+    # exactly as an open Build Order page would before the reads start.
+    GraphProjection.subscribe_catalog(projection)
+
+    {:ok, projection}
   end
 
   defp blocking_reader(parent, scope), do: fn _reader_opts -> blocking_read(parent, scope) end
