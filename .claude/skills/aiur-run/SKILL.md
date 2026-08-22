@@ -733,6 +733,30 @@ tightly-coupled pair) and run them concurrently**, then post the reviews
 yourself. This is the same parallelism the run applies to implementation, applied
 to the lane that gates it.
 
+**Check load before every fan-out, and again before topping up.** Review agents
+run `mix test`; each one is a BEAM plus a compile. They are *not* governed by
+`agent.max_load_average` — that gate holds the Aiur fleet, and nothing holds
+these. On 2026-08-22 a fan-out of eight reviewers alongside eleven fleet agents
+drove a 16-core box to **load 45 against a threshold of 24**, with an 83 five-minute
+average and 31 concurrent BEAMs. The fleet correctly reported `binding: load+cpu
+contention` and stopped dispatching; the reviewers kept going, because nothing
+told them not to.
+
+Read `/proc/loadavg` and `free -g` first. If one-minute load is already near the
+threshold, dispatch fewer and top up as they return rather than launching the
+whole set. Prefer batching several small PRs into one agent over one agent per PR
+when the box is busy — the wall-clock cost of a queued agent is lower than the
+cost of freezing the host the fleet is working on.
+
+**Watch for rework while you review.** Rework lands minutes after a review, and
+`gh pr list` shows `CHANGES_REQUESTED` identically whether the author has
+responded or not. The only way to see it is to compare each PR's last commit
+timestamp against its last review timestamp. On the same day, eleven PRs were
+reworked while later reviews were still running and none of them surfaced. A
+re-review is far cheaper than the first pass: scope it to *"were these named
+blockers fixed?"*, passing the original findings with their file:line, and ask
+for FIXED / NOT FIXED / PARTIAL per blocker rather than a fresh read.
+
 What a review agent needs in its prompt, every time:
 
 - **The established facts it must not re-derive.** Measured numbers, the file:line
