@@ -111,7 +111,7 @@ defmodule Aiur.WorkflowStore do
       :error ->
         case Process.whereis(__MODULE__) do
           pid when is_pid(pid) ->
-            with {:ok, workflow} <- current_from(pid), do: {:ok, workflow, :unknown, :unknown}
+            current_with_cache_identity_from(pid)
 
           _ ->
             load_with_unknown_cache_identity()
@@ -125,6 +125,10 @@ defmodule Aiur.WorkflowStore do
 
   defp load_with_unknown_cache_identity do
     with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown, :unknown}
+  end
+
+  defp current_with_cache_identity_from(pid) do
+    with {:ok, workflow} <- current_from(pid), do: {:ok, workflow, :unknown, :unknown}
   end
 
   # The store is a cache over one small config file, so ANY failure to reach it
