@@ -447,6 +447,10 @@ agent:
 | `prewarm.base_build_file` | string | none | Sibling script loaded into `base_build`. |
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
+`poll_seconds: 0` disables periodic refreshes, not dispatch-time freshness checks.
+When a prewarm build or freshness probe holds fleet dispatch, an independent
+10-minute watchdog releases the gate for cold-clone fallback if the operation stalls.
+
 ## pr_watch
 
 | Key | Type | Default | Controls |

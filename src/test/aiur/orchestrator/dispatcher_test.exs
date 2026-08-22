@@ -691,7 +691,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :building)
       assert held.prewarm_blocked_alert_active
       assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"} = event}, 500
-      assert event["reason"] =~ "Prewarm is building"
+      assert event["reason"] =~ "Prewarm build is running"
+      assert event["reason"] =~ "monitored build is expected to clear"
 
       assert Dispatcher.emit_prewarm_blocked_alert(held, :building) == held
       refute_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 100
@@ -704,6 +705,56 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       rearmed = Dispatcher.emit_prewarm_blocked_alert(recovered, :building)
       assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 500
       refute rearmed.prewarm_blocked_alert_resolution_emitted
+    end
+
+    test "checking alert promises bounded fallback and stalled resolution releases dispatch" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :checking)
+
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked"} = blocked})
+      assert blocked["reason"] =~ "remote freshness probe is running"
+      assert blocked["reason"] =~ "bounded dispatch watchdog"
+
+      released =
+        Dispatcher.clear_prewarm_blocked_alert(
+          held,
+          {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+        )
+
+      refute released.prewarm_blocked_alert_active
+
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved})
+      assert resolved["reason"] =~ "Prewarm checking stalled"
+      assert resolved["reason"] =~ "released the fleet dispatch gate for cold-clone fallback"
+    end
+
+    test "watchdog phase broadcast resolves the alert without a successful dispatch poll" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :checking)
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked"}})
+
+      stalled = {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+      assert {:noreply, released} = Orchestrator.handle_info({:prewarm_phase, stalled}, held)
+      refute released.prewarm_blocked_alert_active
+
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved})
+      assert resolved["reason"] =~ "Prewarm checking stalled"
     end
   end
 

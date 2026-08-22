@@ -3,7 +3,10 @@ defmodule Aiur.RepoBaseTest do
   # the phase-event test must not race other tests emitting on the same topic.
   use ExUnit.Case, async: false
 
+  import Aiur.TestSupport, only: [receive_barrier: 1]
+
   alias Aiur.{Asks, Findings, RepoBase}
+  alias Aiur.Orchestrator.DispatchPolicy
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_rb_#{System.unique_integer([:positive])}")
@@ -1169,7 +1172,7 @@ defmodule Aiur.RepoBaseTest do
         File.rm_rf!(tmp)
       end)
 
-      {:ok, server: pid}
+      {:ok, server: pid, cfg: cfg}
     end
 
     test "starts idle", %{server: pid} do
@@ -1260,6 +1263,131 @@ defmodule Aiur.RepoBaseTest do
       assert %{phase: {:error, {:repo_base_remote_probe_failed, :timeout}}, freshness: :unknown} =
                :sys.get_state(pid)
     end
+
+    test "a dropped checking probe restarts and the watchdog releases dispatch", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
+
+      :sys.replace_state(pid, fn state ->
+        %{state | phase: :checking, probe: nil, ready_head: "same", freshness: :unknown}
+      end)
+
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      assert %{probe: %{pid: probe_pid}, dispatch_watchdog: %{}} = :sys.get_state(pid)
+      assert Process.alive?(probe_pid)
+
+      receive_barrier({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, :checking}}})
+
+      phase = GenServer.call(pid, :refresh_for_dispatch)
+
+      assert phase == {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+      assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
+      refute Process.alive?(probe_pid)
+    end
+
+    test "a periodic refresh preserves the deadline after replacing a dead checking probe", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 200)
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
+      {dead_probe_pid, dead_probe_ref} = spawn_monitor(fn -> :ok end)
+      assert_receive {:DOWN, ^dead_probe_ref, :process, ^dead_probe_pid, :normal}
+      refute Process.alive?(dead_probe_pid)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | phase: :checking,
+            probe: %{pid: dead_probe_pid, ref: make_ref(), timer: nil},
+            ready_head: "same",
+            freshness: :unknown
+        }
+      end)
+
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      assert %{probe: %{pid: probe_pid}, dispatch_watchdog: %{ref: watchdog_ref}} = :sys.get_state(pid)
+      assert probe_pid != dead_probe_pid
+
+      send(pid, :poll)
+
+      assert %{phase: :checking, probe: %{pid: ^probe_pid}, dispatch_watchdog: %{ref: ^watchdog_ref}} =
+               :sys.get_state(pid)
+
+      receive_barrier({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, :checking}}})
+      refute Process.alive?(probe_pid)
+    end
+
+    test "a watchdog kills a stuck build and releases dispatch", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
+      build_pid = install_stuck_build(pid)
+
+      assert :building = GenServer.call(pid, :refresh_for_dispatch)
+
+      receive_barrier({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, :building}}})
+      refute Process.alive?(build_pid)
+
+      phase = GenServer.call(pid, :refresh_for_dispatch)
+      assert phase == {:error, {:repo_base_dispatch_hold_stalled, :building}}
+      assert DispatchPolicy.prewarm_gate(true, phase) == :dispatch
+    end
+
+    test "a successful build preserves the original dispatch deadline", %{server: pid, cfg: cfg} do
+      pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 500)
+      Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
+      build_pid = install_stuck_build(pid, "same")
+
+      assert :building = GenServer.call(pid, :refresh_for_dispatch)
+      assert %{dispatch_watchdog: %{ref: watchdog_ref}, probe: %{pid: probe_pid}} = :sys.get_state(pid)
+
+      send(pid, {:build_done, build_pid, "same", {:ok, "/base"}})
+      assert %{phase: :ready, freshness: :unknown, dispatch_watchdog: %{ref: ^watchdog_ref}} = :sys.get_state(pid)
+      Process.exit(build_pid, :kill)
+
+      send(pid, {:remote_head, probe_pid, {:ok, "same"}})
+
+      assert %{phase: :ready, freshness: :unknown, probe: nil, dispatch_watchdog: %{ref: ^watchdog_ref}} =
+               :sys.get_state(pid)
+
+      assert :checking = GenServer.call(pid, :refresh_for_dispatch)
+      assert %{dispatch_watchdog: %{ref: ^watchdog_ref}} = :sys.get_state(pid)
+
+      receive_barrier({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, :checking}}})
+    end
+  end
+
+  defp restart_enabled_server(pid, cfg, opts) do
+    Aiur.TestSupport.safe_stop(pid)
+
+    File.write!(cfg, """
+    tracker:
+      kind: github
+      base_branch: main
+      github:
+        repo: owner/project
+    prewarm:
+      enabled: true
+      base_build: "true"
+      poll_seconds: 0
+    """)
+
+    :ok = Aiur.WorkflowStore.force_reload()
+
+    opts = Keyword.put_new(opts, :remote_head_fun, fn _repo_url -> Process.sleep(:infinity) end)
+    {:ok, pid} = GenServer.start_link(RepoBase, opts)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    pid
+  end
+
+  defp install_stuck_build(pid, head \\ nil) do
+    test_pid = self()
+
+    :sys.replace_state(pid, fn state ->
+      {build_pid, ref} = spawn_monitor(fn -> Process.sleep(:infinity) end)
+      send(test_pid, {:build_pid, build_pid})
+      %{state | phase: :building, build: %{pid: build_pid, ref: ref, head: head}}
+    end)
+
+    assert_receive {:build_pid, build_pid}
+    build_pid
   end
 
   defp probe(pid), do: %{pid: pid, ref: make_ref(), timer: nil}
