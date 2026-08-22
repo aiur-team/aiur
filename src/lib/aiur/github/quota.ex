@@ -658,18 +658,21 @@ defmodule Aiur.GitHub.Quota do
 
       io ->
         case RequestLog.append_io(io, request, result, now) do
-          {:ok, bytes} ->
-            total = state.request_log_bytes + bytes
-
-            if total > RequestLog.max_bytes() do
-              rotate_request_log(state)
-            else
-              %{state | request_log_bytes: total}
-            end
-
-          {:error, _reason} ->
-            %{state | request_log_io: nil, request_log_bytes: 0}
+          {:ok, bytes} -> account_request_log_bytes(state, bytes)
+          {:error, _reason} -> %{state | request_log_io: nil, request_log_bytes: 0}
         end
+    end
+  end
+
+  # Tracks bytes written to the current file and rotates at the cap without a
+  # `stat` per request.
+  defp account_request_log_bytes(state, bytes) do
+    total = state.request_log_bytes + bytes
+
+    if total > RequestLog.max_bytes() do
+      rotate_request_log(state)
+    else
+      %{state | request_log_bytes: total}
     end
   end
 
