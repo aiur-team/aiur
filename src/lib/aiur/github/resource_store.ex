@@ -279,6 +279,13 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # Build Order relationship edges — the `sub_issues` and `issue_dependencies`
+    # webhook deliveries keyed per relationship so an event-sourced catalog can
+    # rebuild its roots' membership from the store instead of polling GitHub.
+    # `:sub_issues` is keyed by the sub-issue number and `:issue_dependencies`
+    # by the dependency relationship id.
+    :sub_issues,
+    :issue_dependencies,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
@@ -972,6 +979,58 @@ defmodule Aiur.GitHub.ResourceStore do
     case fetch(key) do
       {:ok, %{data: data}} -> data
       :miss -> nil
+    end
+  end
+
+  @doc """
+  Lists every held body of `type` within one `"owner/repo"`.
+
+  Answers `[{key, body}]` for the type in that repository, in arbitrary order.
+  Used by event-sourced projections (the Build Order catalog) to rebuild their
+  state from the store after a change event rather than holding their own copy
+  of the world, and by a projection that must resolve a delivered node id to a
+  held issue number.
+
+  Only bodies that `fetch/1` would serve are returned: an expired entry and an
+  entry holding no body are both omitted, so a projection rebuilding from this
+  list sees exactly what a reader would have seen. A key the store would refuse
+  (an unknown type, a malformed repo identity) answers `[]`.
+  """
+  @spec list_type(resource_type(), String.t() | nil) :: [{key(), term()}]
+  def list_type(type, full_name) when is_atom(type) and is_binary(full_name) do
+    case String.split(full_name, "/") do
+      [owner, repo] when owner != "" and repo != "" and type in @resource_types ->
+        # `match_object/2` matches whole stored objects (`{key, entry}`), so the
+        # pattern wraps the key in the tuple that is actually stored.
+        pattern = {{type, String.downcase(owner), String.downcase(repo), :_}, :_}
+
+        with_table([], fn table ->
+          table
+          |> :ets.match_object(pattern)
+          |> Enum.flat_map(fn {key, entry} ->
+            case held_entry(entry) do
+              nil -> []
+              data -> [{key, data}]
+            end
+          end)
+        end)
+
+      _other ->
+        []
+    end
+  end
+
+  def list_type(_type, _full_name), do: []
+
+  # The same expiry rule `fetch/1` applies, so a projection rebuilding from
+  # `list_type/2` never serves a body the store itself would have declined.
+  defp held_entry(entry) do
+    case Map.get(entry, :data) do
+      nil ->
+        nil
+
+      data ->
+        if expired?(Map.get(entry, :fetched_at_ms) || 0), do: nil, else: data
     end
   end
 

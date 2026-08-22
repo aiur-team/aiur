@@ -376,6 +376,52 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
     end
 
+    # Acceptance #2325: a `sub_issues` delivery carries one parent↔sub-issue
+    # edge, and the Build Order catalog rebuilds each root's membership from the
+    # store rather than polling GitHub. The edge is deposited keyed by the
+    # sub-issue's node id — the one identity both the added and removed payloads
+    # carry — with the parent relationship the projection needs to attach it to
+    # a root.
+    test "sub_issues sub_issue_added deposits the edge keyed by the sub-issue node id" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:sub_issues, @repo, "IS_sub_1")
+      assert {:ok, %{data: data, source: :webhook, version: "2026-06-24T13:00:00Z"}} = ResourceStore.fetch(key)
+      assert data["number"] == 21
+      assert data["parent"]["number"] == 42
+    end
+
+    test "sub_issues sub_issue_removed drops the edge" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:sub_issues, @repo, "IS_sub_1")
+      assert {:ok, _entry} = ResourceStore.fetch(key)
+
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_removed_delivery(), repo: @repo)
+      assert :miss = ResourceStore.fetch(key)
+    end
+
+    # Acceptance #2325: a blocked-by relationship added outside Aiur is likewise
+    # reflected. The `issue_dependencies` delivery carries the dependency edge —
+    # the relationship id and both issues — deposited under the relationship id
+    # so an event-sourced rebuild can enumerate every edge from the store.
+    test "issue_dependencies created deposits the edge keyed by relationship id" do
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:issue_dependencies, @repo, "DI_1")
+      assert {:ok, %{data: data, source: :webhook}} = ResourceStore.fetch(key)
+      assert data["dependency"]["number"] == 99
+      assert data["dependant"]["number"] == 42
+    end
+
+    test "issue_dependencies removed drops the edge" do
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:issue_dependencies, @repo, "DI_1")
+      assert {:ok, _entry} = ResourceStore.fetch(key)
+
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_removed_delivery(), repo: @repo)
+      assert :miss = ResourceStore.fetch(key)
+    end
+
     test "a delivery for an untracked repository deposits nothing" do
       GithubWebhook.handle_delivery(
         "issue_comment",
@@ -857,6 +903,75 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       "action" => "opened",
       "repository" => %{"full_name" => @repo},
       "pull_request" => pull_request(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp sub_issue_added_delivery do
+    %{
+      "action" => "sub_issue_added",
+      "repository" => %{"full_name" => @repo},
+      "parent_issue_id" => "IS_parent",
+      "sub_issue_id" => "IS_sub_1",
+      "sub_issue" => %{
+        "node_id" => "IS_sub_1",
+        "number" => 21,
+        "title" => "a sub-issue",
+        "state" => "open",
+        "updated_at" => "2026-06-24T13:00:00Z"
+      },
+      "parent_issue" => %{
+        "node_id" => "IS_parent",
+        "number" => 42,
+        "title" => "a build order root",
+        "state" => "open",
+        "updated_at" => "2026-06-24T12:00:00Z"
+      },
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp sub_issue_removed_delivery do
+    %{
+      "action" => "sub_issue_removed",
+      "repository" => %{"full_name" => @repo},
+      "parent_issue_id" => "IS_parent",
+      "sub_issue_id" => "IS_sub_1",
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp dependency_created_delivery do
+    %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "dependency" => %{
+        "dependency_id" => "DI_1",
+        "dependant_id" => "IS_parent",
+        "dependency" => %{
+          "node_id" => "IS_99",
+          "number" => 99,
+          "title" => "a blocker",
+          "state" => "open",
+          "updated_at" => "2026-06-24T13:30:00Z"
+        },
+        "dependant" => %{
+          "node_id" => "IS_parent",
+          "number" => 42,
+          "title" => "a build order root",
+          "state" => "open",
+          "updated_at" => "2026-06-24T12:00:00Z"
+        }
+      },
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp dependency_removed_delivery do
+    %{
+      "action" => "removed",
+      "repository" => %{"full_name" => @repo},
+      "dependency" => %{"dependency_id" => "DI_1"},
       "sender" => %{"login" => @human}
     }
   end
