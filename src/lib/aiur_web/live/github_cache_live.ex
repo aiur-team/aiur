@@ -695,6 +695,8 @@ defmodule AiurWeb.GithubCacheLive do
       {:ok, %{hit: hits}} when is_integer(hits) and hits > 1 -> "#{hits} reads"
       {:ok, %{refused: 1}} -> "1 policy refusal"
       {:ok, %{refused: refusals}} when is_integer(refusals) and refusals > 1 -> "#{refusals} policy refusals"
+      {:ok, %{not_deposited: 1}} -> "1 read not deposited"
+      {:ok, %{not_deposited: n}} when is_integer(n) and n > 1 -> "#{n} reads not deposited"
       {:ok, _observed} -> "none this boot"
       :error -> "not observed by ReadCache"
     end

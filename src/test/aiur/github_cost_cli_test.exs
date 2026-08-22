@@ -64,6 +64,31 @@ defmodule Aiur.GitHubCostCLITest do
     assert output =~ "read cache refusals: unsafe_kind 60"
   end
 
+  test "prints why cacheable reads were not deposited, so the miss/deposit gap is attributable" do
+    cache = fn ->
+      %{
+        available?: true,
+        entries: 12,
+        hit_rate: 0.75,
+        totals: %{hit: 30, miss: 30, deposit: 10, not_deposited: 20, refused: 0},
+        not_deposited: %{unsuccessful: 18, no_room: 2},
+        refused: %{},
+        classes: %{},
+        callers: %{},
+        invalidations: %{events: 2, marks: 4}
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    assert output =~ "read cache not deposited:"
+    assert output =~ "unsuccessful 18"
+    assert output =~ "no_room 2"
+  end
+
   test "never prints a hit rate over no observations" do
     cache = fn -> %{available?: true, entries: 0, hit_rate: nil, totals: %{hit: 0, miss: 0, deposit: 0, refused: 0}, refused: %{}} end
 
