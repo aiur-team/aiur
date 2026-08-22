@@ -1,6 +1,8 @@
 defmodule AiurWeb.DashboardLiveTest do
   use Aiur.TestSupport
 
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
+
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 

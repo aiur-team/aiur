@@ -1,6 +1,8 @@
 defmodule Aiur.HttpServerCredentialGateTest do
   use ExUnit.Case, async: false
 
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
+
   import ExUnit.CaptureLog
 
   alias Aiur.HttpServer
@@ -100,6 +102,7 @@ defmodule Aiur.HttpServerCredentialGateTest do
     test "passes the gate (doesn't short-circuit with :ignore)" do
       System.put_env("AIUR_DASHBOARD_USERNAME", "alice")
       System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+      endpoint_before = Process.whereis(AiurWeb.Endpoint)
 
       Process.flag(:trap_exit, true)
 
@@ -119,10 +122,25 @@ defmodule Aiur.HttpServerCredentialGateTest do
           :exit, reason -> {:exit, reason}
         end
 
+      if is_nil(endpoint_before), do: await_endpoint_shutdown()
+
       # `:ignore` here would mean the gate rejected before binding.
       # Anything else (success, bind failure, exit) means the gate
       # let us through.
       refute result == :ignore
     end
+  end
+
+  defp await_endpoint_shutdown do
+    Enum.reduce_while(1..100, Process.whereis(AiurWeb.Endpoint), fn _, previous ->
+      Process.sleep(10)
+      current = Process.whereis(AiurWeb.Endpoint)
+
+      if is_nil(previous) and is_nil(current) do
+        {:halt, :ok}
+      else
+        {:cont, current}
+      end
+    end)
   end
 end
