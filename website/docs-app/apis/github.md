@@ -112,7 +112,7 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 
 | Widening | Effect |
 | --- | --- |
-| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is actively running, turning the 120-second base into a 10-minute sweep. |
+| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is running and nothing dispatchable is waiting — turning the 120-second base into a 10-minute sweep. A live fleet with claimable tickets, or a freshly started daemon that has not yet observed a full idle cycle, keeps the base interval so work dispatches promptly (#2138). |
 | Proven webhook repo (`webhooks.poll_widen_factor`, default 2.0) | Multiplies the interval for reconciliation polls. |
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
@@ -131,9 +131,9 @@ looking.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
-| First startup sweep | Always immediate. |
+| First startup sweep | Always immediate, and the first scheduling decision after a restart stays at the base interval (no idleness has been observed yet). |
 | Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
-| `aiur --todo`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
+| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
 
