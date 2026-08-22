@@ -19,12 +19,11 @@ defmodule Aiur.GitHub.PollSnapshotsTest do
   end
 
   test "delivery freshness is bounded independently from store retention" do
-    now_ms = System.system_time(:millisecond)
-
     assert :ok = PollSnapshots.put_review_threads(@repo, 77, [thread("PRRT_1", false, "2026-08-21T10:00:00Z")])
     assert :ok = PollSnapshots.merge_review_thread(@repo, 77, thread("PRRT_1", true, "2026-08-21T10:01:00Z"))
+    assert {:ok, %{fetched_at_ms: fetched_at_ms}} = ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 77))
 
-    assert :miss = PollSnapshots.review_threads(@repo, 77, now_ms: now_ms + 30_001)
+    assert :miss = PollSnapshots.review_threads(@repo, 77, now_ms: fetched_at_ms + 30_001)
     assert {:ok, %{source: :webhook}} = ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 77))
   end
 
