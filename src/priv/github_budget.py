@@ -92,6 +92,7 @@ def connection(path):
           consumer_key TEXT NOT NULL DEFAULT '',
           lease_id TEXT,
           endpoint_family TEXT NOT NULL,
+          resource TEXT,
           admitted_at_ms INTEGER NOT NULL,
           billable INTEGER NOT NULL DEFAULT 1
         );
@@ -136,6 +137,13 @@ def migrate(conn):
         conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
     if "billable" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
+    # The resource the guard booked this admission to (core / graphql / unknown).
+    # The broker's accounting buckets on `endpoint_family`, so this column does
+    # not change how a row is counted; it records what the caller *said* it was
+    # spending, which makes a guard that books a GraphQL call to core detectable
+    # from the ledger instead of only inferable from the family-to-bucket map.
+    if "resource" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN resource TEXT")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -405,8 +413,8 @@ def acquire(args):
             (lease_id, args.token_key, args.endpoint_family, expires_at),
         )
         conn.execute(
-            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms) VALUES (?, ?, ?, ?, ?)",
-            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, now),
+            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, resource, admitted_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, args.resource, now),
         )
         conn.execute(
             "UPDATE budgets SET next_admission_ms = ? WHERE token_key = ?", (now + stagger, args.token_key)
@@ -529,7 +537,7 @@ def snapshot(args):
             (args.token_key,),
         ).fetchall()
         admissions = conn.execute(
-            "SELECT endpoint_family, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
+            "SELECT endpoint_family, resource, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
         ).fetchall()
         conn.execute("COMMIT")
         print(
@@ -538,8 +546,8 @@ def snapshot(args):
                     "cooldown_until_ms": cooldown[0] if cooldown else 0,
                     "inflight": dict(leases),
                     "admissions": [
-                        {"endpoint_family": endpoint_family, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
-                        for endpoint_family, admitted_at_ms, billable in admissions
+                        {"endpoint_family": endpoint_family, "resource": resource, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
+                        for endpoint_family, resource, admitted_at_ms, billable in admissions
                     ],
                 }
             )

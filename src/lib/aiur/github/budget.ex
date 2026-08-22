@@ -654,7 +654,7 @@ defmodule Aiur.GitHub.Budget do
     %{
       cooldown_until_ms: cooldown,
       inflight: inflight,
-      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], admitted_at_ms: &1["admitted_at_ms"]})
+      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], resource: &1["resource"], admitted_at_ms: &1["admitted_at_ms"]})
     }
   end
 

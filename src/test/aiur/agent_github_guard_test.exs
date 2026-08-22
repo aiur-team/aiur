@@ -358,7 +358,9 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tticket:1670\tread\tcore\n"
+    # `gh issue view` is GraphQL on the wire, so it must be tracked against the
+    # GraphQL budget; `gh issue edit` is REST and stays on core.
+    assert events =~ "\tticket:1670\tread\tgraphql\n"
     assert events =~ "\tticket:1670\twrite\tcore\n"
     refute events =~ "secret body"
   end
@@ -679,7 +681,34 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
   end
 
-  test "a core resource hold blocks high-level gh commands", context do
+  test "a graphql resource hold blocks the GraphQL high-level read", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "graphql", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    # `pr view` is GraphQL on the wire, so a GraphQL resource hold must block it.
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute File.exists?(context.calls)
+  end
+
+  test "a core resource hold blocks a REST high-level command", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
@@ -689,8 +718,9 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
+    # `pr diff` is REST, so a core resource hold must block it.
     assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "diff", "1670"],
                env:
                  guard_env(context) ++
                    [
@@ -744,7 +774,171 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    assert %{"admissions" => [%{"endpoint_family" => "pulls"}]} = Jason.decode!(snapshot)
+    # `pr list` is GraphQL on the wire, so its single guarded admission lands in
+    # the graphql endpoint family, not the core pulls bucket.
+    assert %{"admissions" => [%{"endpoint_family" => "graphql"}]} = Jason.decode!(snapshot)
+  end
+
+  # The family/bucket split this issue exists for: `pr view|list|status|checks`,
+  # `issue view|list|status`, and `search` all speak GraphQL on the wire and must
+  # be booked to the graphql resource — not core. The broker records the `resource`
+  # the guard booked each admission to, so a regression that books `pr view` to
+  # core fails here on both `endpoint_family` and `resource`.
+  test "high-level GraphQL commands book the graphql resource, not core", context do
+    budget_root = Path.join(context.state_path, "graphql-read-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    graphql_commands = [
+      ["pr", "view", "1670"],
+      ["pr", "list"],
+      ["pr", "status"],
+      ["pr", "checks", "1670"],
+      ["issue", "view", "1670"],
+      ["issue", "list"],
+      ["issue", "status"],
+      ["search", "issues", "state:open"]
+    ]
+
+    for args <- graphql_commands do
+      assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
+    end
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == length(graphql_commands)
+
+    for admission <- admissions do
+      assert admission["endpoint_family"] == "graphql"
+      assert admission["resource"] == "graphql"
+    end
+  end
+
+  test "REST high-level commands stay in the core bucket", context do
+    budget_root = Path.join(context.state_path, "rest-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    rest_commands = [
+      # `pr diff` is REST even though `pr view|list|status|checks` are GraphQL.
+      ["pr", "diff", "1670"],
+      ["pr", "close", "1670"],
+      ["issue", "edit", "1670", "--body", "x"],
+      ["issue", "comment", "1670", "--body", "x"]
+    ]
+
+    for args <- rest_commands do
+      assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
+    end
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == length(rest_commands)
+
+    for admission <- admissions do
+      # REST commands book to core: the family is not graphql and the booked
+      # resource is not graphql.
+      assert admission["endpoint_family"] != "graphql"
+      assert admission["resource"] != "graphql"
+    end
+  end
+
+  test "the GraphQL write subcommands book the graphql resource", context do
+    budget_root = Path.join(context.state_path, "graphql-write-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    # `pr create`, `pr merge`, `pr review`, and `issue create` mutate through
+    # GraphQL. Merge and approve are agent-gated, so `pr merge` runs under the
+    # Executor wrapper and `pr review` as a non-approving comment review.
+    assert {"ok\n", 0} = run_guard(context, ["pr", "create", "--title", "x"], env)
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "--comment", "--body", "looks reasonable"], env)
+    assert {"ok\n", 0} = run_guard(context, ["issue", "create", "--title", "x", "--label", "agent:todo"], env)
+    assert {"ok\n", 0} = run_executor_guard(context, ["pr", "merge", "1670", "--squash"], env)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == 4
+
+    for admission <- admissions do
+      assert admission["endpoint_family"] == "graphql"
+      assert admission["resource"] == "graphql"
+    end
+  end
+
+  test "pr view consumes the graphql actor ceiling, not the core one", context do
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    # A graphql ceiling of 1: the second `pr view` holds, proving `pr view`
+    # spends against the GraphQL budget. If it were still booked to core (the
+    # pre-fix behaviour) this hold would never fire.
+    graphql_budget = Path.join(context.state_path, "graphql-ceiling-budget")
+
+    graphql_env = [
+      AIUR_GITHUB_BUDGET_ROOT: graphql_budget,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "1",
+      AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], graphql_env)
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", graphql_budget},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "1"},
+                     {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    # A core ceiling of 1 with the graphql ceiling disabled: `pr view` is
+    # admitted repeatedly because it never touches the core budget.
+    core_budget = Path.join(context.state_path, "core-ceiling-budget")
+
+    core_env = [
+      AIUR_GITHUB_BUDGET_ROOT: core_budget,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+      AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], core_env)
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], core_env)
   end
 
   test "a paginated api call preserves its original command shape", context do
@@ -2788,6 +2982,12 @@ defmodule Aiur.AgentGitHubGuardTest do
 
   # The same script run from outside `.aiur-runtime/bin` and without the agent
   # workspace marker: this is how the Executor invokes it, with full authority.
+  #
+  # `System.cmd` merges the parent environment rather than replacing it, so
+  # "remove the marker" is not enough when the test VM itself runs inside an
+  # Aiur agent workspace (AIUR_AGENT_WORKSPACE is inherited back in). The guard
+  # treats an empty AIUR_AGENT_WORKSPACE as absent (`-z "${AIUR_AGENT_WORKSPACE:-}"`),
+  # so pinning it to "" genuinely simulates an Executor shell everywhere.
   defp run_executor_guard(context, args, extra_env) do
     bin = Path.join(context.workspace, "executor-bin-#{System.unique_integer([:positive])}")
     File.mkdir_p!(bin)
@@ -2797,7 +2997,7 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     env =
       Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end) ++
-        [{"AIUR_GITHUB_BUDGET_ENABLED", "1"}] ++
+        [{"AIUR_GITHUB_BUDGET_ENABLED", "1"}, {"AIUR_AGENT_WORKSPACE", ""}] ++
         Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
 
     System.cmd(wrapper, args, env: env, stderr_to_stdout: true)

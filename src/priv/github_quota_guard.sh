@@ -221,11 +221,24 @@ case "${1:-} ${2:-}" in
     done
     unset api_options
     ;;
-  "pr view"|"pr list"|"pr status"|"pr checks"|"pr diff") endpoint_family=pulls ;;
-  "issue view"|"issue list"|"issue status") endpoint_family=issues ;;
+  # `gh pr view|list|status|checks`, `gh issue view|list|status`, and
+  # `gh search *` speak GraphQL on the wire and are billed in points against the
+  # GraphQL window, so they must book to the graphql resource — not core. `pr
+  # diff` is REST and stays in the pulls family (it must not inherit the
+  # graphql booking from its read-arm sibling).
+  "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=graphql ;;
+  "pr diff") endpoint_family=pulls ;;
+  "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=graphql ;;
   "run view"|"run list"|"run watch") endpoint_family=actions ;;
-  "search "*) endpoint_family=search ;;
+  "search "*) resource=graphql; endpoint_family=graphql ;;
+  # The `pr`/`issue` write subcommands are a GraphQL/REST mix and must be
+  # classified per subcommand rather than as one bucket: `pr create|merge|review`
+  # and `issue create` mutate through GraphQL, while the rest (close, reopen,
+  # comment, edit, ready, lock/unlock, update-branch, transfer, ...) go through
+  # REST and keep the pulls/issues families.
+  "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=graphql; direction=write ;;
   "pr "*) endpoint_family=pulls; direction=write ;;
+  "issue create") resource=graphql; endpoint_family=graphql; direction=write ;;
   "issue "*) endpoint_family=issues; direction=write ;;
   "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
   "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
