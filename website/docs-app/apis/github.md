@@ -294,13 +294,24 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 | Review submitted, edited or dismissed | The review, and the pull request. |
 | Pull request, any action | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
 | Issue, any action | The issue and its label set, whether or not the action is one Aiur reacts to. |
-| Check run | That check run. It says nothing about the other runs on the same head, so a reader asking about the head still reads. |
+| Check run | The matching run inside a complete CI-context snapshot already established for the same head. A lone delivery never invents the rest of the collection. |
+| Review thread resolved | The matching thread inside a complete review-thread snapshot already established for the pull request. |
 | A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
 | A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+
+Comment, CI, and review-thread pollers consult these complete snapshots before
+building their GraphQL documents. A snapshot written by a poll is only a
+baseline; it does not suppress the next poll. When a verified delivery advances
+that baseline, the matching collection is eligible for 30 seconds. During that
+window Aiur omits only `reviewThreads` or `statusCheckRollup.contexts`, while
+continuing to read `reviewDecision`, `mergeable`, and other strict verdict state
+live. Successful polls write their complete selections back so the next
+delivery and poll converge on the same state. Partial, stale, poll-only,
+head-mismatched, or unavailable entries always fall back to GitHub.
 
 ## Shared agent reads
 

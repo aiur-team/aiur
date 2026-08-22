@@ -307,6 +307,18 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("check_run", delivery, repo: @repo)
     end
 
+    test "a resolved pull request review thread reconciles without publishing a comment" do
+      delivery = %{
+        "action" => "resolved",
+        "repository" => %{"full_name" => @repo},
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug"}},
+        "thread" => %{"node_id" => "PRRT_resolved", "is_resolved" => true, "updated_at" => "2026-08-21T10:00:00Z"}
+      }
+
+      assert {:reconcile, %{kind: :review_threads, ticket: "42", pull_request: 901, source: "pull_request_review_thread"}} =
+               Normalizer.normalize("pull_request_review_thread", delivery, repo: @repo)
+    end
+
     test "an in-progress check is dropped" do
       delivery = %{
         "action" => "created",

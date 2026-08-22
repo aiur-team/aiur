@@ -1,16 +1,73 @@
 defmodule Aiur.GitHub.CommentPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.CommentPollBatch
+  alias Aiur.GitHub.{CommentPollBatch, PollSnapshots, ResourceStore}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    ResourceStore.reset()
 
     on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
     :ok
+  end
+
+  test "omits delivered review threads while keeping strict review context live" do
+    assert :ok = PollSnapshots.put_review_threads("owner/repo", 77, [])
+    assert :ok = PollSnapshots.merge_review_thread("owner/repo", 77, %{"id" => "PRRT_resolved", "isResolved" => true, "updatedAt" => "2026-08-21T10:00:00Z"})
+
+    request_fun = fn %{method: :post, body: body} ->
+      refute body["query"] =~ "reviewThreads(first: 100)"
+      assert body["query"] =~ "reviewDecision"
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => %{"__typename" => "Issue"},
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request(77, "feature/watched") |> Map.delete("reviewThreads")]
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               open_pull_requests_by_target: %{"42" => %{"number" => 77, "head" => %{"ref" => "feature/watched"}}}
+             )
+
+    assert batch.review_thread_comments == []
+  end
+
+  test "writes complete queried review threads back with poll provenance" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => pull_request(77, "feature/watched"),
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"77" => _batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
+
+    assert {:ok, %{source: :poll, data: %{"complete" => true, "threads" => []}}} =
+             ResourceStore.fetch(PollSnapshots.review_threads_key("owner/repo", 77))
   end
 
   test "batches target issues with per-target headRefName pull request aliases" do

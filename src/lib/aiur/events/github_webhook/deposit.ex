@@ -52,11 +52,12 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   free, not a cached one. Holding the body is what permits that, because
   `ResourceStore.etag/1` answers only beside a held body.
 
-  **`:check_run` is not deposited at all** (#2126). No store reader addresses a
-  check run, and it is deliberately excluded from the agent cache on the
-  grounds that a CI verdict must never be served from a cache at any age, so a
-  deposit of one bought nothing. It was removed rather than kept as a dead
-  write.
+  A `check_run` delivery may advance the matching run inside a complete
+  `:ci_contexts` snapshot that a poll already established for the same head.
+  It never invents the rest of the collection from one run, and it never makes
+  review, merge, or CI verdict fields generally cacheable. The CI poller still
+  reads those strict pull-request fields live; it omits only the exact contexts
+  selection a newer delivery already supplied.
 
   ## What this module deliberately does not do
 
@@ -102,7 +103,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{PollSnapshots, ResourceStore}
   alias Aiur.TicketBranch
 
   @typedoc """
@@ -112,6 +113,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   @type work ::
           {ResourceStore.resource_type(), term(), term(), String.t() | nil}
           | {:drop, ResourceStore.resource_type(), term()}
+          | {:merge_review_thread, term(), map()}
+          | {:merge_check_run, term(), String.t(), map()}
 
   @doc """
   Deposits every body `payload` carries, and returns the keys written.
@@ -125,6 +128,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     if store_running?() do
       Enum.flat_map(bodies(event_type, payload), fn
         {:drop, type, id} -> drop(type, repo, id)
+        {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
+        {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
         {type, id, body, version} -> store(type, repo, id, body, version)
       end)
     else
@@ -178,11 +183,63 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     review_deposits(action, review) ++ pull_request_deposits(Map.get(payload, "pull_request"))
   end
 
+  defp bodies("pull_request_review_thread", %{"action" => "resolved"} = payload) do
+    with %{} = pull_request <- Map.get(payload, "pull_request"),
+         pr_number when not is_nil(pr_number) <- Map.get(pull_request, "number"),
+         %{} = thread <- Map.get(payload, "thread"),
+         %{"id" => id} = normalized when is_binary(id) and id != "" <- normalize_review_thread(thread) do
+      [{:merge_review_thread, pr_number, normalized}]
+    else
+      _other -> []
+    end
+  end
+
+  defp bodies("check_run", payload) do
+    with %{} = check_run <- Map.get(payload, "check_run"),
+         head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(check_run, "head_sha"),
+         %{"id" => id} = normalized when not is_nil(id) <- normalize_check_run(check_run) do
+      check_run
+      |> Map.get("pull_requests", [])
+      |> Enum.flat_map(fn pull_request ->
+        case pull_request |> get_in(["head", "ref"]) |> TicketBranch.ticket_id() do
+          nil -> []
+          target -> [{:merge_check_run, target, head_sha, normalized}]
+        end
+      end)
+      |> Enum.uniq_by(fn {:merge_check_run, target, _head_sha, _run} -> target end)
+    else
+      _other -> []
+    end
+  end
+
   defp bodies("pull_request", payload), do: pull_request_deposits(Map.get(payload, "pull_request"))
 
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
   defp bodies(_event_type, _payload), do: []
+
+  defp normalize_review_thread(thread) do
+    %{
+      "id" => Map.get(thread, "node_id") || Map.get(thread, "id"),
+      "isResolved" => true,
+      "updatedAt" => Map.get(thread, "updated_at"),
+      "path" => Map.get(thread, "path"),
+      "line" => Map.get(thread, "line")
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp normalize_check_run(check_run) do
+    %{
+      "id" => Map.get(check_run, "id"),
+      "name" => Map.get(check_run, "name"),
+      "status" => Map.get(check_run, "status"),
+      "conclusion" => Map.get(check_run, "conclusion"),
+      "started_at" => Map.get(check_run, "started_at"),
+      "completed_at" => Map.get(check_run, "completed_at"),
+      "output" => Map.get(check_run, "output", %{})
+    }
+  end
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
 
@@ -274,6 +331,24 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # ---------------------------------------------------------------------------
   # Writing
   # ---------------------------------------------------------------------------
+
+  defp merge_review_thread(repo, pr_number, thread) do
+    key = PollSnapshots.review_threads_key(repo, pr_number)
+
+    case PollSnapshots.merge_review_thread(repo, pr_number, thread) do
+      :ok -> confirm(key)
+      :unchanged -> []
+    end
+  end
+
+  defp merge_check_run(repo, target, head_sha, check_run) do
+    key = PollSnapshots.ci_contexts_key(repo, target)
+
+    case PollSnapshots.merge_check_run(repo, target, head_sha, check_run) do
+      :ok -> confirm(key)
+      :unchanged -> []
+    end
+  end
 
   defp store(_type, _repo, _id, body, _version) when not (is_map(body) or is_list(body)), do: []
 

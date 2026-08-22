@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.ReviewThreads do
   """
 
   alias Aiur.Codeowners
-  alias Aiur.GitHub.{BotIdentity, Transport}
+  alias Aiur.GitHub.{BotIdentity, PollSnapshots, Transport}
 
   @review_thread_query """
   query AiurReviewThread($id: ID!) {
@@ -73,20 +73,22 @@ defmodule Aiur.GitHub.ReviewThreads do
           {:ok, [map()]} | {:error, term()}
   def fetch_unaddressed_pr_review_thread_comments(pr_number, opts \\ []) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts),
          {:ok, number} <- normalize_pr_number(pr_number) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      repo_identity = owner <> "/" <> repo
 
-      fetch_unaddressed_review_thread_pages(
-        request_fun,
-        token,
-        owner,
-        repo,
-        number,
-        nil,
-        opts,
-        []
-      )
+      case PollSnapshots.review_threads(repo_identity, number, opts) do
+        {:ok, threads} ->
+          unaddressed_thread_comments_result(threads, opts)
+
+        :miss ->
+          with {:ok, token} <- Transport.require_token(opts),
+               request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+               started_at_ms = System.system_time(:millisecond),
+               {:ok, threads} <- fetch_unaddressed_review_thread_pages(request_fun, token, owner, repo, number, nil, []) do
+            PollSnapshots.put_review_threads(repo_identity, number, threads, started_at_ms: started_at_ms)
+            unaddressed_thread_comments_result(threads, opts)
+          end
+      end
     end
   end
 
@@ -109,7 +111,6 @@ defmodule Aiur.GitHub.ReviewThreads do
          repo,
          number,
          cursor,
-         opts,
          acc
        ) do
     variables =
@@ -118,8 +119,7 @@ defmodule Aiur.GitHub.ReviewThreads do
 
     case Transport.github_graphql(request_fun, token, @unaddressed_review_threads_query, variables, caller: :review_threads_unaddressed) do
       {:ok, body} ->
-        with {:ok, {threads, page_info}} <- review_threads_page(body),
-             {:ok, comments} <- unaddressed_thread_comments_result(threads, opts) do
+        with {:ok, {threads, page_info}} <- review_threads_page(body) do
           continue_unaddressed_review_thread_pages(
             request_fun,
             token,
@@ -127,8 +127,7 @@ defmodule Aiur.GitHub.ReviewThreads do
             repo,
             number,
             page_info,
-            opts,
-            acc ++ comments
+            [threads | acc]
           )
         end
 
@@ -144,7 +143,6 @@ defmodule Aiur.GitHub.ReviewThreads do
          repo,
          number,
          page_info,
-         opts,
          acc
        ) do
     if Map.get(page_info, "hasNextPage") == true do
@@ -155,11 +153,10 @@ defmodule Aiur.GitHub.ReviewThreads do
         repo,
         number,
         Map.get(page_info, "endCursor"),
-        opts,
         acc
       )
     else
-      {:ok, acc}
+      {:ok, acc |> Enum.reverse() |> List.flatten()}
     end
   end
 

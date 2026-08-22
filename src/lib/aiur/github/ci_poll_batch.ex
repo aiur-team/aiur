@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{MergeQueue, Transport}
+  alias Aiur.GitHub.{MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -49,7 +49,13 @@ defmodule Aiur.GitHub.CIPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, opts)) |> Enum.chunk_every(@targets_per_query)
+      repo_identity = owner <> "/" <> repo
+      started_at_ms = System.system_time(:millisecond)
+
+      chunks =
+        targets
+        |> Enum.map(&target_entry(&1, opts, repo_identity, started_at_ms))
+        |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -68,11 +74,20 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  defp target_entry(target, opts) do
-    case known_branch(target, opts) do
-      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
-      branch -> %{target: target, branches: [branch], known_branch: true}
-    end
+  defp target_entry(target, opts, repo_identity, started_at_ms) do
+    entry =
+      case known_branch(target, opts) do
+        nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
+        branch -> %{target: target, branches: [branch], known_branch: true}
+      end
+
+    cached_contexts =
+      case PollSnapshots.ci_contexts(repo_identity, target, opts) do
+        {:ok, contexts} -> contexts
+        :miss -> nil
+      end
+
+    Map.merge(entry, %{cached_contexts: cached_contexts, repo_identity: repo_identity, started_at_ms: started_at_ms})
   end
 
   # GitHub issues carry no branch name (`Issues.normalize_issue/5` sets
@@ -134,13 +149,13 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp branch_aliases(%{branches: branches}, index) do
+  defp branch_aliases(%{branches: branches} = entry, index) do
     branches
     |> Enum.with_index()
-    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, index, candidate) end)
+    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, entry, index, candidate) end)
   end
 
-  defp branch_alias(branch, index, candidate) do
+  defp branch_alias(branch, entry, index, candidate) do
     """
     branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
@@ -149,7 +164,17 @@ defmodule Aiur.GitHub.CIPollBatch do
         isDraft reviewDecision mergeable mergeStateStatus
         autoMergeRequest { enabledAt }
         mergeQueueEntry { id }
-        commits(last: 1) {
+        #{contexts_selection(entry)}
+      }
+    }
+    """
+  end
+
+  defp contexts_selection(%{cached_contexts: %{} = _contexts}), do: ""
+
+  defp contexts_selection(_entry) do
+    """
+    commits(last: 1) {
           nodes {
             commit {
               statusCheckRollup {
@@ -157,7 +182,7 @@ defmodule Aiur.GitHub.CIPollBatch do
                   pageInfo { hasNextPage endCursor }
                   nodes {
                     __typename
-                    ... on CheckRun { name status conclusion detailsUrl startedAt completedAt }
+                    ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt }
                     ... on StatusContext { context state targetUrl createdAt description }
                   }
                 }
@@ -165,8 +190,6 @@ defmodule Aiur.GitHub.CIPollBatch do
             }
           }
         }
-      }
-    }
     """
   end
 
@@ -235,12 +258,44 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_first_pull_request(acc, entry, node) do
     result = normalize_pull_request(node)
 
-    if Map.get(result, :contexts_overflow) do
-      Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
-      acc
-    else
-      Map.put(acc, entry.target, result)
+    cond do
+      cached_contexts_match?(entry, result) ->
+        Map.put(acc, entry.target, put_cached_contexts(result, entry.cached_contexts))
+
+      is_map(entry.cached_contexts) ->
+        # The held selection belongs to an older head. This query deliberately
+        # omitted contexts, so leave the target to its exact fallback rather
+        # than returning an invented empty CI result.
+        acc
+
+      Map.get(result, :contexts_overflow) ->
+        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+        acc
+
+      true ->
+        PollSnapshots.put_ci_contexts(
+          entry.repo_identity,
+          entry.target,
+          get_in(result, [:pull_request, "head", "sha"]),
+          result.check_runs,
+          result.commit_status,
+          started_at_ms: entry.started_at_ms
+        )
+
+        Map.put(acc, entry.target, result)
     end
+  end
+
+  defp cached_contexts_match?(%{cached_contexts: %{"head_sha" => head_sha}}, result),
+    do: get_in(result, [:pull_request, "head", "sha"]) == head_sha
+
+  defp cached_contexts_match?(_entry, _result), do: false
+
+  defp put_cached_contexts(result, cached_contexts) do
+    result
+    |> Map.put(:check_runs, Map.fetch!(cached_contexts, "check_runs"))
+    |> Map.put(:commit_status, Map.fetch!(cached_contexts, "commit_status"))
+    |> Map.put(:contexts_overflow, false)
   end
 
   defp normalize_pull_request(node) do
@@ -285,6 +340,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp normalize_check_run(check_run) do
     %{
+      "id" => Map.get(check_run, "databaseId"),
       "name" => Map.get(check_run, "name"),
       "status" => Map.get(check_run, "status") |> to_string() |> String.downcase(),
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),

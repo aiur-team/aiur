@@ -1,13 +1,14 @@
 defmodule Aiur.GitHub.CIPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.CIPollBatch
+  alias Aiur.GitHub.{CIPollBatch, PollSnapshots, ResourceStore}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    ResourceStore.reset()
 
     on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
     :ok
@@ -69,6 +70,82 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
     assert [%{"name" => "test", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
+  end
+
+  test "omits delivery-fresh CI contexts while retaining strict pull request fields" do
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               "owner/repo",
+               "42",
+               "head-77",
+               [%{"id" => 501, "name" => "cached", "status" => "queued", "conclusion" => nil}],
+               %{"state" => "pending", "statuses" => []}
+             )
+
+    assert :ok =
+             PollSnapshots.merge_check_run(
+               "owner/repo",
+               "42",
+               "head-77",
+               %{"id" => 501, "name" => "cached", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
+             )
+
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
+      refute body["query"] =~ "statusCheckRollup"
+      refute body["query"] =~ "contexts(first: 100)"
+
+      node = Map.delete(pull_request(), "commits")
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{"data" => %{"repository" => %{"branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [node]}}}}
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
+             )
+
+    assert [%{"name" => "cached", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
+    assert %{"state" => "pending", "statuses" => []} = batch.commit_status
+  end
+
+  test "writes a complete polled CI selection back for later webhook advancement" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => _batch}} =
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
+             )
+
+    assert :miss = PollSnapshots.ci_contexts("owner/repo", "42")
+
+    assert :ok =
+             PollSnapshots.merge_check_run(
+               "owner/repo",
+               "42",
+               "head-77",
+               %{"id" => 501, "name" => "test", "status" => "completed", "conclusion" => "failure", "completed_at" => "2026-08-21T10:02:00Z"}
+             )
+
+    assert {:ok, %{"check_runs" => [%{"id" => 501, "conclusion" => "failure"}]}} = PollSnapshots.ci_contexts("owner/repo", "42")
   end
 
   # Regression guard: GitHub issues have no branch name, so without the
@@ -251,6 +328,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
                   "nodes" => [
                     %{
                       "__typename" => "CheckRun",
+                      "databaseId" => 501,
                       "name" => "test",
                       "status" => "COMPLETED",
                       "conclusion" => "SUCCESS",

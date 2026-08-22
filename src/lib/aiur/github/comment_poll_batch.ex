@@ -35,7 +35,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{ReviewThreads, Transport}
+  alias Aiur.GitHub.{PollSnapshots, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -74,7 +74,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, opts)) |> Enum.chunk_every(@targets_per_query)
+      repo_identity = owner <> "/" <> repo
+      started_at_ms = System.system_time(:millisecond)
+
+      chunks =
+        targets
+        |> Enum.map(&target_entry(&1, opts, repo_identity, started_at_ms))
+        |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github comment GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -94,10 +100,33 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp target_entry(target, opts) do
-    case known_branch(target, opts) do
-      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
-      branch -> %{target: target, branches: [branch], known_branch: true}
+  defp target_entry(target, opts, repo_identity, started_at_ms) do
+    entry =
+      case known_branch(target, opts) do
+        nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
+        branch -> %{target: target, branches: [branch], known_branch: true}
+      end
+
+    snapshot_pr_number = known_pull_request_number(target, opts)
+
+    cached_threads =
+      case PollSnapshots.review_threads(repo_identity, snapshot_pr_number, opts) do
+        {:ok, threads} -> threads
+        :miss -> nil
+      end
+
+    Map.merge(entry, %{
+      cached_threads: cached_threads,
+      repo_identity: repo_identity,
+      snapshot_pr_number: snapshot_pr_number,
+      started_at_ms: started_at_ms
+    })
+  end
+
+  defp known_pull_request_number(target, opts) do
+    case opts |> Keyword.get(:open_pull_requests_by_target, %{}) |> Map.get(target) do
+      %{"number" => number} when not is_nil(number) -> number
+      _other -> target
     end
   end
 
@@ -161,7 +190,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp target_aliases(%{target: target, branches: branches}, index) do
+  defp target_aliases(%{target: target, branches: branches} = entry, index) do
     branch_aliases =
       branches
       |> Enum.with_index()
@@ -170,7 +199,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
       ... on Issue { __typename }
-      ... on PullRequest { #{pull_request_fields()} }
+      ... on PullRequest { #{pull_request_fields(entry)} }
     }
     #{branch_aliases}
     """
@@ -199,7 +228,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp pull_request_fields do
+  defp pull_request_fields(%{cached_threads: threads}) when is_list(threads), do: pull_request_identity_fields()
+
+  defp pull_request_fields(_entry) do
     """
     #{pull_request_identity_fields()}
     reviewThreads(first: 100) {
@@ -217,7 +248,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
       case pull_request_for_entry(entry, direct, repository, index) do
         {:ok, pull_request} ->
-          Map.put(acc, entry.target, target_batch(entry.target, direct, pull_request, opts))
+          Map.put(acc, entry.target, target_batch(entry, direct, pull_request, opts))
 
         :unknown ->
           # The PR lookup was inconclusive (overflowed branch listing or a
@@ -276,10 +307,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # goes through the conditional REST path. That is the inversion: the priced
   # request is no longer the default and the free one no longer the error
   # handler.
-  defp target_batch(target, _direct, pull_request, opts) do
+  defp target_batch(entry, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
 
     cond do
+      cached_threads_match?(entry, pull_request) ->
+        Map.put(batch, :review_thread_comments, ReviewThreads.unaddressed_thread_comments(entry.cached_threads, opts))
+
       not threads_included?(pull_request) ->
         # Identity came from a branch alias, which does not carry threads.
         # Omitting the key is the whole point: an empty list here would read as
@@ -288,10 +322,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
         batch
 
       review_threads_overflow?(pull_request) ->
-        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{target}")
+        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{entry.target}")
         batch
 
       true ->
+        PollSnapshots.put_review_threads(
+          entry.repo_identity,
+          Map.get(pull_request, "number"),
+          Map.get(pull_request, :review_threads, []),
+          started_at_ms: entry.started_at_ms
+        )
+
         Map.put(
           batch,
           :review_thread_comments,
@@ -299,6 +340,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
         )
     end
   end
+
+  defp cached_threads_match?(%{cached_threads: threads, snapshot_pr_number: pr_number}, %{} = pull_request) when is_list(threads) do
+    to_string(Map.get(pull_request, "number")) == to_string(pr_number)
+  end
+
+  defp cached_threads_match?(_entry, _pull_request), do: false
 
   defp threads_included?(%{threads_included?: true}), do: true
   defp threads_included?(_pull_request), do: false
@@ -312,7 +359,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   end
 
   defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request),
-    do: normalize_pull_request(pull_request, true)
+    do: normalize_pull_request(pull_request, Map.has_key?(pull_request, "reviewThreads"))
 
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 

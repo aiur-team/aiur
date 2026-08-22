@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.ReviewThreadsTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.ReviewThreads
+  alias Aiur.GitHub.{PollSnapshots, ResourceStore, ReviewThreads}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -26,6 +26,8 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
       tracker_label_prefix: "sym"
     )
 
+    ResourceStore.reset()
+
     :ok
   end
 
@@ -48,6 +50,77 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
   end
 
   describe "fetch_unaddressed_pr_review_thread_comments/2" do
+    test "serves a delivery-fresh complete collection without an upstream call" do
+      repo_root = codeowners_repo!("src/owned.ts @owner\n")
+
+      thread = %{
+        "id" => "PRRT_delivery",
+        "isResolved" => false,
+        "updatedAt" => "2026-08-21T10:00:00Z",
+        "path" => "src/owned.ts",
+        "line" => 10,
+        "comments" => %{"nodes" => [review_thread_comment(1, "owner", "please fix this")]}
+      }
+
+      assert :ok = PollSnapshots.put_review_threads("owner/repo", 61, [thread])
+      assert :ok = PollSnapshots.merge_review_thread("owner/repo", 61, %{thread | "updatedAt" => "2026-08-21T10:01:00Z"})
+
+      assert {:ok, [comment]} =
+               ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61,
+                 request_fun: fn _request -> flunk("delivery-fresh threads must not be re-fetched") end,
+                 repo_root: repo_root,
+                 agent_logins: ["aiur-bot"]
+               )
+
+      assert comment["review_thread_id"] == "PRRT_delivery"
+      File.rm_rf!(repo_root)
+    end
+
+    test "a delivery-fresh collection does not require GitHub credentials" do
+      System.delete_env("GITHUB_TOKEN")
+      :persistent_term.erase(@token_cache_key)
+
+      assert :ok = PollSnapshots.put_review_threads("owner/repo", 61, [])
+      assert :ok = PollSnapshots.merge_review_thread("owner/repo", 61, %{"id" => "PRRT_resolved", "isResolved" => true})
+
+      assert {:ok, []} = ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61)
+    end
+
+    test "writes a complete paid collection back with poll provenance" do
+      repo_root = codeowners_repo!("* @owner\n")
+
+      request_fun = fn _request ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "pullRequest" => %{
+                   "reviewThreads" => %{
+                     "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                     "nodes" => []
+                   }
+                 }
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, []} =
+               ReviewThreads.fetch_unaddressed_pr_review_thread_comments(61,
+                 request_fun: request_fun,
+                 repo_root: repo_root,
+                 agent_logins: ["aiur-bot"]
+               )
+
+      assert {:ok, %{source: :poll, data: %{"complete" => true, "threads" => []}}} =
+               ResourceStore.fetch(PollSnapshots.review_threads_key("owner/repo", 61))
+
+      File.rm_rf!(repo_root)
+    end
+
     test "returns only unresolved threads' latest comments, CODEOWNERS-classified" do
       repo_root = codeowners_repo!("src/owned.ts @owner\n")
 

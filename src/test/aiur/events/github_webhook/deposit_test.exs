@@ -18,7 +18,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubWebhook, Publisher}
-  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
+  alias Aiur.GitHub.{PollSnapshots, ResourceFetch, ResourceStore}
   alias Aiur.Workflow
 
   @repo "owner/repo"
@@ -360,12 +360,83 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       assert ResourceStore.fetch(ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)) == :miss
     end
 
-    # Acceptance #2126-3: the `:check_run` deposit is removed. No store reader
-    # addresses a check run and it is deliberately excluded from the agent cache
-    # (a CI verdict is never served from a cache at any age), so depositing one
-    # bought nothing — the single legitimate ceasing candidate.
-    test "a check_run delivery deposits nothing" do
-      assert GithubWebhook.Deposit.deposit("check_run", %{"check_run" => %{"id" => 5501}}, @repo) == []
+    test "a check_run delivery advances an existing complete CI-context snapshot" do
+      assert :ok =
+               PollSnapshots.put_ci_contexts(
+                 @repo,
+                 42,
+                 "deadbeef",
+                 [
+                   %{
+                     "id" => 5501,
+                     "name" => "test",
+                     "status" => "queued",
+                     "conclusion" => nil,
+                     "started_at" => "2026-06-24T12:00:00Z",
+                     "completed_at" => nil,
+                     "output" => %{}
+                   }
+                 ],
+                 %{"state" => "pending", "statuses" => []}
+               )
+
+      delivery = %{
+        "action" => "completed",
+        "check_run" => %{
+          "id" => 5501,
+          "name" => "test",
+          "status" => "completed",
+          "conclusion" => "success",
+          "head_sha" => "deadbeef",
+          "started_at" => "2026-06-24T12:00:00Z",
+          "completed_at" => "2026-06-24T12:01:00Z",
+          "output" => %{},
+          "pull_requests" => [%{"head" => %{"ref" => "aiur/42-a-ticket"}}]
+        }
+      }
+
+      assert [PollSnapshots.ci_contexts_key(@repo, 42)] == GithubWebhook.Deposit.deposit("check_run", delivery, @repo)
+
+      assert {:ok, %{"check_runs" => [%{"id" => 5501, "status" => "completed"}]}} =
+               PollSnapshots.ci_contexts(@repo, 42)
+    end
+
+    test "a resolved review-thread delivery advances an existing complete thread collection" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{
+                   "id" => "PRRT_5502",
+                   "isResolved" => false,
+                   "updatedAt" => "2026-06-24T12:00:00Z",
+                   "path" => "src/lib/example.ex",
+                   "line" => 7,
+                   "comments" => %{"nodes" => [%{"databaseId" => 1, "body" => "fix"}]}
+                 }
+               ])
+
+      delivery = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}},
+        "thread" => %{
+          "node_id" => "PRRT_5502",
+          "is_resolved" => true,
+          "updated_at" => "2026-06-24T12:01:00Z",
+          "path" => "src/lib/example.ex",
+          "line" => 7
+        }
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+
+      assert {:ok,
+              [
+                %{
+                  "id" => "PRRT_5502",
+                  "isResolved" => true,
+                  "comments" => %{"nodes" => [%{"databaseId" => 1}]}
+                }
+              ]} = PollSnapshots.review_threads(@repo, 77)
     end
 
     test "issues deposits the issue and label set even though the event only reconciles" do
