@@ -1227,8 +1227,9 @@ defmodule AiurWeb.GithubCacheLive do
     %{
       value: nil,
       display: "Not measured",
-      note: "Readable agent-workspace counters on this host contain no hit or miss rows in the previous 24 hours." <>
-        partial_coverage(metrics)
+      note:
+        "Readable agent-workspace counters on this host contain no hit or miss rows in the previous 24 hours." <>
+          partial_coverage(metrics)
     }
   end
 
