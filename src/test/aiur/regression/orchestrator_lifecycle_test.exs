@@ -607,7 +607,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       # #2076: a restart orphans an in-progress claim (no live runtime owns it),
       # so the first successful poll's startup reconciliation releases it to
-      # todo before dispatch. The entry then reports the tracker's post-release
+      # the dispatchable tracker state before dispatch. The entry then reports
       # truth ("todo"), never the stale claim it was recovered from.
       assert MapSet.member?(state.claimed, issue.id)
       assert state.last_polled_issues[issue.id].state == "todo"
