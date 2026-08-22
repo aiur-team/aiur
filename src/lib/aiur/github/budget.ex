@@ -230,11 +230,33 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "wait actor " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :actor_budget)
 
+      {:ok, "hold shared " <> metadata} ->
+        shared_hold(request, key, python, opts, deadline_at, metadata)
+
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
+    end
+  end
+
+  defp shared_hold(request, key, python, opts, deadline_at, metadata) do
+    with [resource, reset_at_ms] <- String.split(String.trim(metadata), " ", parts: 2),
+         true <- resource in ["core", "graphql"],
+         {reset_at_ms, ""} when reset_at_ms > 0 <- Integer.parse(reset_at_ms),
+         {:ok, reset_at} <- DateTime.from_unix(reset_at_ms, :millisecond),
+         true <- reset_at_ms > System.system_time(:millisecond) do
+      delay_ms = reset_at_ms - System.system_time(:millisecond)
+
+      if System.monotonic_time(:millisecond) + delay_ms >= deadline_at do
+        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
+      else
+        Process.sleep(max(delay_ms, @retry_floor_ms))
+        do_acquire(request, key, python, opts, deadline_at)
+      end
+    else
+      _invalid -> {:error, :github_budget_broker_unavailable}
     end
   end
 

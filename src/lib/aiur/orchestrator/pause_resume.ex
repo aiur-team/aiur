@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.GithubBudgetPause
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.PushRouting
@@ -965,7 +966,8 @@ defmodule Aiur.Orchestrator.PauseResume do
          :label_override,
          :operator_pause,
          :pause_containment,
-         :blocker_dependency
+         :blocker_dependency,
+         :github_budget_hold
        ] do
       Map.delete(running_entry, :paused_reason)
     else
@@ -1036,12 +1038,12 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp normalize_pause_context(running_entry, :paused) do
-    if Map.get(running_entry, :paused_reason) == :blocker_dependency do
+    if Map.get(running_entry, :paused_reason) in [:blocker_dependency, :github_budget_hold] do
       running_entry
     else
       running_entry
       |> Map.delete(:blocker_pause)
-      |> Map.delete(:pending_auto_resume)
+      |> GithubBudgetPause.clear_context()
     end
   end
 
@@ -1813,7 +1815,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp pending_pause_reason(_running_entry, _request), do: nil
 
   defp pause_requester(:operator_pause), do: :operator
-  defp pause_requester(:agent_pause_request), do: :automatic
+  defp pause_requester(reason) when reason in [:agent_pause_request, :github_budget_hold], do: :automatic
   defp pause_requester(_pause_reason), do: :system
 
   defp issue_id(_running_entry, %Issue{id: issue_id}) when not is_nil(issue_id), do: issue_id
