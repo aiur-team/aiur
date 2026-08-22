@@ -165,9 +165,16 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  def handle_call(:catalog_topic, _from, state) do
+  # Subscribing to the catalog is how a page declares it is watching it, so it
+  # is also where catalog demand is registered. The calling pid is monitored and
+  # held in `state.catalog.demanders`; when the session process dies the DOWN
+  # monitor removes it, and an authority change discards it with the catalog.
+  # Registering the first viewer buys one read now (the page's refresh on mount)
+  # and leaves the cadence to take over while anyone is watching.
+  def handle_call(:catalog_topic, {pid, _tag}, state) do
     {state, events} = reconcile(state)
-    broadcast_all(state, events)
+    {state, demand_events} = add_catalog_demand(state, pid)
+    broadcast_all(state, events ++ demand_events)
 
     if configuration_ready?(state) do
       {:reply, {:ok, Policy.catalog_topic(state.active_repository)}, state}
@@ -524,6 +531,30 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
+  # The catalog's analogue of `add_demand/3`. Unlike a selected root, which is
+  # demanded separately from being subscribed, the catalog has exactly one kind
+  # of viewer — the Build Order page — so registering demand is folded into
+  # `subscribe_catalog/1` and needs no distinct API. The page renders the stored
+  # snapshot immediately; this buys the "one refresh on mount" that makes it
+  # update, and while any demander stays the cadence keeps it fresh.
+  defp add_catalog_demand(state, pid) do
+    if MapSet.member?(state.catalog.demanders, pid) do
+      {state, []}
+    else
+      ref = Process.monitor(pid)
+      catalog = %{state.catalog | demanders: MapSet.put(state.catalog.demanders, pid)}
+
+      state = %{
+        state
+        | catalog: catalog,
+          monitor_by_ref: Map.put(state.monitor_by_ref, ref, {:catalog, pid}),
+          monitor_by_demand: Map.put(state.monitor_by_demand, {:catalog, pid}, ref)
+      }
+
+      request_scope(state, :catalog)
+    end
+  end
+
   defp remove_demand(state, identity, pid) do
     key = Policy.root_key(identity)
     remove_demand_key(state, {key, pid}, true)
@@ -533,6 +564,30 @@ defmodule Aiur.BuildOrder.GraphProjection do
     case Map.get(state.monitor_by_ref, ref) do
       nil -> state
       demand_key -> remove_demand_key(state, demand_key, false)
+    end
+  end
+
+  defp remove_demand_key(state, {:catalog, pid} = demand_key, demonitor?) do
+    case Map.pop(state.monitor_by_demand, demand_key) do
+      {nil, _monitor_by_demand} ->
+        state
+
+      {ref, monitor_by_demand} ->
+        if demonitor?, do: Process.demonitor(ref, [:flush])
+
+        # The last viewer leaving cancels the cadence: `remove_demander/2`
+        # clears the timer when the demander set empties, and `active_scope?/2`
+        # being false stops anything from re-arming it.
+        catalog = remove_demander(state.catalog, pid)
+        pending = if(MapSet.size(catalog.demanders) > 0, do: state.pending, else: MapSet.delete(state.pending, :catalog))
+
+        %{
+          state
+          | catalog: catalog,
+            pending: pending,
+            monitor_by_ref: Map.delete(state.monitor_by_ref, ref),
+            monitor_by_demand: monitor_by_demand
+        }
     end
   end
 
@@ -910,7 +965,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end)
   end
 
-  defp schedule_after_completion(state, :catalog, delay), do: schedule_scope(state, :catalog, delay)
+  # The catalog's successor cadence is armed only while a viewer holds it. The
+  # cadence exists to keep an open page fresh and to notice watched roots moving,
+  # so a read that completes after the last demander left must not arm a
+  # successor — re-arming unconditionally would be the deleted timer back again,
+  # spending the most expensive query in the system for nobody (#2312).
+  defp schedule_after_completion(state, :catalog, delay) do
+    if active_scope?(state, :catalog) do
+      schedule_scope(state, :catalog, delay)
+    else
+      state
+    end
+  end
 
   # A selected root never schedules its successor. Completing a read used to
   # queue the next one `graph_selected_refresh_ms` later for as long as anyone
@@ -972,10 +1038,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
     |> Map.put(:next_timer_token, token + 1)
   end
 
-  # Only the catalog gets a *cadence* restored here. A selected root has none any
-  # more, so re-arming one for every watched root — which is what this used to do
-  # — would quietly reintroduce the viewer-driven refresh that
-  # `schedule_after_completion/3` removes.
+  # Only the catalog gets a *cadence* restored here, and only while a viewer is
+  # holding it. A selected root has none any more, so re-arming one for every
+  # watched root — which is what this used to do — would quietly reintroduce the
+  # viewer-driven refresh that `schedule_after_completion/3` removes.
   #
   # A selected root's **retry** is a different thing and must survive, because
   # this runs on almost every message: it cancels all timers, so without
@@ -997,7 +1063,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end)
   end
 
-  defp active_scope?(_state, :catalog), do: true
+  # The catalog is active exactly when a Build Order page is holding it. Like the
+  # selected clause below, "somebody is watching" is the only thing that makes it
+  # active — which is what turns the unconditional timer into a demand-gated one:
+  # with no demander there is no cadence, no boot read and no refresh, so a
+  # headless run buys none of the most expensive query in the system (#2312).
+  defp active_scope?(state, :catalog), do: MapSet.size(state.catalog.demanders) > 0
 
   defp active_scope?(state, {:selected, identity}) do
     case Map.get(state.selected, Policy.root_key(identity)) do
@@ -1011,10 +1082,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # A selected root has no refresh interval of its own any more. What remains for
   # it are the two things an interval was still being read for — the base of the
   # failure backoff, and the window after which a snapshot is shown as ageing —
-  # and for both the honest number is the catalog cadence: the catalog
-  # reconciliation is the daemon-owned writer that would next notice this root
-  # changing, so it is the real bound on how stale the root can be without
-  # anyone finding out.
+  # and for both the honest number is the catalog cadence. That cadence runs
+  # while a Build Order page is open, and it is what next notices this root
+  # changing — so it is the real bound on how stale the root can be while anyone
+  # is looking. When no page is open the catalog does not run at all, but then
+  # nothing is being displayed or re-read either, so no interval applies.
   defp scope_interval(state, {:selected, _identity}), do: state.policy.catalog_refresh_ms
 
   defp scope_entry(state, :catalog), do: state.catalog
@@ -1042,6 +1114,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # The window after which a selected root is *displayed* as ageing. It is not a
   # refresh trigger — nothing reads this to decide whether to spend — it only
   # decides what the page tells the operator about the age of what it is showing.
+  # The catalog cadence is the honest base because, while a Build Order page is
+  # open, that is the bound on how soon the daemon will next re-read the root.
   defp selected_staleness_ms(state), do: state.policy.catalog_refresh_ms
 
   defp selected_snapshot(state, identity) do
