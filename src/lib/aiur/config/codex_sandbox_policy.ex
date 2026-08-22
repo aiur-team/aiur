@@ -30,9 +30,7 @@ defmodule Aiur.Config.CodexSandboxPolicy do
       if Keyword.get(opts, :remote, false) do
         {:ok, replace_workspace_writable_roots(policy, writable_roots)}
       else
-        with {:ok, policy} <- canonicalize_configured_writable_roots(policy) do
-          {:ok, maybe_add_workspace_writable_roots(policy, writable_roots)}
-        end
+        merge_configured_writable_roots(policy, writable_roots)
       end
     end
   end
@@ -41,6 +39,12 @@ defmodule Aiur.Config.CodexSandboxPolicy do
     workspace
     |> default_workspace_root(fallback_workspace_root)
     |> default_runtime_policy(opts)
+  end
+
+  defp merge_configured_writable_roots(policy, writable_roots) do
+    with {:ok, canonical_policy} <- canonicalize_configured_writable_roots(policy) do
+      {:ok, maybe_add_workspace_writable_roots(canonical_policy, writable_roots)}
+    end
   end
 
   @doc false
