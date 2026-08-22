@@ -47,18 +47,24 @@ confirmation. But Funnel was one hypothetical transport; the live one was a
 Cloudflare tunnel the operator had already built.
 
 **Checking a mechanism you assume is in use does not answer whether the
-capability works.** Ask the external system whether the thing is happening:
-
-| question | wrong source | right source |
-| --- | --- | --- |
-| are webhooks delivering? | `tailscale funnel status`, `.aiur/config` | `gh api /repos/O/R/hooks` then `/hooks/<id>/deliveries` |
-| is CI passing? | a local test run | `gh pr checks <n>` on the head SHA |
-| did the fix ship? | the merge commit | the behaviour, on the running daemon |
-| is the credential valid? | the variable is set | resolve it against the API |
+capability works.** Ask the system that owns the answer, not the local file that
+would describe one possible implementation of it: delivery history over a
+tunnel's status, `gh pr checks` over a local test run, the running daemon's
+behaviour over a merge commit, a credential resolved against the API over a
+variable that is merely set.
 
 An empty local config proves nothing about a capability that may be provided
 elsewhere. Prefer the source that would still be right if every local assumption
 were wrong.
+
+**Before auditing a GitHub-facing surface, read
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+It is the source of truth for how Aiur talks to GitHub — poll cadence, API
+budgets, credential pooling, the read cache, webhook delivery states, and the
+Cloudflare tunnel boundary. In the incident above it already documented the
+tunnel and the delivery-state table that would have prevented the whole
+detour. Do not restate its contents in a skill or a ticket; link to it, so there
+is one copy to keep true.
 
 ## 1. Observe — do not infer
 

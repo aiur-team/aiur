@@ -179,6 +179,38 @@ rows against `limit - remaining` on the credential's own window:
 The command reads the meter the daemon already keeps and issues no GitHub
 request of its own, so checking it is free.
 
+### Reading these numbers without fooling yourself
+
+Three traps have each cost a run more than an hour. All three produce a figure
+that looks like a leak and is not.
+
+**A daemon restart invalidates reconciliation for the rest of the window.** The
+daemon's attribution window restarts with the process; GitHub's does not. Every
+point spent before the restart is still in `limit - remaining` and in no row of
+the ranking, so the unattributed figure is inflated by exactly that much until
+the GitHub window rolls. Do not compare attribution against the credential's
+window in the same window as a restart — wait for the reset, or expect a gap
+you cannot interpret.
+
+**The unattributed figure is not a leak.** As the table above says, it is
+expected. It includes anything sharing the credential that this process did not
+issue: a shell `gh` call, a diagnostic script minting its own installation
+token, another Aiur instance. A monitoring loop that samples the API on the same
+credential *is itself* unattributed spend, so an investigation into a gap can
+widen the gap it is investigating. Establish a baseline with the fleet quiet
+and your own tooling stopped before concluding anything.
+
+**Agent `gh` calls do not bill the daemon's credential.** Agents hold the bot
+PAT; the daemon under App auth holds an installation token. They are separate
+budgets with separate windows. An agent-driven `gh pr view` never appears in the
+daemon's GraphQL ranking and never spends the App pool — so agent activity
+correlating with App-pool spend means something else is scaling with the fleet,
+not that agents are spending it.
+
+Related: a low read-cache hit rate is not automatically a defect. See
+[Shared agent reads](#shared-agent-reads) for what the cache refuses on purpose
+and why refusing is correct.
+
 ### Credential pooling
 
 GitHub's budgets are per credential. An operator who holds more than one
