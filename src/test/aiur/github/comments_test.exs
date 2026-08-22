@@ -45,19 +45,6 @@ defmodule Aiur.GitHub.CommentsTest do
     end
   end
 
-  describe "fetch_issue_comments/2" do
-    test "returns comments list on 200" do
-      comments = [%{"id" => 1, "body" => "first"}, %{"id" => 2, "body" => "second"}]
-
-      request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/issues/3/comments"
-        {:ok, %{status: 200, body: comments, headers: []}}
-      end
-
-      assert {:ok, ^comments} = Comments.fetch_issue_comments(3, request_fun: request_fun)
-    end
-  end
-
   describe "fetch_issue_comments_conditional/2" do
     test "sends the saved ETag and treats 304 as a successful unchanged response" do
       request_fun = fn %{method: :get, etag: etag} = request ->

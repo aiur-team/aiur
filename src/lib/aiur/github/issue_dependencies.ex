@@ -106,8 +106,8 @@ defmodule Aiur.GitHub.IssueDependencies do
   end
 
   defp fetch_blocker(blocker_number, client_opts) do
-    case Client.fetch_issue_raw(blocker_number, client_opts) do
-      {:ok, issue} -> {:ok, issue}
+    case Client.fetch_issue_raw_conditional(blocker_number, client_opts) do
+      {:ok, issue, _outcome} -> {:ok, issue}
       {:error, reason} -> fetch_blocker_error(reason)
     end
   end
