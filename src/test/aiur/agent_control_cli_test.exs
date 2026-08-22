@@ -759,6 +759,19 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
+  test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
+    orphan = %Issue{id: "issue-orphan", identifier: "repo#2076", state: "in-progress", title: "Orphaned claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{orphan.id => orphan}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#2076  idle    Orphaned claim (orphaned claim: no live agent) [waiting=orphaned_claim]"
+    refute output =~ "Orphaned claim (awaiting-dispatch)"
+  end
+
   test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
     released = %Issue{id: "issue-released", identifier: "repo#1475", state: "todo", title: "Reclaim me"}
 

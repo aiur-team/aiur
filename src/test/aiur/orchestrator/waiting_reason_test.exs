@@ -208,6 +208,10 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle(nil, false, 0) == :active
     end
 
+    test "an in-progress tracker claim without a live runner is orphaned" do
+      assert WaitingReason.for_idle("in-progress", false, 0) == :orphaned_claim
+    end
+
     test "an active capacity hold makes a dispatchable row back off instead of reading active" do
       assert WaitingReason.for_idle("todo", false, 0, capacity_hold_active?: true) == :backing_off
       assert WaitingReason.for_idle(nil, false, 0, capacity_hold_active?: true) == :backing_off
@@ -279,6 +283,10 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
   end
 
   describe "render/1" do
+    test "renders the orphaned-claim classifier" do
+      assert WaitingReason.render(:orphaned_claim) == "orphaned_claim"
+    end
+
     test "renders the released-claim classifier (#1475)" do
       assert WaitingReason.render(:claim_released) == "claim_released"
     end

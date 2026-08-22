@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Reconciler,
     RetryEngine,
     Slots,
+    StartupClaimReconciler,
     State,
     StatusReport,
     TrackedSet,
@@ -146,6 +147,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # so a ticket relabelled since the previous poll is judged on its
         # current labels rather than a stale cached copy (#1682).
         state = Reconciler.refresh_running_issue_states(state, issues)
+        # Tracker claims survive a daemon restart, while the runtime registry
+        # does not. Once both views are fresh, release only claims with no
+        # positive current-generation runtime evidence before normal dispatch.
+        {state, issues} = StartupClaimReconciler.reconcile(state, issues)
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
