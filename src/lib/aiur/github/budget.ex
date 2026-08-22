@@ -268,6 +268,21 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
+  # A shared hold is the token-wide cooldown, not an hourly ledger, so there is
+  # no local count to compare — the contradiction is the hold itself standing
+  # while the credential's own window still reports headroom.
+  defp maybe_alert_meter_disagreement(request, key, :shared_budget, opts) do
+    resource = request_resource(request)
+
+    case CredentialHeadroom.window(key, resource) do
+      %{} = window ->
+        CredentialHeadroom.reconcile_shared_hold(key, resource, window, alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2))
+
+      _unavailable ->
+        :ok
+    end
+  end
+
   defp maybe_alert_meter_disagreement(_request, _key, _reason, _opts), do: :ok
 
   defp local_usage(key, resource, opts) do

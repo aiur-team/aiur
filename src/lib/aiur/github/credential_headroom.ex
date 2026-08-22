@@ -137,17 +137,61 @@ defmodule Aiur.GitHub.CredentialHeadroom do
       when is_binary(token_key) and is_binary(resource) and is_integer(limit) and limit > 0 and is_integer(github_used) do
     local_used = Map.get(local, :used, 0)
     local_limit = Map.get(local, :limit, 0)
-    margin = max(1, ceil(limit * 0.05))
-    disagreement_key = {token_key, resource}
-    signature = DateTime.to_unix(reset_at)
+    margin = margin(limit)
 
-    if local_used - github_used > margin do
-      if activate_disagreement(disagreement_key, signature) do
-        message =
-          "GitHub local budget meter disagrees with the credential window for #{resource}: " <>
-            "local billed=#{local_used}/#{local_limit}, GitHub used=#{github_used}/#{limit}, " <>
-            "margin=#{margin}, reset_at=#{DateTime.to_iso8601(reset_at)}, credential=#{binary_part(token_key, 0, 12)}."
+    message =
+      "GitHub local budget meter disagrees with the credential window for #{resource}: " <>
+        "local billed=#{local_used}/#{local_limit}, GitHub used=#{github_used}/#{limit}, " <>
+        "margin=#{margin}, reset_at=#{DateTime.to_iso8601(reset_at)}, credential=#{credential_hint(token_key)}."
 
+    signal({token_key, resource, :actor}, local_used - github_used > margin, reset_at, message, opts)
+  rescue
+    _unavailable -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  def reconcile_budget_meter(_token_key, _resource, _local, _window, _opts), do: :ok
+
+  @doc """
+  Alerts when a shared (cooldown/pacing) hold outlives the credential's own window.
+
+  A shared hold is not an hourly ledger — it is the token-wide cooldown the
+  broker sets from a rate-limit response. That cooldown can survive the window
+  that justified it, which is the case where the guard stops the fleet while
+  GitHub still reports almost the whole credential unspent.
+  """
+  @spec reconcile_shared_hold(String.t(), String.t(), map(), keyword()) :: :ok
+  def reconcile_shared_hold(token_key, resource, window, opts \\ [])
+
+  def reconcile_shared_hold(token_key, resource, %{limit: limit, remaining: remaining, reset_at: reset_at}, opts)
+      when is_binary(token_key) and is_binary(resource) and is_integer(limit) and limit > 0 and is_integer(remaining) do
+    margin = margin(limit)
+
+    message =
+      "GitHub shared budget hold contradicts the credential window for #{resource}: " <>
+        "the local guard is holding every #{resource} request while GitHub reports " <>
+        "remaining=#{remaining}/#{limit} (margin=#{margin}), " <>
+        "reset_at=#{DateTime.to_iso8601(reset_at)}, credential=#{credential_hint(token_key)}."
+
+    signal({token_key, resource, :shared}, remaining > margin, reset_at, message, opts)
+  rescue
+    _unavailable -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  def reconcile_shared_hold(_token_key, _resource, _window, _opts), do: :ok
+
+  defp margin(limit), do: max(1, ceil(limit * 0.05))
+
+  defp credential_hint(token_key), do: binary_part(token_key, 0, min(12, byte_size(token_key)))
+
+  # One alert per key per reset window, cleared as soon as the meters agree
+  # again so the next real divergence still speaks.
+  defp signal(key, disagrees?, reset_at, message, opts) do
+    if disagrees? do
+      if activate_disagreement(key, DateTime.to_unix(reset_at)) do
         alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_system/2)
 
         case alert_fun.("system.github.budget_meter_disagreement",
@@ -156,21 +200,15 @@ defmodule Aiur.GitHub.CredentialHeadroom do
                severity: "warning"
              ) do
           :ok -> :ok
-          _failed -> :ets.delete(@disagreements_table, disagreement_key)
+          _failed -> :ets.delete(@disagreements_table, key)
         end
       end
     else
-      :ets.delete(@disagreements_table, disagreement_key)
+      :ets.delete(@disagreements_table, key)
     end
 
     :ok
-  rescue
-    _unavailable -> :ok
-  catch
-    :exit, _reason -> :ok
   end
-
-  def reconcile_budget_meter(_token_key, _resource, _local, _window, _opts), do: :ok
 
   defp activate_disagreement(key, signature) do
     case :ets.lookup(@disagreements_table, key) do

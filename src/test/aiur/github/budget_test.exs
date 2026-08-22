@@ -505,6 +505,58 @@ defmodule Aiur.GitHub.BudgetTest do
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
   end
 
+  test "a shared cooldown outliving the credential window raises one alert", %{root: root} do
+    test_pid = self()
+
+    opts = [
+      state_dir: root,
+      max_inflight: 4,
+      max_inflight_per_endpoint: 2,
+      requests_per_minute: 20,
+      stagger_ms: 0,
+      timeout_ms: 300,
+      alert_fun: fn name, alert_opts ->
+        send(test_pid, {:budget_alert, name, alert_opts})
+        :ok
+      end
+    ]
+
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+    reset = System.system_time(:second) + 3_600
+
+    # The cooldown the broker sets from a rate-limited response, standing while
+    # the credential's own fresh window still reports the whole limit unspent —
+    # the exact contradiction that stalled the fleet in #2278.
+    assert :ok =
+             Budget.observe(
+               issues,
+               {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}], body: %{"message" => "rate limit exceeded"}}},
+               opts
+             )
+
+    observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
+
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
+    assert alert_opts[:needs_attention]
+    assert alert_opts[:reason] =~ "shared budget hold contradicts"
+    assert alert_opts[:reason] =~ "remaining=100/100"
+
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    refute_receive {:budget_alert, _, _}
+
+    # GitHub agreeing that the credential really is spent clears the signal, so
+    # the next genuine divergence is still able to speak.
+    observe_headroom(pulls, limit: 100, remaining: 0, reset: reset)
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    refute_receive {:budget_alert, _, _}
+
+    observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
+  end
+
   test "usage degrades to an empty actor list when the broker is disabled", %{root: root} do
     previous = Application.get_env(:aiur, :github_budget_enabled?)
     Application.put_env(:aiur, :github_budget_enabled?, false)
