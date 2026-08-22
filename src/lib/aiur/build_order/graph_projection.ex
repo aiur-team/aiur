@@ -9,10 +9,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   use GenServer
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
+  require Logger
+
+  alias Aiur.BuildOrder.{Catalog, CatalogStore, ProviderHealth}
   alias Aiur.BuildOrder.GitHubGraph.Settings
   alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
   alias Aiur.TrackerIdentity
+  alias Aiur.Webhooks
 
   @reset_topic "build_order:graph:reset"
 
@@ -97,6 +100,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
     Process.flag(:trap_exit, true)
     state = Options.new(opts)
     subscribe_to_configuration(state)
+    subscribe_to_resources(state)
+    subscribe_to_mode_events(state)
     send(self(), :reconcile)
     {:ok, state}
   end
@@ -217,24 +222,83 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @impl true
   def handle_info(:reconcile, state) do
     {state, events} = reconcile(state)
+
+    # Boot reconcile: re-converge the event-sourced store from GitHub, then
+    # rebuild the catalog from the store's own change events. This is the rare
+    # reconciliation — daemon boot and degradation — never a cadence (#2313).
+    # The first catalog rebuild is requested here too, so the page has a
+    # (possibly empty) snapshot before the reconciliation lands; the
+    # reconciliation's deposits and `clear/3` publication then wake the rebuild
+    # that replaces it.
+    state = start_reconciliation(state)
     {state, refresh_events} = request_scope(state, :catalog)
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
   end
 
+  # A webhook-backed repo degraded: deliveries are being dropped, so the
+  # event-sourced store cannot converge on its own and the rare reconciliation
+  # is owed. Only the active repo's degradation matters.
+  def handle_info({:webhook_mode_changed, %{repo: repo, state: :degraded}}, state) do
+    {state, reconcile_events} = reconcile(state)
+
+    state =
+      if repository_match?(state, repo) do
+        start_reconciliation(state)
+      else
+        state
+      end
+
+    broadcast_all(state, reconcile_events)
+    {:noreply, state}
+  end
+
+  # The event-sourced catalog's wake-up: a delivery or Aiur-originated mutation
+  # changed one of the resource types the catalog is projected from, so rebuild
+  # the catalog from the store. This replaces the old periodic catalog poll.
+  # A dependency-edge change additionally re-reads any watched root it touches,
+  # so a blocked-by relationship set outside Aiur reflects on the page without
+  # a `build_order_catalog` call (#2313).
+  def handle_info({:github_resource_changed, change}, state) do
+    {state, reconcile_events} = reconcile(state)
+    state = maybe_reconcile_degraded(state)
+    {state, events} = on_resource_change(state, change)
+    broadcast_all(state, reconcile_events ++ events)
+    {:noreply, state}
+  end
+
   def handle_info({ref, result}, state) when is_reference(ref) do
     {state, reconcile_events} = reconcile(state)
-    Process.demonitor(ref, [:flush])
-    {state, events} = complete_task(state, ref, result)
-    {state, admitted_events} = admit_pending(state)
-    broadcast_all(state, reconcile_events ++ events ++ admitted_events)
-    {:noreply, state}
+
+    case state.reconciliation do
+      %{ref: ^ref} ->
+        # The reconciliation's deposits and its `clear/3` publication already
+        # published store changes, which is what rebuilds the catalog from the
+        # converged store. Nothing to do here beyond clearing the inflight
+        # marker; an already-converged reconciliation changed nothing, so a
+        # rebuild would be a no-op anyway.
+        state = %{state | reconciliation: nil, last_reconciliation_ms: now_ms(state)}
+        broadcast_all(state, reconcile_events)
+        {:noreply, state}
+
+      _other ->
+        Process.demonitor(ref, [:flush])
+        {state, events} = complete_task(state, ref, result)
+        {state, admitted_events} = admit_pending(state)
+        broadcast_all(state, reconcile_events ++ events ++ admitted_events)
+        {:noreply, state}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, pid, _reason}, state) when is_reference(ref) do
     cond do
       Map.has_key?(state.monitor_by_ref, ref) ->
         {:noreply, remove_demand_by_monitor(state, ref, pid)}
+
+      match?(%{ref: ^ref}, state.reconciliation) ->
+        state = %{state | reconciliation: nil}
+        broadcast_all(state, [])
+        {:noreply, state}
 
       Map.has_key?(state.inflight_by_ref, ref) ->
         {state, reconcile_events} = reconcile(state)
@@ -299,6 +363,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @impl true
   def terminate(_reason, state) do
     state
+    |> cancel_reconciliation()
     |> cancel_all_tasks()
     |> cancel_all_timers()
 
@@ -910,7 +975,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end)
   end
 
-  defp schedule_after_completion(state, :catalog, delay), do: schedule_scope(state, :catalog, delay)
+  # The catalog schedules no successor. It is event-sourced from the store
+  # (#2313): a rebuild is triggered by a `github_resource_changed` store event,
+  # by the rare reconciliation, or by an explicit `refresh_catalog/1` — never by
+  # a clock. Keeping the old `catalog_refresh_ms` timer here would be a free
+  # no-op rebuild of an unchanged store, which is precisely the periodic
+  # re-render the ticket removes.
+  defp schedule_after_completion(state, :catalog, _delay), do: state
 
   # A selected root never schedules its successor. Completing a read used to
   # queue the next one `graph_selected_refresh_ms` later for as long as anyone
@@ -920,9 +991,16 @@ defmodule Aiur.BuildOrder.GraphProjection do
   #
   # What refreshes a selected root now is the daemon's own catalog reconciliation,
   # via the per-root change marker, plus an explicit `refresh/2`. Neither depends
-  # on a viewer. A webhook or mutation write to `Aiur.GitHub.ResourceStore` does
-  # *not* reach here — the store holds issues, not graphs — so it is not claimed.
+  # on a viewer. A webhook or mutation write to `Aiur.GitHub.ResourceStore` *does*
+  # reach here through the store's change events, so a dependency edge set
+  # outside Aiur re-reads the root it touches (#2313).
   defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state
+
+  # The catalog has no success cadence — it is event-sourced from the store and
+  # rebuilt on change (#2313), never on a clock. This clause keeps
+  # `schedule_active_scope/2` (which runs on almost every message via
+  # `reschedule_active_scopes/1`) from quietly re-arming the old periodic poll.
+  defp schedule_from_success(state, :catalog), do: state
 
   defp schedule_from_success(state, scope) do
     entry = scope_entry(state, scope)
@@ -1010,12 +1088,17 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   # A selected root has no refresh interval of its own any more. What remains for
   # it are the two things an interval was still being read for — the base of the
-  # failure backoff, and the window after which a snapshot is shown as ageing —
-  # and for both the honest number is the catalog cadence: the catalog
-  # reconciliation is the daemon-owned writer that would next notice this root
-  # changing, so it is the real bound on how stale the root can be without
-  # anyone finding out.
-  defp scope_interval(state, {:selected, _identity}), do: state.policy.catalog_refresh_ms
+  # failure backoff, and the window after which a snapshot is shown as ageing.
+  #
+  # Both used to derive from `catalog_refresh_ms`, because the catalog poll was
+  # the daemon-owned writer that would next notice this root changing, making it
+  # the real bound on how stale the root could be without anyone finding out.
+  # The catalog is event-sourced now (#2313): a root's graph is re-read when a
+  # store event or the rare reconciliation notices a change, so the honest bound
+  # is delivery latency — `webhooks.silence_threshold_seconds`, the gap after
+  # which degradation triggers the reconciliation. That is the base a selected
+  # root's failure backoff widens from.
+  defp scope_interval(state, {:selected, _identity}), do: state.policy.delivery_staleness_ms
 
   defp scope_entry(state, :catalog), do: state.catalog
 
@@ -1042,7 +1125,15 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # The window after which a selected root is *displayed* as ageing. It is not a
   # refresh trigger — nothing reads this to decide whether to spend — it only
   # decides what the page tells the operator about the age of what it is showing.
-  defp selected_staleness_ms(state), do: state.policy.catalog_refresh_ms
+  #
+  # Re-based from `catalog_refresh_ms` (#2313): the catalog is event-sourced, so
+  # the old justification — "the catalog reconciliation is the daemon-owned
+  # writer that would next notice this root changing" — no longer holds. The
+  # real bound on how stale a watched root can be without anyone finding out is
+  # delivery latency: a gap longer than `webhooks.silence_threshold_seconds`
+  # degrades delivery mode and triggers the reconciliation that re-reads watched
+  # roots. So the display age is that threshold.
+  defp selected_staleness_ms(state), do: state.policy.delivery_staleness_ms
 
   defp selected_snapshot(state, identity) do
     case Map.get(state.selected, Policy.root_key(identity)) do
@@ -1157,6 +1248,199 @@ defmodule Aiur.BuildOrder.GraphProjection do
     _error -> :ok
   catch
     _kind, _reason -> :ok
+  end
+
+  # Subscribes the projection to the resource types the catalog is projected
+  # from, so a webhook delivery or Aiur-originated mutation that changes one
+  # wakes a rebuild from the store instead of a poll (#2313).
+  defp subscribe_to_resources(state) do
+    state.resource_subscription.(self())
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  # Subscribes the projection to delivery-mode transitions so a repo degrading
+  # triggers the rare reconciliation even when nothing else wakes the
+  # projection (#2313).
+  defp subscribe_to_mode_events(state) do
+    state.mode_events_subscriber.()
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  # A store change to one of the catalog's inputs rebuilds the catalog from the
+  # store. Only the active repository's changes count; another repo's events are
+  # this projection's business about as much as another repo's issues.
+  defp on_resource_change(state, %{resource_type: type} = change)
+       when type in [:issue, :issue_labels, :sub_issue, :issue_dependency] do
+    if repository_match?(state, change) do
+      {state, catalog_events} = request_scope(state, :catalog)
+      {state, selected_events} = request_affected_selected(state, type, change)
+      {state, catalog_events ++ selected_events}
+    else
+      {state, []}
+    end
+  end
+
+  defp on_resource_change(state, _change), do: {state, []}
+
+  # A store change's `owner`/`repo` are the components of the resource key, so
+  # both must match the active repository.
+  defp repository_match?(%{active_repository: {owner, repo}}, %{owner: change_owner, repo: change_repo})
+       when is_binary(change_owner) and is_binary(change_repo) do
+    String.downcase(change_owner) == String.downcase(owner) and
+      String.downcase(change_repo) == String.downcase(repo)
+  end
+
+  # A delivery-mode event names the repo as a full "owner/name" string.
+  defp repository_match?(%{active_repository: {owner, repo}}, delivered) when is_binary(delivered) do
+    String.downcase(delivered) == String.downcase("#{owner}/#{repo}")
+  end
+
+  defp repository_match?(_state, _other), do: false
+
+  # A dependency-edge change re-reads every demanded root the edge touches, so a
+  # blocked-by relationship set outside Aiur reflects on the page. Only
+  # `:issue_dependency` changes need this: a sub-issue, label or lifecycle
+  # change already moves the root's catalog fingerprint, which is the existing
+  # trigger for selected re-reads. The edge's two ends are the blocked issue and
+  # the blocker; the affected roots are those the edge belongs to plus those
+  # whose member set includes either end.
+  defp request_affected_selected(state, :issue_dependency, %{id: id}) do
+    case parse_edge_id(id) do
+      {left, right} ->
+        members = CatalogStore.member_numbers(state.active_repository)
+
+        state.selected
+        |> Enum.filter(fn {_key, entry} -> selected_touches?(entry, left, right, members) end)
+        |> Enum.reduce({state, []}, fn {_key, entry}, {state, events} ->
+          {state, next_events} = request_scope(state, entry.scope)
+          {state, events ++ next_events}
+        end)
+
+      _other ->
+        {state, []}
+    end
+  end
+
+  defp request_affected_selected(state, _type, _change), do: {state, []}
+
+  defp parse_edge_id(id) when is_binary(id) do
+    case String.split(id, ":") do
+      [left, right] ->
+        with {left, ""} <- Integer.parse(left),
+             {right, ""} <- Integer.parse(right) do
+          {left, right}
+        else
+          _other -> nil
+        end
+
+      _other ->
+        nil
+    end
+  end
+
+  defp parse_edge_id(_id), do: nil
+
+  defp selected_touches?(%{scope: {:selected, identity}}, left, right, members) do
+    root_number = identity_number(identity)
+
+    if is_nil(root_number) do
+      false
+    else
+      members_of_root = Map.get(members, root_number, [])
+      root_number in [left, right] or left in members_of_root or right in members_of_root
+    end
+  end
+
+  defp selected_touches?(_entry, _left, _right, _members), do: false
+
+  defp identity_number(%TrackerIdentity{identifier: identifier}) do
+    case Integer.parse(identifier) do
+      {number, ""} when number > 0 -> number
+      _other -> nil
+    end
+  end
+
+  defp identity_number(_identity), do: nil
+
+  # The rare reconciliation: re-fetch the Build Order graph from GitHub and
+  # write it back into the store, whose change events then rebuild the
+  # projection. Triggered on daemon boot and when delivery mode is degraded —
+  # the two cases where the event stream may have dropped something — never on
+  # a clock (#2313).
+  defp start_reconciliation(state) do
+    if is_nil(state.reconciliation) do
+      reader_options = reader_options(state, false)
+      reconciliation_fun = state.reconciliation_fun
+
+      task =
+        Task.Supervisor.async_nolink(state.task_supervisor, fn ->
+          reconciliation_fun.(reader_options)
+        end)
+
+      %{state | reconciliation: %{ref: task.ref, pid: task.pid}, last_reconciliation_ms: now_ms(state)}
+    else
+      state
+    end
+  rescue
+    _error ->
+      # A reconciliation that cannot even start must never take the projection
+      # down: the event-sourced catalog remains on whatever the store holds.
+      Logger.warning("GraphProjection could not start reconciliation")
+      state
+  catch
+    :exit, _reason ->
+      Logger.warning("GraphProjection reconciliation task exited at start")
+      state
+  end
+
+  defp cancel_reconciliation(state) do
+    case state.reconciliation do
+      %{ref: ref, pid: pid} ->
+        Process.demonitor(ref, [:flush])
+        Task.Supervisor.terminate_child(state.task_supervisor, pid)
+        %{state | reconciliation: nil}
+
+      nil ->
+        state
+    end
+  end
+
+  # While a repo's delivery mode is degraded, deliveries are being dropped, so
+  # the event-sourced store cannot be trusted to converge on its own — this is
+  # the ticket's dropped-delivery path. The reconciliation re-fetches from
+  # GitHub; gated by a cooldown (default the silence threshold) so a degraded
+  # repo does not re-converge on every store event.
+  defp maybe_reconcile_degraded(state) do
+    if degraded?(state) and is_nil(state.reconciliation) and reconciliation_due?(state) do
+      start_reconciliation(state)
+    else
+      state
+    end
+  end
+
+  defp degraded?(state) do
+    case state.active_repository do
+      {owner, repo} ->
+        "#{owner}/#{repo}"
+        |> Webhooks.mode()
+        |> then(&(&1.state == :degraded))
+
+      _other ->
+        false
+    end
+  end
+
+  defp reconciliation_due?(state) do
+    case state.last_reconciliation_ms do
+      nil -> true
+      last -> now_ms(state) - last >= state.policy.reconciliation_cooldown_ms
+    end
   end
 
   defp subscribe_scope(topic_fun) do

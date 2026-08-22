@@ -162,6 +162,7 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
              task_supervisor: task_supervisor,
              authority_snapshot: &authority/0,
              configuration_subscriber: fn _pid -> :ok end,
+             reconciliation_fun: fn _opts -> :ok end,
              catalog_reader: blocking_reader(parent, :catalog),
              selected_reader: fn identity, _reader_opts ->
                blocking_read(parent, {:selected, identity})
