@@ -119,13 +119,25 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   `event_type` is the `X-GitHub-Event` header value, `repo` the tracked
   `"owner/name"` the caller already resolved. Never raises: the caller is an
   HTTP endpoint, and a cache write is never worth failing a delivery over.
+
+  Options:
+
+    * `:at` — the delivery's arrival time, used as the version marker for the
+      ordering-sensitive edge deposits (`sub_issue`, `issue_dependency`).
+      GitHub's edge events carry no `updated_at` of their own, so the arrival
+      time is the only honest ordering marker a stale-delivery guard can
+      compare. Defaults to now.
   """
-  @spec deposit(term(), term(), term()) :: [ResourceStore.key()]
-  def deposit(event_type, payload, repo) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
+  @spec deposit(term(), term(), term(), keyword()) :: [ResourceStore.key()]
+  def deposit(event_type, payload, repo, opts \\ [])
+
+  def deposit(event_type, payload, repo, opts) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
     if store_running?() do
+      arrival = arrival_version(opts)
+
       Enum.flat_map(bodies(event_type, payload), fn
         {:drop, type, id} -> drop(type, repo, id)
-        {type, id, body, version} -> store(type, repo, id, body, version)
+        {type, id, body, version} -> store(type, repo, id, body, edge_version(type, version, arrival))
       end)
     else
       []
@@ -143,7 +155,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       []
   end
 
-  def deposit(_event_type, _payload, _repo), do: []
+  def deposit(_event_type, _payload, _repo, _opts), do: []
 
   # ---------------------------------------------------------------------------
   # What each delivery type carries
@@ -181,6 +193,43 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   defp bodies("pull_request", payload), do: pull_request_deposits(Map.get(payload, "pull_request"))
 
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
+
+  # A `sub_issues` delivery mutates the Build Order graph's membership: an issue
+  # becomes (or stops being) a member of a root. There is no fleet event to
+  # publish for it — the catalog is event-sourced from the store — so this
+  # delivery's only job is to deposit the edge, and the edge's `present` flag is
+  # the *operation*, stored with the delivery's arrival version so the
+  # stale-delivery guard can refuse a late `added` after a `removed` and
+  # vice-versa (#2313).
+  #
+  # A `parent_issue_*` action and a `sub_issue_*` action are the same edge from
+  # either end, so they deposit the same key.
+  defp bodies("sub_issues", payload) do
+    action = Map.get(payload, "action")
+    edge = sub_issue_edge(payload)
+
+    if is_map(edge) do
+      if removed_action?(action), do: [edge_deposit(:sub_issue, edge, false)], else: [edge_deposit(:sub_issue, edge, true)]
+    else
+      []
+    end
+  end
+
+  # An `issue_dependencies` delivery mutates the graph's dependency edges. Like
+  # `sub_issues` there is no fleet event: the deposit is the whole point. The
+  # two directions of one edge (`blocked_by_added` says A is blocked by B;
+  # `blocking_added` says B blocks A) normalize to one canonical key so the two
+  # actions cannot create two store entries for the same fact.
+  defp bodies("issue_dependencies", payload) do
+    action = Map.get(payload, "action")
+    edge = dependency_edge(payload)
+
+    if is_map(edge) do
+      if removed_action?(action), do: [edge_deposit(:issue_dependency, edge, false)], else: [edge_deposit(:issue_dependency, edge, true)]
+    else
+      []
+    end
+  end
 
   defp bodies(_event_type, _payload), do: []
 
@@ -268,6 +317,106 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     case TicketBranch.ticket_id(get_in(pr, ["head", "ref"])) do
       nil -> []
       ticket_id -> [{:branch_pull_request, ticket_id, pr, version}]
+    end
+  end
+
+  # -- Build Order graph edges (#2313) --------------------------------------
+  #
+  # `sub_issues` and `issue_dependencies` deliveries carry no `updated_at` on
+  # either issue — the payload is pure edge facts — so the deposit versions each
+  # edge with the delivery's arrival time (threaded as `:at`, falling back to
+  # now). That version is what lets `deposit_unless_older/3` refuse a late
+  # `added` after a `removed` for the same edge, and a late `removed` after a
+  # newer `added`. Without it, out-of-order delivery would silently invert the
+  # graph the catalog renders.
+
+  # An `*_removed` action is the mirror of an `*_added`, and both directions
+  # (`parent_issue_*`/`sub_issue_*`, `blocked_by_*`/`blocking_*`) describe the
+  # same edge, so the edge key is canonical and the operation is stored in the
+  # body.
+  defp removed_action?(action)
+       when action in [
+              "parent_issue_removed",
+              "sub_issue_removed",
+              "blocked_by_removed",
+              "blocking_removed"
+            ],
+       do: true
+
+  defp removed_action?(_action), do: false
+
+  defp sub_issue_edge(payload) do
+    with parent when not is_nil(parent) <- positive_number(Map.get(payload, "parent_issue_number")),
+         sub when not is_nil(sub) <- positive_number(Map.get(payload, "sub_issue_number")) do
+      %{
+        "parent_issue_number" => parent,
+        "sub_issue_number" => sub,
+        "parent_issue_repo" => repo_string(Map.get(payload, "parent_issue_repo")),
+        "sub_issue_repo" => repo_string(Map.get(payload, "sub_issue_repo"))
+      }
+    else
+      _other -> nil
+    end
+  end
+
+  # One edge, two actions. `blocked_by_added` reports A blocked by B;
+  # `blocking_added` reports B blocking A. Both store the same canonical
+  # `blocked:blocker` key, so the projection reads one entry per fact.
+  defp dependency_edge(payload) do
+    with blocked when not is_nil(blocked) <- positive_number(Map.get(payload, "blocked_issue_number")),
+         blocker when not is_nil(blocker) <- positive_number(Map.get(payload, "blocking_issue_number")) do
+      %{
+        "blocked_issue_number" => blocked,
+        "blocking_issue_number" => blocker,
+        "blocked_issue_repo" => repo_string(Map.get(payload, "blocked_issue_repo")),
+        "blocking_issue_repo" => repo_string(Map.get(payload, "blocking_issue_repo"))
+      }
+    else
+      _other -> nil
+    end
+  end
+
+  defp edge_deposit(:sub_issue, edge, present) do
+    edge = Map.put(edge, "present", present)
+    id = "#{edge["parent_issue_number"]}:#{edge["sub_issue_number"]}"
+    {:sub_issue, id, edge, nil}
+  end
+
+  defp edge_deposit(:issue_dependency, edge, present) do
+    edge = Map.put(edge, "present", present)
+    id = "#{edge["blocked_issue_number"]}:#{edge["blocking_issue_number"]}"
+    {:issue_dependency, id, edge, nil}
+  end
+
+  # Only the two graph-edge types carry no `updated_at` and are
+  # ordering-sensitive, so only they fall back to the delivery's arrival time
+  # as their version marker. Every other type keeps the version its `bodies/2`
+  # clause supplied, which may legitimately be `nil` — a PR review has no
+  # `updated_at` — and forcing an arrival time onto those would change their
+  # stored marker and break consumers that read it (#2313).
+  defp edge_version(type, nil, arrival) when type in [:sub_issue, :issue_dependency], do: arrival
+  defp edge_version(_type, version, _arrival), do: version
+
+  defp positive_number(value) when is_integer(value) and value > 0, do: value
+
+  defp positive_number(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> number
+      _other -> nil
+    end
+  end
+
+  defp positive_number(_value), do: nil
+
+  defp repo_string(value) when is_binary(value) and value != "", do: value
+  defp repo_string(_value), do: nil
+
+  # The ISO-8601 arrival marker used as an edge's version. UTC timestamps sort
+  # lexically, which is exactly what `regression?/2`'s `<` comparison needs.
+  defp arrival_version(opts) do
+    case Keyword.get(opts, :at) do
+      %DateTime{} = at -> DateTime.to_iso8601(at)
+      _other -> DateTime.to_iso8601(DateTime.utc_now())
     end
   end
 

@@ -560,7 +560,7 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Failure-backoff and age-display base for the catalog snapshot. The catalog is event-sourced from daemon-owned state and does not refresh on this cadence. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
@@ -576,11 +576,14 @@ selected cadence repeated for as long as the page stayed open.
 No value makes that correct, because it makes API cost track how many people are
 looking rather than what has changed. They were removed rather than retuned.
 
-A selected root is now read by the daemon's own catalog reconciliation, and by
-nothing else. Each catalog poll carries a per-root change marker — the root's
-identity, member count and update time, plus a digest of its members' states — and
-a watched root whose marker moved is re-read once, as is a watched root that has
-never been read.
+A selected root is now read by the daemon's own catalog reconciliation and by
+store change events, and by nothing viewer-driven. The catalog is event-sourced
+from the daemon's resource store: a delivery or Aiur-originated mutation that
+changes a root's identity, member count or member states rebuilds the catalog
+and re-reads any watched root whose marker moved, and a dependency edge set
+outside Aiur re-reads the root it touches. The only GitHub reads left are the
+rare reconciliation — daemon boot and degraded webhook delivery — and an
+explicit `GraphProjection.refresh/2`.
 
 Opening the Build Order page, selecting a root, and holding it open consume zero
 GitHub reads.
@@ -610,10 +613,17 @@ stops that recurring.
 The two **graph cadences** follow the *effective* interval: the one the daemon
 actually scheduled.
 
+`graph_catalog_refresh_ms` no longer schedules a periodic catalog poll — the
+catalog is event-sourced and rebuilt from daemon-owned store state when a
+delivery or mutation changes it. The value survives as the failure-backoff base
+for the catalog scope, the window after which the catalog snapshot is shown as
+ageing, and the floor the labelled-read cadence rides on, so it still follows
+the effective interval and the derivation table below stays accurate.
+
 - It is not `polling.interval_seconds` alone. It includes
   `polling.idle_widen_factor` and `webhooks.poll_widen_factor`.
 - It is the value `aiur status` reports as `interval=`.
-- So an idle fleet widens the Build Order catalog exactly as it widens the
+- So an idle fleet widens the Build Order backoff exactly as it widens the
   tracker, and a fleet that picks up work narrows both back together.
 - Deriving from the base interval instead made the catalog poll five times more
   often than the tracker it projects, with nobody watching.

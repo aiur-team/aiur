@@ -191,6 +191,7 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
              task_supervisor: task_supervisor,
              authority_snapshot: fn -> authority(repository) end,
              configuration_subscriber: fn _pid -> :ok end,
+             reconciliation_fun: fn _opts -> :ok end,
              catalog_reader: blocking_reader(parent, :catalog),
              selected_reader: fn identity, _opts -> blocking_read(parent, {:selected, identity}) end,
              now: fn -> ~U[2026-07-15 12:00:00Z] end,

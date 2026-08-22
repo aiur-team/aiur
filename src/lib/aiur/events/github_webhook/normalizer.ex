@@ -116,24 +116,43 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   def tracked_repo(payload, opts) when is_map(payload) do
     tracked = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
-    delivered = get_in(payload, ["repository", "full_name"])
+    candidates = delivery_repos(payload)
 
     cond do
-      not is_binary(delivered) or delivered == "" ->
+      candidates == [] ->
         {:error, :missing_repository}
 
       not is_binary(tracked) or tracked == "" ->
-        {:drop, {:untracked_repository, delivered}}
-
-      String.downcase(delivered) == String.downcase(tracked) ->
-        {:ok, delivered}
+        {:drop, {:untracked_repository, hd(candidates)}}
 
       true ->
-        {:drop, {:untracked_repository, delivered}}
+        case Enum.find(candidates, &(String.downcase(&1) == String.downcase(tracked))) do
+          nil -> {:drop, {:untracked_repository, hd(candidates)}}
+          repo -> {:ok, repo}
+        end
     end
   end
 
   def tracked_repo(_payload, _opts), do: {:error, :missing_repository}
+
+  # The repositories a delivery names, most specific first. Every other event
+  # type carries the whole object's repo as `repository.full_name`; the two
+  # graph-edge events carry their repos as `*_repo` fields instead, because
+  # neither `sub_issues` nor `issue_dependencies` wraps a `repository` object.
+  # Resolving both lets a delivery count as tracked — and therefore get
+  # deposited and recorded — when either endpoint of the edge is in the repo
+  # the fleet tracks (#2313).
+  defp delivery_repos(payload) do
+    [
+      get_in(payload, ["repository", "full_name"]),
+      Map.get(payload, "parent_issue_repo"),
+      Map.get(payload, "sub_issue_repo"),
+      Map.get(payload, "blocked_issue_repo"),
+      Map.get(payload, "blocking_issue_repo")
+    ]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
 
   # ---------------------------------------------------------------------------
   # issue_comment -> ticket.<id>.issue.commented
@@ -272,6 +291,25 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
              }}
         end
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # sub_issues / issue_dependencies -> graph mutation, deposited not published
+  #
+  # These two event types mutate the Build Order graph — membership and
+  # dependency edges — and neither has a fleet event the polling path produces
+  # (`Aiur.Events.GithubWebhook.Deposit` is the only consumer that matters, and
+  # it runs before this clause, in `record_tracked_delivery/3`). Publishing a
+  # shape here would invent an event no poller emits, and reconciling through
+  # the orchestrator would be wrong: the graph projection is woken by the
+  # store's own `ResourceEvents`, not by a poll cycle. So the delivery is
+  # dropped as a publish candidate with the reason naming what it was, and the
+  # store already holds the edge (#2313).
+  # ---------------------------------------------------------------------------
+
+  defp normalize_event(event_type, payload, _repo)
+       when event_type in ["sub_issues", "issue_dependencies"] and is_map(payload) do
+    {:drop, {:graph_event, event_type, Map.get(payload, "action")}}
   end
 
   # ---------------------------------------------------------------------------
