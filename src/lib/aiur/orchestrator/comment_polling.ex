@@ -326,9 +326,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
         state
         |> reclaim_reconcile_targets(poll)
         |> Map.put(:github_comment_poll, nil)
-        |> schedule_reconcile(@reconcile_retry_delay_ms, true)
 
-      {:busy, state}
+      case TrackerHealth.github_next_poll_delay_ms(state) do
+        delay_ms when is_integer(delay_ms) and delay_ms > 0 ->
+          {:busy, schedule_reconcile(state, delay_ms, true)}
+
+        _no_backoff ->
+          {:ready, state}
+      end
     end
   end
 

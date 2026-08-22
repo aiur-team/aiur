@@ -401,10 +401,7 @@ The webhook shortens reaction time for repository events while polling continues
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
-Select every event listed above when creating or updating the GitHub hook. A
-`pull_request_review_thread` delivery makes a resolved or reopened thread
-reconcile immediately; the scheduled comment sweep remains the loss-recovery
-path when any delivery is missed.
+Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path.
 
 | Delivery | Result |
 | --- | --- |

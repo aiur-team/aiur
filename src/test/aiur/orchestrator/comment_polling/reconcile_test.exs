@@ -245,7 +245,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
     assert state.github_comment_reconcile_timer == nil
   end
 
-  test "an expired targeted poll reclaims its target and backs off before replacement" do
+  test "an expired targeted poll honors active backoff before replacement" do
     test_pid = self()
 
     hanging_request = fn _request ->
@@ -261,7 +261,10 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
       request_fun: hanging_request
     ]
 
-    state = %State{github_comment_reconcile_targets: MapSet.new(["42"])}
+    state = %State{
+      github_comment_reconcile_targets: MapSet.new(["42"]),
+      github_poll_delays: %{comments: 60_000}
+    }
 
     first_state = state |> CommentPolling.start_async(opts) |> await_async_started()
     assert_receive {:targeted_comment_poll_started, first_pid}, 5_000
@@ -274,6 +277,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
     wait_until(fn -> not Process.alive?(first_pid) end)
     assert second_state.github_comment_poll == nil
     assert second_state.github_comment_reconcile_targets == MapSet.new(["42"])
+    assert second_state.github_comment_reconcile_timer.delay_ms == 60_000
     refute_received :run_github_comment_reconcile
   end
 
