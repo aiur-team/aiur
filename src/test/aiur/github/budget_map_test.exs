@@ -61,6 +61,37 @@ defmodule Aiur.GitHub.BudgetMapTest do
 
       assert credential.graphql.state == :stale
       assert credential.graphql.reason == :no_window
+      assert credential.graphql.age_seconds == nil
+      refute Map.has_key?(credential.graphql, :used)
+    end
+
+    test "a credential whose window has expired is stale with its age, never zero" do
+      # `CredentialSelector.headroom/1` drops expired windows from `windows` but
+      # keeps them in `last_observed`, so a stale meter can say how long ago the
+      # credential's own headers were read instead of merely that it is stale.
+      headroom_fun = fn _opts ->
+        [
+          %{
+            id: "primary",
+            kind: :machine_user,
+            identity: "its-applekid",
+            available?: true,
+            token_key: "b",
+            windows: %{},
+            last_observed: %{
+              "graphql" => %{observed_at: DateTime.add(@now, -7_200, :second), reset_at: DateTime.add(@now, -1, :second)},
+              "core" => %{observed_at: DateTime.add(@now, -1_800, :second), reset_at: DateTime.add(@now, -1, :second)}
+            }
+          }
+        ]
+      end
+
+      [credential] = BudgetMap.identity_meters(headroom_fun: headroom_fun, now: @now)
+
+      assert credential.graphql.state == :stale
+      assert credential.graphql.reason == :no_window
+      assert credential.graphql.age_seconds == 7_200
+      assert credential.core.age_seconds == 1_800
       refute Map.has_key?(credential.graphql, :used)
     end
 
@@ -135,6 +166,11 @@ defmodule Aiur.GitHub.BudgetMapTest do
       edges = BudgetMap.map_edges(callers)
 
       assert length(edges) == 2
+
+      # The panel's whole job is to put the biggest spender first. Asserting
+      # only membership would let the map silently reorder to alphabetical and
+      # stop showing the biggest spender first — so the order is pinned.
+      assert Enum.map(edges, & &1.caller) == ["ci_poll_batch", "unattributed"]
 
       ci = Enum.find(edges, &(&1.caller == "ci_poll_batch"))
       assert ci.verdict == :wasted

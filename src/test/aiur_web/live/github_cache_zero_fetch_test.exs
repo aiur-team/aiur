@@ -87,11 +87,20 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       end
     )
 
+    # The budget-map layer reads the broker ledger; on a live host the default
+    # path points at the operator's real budget.sqlite3. Pointing it at a
+    # nonexistent file keeps this zero-fetch measurement from silently reading
+    # production state (the ledger read is not a GitHub request, but a hermetic
+    # suite should not depend on a host's broker database existing).
+    Application.put_env(:aiur, :github_budget_ledger_path, "/nonexistent/aiur-ghc-zero-fetch.sqlite3")
+
     on_exit(fn ->
       case previous_options do
         nil -> Application.delete_env(:aiur, :github_transport_test_options)
         kept -> Application.put_env(:aiur, :github_transport_test_options, kept)
       end
+
+      Application.delete_env(:aiur, :github_budget_ledger_path)
 
       case previous_endpoint do
         nil -> Application.delete_env(:aiur, Endpoint)

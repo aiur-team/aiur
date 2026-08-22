@@ -133,6 +133,26 @@ defmodule Aiur.GitHub.BudgetLedgerTest do
     assert before.admission_count == after_read.admission_count
   end
 
+  test "the ledger is pinned read-only so a read can never write an admission" do
+    # `snapshot().admission_count == snapshot().admission_count` would hold for
+    # any read implementation, including one that opened the database read-write
+    # and just happened not to write. This module touches the broker's live
+    # ledger, so the mechanism — `PRAGMA query_only = ON` — is pinned: a future
+    # change that drops the guard fails here rather than silently letting a
+    # page read write an admission.
+    code =
+      "../../../lib/aiur/github/budget_ledger.ex"
+      |> Path.expand(__DIR__)
+      |> File.read!()
+      |> String.replace(~r/@(?:module)?doc\s+"""(?:.|\n)*?"""/, "")
+      |> String.split("\n")
+      |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
+      |> Enum.join("\n")
+
+    assert code =~ "PRAGMA query_only = ON",
+           "budget_ledger.ex no longer opens the ledger read-only; the page's zero-fetch proof is lost"
+  end
+
   test "a missing database reads as unavailable, never as zero", %{path: path} do
     File.rm(path)
     snapshot = BudgetLedger.snapshot(database_path: path)

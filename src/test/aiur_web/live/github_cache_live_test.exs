@@ -214,17 +214,32 @@ defmodule AiurWeb.GithubCacheLiveTest do
       # Scanning only the LiveView would miss a transport introduced one module
       # down, in the projection or the source — which is where a "just fetch it
       # on a miss" would actually be written. The history sampler is on the same
-      # path (it feeds the charts), so it is scanned with the rest.
-      root = Path.expand("../../../lib/aiur/github", __DIR__)
+      # path (it feeds the charts), so it is scanned with the rest. `BudgetMap`
+      # pulls in the credential selector/registry/headroom and the webhook mode
+      # registry and presenter, so the frontier this page reads through moves
+      # one module further down with each new source and every module it
+      # reaches is scanned too.
+      root = Path.expand("../../../lib", __DIR__)
 
-      files =
-        [
-          "cache_inspector.ex",
-          "cache_history.ex",
-          "budget_ledger.ex",
-          "budget_map.ex"
-          | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))
-        ]
+      cache_inspector_files =
+        root
+        |> Path.join("aiur/github/cache_inspector")
+        |> File.ls!()
+        |> Enum.map(&"aiur/github/cache_inspector/#{&1}")
+
+      files = [
+        "aiur/github/cache_inspector.ex",
+        "aiur/github/cache_history.ex",
+        "aiur/github/budget_ledger.ex",
+        "aiur/github/budget_map.ex",
+        "aiur/github/credential_selector.ex",
+        "aiur/github/credential_registry.ex",
+        "aiur/github/credential_headroom.ex",
+        "aiur/webhooks.ex",
+        "aiur/webhooks/mode_presenter.ex",
+        "aiur/webhooks/mode_registry.ex"
+        | cache_inspector_files
+      ]
 
       for relative <- files do
         code = root |> Path.join(relative) |> File.read!() |> strip_prose()
@@ -1056,7 +1071,19 @@ defmodule AiurWeb.GithubCacheLiveTest do
       # CI shard may have written to; a deterministic empty view makes "fails
       # open" about the page, not about which tests happened to run first.
       Application.put_env(:aiur, :github_budget_map_modes_fun, fn _opts -> [] end)
-      on_exit(fn -> Application.delete_env(:aiur, :github_budget_map_modes_fun) end)
+
+      # The ledger must never fall back to the operator's real
+      # ~/.aiur/github-budget/budget.sqlite3. On a live host that file exists
+      # with real rows, so "fails open" would render totals and this assertion
+      # would fail deterministically — and the suite would silently read
+      # production state. A nonexistent path makes the failing-open panel the
+      # same on every host.
+      Application.put_env(:aiur, :github_budget_ledger_path, "/nonexistent/aiur-ghc-live-failing-open.sqlite3")
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :github_budget_map_modes_fun)
+        Application.delete_env(:aiur, :github_budget_ledger_path)
+      end)
 
       {:ok, _view, html} = live(build_conn(), "/github-cache")
       document = Floki.parse_document!(html)
@@ -1130,7 +1157,14 @@ defmodule AiurWeb.GithubCacheLiveTest do
             primary?: false,
             available?: true,
             token_key: "b",
-            windows: %{}
+            windows: %{},
+            # The expired windows `CredentialSelector.headroom/1` keeps out of
+            # `windows` but preserves in `last_observed`, so the stale meter
+            # says how stale it is.
+            last_observed: %{
+              "graphql" => %{observed_at: DateTime.add(now, -7_200, :second), reset_at: DateTime.add(now, -1, :second)},
+              "core" => %{observed_at: DateTime.add(now, -3_600, :second), reset_at: DateTime.add(now, -1, :second)}
+            }
           }
         ]
       end)
@@ -1150,14 +1184,57 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert Floki.attribute(graphql_meter, "data-state") == ["observed"]
       assert graphql_meter |> Floki.find(~s([data-role="meter-value"])) |> Floki.text() =~ "113"
 
-      # A credential that has not been observed is stale with its age, never a
-      # zero standing in for "unknown".
+      # A credential that has not been observed in the current window is stale
+      # with its age, never a zero standing in for "unknown": the marker names
+      # the state and says how long ago the credential's own headers were read.
       pat = Floki.find(document, ~s([data-role="identity-meter"][data-credential="pat"]))
 
       pat_core = pat |> Floki.find(~s([data-role="meter"][data-resource="core"]))
       assert Floki.attribute(pat_core, "data-state") == ["stale"]
       assert pat_core |> Floki.find(~s([data-role="meter-stale"])) |> Floki.text() =~ "no observation"
+      assert pat_core |> Floki.find(~s([data-role="meter-stale-age"])) |> Floki.text() =~ "1h ago"
       refute Floki.text(pat) =~ "0 /"
+    end
+
+    test "a meter with an observation time it cannot state says so instead of a fresh age" do
+      Source.install(entries(2))
+      install_quota()
+
+      now = DateTime.utc_now()
+
+      # A window whose `observed_at` is missing — an observed meter with no way
+      # to say how long ago it was read. It must render "observed at an unknown
+      # time", never "observed a moment ago".
+      Application.put_env(:aiur, :github_budget_map_headroom_fun, fn _opts ->
+        [
+          %{
+            id: "primary",
+            kind: :app_installation,
+            identity: "aiur-daemon[bot]",
+            writes?: true,
+            primary?: true,
+            available?: true,
+            token_key: "a",
+            windows: %{
+              "graphql" => %{used: 113, limit: 5_000, remaining: 4_887, reset_at: DateTime.add(now, 3_600, :second)}
+            }
+          }
+        ]
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :github_budget_map_headroom_fun) end)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      document = Floki.parse_document!(html)
+
+      graphql_meter =
+        document
+        |> Floki.find(~s([data-role="identity-meter"][data-credential="primary"] [data-role="meter"][data-resource="graphql"]))
+        |> Floki.find(~s([data-role="meter-note"]))
+        |> Floki.text()
+
+      assert graphql_meter =~ "observed at an unknown time"
+      refute graphql_meter =~ "a moment"
     end
 
     test "a caller that consults neither cache layer is visibly wasted; a store-backed caller is billed" do

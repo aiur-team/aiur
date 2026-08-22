@@ -185,7 +185,7 @@ defmodule AiurWeb.GithubCacheLive do
      |> assign(:usage, QuotaUsage.sample(quota))
      |> assign(:read_cache, read_cache_snapshot())
      |> assign(:quota_history, quota_history())
-     |> assign(:budget_map, budget_map_snapshot(quota))}
+     |> assign(:budget_map, budget_map_snapshot(socket.assigns.projection, quota))}
   end
 
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
@@ -232,7 +232,7 @@ defmodule AiurWeb.GithubCacheLive do
     |> Phoenix.Component.assign_new(:read_cache, &read_cache_snapshot/0)
     |> assign(:history, history())
     |> assign(:quota_history, quota_history())
-    |> assign(:budget_map, budget_map_snapshot(quota))
+    |> assign(:budget_map, budget_map_snapshot(projection, quota))
   end
 
   # Cache metrics are observational and independent from quota accounting. The
@@ -292,9 +292,11 @@ defmodule AiurWeb.GithubCacheLive do
   # state, and every provider is seam-ed the same way the rest of the page is,
   # so a test can point the quota, read-cache, ledger and headroom sources at
   # deterministic doubles without a daemon. A source that is unavailable reads
-  # as "not measured" on the page — never as zero.
-  defp budget_map_snapshot(quota) do
-    opts = [quota: quota]
+  # as "not measured" on the page — never as zero. The projection is threaded
+  # in because the page already computed it for the render; re-projecting the
+  # store here would read ETS twice on every page load.
+  defp budget_map_snapshot(projection, quota) do
+    opts = [quota: quota, projection: projection]
 
     opts =
       case Application.get_env(:aiur, :github_budget_map_headroom_fun) do
@@ -770,7 +772,7 @@ defmodule AiurWeb.GithubCacheLive do
       <.identity_meters credentials={@budget_map.credentials} />
       <.caller_map edges={@budget_map.map} />
       <.admissions_panel admissions={@budget_map.admissions} />
-      <.store_panel store={@budget_map.resource_store} projection={@projection} />
+      <.store_panel store={@budget_map.resource_store} />
       <.webhook_panel webhooks={@budget_map.webhooks} />
       <.agent_cache_panel agent_cache={@budget_map.agent_cache} />
     </section>
@@ -815,11 +817,11 @@ defmodule AiurWeb.GithubCacheLive do
         {used_text(@meter)}
         <span class="ghc-bmap-meter-limit">/ {value(@meter.limit)}</span>
       </span>
-      <span :if={@meter.state == :observed} class="ghc-bmap-meter-note">
-        resets {moment(@meter.reset_at)} · observed {age_text(@meter.observed_age_seconds)} ago
+      <span :if={@meter.state == :observed} class="ghc-bmap-meter-note" data-role="meter-note">
+        resets {moment(@meter.reset_at)} · {observed_age_text(@meter.observed_age_seconds)}
       </span>
       <span :if={@meter.state == :stale} class="ghc-bmap-meter-stale" data-role="meter-stale">
-        {stale_text(@meter.reason)}
+        {stale_text(@meter.reason)}<span :if={is_integer(@meter.age_seconds)} data-role="meter-stale-age"> · last observed {age_text(@meter.age_seconds)} ago</span>
       </span>
     </div>
     """
@@ -1173,11 +1175,19 @@ defmodule AiurWeb.GithubCacheLive do
 
   # A stale credential is never rendered as zero. Either it has not been
   # observed in the current window or its token is not resolvable on this host,
-  # and the two get different words because only one of them is actionable.
+  # and the two get different words because only one of them is actionable. The
+  # age, when there is one, rides beside the reason (see `meter/1`).
   defp stale_text(:unavailable), do: "stale — token not resolvable on this host"
   defp stale_text(_no_window), do: "stale — no observation in the current window"
 
-  defp age_text(nil), do: "a moment"
+  # An observed window whose observation time is missing must never read as a
+  # fresh one: "observed at an unknown time" is the honest wording for a claim
+  # the data cannot back. `age_text/1` itself also refuses to invent a moment
+  # for `nil`, so no caller can reintroduce the confident-wrong "a moment".
+  defp observed_age_text(seconds) when is_integer(seconds), do: "observed #{age_text(seconds)} ago"
+  defp observed_age_text(_unknown), do: "observed at an unknown time"
+
+  defp age_text(nil), do: "an unknown time"
   defp age_text(seconds) when seconds < 60, do: "#{seconds}s"
   defp age_text(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
   defp age_text(seconds), do: "#{div(seconds, 3_600)}h"

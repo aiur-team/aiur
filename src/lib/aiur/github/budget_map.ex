@@ -147,8 +147,8 @@ defmodule Aiur.GitHub.BudgetMap do
         available?: Map.get(row, :available?, false),
         token_key: Map.get(row, :token_key),
         windows: Map.get(row, :windows, %{}),
-        graphql: meter(Map.get(row, :windows, %{}) |> Map.get("graphql"), now, Map.get(row, :available?, false)),
-        core: meter(Map.get(row, :windows, %{}) |> Map.get("core"), now, Map.get(row, :available?, false))
+        graphql: meter(row, "graphql", now),
+        core: meter(row, "core", now)
       }
     end)
   end
@@ -243,7 +243,10 @@ defmodule Aiur.GitHub.BudgetMap do
   @doc "The resource-store panel: size, retention and per-type entries."
   @spec resource_store(keyword()) :: map()
   def resource_store(opts \\ []) do
-    projection = Keyword.get(opts, :projection, CacheInspector.project())
+    # `get_lazy` so the projection only runs when one was not already computed —
+    # the page computes it once for the whole render and threads it through, so
+    # an eager default here would project the store twice per page load.
+    projection = Keyword.get_lazy(opts, :projection, &CacheInspector.project/0)
 
     %{
       available?: ResourceStore.running?(),
@@ -345,25 +348,41 @@ defmodule Aiur.GitHub.BudgetMap do
   end
 
   # An observed window is a measurement; an absent one is never rendered as
-  # zero. `observed_age_seconds` is how long ago the credential's own response
-  # headers were read, so a stale meter says how stale it is. A credential
+  # zero. A stale meter says how stale it is: `age_seconds` is how long ago the
+  # credential's own response headers were last read, recovered from the raw
+  # headroom table even when the window's reset has since passed. A credential
   # whose token does not resolve on this host gets its own stale reason —
-  # "unavailable" and "just not observed yet" are different facts.
-  defp meter(nil, _now, false), do: %{state: :stale, reason: :unavailable, age_seconds: nil}
-  defp meter(nil, _now, true), do: %{state: :stale, reason: :no_window, age_seconds: nil}
+  # "unavailable" and "just not observed yet" are different facts, and an age
+  # that does not exist is `nil`, never a guess.
+  defp meter(row, resource, now) do
+    case Map.get(row.windows, resource) do
+      %{} = window ->
+        %{
+          state: :observed,
+          used: Map.get(window, :used),
+          limit: Map.get(window, :limit),
+          remaining: Map.get(window, :remaining),
+          reset_at: Map.get(window, :reset_at),
+          observed_age_seconds: age_seconds(Map.get(window, :observed_at), now)
+        }
 
-  defp meter(%{} = window, now, _available?) do
-    %{
-      state: :observed,
-      used: Map.get(window, :used),
-      limit: Map.get(window, :limit),
-      remaining: Map.get(window, :remaining),
-      reset_at: Map.get(window, :reset_at),
-      observed_age_seconds: age_seconds(Map.get(window, :observed_at), now)
-    }
+      _none ->
+        stale_meter(row, resource, now)
+    end
   end
 
-  defp meter(_other, _now, _available?), do: %{state: :stale, reason: :no_window, age_seconds: nil}
+  defp stale_meter(row, resource, now) do
+    age = row |> Map.get(:last_observed, %{}) |> Map.get(resource) |> last_observed_age(now)
+
+    if Map.get(row, :available?, false) do
+      %{state: :stale, reason: :no_window, age_seconds: age}
+    else
+      %{state: :stale, reason: :unavailable, age_seconds: nil}
+    end
+  end
+
+  defp last_observed_age(%{observed_at: at}, now), do: age_seconds(at, now)
+  defp last_observed_age(_none, _now), do: nil
 
   defp age_seconds(%DateTime{} = at, %DateTime{} = now), do: max(DateTime.diff(now, at, :second), 0)
   defp age_seconds(_at, _now), do: nil
