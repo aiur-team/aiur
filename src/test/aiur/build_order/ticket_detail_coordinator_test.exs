@@ -4,6 +4,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
   alias Aiur.{BuildOrder.Lifecycle, BuildOrder.TicketDetail, TrackerIdentity}
   alias Aiur.BuildOrder.TicketDetail.{Failure, Snapshot, State}
   alias Aiur.BuildOrder.TicketDetailCoordinator
+  alias Aiur.GitHub.RequestOrigin
   alias Aiur.GitHub.ResourceStore
 
   @configured {"owner", "repo"}
@@ -70,12 +71,12 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     {:ok, cache} =
       start_cache(
         reader: fn _identity ->
-          send(parent, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?()})
+          send(parent, {:view_originated, RequestOrigin.view_originated?()})
           {:ok, snapshot(identity, "detail")}
         end
       )
 
-    Aiur.GitHub.RequestOrigin.carry(true, fn ->
+    RequestOrigin.carry(true, fn ->
       assert {:ok, %State{generation: 1}} = TicketDetailCoordinator.request(cache, identity)
     end)
 
@@ -89,7 +90,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     {:ok, cache} =
       start_cache(
         reader: fn _identity ->
-          send(parent, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?()})
+          send(parent, {:view_originated, RequestOrigin.view_originated?()})
           {:ok, snapshot(identity, "detail")}
         end
       )

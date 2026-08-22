@@ -65,7 +65,9 @@ The page is strictly view-only. There is no refresh, no invalidate, no eviction 
 
 That is the store's own rule applied to its inspector: looking at cached state never costs a GitHub call, so a page that could trigger a fetch would break the property it exists to demonstrate.
 
-Its headline tile, **Fetches caused by viewing**, counts GitHub requests whose request chain began in a LiveView process. Merely opening or navigating the cache inspector leaves it at `0`; operator actions on other pages that intentionally fetch fresh detail can raise it. Caller names are shown separately and do not determine this count. Beside it the page prints how many calls the quota meter attributed in total, so a zero reads as a measurement rather than a reassurance.
+Its headline tile, **Fetches caused by viewing**, counts GitHub requests whose request chain began in a LiveView process. Merely opening or navigating the cache inspector leaves it at `0`; operator actions on other pages that intentionally fetch fresh detail can raise it.
+
+Caller names are shown separately and do not determine this count. Beside it the page prints how many calls the quota meter attributed in total, so a zero reads as a measurement rather than a reassurance.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 

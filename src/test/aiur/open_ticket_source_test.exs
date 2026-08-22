@@ -1,6 +1,7 @@
 defmodule Aiur.OpenTicketSourceTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.GitHub.RequestOrigin
   alias Aiur.OpenTicketSource
   alias Aiur.OpenTicketSource.Snapshot
 
@@ -138,13 +139,13 @@ defmodule Aiur.OpenTicketSourceTest do
     test_pid = self()
 
     request_fun = fn request ->
-      send(test_pid, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?(), request})
+      send(test_pid, {:view_originated, RequestOrigin.view_originated?(), request})
       {:ok, %{status: 200, body: [], headers: []}}
     end
 
     server = start_source(request_fun: request_fun)
 
-    Aiur.GitHub.RequestOrigin.carry(true, fn ->
+    RequestOrigin.carry(true, fn ->
       assert :ok = OpenTicketSource.refresh(server)
     end)
 
@@ -155,7 +156,7 @@ defmodule Aiur.OpenTicketSourceTest do
     test_pid = self()
 
     request_fun = fn request ->
-      send(test_pid, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?(), request})
+      send(test_pid, {:view_originated, RequestOrigin.view_originated?(), request})
       {:ok, %{status: 200, body: [], headers: []}}
     end
 
@@ -169,13 +170,13 @@ defmodule Aiur.OpenTicketSourceTest do
     test_pid = self()
 
     request_fun = fn request ->
-      send(test_pid, {:view_originated, Aiur.GitHub.RequestOrigin.view_originated?(), request})
+      send(test_pid, {:view_originated, RequestOrigin.view_originated?(), request})
       {:ok, %{status: 200, body: [], headers: []}}
     end
 
     server = start_source(request_fun: request_fun)
 
-    Aiur.GitHub.RequestOrigin.carry(true, fn -> send(server, :poll) end)
+    RequestOrigin.carry(true, fn -> send(server, :poll) end)
 
     assert_receive {:view_originated, false, %{method: :get}}, 2_000
   end
