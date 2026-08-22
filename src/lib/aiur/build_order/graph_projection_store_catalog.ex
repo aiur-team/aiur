@@ -169,24 +169,25 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
 
   defp parent_of(%{"parent" => parent}, issues_by_node_id) when is_map(parent) do
     case Map.get(parent, "number") do
-      number when is_integer(number) ->
-        {:number, number}
-
-      _other ->
-        case Map.get(parent, "node_id") do
-          node_id when is_binary(node_id) ->
-            case Map.get(issues_by_node_id, node_id) do
-              %{"number" => number} when is_integer(number) -> {:number, number}
-              _other -> {:node_id, node_id}
-            end
-
-          _other ->
-            nil
-        end
+      number when is_integer(number) -> {:number, number}
+      _other -> parent_by_node_id(parent, issues_by_node_id)
     end
   end
 
   defp parent_of(_edge, _issues_by_node_id), do: nil
+
+  defp parent_by_node_id(parent, issues_by_node_id) do
+    case Map.get(parent, "node_id") do
+      node_id when is_binary(node_id) ->
+        case Map.get(issues_by_node_id, node_id) do
+          %{"number" => number} when is_integer(number) -> {:number, number}
+          _other -> {:node_id, node_id}
+        end
+
+      _other ->
+        nil
+    end
+  end
 
   defp member_metrics(body, ctx) do
     parent_key =

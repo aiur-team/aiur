@@ -1004,16 +1004,7 @@ defmodule Aiur.GitHub.ResourceStore do
         # pattern wraps the key in the tuple that is actually stored.
         pattern = {{type, String.downcase(owner), String.downcase(repo), :_}, :_}
 
-        with_table([], fn table ->
-          table
-          |> :ets.match_object(pattern)
-          |> Enum.flat_map(fn {key, entry} ->
-            case held_entry(entry) do
-              nil -> []
-              data -> [{key, data}]
-            end
-          end)
-        end)
+        with_table([], fn table -> list_type_entries(table, pattern) end)
 
       _other ->
         []
@@ -1021,6 +1012,19 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   def list_type(_type, _full_name), do: []
+
+  defp list_type_entries(table, pattern) do
+    table
+    |> :ets.match_object(pattern)
+    |> Enum.flat_map(&type_entry/1)
+  end
+
+  defp type_entry({key, entry}) do
+    case held_entry(entry) do
+      nil -> []
+      data -> [{key, data}]
+    end
+  end
 
   # The same expiry rule `fetch/1` applies, so a projection rebuilding from
   # `list_type/2` never serves a body the store itself would have declined.

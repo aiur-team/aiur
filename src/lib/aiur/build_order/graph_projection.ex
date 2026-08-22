@@ -1347,26 +1347,25 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   defp upsert_or_remove_root(state, number, new_root) do
-    replace = fn entries ->
-      number = Integer.to_string(number)
-      replaced? = Enum.any?(entries, &(root_number(&1) == number))
+    apply_catalog_update(state, &replace_root(&1, number, new_root))
+  end
 
-      cond do
-        replaced? and not is_nil(new_root) ->
-          Enum.map(entries, fn entry -> if root_number(entry) == number, do: new_root, else: entry end)
+  defp replace_root(entries, number, new_root) do
+    number = Integer.to_string(number)
+    replaced? = Enum.any?(entries, &(root_number(&1) == number))
 
-        replaced? and is_nil(new_root) ->
-          Enum.reject(entries, &(root_number(&1) == number))
-
-        not replaced? and not is_nil(new_root) ->
-          sort_roots(entries ++ [new_root])
-
-        true ->
-          entries
-      end
+    cond do
+      replaced? and not is_nil(new_root) -> replace_root_entry(entries, number, new_root)
+      replaced? and is_nil(new_root) -> Enum.reject(entries, &(root_number(&1) == number))
+      not replaced? and not is_nil(new_root) -> sort_roots(entries ++ [new_root])
+      true -> entries
     end
+  end
 
-    apply_catalog_update(state, replace)
+  defp replace_root_entry(entries, number, new_root) do
+    Enum.map(entries, fn entry ->
+      if root_number(entry) == number, do: new_root, else: entry
+    end)
   end
 
   # A sub-issue edge moved. When the edge is held (added), read its parent and
@@ -1407,25 +1406,28 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # cost of not having tracked the parent.
   defp reconcile_dependency(state, _full_name, owner, repo, id) do
     case ResourceStore.data(ResourceStore.key(:issue_dependencies, owner, repo, id)) do
-      %{} = dependency ->
-        dependency
-        |> dependency_numbers()
-        |> Enum.reduce({state, []}, fn number, {state, events} ->
-          case held_selected_scope(state, number) do
-            nil -> {state, events}
-            scope -> with_scope_events(state, scope, events)
-          end
-        end)
-
-      nil ->
-        Enum.reduce(state.selected, {state, []}, fn {_key, entry}, {state, events} ->
-          if active_scope?(state, entry.scope) do
-            with_scope_events(state, entry.scope, events)
-          else
-            {state, events}
-          end
-        end)
+      %{} = dependency -> reconcile_dependency_numbers(state, dependency_numbers(dependency))
+      nil -> reconcile_dependency_all(state)
     end
+  end
+
+  defp reconcile_dependency_numbers(state, numbers) do
+    Enum.reduce(numbers, {state, []}, fn number, {state, events} ->
+      case held_selected_scope(state, number) do
+        nil -> {state, events}
+        scope -> with_scope_events(state, scope, events)
+      end
+    end)
+  end
+
+  defp reconcile_dependency_all(state) do
+    Enum.reduce(state.selected, {state, []}, fn {_key, entry}, {state, events} ->
+      if active_scope?(state, entry.scope) do
+        with_scope_events(state, entry.scope, events)
+      else
+        {state, events}
+      end
+    end)
   end
 
   defp with_scope_events(state, scope, events) do
@@ -1461,15 +1463,15 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp issue_number_for_node_id(full_name, node_id) do
     case ResourceStore.list_type(:issue, full_name) do
-      [] ->
-        nil
-
-      issues ->
-        issues
-        |> Enum.find_value(fn {_key, body} ->
-          if Map.get(body, "node_id") == node_id, do: Map.get(body, "number")
-        end)
+      [] -> nil
+      issues -> find_issue_number(issues, node_id)
     end
+  end
+
+  defp find_issue_number(issues, node_id) do
+    Enum.find_value(issues, fn {_key, body} ->
+      if Map.get(body, "node_id") == node_id, do: Map.get(body, "number")
+    end)
   end
 
   # Applies a transform to the catalog's entries and, when the content changed,
@@ -1478,19 +1480,21 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp apply_catalog_update(state, fun) do
     catalog = state.catalog.data
 
-    cond do
-      is_nil(catalog) ->
-        repository = active_repository_for(state)
-        apply_store_catalog_result(state, StoreCatalog.build(repo_name(repository)))
+    if is_nil(catalog) do
+      repository = active_repository_for(state)
+      apply_store_catalog_result(state, StoreCatalog.build(repo_name(repository)))
+    else
+      apply_catalog_update_entries(state, catalog, fun)
+    end
+  end
 
-      true ->
-        new_entries = fun.(catalog.entries)
+  defp apply_catalog_update_entries(state, catalog, fun) do
+    new_entries = fun.(catalog.entries)
 
-        if new_entries == catalog.entries do
-          {state, []}
-        else
-          apply_store_catalog_result(state, %{catalog | entries: new_entries})
-        end
+    if new_entries == catalog.entries do
+      {state, []}
+    else
+      apply_store_catalog_result(state, %{catalog | entries: new_entries})
     end
   end
 

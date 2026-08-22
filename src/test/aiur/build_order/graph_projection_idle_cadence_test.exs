@@ -6,7 +6,7 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
   # "idle cadence" sweep's job (#2118).
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.ResourceStore
@@ -233,7 +233,7 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
   defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
 
   defp selected(identity, repository \\ @repository) do
-    Aiur.BuildOrder.SelectedRoot.new(root(identity, repository), [], ProviderHealth.new(1, :healthy, true))
+    SelectedRoot.new(root(identity, repository), [], ProviderHealth.new(1, :healthy, true))
   end
 
   defp root(identity, {owner, repository} \\ @repository) do
