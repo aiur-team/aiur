@@ -86,8 +86,10 @@ def connection(path):
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           token_key TEXT NOT NULL,
           consumer_key TEXT NOT NULL DEFAULT '',
+          lease_id TEXT,
           endpoint_family TEXT NOT NULL,
-          admitted_at_ms INTEGER NOT NULL
+          admitted_at_ms INTEGER NOT NULL,
+          billable INTEGER NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS admissions_token_time ON admissions(token_key, admitted_at_ms);
         CREATE TABLE IF NOT EXISTS policies (
@@ -126,6 +128,10 @@ def migrate(conn):
     admissions_columns = {row[1] for row in conn.execute("PRAGMA table_info(admissions)").fetchall()}
     if "consumer_key" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN consumer_key TEXT NOT NULL DEFAULT ''")
+    if "lease_id" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
+    if "billable" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -134,6 +140,7 @@ def migrate(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS admissions_consumer_time ON admissions(token_key, consumer_key, admitted_at_ms)"
     )
+    conn.execute("CREATE INDEX IF NOT EXISTS admissions_token_lease ON admissions(token_key, lease_id)")
 
     policies_columns = {row[1] for row in conn.execute("PRAGMA table_info(policies)").fetchall()}
     if "consumer_label" not in policies_columns:
@@ -163,11 +170,10 @@ def cleanup(conn, now):
     conn.execute("DELETE FROM cache_claims WHERE expires_at_ms <= ?", (now,))
 
 
-# The rolling-hour admissions of one actor and one resource, oldest first. Core
-# is every REST family; GraphQL is the graphql family. A `resource` ceiling is a
-# request-count ceiling: the broker sees admissions, never the GraphQL point
-# price GitHub charged, so this is the coarsest thing that still stops one actor
-# from exhausting the shared hourly budget.
+# The rolling-hour billable responses of one actor and one resource, oldest
+# first. Core is every REST family; GraphQL is the graphql family. A reconciled
+# 304 remains in the admissions ledger for RPM accounting but is excluded here.
+# GraphQL is still request-counted rather than point-priced.
 def actor_usage_rows(conn, token_key, consumer_key, resource, now):
     if resource == "graphql":
         family_clause = "endpoint_family = ?"
@@ -177,7 +183,7 @@ def actor_usage_rows(conn, token_key, consumer_key, resource, now):
         family_value = "graphql"
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
-        "WHERE token_key = ? AND consumer_key = ? AND admitted_at_ms > ? AND "
+        "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
         + family_clause
         + " ORDER BY admitted_at_ms ASC",
         (token_key, consumer_key, now - HOURLY_WINDOW_MS, family_value),
@@ -361,8 +367,8 @@ def acquire(args):
             (lease_id, args.token_key, args.endpoint_family, expires_at),
         )
         conn.execute(
-            "INSERT INTO admissions(token_key, consumer_key, endpoint_family, admitted_at_ms) VALUES (?, ?, ?, ?)",
-            (args.token_key, args.consumer_key, args.endpoint_family, now),
+            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms) VALUES (?, ?, ?, ?, ?)",
+            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, now),
         )
         conn.execute(
             "UPDATE budgets SET next_admission_ms = ? WHERE token_key = ?", (now + stagger, args.token_key)
@@ -397,6 +403,18 @@ def release(args):
         # is in the shared response store, so a follower admitted by this release
         # finds the answer rather than paying for it again.
         conn.execute("DELETE FROM cache_claims WHERE lease_id = ?", (args.lease_id,))
+    finally:
+        conn.close()
+
+
+def reconcile(args):
+    conn = connection(args.db)
+    try:
+        if args.status == 304:
+            conn.execute(
+                "UPDATE admissions SET billable = 0 WHERE token_key = ? AND lease_id = ? AND billable = 1",
+                (args.token_key, args.lease_id),
+            )
     finally:
         conn.close()
 
@@ -457,7 +475,7 @@ def snapshot(args):
             (args.token_key,),
         ).fetchall()
         admissions = conn.execute(
-            "SELECT endpoint_family, admitted_at_ms FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
+            "SELECT endpoint_family, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
         ).fetchall()
         conn.execute("COMMIT")
         print(
@@ -466,8 +484,8 @@ def snapshot(args):
                     "cooldown_until_ms": cooldown[0] if cooldown else 0,
                     "inflight": dict(leases),
                     "admissions": [
-                        {"endpoint_family": endpoint_family, "admitted_at_ms": admitted_at_ms}
-                        for endpoint_family, admitted_at_ms in admissions
+                        {"endpoint_family": endpoint_family, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
+                        for endpoint_family, admitted_at_ms, billable in admissions
                     ],
                 }
             )
@@ -533,6 +551,30 @@ def usage(args):
         conn.close()
 
 
+def meter(args):
+    """One actor/resource figure for hold diagnostics on the request path."""
+    now = now_ms()
+    conn = connection(args.db)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cleanup(conn, now)
+        limits = conn.execute(
+            "SELECT core_limit_per_hour, graphql_limit_per_hour FROM policies "
+            "WHERE token_key = ? AND consumer_key = ?",
+            (args.token_key, args.consumer_key),
+        ).fetchone()
+        limit = 0 if limits is None else limits[1 if args.resource == "graphql" else 0]
+        figure = usage_figure(conn, args.token_key, args.consumer_key, args.resource, limit, now)
+        conn.execute("COMMIT")
+        print(json.dumps(figure))
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def parser():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", required=True)
@@ -570,6 +612,11 @@ def parser():
     release_parser.add_argument("--lease-id", required=True)
     release_parser.set_defaults(fun=release)
 
+    reconcile_parser = commands.add_parser("reconcile", parents=[common])
+    reconcile_parser.add_argument("--lease-id", required=True)
+    reconcile_parser.add_argument("--status", type=lambda value: clamp(value, 100, 599), required=True)
+    reconcile_parser.set_defaults(fun=reconcile)
+
     renew_parser = commands.add_parser("renew", parents=[common])
     renew_parser.add_argument("--lease-id", required=True)
     renew_parser.add_argument("--lease-ttl-ms", type=lambda value: clamp(value, 1000, 3600000), required=True)
@@ -590,6 +637,11 @@ def parser():
     usage_parser = commands.add_parser("usage")
     usage_parser.add_argument("--db", required=True)
     usage_parser.set_defaults(fun=usage)
+
+    meter_parser = commands.add_parser("meter", parents=[common])
+    meter_parser.add_argument("--consumer-key", required=True)
+    meter_parser.add_argument("--resource", choices=("core", "graphql"), required=True)
+    meter_parser.set_defaults(fun=meter)
     return root
 
 

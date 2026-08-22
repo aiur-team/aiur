@@ -23,9 +23,11 @@ defmodule Aiur.GitHub.CredentialHeadroom do
 
   use GenServer
 
+  alias Aiur.Alerts
   alias Aiur.GitHub.{Budget, Transport}
 
   @table __MODULE__
+  @disagreements_table Module.concat(__MODULE__, Disagreements)
   @resources ["core", "graphql"]
 
   @type window :: %{
@@ -111,6 +113,7 @@ defmodule Aiur.GitHub.CredentialHeadroom do
   @spec reset() :: :ok
   def reset do
     :ets.delete_all_objects(@table)
+    :ets.delete_all_objects(@disagreements_table)
     :ok
   rescue
     ArgumentError -> :ok
@@ -122,7 +125,58 @@ defmodule Aiur.GitHub.CredentialHeadroom do
     # routing every observation through this GenServer would put a serialization
     # point on the GitHub request path for a write nobody reads synchronously.
     :ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+    :ets.new(@disagreements_table, [:named_table, :public, :set, write_concurrency: true])
     {:ok, %{}}
+  end
+
+  @doc "Alerts once per credential/resource/reset window when local billed usage contradicts GitHub."
+  @spec reconcile_budget_meter(String.t(), String.t(), map(), map(), keyword()) :: :ok
+  def reconcile_budget_meter(token_key, resource, local, window, opts \\ [])
+
+  def reconcile_budget_meter(token_key, resource, local, %{limit: limit, used: github_used, reset_at: reset_at}, opts)
+      when is_binary(token_key) and is_binary(resource) and is_integer(limit) and limit > 0 and is_integer(github_used) do
+    local_used = Map.get(local, :used, 0)
+    local_limit = Map.get(local, :limit, 0)
+    margin = max(1, ceil(limit * 0.05))
+    disagreement_key = {token_key, resource}
+    signature = DateTime.to_unix(reset_at)
+
+    if local_used - github_used > margin do
+      if activate_disagreement(disagreement_key, signature) do
+        message =
+          "GitHub local budget meter disagrees with the credential window for #{resource}: " <>
+            "local billed=#{local_used}/#{local_limit}, GitHub used=#{github_used}/#{limit}, " <>
+            "margin=#{margin}, reset_at=#{DateTime.to_iso8601(reset_at)}, credential=#{binary_part(token_key, 0, 12)}."
+
+        alert_fun = Keyword.get(opts, :alert_fun, &Alerts.emit_system/2)
+
+        case alert_fun.("system.github.budget_meter_disagreement",
+               reason: message,
+               needs_attention: true,
+               severity: "warning"
+             ) do
+          :ok -> :ok
+          _failed -> :ets.delete(@disagreements_table, disagreement_key)
+        end
+      end
+    else
+      :ets.delete(@disagreements_table, disagreement_key)
+    end
+
+    :ok
+  rescue
+    _unavailable -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  def reconcile_budget_meter(_token_key, _resource, _local, _window, _opts), do: :ok
+
+  defp activate_disagreement(key, signature) do
+    case :ets.lookup(@disagreements_table, key) do
+      [{^key, ^signature}] -> false
+      _previous -> :ets.insert(@disagreements_table, {key, signature})
+    end
   end
 
   defp put(key, resource, window) when resource in @resources do
