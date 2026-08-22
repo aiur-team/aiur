@@ -1,12 +1,12 @@
 defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
   @moduledoc """
-  Builds the Build Order root catalog from `Aiur.GitHub.ResourceStore` content.
+  Builds Build Order catalog roots from `Aiur.GitHub.ResourceStore` content.
 
   The catalog is one of the four view-state sources #2325 event-sources. Every
   input it needs — the `build-order`-labelled roots, their sub-issue membership,
   and each member's state and labels — already arrives as a webhook delivery and
   is deposited in the store before the event is published, so
-  `Aiur.BuildOrder.GraphProjection` rebuilds this catalog from the store
+  `Aiur.BuildOrder.GraphProjection` maintains this catalog from the store
   whenever a store change lands instead of polling GitHub's GraphQL catalog
   query on a cadence.
 
@@ -26,6 +26,14 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
   fails safe on what it cannot resolve, exactly as the GraphQL reader fails
   closed on an incomplete connection.
 
+  ## Two entry points
+
+  `build/1` derives the whole catalog from the store (the test seam and the
+  bootstrap fallback). `root_for/2` derives one root from its `:issue` body so
+  `GraphProjection` can reconcile a single root on a store change — the boot
+  read's baseline entries that are not in the store stay untouched, which is how
+  the baseline the boot establishes is *maintained* rather than re-derived.
+
   ## Purity
 
   A plain function, deliberately: `GraphProjection` applies it synchronously
@@ -39,9 +47,47 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
 
   @root_label "build-order"
 
-  @doc "Builds the catalog for one `\"owner/repo\"` from the store's held bodies."
+  @doc "Builds the whole catalog for one `\"owner/repo\"` from the store's held bodies."
   @spec build(String.t() | nil) :: Catalog.t()
   def build(repo_full_name) when is_binary(repo_full_name) do
+    ctx = store_context(repo_full_name)
+
+    roots =
+      ctx.issues
+      |> Enum.map(fn {_key, body} -> body end)
+      |> Enum.filter(&root?/1)
+      |> Enum.map(&root_summary(&1, ctx))
+
+    Catalog.new(roots, ProviderHealth.new(1, :healthy, true), [])
+  end
+
+  def build(_repo_full_name), do: Catalog.new([], ProviderHealth.new(1, :unavailable, false), [])
+
+  @doc """
+  Derives one root from its `:issue` body, or `nil` when the body is not a
+  root (a pull request, or an issue without the `build-order` label).
+
+  The projection calls this on a store change to reconcile exactly the issue
+  that moved; the boot baseline's other roots are left alone. A body that
+  arrived with the label removed derives `nil` so the caller drops it from the
+  catalog.
+  """
+  @spec root_for(String.t() | nil, map() | nil) :: RootSummary.t() | nil
+  def root_for(repo_full_name, issue_body) when is_binary(repo_full_name) and is_map(issue_body) do
+    if root?(issue_body), do: root_summary(issue_body, store_context(repo_full_name))
+  end
+
+  def root_for(_repo_full_name, _issue_body), do: nil
+
+  @doc "True when an issue body is a planning root: labelled and not a pull request."
+  @spec root?(map() | nil) :: boolean()
+  def root?(%{"pull_request" => pull_request}) when is_map(pull_request), do: false
+  def root?(body) when is_map(body), do: @root_label in label_names(Map.get(body, "labels"))
+  def root?(_body), do: false
+
+  # -- store context ----------------------------------------------------------
+
+  defp store_context(repo_full_name) do
     {owner, repo} = split_repo(repo_full_name)
 
     issues = ResourceStore.list_type(:issue, repo_full_name)
@@ -52,37 +98,27 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
     issues_by_number = Map.new(issues, fn {_key, body} -> {Map.get(body, "number"), body} end)
     labels_by_number = Map.new(labels, fn {key, body} -> {key_id(key), body} end)
 
-    memberships = memberships_by_parent(sub_issues, issues_by_node_id)
-
-    roots =
-      issues
-      |> Enum.map(fn {_key, body} -> body end)
-      |> Enum.filter(&root?/1)
-      |> Enum.map(fn body ->
-        root_summary(body, owner, repo, memberships, issues_by_node_id, issues_by_number, labels_by_number)
-      end)
-
-    Catalog.new(roots, ProviderHealth.new(1, :healthy, true), [])
+    %{
+      owner: owner,
+      repo: repo,
+      issues: issues,
+      issues_by_node_id: issues_by_node_id,
+      issues_by_number: issues_by_number,
+      labels_by_number: labels_by_number,
+      memberships: memberships_by_parent(sub_issues, issues_by_node_id)
+    }
   end
-
-  def build(_repo_full_name), do: Catalog.new([], ProviderHealth.new(1, :unavailable, false), [])
 
   # -- root derivation --------------------------------------------------------
 
-  # A root is an issue carrying the `build-order` label and no `pull_request`
-  # key. GitHub serves pull requests from the issues endpoint, and a PR is not a
-  # planning root even when it happens to carry the label.
-  defp root?(%{"pull_request" => pull_request}) when is_map(pull_request), do: false
-  defp root?(body), do: @root_label in label_names(Map.get(body, "labels"))
-
-  defp root_summary(body, owner, repo, memberships, issues_by_node_id, issues_by_number, labels_by_number) do
+  defp root_summary(body, ctx) do
     {identity, identity_diagnostic} =
-      case TrackerIdentity.from_github(body, {owner, repo}, {owner, repo}) do
+      case TrackerIdentity.from_github(body, {ctx.owner, ctx.repo}, {ctx.owner, ctx.repo}) do
         {:ok, identity} -> {identity, nil}
         {:error, _reason} -> {nil, Diagnostic.new(:invalid_identity)}
       end
 
-    metrics = member_metrics(memberships, body, issues_by_node_id, issues_by_number, labels_by_number)
+    metrics = member_metrics(body, ctx)
 
     RootSummary.new(%{
       identity: identity,
@@ -152,7 +188,7 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
 
   defp parent_of(_edge, _issues_by_node_id), do: nil
 
-  defp member_metrics(memberships, body, issues_by_node_id, issues_by_number, labels_by_number) do
+  defp member_metrics(body, ctx) do
     parent_key =
       case Map.get(body, "number") do
         number when is_integer(number) -> {:number, number}
@@ -160,9 +196,9 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
       end
 
     members =
-      memberships
+      ctx.memberships
       |> Map.get(parent_key, [])
-      |> Enum.map(&resolve_member(&1, issues_by_node_id, issues_by_number, labels_by_number))
+      |> Enum.map(&resolve_member(&1, ctx))
 
     metrics_from_members(members)
   end
@@ -171,15 +207,17 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
   # can omit `labels`). The member's own `:issue` body is the fuller record, so
   # it wins when held; the edge's `sub_issue` object covers the gap when it is
   # not.
-  defp resolve_member(sub_issue, issues_by_node_id, issues_by_number, labels_by_number) do
+  defp resolve_member(edge, ctx) do
+    sub_issue = Map.get(edge, "sub_issue", edge)
+
     held =
       case Map.get(sub_issue, "node_id") do
         node_id when is_binary(node_id) ->
-          Map.get(issues_by_node_id, node_id) ||
-            Map.get(issues_by_number, Map.get(sub_issue, "number"))
+          Map.get(ctx.issues_by_node_id, node_id) ||
+            Map.get(ctx.issues_by_number, Map.get(sub_issue, "number"))
 
         _other ->
-          Map.get(issues_by_number, Map.get(sub_issue, "number"))
+          Map.get(ctx.issues_by_number, Map.get(sub_issue, "number"))
       end
 
     case held do
@@ -187,7 +225,7 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
         %{
           "state" => Map.get(body, "state") || Map.get(sub_issue, "state"),
           "state_reason" => Map.get(body, "state_reason") || Map.get(body, "stateReason"),
-          "labels" => held_labels(body, labels_by_number, sub_issue)
+          "labels" => held_labels(body, ctx, sub_issue)
         }
 
       nil ->
@@ -199,15 +237,15 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
     end
   end
 
-  defp held_labels(body, labels_by_number, sub_issue) do
+  defp held_labels(body, ctx, sub_issue) do
     body_labels = Map.get(body, "labels")
 
     cond do
       is_list(body_labels) and body_labels != [] ->
         body_labels
 
-      is_list(Map.get(labels_by_number, Map.get(body, "number"))) ->
-        Map.fetch!(labels_by_number, Map.get(body, "number"))
+      is_list(Map.get(ctx.labels_by_number, Map.get(body, "number"))) ->
+        Map.fetch!(ctx.labels_by_number, Map.get(body, "number"))
 
       is_list(Map.get(sub_issue, "labels")) ->
         Map.fetch!(sub_issue, "labels")

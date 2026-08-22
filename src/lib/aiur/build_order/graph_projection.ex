@@ -9,10 +9,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   use GenServer
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary}
   alias Aiur.BuildOrder.GitHubGraph.Settings
-  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
+  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, StoreCatalog, TaskLifecycle}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
+  alias Aiur.Webhooks.ModeRegistry
 
   @reset_topic "build_order:graph:reset"
 
@@ -97,6 +99,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     Process.flag(:trap_exit, true)
     state = Options.new(opts)
     subscribe_to_configuration(state)
+    subscribe_to_store()
     send(self(), :reconcile)
     {:ok, state}
   end
@@ -220,6 +223,48 @@ defmodule Aiur.BuildOrder.GraphProjection do
     {state, refresh_events} = request_scope(state, :catalog)
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
+  end
+
+  # The event-sourced catalog (#2325): every input a catalog root needs —
+  # the `build-order`-labelled issues, their sub-issue edges, and each member's
+  # state and labels — is deposited in `Aiur.GitHub.ResourceStore` by a webhook
+  # delivery before the event is published. So a store change reconciles the
+  # affected root from the store, with no GitHub read. Only the active
+  # repository's changes are reconciled; the type subscriptions are repo-wide.
+  def handle_info({:github_resource_changed, %{key: {type, owner, repo, id}}}, state)
+      when type in [:issue, :issue_labels, :sub_issues, :issue_dependencies] do
+    case active_repository_for(state) do
+      {active_owner, active_repo}
+      when active_owner == owner and active_repo == repo ->
+        {state, events} = reconcile(state)
+        {state, store_events} = apply_store_change(state, type, id)
+        broadcast_all(state, events ++ store_events)
+        {:noreply, state}
+
+      _other_repository ->
+        {:noreply, state}
+    end
+  end
+
+  # The gap-based re-convergence: while the repo is degraded, deliveries are
+  # known to be dropped, so re-read the catalog from GitHub to re-establish the
+  # baseline the event stream then maintains. One listing, on the gap — never a
+  # clock.
+  def handle_info({:webhook_degraded, degraded_repo}, state) do
+    case active_repository_for(state) do
+      {owner, repo} when is_binary(owner) and is_binary(repo) ->
+        if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
+          {state, events} = reconcile(state)
+          {state, refresh_events} = request_scope(state, :catalog)
+          broadcast_all(state, events ++ refresh_events)
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
+
+      _other ->
+        {:noreply, state}
+    end
   end
 
   def handle_info({ref, result}, state) when is_reference(ref) do
@@ -910,7 +955,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end)
   end
 
-  defp schedule_after_completion(state, :catalog, delay), do: schedule_scope(state, :catalog, delay)
+  defp schedule_after_completion(state, :catalog, _delay), do: state
 
   # A selected root never schedules its successor. Completing a read used to
   # queue the next one `graph_selected_refresh_ms` later for as long as anyone
@@ -923,6 +968,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # on a viewer. A webhook or mutation write to `Aiur.GitHub.ResourceStore` does
   # *not* reach here — the store holds issues, not graphs — so it is not claimed.
   defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state
+
+  # The catalog is event-sourced (#2325): the `ResourceStore` change stream is
+  # the refresh, so a completed read (the boot fill, a degraded re-list, or an
+  # explicit `refresh_catalog`) arms no successor cadence. Retries are a
+  # separate path and still survive, so a boot read that fails still backs off.
+  defp schedule_from_success(state, :catalog), do: state
 
   defp schedule_from_success(state, scope) do
     entry = scope_entry(state, scope)
@@ -1157,6 +1208,248 @@ defmodule Aiur.BuildOrder.GraphProjection do
     _error -> :ok
   catch
     _kind, _reason -> :ok
+  end
+
+  # The event-sourced catalog's change stream. Subscribed in the process, so the
+  # store's `ResourceEvents` broadcasts (delivered as
+  # `{:github_resource_changed, change}`) land in this GenServer's mailbox and
+  # are applied synchronously — a store change that lands while a rebuild is
+  # running is queued behind it, never lost. The degraded broadcast is the gap
+  # trigger that re-reads GitHub when deliveries are known to be dropped.
+  defp subscribe_to_store do
+    ResourceStore.subscribe(:issue)
+    ResourceStore.subscribe(:issue_labels)
+    ResourceStore.subscribe(:sub_issues)
+    ResourceStore.subscribe(:issue_dependencies)
+    ModeRegistry.subscribe()
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  # The active repository as the store reports it (down-cased), for matching
+  # against the down-cased `owner`/`repo` a `ResourceStore` key carries.
+  defp active_repository_for(state) do
+    case state.active_repository do
+      {owner, repo} when is_binary(owner) and is_binary(repo) ->
+        {String.downcase(owner), String.downcase(repo)}
+
+      _other ->
+        nil
+    end
+  end
+
+  # The store-change reconciliation, dispatched per type. The boot read's
+  # baseline entries that are not in the store are left untouched — this is
+  # what "the event stream maintains the bootstrap baseline" means.
+  defp apply_store_change(state, type, id) do
+    case active_repository_for(state) do
+      nil ->
+        {state, []}
+
+      {owner, repo} ->
+        full_name = "#{owner}/#{repo}"
+
+        case type do
+          t when t in [:issue, :issue_labels] -> reconcile_issue_root(state, full_name, owner, repo, id)
+          :sub_issues -> reconcile_sub_issue_parent(state, full_name, owner, repo, id)
+          :issue_dependencies -> reconcile_dependency(state, full_name, owner, repo, id)
+        end
+    end
+  end
+
+  # An issue (or its label set) moved: derive the root for that issue from the
+  # store and upsert or drop it. A body with the label removed, a pull request,
+  # a deleted issue, or an issue the store no longer holds all derive `nil` and
+  # drop the root.
+  defp reconcile_issue_root(state, full_name, owner, repo, id) do
+    case Integer.parse(id) do
+      {number, ""} ->
+        body = ResourceStore.data(ResourceStore.key(:issue, owner, repo, number))
+        new_root = StoreCatalog.root_for(full_name, body)
+        upsert_or_remove_root(state, number, new_root)
+
+      _other ->
+        {state, []}
+    end
+  end
+
+  defp upsert_or_remove_root(state, number, new_root) do
+    replace = fn entries ->
+      number = Integer.to_string(number)
+      replaced? = Enum.any?(entries, &(root_number(&1) == number))
+
+      cond do
+        replaced? and not is_nil(new_root) ->
+          Enum.map(entries, fn entry -> if root_number(entry) == number, do: new_root, else: entry end)
+
+        replaced? and is_nil(new_root) ->
+          Enum.reject(entries, &(root_number(&1) == number))
+
+        not replaced? and not is_nil(new_root) ->
+          sort_roots(entries ++ [new_root])
+
+        true ->
+          entries
+      end
+    end
+
+    apply_catalog_update(state, replace)
+  end
+
+  # A sub-issue edge moved. When the edge is held (added), read its parent and
+  # reconcile that root. When the edge is gone (removed), the parent cannot be
+  # read from the removed key, so reconcile every root the store still knows
+  # about and preserve any boot-baseline root it does not.
+  defp reconcile_sub_issue_parent(state, full_name, owner, repo, id) do
+    case ResourceStore.data(ResourceStore.key(:sub_issues, owner, repo, id)) do
+      %{"parent" => %{"number" => number}} when is_integer(number) ->
+        reconcile_issue_root(state, full_name, owner, repo, Integer.to_string(number))
+
+      %{"parent" => %{"node_id" => node_id}} when is_binary(node_id) ->
+        case issue_number_for_node_id(full_name, node_id) do
+          nil -> reconcile_all_roots(state, full_name)
+          number -> reconcile_issue_root(state, full_name, owner, repo, Integer.to_string(number))
+        end
+
+      nil ->
+        reconcile_all_roots(state, full_name)
+    end
+  end
+
+  defp reconcile_all_roots(state, full_name) do
+    fresh = StoreCatalog.build(full_name)
+
+    apply_catalog_update(state, fn entries ->
+      fresh_numbers = MapSet.new(fresh.entries, &root_number/1)
+      preserved = Enum.reject(entries, &MapSet.member?(fresh_numbers, root_number(&1)))
+      sort_roots(preserved ++ fresh.entries)
+    end)
+  end
+
+  # A dependency edge lives on the selected-root graphs, not on the catalog's
+  # RootSummary entries, so the catalog itself does not move. But a page showing
+  # the edge is stale, so re-read the selected roots the edge touches. When the
+  # edge is gone (removed) the endpoints cannot be read, so re-read every held
+  # root — a rare event, and one extra read per held root on it is the honest
+  # cost of not having tracked the parent.
+  defp reconcile_dependency(state, _full_name, owner, repo, id) do
+    case ResourceStore.data(ResourceStore.key(:issue_dependencies, owner, repo, id)) do
+      %{} = dependency ->
+        dependency
+        |> dependency_numbers()
+        |> Enum.reduce({state, []}, fn number, {state, events} ->
+          case held_selected_scope(state, number) do
+            nil -> {state, events}
+            scope -> with_scope_events(state, scope, events)
+          end
+        end)
+
+      nil ->
+        Enum.reduce(state.selected, {state, []}, fn {_key, entry}, {state, events} ->
+          if active_scope?(state, entry.scope) do
+            with_scope_events(state, entry.scope, events)
+          else
+            {state, events}
+          end
+        end)
+    end
+  end
+
+  defp with_scope_events(state, scope, events) do
+    {state, next_events} = request_scope(state, scope)
+    {state, events ++ next_events}
+  end
+
+  # Both endpoints of the edge can be held roots, so both are considered.
+  defp dependency_numbers(dependency) do
+    Enum.flat_map(["dependency", "dependant"], fn key ->
+      case get_in(dependency, [key, "number"]) do
+        number when is_integer(number) -> [number]
+        _other -> []
+      end
+    end)
+  end
+
+  defp held_selected_scope(state, number) do
+    number = Integer.to_string(number)
+
+    state.selected
+    |> Enum.find_value(fn {_key, entry} ->
+      if active_scope?(state, entry.scope) and selected_matches_number?(entry.scope, number) do
+        entry.scope
+      end
+    end)
+  end
+
+  defp selected_matches_number?({:selected, %TrackerIdentity{identifier: identifier}}, number),
+    do: identifier == number
+
+  defp selected_matches_number?(_scope, _number), do: false
+
+  defp issue_number_for_node_id(full_name, node_id) do
+    case ResourceStore.list_type(:issue, full_name) do
+      [] ->
+        nil
+
+      issues ->
+        issues
+        |> Enum.find_value(fn {_key, body} ->
+          if Map.get(body, "node_id") == node_id, do: Map.get(body, "number")
+        end)
+    end
+  end
+
+  # Applies a transform to the catalog's entries and, when the content changed,
+  # publishes a new generation and re-reads any selected root whose catalog
+  # marker moved.
+  defp apply_catalog_update(state, fun) do
+    catalog = state.catalog.data
+
+    cond do
+      is_nil(catalog) ->
+        apply_store_catalog_result(state, StoreCatalog.build(state |> active_repository_for() |> repo_name()))
+
+      true ->
+        new_entries = fun.(catalog.entries)
+
+        if new_entries == catalog.entries do
+          {state, []}
+        else
+          apply_store_catalog_result(state, %{catalog | entries: new_entries})
+        end
+    end
+  end
+
+  defp apply_store_catalog_result(state, catalog) do
+    now = now(state)
+    now_ms = now_ms(state)
+    generation = state.next_generation
+    entry = state.catalog |> Policy.apply_success(catalog, generation, now, now_ms) |> cancel_entry_schedule()
+
+    state = %{state | catalog: entry, next_generation: generation + 1}
+    events = [{:generation, catalog_snapshot(state)}]
+    {state, follow_up} = request_changed_selected_roots(state, :catalog)
+    {state, events ++ follow_up}
+  end
+
+  defp repo_name(nil), do: nil
+  defp repo_name({owner, repo}), do: "#{owner}/#{repo}"
+
+  defp root_number(%RootSummary{identity: %TrackerIdentity{identifier: identifier}}) when is_binary(identifier),
+    do: identifier
+
+  defp root_number(_root), do: nil
+
+  defp sort_roots(roots) do
+    Enum.sort_by(roots, &root_number/1, fn a, b ->
+      case {Integer.parse(a || ""), Integer.parse(b || "")} do
+        {{na, ""}, {nb, ""}} -> na <= nb
+        _other -> (a || "") <= (b || "")
+      end
+    end)
   end
 
   defp subscribe_scope(topic_fun) do

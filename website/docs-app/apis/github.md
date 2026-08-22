@@ -122,14 +122,14 @@ Dashboard and Build Order state is not on this cadence.
 | View state | Behaviour |
 | --- | --- |
 | Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline, and a `webhooks` degradation (deliveries known to be dropped) re-lists to re-converge. |
+| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline, and a `webhooks` degradation (deliveries known to be dropped) re-lists to re-converge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
 | Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, so moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-The ticket backlog and Ad Hoc overlay reach the page the moment a delivery
-deposits the changed issue, while pack status — the one view-state source still
-on a cadence — reflects an outside change within one sweep, the trade for it
-costing nothing while nobody is looking.
+The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
+moment a delivery deposits the changed issue, while pack status — the one
+view-state source still on a cadence — reflects an outside change within one
+sweep, the trade for it costing nothing while nobody is looking.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
