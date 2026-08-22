@@ -33,10 +33,11 @@ agent:
   priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
-  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
+  # max_concurrent_builds: 4             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
   # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
+  # build_gate_stall_timeout_ms: 300000  # build-gate slot occupancy watchdog (5 min); 0 = disabled
   # Full emergency opt-out: set both build settings above to 0 and leave min_free_memory_mb omitted.
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets

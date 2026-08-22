@@ -97,6 +97,12 @@ alerts:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
   "system.dispatch.capacity_starved.resolved":
     message: Fleet dispatch capacity recovered
+  "system.build_gate.slot_stall":
+    message: A build-gate slot has been held too long
+    sound:
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+  "system.build_gate.slot_stall.resolved":
+    message: Build-gate slot occupancy recovered
   "system.fleet.capacity.starved":
     message: Fleet capacity is under-utilised
     sound:

@@ -752,6 +752,91 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  describe "build-gate slot stall alert" do
+    defp stalled_slot_status(slot \\ %{}) do
+      base = %{
+        enabled?: true,
+        capacity: 2,
+        active: 1,
+        queued: 0,
+        holders: [
+          %{
+            kind: :slot,
+            slot: 1,
+            pid: 4242,
+            pgid: 4242,
+            holder_pid: 4243,
+            command_pgid: 4244,
+            phase: "test",
+            command: "mix test --trace",
+            started_at: System.os_time(:second) - 400,
+            held_for_seconds: 400
+          }
+        ]
+      }
+
+      update_in(base, [:holders, Access.at(0)], &Map.merge(&1, slot))
+    end
+
+    test "raises a needs-attention alert naming the command and clears on recovery" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.build_gate.slot_stall")
+      :ok = Exchange.subscribe("system.build_gate.slot_stall.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      Application.put_env(:aiur, :build_gate_status_override, fn -> stalled_slot_status() end)
+
+      held = Dispatcher.maybe_alert_build_gate_slot_stall(%State{})
+      assert held.build_gate_slot_stall_active
+
+      assert_receive {:event, %{topic: "system.build_gate.slot_stall"} = event}, 500
+      assert event["reason"] =~ "mix test --trace"
+      assert event["reason"] =~ "slot 1"
+      assert event["reason"] =~ "400s"
+
+      # A still-stalled slot does not re-fire while the alert is active.
+      assert Dispatcher.maybe_alert_build_gate_slot_stall(held) == held
+      refute_receive {:event, %{topic: "system.build_gate.slot_stall"}}, 100
+
+      # A clean gate clears the alert.
+      Application.put_env(:aiur, :build_gate_status_override, fn ->
+        %{enabled?: false, capacity: 0, active: 0, queued: 0}
+      end)
+
+      recovered = Dispatcher.maybe_alert_build_gate_slot_stall(held)
+      refute recovered.build_gate_slot_stall_active
+      assert recovered.build_gate_slot_stall_resolution_emitted
+      assert_receive {:event, %{topic: "system.build_gate.slot_stall.resolved"}}, 500
+    end
+
+    test "a watchdog disabled by a zero threshold never fires" do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), build_gate_stall_timeout_ms: 0)
+      Application.put_env(:aiur, :build_gate_status_override, fn -> stalled_slot_status() end)
+
+      state = Dispatcher.maybe_alert_build_gate_slot_stall(%State{})
+      refute state.build_gate_slot_stall_active
+      refute state.build_gate_slot_stall_resolution_emitted
+    end
+
+    test "stalled_build_gate_slots filters to slot holders past the threshold" do
+      status = %{
+        holders: [
+          %{kind: :slot, slot: 1, command: "mix test", held_for_seconds: 400},
+          %{kind: :slot, slot: 2, command: "mix compile", held_for_seconds: 100},
+          %{kind: :queue, slot: nil, command: "mix test", held_for_seconds: 900}
+        ]
+      }
+
+      assert [%{slot: 1}] = Dispatcher.stalled_build_gate_slots(status, 300)
+      assert Dispatcher.stalled_build_gate_slots(status, 500) == []
+      assert Dispatcher.stalled_build_gate_slots(%{enabled?: false}, 300) == []
+    end
+  end
+
   describe "CPU headroom recovery integration" do
     test "a second CPU sample re-ramps and consumes restored slots in the same poll" do
       write_workflow_file!(Workflow.workflow_file_path(),

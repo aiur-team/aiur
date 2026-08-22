@@ -57,7 +57,11 @@ agent:
   # Bound every agent-launched Mix VM (and ExUnit's default max_cases) to four schedulers.
   mix_scheduler_cap: 4
   # Fleet cap for agent-launched mix compile/test verification. 0 disables it.
-  max_concurrent_builds: 2
+  # Re-derived from the measured load curve (issue #2311): at observed load
+  # 3.77 vs threshold 24.0 on 16 schedulers with mix_scheduler_cap: 4, four
+  # concurrent builds (~16 schedulers) stay far below the hard gate; raised
+  # from 2 on the next restart.
+  max_concurrent_builds: 4
   # Offset admitted mix compile/test starts so fleet CPU ramps do not synchronize.
   build_start_stagger_seconds: 5
   # CPU load gate (#465): hold new dispatch while 1-min load > value * schedulers
@@ -88,6 +92,11 @@ agent:
   # output) is killed after this. Raised from the 5-min default so flake-fix /
   # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
   stall_timeout_ms: 3600000
+  # Build-gate slot occupancy watchdog (default 5 min): a build slot held past
+  # this raises a needs-attention alert naming the command and holder. Bounds
+  # slot occupancy separately from the turn-silence watchdog above, which never
+  # fires on a long serial `--trace` run.
+  build_gate_stall_timeout_ms: 300000
   # Complexity routing is left unset for this run: every complexity level falls
   # back to `priority`, so DeepSeek is the default backend for the remaining
   # Build Order #1567 work with codex/claude as fallback.

@@ -54,6 +54,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def run_poll_cycle(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
     state = maybe_dispatch(state)
+    state = maybe_alert_build_gate_slot_stall(state)
     schedule = TrackerHealth.poll_schedule(state)
 
     state =
@@ -625,6 +626,102 @@ defmodule Aiur.Orchestrator.Dispatcher do
       end
     else
       %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+    end
+  end
+
+  @build_gate_slot_stall_topic "system.build_gate.slot_stall"
+
+  @doc false
+  # Build-gate slot-occupancy watchdog (#2311): a slot held past
+  # `agent.build_gate_stall_timeout_ms` raises a needs-attention alert naming
+  # the command and holder, independently of the turn-silence stall watchdog.
+  # `stall_timeout_ms` cannot serve this purpose because a long serial
+  # `--trace` run is never silent — it emits a line per test — so the stall
+  # watchdog never fires while such a run starves the fleet.
+  @spec maybe_alert_build_gate_slot_stall(State.t()) :: State.t()
+  def maybe_alert_build_gate_slot_stall(%State{} = state) do
+    timeout_ms = Config.build_gate_stall_timeout_ms()
+
+    if timeout_ms > 0 do
+      slots = stalled_build_gate_slots(DispatchPolicy.read_build_status(), div(timeout_ms, 1000))
+
+      case slots do
+        [] -> clear_build_gate_slot_stall_alert(state)
+        _stalled -> emit_build_gate_slot_stall_alert(state, slots)
+      end
+    else
+      state
+    end
+  end
+
+  # Slot holders (not queued commands) whose lease has been held longer than
+  # `threshold_seconds`, longest-held first so the worst holder is named first.
+  @doc false
+  @spec stalled_build_gate_slots(map(), pos_integer()) :: [map()]
+  def stalled_build_gate_slots(%{holders: holders}, threshold_seconds)
+      when is_integer(threshold_seconds) and threshold_seconds > 0 do
+    holders
+    |> Enum.filter(&(&1[:kind] == :slot and is_integer(&1[:held_for_seconds]) and &1[:held_for_seconds] > threshold_seconds))
+    |> Enum.sort_by(&(-(&1[:held_for_seconds] || 0)))
+  end
+
+  def stalled_build_gate_slots(_status, _threshold_seconds), do: []
+
+  @doc false
+  @spec emit_build_gate_slot_stall_alert(State.t(), [map()]) :: State.t()
+  def emit_build_gate_slot_stall_alert(%State{build_gate_slot_stall_active: true} = state, _slots),
+    do: state
+
+  def emit_build_gate_slot_stall_alert(%State{} = state, [slot | _] = slots) do
+    message = build_gate_slot_stall_message(slot, length(slots))
+
+    case Alerts.emit_system(@build_gate_slot_stall_topic,
+           reason: message,
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        %{state | build_gate_slot_stall_active: true, build_gate_slot_stall_resolution_emitted: false}
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp build_gate_slot_stall_message(slot, count) do
+    slot_number = slot[:slot] || "?"
+    command = slot[:command] || "unknown"
+    held_for = slot[:held_for_seconds] || 0
+    holder = slot[:pgid] || slot[:pid] || slot[:holder_pid] || "unknown"
+
+    "Build-gate slot #{slot_number} held #{held_for}s by command `#{command}` " <>
+      "(holder #{holder}, #{count} stalled slot(s)); max_concurrent_builds fleet build capacity is starved."
+  end
+
+  @doc false
+  @spec clear_build_gate_slot_stall_alert(State.t()) :: State.t()
+  def clear_build_gate_slot_stall_alert(%State{build_gate_slot_stall_resolution_emitted: true} = state),
+    do: %{state | build_gate_slot_stall_active: false}
+
+  def clear_build_gate_slot_stall_alert(%State{} = state) do
+    active? =
+      state.build_gate_slot_stall_active or
+        AlertFeed.active_system_attention?(@build_gate_slot_stall_topic)
+
+    if active? do
+      case Alerts.emit_system(@build_gate_slot_stall_topic <> ".resolved",
+             reason: "No build-gate slot exceeds the configured occupancy threshold.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok ->
+          %{state | build_gate_slot_stall_active: false, build_gate_slot_stall_resolution_emitted: true}
+
+        {:error, _reason} ->
+          state
+      end
+    else
+      %{state | build_gate_slot_stall_active: false, build_gate_slot_stall_resolution_emitted: true}
     end
   end
 

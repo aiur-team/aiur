@@ -1235,7 +1235,9 @@ defmodule Aiur.AgentControlCLITest do
         "started_at=#{System.os_time(:second) - 90}\n"
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
-    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
+
+    slots = Config.max_concurrent_builds()
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: slots)
     File.mkdir_p!(Path.join(gate_dir, "queue"))
     File.write!(slot_owner, metadata)
     File.write!(queue_path, metadata)
@@ -1292,7 +1294,7 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
     assert output =~ "AGENTS 0/10 (binding: none)"
-    assert output =~ "BUILD GATE 1/2 active, 1 queued"
+    assert output =~ "BUILD GATE 1/#{Config.max_concurrent_builds()} active, 1 queued"
     assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
     assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
     File.touch!(release_path)
@@ -1306,7 +1308,9 @@ defmodule Aiur.AgentControlCLITest do
     legacy_path = Path.join(gate_dir, "slot-1")
 
     Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
-    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
+
+    slots = Config.max_concurrent_builds()
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: slots)
     File.write!(legacy_path, "pid=2\npgid=1\ncommand=test\n")
 
     on_exit(fn ->
@@ -1321,7 +1325,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "BUILD GATE DEGRADED 0/2 active, 0 queued"
+    assert output =~ "BUILD GATE DEGRADED 0/#{Config.max_concurrent_builds()} active, 0 queued"
     assert output =~ "reason=legacy_state path=#{legacy_path}"
     assert output =~ "recovery=repair the configured build-gate directory"
   end
