@@ -1010,6 +1010,22 @@ cache_volatile_fields() {
   return 1
 }
 
+# REST equivalents of the verdict and merge-gating fields above. Keep this in
+# step with `Aiur.GitHub.ReadCache.Policy`: a caller spelling the same read as
+# `gh api` must not acquire a stale answer merely by bypassing `gh pr view`.
+cache_unsafe_rest_endpoint() {
+  case "/${1#/}" in
+    */check-runs|*/check-runs/*|*/check-suites|*/check-suites/*|\
+    */status|*/status/*|*/statuses|*/statuses/*|\
+    */merge|*/merge/*|*/requested_reviewers|*/requested_reviewers/*|\
+    */reviews|*/reviews/*|*/actions/runs|*/actions/runs/*|\
+    */actions/jobs|*/actions/jobs/*|*/actions/workflows/*/runs|\
+    */actions/workflows/*/runs/*|*/actions/workflows/*/workflow_runs|\
+    */actions/workflows/*/workflow_runs/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The output shapes this guard serves. Everything absent from this list — a
 # bare `gh pr view` with no number, `gh pr diff`, `gh api graphql`, every write
 # — falls through to the real `gh` untouched.
@@ -1109,6 +1125,7 @@ if [ -n "$cache_root" ]; then
         # a digest of the URL, where the resource's own writers cannot reach it.
         cache_endpoint=${cache_endpoint%%\?*}
         cache_endpoint=${cache_endpoint%%\#*}
+        if cache_unsafe_rest_endpoint "$cache_endpoint"; then cache_reads=0; fi
         case "$cache_endpoint" in
           repos/*/*/*|repos/*/*)
             cache_api_rest=${cache_endpoint#repos/}

@@ -23,7 +23,28 @@ origin: "GitHub issue #2207"
 
 The agent cache records every cacheable invocation in per-workspace `agent-cache.tsv` files, but no product code reads those counters. Operators therefore cannot distinguish a healthy cache from one whose reuse rate has collapsed.
 
-Production evidence points to shape specificity and invalidation rather than the 60-second TTL. Across the retained shared store, 48 of 63 entries had been invalidated while 15 merely expired; 56 of 63 belonged to resources holding multiple exact-output shapes. Historical counters also contain 199 same-resource misses within the TTL, so expiry cannot explain most misses. On issue #2207, four reads inside 41 seconds produced four distinct shape files. Relaxing the exact-stdout key or mutation invalidation would make replay incorrect, so these dominant causes are inherent correctness boundaries rather than TTL defects.
+The reported sample can be reproduced exactly at 11 hits and 490 misses. Its
+misses divide into 293 `issue`, 66 `pr`, and 131 repository REST `api` rows.
+High-level CI verdict and merge-gating commands account for none of them: the
+wrapper refuses those reads before it creates a cache event.
+
+The REST rows retain endpoint SHA-256 ids rather than endpoint text, but agent
+transcripts recover the endpoints for 120 of the 131 REST miss events. They
+identify 75 unsafe CI, review, or Actions misses and six of the seven REST hits
+as unsafe. Removing those rows leaves 404 safe misses and five safe hits, still
+a 1.2% safe hit rate. Unsafe traffic therefore does not explain away the low
+rate. A live store
+snapshot contained 122 exact shapes for 47 resources, with 32 resources holding
+multiple shapes and 72 shapes already invalidated. That snapshot shows
+exact-shape diversity and invalidation are substantial current constraints; it
+does not prove one historical cause or support changing the 60-second TTL or
+byte-exact key.
+
+The comparison with the daemon read-cache policy also exposes a correctness
+gap: direct `gh api` reads of checks, statuses, reviews, requested reviewers,
+merge state, and Actions run or job state entered the wrapper store even though
+equivalent high-level reads are refused. Those paths must be denied on content
+before reuse is measured or optimized.
 
 ### Requirements
 
@@ -32,12 +53,14 @@ Production evidence points to shape specificity and invalidation rather than the
 - R3. Operator-facing documentation explains that the ratio measures exact stdout-shape reuse and that mutations retire cached shapes.
 - R4. A real-wrapper regression proves repeated identical reads produce one miss followed by hits and fails if reuse collapses.
 - R5. New miss rows classify why lookup failed so future cache changes can be evaluated without reconstructing causes from filesystem state.
+- R6. REST reads carrying CI verdict, review, or merge-gating state are never served from the store, matching the daemon read-cache safety boundary.
 
 ### Scope Boundaries
 
 - Keep the existing 60-second TTL, byte-exact shape key, and resource invalidation semantics.
 - Do not include the daemon transport cache; it has separate metrics and transport behavior.
 - Do not add a writable dashboard action or any GitHub request to the inspector path.
+- Do not claim the historical low rate proves a TTL defect; classify recoverable command shapes first and keep byte-exact output identity.
 
 ## Planning Contract
 
@@ -89,6 +112,26 @@ Production evidence points to shape specificity and invalidation rather than the
 - Ten identical cacheable reads emit one miss and nine hits while making one upstream call.
 - The regression derives its assertion from the same TSV rows the dashboard reader consumes.
 
+### U3. Refuse unsafe direct REST reads
+
+**Requirements:** R6.
+
+**Files:**
+
+- `src/priv/github_quota_guard.sh`
+- `src/test/aiur/agent_github_guard_test.exs`
+
+**Approach:** Apply the daemon `ReadCache.Policy` unsafe REST boundary to the
+wrapper's normalized repository endpoint before it constructs a cache entry.
+Keep stable resource metadata cacheable.
+
+**Test scenarios:**
+
+- Repeated direct REST reads of checks, check suites, statuses, reviews,
+  requested reviewers, merge state, and Actions run or job state make two
+  upstream calls.
+- Existing stable REST metadata reuse remains covered by the wrapper tests.
+
 ## Verification Contract
 
 - Compile with warnings as errors and format the touched Elixir files.
@@ -99,6 +142,7 @@ Production evidence points to shape specificity and invalidation rather than the
 ## Definition of Done
 
 - The cache page exposes a durable, honestly labeled agent-store hit/miss ratio.
-- The low observed rate has an evidence-backed explanation without weakening cache correctness.
+- The historical low rate is classified to the precision supported by counters plus retained transcripts, without an unsupported TTL claim.
+- Unsafe REST verdict and merge-gating reads cannot produce cache hits.
 - The real wrapper’s identical-read hit ratio is regression-tested.
 - Scoped verification and adversarial review pass, and the draft PR is handed to CI against `main`.

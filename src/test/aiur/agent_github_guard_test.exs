@@ -2578,6 +2578,43 @@ defmodule Aiur.AgentGitHubGuardTest do
       end
     end
 
+    test "REST verdict and merge-gating reads are never served from the store", context do
+      endpoints = [
+        "repos/owner/repo/commits/deadbeef/check-runs",
+        "repos/owner/repo/commits/deadbeef/check-suites",
+        "repos/owner/repo/commits/deadbeef/status",
+        "repos/owner/repo/statuses/main",
+        "repos/owner/repo/pulls/1670/merge",
+        "repos/owner/repo/pulls/1670/requested_reviewers",
+        "repos/owner/repo/pulls/1670/reviews",
+        "repos/owner/repo/actions/runs"
+      ]
+
+      for endpoint <- endpoints do
+        File.rm(context.calls)
+
+        assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+        assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+
+        assert upstream_calls(context) == 2, "#{endpoint} was served from the store"
+      end
+
+      assert cache_events(context, "hit") == 0
+      assert cache_events(context, "miss") == 0
+      assert cached_shapes(context) == []
+    end
+
+    test "stable Actions workflow metadata is still shared", context do
+      endpoint = "repos/owner/repo/actions/workflows"
+
+      assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+      assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+
+      assert upstream_calls(context) == 1
+      assert cache_events(context, "miss") == 1
+      assert cache_events(context, "hit") == 1
+    end
+
     test "a field set carrying no verdict is still shared", context do
       # The exclusion must be the named fields, not `--json` in general.
       assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body,title,author"])
