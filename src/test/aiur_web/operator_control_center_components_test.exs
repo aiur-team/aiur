@@ -491,6 +491,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "distinguishes degraded decision history from an unavailable provider" do
     html = render_component(&History.history/1, %{rows: [], provider_health: :degraded, time_zone: "Etc/UTC"})
 
+    assert html =~ ~s(class="history-count mono" data-count-scope="commands")
     assert html =~ "Showing a partial Command history"
     refute html =~ "currently unavailable"
   end
@@ -642,6 +643,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         %{total: 701, open: 503, awaiting: 503, blocking: 401, awaiting_blocking: 401}
       )
 
+    assert html =~ ~s(class="filter-row" aria-label="Command filters" data-count-scope="commands")
+    assert html =~ ~s(data-count-label="All")
     assert html =~ ~r/All\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Open\s+<span class="count num">503<\/span>/
     assert html =~ ~r/Blocking\s+<span class="count num">401<\/span>/

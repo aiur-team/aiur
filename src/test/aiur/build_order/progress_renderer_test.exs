@@ -21,13 +21,19 @@ defmodule Aiur.BuildOrder.ProgressRendererTest do
                 member_count: 5
               })
   @unknown RootSummary.new(%{progress: 91, member_count: 5})
+  @empty RootSummary.new(%{
+           progress: 0,
+           progress_resolution: :resolved,
+           progress_resolved_count: 0,
+           member_count: 0
+         })
 
   describe "terminal/1" do
-    test "renders all four states distinctly" do
-      rendered = Enum.map([@resolved, @partial, @unresolved, @unknown], &ProgressRenderer.terminal/1)
+    test "renders all five states distinctly" do
+      rendered = Enum.map([@resolved, @partial, @empty, @unresolved, @unknown], &ProgressRenderer.terminal/1)
 
-      assert rendered == ["42%", "40% partial (2/5 resolved)", "unresolved", "unknown"]
-      assert length(Enum.uniq(rendered)) == 4
+      assert rendered == ["42%", "40% partial (2/5 resolved)", "empty", "unresolved", "unknown"]
+      assert length(Enum.uniq(rendered)) == 5
     end
 
     test "fails malformed or missing contracts closed to unknown" do
@@ -71,6 +77,12 @@ defmodule Aiur.BuildOrder.ProgressRendererTest do
                "progress_resolution" => "unknown",
                "progress_resolved_count" => nil
              }
+
+      assert ProgressRenderer.json(@empty) == %{
+               "progress" => nil,
+               "progress_resolution" => "empty",
+               "progress_resolved_count" => 0
+             }
     end
 
     test "fails malformed string-keyed input closed to unknown" do
@@ -104,6 +116,17 @@ defmodule Aiur.BuildOrder.ProgressRendererTest do
     test "fails an internally inconsistent resolved value closed to unknown" do
       assert %{state: :unknown, label: "unknown", percent: nil} =
                ProgressRenderer.html(%RootSummary{progress_resolution: :resolved, progress: nil})
+    end
+
+    test "projects a resolved zero-member Build Order as empty instead of unstarted" do
+      assert %{
+               state: :empty,
+               label: "Empty",
+               percent: nil,
+               coverage: nil,
+               aria_label: "Empty Build Order; no members",
+               title: "This Build Order has no members."
+             } = ProgressRenderer.html(@empty)
     end
 
     test "keeps partial presentation explicit when count coverage is unavailable" do
