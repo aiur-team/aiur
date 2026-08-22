@@ -33,6 +33,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       "ProgressRenderer.terminal(",
       "ProgressRenderer.terminal(",
       "ProgressRenderer.json(",
+      "ProgressRenderer.json(",
       "ProgressRenderer.json("
     ],
     "aiur_web/components/operator_control_center/build_order_catalog.ex" => ["ProgressRenderer.html("],

@@ -136,7 +136,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       <span class="bo-catalog-progress-label mono num">{@progress.label}</span>
     </div>
     <span
-      :if={is_nil(@progress.percent) and @progress.state != :unresolved}
+      :if={@progress.state == :empty}
+      class="bo-catalog-progress-empty mono"
+      data-progress-state={@progress.state}
+      role="img"
+      aria-label={@progress.aria_label}
+      title={@progress.title}
+    >{@progress.label}</span>
+    <span
+      :if={is_nil(@progress.percent) and @progress.state not in [:unresolved, :empty]}
       class="bo-catalog-invalid"
       data-progress-state={@progress.state}
       role="img"
