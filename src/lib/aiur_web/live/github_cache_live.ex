@@ -78,6 +78,7 @@ defmodule AiurWeb.GithubCacheLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.GitHub.AgentCacheMetrics
   alias Aiur.GitHub.CacheHistory
   alias Aiur.GitHub.CacheInspector
   alias Aiur.GitHub.CacheInspector.Events
@@ -182,7 +183,8 @@ defmodule AiurWeb.GithubCacheLive do
      |> assign(:quota, quota)
      |> assign(:usage, QuotaUsage.sample(quota))
      |> assign(:read_cache, read_cache_snapshot())
-     |> assign(:quota_history, quota_history())}
+     |> assign(:quota_history, quota_history())
+     |> assign(:agent_cache_metrics, agent_cache_metrics())}
   end
 
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
@@ -229,6 +231,16 @@ defmodule AiurWeb.GithubCacheLive do
     |> Phoenix.Component.assign_new(:read_cache, &read_cache_snapshot/0)
     |> assign(:history, history())
     |> assign(:quota_history, quota_history())
+    |> assign(:agent_cache_metrics, agent_cache_metrics())
+  end
+
+  defp agent_cache_metrics do
+    provider = Application.get_env(:aiur, :github_agent_cache_metrics_provider, AgentCacheMetrics)
+    provider.snapshot()
+  rescue
+    _unavailable -> %{available?: false, measured?: false}
+  catch
+    :exit, _reason -> %{available?: false, measured?: false}
   end
 
   # Cache metrics are observational and independent from quota accounting. The
@@ -320,7 +332,7 @@ defmodule AiurWeb.GithubCacheLive do
           no eviction. It renders what the cache already holds and updates when a writer writes.
         </p>
 
-        <.cost_strip quota={@quota} projection={@projection} />
+        <.cost_strip quota={@quota} projection={@projection} agent_metrics={@agent_cache_metrics} />
 
         <div :if={not @projection.available?} class="ghc-empty" data-role="store-unavailable">
           <strong>No cache store is running yet.</strong>
@@ -377,6 +389,7 @@ defmodule AiurWeb.GithubCacheLive do
       |> assign(:observed_calls, CacheInspector.observed_calls(assigns.quota))
       |> assign(:writers, CacheInspector.writes_by_writer(assigns.projection))
       |> assign(:windows, Map.get(assigns.quota, :windows, %{}))
+      |> assign(:agent_rate, agent_rate(assigns.agent_metrics))
 
     ~H"""
     <div class="ghc-cost" aria-label="Cache cost">
@@ -392,6 +405,16 @@ defmodule AiurWeb.GithubCacheLive do
         <span class="ghc-tile-value">{budget_value(window)}</span>
         <span class="ghc-tile-label">{resource} remaining / limit</span>
         <span class="ghc-tile-note">resets {value(Map.get(window, :reset_at))}</span>
+      </div>
+
+      <div
+        class="ghc-tile ghc-tile-wide"
+        data-role="agent-cache-hit-rate"
+        data-value={@agent_rate.value}
+      >
+        <span class="ghc-tile-value">{@agent_rate.display}</span>
+        <span class="ghc-tile-label">Agent gh exact-shape hit rate</span>
+        <span class="ghc-tile-note">{@agent_rate.note}</span>
       </div>
 
       <div class="ghc-tile" data-role="entry-count">
@@ -1187,6 +1210,62 @@ defmodule AiurWeb.GithubCacheLive do
   defp budget_value(window) do
     "#{value(Map.get(window, :remaining))} / #{value(Map.get(window, :limit))}"
   end
+
+  defp agent_rate(%{measured?: true, hit_ratio: ratio} = metrics) when is_number(ratio) do
+    percent = ratio |> Kernel.*(100) |> Float.round(1)
+
+    %{
+      value: to_string(percent),
+      display: "#{percent}%",
+      note:
+        "#{count_label(Map.get(metrics, :hits, 0), "hit")} · #{count_label(Map.get(metrics, :misses, 0), "miss")} · " <>
+          agent_metrics_window(metrics) <> partial_coverage(metrics)
+    }
+  end
+
+  defp agent_rate(%{available?: true} = metrics) do
+    %{
+      value: nil,
+      display: "Not measured",
+      note:
+        "Readable agent-workspace counters on this host contain no hit or miss rows in the previous 24 hours." <>
+          partial_coverage(metrics)
+    }
+  end
+
+  defp agent_rate(_unavailable) do
+    %{
+      value: nil,
+      display: "Not measured",
+      note: "No readable agent-workspace counters on this host were found for the previous 24 hours."
+    }
+  end
+
+  defp agent_metrics_window(metrics) do
+    "previous 24 hours (#{moment(Map.get(metrics, :window_started_at))}–#{moment(Map.get(metrics, :window_ended_at))}); " <>
+      "agent workspaces on this host"
+  end
+
+  defp partial_coverage(%{partial?: true} = metrics) do
+    details =
+      [
+        count_if_present(Map.get(metrics, :malformed_rows, 0), "malformed row"),
+        count_if_present(Map.get(metrics, :skipped_sources, 0), "unreadable source")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("; ")
+
+    if details == "", do: " · Partial coverage", else: " · Partial coverage — #{details}"
+  end
+
+  defp partial_coverage(_complete), do: ""
+
+  defp count_if_present(0, _label), do: nil
+  defp count_if_present(count, label), do: count_label(count, label)
+
+  defp count_label(1, label), do: "1 #{label}"
+  defp count_label(count, "miss"), do: "#{count} misses"
+  defp count_label(count, label), do: "#{count} #{label}s"
 
   # Redaction happens here, for the one entry on screen, rather than for every
   # entry on every re-render. See `Aiur.GitHub.CacheInspector.Entry.payload/1`.

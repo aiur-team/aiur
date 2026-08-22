@@ -13,6 +13,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
 
+  alias Aiur.GitHub.AgentCacheMetrics
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ResourceStore
   alias Aiur.GithubCacheSourceSupport, as: Source
@@ -81,12 +82,48 @@ defmodule AiurWeb.GithubCacheLiveTest do
     def snapshot, do: exit(:read_cache_unavailable)
   end
 
+  defmodule AgentMetricsProvider do
+    @table __MODULE__.Table
+
+    @spec install(map()) :: :ok
+    def install(snapshot) do
+      if :ets.whereis(@table) == :undefined do
+        :ets.new(@table, [:named_table, :public, :set])
+      end
+
+      :ets.insert(@table, {:snapshot, snapshot})
+      Application.put_env(:aiur, :github_agent_cache_metrics_provider, __MODULE__)
+      :ok
+    end
+
+    def snapshot do
+      case :ets.lookup(@table, :snapshot) do
+        [{:snapshot, snapshot}] -> snapshot
+        _none -> %{available?: false, measured?: false}
+      end
+    rescue
+      ArgumentError -> %{available?: false, measured?: false}
+    end
+  end
+
+  # The page's reader→LiveView seam, wired to a real `AgentCacheMetrics`
+  # sampler instead of a deterministic double. `snapshot/0` delegates to the
+  # sampler's cached snapshot, so the GenServer, its file read, and its
+  # `:snapshot` call all run; the only thing faked is the registered name.
+  defmodule RealAgentMetricsProvider do
+    def snapshot do
+      sampler = Application.get_env(:aiur, :github_agent_cache_metrics_sampler, AgentCacheMetrics)
+      AgentCacheMetrics.cached_snapshot(sampler)
+    end
+  end
+
   @endpoint Endpoint
   @reset ~U[2030-01-01 12:00:00Z]
 
   setup context do
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
+    previous_agent_metrics = Application.get_env(:aiur, :github_agent_cache_metrics_provider)
     previous_read_cache = Application.get_env(:aiur, :github_read_cache_provider)
 
     endpoint_config =
@@ -109,10 +146,112 @@ defmodule AiurWeb.GithubCacheLiveTest do
       Application.delete_env(:aiur, :github_quota_history_provider)
       restore_application_env(Endpoint, previous_endpoint)
       restore_application_env(:github_quota_server, previous_quota)
+      restore_application_env(:github_agent_cache_metrics_provider, previous_agent_metrics)
       restore_application_env(:github_read_cache_provider, previous_read_cache)
     end)
 
     :ok
+  end
+
+  describe "agent cache effectiveness" do
+    test "renders the rolling ratio and raw sample without moving the quota meter" do
+      Source.install(entries(2))
+      quota = install_quota()
+      before = reading(quota)
+      AgentMetricsProvider.install(agent_metrics(hits: 1, misses: 3))
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      tile = html |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate"]))
+
+      assert Floki.attribute(tile, "data-value") == ["25.0"]
+      assert Floki.text(tile) =~ "25.0%"
+      assert Floki.text(tile) =~ "1 hit · 3 misses"
+      assert Floki.text(tile) =~ "previous 24 hours"
+      assert Floki.text(tile) =~ "agent workspaces on this host"
+      assert reading(quota) == before
+    end
+
+    test "renders unavailable and zero-denominator sources as not measured" do
+      Source.install(entries(2))
+      install_quota()
+
+      AgentMetricsProvider.install(agent_metrics(available?: false, measured?: false, hits: 0, misses: 0))
+      {:ok, _view, unavailable} = live(build_conn(), "/github-cache")
+      unavailable_tile = unavailable |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate"])) |> Floki.text()
+      assert unavailable_tile =~ "Not measured"
+      refute unavailable_tile =~ "0.0%"
+
+      AgentMetricsProvider.install(agent_metrics(available?: true, measured?: false, hits: 0, misses: 0, stores: 4))
+      {:ok, _view, zero_denominator} = live(build_conn(), "/github-cache")
+      zero_denominator_tile = zero_denominator |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate"])) |> Floki.text()
+      assert zero_denominator_tile =~ "Not measured"
+      refute zero_denominator_tile =~ "0.0%"
+    end
+
+    test "refreshes the durable ratio on the quota history cadence and labels partial coverage" do
+      Source.install(entries(2))
+      install_quota()
+      AgentMetricsProvider.install(agent_metrics(available?: false, measured?: false, hits: 0, misses: 0))
+
+      {:ok, view, initial} = live(build_conn(), "/github-cache")
+      assert initial =~ "Not measured"
+
+      AgentMetricsProvider.install(agent_metrics(hits: 4, misses: 1, partial?: true, malformed_rows: 2))
+      send(view.pid, {:quota_history_sampled, 2})
+      refreshed = render(view)
+
+      assert refreshed =~ "80.0%"
+      assert refreshed =~ "Partial coverage"
+      assert refreshed =~ "2 malformed rows"
+    end
+
+    test "a real running sampler feeds the page through the reader→LiveView path" do
+      # Every other test in this block injects a provider double, so a sampler
+      # that never starts — a supervision-wiring break — would render "Not
+      # measured" forever and the suite would stay green. This one runs a real
+      # AgentCacheMetrics sampler against a real counter file and drives the page
+      # through it, so the wiring itself is what is under test.
+      Source.install(entries(2))
+      install_quota()
+
+      events = Path.join(tmp_root(), "agent-cache.tsv")
+      File.mkdir_p!(Path.dirname(events))
+
+      File.write!(
+        events,
+        Enum.join(
+          [
+            "#{DateTime.to_unix(@reset) - 10}\tticket:2207\thit\tpr\t2207",
+            "#{DateTime.to_unix(@reset) - 9}\tticket:2207\tmiss\tpr\t2207\tabsent"
+          ],
+          "\n"
+        ) <> "\n"
+      )
+
+      # The reader skips sources whose final write predates the window; the
+      # file must look as fresh as its rows.
+      File.touch!(events, DateTime.to_unix(@reset))
+
+      sampler =
+        start_supervised!(
+          {AgentCacheMetrics, name: :github_agent_cache_metrics_real_sampler, paths: [events], clock: fn -> @reset end, interval_ms: 0},
+          id: :github_agent_cache_metrics_real_sampler
+        )
+
+      Application.put_env(:aiur, :github_agent_cache_metrics_sampler, sampler)
+      Application.put_env(:aiur, :github_agent_cache_metrics_provider, RealAgentMetricsProvider)
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :github_agent_cache_metrics_sampler)
+      end)
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+      tile = html |> Floki.parse_document!() |> Floki.find(~s([data-role="agent-cache-hit-rate]))
+
+      assert Floki.attribute(tile, "data-value") == ["50.0"]
+      assert Floki.text(tile) =~ "50.0%"
+      assert Floki.text(tile) =~ "1 hit · 1 miss"
+    end
   end
 
   describe "viewing costs nothing" do
@@ -217,7 +356,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
       root = Path.expand("../../../lib/aiur/github", __DIR__)
 
       files =
-        ["cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
+        ["agent_cache_metrics.ex", "cache_inspector.ex", "cache_history.ex" | Enum.map(File.ls!(Path.join(root, "cache_inspector")), &Path.join("cache_inspector", &1))]
 
       for relative <- files do
         code = root |> Path.join(relative) |> File.read!() |> strip_prose()
@@ -1104,6 +1243,34 @@ defmodule AiurWeb.GithubCacheLiveTest do
      }}
   end
 
+  defp agent_metrics(opts) do
+    values = Enum.into(opts, %{})
+    hits = Map.get(values, :hits, 2)
+    misses = Map.get(values, :misses, 2)
+    sample_size = hits + misses
+
+    Map.merge(
+      %{
+        available?: true,
+        measured?: sample_size > 0,
+        partial?: false,
+        hits: hits,
+        misses: misses,
+        stores: 1,
+        coalesced: 0,
+        sample_size: sample_size,
+        hit_ratio: if(sample_size > 0, do: hits / sample_size, else: nil),
+        miss_reasons: %{},
+        sources_read: 3,
+        skipped_sources: 0,
+        malformed_rows: 0,
+        window_started_at: DateTime.add(@reset, -86_400, :second),
+        window_ended_at: @reset
+      },
+      values
+    )
+  end
+
   defp awaiting_commands_config(context) do
     [decision_store: AwaitingCommands.start(Map.get(context, :awaiting_counts, %{}))]
   end
@@ -1130,5 +1297,12 @@ defmodule AiurWeb.GithubCacheLiveTest do
   defp build_conn do
     Phoenix.ConnTest.build_conn()
     |> Plug.Conn.put_req_header("authorization", "Basic " <> Base.encode64("operator:test-dashboard-secret"))
+  end
+
+  defp tmp_root do
+    path = Aiur.TestSupport.tmp_root!("github-cache-live")
+    File.mkdir_p!(path)
+    on_exit(fn -> File.rm_rf!(path) end)
+    path
   end
 end
