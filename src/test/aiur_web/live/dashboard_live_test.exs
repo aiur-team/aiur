@@ -223,6 +223,34 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule AvailabilityStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    def set_available(server, available?) do
+      GenServer.call(server, {:set_available, available?})
+    end
+
+    @impl true
+    def init(opts), do: {:ok, %{store: Keyword.fetch!(opts, :store), available?: true}}
+
+    @impl true
+    def handle_call({:set_available, available?}, _from, state) do
+      {:reply, :ok, %{state | available?: available?}}
+    end
+
+    def handle_call(_request, _from, %{available?: false} = state) do
+      {:reply, {:error, :store_unavailable}, state}
+    end
+
+    def handle_call(request, _from, state) do
+      {:reply, GenServer.call(state.store, request), state}
+    end
+  end
+
   defmodule VersionedDetailStore do
     use GenServer
 
@@ -1615,7 +1643,8 @@ defmodule AiurWeb.DashboardLiveTest do
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
       decision_store: decision_store_name,
-      control_center_cache: false
+      control_center_cache: false,
+      dashboard_writable: true
     )
 
     {:ok, view, html} = live(build_conn(), "/commands")
@@ -1633,6 +1662,18 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert_patch(view, "/commands?filter=blocking")
     assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+
+    view
+    |> form("#decision-answer-form-#{decision.decision_id}", %{"answer" => %{"choice" => "option:ship"}})
+    |> render_submit()
+
+    refute has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+    assert has_element?(view, "#history-#{decision.decision_id}")
+
+    transitioned_html = render(view)
+    assert transitioned_html =~ ~r/Open\s+<span class="count num">0<\/span>/
+    assert transitioned_html =~ ~r/Blocking\s+<span class="count num">0<\/span>/
+    assert transitioned_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
   end
 
   test "Command chips use the same retained snapshot as history totals" do
@@ -1676,6 +1717,48 @@ defmodule AiurWeb.DashboardLiveTest do
     assert reloaded_html =~ ~r/All\s+<span class="count num">1<\/span>/
     assert reloaded_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
     assert reloaded_html =~ "1 of 1"
+  end
+
+  test "Command chips stop showing retained counts when a reload loses the store" do
+    orchestrator_name = Module.concat(__MODULE__, :UnavailableCountsOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :UnavailableCountsDecisionStore)
+    availability_store_name = Module.concat(__MODULE__, :UnavailableCountsStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_081}}}
+      end)
+
+    decision = request_dashboard_decision(store, "unavailable-counts", "reversible", blocking: false)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.dismiss(
+               decision.decision_id,
+               [actor: %{kind: :operator, id: "dashboard"}],
+               store
+             )
+
+    start_supervised!({AvailabilityStore, name: availability_store_name, store: store})
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: availability_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands")
+
+    assert html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert :ok = AvailabilityStore.set_available(availability_store_name, false)
+
+    send(view.pid, :reload_payload)
+    reloaded_html = render(view)
+
+    assert reloaded_html =~ ~r/All\s+<span class="count num">—<\/span>/
+    assert reloaded_html =~ ~r/Open\s+<span class="count num">—<\/span>/
+    assert reloaded_html =~ ~r/Blocking\s+<span class="count num">—<\/span>/
   end
 
   test "All Commands keeps retained search and pagination controls out of the surface" do
@@ -3758,11 +3841,28 @@ defmodule AiurWeb.DashboardLiveTest do
     assert history_row_count(view) == 10
     assert render(view) =~ "10 of 25"
 
+    newest = request_dashboard_decision(store, "history-26")
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               newest.decision_id,
+               %{
+                 "idempotency_key" => "history-answer-26",
+                 "expected_version" => newest.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
     view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
     assert history_row_count(view) == 20
+    assert render(view) =~ ~r/All\s+<span class="count num">26<\/span>/
+    assert render(view) =~ ~r/Resolved\s+<span class="count num">26<\/span>/
 
     view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
     assert history_row_count(view) == 25
+    assert render(view) =~ "25 of 26"
     refute has_element?(view, ~s(button[phx-click="load-more-history"]))
   end
 

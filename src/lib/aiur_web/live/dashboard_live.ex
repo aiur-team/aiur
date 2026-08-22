@@ -938,6 +938,7 @@ defmodule AiurWeb.DashboardLive do
 
     socket
     |> assign(:payload, payload)
+    |> assign(:retained_counts, Map.get(payload, :retained_counts, unavailable_retained_counts()))
     |> assign(:now, DateTime.utc_now())
     |> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))
     |> assign_units_view()
