@@ -67,6 +67,12 @@ defmodule Aiur.GitHub.PullRequests do
   it cannot be answered from a cache, so the only way to make it cost nothing is
   to let GitHub answer `304`. That is a request GitHub does not bill against the
   primary REST limit.
+
+  The read is single-page in practice — `per_page=100` is GitHub's ceiling and
+  no active PR has that many reviews — so a page-1 `304` *is* the whole-list
+  answer. `Transport.fetch_json_list_conditional/4` asserts the single-page
+  claim and refuses a response that points at a next page rather than silently
+  answering a truncated list (#2330).
   """
   @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -266,11 +272,13 @@ defmodule Aiur.GitHub.PullRequests do
   does not bill against the primary REST limit — instead of a full-price re-read
   of every open pull request.
 
-  The validator belongs to the first page of the open-pull-request collection
-  (`GET /pulls?state=open&per_page=100`); later pages ride along on a `200` and
-  are folded into the returned list, so a `304` against the first page reuses
-  the whole stored list. This is the same page-one contract the issue-comment
-  conditional reads already trust.
+  The open-pull-request listing is `created` desc, so the validator kept is
+  trustworthy only while the read is single-page: page 1 then *is* the whole
+  listing, and a page-1 `304` certifies it. Once the listing paginates, a
+  page-1 validator can no longer answer the multi-page question (an edit to an
+  older PR lands on page 2+), so the validator is dropped and the next discovery
+  reads unconditionally — correct beats quietly wrong (see the conditional-read
+  rules in website/docs-app/apis/github.md).
   """
   @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -318,10 +326,17 @@ defmodule Aiur.GitHub.PullRequests do
     first_etag = Transport.header(headers, "etag") || etag
 
     case fetch_labeled_open_pull_requests(request_fun, request.token, next, label, matched) do
-      {:ok, pull_requests} -> {:ok, pull_requests, first_etag}
+      {:ok, pull_requests} -> {:ok, pull_requests, single_page_validator(next, first_etag)}
       {:error, _reason} = error -> error
     end
   end
+
+  # #2330: the open-PR listing is `created` desc, so a label added to an older
+  # PR lands on page 2+ while page 1 answers `304` forever. Only a single-page
+  # read earns a validator; once the listing paginates the validator is dropped
+  # and the next discovery reads unconditionally.
+  defp single_page_validator(nil, etag), do: etag
+  defp single_page_validator(_next, _etag), do: nil
 
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}

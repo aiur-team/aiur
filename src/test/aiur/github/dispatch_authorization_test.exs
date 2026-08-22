@@ -223,6 +223,52 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     refute DispatchAuthorization.authorize(issue(), "owner", "repo", "agent", allowed_users: ["trusted"], token: "test-token", request_fun: request_fun).dispatch_authorized?
   end
 
+  # #2330 acceptance — the timeline trap. Issue timelines are oldest-first, so
+  # a label event appended after the first page lands on page 2 and page 1
+  # stops changing. A page-1 validator answered with `304` must never be read
+  # as "the whole timeline is unchanged": dispatch gating is answered only by
+  # asking, so the page is re-read and the page-2 label event is observed.
+  test "observes a label event appended to page 2 even when page 1 returns 304" do
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.contains?(url, "page=2") ->
+          {:ok, %{status: 200, headers: [], body: [labeled_event(11, "agent:todo", "trusted", "2026-01-02T00:00:00Z")]}}
+
+        true ->
+          # Page 1 answers 304 once, as if a stale page-1 validator were being
+          # sent; the unconditional re-read must still land the page and follow
+          # to page 2.
+          request_number = Agent.get_and_update(counter, fn number -> {number, number + 1} end)
+
+          if request_number == 0 do
+            {:ok, %{status: 304, headers: []}}
+          else
+            next = ~s(<https://api.github.com/repos/owner/repo/issues/42/timeline?per_page=100&page=2>; rel="next")
+
+            {:ok, %{status: 200, headers: [{"link", next}], body: [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]}}
+          end
+      end
+    end
+
+    assert DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+  end
+
+  test "fails closed when page 1 still returns 304 after the unconditional re-read" do
+    request_fun = fn _request -> {:ok, %{status: 304, headers: []}} end
+
+    refute DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+  end
+
   test "caches an unchanged issue's latest label event" do
     counter = start_supervised!({Agent, fn -> 0 end})
     events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]

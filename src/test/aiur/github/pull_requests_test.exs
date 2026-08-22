@@ -220,5 +220,32 @@ defmodule Aiur.GitHub.PullRequestsTest do
       assert_receive {:requested, request}
       assert request.etag == ~s("v1")
     end
+
+    # #2330: the open-PR listing is created desc, so a label added to an older
+    # PR lands on page 2+ while page 1 answers 304 forever. A paginated read
+    # therefore drops its validator — the next discovery reads unconditionally
+    # rather than trust a page-1 `304` for a multi-page question.
+    test "drops the validator once the listing paginates" do
+      next =
+        ~s(<https://api.github.com/repos/owner/repo/pulls?state=open&per_page=100&page=2>; rel="next")
+
+      request_fun = fn %{method: :get, url: url} ->
+        if String.contains?(url, "page=2") do
+          {:ok, %{status: 200, body: [%{"number" => 12, "labels" => [%{"name" => "agent:watch"}]}], headers: []}}
+        else
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 11, "labels" => [%{"name" => "agent:watch"}]}],
+             headers: [{"etag", ~s("v1")}, {"link", next}]
+           }}
+        end
+      end
+
+      assert {:ok, [%{"number" => 11}, %{"number" => 12}], nil} =
+               PullRequests.fetch_open_pull_requests_by_label_conditional("agent:watch",
+                 request_fun: request_fun
+               )
+    end
   end
 end

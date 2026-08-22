@@ -100,6 +100,12 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   # `200` means something actually changed and the fresh list replaces the held
   # one. The key is the watch label because that is the only identity the caller
   # holds before the lookup answers.
+  #
+  # The `304` is trusted only while the listing is single-page: the listing is
+  # `created` desc, so once it paginates a page-1 validator can no longer answer
+  # for a label added to an older PR on page 2+, and
+  # `fetch_open_pull_requests_by_label_conditional/2` drops the validator so the
+  # next discovery reads unconditionally (#2330, website/docs-app/apis/github.md).
   defp conditional_open_pull_requests_by_label(label, opts) do
     key = ResourceStore.key_for_repo(:labelled_pull_requests, repo_full_name(opts), label)
 
