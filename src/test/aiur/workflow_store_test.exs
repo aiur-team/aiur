@@ -125,7 +125,14 @@ defmodule Aiur.WorkflowStoreTest do
       :ok = WorkflowStore.force_reload()
     end)
 
-    Application.put_env(:aiur, :workflow_file_path, path)
+    # Move the path back via the managed setter so this process's per-process
+    # view stays in sync with the app env it restores. A raw
+    # `Application.put_env` would only touch the app env and leave the
+    # process-dictionary override — pinned at `other` by the
+    # `set_workflow_file_path(other)` call above — still in force. `reload:
+    # false` keeps the cache pointing at `other` so the fence below is
+    # exercised deterministically.
+    Workflow.set_workflow_file_path(path, reload: false)
 
     # The cache still holds `other`; a reader at `path` must not observe it.
     assert {:ok, %{prompt: "Fenced prompt"}} = WorkflowStore.current()
