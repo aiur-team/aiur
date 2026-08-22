@@ -183,17 +183,26 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
     |> Enum.map_join(fn {band, index} ->
       lower_bands = Enum.take(bands, index)
       total = Map.get(latest.values, band.key, 0)
-
-      paths =
-        Enum.map_join(segments, fn {window, segment} ->
-          top = Enum.map(segment, fn point -> {xf.(point.t_ms), yf.(stack_total(point, lower_bands) + Map.get(point.values, band.key, 0))} end)
-          bot = segment |> Enum.map(fn point -> {xf.(point.t_ms), yf.(stack_total(point, lower_bands))} end) |> Enum.reverse()
-
-          ~s|<path data-window="#{window}" d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
-            ~s|stroke="var(--surface)" stroke-width="2"/>|
-        end)
+      paths = band_paths(segments, band, lower_bands, xf, yf)
 
       ~s|<g><title>#{escape(band.label)}: #{total} points now</title>#{paths}</g>|
+    end)
+  end
+
+  defp band_paths(segments, band, lower_bands, xf, yf) do
+    Enum.map_join(segments, fn {window, segment} ->
+      top = band_edge(segment, band, lower_bands, xf, yf)
+      bot = segment |> band_edge(nil, lower_bands, xf, yf) |> Enum.reverse()
+
+      ~s|<path data-window="#{window}" d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
+        ~s|stroke="var(--surface)" stroke-width="2"/>|
+    end)
+  end
+
+  defp band_edge(segment, band, lower_bands, xf, yf) do
+    Enum.map(segment, fn point ->
+      band_value = if band, do: Map.get(point.values, band.key, 0), else: 0
+      {xf.(point.t_ms), yf.(stack_total(point, lower_bands) + band_value)}
     end)
   end
 
