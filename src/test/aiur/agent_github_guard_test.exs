@@ -396,7 +396,7 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
     [row | _] = String.split(events, "\n", trim: true)
-    [_unix, "ticket:1670", "read", "core", token_key, pid] = String.split(row, "\t")
+    [_unix, "ticket:1670", "read", "graphql", token_key, pid] = String.split(row, "\t")
 
     # Budget is disabled in this harness, so the fingerprint column is blank
     # (never a refused call) while the pid names the wrapper subprocess.
@@ -408,7 +408,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"], AIUR_GITHUB_BUDGET_KEY: "fingerprint-abc")
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tread\tcore\tfingerprint-abc\t"
+    assert events =~ "\tread\tgraphql\tfingerprint-abc\t"
   end
 
   # Retention (#2255): the agent request record keeps the previous two
@@ -425,7 +425,7 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert File.read!("#{events_file}.2") == "old-generation-1\n"
     assert File.read!("#{events_file}.1") == String.duplicate("x", 1_048_577) <> "\n"
-    assert File.read!(events_file) =~ "\tticket:1670\tread\tcore\t"
+    assert File.read!(events_file) =~ "\tticket:1670\tread\tgraphql\t"
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do
