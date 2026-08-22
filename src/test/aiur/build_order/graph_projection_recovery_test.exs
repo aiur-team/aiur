@@ -33,6 +33,12 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
 
     Agent.update(authority, fn _ -> authority(repository, 1) end)
     send(projection, {:workflow_config_updated, 1})
+
+    # The first valid authority is a fresh authority: it discards the catalog
+    # and its demanders. The open page re-subscribes on the reset, exactly what
+    # `SourceRuntime.reset_projection/1` does in production.
+    GraphProjection.subscribe_catalog(projection)
+
     _old_reader = await_reader(:catalog)
     [{old_ref, _inflight}] = Map.to_list(:sys.get_state(projection).inflight_by_ref)
 
@@ -289,24 +295,31 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     task_supervisor = Keyword.get_lazy(opts, :task_supervisor, &task_supervisor/0)
     clock = Keyword.get(opts, :clock)
 
-    start_supervised(%{
-      id: make_ref(),
-      start:
-        {GraphProjection, :start_link,
-         [
+    {:ok, projection} =
+      start_supervised(%{
+        id: make_ref(),
+        start:
+          {GraphProjection, :start_link,
            [
-             name: nil,
-             task_supervisor: task_supervisor,
-             authority_snapshot: authority_snapshot,
-             configuration_subscriber: fn _pid -> :ok end,
-             catalog_reader: blocking_reader(parent, :catalog),
-             selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
-             now: now_fun(clock),
-             clock_ms: clock_ms_fun(clock),
-             after_broadcast: fn event -> send(parent, {:projection_event, event}) end
-           ]
-         ]}
-    })
+             [
+               name: nil,
+               task_supervisor: task_supervisor,
+               authority_snapshot: authority_snapshot,
+               configuration_subscriber: fn _pid -> :ok end,
+               catalog_reader: blocking_reader(parent, :catalog),
+               selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
+               now: now_fun(clock),
+               clock_ms: clock_ms_fun(clock),
+               after_broadcast: fn event -> send(parent, {:projection_event, event}) end
+             ]
+           ]}
+      })
+
+    # The catalog is demand-gated since #2312: these tests drive its reads, so
+    # register the test process as the viewer a page would be.
+    GraphProjection.subscribe_catalog(projection)
+
+    {:ok, projection}
   end
 
   defp task_supervisor do
