@@ -32,7 +32,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
-  alias Aiur.Webhooks.DeliveryMode
+  alias Aiur.Webhooks.{DeliveryMode, DeliveryModeEvents}
 
   @type server :: GenServer.server()
 
@@ -326,6 +326,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   # operator who has been shown enough false ones stops reading the true one.
   defp announce(state, %DeliveryMode{repo: repo} = mode, :degraded) do
     seconds = div(state.silence_threshold_ms, 1_000)
+    DeliveryModeEvents.publish(mode, :degraded)
 
     emit(
       state,
@@ -359,7 +360,9 @@ defmodule Aiur.Webhooks.ModeRegistry do
     )
   end
 
-  defp announce(state, %DeliveryMode{repo: repo}, :recovered) do
+  defp announce(state, %DeliveryMode{repo: repo} = mode, :recovered) do
+    DeliveryModeEvents.publish(mode, :recovered)
+
     emit(
       state,
       "webhook.recovered",
