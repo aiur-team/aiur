@@ -106,7 +106,14 @@ defmodule Aiur.GitHub.Comments do
 
       case request_fun.(request) do
         {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-          conditional_stream_pages(request_fun, token, response, body, etag)
+          # An issue's own comment list is oldest-first, so a new comment lands
+          # on the LAST page and page 1 becomes effectively immutable past 100
+          # comments. A page-1 ETag therefore cannot answer "did the list
+          # change?" (see website/docs-app/apis/github.md), and the validator is
+          # kept only for single-page reads; once the list paginates it is
+          # dropped so the next read is unconditional — correct beats quietly
+          # wrong.
+          conditional_stream_pages(request_fun, token, response, body, etag, false)
 
         {:ok, %{status: 304} = response} ->
           {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
@@ -178,7 +185,12 @@ defmodule Aiur.GitHub.Comments do
 
       case request_fun.(request) do
         {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-          conditional_stream_pages(request_fun, token, response, body, etag)
+          # This repo-wide stream is read `sort=updated&direction=desc`, so
+          # everything newer than the scan's cursor lands on page 1 and a
+          # page-1 `304` genuinely certifies the whole since-window the scan
+          # reads — the one paginated read whose page-1 validator is
+          # trustworthy (website/docs-app/apis/github.md).
+          conditional_stream_pages(request_fun, token, response, body, etag, true)
 
         {:ok, %{status: 304} = response} ->
           {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
@@ -193,13 +205,28 @@ defmodule Aiur.GitHub.Comments do
   end
 
   # Drains the remaining pages of a conditional comment-stream read and pairs
-  # the full list with the response's ETag (falling back to the cached one when
+  # the full list with a retained validator (falling back to the cached one when
   # GitHub omits it), so the caller keeps a usable cache entry either way.
-  defp conditional_stream_pages(request_fun, token, response, body, etag) do
+  #
+  # The response ETag belongs to the FIRST page only. `trust_paginated_etag?`
+  # says whether that is enough to vouch for the whole drained list: newest-first
+  # streams answer yes (everything the consumer has not seen lands on page 1),
+  # while an issue's oldest-first comment list answers no, and a paginated read
+  # then returns no validator at all so the next read is unconditional — a
+  # page-1 `304` would otherwise hide comments appended to the last page
+  # forever (website/docs-app/apis/github.md).
+  defp conditional_stream_pages(request_fun, token, response, body, etag, trust_paginated_etag?) do
     next = Transport.parse_next_page_url(Map.get(response, :headers, []))
 
     with {:ok, comments} <- fetch_repo_comment_stream(request_fun, token, next, body) do
-      {:ok, comments, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+      retained =
+        if is_nil(next) or trust_paginated_etag? do
+          Transport.header(Map.get(response, :headers, []), "etag") || etag
+        else
+          nil
+        end
+
+      {:ok, comments, retained}
     end
   end
 

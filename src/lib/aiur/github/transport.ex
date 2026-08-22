@@ -698,6 +698,13 @@ defmodule Aiur.GitHub.Transport do
 
   A `304 Not Modified` is a successful, budget-free response. Callers keep
   their last materialized value and use the returned ETag on the next request.
+
+  This helper answers exactly one request, so it can only vouch for the page
+  GitHub returned. A response that points at a `rel="next"` page is refused
+  with `{:error, :pagination_unexpected}` rather than handed to a caller that
+  would trust a partial list: a page-1 validator cannot answer a multi-page
+  question, so a caller that needs more than one page must use a per-page
+  reader or read unconditionally (website/docs-app/apis/github.md, #2330).
   """
   @spec fetch_json_list_conditional(function(), String.t(), String.t(), String.t() | nil) ::
           {:ok, [term()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -708,7 +715,7 @@ defmodule Aiur.GitHub.Transport do
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         log_rate_budget_pressure(response)
-        {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
+        single_page_list(body, response, etag)
 
       {:ok, %{status: 304} = response} ->
         log_rate_budget_pressure(response)
@@ -719,6 +726,18 @@ defmodule Aiur.GitHub.Transport do
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  # A 200 that points at a `rel="next"` page is refused rather than handed to a
+  # caller that would trust a partial list: a page-1 validator cannot answer a
+  # multi-page question, so a caller that needs more than one page must use a
+  # per-page reader or read unconditionally (website/docs-app/apis/github.md).
+  defp single_page_list(body, response, etag) do
+    if parse_next_page_url(Map.get(response, :headers, [])) do
+      {:error, :pagination_unexpected}
+    else
+      {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
     end
   end
 

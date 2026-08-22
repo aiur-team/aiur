@@ -198,6 +198,16 @@ defmodule Aiur.Orchestrator.CommandScan do
   # `command_scan_unchanged_list/3`). Re-depositing the same list on a `304`
   # refresh publishes nothing — the body and validator are unchanged — and only
   # keeps the entry alive inside the store's retention window.
+  #
+  # A `nil` validator (a fresh read whose response carried no ETag) drops any
+  # held validator explicitly, matching the poller: the store would otherwise
+  # keep a validator for an unchanged body even when the reader offered none.
+  defp remember_list(resource, comments, nil) when is_list(comments) do
+    ResourceStore.put_resource(resource, comments, etag: nil, source: :poll)
+    ResourceStore.drop_etag(resource)
+    nil
+  end
+
   defp remember_list(resource, comments, etag) when is_list(comments) do
     ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
     etag

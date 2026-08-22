@@ -176,11 +176,6 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_requests_by_label(label, opts \\ []),
     do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
 
-  @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
-          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
-  def fetch_open_pull_requests_by_label_conditional(label, opts \\ []),
-    do: PullRequests.fetch_open_pull_requests_by_label_conditional(label, opts)
-
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_review_comments(opts \\ []), do: Comments.fetch_recent_repo_review_comments(opts)

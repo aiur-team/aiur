@@ -164,12 +164,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events), do: {:error, :timeline_page_limit_exceeded}
 
   defp fetch_timeline_pages(request_fun, token, url, pages_left, events) do
+    fetch_timeline_page(request_fun, token, url, pages_left, events, false)
+  end
+
+  defp fetch_timeline_page(request_fun, token, url, pages_left, events, retried_without_validator?) do
     case request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @max_timeline_response_bytes}) do
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, events ++ page}
-          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page)
-        end
+        timeline_page_ok(request_fun, token, response, page, pages_left, events)
 
       {:ok, %{status: 200}} ->
         # A 200 whose body is not a JSON list means the page was truncated at
@@ -179,6 +180,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         # (#1454).
         {:error, :timeline_truncated}
 
+      {:ok, %{status: 304}} ->
+        timeline_page_not_modified(request_fun, token, url, pages_left, events, retried_without_validator?)
+
       {:ok, %{status: status} = response} ->
         {:error, {:timeline_fetch_failed, Errors.github_status_error(Map.put(response, :status, status))}}
 
@@ -187,6 +191,30 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
       _ ->
         {:error, :invalid_timeline_response}
+    end
+  end
+
+  defp timeline_page_ok(request_fun, token, response, page, pages_left, events) do
+    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      nil -> {:ok, events ++ page}
+      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page)
+    end
+  end
+
+  # A 304 answers "nothing changed since the validator you sent" — and the
+  # dispatch timeline never sends one, so a 304 here is unexpected. It cannot be
+  # trusted even for the page it answers (nothing is held to serve a "not
+  # modified" page), and it cannot certify any later page: a page-1 validator
+  # cannot answer a multi-page question, and dispatch gating must never be
+  # answered without asking (see the conditional-read rules in
+  # website/docs-app/apis/github.md). Re-ask the page once unconditionally so
+  # the label event that landed on a later page is still observed (#2330); a
+  # second 304 is an upstream refusal and fails closed.
+  defp timeline_page_not_modified(request_fun, token, url, pages_left, events, retried_without_validator?) do
+    if retried_without_validator? do
+      {:error, {:timeline_fetch_failed, :not_modified}}
+    else
+      fetch_timeline_page(request_fun, token, url, pages_left, events, true)
     end
   end
 
