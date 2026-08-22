@@ -203,6 +203,43 @@ defmodule AiurWeb.AnalyticsLive do
             <div id="analytics-concurrency-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.concurrency(@chart_model))}</div>
           </section>
 
+          <section class="an-card wide">
+            <div class="an-card-head">
+              <div>
+                <h3 class="an-card-title">Fleet-wide build pressure</h3>
+                <p class="an-card-sub">Whole-host occupied agents, measured capacities, active and queued builds, and oldest live wait. Gaps are unavailable evidence, never zero.</p>
+              </div>
+            </div>
+            <div id="analytics-pressure-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.fleet_pressure(@chart_model))}</div>
+            <div class="an-legend" aria-label="Fleet pressure source states">
+              <span>Source state:</span> <span>current</span> · <span>stale fleet</span> · <span>degraded build</span> · <span>partial</span> · <span>empty</span>
+            </div>
+            <details class="data-table">
+              <summary>Accessible fleet pressure data</summary>
+              <div class="table-scroll">
+                <table id="analytics-pressure-table">
+                  <caption>Timestamped whole-host fleet and build-pressure samples</caption>
+                  <thead><tr><th>Sample time</th><th>State</th><th>Fleet source</th><th>Fleet observed</th><th>Build source</th><th>Build observed</th><th>Occupied</th><th>Configured / max / effective</th><th>Build capacity</th><th>Active / queued builds</th><th>Oldest wait</th></tr></thead>
+                  <tbody>
+                    <tr :for={sample <- @chart_model.series}>
+                      <td>{pressure_time(sample.t_ms)}</td>
+                      <td>{pressure_value(sample.pressure_state)}</td>
+                      <td>{pressure_value(Map.get(sample, :fleet_capacity_status))}</td>
+                      <td>{pressure_time(Map.get(sample, :fleet_capacity_observed_at_ms))}</td>
+                      <td>{pressure_value(Map.get(sample, :build_gate_status))}</td>
+                      <td>{pressure_time(Map.get(sample, :build_gate_observed_at_ms))}</td>
+                      <td>{pressure_value(Map.get(sample, :fleet_agents_occupied))}</td>
+                      <td>{pressure_values(sample, [:fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective])}</td>
+                      <td>{pressure_value(Map.get(sample, :build_gate_capacity))}</td>
+                      <td>{pressure_values(sample, [:build_gate_active, :build_gate_queued])}</td>
+                      <td>{pressure_seconds(Map.get(sample, :build_queue_oldest_wait_seconds))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </section>
+
           <section class="an-card">
             <div class="an-card-head">
               <div>
@@ -410,6 +447,15 @@ defmodule AiurWeb.AnalyticsLive do
   defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in this session."
   defp scope_note(:session), do: "The current live run only. Add a Build Order selection to scope this page to its members."
   defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
+
+  defp pressure_time(ms) when is_integer(ms), do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
+  defp pressure_time(_ms), do: "—"
+  defp pressure_value(nil), do: "—"
+  defp pressure_value(value), do: to_string(value)
+  defp pressure_values(sample, keys), do: Enum.map_join(keys, " / ", &pressure_value(Map.get(sample, &1)))
+
+  defp pressure_seconds(nil), do: "—"
+  defp pressure_seconds(value), do: "#{value}s"
 
   # The live route defaults to the daemon-owned aggregate. The configurable
   # source exists only to keep the route's protected-query contract testable

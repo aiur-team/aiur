@@ -207,6 +207,37 @@ defmodule Aiur.AnalyticsCLI do
         IO.puts(["PRs merged: ", to_string(metrics["merged"])])
         IO.puts(["Tickets done: ", to_string(metrics["done"]), "/", to_string(metrics["total"])])
         IO.puts(["Wasted capacity: ", to_string(metrics["wasted_slot_hours"]), "h"])
+        pressure = model["pressure"] || %{}
+
+        IO.puts([
+          "Fleet-wide pressure: peak occupied ",
+          display(pressure["peak_occupied"]),
+          "; active builds ",
+          display(pressure["peak_active_builds"]),
+          "; queued builds ",
+          display(pressure["peak_queued_builds"]),
+          "; longest live wait ",
+          display_seconds(pressure["longest_wait_seconds"])
+        ])
+
+        IO.puts([
+          "Latest measured capacities: configured ",
+          display(pressure["latest_configured_capacity"]),
+          "; max ",
+          display(pressure["latest_max_capacity"]),
+          "; effective ",
+          display(pressure["latest_effective_capacity"]),
+          "; build slots ",
+          display(pressure["latest_build_capacity"])
+        ])
+
+        IO.puts([
+          "Latest source observations: fleet ",
+          iso(pressure["latest_fleet_observed_at_ms"]),
+          "; build ",
+          iso(pressure["latest_build_observed_at_ms"])
+        ])
+
         IO.puts("Complexity tiers:")
 
         Enum.each(model["complexity_breakdown"], fn tier ->
@@ -243,6 +274,10 @@ defmodule Aiur.AnalyticsCLI do
   end
 
   defp elapsed(_value), do: nil
+  defp display(nil), do: "unavailable"
+  defp display(value), do: to_string(value)
+  defp display_seconds(nil), do: "unavailable"
+  defp display_seconds(value), do: "#{value}s"
 
   defp print_window(%{"state" => "unavailable", "mode" => mode, "start" => start, "end" => finish}) when is_binary(start) or is_binary(finish),
     do: IO.puts(["Window: unavailable; requested ", iso(start), " to ", iso(finish), " (", mode, ")"])

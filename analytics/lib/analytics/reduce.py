@@ -38,6 +38,23 @@ RESOURCE_METRICS = (
     "system_fd_limit",
     "system_fd_available",
     "system_fd_headroom_ratio",
+    "fleet_agents_occupied",
+    "fleet_agents_configured",
+    "fleet_agents_max",
+    "fleet_agents_effective",
+    "build_gate_capacity",
+    "build_gate_active",
+    "build_gate_queued",
+    "build_queue_oldest_wait_seconds",
+)
+
+RESOURCE_EVIDENCE = (
+    "fleet_capacity_status",
+    "fleet_capacity_age_ms",
+    "fleet_capacity_observed_at_ms",
+    "build_gate_enabled",
+    "build_gate_status",
+    "build_gate_observed_at_ms",
 )
 
 DEFAULT_SAMPLE_INTERVAL_MS = 5_000
@@ -425,6 +442,7 @@ def _reduce_actors(records: list[dict], opts: dict) -> dict:
 def _resource_sample(record: dict) -> dict:
     attributes = record["attributes"]
     sample = {metric: attributes.get(metric) for metric in RESOURCE_METRICS}
+    sample.update({field: attributes.get(field) for field in RESOURCE_EVIDENCE})
     sample.update(
         {
             "actor": attributes.get("actor"),

@@ -13,6 +13,7 @@ defmodule Aiur.BuildGate do
   alias Aiur.PathSafety
 
   @default_timeout_seconds 900
+  @scan_output_budget_bytes 256 * 1024
   @recovery "repair the configured build-gate directory and retry, or fully disable build admission with " <>
               "agent.max_concurrent_builds: 0, agent.build_start_stagger_seconds: 0, and " <>
               "agent.min_free_memory_mb omitted"
@@ -22,6 +23,7 @@ defmodule Aiur.BuildGate do
           required(:capacity) => non_neg_integer(),
           required(:active) => non_neg_integer(),
           required(:queued) => non_neg_integer(),
+          required(:oldest_wait_seconds) => non_neg_integer() | nil,
           optional(:holders) => [holder()],
           optional(:degraded?) => boolean(),
           optional(:issues) => [map()]
@@ -143,11 +145,13 @@ defmodule Aiur.BuildGate do
 
       if linux_lock_strategy?(opts) do
         linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
+        |> with_oldest_wait()
       else
         pid_status(gate_dir, capacity)
+        |> with_oldest_wait()
       end
     else
-      %{enabled?: false, capacity: 0, active: 0, queued: 0, holders: []}
+      %{enabled?: false, capacity: 0, active: 0, queued: 0, oldest_wait_seconds: 0, holders: []}
     end
   end
 
@@ -180,109 +184,146 @@ defmodule Aiur.BuildGate do
   end
 
   defp do_linux_status(base, gate_dir, lock_dir, capacity) do
-    with flock when is_binary(flock) <- System.find_executable("flock"),
-         shell when is_binary(shell) <- System.find_executable("sh") do
-      {active, slot_issues, slot_holders} = linux_active_count(gate_dir, lock_dir, capacity, shell, flock)
-      {queued, queue_issues, queue_holders} = linux_queue_count(gate_dir, shell, flock)
-      phase_issues = cleanup_phase_metadata(gate_dir, lock_dir, shell, flock)
-      issues = legacy_issues(gate_dir) ++ slot_issues ++ queue_issues ++ phase_issues
+    case scan_locks(gate_dir, lock_dir, capacity) do
+      {:ok, result} ->
+        {active, queued, holders, issues} = reduce_scan_result(result)
 
-      base
-      |> Map.merge(%{active: active, queued: queued, holders: slot_holders ++ queue_holders})
-      |> degraded(issues)
-    else
-      nil -> degraded(base, [status_issue(:flock_unavailable, gate_dir)])
-    end
-  end
-
-  defp linux_active_count(_gate_dir, _lock_dir, capacity, _shell, _flock) when capacity <= 0,
-    do: {0, [], []}
-
-  defp linux_active_count(gate_dir, lock_dir, capacity, shell, flock) do
-    Enum.reduce(1..capacity, {0, [], []}, fn slot, {active, issues, holders} ->
-      lock_path = Path.join(lock_dir, "slot-#{slot}.lock")
-      owner_path = Path.join(gate_dir, "slot-#{slot}.owner")
-
-      case probe_lock(lock_path, owner_path, shell, flock) do
-        :locked ->
-          {active + 1, maybe_metadata_issue(issues, owner_path), maybe_holder(holders, owner_path, :slot, slot)}
-
-        :unlocked ->
-          {active, issues, holders}
-
-        {:error, reason} ->
-          {active, [status_issue(:lock_probe_failed, lock_path, reason) | issues], holders}
-      end
-    end)
-    |> then(fn {active, issues, holders} -> {active, Enum.reverse(issues), Enum.reverse(holders)} end)
-  end
-
-  defp linux_queue_count(gate_dir, shell, flock) do
-    queue_dir = Path.join(gate_dir, "queue")
-
-    case File.ls(queue_dir) do
-      {:ok, entries} ->
-        entries
-        |> Enum.filter(&String.starts_with?(&1, "lease-v2-"))
-        |> Enum.reduce({0, [], []}, &count_queue_entry(&1, &2, queue_dir, shell, flock))
-        |> then(fn {queued, issues, holders} -> {queued, Enum.reverse(issues), Enum.reverse(holders)} end)
-
-      {:error, :enoent} ->
-        {0, [], []}
+        base
+        |> Map.merge(%{active: active, queued: queued, holders: holders})
+        |> degraded(legacy_issues(gate_dir) ++ issues)
 
       {:error, reason} ->
-        {0, [status_issue(:queue_unreadable, queue_dir, reason)], []}
+        degraded(base, [status_issue(:lock_probe_failed, gate_dir, reason)])
     end
   end
 
-  defp count_queue_entry(entry, {queued, issues, holders}, queue_dir, shell, flock) do
-    path = Path.join(queue_dir, entry)
-
-    case probe_lock(path, path, shell, flock) do
-      :locked -> {queued + 1, maybe_metadata_issue(issues, path), maybe_holder(holders, path, :queue, nil)}
-      :unlocked -> {queued, issues, holders}
-      {:error, reason} -> {queued, [status_issue(:lock_probe_failed, path, reason) | issues], holders}
-    end
-  end
-
-  defp cleanup_phase_metadata(gate_dir, lock_dir, shell, flock) do
-    lock_path = Path.join(lock_dir, "phase-start.lock")
-    owner_path = Path.join(gate_dir, "phase-start.owner")
-
-    if File.exists?(lock_path) or File.exists?(owner_path) do
-      case probe_lock(lock_path, owner_path, shell, flock) do
-        :locked -> maybe_metadata_issue([], owner_path)
-        :unlocked -> []
-        {:error, reason} -> [status_issue(:lock_probe_failed, lock_path, reason)]
-      end
+  defp scan_locks(gate_dir, lock_dir, capacity) do
+    with python when is_binary(python) <- System.find_executable("python3") do
+      with_scan_manifest(%{gate_dir: gate_dir, lock_dir: lock_dir, capacity: capacity}, fn manifest_path ->
+        case System.cmd(python, [holder_path(), "--scan-locks-manifest", manifest_path], stderr_to_stdout: true) do
+          {output, 0} when byte_size(output) <= @scan_output_budget_bytes -> Jason.decode(String.trim(output))
+          {output, 0} -> {:error, %{reason: :output_budget_exceeded, bytes: byte_size(output)}}
+          {output, status} -> {:error, %{status: status, output: String.slice(String.trim(output), 0, 1_024)}}
+        end
+      end)
     else
-      []
-    end
-  end
-
-  defp probe_lock(lock_path, cleanup_path, shell, flock) do
-    script = ~S"""
-    exec 9<"$1" || exit 76
-    "$2" -n -E 75 9 || exit $?
-    rm -f -- "$3" || exit 77
-    """
-
-    with :ok <- regular_or_missing(lock_path) do
-      args = ["-c", script, "aiur-build-gate-status", lock_path, flock, cleanup_path]
-
-      case System.cmd(shell, args, stderr_to_stdout: true) do
-        {_output, 0} -> :unlocked
-        {_output, 75} -> :locked
-        {output, status} -> {:error, %{status: status, output: String.trim(output)}}
-      end
+      nil -> {:error, :safe_reader_unavailable}
     end
   rescue
     error -> {:error, Exception.message(error)}
   end
 
-  defp maybe_metadata_issue(issues, path) do
-    read_metadata_issue(issues, path)
+  defp with_scan_manifest(request, fun) do
+    path = Path.join(System.tmp_dir!(), "aiur-build-gate-scan-#{System.unique_integer([:positive, :monotonic])}.json")
+
+    with {:ok, encoded} <- Jason.encode(request),
+         {:ok, io_device} <- File.open(path, [:write, :exclusive]) do
+      try do
+        :ok = IO.binwrite(io_device, encoded)
+        :ok = File.close(io_device)
+        fun.(path)
+      after
+        File.close(io_device)
+        File.rm(path)
+      end
+    end
   end
+
+  defp reduce_scan_result(%{"active" => active, "queued" => queued, "details" => details, "issues" => scan_issues})
+       when is_integer(active) and active >= 0 and is_integer(queued) and queued >= 0 and is_list(details) and
+              is_list(scan_issues) do
+    issues = Enum.flat_map(scan_issues, &scan_issue/1)
+
+    {holders, issues} =
+      Enum.reduce(details, {[], issues}, fn detail, {holders, issues} ->
+        case scan_detail(detail) do
+          {:ok, holder, metadata_issues} ->
+            {prepend_holder(holders, holder), prepend_issues(issues, metadata_issues)}
+
+          {:error, issue} ->
+            {holders, [issue | issues]}
+        end
+      end)
+
+    {active, queued, Enum.reverse(holders), Enum.reverse(issues)}
+  end
+
+  defp reduce_scan_result(_result),
+    do: {0, 0, [], [status_issue(:lock_probe_failed, gate_dir(), :invalid_scan_result)]}
+
+  defp scan_detail(%{
+         "kind" => kind,
+         "slot" => slot,
+         "lock_path" => lock_path,
+         "metadata_path" => metadata_path,
+         "result" => %{"state" => "locked"} = result
+       })
+       when kind in ["slot", "queue", "phase"] and (is_nil(slot) or is_integer(slot)) and is_binary(lock_path) and
+              is_binary(metadata_path) do
+    candidate = %{kind: String.to_existing_atom(kind), slot: slot, lock_path: lock_path, metadata_path: metadata_path}
+    {holder, issues} = inspected_metadata(result, candidate)
+    {:ok, holder, issues}
+  end
+
+  defp scan_detail(detail), do: {:error, status_issue(:lock_probe_failed, gate_dir(), {:invalid_scan_detail, detail})}
+
+  defp scan_issue(%{"reason" => "lock_probe_failed", "path" => path, "detail" => detail}) when is_binary(path),
+    do: [status_issue(:lock_probe_failed, path, scan_error_detail(detail))]
+
+  defp scan_issue(%{"reason" => "queue_unreadable", "path" => path, "detail" => detail}) when is_binary(path),
+    do: [status_issue(:queue_unreadable, path, detail)]
+
+  defp scan_issue(%{"reason" => "scan_budget_exceeded", "path" => path, "detail" => detail}) when is_binary(path),
+    do: [status_issue(:scan_budget_exceeded, path, detail)]
+
+  defp scan_issue(issue), do: [status_issue(:lock_probe_failed, gate_dir(), {:invalid_scan_issue, issue})]
+
+  defp inspected_metadata(%{"metadata_error" => "not_regular"}, candidate),
+    do: {nil, [status_issue(:metadata_not_regular, candidate.metadata_path)]}
+
+  defp inspected_metadata(%{"metadata_error" => reason}, candidate),
+    do: {nil, [status_issue(:metadata_unreadable, candidate.metadata_path, reason)]}
+
+  defp inspected_metadata(%{"contents" => encoded}, %{kind: :phase, metadata_path: path}) do
+    with {:ok, contents} <- Base.decode64(encoded),
+         {:ok, _fields} <- parse_v2_record(contents) do
+      {nil, []}
+    else
+      _error -> {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+    end
+  end
+
+  defp inspected_metadata(%{"contents" => encoded}, %{kind: kind, slot: slot, metadata_path: path}) do
+    with {:ok, contents} <- Base.decode64(encoded) do
+      inspect_metadata_contents(contents, path, kind, slot)
+    else
+      :error -> {nil, [status_issue(:metadata_unreadable, path, :invalid_encoding)]}
+    end
+  end
+
+  defp inspected_metadata(_result, _candidate), do: {nil, []}
+
+  defp scan_error_detail(%{"reason" => "not_regular", "type" => "directory"}),
+    do: %{reason: :not_regular, type: :directory}
+
+  defp scan_error_detail(%{"reason" => "not_regular", "type" => "other"}),
+    do: %{reason: :not_regular, type: :other}
+
+  defp scan_error_detail(result), do: result
+
+  defp inspect_metadata_contents("version=2\n" <> _rest = contents, path, kind, slot) do
+    case parse_v2_record(contents) do
+      {:ok, fields} -> {holder_from_fields(fields, kind, slot), []}
+      :error -> {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+    end
+  end
+
+  defp inspect_metadata_contents(_contents, path, _kind, _slot),
+    do: {nil, [status_issue(:metadata_unreadable, path, {:reader_status, 0})]}
+
+  defp prepend_issues(issues, new_issues), do: Enum.reverse(new_issues, issues)
+  defp prepend_holder(holders, nil), do: holders
+  defp prepend_holder(holders, holder), do: [holder | holders]
 
   defp maybe_holder(holders, path, kind, slot) do
     case read_metadata(path) do
@@ -294,17 +335,6 @@ defmodule Aiur.BuildGate do
 
       _ ->
         holders
-    end
-  end
-
-  defp read_metadata_issue(issues, path) do
-    case read_metadata(path) do
-      {:ok, "version=2\n" <> _rest} -> issues
-      {:ok, _contents} -> [status_issue(:metadata_unreadable, path, {:reader_status, 0}) | issues]
-      {:error, :safe_reader_unavailable} -> [status_issue(:metadata_unreadable, path, :safe_reader_unavailable) | issues]
-      {:error, :missing} -> issues
-      {:error, :not_regular} -> [status_issue(:metadata_not_regular, path) | issues]
-      {:error, reason} -> [status_issue(:metadata_unreadable, path, reason) | issues]
     end
   end
 
@@ -375,15 +405,6 @@ defmodule Aiur.BuildGate do
     end
   end
 
-  defp regular_or_missing(path) do
-    case File.lstat(path) do
-      {:ok, %File.Stat{type: :regular}} -> :ok
-      {:ok, %File.Stat{type: type}} -> {:error, %{reason: :not_regular, type: type}}
-      {:error, :enoent} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   defp legacy_issues(gate_dir) do
     gate_dir
     |> legacy_paths()
@@ -427,6 +448,20 @@ defmodule Aiur.BuildGate do
 
   defp degraded(status, []), do: status
   defp degraded(status, issues), do: Map.merge(status, %{degraded?: true, issues: issues})
+
+  defp with_oldest_wait(%{degraded?: true} = status), do: Map.put(status, :oldest_wait_seconds, nil)
+  defp with_oldest_wait(%{queued: 0} = status), do: Map.put(status, :oldest_wait_seconds, 0)
+
+  defp with_oldest_wait(%{queued: queued, holders: holders} = status) do
+    waits =
+      holders
+      |> Enum.filter(&(&1.kind == :queue))
+      |> Enum.map(& &1.held_for_seconds)
+      |> Enum.filter(&(is_integer(&1) and &1 >= 0))
+
+    oldest_wait = if length(waits) == queued, do: Enum.max(waits), else: nil
+    Map.put(status, :oldest_wait_seconds, oldest_wait)
+  end
 
   defp linux_lock_strategy?(opts) do
     case Keyword.get(opts, :strategy, :auto) do

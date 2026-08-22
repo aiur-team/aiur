@@ -9,12 +9,23 @@ defmodule Aiur.RunTelemetry.Sampler do
 
   use GenServer
 
+  alias Aiur.BuildGate
+  alias Aiur.Orchestrator
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Procfs
   alias Aiur.SystemFileDescriptors
 
   @default_interval_ms 5_000
+  @default_pressure_probe_timeout_ms 500
   @metric_fields [:rss_bytes, :fd_count, :read_bytes, :write_bytes]
+  @fleet_fields [:fleet_agents_occupied, :fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective]
+  @build_fields [
+    :build_gate_enabled,
+    :build_gate_capacity,
+    :build_gate_active,
+    :build_gate_queued,
+    :build_queue_oldest_wait_seconds
+  ]
 
   @typep pid_set :: MapSet.t(pos_integer())
 
@@ -30,6 +41,7 @@ defmodule Aiur.RunTelemetry.Sampler do
   @spec sample_once(map(), keyword()) :: %{records: [map()], warnings: [map()], previous: map()}
   def sample_once(previous, opts \\ []) when is_map(previous) and is_list(opts) do
     table_fun = Keyword.get(opts, :process_table_fun, &Procfs.process_table/0)
+    pressure = pressure_observation(opts)
 
     context = %{
       entries: safe_entries(Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0)),
@@ -48,12 +60,15 @@ defmodule Aiur.RunTelemetry.Sampler do
     case safe_call(table_fun, {:error, {:procfs_unavailable, :reader_failed}}) do
       {:ok, table, table_warnings} when is_map(table) ->
         successful_sample(previous, table, table_warnings, context)
+        |> attach_pressure(pressure)
 
       {:error, reason} ->
         unavailable_sample(context, reason)
+        |> attach_pressure(pressure)
 
       _other ->
         unavailable_sample(context, :invalid_process_table)
+        |> attach_pressure(pressure)
     end
   end
 
@@ -177,6 +192,173 @@ defmodule Aiur.RunTelemetry.Sampler do
       warnings: [%{event: :procfs_unavailable, reason: reason} | attribution_warnings],
       previous: %{}
     }
+  end
+
+  defp pressure_observation(opts) do
+    system_ms_fun = Keyword.get(opts, :system_ms_fun, fn -> System.system_time(:millisecond) end)
+    timeout_ms = Keyword.get(opts, :pressure_probe_timeout_ms, @default_pressure_probe_timeout_ms)
+
+    sources = [
+      {:fleet, Keyword.get(opts, :fleet_snapshot_fun, fn -> Orchestrator.dashboard_snapshot(Orchestrator, 100) end), :orchestrator_unavailable},
+      {:build, Keyword.get(opts, :build_status_fun, &BuildGate.status/0), :build_gate_unavailable}
+    ]
+
+    results = bounded_pressure_probes(sources, timeout_ms)
+
+    build_observed_at_ms = safe_call(system_ms_fun, nil)
+
+    fleet_observation(Map.fetch!(results, :fleet))
+    |> Map.merge(build_observation(Map.fetch!(results, :build), build_observed_at_ms))
+  end
+
+  defp bounded_pressure_probes(sources, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
+    sources
+    |> Task.async_stream(
+      fn {source, fun, fallback} -> {source, safe_call(fun, fallback)} end,
+      max_concurrency: 2,
+      ordered: true,
+      timeout: timeout_ms,
+      on_timeout: :kill_task
+    )
+    |> Enum.zip(sources)
+    |> Map.new(fn
+      {{:ok, {source, result}}, {source, _fun, _fallback}} -> {source, result}
+      {{:exit, _reason}, {source, _fun, fallback}} -> {source, fallback}
+    end)
+  end
+
+  defp bounded_pressure_probes(sources, _timeout_ms),
+    do: Map.new(sources, fn {source, _fun, fallback} -> {source, fallback} end)
+
+  defp fleet_observation({:current, %{capacity: capacity}, freshness})
+       when is_map(capacity) and is_map(freshness) do
+    fields = %{
+      fleet_agents_occupied: integer_value(capacity, :occupied),
+      fleet_agents_configured: integer_value(capacity, :configured),
+      fleet_agents_max: integer_value(capacity, :max),
+      fleet_agents_effective: integer_value(capacity, :effective)
+    }
+
+    if Enum.all?(@fleet_fields, &is_integer(Map.get(fields, &1))) do
+      Map.merge(fields, %{
+        fleet_capacity_status: "current",
+        fleet_capacity_age_ms: integer_value(freshness, :age_ms),
+        fleet_capacity_observed_at_ms: freshness_observed_at_ms(freshness),
+        fleet_partial_fields: []
+      })
+    else
+      unavailable_fleet("unavailable", integer_value(freshness, :age_ms))
+    end
+  end
+
+  defp fleet_observation({:stale, _snapshot, freshness}) when is_map(freshness) do
+    unavailable_fleet("stale", integer_value(freshness, :age_ms), freshness_observed_at_ms(freshness))
+  end
+
+  defp fleet_observation(:snapshot_unpublished), do: unavailable_fleet("unpublished", nil)
+  defp fleet_observation(_result), do: unavailable_fleet("unavailable", nil)
+
+  defp unavailable_fleet(status, age_ms, observed_at_ms \\ nil) do
+    %{
+      fleet_capacity_status: status,
+      fleet_capacity_age_ms: age_ms,
+      fleet_capacity_observed_at_ms: observed_at_ms,
+      fleet_agents_occupied: nil,
+      fleet_agents_configured: nil,
+      fleet_agents_max: nil,
+      fleet_agents_effective: nil,
+      fleet_partial_fields: @fleet_fields
+    }
+  end
+
+  defp freshness_observed_at_ms(freshness) do
+    case Map.get(freshness, :observed_at, Map.get(freshness, "observed_at")) do
+      %DateTime{} = observed_at ->
+        DateTime.to_unix(observed_at, :millisecond)
+
+      observed_at when is_binary(observed_at) ->
+        case DateTime.from_iso8601(observed_at) do
+          {:ok, parsed, _offset} -> DateTime.to_unix(parsed, :millisecond)
+          _error -> nil
+        end
+
+      _other ->
+        nil
+    end
+  end
+
+  defp build_observation(%{degraded?: true}, _observed_at_ms), do: unavailable_build("degraded")
+
+  defp build_observation(
+         %{enabled?: enabled, capacity: capacity, active: active, queued: queued, oldest_wait_seconds: oldest_wait},
+         observed_at_ms
+       )
+       when is_boolean(enabled) and is_integer(capacity) and capacity >= 0 and is_integer(active) and active >= 0 and
+              is_integer(queued) and queued >= 0 do
+    base = %{
+      build_gate_enabled: enabled,
+      build_gate_capacity: capacity,
+      build_gate_active: active,
+      build_gate_queued: queued,
+      build_gate_observed_at_ms: observed_at_ms
+    }
+
+    cond do
+      is_integer(oldest_wait) and oldest_wait >= 0 ->
+        Map.merge(base, %{
+          build_gate_status: if(enabled, do: "measured", else: "disabled"),
+          build_queue_oldest_wait_seconds: oldest_wait,
+          build_partial_fields: []
+        })
+
+      queued > 0 ->
+        Map.merge(base, %{
+          build_gate_status: "partial",
+          build_queue_oldest_wait_seconds: nil,
+          build_partial_fields: [:build_queue_oldest_wait_seconds]
+        })
+
+      true ->
+        unavailable_build("unavailable")
+    end
+  end
+
+  defp build_observation(_result, _observed_at_ms), do: unavailable_build("unavailable")
+
+  defp unavailable_build(status) do
+    %{
+      build_gate_status: status,
+      build_gate_observed_at_ms: nil,
+      build_gate_enabled: nil,
+      build_gate_capacity: nil,
+      build_gate_active: nil,
+      build_gate_queued: nil,
+      build_queue_oldest_wait_seconds: nil,
+      build_partial_fields: @build_fields
+    }
+  end
+
+  defp attach_pressure(%{records: records} = sample, pressure) do
+    records =
+      Enum.map(records, fn
+        %{actor: "_daemon", partial_fields: partial_fields} = record ->
+          source_partial_fields = pressure.fleet_partial_fields ++ pressure.build_partial_fields
+
+          pressure = Map.drop(pressure, [:fleet_partial_fields, :build_partial_fields])
+          Map.merge(record, Map.put(pressure, :partial_fields, Enum.uniq(partial_fields ++ source_partial_fields)))
+
+        record ->
+          record
+      end)
+
+    %{sample | records: records}
+  end
+
+  defp integer_value(map, key) do
+    case Map.get(map, key, Map.get(map, Atom.to_string(key))) do
+      value when is_integer(value) -> value
+      _other -> nil
+    end
   end
 
   @spec actor_specs(map(), list(), integer() | nil, integer() | nil) :: {[map()], [map()]}

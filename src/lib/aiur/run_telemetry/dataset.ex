@@ -17,7 +17,13 @@ defmodule Aiur.RunTelemetry.Dataset do
     cpu_percent rss_bytes fd_count read_bytes write_bytes
     read_bytes_per_second write_bytes_per_second
     system_fd_used system_fd_limit system_fd_available system_fd_headroom_ratio
+    fleet_agents_occupied fleet_agents_configured fleet_agents_max fleet_agents_effective
+    build_gate_capacity build_gate_active build_gate_queued build_queue_oldest_wait_seconds
   )
+  @resource_evidence ~w(
+    fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms
+    build_gate_enabled build_gate_status build_gate_observed_at_ms
+  )a
   @default_sample_interval_ms 5_000
   @default_gap_threshold_multiplier 1.5
   @default_review_resume_grace_seconds 300
@@ -711,7 +717,13 @@ defmodule Aiur.RunTelemetry.Dataset do
       @resource_metrics
       |> Map.new(fn metric -> {metric, resource_metric(record.attributes, metric)} end)
 
-    Map.merge(metrics, %{
+    evidence =
+      @resource_evidence
+      |> Map.new(fn field -> {field, Map.get(record.attributes, Atom.to_string(field))} end)
+
+    metrics
+    |> Map.merge(evidence)
+    |> Map.merge(%{
       actor: record.attributes["actor"],
       actor_type: record.attributes["actor_type"],
       ticket: record.attributes["ticket"],
