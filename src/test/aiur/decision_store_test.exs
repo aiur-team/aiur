@@ -2,6 +2,7 @@ defmodule Aiur.DecisionStoreTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.AgentRunner.EventsDigest
 
@@ -2398,28 +2399,33 @@ defmodule Aiur.DecisionStoreTest do
       send(parent, {:escalation_result, result})
     end)
 
-    # The escalation runs on a spawned process, so the attention-opener signal
-    # is a genuine async event; the ExUnit default 100ms is far tighter than
-    # this file's own convention for spawned-process waits (2s elsewhere) and
-    # times out under CI load (#1920). Wait for the real signal, not a guess.
-    assert_receive {:attention_opening, opener_pid}, 2_000
+    receive_barrier({:attention_opening, opener_pid})
 
-    spawn(fn ->
-      result =
-        answer(pid, decision.decision_id, %{
-          "idempotency_key" => "answer-after-escalation",
-          "expected_version" => 1,
-          "option_id" => "yes"
-        })
+    decision_id = decision.decision_id
+    :erlang.trace(pid, true, [:receive])
 
-      send(parent, {:answer_result, result})
-    end)
+    try do
+      spawn(fn ->
+        result =
+          answer(pid, decision_id, %{
+            "idempotency_key" => "answer-after-escalation",
+            "expected_version" => 1,
+            "option_id" => "yes"
+          })
 
-    refute_receive {:answer_result, _result}, 100
+        send(parent, {:answer_result, result})
+      end)
+
+      receive_barrier({:trace, ^pid, :receive, {:"$gen_call", _from, {:answer, ^decision_id, _payload, _opts}}})
+      refute_received {:answer_result, _result}
+    after
+      :erlang.trace(pid, false, [:receive])
+    end
+
     send(opener_pid, :finish_attention)
 
-    assert_receive {:escalation_result, {:ok, %{status: :opened}}}
-    assert_receive {:answer_result, {:ok, %{status: :accepted}}}
+    receive_barrier({:escalation_result, {:ok, %{status: :opened}}})
+    receive_barrier({:answer_result, {:ok, %{status: :accepted}}})
   end
 
   describe "answer outbox" do
