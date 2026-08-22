@@ -28,12 +28,12 @@ HOURLY_WINDOW_MS = 3600000
 # not keep its old max_inflight constraining the fleet for the whole hour that
 # the usage report now retains it for.
 POLICY_RECONCILE_WINDOW_MS = 120000
-# A shared hold below this duration is reported as an in-guard `wait <ms>`
-# (sleep-and-retry) rather than the typed `hold shared <resource> <until>`
-# response that aborts the command and pauses the agent's whole turn. A routine
-# secondary-rate-limit token cooldown defaults to 60 seconds and must keep
+# A shared *resource* hold below this duration is reported as an in-guard
+# `wait <ms>` (sleep-and-retry) rather than the typed `hold shared <resource>
+# <until>` response that aborts the command and pauses the agent's whole turn.
+# A token-wide secondary-rate-limit cooldown (default 60 seconds) always keeps
 # sleeping inside the guard, exactly as it did before typed holds existed; only
-# holds long enough to warrant a real pause are surfaced to the agent.
+# a real resource hold long enough to warrant a pause is surfaced to the agent.
 SHARED_HOLD_MIN_MS = 10000
 
 
@@ -334,22 +334,28 @@ def acquire(args):
         if hold_until > now:
             conn.execute("COMMIT")
             remaining = hold_until - now
-            if remaining >= SHARED_HOLD_MIN_MS:
-                hold_resource = resource_hold[0] if resource_hold and resource_hold[1] == hold_until else args.resource
+            # Only a *resource* hold surfaces as the typed `hold shared
+            # <resource> <until>` that aborts the command and pauses the agent's
+            # whole turn. `hold_until` is the max of the token cooldown and the
+            # resource hold, so the hold is resource-driven only when the
+            # resource hold is the longer-lived one. A token-wide cooldown — the
+            # routine secondary-rate-limit backoff the guard has always absorbed
+            # by sleeping, default 60 seconds — keeps sleeping inside the guard
+            # regardless of duration, exactly as it did before typed holds
+            # existed.
+            resource_driven = resource_hold is not None and resource_hold[1] == hold_until
+            if resource_driven and remaining >= SHARED_HOLD_MIN_MS:
+                hold_resource = resource_hold[0]
                 if hold_resource == "unknown":
-                    # A token-wide cooldown from a secondary rate limit is not
-                    # resource-attributed in the broker. Prefer the longest-lived
-                    # resource hold we do know about (the likely trigger of the
-                    # shared backoff) so the pause/alert metadata does not blindly
-                    # say `core` for GraphQL-on-the-wire traffic; `core` is only
-                    # the last resort when no resource hold exists at all.
-                    hold_resource = resource_hold[0] if resource_hold else "core"
+                    # Defensive fallback: the resource_holds table only ever
+                    # stores concrete resource names, but never pause on a
+                    # bucket we cannot name.
+                    hold_resource = "core"
                 print(f"hold shared {hold_resource} {hold_until}")
             else:
-                # A routine short hold (for example the ordinary 60-second
-                # secondary-rate-limit token cooldown) is absorbed in the
-                # guard's sleep-and-retry loop instead of aborting the command
-                # and pausing the whole agent turn.
+                # A token-wide cooldown, or a resource hold too short to
+                # warrant a pause, is absorbed in the guard's sleep-and-retry
+                # loop instead of aborting the command and pausing the turn.
                 print(f"wait {remaining}")
             return
 

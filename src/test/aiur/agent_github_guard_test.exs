@@ -736,6 +736,40 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  test "a 60-second token cooldown still sleeps in the guard instead of pausing the turn", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    # The broker's default secondary-rate-limit cooldown is 60 seconds and is
+    # token-scoped (a routine self-backoff, not a real resource hold). It must
+    # keep sleeping inside the guard's sleep-and-retry loop — the behavior that
+    # existed before typed holds — rather than surfacing a `hold shared` that
+    # aborts with exit 75 and pauses the agent's whole turn. The hold's
+    # duration (60s) is irrelevant: token cooldowns never reach the control
+    # lifecycle, only resource holds do.
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    assert {output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute output =~ "aiur: github budget hold"
+    refute File.exists?(context.calls)
+  end
+
   test "a guarded high-level command fails closed before native pagination can bypass admissions", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
