@@ -1,6 +1,8 @@
 defmodule Aiur.PaneManager.PlaceholderTest do
   use ExUnit.Case, async: true
 
+  import Aiur.TestSupport, only: [receive_barrier: 1]
+
   alias Aiur.PaneManager.{Placeholder, State}
   alias Aiur.Tmux
 
@@ -10,7 +12,7 @@ defmodule Aiur.PaneManager.PlaceholderTest do
 
     {:ok, _tmux} =
       start_supervised(
-        {Tmux, [transport: {:mock, test_pid}, name: tmux_name, session: "test"]},
+        {Tmux, [transport: {:mock, test_pid, :infinity}, name: tmux_name, session: "test"]},
         id: tmux_name
       )
 
@@ -24,13 +26,10 @@ defmodule Aiur.PaneManager.PlaceholderTest do
     %{tmux: tmux_name, state: state}
   end
 
-  defp respond_ok(tmux) do
-    receive do
-      {:tmux_mock_out, _cmd} ->
-        send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-    after
-      200 -> :ok
-    end
+  defp receive_command_and_respond(tmux, body \\ "") do
+    receive_barrier({:tmux_mock_out, command})
+    send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n#{body}%end 1 1 0\n"})
+    command
   end
 
   describe "handle_swap/5" do
@@ -45,41 +44,21 @@ defmodule Aiur.PaneManager.PlaceholderTest do
           Placeholder.handle_swap(state, "issue-1", "%99", 1, "%20")
         end)
 
-      # swap-pane
-      receive do
-        {:tmux_mock_out, "swap-pane -s %20 -t %99"} ->
-          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-      after
-        500 -> flunk("expected swap-pane -s %20 -t %99")
-      end
-
-      # kill-pane
-      receive do
-        {:tmux_mock_out, "kill-pane -t %99"} ->
-          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-      after
-        500 -> flunk("expected kill-pane -t %99")
-      end
-
-      # select-pane
-      receive do
-        {:tmux_mock_out, "select-pane -t %20"} ->
-          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-      after
-        500 -> flunk("expected select-pane -t %20")
-      end
+      assert receive_command_and_respond(tmux) == "swap-pane -s %20 -t %99"
+      assert receive_command_and_respond(tmux) == "kill-pane -t %99"
+      assert receive_command_and_respond(tmux) == "select-pane -t %20"
 
       # set-pane-title for record_slot_pane
-      respond_ok(tmux)
+      receive_command_and_respond(tmux)
 
       # display-message + select-layout for Layout.apply
-      respond_ok(tmux)
-      respond_ok(tmux)
+      receive_command_and_respond(tmux, "80x24\n")
+      receive_command_and_respond(tmux)
 
       # capture-pane for detect_convo_first_paint (async task)
-      respond_ok(tmux)
+      receive_command_and_respond(tmux)
 
-      {:noreply, new_state} = Task.await(task, 5000)
+      {:noreply, new_state} = Task.await(task, :infinity)
       assert Map.get(new_state.identifier_to_pane, "issue-1") == "%20"
       refute Map.has_key?(new_state.placeholder_panes, "issue-1")
     end
@@ -94,23 +73,18 @@ defmodule Aiur.PaneManager.PlaceholderTest do
       from = {self(), reply_ref}
       task = Task.async(fn -> Placeholder.open_with_placeholder(state, "issue-3", from) end)
 
-      assert_receive {:tmux_mock_out, "split-window -t %1 -h -l 50% " <> command}, 500
+      assert "split-window -t %1 -h -l 50% " <> command =
+               receive_command_and_respond(tmux, "%30\n")
+
       assert command =~ "issue-3"
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%30\n%end 1 1 0\n"})
 
-      assert_receive {:tmux_mock_out, "select-pane -t %30"}, 500
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
+      assert receive_command_and_respond(tmux) == "select-pane -t %30"
+      assert receive_command_and_respond(tmux) == "select-pane -t %30 -T issue-3"
+      assert "display-message -p -t %1 " <> _ = receive_command_and_respond(tmux, "80x24\n")
+      assert "select-layout -t test:0 " <> _ = receive_command_and_respond(tmux)
 
-      assert_receive {:tmux_mock_out, "select-pane -t %30 -T issue-3"}, 500
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-
-      assert_receive {:tmux_mock_out, "display-message -p -t %1 " <> _}, 500
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n80x24\n%end 1 1 0\n"})
-      assert_receive {:tmux_mock_out, "select-layout -t test:0 " <> _}, 500
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-
-      assert_receive {^reply_ref, {:ok, "%30"}}, 500
-      assert {:noreply, new_state} = Task.await(task, 1000)
+      receive_barrier({^reply_ref, {:ok, "%30"}})
+      assert {:noreply, new_state} = Task.await(task, :infinity)
       assert Map.get(new_state.placeholder_panes, "issue-3") == %{pane_id: "%30", slot: 1}
     end
 
@@ -119,18 +93,19 @@ defmodule Aiur.PaneManager.PlaceholderTest do
       from = {self(), reply_ref}
       task = Task.async(fn -> Placeholder.open_with_placeholder(state, "issue-it's-3", from) end)
 
-      assert_receive {:tmux_mock_out, "split-window -t %1 -h -l 50% " <> command}, 500
+      assert "split-window -t %1 -h -l 50% " <> command =
+               receive_command_and_respond(tmux, "%31\n")
+
       assert command =~ "issue-its-3"
       refute command =~ "issue-it's-3"
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%31\n%end 1 1 0\n"})
 
-      respond_ok(tmux)
-      respond_ok(tmux)
-      respond_ok(tmux)
-      respond_ok(tmux)
+      receive_command_and_respond(tmux)
+      receive_command_and_respond(tmux)
+      receive_command_and_respond(tmux, "80x24\n")
+      receive_command_and_respond(tmux)
 
-      assert_receive {^reply_ref, {:ok, "%31"}}, 500
-      Task.await(task, 1000)
+      receive_barrier({^reply_ref, {:ok, "%31"}})
+      Task.await(task, :infinity)
     end
 
     test "uses vertical split when state orientation is :vertical", %{tmux: tmux, state: state} do
@@ -139,16 +114,16 @@ defmodule Aiur.PaneManager.PlaceholderTest do
       state = %{state | orientation: :vertical}
       task = Task.async(fn -> Placeholder.open_with_placeholder(state, "issue-4", from) end)
 
-      assert_receive {:tmux_mock_out, "split-window -t %1 -v -l 50% " <> _command}, 500
-      send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%32\n%end 1 1 0\n"})
+      assert "split-window -t %1 -v -l 50% " <> _command =
+               receive_command_and_respond(tmux, "%32\n")
 
-      respond_ok(tmux)
-      respond_ok(tmux)
-      respond_ok(tmux)
-      respond_ok(tmux)
+      receive_command_and_respond(tmux)
+      receive_command_and_respond(tmux)
+      receive_command_and_respond(tmux, "80x24\n")
+      receive_command_and_respond(tmux)
 
-      assert_receive {^reply_ref, {:ok, "%32"}}, 500
-      Task.await(task, 1000)
+      receive_barrier({^reply_ref, {:ok, "%32"}})
+      Task.await(task, :infinity)
     end
   end
 
@@ -161,18 +136,13 @@ defmodule Aiur.PaneManager.PlaceholderTest do
           Placeholder.handle_failed(state, "issue-2", "%88", :no_ready_slot)
         end)
 
-      receive do
-        {:tmux_mock_out, "kill-pane -t %88"} ->
-          send(GenServer.whereis(tmux), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
-      after
-        500 -> flunk("expected kill-pane -t %88")
-      end
+      assert receive_command_and_respond(tmux) == "kill-pane -t %88"
 
       # Layout.apply
-      respond_ok(tmux)
-      respond_ok(tmux)
+      receive_command_and_respond(tmux, "80x24\n")
+      receive_command_and_respond(tmux)
 
-      {:noreply, new_state} = Task.await(task, 2000)
+      {:noreply, new_state} = Task.await(task, :infinity)
       refute Map.has_key?(new_state.placeholder_panes, "issue-2")
     end
   end
