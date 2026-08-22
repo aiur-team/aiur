@@ -38,18 +38,48 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
   ## What is worth caching, and why the number
 
-  The numbers are chosen against the poll cadence, not against how fresh the data
-  could theoretically be. A TTL shorter than the cadence saves nothing; a TTL
-  much longer than the cadence buys little more and holds staleness longer.
+  The numbers are chosen against the poll cadence, not against how fresh the
+  data could theoretically be. A TTL shorter than the cadence saves nothing —
+  the identical request has not come back yet when the entry expires — and
+  that was the measurable reality: zero hits across 670 misses, because both
+  rows below were shorter than every caller's cadence. A TTL at or just above
+  the cadence lets the re-poll hit; a TTL much longer than the cadence buys
+  little more and holds staleness longer.
 
   | kind | ttl | why |
   | --- | --- | --- |
-  | `:comments` | 30 s | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
-  | `:issue_graph` | 30 s | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
+  | `:comments` | 180 s | Per-issue REST comment reads (`Aiur.GitHub.Comments`). The comment poll re-reads each watched list on its cadence; a list observed up to 180 s late costs at most one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
+  | `:issue_graph` | 180 s | Build Order structure: dependency edges, pack status, linked pull requests, the catalog. The catalog re-reads every effective poll interval (120 s at the shipped default), so 180 s sits just above one cadence and lets the next identical read hit. A stale edge delays a dispatch rather than corrupting one. |
 
   Every TTL here is an upper bound on staleness only in the absence of news. An
   invalidation retires the entry immediately, so the observed staleness for
-  anything Aiur itself changes is zero.
+  anything Aiur itself changes — and for anything a webhook delivery carries,
+  via `Aiur.GitHub.ReadCacheBridge` — is zero.
+
+  ## A TTL is only safe because the entry can be retired
+
+  The numbers above sit at or above the cadence of every caller that can reach
+  them, so they hold an answer a caller would otherwise have re-polled. That is
+  the point, and it is only safe because the invalidation side exists to keep
+  the held answer honest: `Aiur.GitHub.ReadCacheBridge` retires a read the
+  moment a webhook delivery (or any store write) changes the resource it names,
+  and `write_through` retires what a mutation changed. Without those, a longer
+  TTL would serve state a delivery had already superseded for the whole window —
+  which is exactly why the TTLs had to stay at 30 seconds until the bridge
+  landed.
+
+  The sweep bound is the other side of the same coin. `@max_ttl_ms` in
+  `Aiur.GitHub.ReadCache` is deliberately far above any class TTL here, so the
+  sweep never deletes an entry inside its own validity window — and the safety
+  refusals above are decided on the document, never on the TTL, so no configured
+  value can make a CI verdict or a merge verdict cacheable.
+
+  A tracker configured to poll much faster narrows these cadences below these
+  TTLs, and then this table would be serving staleness nobody asked for. The
+  values are therefore overridable — set `:github_read_cache_ttls` to a map of
+  `class => ms` — rather than compiled in, and lowering one is always safe.
+  Reading the live cadence per request is not: it parses settings, and this
+  runs on every GitHub request the daemon makes.
 
   ## Two rows, because the rest were unreachable
 
@@ -89,27 +119,17 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   tickets is written to, which the daemon does continuously. A cacheable half
   would hit approximately never.
 
-  ## A TTL must not outrun the caller's own freshness
+  ## The caller's own freshness is separate
 
   A cache at the transport chokepoint overrides freshness the call site thought
   it controlled, which is the one way this design can be quietly wrong.
   `Aiur.GitHub.ResourceFetch` requires an explicit `:freshness` with no default
-  for exactly that reason, and nothing about a TTL chosen here reaches it.
-
-  So the numbers above sit *below* the cadence of every caller that can reach
-  them. Build Order's catalog refresh is clamped to the tracker poll interval
-  (120 s by default) and its ticket detail freshness derives to 30 s at that
-  interval, so a 30-s `:issue_graph` entry is only ever served to a *duplicate*
-  read inside a window the caller was not going to re-poll anyway — which is
-  where the duplication actually is: concurrent graph builds, the dashboard, and
-  the CLI asking the same question at once.
-
-  A tracker configured to poll much faster narrows those cadences below these
-  TTLs, and then this table would be serving staleness nobody asked for. The
-  values are therefore overridable — set `:github_read_cache_ttls` to a map of
-  `class => ms` — rather than compiled in, and lowering one is always safe.
-  Reading the live cadence per request is not: it parses settings, and this runs
-  on every GitHub request the daemon makes.
+  for exactly that reason, and nothing about a TTL chosen here reaches it. The
+  TTLs above cover reads whose staleness is a display or dispatch delay; a
+  caller that needs a fresh answer for a decision it will act on does not go
+  through a TTL row — it is refused on content (CI, review state) or reads
+  conditionally through `ResourceStore`, where an unchanged list answers `304`
+  for free.
   """
 
   alias Aiur.GitHub.ReadCache.Identity
@@ -117,7 +137,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @type class :: :comments | :issue_graph
   @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom()}
 
-  @default_ttls %{comments: 30_000, issue_graph: 30_000}
+  @default_ttls %{comments: 180_000, issue_graph: 180_000}
 
   # Declared callers, keyed by the string `Transport` stamps on the request from
   # `opts[:caller]`. A caller absent from this table falls through to the REST

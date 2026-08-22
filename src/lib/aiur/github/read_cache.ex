@@ -86,11 +86,11 @@ defmodule Aiur.GitHub.ReadCache do
   # a memory leak.
   @max_entries 20_000
 
-  # A retention bound for the sweep, deliberately far above the 30s TTLs
-  # `Policy` currently hands out. It is not the maximum TTL and must not be
-  # tightened to match one: `:github_read_cache_ttls` lets an operator raise a
-  # TTL at runtime, and a sweep that dropped entries still inside their window
-  # would turn a config change into silent cache misses. Freshness is decided on
+  # A retention bound for the sweep, deliberately far above the ~180s TTLs
+  # `Policy` hands out. It is not the maximum TTL and must not be tightened to
+  # match one: `:github_read_cache_ttls` lets an operator raise a TTL at
+  # runtime, and a sweep that dropped entries still inside their window would
+  # turn a config change into silent cache misses. Freshness is decided on
   # read, so sweeping late costs memory and sweeping early costs points.
   @max_ttl_ms 60 * 60_000
   @sweep_interval_ms 60_000
@@ -145,6 +145,26 @@ defmodule Aiur.GitHub.ReadCache do
   end
 
   def invalidate(_identities), do: :ok
+
+  @doc """
+  The retention bound the sweep deletes past, in milliseconds.
+
+  Exposed so a test can assert no class TTL reaches it: an entry deleted by the
+  sweep is an entry the cache was still entitled to serve, so the bound and the
+  shipped TTLs have to stay apart or the sweep turns into a silent miss
+  generator.
+  """
+  @spec max_ttl_ms() :: pos_integer()
+  def max_ttl_ms, do: @max_ttl_ms
+
+  @doc """
+  The entry ceiling at which `room?/0` refuses new deposits.
+
+  Exposed so a test can assert the `:no_room` accounting without restating the
+  number — the ceiling moves and the test follows it.
+  """
+  @spec max_entries() :: pos_integer()
+  def max_entries, do: @max_entries
 
   @doc """
   Retires every read of one issue-or-pull-request number, and the repository's
@@ -375,14 +395,26 @@ defmodule Aiur.GitHub.ReadCache do
     ArgumentError -> true
   end
 
+  # Every miss either deposits or does not, and the not-deposited side is
+  # counted with its reason so the gap between misses and deposits is
+  # attributable rather than a silent subtraction. `success?/1` rejects a
+  # GraphQL failure or partial failure that arrived as HTTP 200 — common on
+  # graph queries, and not a cache problem — while `room?/0` refuses a good
+  # response only at the entry ceiling.
   defp deposit(key, result, started_at, class, caller) do
-    with true <- success?(result),
-         {:ok, response} <- result,
-         true <- room?() do
-      true = :ets.insert(@entries, {key, response, started_at})
-      Metrics.deposit(class, caller)
-    else
-      _skipped -> :ok
+    cond do
+      not success?(result) ->
+        Metrics.not_deposited(:unsuccessful, class, caller)
+        :ok
+
+      not room?() ->
+        Metrics.not_deposited(:no_room, class, caller)
+        :ok
+
+      true ->
+        {:ok, response} = result
+        true = :ets.insert(@entries, {key, response, started_at})
+        Metrics.deposit(class, caller)
     end
   end
 
