@@ -227,6 +227,25 @@ defmodule Aiur.GitHubCostCLITest do
     assert caller["estimated?"] == false
   end
 
+  test "surfaces a transport error as estimated GraphQL spend from the production meter" do
+    request = %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "secret",
+      caller: :github_cost_error_test,
+      body: %{"query" => "query CostErrorTest { viewer { login } }", "variables" => %{}}
+    }
+
+    Quota.observe(request, {:error, :fetch_deadline_exceeded})
+
+    assert {:ok, envelope} = GitHubCostCLI.build()
+    assert caller = Enum.find(envelope["data"]["callers"], &(&1["caller"] == "github_cost_error_test"))
+    assert caller["resource"] == "graphql"
+    assert caller["points"] == 1
+    assert caller["calls"] == 1
+    assert caller["estimated?"] == true
+  end
+
   test "emits a machine-readable envelope under --json" do
     output = capture_io(fn -> assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, json: true) end)
 
