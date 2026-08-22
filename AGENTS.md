@@ -262,6 +262,32 @@ Do not commit:
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
 
+## Unknown paths, computed ages and collapsed causes — author-side checks
+
+Three defects keep recurring in dashboard work — an age computed but never
+rendered, distinct causes collapsed into one state, and an unknown path with no
+test between it and a plausible default. All three are author-side checks that
+are currently performed for the first time in review. Run them before opening a
+PR; the review guidance in the `aiur-run` skill cross-links here rather than
+restating them.
+
+1. **Any rendering path for `nil`, `unknown`, `stale` or `unavailable` needs a
+   test that fails when that path is replaced with a plausible default.** Write
+   the test, then replace the unavailable branch with `0`, `"—"`, or the most
+   recent known value, and confirm the test fails. If it still passes, it is
+   asserting a rendered string, not a behaviour.
+2. **If a surface computes an age, it renders the age.** Plumbing a timestamp
+   to a presenter and not displaying it is worse than not having it — it looks
+   handled in review while the surface keeps claiming freshness. The CLI emits
+   `observed_at`, `age_ms` and `freshness`; a web surface that computes the same
+   fields must render them, or the two surfaces the docs call equivalent
+   disagree about truth.
+3. **A collapsed cause must name the collapse.** `_ -> :upstream` is acceptable
+   only if the rendered text says "unknown" — never a specific cause. Claiming
+   no reason beats claiming a wrong one: an expired token rendered as an
+   "upstream error" points the operator at GitHub's status page instead of their
+   own token.
+
 ## Manual testing — the only definition
 
 When the user (or any doc) says "manually test", "run aiur and try it",
