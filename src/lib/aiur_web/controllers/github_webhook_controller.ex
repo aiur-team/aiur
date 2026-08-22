@@ -76,7 +76,7 @@ defmodule AiurWeb.GithubWebhookController do
         log_admission(admission)
 
         case admission do
-          {:process, _decision} -> deliver(event_type, payload)
+          {:process, decision} -> deliver(event_type, payload, decision.delivery_id)
           {:drop, _reason, _meta} -> :ok
         end
 
@@ -121,10 +121,11 @@ defmodule AiurWeb.GithubWebhookController do
 
   defp admission_timeout_ms, do: Application.get_env(:aiur, :webhook_admission_timeout_ms, @admission_timeout_ms)
 
-  defp deliver(event_type, payload) do
+  defp deliver(event_type, payload, delivery_id) do
     case Application.get_env(:aiur, :github_webhook_deliver_fun) do
+      fun when is_function(fun, 3) -> fun.(event_type, payload, delivery_id)
       fun when is_function(fun, 2) -> fun.(event_type, payload)
-      _unset -> deliver_async(event_type, payload)
+      _unset -> deliver_async(event_type, payload, delivery_id)
     end
   end
 
@@ -132,9 +133,9 @@ defmodule AiurWeb.GithubWebhookController do
   # nobody here, and an unawaited task must not leave a stray reply message in
   # the request process. `handle_delivery/3` already contains its own failures,
   # so a crash here means the supervisor itself is unavailable.
-  defp deliver_async(event_type, payload) do
+  defp deliver_async(event_type, payload, delivery_id) do
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-           Delivery.handle_delivery(event_type, payload)
+           Delivery.handle_delivery(event_type, payload, delivery_id: delivery_id)
          end) do
       {:ok, _pid} ->
         :ok

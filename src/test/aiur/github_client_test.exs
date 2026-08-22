@@ -566,7 +566,11 @@ defmodule Aiur.GitHub.ClientTest do
         assert url =~ "/repos/owner/repo/pulls?"
         assert url =~ "state=open"
 
-        {:ok, %{status: 200, body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+        {:ok,
+         %{
+           status: 200,
+           body: [%{"number" => 49, "head" => %{"ref" => "aiur/35", "repo" => %{"full_name" => "owner/repo"}}}]
+         }}
       end
 
       assert {:ok, %{"number" => 49}} =
@@ -581,8 +585,8 @@ defmodule Aiur.GitHub.ClientTest do
          %{
            status: 200,
            body: [
-             %{"number" => 50, "head" => %{"ref" => "aiur/99-not-this-ticket"}},
-             %{"number" => 51, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}
+             %{"number" => 50, "head" => %{"ref" => "aiur/99-not-this-ticket", "repo" => %{"full_name" => "owner/repo"}}},
+             %{"number" => 51, "head" => %{"ref" => "aiur/35-add-new-test-cases", "repo" => %{"full_name" => "owner/repo"}}}
            ]
          }}
       end
@@ -601,7 +605,12 @@ defmodule Aiur.GitHub.ClientTest do
              %{
                status: 200,
                headers: [],
-               body: [%{"number" => 52, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}]
+               body: [
+                 %{
+                   "number" => 52,
+                   "head" => %{"ref" => "aiur/35-add-new-test-cases", "repo" => %{"full_name" => "owner/repo"}}
+                 }
+               ]
              }}
 
           url =~ "/repos/owner/repo/pulls?" ->
@@ -632,7 +641,11 @@ defmodule Aiur.GitHub.ClientTest do
         assert url =~ "/repos/owner/repo/pulls?"
         refute url =~ "head="
 
-        {:ok, %{status: 200, body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+        {:ok,
+         %{
+           status: 200,
+           body: [%{"number" => 49, "head" => %{"ref" => "aiur/35", "repo" => %{"full_name" => "owner/repo"}}}]
+         }}
       end
 
       assert {:ok, %{"number" => 49}} =
@@ -646,6 +659,23 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert {:ok, nil} =
                Client.fetch_open_pull_request_for_branch("35", request_fun: request_fun)
+    end
+
+    test "ignores a fork PR that reuses the ticket branch" do
+      request_fun = fn %{method: :get} ->
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{
+               "number" => 53,
+               "head" => %{"ref" => "aiur/35-add-new-test-cases", "repo" => %{"full_name" => "contributor/fork"}}
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, nil} = Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
     end
   end
 
@@ -1610,7 +1640,11 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1655,7 +1689,11 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn req ->
         cond do
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1709,7 +1747,11 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.url == "https://api.github.com/graphql" ->
             review_threads_page_response([
@@ -1770,7 +1812,12 @@ defmodule Aiur.GitHub.ClientTest do
 
           {:get, 1} ->
             assert req.url =~ "/pulls?"
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           {:post, 2} ->
             assert req.url == "https://api.github.com/graphql"

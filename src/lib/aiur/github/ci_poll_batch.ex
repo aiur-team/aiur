@@ -79,16 +79,18 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   # The store is consulted before the query is written, not after it comes back.
   defp target_entry(target, owner, repo, opts) do
+    expected_head_repo = "#{owner}/#{repo}"
+
     case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-      number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
-      nil -> branch_target_entry(target, opts)
+      number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true, expected_head_repo: expected_head_repo}
+      nil -> branch_target_entry(target, opts, expected_head_repo)
     end
   end
 
-  defp branch_target_entry(target, opts) do
+  defp branch_target_entry(target, opts, expected_head_repo) do
     case known_branch(target, opts) do
-      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
-      branch -> %{target: target, branches: [branch], known_branch: true}
+      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false, expected_head_repo: expected_head_repo}
+      branch -> %{target: target, branches: [branch], known_branch: true, expected_head_repo: expected_head_repo}
     end
   end
 
@@ -175,6 +177,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp pull_request_fields do
     """
     number state headRefName headRefOid baseRefName
+    headRepository { nameWithOwner }
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
@@ -212,7 +215,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp match_entry(acc, %{pull_request_number: _number} = entry, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: put_first_pull_request(acc, entry, node), else: acc
+        if open_pull_request_node?(node) and same_head_repo?(node, entry.expected_head_repo),
+          do: put_first_pull_request(acc, entry, node),
+          else: acc
 
       _other ->
         Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
@@ -248,6 +253,11 @@ defmodule Aiur.GitHub.CIPollBatch do
   # candidate matched does the "no open PR" answer stand — and then only for a
   # branch orchestration actually knows.
   defp match_candidates(acc, entry, connections) do
+    connections =
+      Enum.map(connections, fn connection ->
+        Map.update!(connection, "nodes", &Enum.filter(&1, fn node -> same_head_repo?(node, entry.expected_head_repo) end))
+      end)
+
     case Enum.find(connections, fn %{"nodes" => nodes} -> nodes != [] end) do
       nil ->
         [connection | _rest] = connections
@@ -257,6 +267,15 @@ defmodule Aiur.GitHub.CIPollBatch do
         put_entry_result(acc, entry, Map.get(connection, "nodes"), Map.get(connection, "pageInfo") || %{})
     end
   end
+
+  defp same_head_repo?(pull_request, expected) when is_map(pull_request) and is_binary(expected) do
+    case get_in(pull_request, ["headRepository", "nameWithOwner"]) do
+      actual when is_binary(actual) -> String.downcase(actual) == String.downcase(expected)
+      _other -> false
+    end
+  end
+
+  defp same_head_repo?(_pull_request, _expected), do: false
 
   defp put_entry_result(acc, entry, nodes, page_info) do
     if Map.get(page_info, "hasNextPage") == true do

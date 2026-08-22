@@ -221,6 +221,8 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   expect(configuration).not.toContain('### How widening interacts with polling')
   expect(github).toContain('`POST /api/v1/github/webhook`')
   expect(github).toContain('`AIUR_GITHUB_WEBHOOK_SECRET`')
+  expect(github).toContain('`pull_request_review_thread`')
+  expect(github).toContain('scheduled comment sweep remains the loss-recovery')
   expect(github).toContain('`hooks.aiur.dev`')
   expect(github).toContain('catch-all `404`')
   expect(github).toContain('No inbound firewall rule')

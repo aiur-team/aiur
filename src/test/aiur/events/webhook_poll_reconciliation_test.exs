@@ -92,6 +92,58 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
     end
   end
 
+  describe "a review thread reopened without a new comment" do
+    test "wakes once for each unresolved generation" do
+      topic = "ticket.42.pr.review_comment"
+      :ok = Exchange.subscribe(topic)
+
+      thread_comment =
+        comment(9_100, "still needs work")
+        |> Map.put("review_thread_id", "PRRT_kwDOreopen")
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery(
+                 "pull_request_review_thread",
+                 review_thread_delivery("unresolved", "2026-08-21T12:00:00Z"),
+                 repo: @repo,
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{count: 1}} = thread_sweep(thread_comment)
+      assert_receive {:event, %{topic: ^topic, comment: %{"id" => 9_100}}}, 500
+
+      clear_replay_window()
+      assert {:ok, %{count: 0}} = thread_sweep(thread_comment)
+      refute_receive {:event, %{topic: ^topic}}, 100
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery(
+                 "pull_request_review_thread",
+                 review_thread_delivery("resolved", "2026-08-21T12:05:00Z"),
+                 repo: @repo,
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      clear_replay_window()
+      assert {:ok, %{count: 0}} = thread_sweep(thread_comment)
+      refute_receive {:event, %{topic: ^topic}}, 100
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery(
+                 "pull_request_review_thread",
+                 review_thread_delivery("unresolved", "2026-08-21T12:10:00Z"),
+                 repo: @repo,
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{count: 1}} = thread_sweep(thread_comment)
+      assert_receive {:event, %{topic: ^topic, comment: %{"id" => 9_100}}}, 500
+
+      clear_replay_window()
+      assert {:ok, %{count: 0}} = thread_sweep(thread_comment)
+    end
+  end
+
   # An operator editing a comment to correct an agent's instructions is a normal
   # workflow here. A GitHub comment is mutable: an edit keeps the id and moves
   # only `updated_at`, so suppressing on identity alone would swallow that edit
@@ -562,6 +614,39 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
       "comment" => comment(id, body),
       "sender" => %{"login" => "its-everdred"}
     }
+  end
+
+  defp review_thread_delivery(action, updated_at) do
+    %{
+      "action" => action,
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{
+        "id" => 88_001,
+        "node_id" => "PRRT_kwDOreopen",
+        "comments" => 1
+      },
+      "updated_at" => updated_at,
+      "pull_request" => %{
+        "number" => 901,
+        "head" => %{
+          "ref" => "aiur/42-reopen",
+          "sha" => "deadbeef",
+          "repo" => %{"full_name" => @repo}
+        }
+      }
+    }
+  end
+
+  defp thread_sweep(thread_comment) do
+    GithubCommentsPoller.poll(["42"],
+      since: "2026-06-24T11:00:00Z",
+      repo: @repo,
+      review_submission_targets: MapSet.new([]),
+      open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+      comment_batch: %{
+        "42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [thread_comment]}
+      }
+    )
   end
 
   defp comment(id, body, updated_at \\ "2026-06-24T12:00:00Z") do

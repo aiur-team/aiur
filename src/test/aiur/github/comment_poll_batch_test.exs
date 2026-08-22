@@ -127,6 +127,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       [_before, branch_section] = String.split(body["query"], "branch_0_0:", parts: 2)
       refute branch_section =~ "reviewThreads"
       assert branch_section =~ "number state headRefName"
+      assert branch_section =~ "headRepository { nameWithOwner }"
       # Review context is identity-cheap and the rework gate needs it, so it
       # stays on the candidate.
       assert branch_section =~ "reviewDecision"
@@ -231,6 +232,39 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
     assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
     refute Map.has_key?(batch, "42")
+  end
+
+  test "ignores a fork pull request that reuses the ticket branch" do
+    request_fun = fn %{method: :post} ->
+      fork_pull_request =
+        77
+        |> pull_request("aiur/42-comment-batch")
+        |> put_in(["headRepository", "nameWithOwner"], "contributor/fork")
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue(),
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [fork_pull_request]
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, batch} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
+    assert batch["42"].open_pull_request == nil
   end
 
   # #1756: the rework gate reads the review decision and the head commit's
@@ -419,13 +453,33 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
       refute Map.has_key?(batch, "42")
     end
+
+    test "falls out to the poller's own lookup when the current pull request is from a fork" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node =
+          77
+          |> pull_request("aiur/42-x")
+          |> put_in(["headRepository", "nameWithOwner"], "contributor/fork")
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+      refute Map.has_key?(batch, "42")
+    end
   end
 
   defp deliver_pull_request(target, number, opts \\ []) do
     :branch_pull_request
     |> ResourceStore.key_for_repo("owner/repo", target)
     |> ResourceStore.put_resource(
-      %{"number" => number, "state" => "open", "head" => %{"ref" => "aiur/#{target}-x"}},
+      %{
+        "number" => number,
+        "state" => "open",
+        "head" => %{"ref" => "aiur/#{target}-x", "repo" => %{"full_name" => "owner/repo"}}
+      },
       source: Keyword.get(opts, :source, :webhook),
       version: "2026-08-20T00:00:00Z"
     )
@@ -446,6 +500,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       "state" => "OPEN",
       "headRefName" => branch,
       "headRefOid" => "head-#{number}",
+      "headRepository" => %{"nameWithOwner" => "owner/repo"},
       "baseRefName" => "develop",
       "reviewThreads" => %{"nodes" => []}
     }

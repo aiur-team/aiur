@@ -122,6 +122,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_comment_issue_list_cache: map(),
           github_comment_poll: map() | nil,
+          github_comment_reconcile_targets: MapSet.t(String.t()),
+          github_comment_reconcile_timer: map() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -238,6 +240,12 @@ defmodule Aiur.Orchestrator.State do
     # In-flight marker for the asynchronous comment poll. The pid and monitor
     # let lifecycle shutdown reap the poll and its owned descendants.
     github_comment_poll: nil,
+    # Tickets named by review-thread webhooks. A poll claims this set when it
+    # starts; hints arriving during that poll stay here for the follow-up.
+    github_comment_reconcile_targets: MapSet.new(),
+    # At most one delayed reconcile wake is live. Its token fences stale timer
+    # messages after a later GitHub backoff extends the due time.
+    github_comment_reconcile_timer: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},

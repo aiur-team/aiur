@@ -194,7 +194,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok, %{status: 200, body: []}}
@@ -252,7 +256,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok,
@@ -428,7 +436,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok,
@@ -1110,11 +1122,24 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       request_fun = fn %{url: url} ->
         cond do
-          String.contains?(url, "/issues/42/comments?") -> {:ok, %{status: 200, body: []}}
-          String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
-          String.contains?(url, "/issues/77/comments?") -> {:ok, %{status: 200, body: []}}
-          String.contains?(url, "/graphql") -> empty_review_threads_response()
-          String.contains?(url, "/pulls/77/reviews") -> {:error, :timeout}
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
+
+          String.contains?(url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+
+          String.contains?(url, "/pulls/77/reviews") ->
+            {:error, :timeout}
         end
       end
 
@@ -1151,7 +1176,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              }}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           String.contains?(url, "/issues/77/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -1405,7 +1434,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok, %{status: 200, body: []}}

@@ -46,7 +46,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   of the above runs.
   """
 
-  alias Aiur.Events.{CommentFilter, GithubKeys}
+  alias Aiur.Events.{CommentFilter, GithubKeys, GithubReviewThreadIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketBranch
 
@@ -208,6 +208,30 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
       true ->
         review_comment_triple(payload, comment, repo)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # pull_request_review_thread resolved / unresolved -> targeted comment reconcile
+  #
+  # GitHub changes thread resolution without creating a review comment. The
+  # unresolved-thread poller owns publication, so the delivery names the exact
+  # ticket that poller should reconcile rather than inventing another event.
+  # ---------------------------------------------------------------------------
+
+  defp normalize_event("pull_request_review_thread", payload, repo) when is_map(payload) do
+    action = Map.get(payload, "action")
+    thread = Map.get(payload, "thread")
+
+    cond do
+      action not in ["resolved", "unresolved"] ->
+        {:drop, {:uninteresting_action, "pull_request_review_thread", action}}
+
+      not is_map(thread) or not is_map(Map.get(payload, "pull_request")) ->
+        {:error, {:malformed_payload, "pull_request_review_thread"}}
+
+      true ->
+        review_thread_reconcile(payload, thread, action, repo)
     end
   end
 
@@ -375,7 +399,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # this change. A duplicate wake is recoverable; a dropped delivery is not.
   defp review_comment_triple(payload, comment, repo) do
     with {:ok, target, pr_number} <- pull_request_identity(payload) do
-      {dedup_key, resource} = review_comment_keys(repo, pr_number, comment)
+      {dedup_key, resource, version} = review_comment_keys(repo, pr_number, comment)
 
       {:publish,
        [
@@ -385,7 +409,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            poller_comment_shape(comment),
            dedup_key,
            payload |> Map.get("pull_request") |> review_context() |> approval_only_context(),
-           resource
+           resource,
+           version
          )
        ]}
     end
@@ -393,17 +418,28 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   defp review_comment_keys(repo, pr_number, %{"review_thread_id" => thread_id})
        when is_binary(thread_id) and thread_id != "" do
-    {GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id), ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)}
+    resource = ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)
+    generation = GithubReviewThreadIdentity.unresolved_generation(resource)
+
+    {
+      GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id, generation),
+      resource,
+      generation
+    }
   end
 
   defp review_comment_keys(repo, pr_number, comment) when is_map(comment) do
-    {GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")), ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))}
+    {
+      GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
+      ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id")),
+      nil
+    }
   end
 
   # GithubCommentsPoller.publish_comment/4: payload keyed by the ticket
   # identifier string, actor from the comment author, contamination bypassed so
   # an inbound human comment can reactivate a deactivated ticket.
-  defp comment_triple(topic, target, comment, dedup_key, review_context, resource) do
+  defp comment_triple(topic, target, comment, dedup_key, review_context, resource, generation \\ nil) do
     actor = get_in(comment, ["user", "login"])
 
     payload =
@@ -426,7 +462,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
        issue_number: target,
        dedup_key: dedup_key,
        resource: resource,
-       resource_version: resource_version(comment),
+       resource_version: GithubReviewThreadIdentity.resource_version(resource_version(comment), generation),
        resource_source: :webhook,
        actor: actor,
        bypass_contamination: true
@@ -625,6 +661,44 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
          }}
     end
   end
+
+  defp review_thread_reconcile(payload, thread, action, repo) do
+    thread_id = Map.get(thread, "node_id")
+    pull_request = Map.get(payload, "pull_request")
+
+    cond do
+      not is_binary(thread_id) or thread_id == "" ->
+        {:error, {:malformed_payload, "pull_request_review_thread"}}
+
+      not tracked_head_repo?(pull_request, repo) ->
+        {:drop, {:untracked_head_repository, get_in(pull_request, ["head", "repo", "full_name"])}}
+
+      ticket = ticket_from_head_ref(pull_request) ->
+        {:reconcile,
+         %{
+           kind: :review_thread,
+           ticket: ticket,
+           action: action,
+           thread_id: thread_id,
+           generation: Map.get(payload, "updated_at") || Map.get(thread, "updated_at")
+         }}
+
+      true ->
+        {:drop, {:unresolved_ticket, "pull_request_review_thread", action}}
+    end
+  end
+
+  defp tracked_head_repo?(pull_request, repo) when is_map(pull_request) and is_binary(repo) do
+    case get_in(pull_request, ["head", "repo", "full_name"]) do
+      delivered when is_binary(delivered) and delivered != "" ->
+        String.downcase(delivered) == String.downcase(repo)
+
+      _other ->
+        false
+    end
+  end
+
+  defp tracked_head_repo?(_pull_request, _repo), do: false
 
   # ---------------------------------------------------------------------------
   # Identity helpers

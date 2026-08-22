@@ -109,16 +109,18 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # a delivered number removes aliases from the document rather than discarding
   # their answers.
   defp target_entry(target, owner, repo, opts) do
+    expected_head_repo = "#{owner}/#{repo}"
+
     case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-      number when is_integer(number) -> %{target: target, pull_request_number: number}
-      nil -> branch_target_entry(target, opts)
+      number when is_integer(number) -> %{target: target, pull_request_number: number, expected_head_repo: expected_head_repo}
+      nil -> branch_target_entry(target, opts, expected_head_repo)
     end
   end
 
-  defp branch_target_entry(target, opts) do
+  defp branch_target_entry(target, opts, expected_head_repo) do
     case known_branch(target, opts) do
-      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
-      branch -> %{target: target, branches: [branch], known_branch: true}
+      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false, expected_head_repo: expected_head_repo}
+      branch -> %{target: target, branches: [branch], known_branch: true, expected_head_repo: expected_head_repo}
     end
   end
 
@@ -228,6 +230,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_identity_fields do
     """
     number state headRefName headRefOid baseRefName reviewDecision
+    headRepository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate } } }
     """
   end
@@ -280,7 +283,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_for_entry(%{pull_request_number: _number} = entry, _direct, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: {:ok, normalize_pull_request(node, true)}, else: :unknown
+        if open_pull_request_node?(node) and same_head_repo?(node, entry.expected_head_repo),
+          do: {:ok, normalize_pull_request(node, true)},
+          else: :unknown
 
       _other ->
         Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
@@ -318,11 +323,29 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
+  defp branch_pull_request(entry, nodes) do
+    nodes = Enum.filter(nodes, &same_head_repo?(&1, entry.expected_head_repo))
 
-  defp branch_pull_request(%{known_branch: false}, []), do: :unknown
-  defp branch_pull_request(_entry, []), do: {:ok, nil}
-  defp branch_pull_request(_entry, [node | _rest]), do: {:ok, normalize_pull_request(node, false)}
+    case {entry.known_branch, nodes} do
+      {false, []} -> :unknown
+      {true, []} -> {:ok, nil}
+      {_known_branch, [node | _rest]} -> {:ok, normalize_pull_request(node, false)}
+    end
+  end
+
+  defp same_head_repo?(pull_request, expected) when is_map(pull_request) and is_binary(expected) do
+    case get_in(pull_request, ["headRepository", "nameWithOwner"]) do
+      actual when is_binary(actual) ->
+        String.downcase(actual) == String.downcase(expected)
+
+      _other ->
+        false
+    end
+  end
+
+  defp same_head_repo?(_pull_request, _expected), do: false
+
+  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
 
   # No `:issue_comments` or `:pr_issue_comments` key is ever emitted now, so the
   # poller's `batch_value/3` answers `:missing` for both and every comment read
