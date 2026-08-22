@@ -55,6 +55,23 @@ test('the GUI guide keeps exactly one screenshot', async () => {
   expect(bytes.byteLength).toBeGreaterThan(1_000)
 })
 
+test('published entry points stay synchronized and portable', async () => {
+  const websiteRoot = path.resolve(import.meta.dirname, '..')
+  const repoRoot = path.resolve(websiteRoot, '..')
+  const [repoReadme, npmReadme, netlify] = await Promise.all([
+    readFile(path.join(repoRoot, 'README.md'), 'utf8'),
+    readFile(path.join(repoRoot, 'packaging/npm/aiur-cli/README.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'netlify.toml'), 'utf8')
+  ])
+
+  expect(npmReadme).toBe(repoReadme)
+  expect(repoReadme).toMatch(/The npm\s+package installs the CLI, not those skills\./)
+  expect(repoReadme).toContain('https://github.com/aiur-team/aiur/blob/main/LICENSE')
+  expect(netlify).toMatch(
+    /\[\[redirects\]\]\s+from = "\/docs\/guide\/executor-control-center"\s+to = "\/docs\/guide\/gui"\s+status = 301/
+  )
+})
+
 test('parity guides are linked and contain their operational contracts', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
   const [index, quickStart, dashboard, streamDeck, sidecarRunbook, cli, operating, config] = await Promise.all([
