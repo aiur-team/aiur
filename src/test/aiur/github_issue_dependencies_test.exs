@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
   use Aiur.TestSupport
 
   alias Aiur.GitHub.IssueDependencies
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Workflow
 
   setup do
@@ -14,6 +15,8 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       tracker_label_prefix: "aiur"
     )
 
+    ResourceStore.reset()
+    on_exit(fn -> ResourceStore.reset() end)
     on_exit(fn -> restore_env("GITHUB_TOKEN", prev_token) end)
     :ok
   end

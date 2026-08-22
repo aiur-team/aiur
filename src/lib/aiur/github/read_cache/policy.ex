@@ -196,16 +196,32 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
-  # One shape, anchored to a numbered issue or pull request. The repo-wide
+  # Three shapes, anchored to a numbered issue or pull request. The repo-wide
   # comment streams (`/repos/o/r/issues/comments`) deliberately do not match:
   # they are already conditional reads that revalidate for free with an ETag,
   # and holding a body instead of sending `If-None-Match` would trade a free
   # `304` for staleness. A cache is only an improvement where no validator
   # exists.
+  #
+  # `/commits/:sha` and `/pulls/:n/files` are immutable per sha — a commit's
+  # timestamp and a PR's changed paths cannot change while the head is the same
+  # — so their TTL can never serve a verdict that has moved. The verdict shapes
+  # (`/commits/:sha/status`, check runs, reviews, merge gating) are refused
+  # earlier, on content, by `@unsafe_rest`.
   defp classify_rest(%{method: :get, url: url}) when is_binary(url) do
-    if Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url),
-      do: cache(:comments),
-      else: {:no_cache, :unclassified}
+    cond do
+      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url) ->
+        cache(:comments)
+
+      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/commits/[^/?#]+\z}, url) ->
+        cache(:comments)
+
+      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/pulls/\d+/files(?:\?|\z)}, url) ->
+        cache(:comments)
+
+      true ->
+        {:no_cache, :unclassified}
+    end
   end
 
   defp classify_rest(_request), do: {:no_cache, :unclassified}

@@ -210,9 +210,13 @@ defmodule Aiur.GitHub.ResourceStore do
   pull requests and the open pull request for a ticket's head branch,
   `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
   merges its own responses, and `Aiur.Events.Publisher` marks individual comment
-  resources processed. Readers: the poller and the
-  command scan both serve their own `304` from the held list, `Aiur.GitHub.Issues`
-  and the dashboard read bodies.
+  resources processed. `Aiur.GitHub.CommentPollBatch` deposits the comment→thread
+  mapping it parses (`:pr_review_comment_thread`), and `Aiur.GitHub.DependenciesApi`
+  both reads and writes the blocked-by list (`:issue_blocked_by`), whose edges
+  the webhook deposit and the dependency mutation also merge in (#2326). Readers:
+  the poller and the command scan both serve their own `304` from the held list,
+  `Aiur.GitHub.Issues` and the dashboard read bodies, the thread resolver reads
+  the comment→thread map, and the dependencies reader serves the blocked-by list.
 
   ## Two versions, deliberately kept apart
 
@@ -295,7 +299,22 @@ defmodule Aiur.GitHub.ResourceStore do
     # The open pull request belonging to a ticket's head branch. Keyed by the
     # ticket number rather than the PR number, because that is the only identity
     # the caller holds before the lookup answers.
-    :branch_pull_request
+    :branch_pull_request,
+    # The set of issues an issue is currently blocked by, answered by
+    # `GET /repos/:o/:r/issues/:n/dependencies/blocked_by` and read through
+    # `Aiur.GitHub.DependenciesApi.dependency_get/3`. Keyed by the blocked
+    # issue's number. Written by the endpoint's own 200 (the full list, with the
+    # response ETag), and fed from free sources: `dependency_mutate`'s own write
+    # and the `issue_dependencies` webhook delivery both merge the single edge
+    # they carried into the held list (#2326).
+    :issue_blocked_by,
+    # The review thread a comment belongs to, keyed by the comment's `databaseId`
+    # and holding the thread's GraphQL node id. Fed by `Aiur.GitHub.CommentPollBatch`,
+    # which parses `reviewThreads { comments { databaseId } }` on every cycle; a
+    # `pull_request_review_comment` webhook delivery consults it before paying for
+    # a GraphQL node lookup (#2326). A comment's thread is immutable, so the
+    # mapping never goes stale.
+    :pr_review_comment_thread
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable
