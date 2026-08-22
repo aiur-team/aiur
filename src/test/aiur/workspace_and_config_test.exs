@@ -1154,6 +1154,55 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  # Regression for #2287: the workflow file path used to live only in the
+  # VM-global app env, so a concurrent async test's `setup` could clobber it
+  # between this test's `write_workflow_file!/2` and its read. `Workspace`
+  # resolution then read a sibling's config — the observed failure resolved
+  # `MT-608` under the default `/tmp/aiur_workspaces` instead of this test's own
+  # `workspace_root`. The path is now pinned per process, so a clobber of the
+  # global env must not move this test's reads.
+  test "workspace resolution ignores a concurrent clobber of the global workflow path" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-workspace-clobber-#{System.unique_integer([:positive])}"
+      )
+
+    other_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-workspace-clobber-other-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      path = Workflow.workflow_file_path()
+      other = Path.join(Path.dirname(path), "clobber-other-config.yaml")
+
+      write_workflow_file!(path, workspace_root: workspace_root)
+      write_workflow_file!(other, workspace_root: other_root)
+
+      # A concurrent async sibling's setup lands here: it re-points the
+      # VM-global path at its own config and reloads the shared WorkflowStore
+      # onto it — exactly the race the issue reports. The raw app-env write
+      # leaves this process's per-test pin untouched.
+      Application.put_env(:aiur, :workflow_file_path, other)
+      :ok = WorkflowStore.force_reload()
+
+      # This test's own reads must stay pinned to its own path and root.
+      assert Workflow.workflow_file_path() == path
+
+      workspace = Path.join([workspace_root, "project", "MT-608"])
+      assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
+
+      assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
+      assert File.dir?(workspace)
+      refute File.exists?(Path.join([other_root, "project", "MT-608"]))
+    after
+      File.rm_rf(workspace_root)
+      File.rm_rf(other_root)
+    end
+  end
+
   test "workspace before_run seeds warm cache from configured bootstrap image" do
     test_root =
       Path.join(
