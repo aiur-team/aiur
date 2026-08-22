@@ -19,12 +19,16 @@ defmodule Aiur.GitHubUsageCLITest do
     assert daemon["core"]["limit"] == 3000
     assert daemon["graphql"]["used"] == 340
     assert daemon["graphql"]["limit"] == 2000
+    assert daemon["search"]["used"] == 8
+    assert daemon["search"]["limit"] == 1000
 
     assert agent["actor"] == "workspace:/agents/42"
     assert agent["core"]["used"] == 45
     assert agent["core"]["limit"] == 1000
     assert agent["graphql"]["used"] == 12
     assert agent["graphql"]["limit"] == 500
+    assert agent["search"]["used"] == 2
+    assert agent["search"]["limit"] == 250
   end
 
   test "prints per-actor used/limit and reset times" do
@@ -33,9 +37,11 @@ defmodule Aiur.GitHubUsageCLITest do
     assert output =~ "daemon:nonode@nohost"
     assert output =~ "core    1200/3000"
     assert output =~ "graphql 340/2000"
+    assert output =~ "search  8/1000"
     assert output =~ "workspace:/agents/42"
     assert output =~ "core    45/1000"
     assert output =~ "graphql 12/500"
+    assert output =~ "search  2/250"
     assert output =~ "resets in"
   end
 
@@ -92,14 +98,16 @@ defmodule Aiur.GitHubUsageCLITest do
           consumer_key: "daemonfp",
           consumer_label: "daemon:nonode@nohost",
           core: %{used: 1200, limit: 3000, reset_at_ms: now_ms() + 3_000_000},
-          graphql: %{used: 340, limit: 2000, reset_at_ms: now_ms() + 1_800_000}
+          graphql: %{used: 340, limit: 2000, reset_at_ms: now_ms() + 1_800_000},
+          search: %{used: 8, limit: 1000, reset_at_ms: now_ms() + 2_000_000}
         },
         %{
           token_key: "tok",
           consumer_key: "agentfp",
           consumer_label: "workspace:/agents/42",
           core: %{used: 45, limit: 1000, reset_at_ms: now_ms() + 2_400_000},
-          graphql: %{used: 12, limit: 500, reset_at_ms: now_ms() + 600_000}
+          graphql: %{used: 12, limit: 500, reset_at_ms: now_ms() + 600_000},
+          search: %{used: 2, limit: 250, reset_at_ms: now_ms() + 900_000}
         }
       ]
     }
