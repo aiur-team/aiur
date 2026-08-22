@@ -31,12 +31,13 @@ defmodule Aiur.GitHub.AppIdentityTest do
     System.put_env("GITHUB_APP_PRIVATE_KEY", pem())
   end
 
-  defp write_config!(bot_account) do
+  defp write_config!(bot_account, github_app_account \\ nil) do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
       tracker_repo: "owner/repo",
       tracker_label_prefix: "aiur",
-      tracker_bot_account: bot_account
+      tracker_bot_account: bot_account,
+      tracker_github_app_account: github_app_account
     )
   end
 
@@ -93,6 +94,90 @@ defmodule Aiur.GitHub.AppIdentityTest do
       write_config!("its-applekid")
 
       assert Config.app_identity_issue() == nil
+    end
+
+    # The split this suite exists to protect: the daemon names the App bot in
+    # its own key while `bot_account` keeps naming the account agents publish
+    # as. Before the split one key had to be both, so an install whose agents
+    # author as `its-applekid` could not stop alerting without lying about who
+    # its agents are.
+    test "accepts an agent bot_account when github_app.account names the App bot" do
+      write_config!("its-applekid", @app_bot_login)
+      put_app_credentials()
+
+      assert Config.app_identity_issue() == nil
+    end
+
+    test "still flags a non-bot github_app.account under App auth" do
+      write_config!("its-applekid", nil)
+      put_app_credentials()
+
+      assert Config.app_identity_issue() == {:bot_account_not_app_bot, "its-applekid"}
+    end
+  end
+
+  describe "github_app schema" do
+    alias Aiur.Config.Schema.GithubApp
+
+    test "accepts an App bot login" do
+      changeset = GithubApp.changeset(%GithubApp{}, %{"account" => @app_bot_login})
+
+      assert changeset.valid?
+    end
+
+    # An installation token can only ever write as `<app-slug>[bot]`, so a plain
+    # login here names an account this key can never be. Refusing at config load
+    # is the difference between an error the operator sees while editing the key
+    # and a daemon that quietly answers its own comments.
+    test "refuses a login that is not an App bot" do
+      changeset = GithubApp.changeset(%GithubApp{}, %{"account" => "its-applekid"})
+
+      refute changeset.valid?
+      assert {"must be the GitHub App bot login, `<app-slug>[bot]`", _} = changeset.errors[:account]
+    end
+
+    test "accepts a blank account as unset" do
+      assert GithubApp.changeset(%GithubApp{}, %{"account" => ""}).valid?
+    end
+
+    test "accepts the bot suffix regardless of case" do
+      assert GithubApp.changeset(%GithubApp{}, %{"account" => "Aiur-Daemon[BOT]"}).valid?
+    end
+  end
+
+  describe "identity accessors" do
+    test "bot_account and app_account name their own identities" do
+      write_config!("its-applekid", @app_bot_login)
+
+      assert Config.bot_account() == "its-applekid"
+      assert Config.app_account() == @app_bot_login
+      assert Config.daemon_account() == @app_bot_login
+    end
+
+    # Back-compat: `tracker.github.github_app` is optional, and an install that
+    # never adds it must behave exactly as it did before. Every daemon-side
+    # consumer resolves through `daemon_account/0`, so this one assertion is
+    # what keeps the whole existing fleet working.
+    test "daemon_account falls back to bot_account when no github_app is configured" do
+      write_config!("its-applekid")
+
+      assert Config.app_account() == nil
+      assert Config.daemon_account() == "its-applekid"
+    end
+
+    test "a blank github_app account reads as unset rather than as an empty login" do
+      write_config!("its-applekid", "   ")
+
+      assert Config.app_account() == nil
+      assert Config.daemon_account() == "its-applekid"
+    end
+
+    test "both accessors are nil when neither identity is configured" do
+      write_config!(nil)
+
+      assert Config.bot_account() == nil
+      assert Config.app_account() == nil
+      assert Config.daemon_account() == nil
     end
   end
 
@@ -179,6 +264,31 @@ defmodule Aiur.GitHub.AppIdentityTest do
       :ok = Exchange.subscribe("ticket.42.issue.commented")
 
       assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{}, actor: "some-human")
+      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+    end
+  end
+
+  describe "self-loop suppression with a split daemon/agent identity" do
+    setup do
+      write_config!("its-applekid", @app_bot_login)
+      put_app_credentials()
+      :ok
+    end
+
+    test "drops events the daemon authored under the App bot" do
+      :ok = Exchange.subscribe("ticket.42.#")
+
+      assert :filtered = Publisher.publish("ticket.42.issue.commented", %{}, actor: @app_bot_login)
+      refute_receive {:event, _}, 100
+    end
+
+    # An agent's write is a real external event: the daemon has to see the push,
+    # the comment and the label an agent made in order to advance the ticket.
+    # Suppressing it as "our own" would stall every ticket the fleet works on.
+    test "an agent's own write is not suppressed" do
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+      assert {:ok, _id, _count} = Publisher.publish("ticket.42.issue.commented", %{}, actor: "its-applekid")
       assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
     end
   end

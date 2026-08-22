@@ -63,6 +63,28 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       assert CodeOwners.snapshot(name) == ["aiur-bot"]
     end
 
+    # Both Aiur logins are Aiur's own, and a comment from either must stay
+    # trusted. With only the agent account allowlisted, the daemon's own review
+    # comments would stop driving rework the moment an App is configured.
+    test "the daemon App bot is trusted alongside the agent account", %{path: path} do
+      configure_github(bot_account: "its-applekid", github_app_account: "aiur-daemon[bot]")
+
+      {_pid, name} = start_owners(path)
+      snap = CodeOwners.snapshot(name)
+
+      assert "its-applekid" in snap
+      assert "aiur-daemon[bot]" in snap
+    end
+
+    # Optional means optional: without a `github_app` block the allowlist is the
+    # single entry it has always been, not a duplicate pair.
+    test "a single-identity install keeps a one-entry allowlist", %{path: path} do
+      configure_bot_account("aiur-bot")
+
+      {_pid, name} = start_owners(path)
+      assert CodeOwners.snapshot(name) == ["aiur-bot"]
+    end
+
     test "empty file → allowlist is bot-only", %{path: path} do
       File.write!(path, "\n\n# comment only\n")
       configure_bot_account("aiur-bot")
@@ -323,6 +345,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       tracker_repo: "owner/repo",
       tracker_label_prefix: "aiur",
       tracker_bot_account: Keyword.get(opts, :bot_account),
+      tracker_github_app_account: Keyword.get(opts, :github_app_account),
       tracker_trusted_accounts: Keyword.get(opts, :trusted_accounts, [])
     )
   end

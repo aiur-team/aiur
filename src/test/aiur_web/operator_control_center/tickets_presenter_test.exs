@@ -40,11 +40,12 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenterTest do
     assert TicketsPresenter.count_label(view) == "0 tickets"
   end
 
-  test "a stale listing keeps its retained rows and says why" do
+  test "a stale listing keeps its retained rows without staleness text" do
     view = TicketsPresenter.load(tickets_fun: fn -> snapshot(:stale, [ticket("41")]) end)
 
     assert view.status == :stale
-    assert view.message =~ "Showing the open tickets we last saw"
+    assert view.message =~ "Open tickets are shown below"
+    refute view.message =~ "last saw"
     assert length(view.rows) == 1
   end
 
@@ -132,7 +133,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenterTest do
       searched = TicketsPresenter.search(view, "zzzzqqqq")
 
       assert searched.status == :stale
-      assert searched.message =~ "Showing the open tickets we last saw"
+      assert searched.message =~ "Open tickets are shown below"
       assert searched.search_status == :no_matches
     end
 

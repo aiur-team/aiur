@@ -85,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ ~s(class="ut-progress-fill")
   end
 
-  test "marks measured zero, completion, and stale progress without semantic recoloring" do
+  test "marks measured zero and completion without semantic recoloring" do
     plain = row() |> update_in([:reasons], &%{&1 | blocking: nil, alert: nil}) |> put_in([:progress, :freshness], :current)
     zero = render(view([put_in(plain, [:progress, :percent], 0)]))
     complete = render(view([put_in(plain, [:progress, :percent], 100)]))
@@ -102,7 +102,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert zero =~ "width:0%"
     refute zero =~ "is-unknown"
     assert complete =~ ~s(class="ut-progress-fill is-complete")
-    assert stale =~ ~s(class="ut-progress-fill is-stale")
+    refute stale =~ "is-stale"
     assert blocked_complete =~ ~s(class="ut-progress-fill is-complete")
     refute blocked_complete =~ ~s(class="ut-progress-fill is-complete is-blocked")
   end

@@ -13,7 +13,7 @@ defmodule AiurWeb.GithubCacheLive do
   Each is one line of code and each would make the page unable to demonstrate
   the property it exists to demonstrate. The absence is the feature.
 
-  ## Four layers
+  ## Five layers
 
     * **Map** — every resource type as a tile, sized by how many entries it
       holds and coloured by how stale its worst entry is, so a stale region is
@@ -22,6 +22,11 @@ defmodule AiurWeb.GithubCacheLive do
       over time (total, with body, validator-only) and the same totals stacked
       by freshness, so "how up to date" is a band that can be watched growing
       rather than a number to compare.
+    * **Usage** — what is spending the API budget, per budget, ranked by points
+      with the remainder this daemon did not issue as its own band. The one tool
+      for that question, `aiur github-cost`, boots a fresh BEAM under `eval` and
+      reads a meter that has never observed anything; this page runs inside the
+      daemon and reads the live one, which is why the answer lives here.
     * **Group** — one type's entries: identity, age, writer, what validator and
       body the store holds for each.
     * **Entry** — the full record, with the cached body pretty-printed.
@@ -77,6 +82,8 @@ defmodule AiurWeb.GithubCacheLive do
   alias Aiur.GitHub.CacheInspector
   alias Aiur.GitHub.CacheInspector.Events
   alias Aiur.GitHub.Quota, as: GitHubQuota
+  alias Aiur.GitHub.QuotaHistory
+  alias Aiur.GitHub.QuotaUsage
 
   alias AiurWeb.OperatorControlCenter.{
     AwaitingCommands,
@@ -97,6 +104,7 @@ defmodule AiurWeb.GithubCacheLive do
     connected = connected?(socket)
     if connected, do: Events.subscribe()
     if connected, do: CacheHistory.subscribe()
+    if connected, do: QuotaHistory.subscribe()
 
     {:ok,
      socket
@@ -163,6 +171,18 @@ defmodule AiurWeb.GithubCacheLive do
   def handle_info({:cache_history_sampled, _count}, socket),
     do: {:noreply, assign(socket, :history, history())}
 
+  # The quota sampler's cadence. Re-reads the meter and the ring together, so
+  # the ranking table and the chart beside it always describe one instant.
+  def handle_info({:quota_history_sampled, _count}, socket) do
+    quota = quota_snapshot()
+
+    {:noreply,
+     socket
+     |> assign(:quota, quota)
+     |> assign(:usage, QuotaUsage.sample(quota))
+     |> assign(:quota_history, quota_history())}
+  end
+
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
   def handle_info(_message, socket), do: {:noreply, socket}
 
@@ -198,11 +218,24 @@ defmodule AiurWeb.GithubCacheLive do
 
   defp load(socket) do
     projection = CacheInspector.project()
+    quota = quota_snapshot()
 
     socket
     |> assign(:projection, projection)
-    |> assign(:quota, quota_snapshot())
+    |> assign(:quota, quota)
+    |> assign(:usage, QuotaUsage.sample(quota))
     |> assign(:history, history())
+    |> assign(:quota_history, quota_history())
+  end
+
+  # The same provider seam `history/0` uses, for the same reason.
+  defp quota_history do
+    provider = Application.get_env(:aiur, :github_quota_history_provider, QuotaHistory)
+    provider.samples()
+  rescue
+    _unavailable -> []
+  catch
+    :exit, _reason -> []
   end
 
   # The same seam `quota_snapshot/0` uses, for the same reason: the page reads
@@ -283,6 +316,8 @@ defmodule AiurWeb.GithubCacheLive do
         <.map_layer :if={@projection.available? and is_nil(@group)} projection={@projection} />
 
         <.trends :if={@projection.available? and is_nil(@group)} history={@history} />
+
+        <.usage_layer :if={is_nil(@group)} usage={@usage} quota_history={@quota_history} />
 
         <.group_layer
           :if={@projection.available? and not is_nil(@group) and is_nil(@entry_identity)}
@@ -393,7 +428,7 @@ defmodule AiurWeb.GithubCacheLive do
         <span class="ghc-cell-count">{group.count}</span>
         <span class="ghc-cell-label">{group.label}</span>
         <span class="ghc-cell-freshness">
-          {group.freshness.fresh} fresh · {group.freshness.stale} stale · {group.freshness.expired} expired
+          {group.freshness.fresh} fresh · {group.freshness.stale} older · {group.freshness.expired} expired
         </span>
         <span :if={group.bodyless > 0} class="ghc-cell-bodyless">
           {group.bodyless} validator only
@@ -451,7 +486,7 @@ defmodule AiurWeb.GithubCacheLive do
           <div class="ghc-chart-body">{Phoenix.HTML.raw(Charts.freshness_over_time(@history))}</div>
           <figcaption class="ghc-chart-legend">
             <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--good)"></i>fresh</span>
-            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--attention)"></i>stale</span>
+            <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--attention)"></i>older</span>
             <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--blocking)"></i>expired</span>
             <span class="ghc-legend-item"><i class="ghc-legend-swatch" style="background:var(--faint)"></i>unknown</span>
           </figcaption>
@@ -460,6 +495,285 @@ defmodule AiurWeb.GithubCacheLive do
     </section>
     """
   end
+
+  # What is spending the API budget, per budget, ranked.
+  #
+  # This exists because the one tool for the job cannot do it: `aiur
+  # github-cost` runs under `eval`, boots a fresh BEAM and calls
+  # `Quota.snapshot/0` on a meter that has never observed anything, so it reads
+  # an empty meter and prints an empty ranking. The dashboard runs *inside* the
+  # daemon and reads the live meter directly, which is what makes this the right
+  # surface for the question. Two wrong diagnoses were made in one night against
+  # the CLI's blind spot.
+  #
+  # Three rules the rendering must not break:
+  #
+  #   * GraphQL and core are never summed. They are separate budgets on separate
+  #     windows with separate limits; core sat at 88/5000 while GraphQL hit
+  #     0/5000, and one combined figure would have described neither.
+  #   * The remainder is a band, not a footnote. On a shared GitHub App
+  #     installation most of the bill is spend this daemon never issued, and a
+  #     chart showing only the attributed rows would be a confident, ranked,
+  #     wrong picture — the exact failure class this page exists to refuse.
+  #   * Nothing unobserved is drawn as zero. No meter, no window, and a window
+  #     whose reset has passed each say so in words.
+  #   * The ranking is of calls that reached GitHub, and says so. Since the
+  #     read cache landed, a hit never reaches `Quota` at all — which is the
+  #     whole saving, and which also means a caller can fall down this table
+  #     because it is being served from cache rather than because it went
+  #     quiet. Those are opposite conclusions from identical columns, so the
+  #     page names the ambiguity instead of leaving it to be inferred.
+  #
+  # It renders even when the cache store is absent: the meter is a different
+  # process and a budget can be burning while nothing at all is cached.
+  defp usage_layer(assigns) do
+    assigns = assign(assigns, :budgets, QuotaUsage.budgets(assigns.usage))
+
+    ~H"""
+    <section class="ghc-usage" data-role="usage" aria-labelledby="ghc-usage-title">
+      <div class="ghc-trends-head">
+        <h2 id="ghc-usage-title" class="ghc-trends-title">What is spending the budget</h2>
+        <p class="ghc-trends-note" data-role="usage-window">
+          Sampled from the quota meter every 30s since this daemon boot — about an hour at most,
+          in memory, lost on restart. Reading this page never causes a GitHub request.
+        </p>
+      </div>
+
+      <div :if={@budgets == []} class="ghc-empty" data-role="usage-unobserved">
+        <strong>The quota meter has not observed a rate-limit window yet.</strong>
+        <p>
+          That is not the same as nothing having been spent. Until the meter reads a window there
+          is no measurement to rank, so nothing is drawn — a zero here would be a guess.
+        </p>
+      </div>
+
+      <article
+        :for={{resource, budget} <- @budgets}
+        class="ghc-usage-budget"
+        data-role="usage-budget"
+        data-budget={resource}
+      >
+        <div class="ghc-usage-head">
+          <h3 class="ghc-usage-budget-name">{resource} budget</h3>
+          <span class="ghc-usage-window">{window_text(budget.window)}</span>
+        </div>
+
+        <div class="ghc-usage-splits">
+          <div class={split_class(budget.spend)} data-role="usage-spend">
+            <span class="ghc-usage-split-value">{measured(budget.spend)}</span>
+            <span class="ghc-usage-split-label">Window spend, per GitHub</span>
+          </div>
+
+          <div class="ghc-usage-split" data-role="usage-attributed">
+            <span class="ghc-usage-split-value">{budget.attributed}</span>
+            <span class="ghc-usage-split-label">Attributed to this daemon</span>
+          </div>
+
+          <div
+            class={split_class(budget.outside)}
+            data-role="usage-outside"
+            data-value={budget.outside}
+            data-observed-whole-window={to_string(QuotaUsage.observation_complete?(budget))}
+          >
+            <span class="ghc-usage-split-value">{measured(budget.outside)}</span>
+            <span class="ghc-usage-split-label">{outside_split_label(budget)}</span>
+          </div>
+        </div>
+
+        <p
+          :if={not QuotaUsage.observation_complete?(budget)}
+          class="ghc-usage-note ghc-usage-note-strong"
+          data-role="usage-reach"
+        >
+          <strong>This remainder is not attributable yet.</strong>
+          The meter has been observing since {moment(budget.observed_from)}, but this window opened at
+          {moment(budget.window_started_at)} — so anything spent in between, including this daemon's own
+          calls from before its last restart, is counted here rather than against a caller. Attribution
+          covers the whole window again from {moment(QuotaUsage.attributable_from(budget))}, when the
+          window resets.
+        </p>
+
+        <p :if={is_nil(budget.spend)} class="ghc-usage-note" data-role="usage-spend-unobserved">
+          The credential's window has passed its reset and has not been read since, so
+          <code>limit - remaining</code>
+          would describe a window that has closed. The ranking below still holds — it is what this
+          daemon issued — but how much of the bill it explains cannot be stated right now.
+        </p>
+
+        <p :if={budget.direction == :excess} class="ghc-usage-note ghc-usage-note-strong" data-role="usage-excess">
+          This daemon attributed more than the window reports spending. Points cannot be counted
+          twice, so this is an accounting bug, not a shared credential.
+        </p>
+
+        <p :if={budget.estimated?} class="ghc-usage-note" data-role="usage-estimated">
+          Some rows are marked <strong>assumed</strong>: the response carried no price and one point
+          was charged for the call. Reported rows carry GitHub's own <code>rateLimit.cost</code>.
+        </p>
+
+        <.usage_chart series={QuotaUsage.series(@quota_history, resource)} resource={resource} />
+
+        <table class="ghc-usage-table" data-role="usage-table">
+          <caption class="ghc-usage-split-label">
+            {resource} spend by caller, this window. Share is of the attributed total, not of the bill.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Caller</th>
+              <th scope="col">Points</th>
+              <th scope="col">Calls</th>
+              <th scope="col">Points/hr</th>
+              <th scope="col">Share of attributed</th>
+              <th scope="col">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={caller <- QuotaUsage.ranked_callers(budget)} data-role="usage-caller" data-caller={caller.caller}>
+              <td>{caller.caller}</td>
+              <td>{caller.points}</td>
+              <td>{caller.calls}</td>
+              <td>{measured(caller.points_per_hour)}</td>
+              <td>{share_text(QuotaUsage.share_of_attributed(caller, budget))}</td>
+              <td class={source_class(caller.estimated?)}>{source_text(caller.estimated?)}</td>
+            </tr>
+
+            <tr class="ghc-usage-row-outside" data-role="usage-outside-row">
+              <td>{QuotaUsage.outside_label(QuotaUsage.observation_complete?(budget))}</td>
+              <td>{measured(budget.outside)}</td>
+              <td>unknown</td>
+              <td>unknown</td>
+              <td>not attributed</td>
+              <td class="ghc-usage-source">{outside_source(budget)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="ghc-usage-note" data-role="usage-outside-explainer">
+          {outside_explainer(budget)}
+        </p>
+
+        <p class="ghc-usage-note" data-role="usage-cache-caveat">
+          This ranks what reached GitHub. A read the daemon's own cache answered never reaches the
+          meter — that is the saving — so it contributes no points and no calls here. A caller can
+          therefore fall down this table because it is being served from cache rather than because
+          it stopped polling, and the two look identical from these columns alone. The cache's own
+          hit rate, per caller, is what separates them.
+        </p>
+      </article>
+    </section>
+    """
+  end
+
+  # An empty ring and an unobserved window are different facts and get different
+  # words. Neither draws an axis: an empty chart reads as a measured flat zero,
+  # which against a budget that may be exhausted is the worst thing this page
+  # could say.
+  defp usage_chart(assigns) do
+    assigns = assign(assigns, :attributed, QuotaUsage.attributed_only(assigns.series))
+
+    ~H"""
+    <div :if={is_nil(@series)} class="ghc-empty" data-role="usage-collecting">
+      <strong>Collecting {@resource} spend history.</strong>
+      <p>
+        The chart needs two samples where the credential's own window was observed. It fills in on
+        the sampler's cadence — nothing is fetched to produce it.
+      </p>
+    </div>
+
+    <div :if={not is_nil(@series)} class="ghc-charts">
+      <figure class="ghc-chart" data-role="usage-chart" data-budget={@resource}>
+        <figcaption class="ghc-chart-title">The whole {@resource} bill</figcaption>
+        <div class="ghc-chart-body">{Phoenix.HTML.raw(Charts.spend_over_time(@series))}</div>
+        <figcaption class="ghc-chart-legend">
+          <span :for={band <- @series.bands} class="ghc-legend-item" data-band={band.key}>
+            <i class="ghc-legend-swatch" style={"background:#{Charts.band_color(band)}"}></i>{band.label}
+          </span>
+        </figcaption>
+        <figcaption class="ghc-usage-note">
+          Stacks to the credential's own spend, so the height is the bill and the caller bands are
+          the share of it this daemon can explain.
+        </figcaption>
+      </figure>
+
+      <figure :if={not is_nil(@attributed)} class="ghc-chart" data-role="usage-chart-attributed" data-budget={@resource}>
+        <figcaption class="ghc-chart-title">Only what this daemon issued</figcaption>
+        <div class="ghc-chart-body">{Phoenix.HTML.raw(Charts.spend_over_time(@attributed))}</div>
+        <figcaption class="ghc-chart-legend">
+          <span :for={band <- @attributed.bands} class="ghc-legend-item" data-band={band.key}>
+            <i class="ghc-legend-swatch" style={"background:#{Charts.band_color(band)}"}></i>{band.label}
+          </span>
+        </figcaption>
+        <figcaption class="ghc-usage-note">
+          The same callers rescaled to their own total, because on the chart beside it they are a
+          sliver. This is <strong>not</strong> the bill — read the height there, the ranking here.
+        </figcaption>
+      </figure>
+    </div>
+
+    <div :if={not is_nil(@series)}>
+      <p :if={@series.dropped > 0} class="ghc-usage-note" data-role="usage-dropped">
+        {@series.dropped} earlier
+        {if @series.dropped == 1, do: "sample is", else: "samples are"} not drawn: the credential's
+        window was not observed then, so the remainder over that span was never measured.
+      </p>
+    </div>
+    """
+  end
+
+  # Naming another consumer is a claim, and it needs the meter to have been
+  # running when the window opened. Short of that the label says only what is
+  # true — this daemon did not see the spend — and leaves who made it open.
+  defp outside_split_label(budget) do
+    if QuotaUsage.observation_complete?(budget),
+      do: "Not issued by this daemon",
+      else: "Spend this daemon did not observe"
+  end
+
+  # "shared credential" names a cause, and naming a cause needs the same
+  # evidence as naming a consumer.
+  defp outside_source(budget) do
+    if QuotaUsage.observation_complete?(budget), do: "shared credential", else: "outside the meter's reach"
+  end
+
+  # Whole seconds. The meter's boot carries microseconds and the window's edges
+  # do not, and three timestamps in one sentence should be comparable at a
+  # glance rather than differ in precision for no reason the reader can see.
+  defp moment(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  defp moment(_absent), do: "an unknown time"
+
+  defp outside_explainer(budget) do
+    if QuotaUsage.observation_complete?(budget) do
+      "The rows are calls this daemon issued and priced. The last row is the rest of the bill — " <>
+        "other consumers on the same GitHub App installation. It is spend, not an error."
+    else
+      "The rows are calls this daemon issued and priced. The last row is everything else the window " <>
+        "was billed for. It is not a claim about another consumer: the meter's attribution is held in " <>
+        "memory and does not survive a restart, while GitHub keeps counting across one, so this daemon's " <>
+        "own calls from before its last restart are in there too."
+    end
+  end
+
+  # Never an em-dash standing in for a number. An absent figure says why it is
+  # absent, so it can never be read as a measured zero.
+  defp measured(value) when is_integer(value), do: value
+  defp measured(value) when is_float(value), do: value
+  defp measured(_value), do: "not measured"
+
+  defp split_class(value) when is_integer(value) or is_float(value), do: "ghc-usage-split"
+  defp split_class(_value), do: "ghc-usage-split ghc-usage-unmeasured"
+
+  defp source_class(true), do: "ghc-usage-source ghc-usage-source-assumed"
+  defp source_class(_estimated?), do: "ghc-usage-source"
+
+  defp source_text(true), do: "assumed"
+  defp source_text(_estimated?), do: "reported"
+
+  defp share_text(share) when is_float(share), do: "#{Float.round(share * 100, 1)}%"
+  defp share_text(_share), do: "not measured"
+
+  defp window_text(%{limit: limit, remaining: remaining} = window) when is_integer(limit) and is_integer(remaining),
+    do: "#{remaining} of #{limit} remaining · resets #{value(Map.get(window, :reset_at))}"
+
+  defp window_text(_window), do: "window not observed"
 
   defp history_window([]), do: {0, 0}
   defp history_window(history), do: {hd(history).t_ms, List.last(history).t_ms}
@@ -583,7 +897,7 @@ defmodule AiurWeb.GithubCacheLive do
           data-active={to_string(@freshness == level)}
           class={chip_class(@freshness == level)}
         >
-          {level}
+          {freshness_label(level)}
         </button>
       </div>
 
@@ -787,6 +1101,9 @@ defmodule AiurWeb.GithubCacheLive do
 
   defp chip_class(true), do: "ghc-chip ghc-chip-on"
   defp chip_class(_inactive), do: "ghc-chip"
+
+  defp freshness_label(:stale), do: "older"
+  defp freshness_label(level), do: to_string(level)
 
   defp body_filter_label(:held), do: "body held"
   defp body_filter_label(:bodyless), do: "validator only"

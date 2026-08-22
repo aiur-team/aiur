@@ -565,7 +565,6 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn %{method: :get, url: url} ->
         assert url =~ "/repos/owner/repo/pulls?"
         assert url =~ "state=open"
-        assert url =~ "head=owner%3Aaiur%2F35"
 
         {:ok, %{status: 200, body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
       end
@@ -576,20 +575,16 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "finds an open PR for a readable ticket branch" do
       request_fun = fn %{method: :get, url: url} ->
-        cond do
-          url =~ "head=owner%3Aaiur%2F35" ->
-            {:ok, %{status: 200, body: []}}
+        assert url =~ "/repos/owner/repo/pulls?"
 
-          url =~ "/repos/owner/repo/pulls?" ->
-            {:ok,
-             %{
-               status: 200,
-               body: [
-                 %{"number" => 50, "head" => %{"ref" => "aiur/99-not-this-ticket"}},
-                 %{"number" => 51, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}
-               ]
-             }}
-        end
+        {:ok,
+         %{
+           status: 200,
+           body: [
+             %{"number" => 50, "head" => %{"ref" => "aiur/99-not-this-ticket"}},
+             %{"number" => 51, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}
+           ]
+         }}
       end
 
       assert {:ok, %{"number" => 51}} =
@@ -601,9 +596,6 @@ defmodule Aiur.GitHub.ClientTest do
 
       request_fun = fn %{method: :get, url: url} ->
         cond do
-          url =~ "head=owner%3Aaiur%2F35" ->
-            {:ok, %{status: 200, body: []}}
-
           url == next_page ->
             {:ok,
              %{
@@ -624,6 +616,29 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert {:ok, %{"number" => 52}} =
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+    end
+
+    # The saving this change exists for, asserted as a count rather than as a
+    # comment: one listing per lookup, where there used to be a `head`-filtered
+    # probe in front of it that the listing's own branch filter already covered.
+    # `TargetSelection` calls this once per human-review target per poll cycle,
+    # so the second request was billing a primary-rate point per target per
+    # cycle to answer a question the first one answered.
+    test "spends exactly one request when the ticket has an open PR" do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn %{method: :get, url: url} ->
+        Agent.update(counter, &(&1 + 1))
+        assert url =~ "/repos/owner/repo/pulls?"
+        refute url =~ "head="
+
+        {:ok, %{status: 200, body: [%{"number" => 49, "head" => %{"ref" => "aiur/35"}}]}}
+      end
+
+      assert {:ok, %{"number" => 49}} =
+               Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
+
+      assert Agent.get(counter, & &1) == 1
     end
 
     test "returns nil when the branch has no open PR" do
@@ -949,7 +964,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, result} =
                Client.reply_to_review_thread("PRRT_verified", "Verified this is already fixed.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  retry_delay_ms: 0
                )
 
@@ -972,7 +987,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:github_graphql_errors, [%{"message" => "Could not resolve to a node"}]}} =
                Client.reply_to_review_thread("PRRT_missing", "reply",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  retry_delay_ms: 0
                )
     end
@@ -1021,7 +1036,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, %{attempt: 2}} =
                Client.reply_to_review_thread("PRRT_retry", "Fixed on this branch.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 2,
                  retry_delay_ms: 0
                )
@@ -1029,7 +1044,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert Agent.get(counts, & &1) == %{mutation: 1, query: 2}
     end
 
-    test "falls back to the authenticated viewer login when bot_account is unset" do
+    test "falls back to the authenticated viewer login when no daemon identity is configured" do
       request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
         cond do
           body["query"] =~ "addPullRequestReviewThreadReply" ->
@@ -1105,7 +1120,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.reply_to_review_thread("PRRT_stale", "Fixed on this branch.",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  attempts: 3,
                  retry_delay_ms: 0
                )
@@ -1149,7 +1164,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, result} =
                Client.resolve_review_thread("PRRT_done",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1249,7 +1264,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.resolve_review_thread("PRRT_raced",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1293,7 +1308,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.resolve_review_thread("PRRT_denied",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1326,7 +1341,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:github_graphql_errors, [%{"message" => "not permitted on an already resolved thread"}]}} =
                Client.resolve_review_thread("PRRT_error",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1366,7 +1381,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:review_thread_not_resolved, %{review_thread_id: "PRRT_still_open"}}} =
                Client.resolve_review_thread("PRRT_still_open",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1397,7 +1412,7 @@ defmodule Aiur.GitHub.ClientTest do
                }}} =
                Client.resolve_review_thread("PRRT_followup",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes."
                )
     end
@@ -1421,7 +1436,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:review_thread_resolution_not_authorized, %{review_thread_id: "PRRT_nonowner", path: "src/lib/aiur/github/client.ex"}}} =
                Client.resolve_review_thread("PRRT_nonowner",
                  request_fun: request_fun,
-                 bot_account: "aiur-bot",
+                 daemon_account: "aiur-bot",
                  terminal_reply_body: "Done, no further changes.",
                  repo_root: repo_root
                )
@@ -1595,7 +1610,7 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1640,7 +1655,7 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn req ->
         cond do
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
           req.method == :post and req.body["query"] =~ "query AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "its-everdred"}}}}}
@@ -1694,7 +1709,7 @@ defmodule Aiur.GitHub.ClientTest do
             {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
           req.method == :post and req.url == "https://api.github.com/graphql" ->
             review_threads_page_response([
@@ -1721,7 +1736,12 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :get, url: pulls_url}}
-      assert pulls_url =~ "head=owner%3Aaiur%2F42" or pulls_url =~ "head=owner:aiur/42"
+      assert pulls_url =~ "/repos/owner/repo/pulls?"
+      assert pulls_url =~ "state=open"
+      # The `head=` probe is gone: the listing's own branch filter already
+      # covered every branch spelling it could match, so it was a second billed
+      # request per lookup that answered nothing new.
+      refute pulls_url =~ "head="
       assert_receive {:github_request, %{method: :post, url: "https://api.github.com/graphql"}}
       refute_receive {:github_request, %{method: :delete}}, 100
 
@@ -1750,7 +1770,7 @@ defmodule Aiur.GitHub.ClientTest do
 
           {:get, 1} ->
             assert req.url =~ "/pulls?"
-            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
 
           {:post, 2} ->
             assert req.url == "https://api.github.com/graphql"

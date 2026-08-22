@@ -189,11 +189,27 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     case result do
       {:ok, accepted} ->
         resolve_legacy_attention(decision)
+        notify_dismissed_agent(decision)
         put_notice(socket, decision_id, dismiss_notice(accepted))
 
       {:error, reason} ->
         put_error(socket, decision_id, command_error(reason))
     end
+  end
+
+  # A live agent is told the operator closed its Command so it can keep going
+  # under its own judgement; an agent that is gone is simply not notified. The
+  # orchestrator's operator-message path already no-ops on a missing running
+  # agent, so a single attempt covers both cases.
+  defp notify_dismissed_agent(%{ticket: %{identifier: identifier}}) when is_binary(identifier) do
+    _ = Aiur.Orchestrator.send_operator_message(Endpoint.config(:orchestrator) || Aiur.Orchestrator, identifier, %{kind: :text, body: dismissal_text()})
+    :ok
+  end
+
+  defp notify_dismissed_agent(_decision), do: :ok
+
+  defp dismissal_text do
+    "Your Command was dismissed by the operator. Use your judgement and proceed with the best-supported option."
   end
 
   defp safe_defer(decision_id) do

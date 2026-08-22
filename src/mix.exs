@@ -169,6 +169,7 @@ defmodule Aiur.MixProject do
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},
       {:decimal, "~> 3.0"},
+      {:tz, "~> 0.27"},
       {:solid, "~> 1.3"},
       {:ecto, "~> 3.13.6"},
       {:exqlite, "~> 0.27"},

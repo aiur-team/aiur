@@ -9,16 +9,17 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
   """
 
   alias Aiur.Codeowners
+  alias Aiur.GitHub.Config
   alias Aiur.GitHub.ReviewThreads
 
   @spec verify_review_thread_resolution_ready(map(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def verify_review_thread_resolution_ready(thread_body, thread_id, terminal_reply_body, bot_account, opts) do
+  def verify_review_thread_resolution_ready(thread_body, thread_id, terminal_reply_body, daemon_account, opts) do
     verify_review_thread_resolution_latest_reply(
       thread_body,
       thread_id,
       terminal_reply_body,
-      bot_account,
+      daemon_account,
       nil,
       nil,
       opts
@@ -27,12 +28,12 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
 
   @spec verify_review_thread_resolution_still_latest(map(), String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def verify_review_thread_resolution_still_latest(thread_body, thread_id, terminal_reply_body, bot_account, opts) do
+  def verify_review_thread_resolution_still_latest(thread_body, thread_id, terminal_reply_body, daemon_account, opts) do
     case verify_review_thread_resolution_latest_reply(
            thread_body,
            thread_id,
            terminal_reply_body,
-           bot_account,
+           daemon_account,
            nil,
            nil,
            opts,
@@ -57,7 +58,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
         thread_body,
         thread_id,
         terminal_reply_body,
-        bot_account,
+        daemon_account,
         _request_fun,
         _token,
         opts,
@@ -79,13 +80,13 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
            review_thread_id: thread_id
          })}
 
-      get_in(latest, ["author", "login"]) != bot_account ->
+      get_in(latest, ["author", "login"]) != daemon_account ->
         {:error,
          resolution_precondition_failed(
            thread_id,
            resolution_reason(phase, :latest_comment_author_mismatch),
            %{
-             expected: bot_account,
+             expected: daemon_account,
              actual: get_in(latest, ["author", "login"]),
              latest_comment: ReviewThreads.normalize_verified_thread_comment(latest)
            }
@@ -108,7 +109,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
           thread,
           latest,
           thread_id,
-          agent_classification_opts(bot_account, opts)
+          agent_classification_opts(daemon_account, opts)
         )
     end
   end
@@ -203,9 +204,43 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicy do
     %{"path" => Map.get(thread, "path")}
   end
 
+  @doc """
+  Adds every login Aiur itself writes under to `:agent_logins`.
+
+  Unlike `Aiur.GitHub.HumanReviewGate`, this path never reaches
+  `Aiur.GitHub.BotIdentity.codeowners_classification_opts/1`, so the union has
+  to happen here. It matters because `review_thread_authority/2` treats the
+  last comment that is *not* in this list as the reviewer's: with one login
+  listed, a comment Aiur wrote under the other would be classified as a
+  reviewer's and checked for CODEOWNERS authority it never had.
+
+  `daemon_account` is the login already resolved for the authorship check;
+  `Aiur.GitHub.Config.bot_account/0` supplies the agent side. They collapse to
+  one entry on a single-identity install.
+  """
   @spec agent_classification_opts(String.t(), keyword()) :: keyword()
-  def agent_classification_opts(bot_account, opts) do
-    Keyword.update(opts, :agent_logins, [bot_account], &[bot_account | List.wrap(&1)])
+  def agent_classification_opts(daemon_account, opts) do
+    aiur_logins =
+      [daemon_account, Keyword.get_lazy(opts, :bot_account, &configured_bot_account/0)]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq_by(&String.downcase/1)
+
+    Keyword.update(opts, :agent_logins, aiur_logins, &(aiur_logins ++ List.wrap(&1)))
+  end
+
+  # This module is otherwise pure, and a config read can raise (settings
+  # unavailable) or exit (a `WorkflowStore` call timing out). Degrading to "no
+  # agent-side login" reproduces the pre-split classification rather than
+  # failing a resolution check on a transient config read — the same posture
+  # `Aiur.GitHub.CredentialRegistry` takes for the same two failure modes.
+  defp configured_bot_account do
+    Config.bot_account()
+  rescue
+    _unavailable -> nil
+  catch
+    :exit, _reason -> nil
   end
 
   @spec agent_login?(term(), keyword()) :: boolean()

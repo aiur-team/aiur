@@ -229,7 +229,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:usage, provider_usage(assigns.card))
       |> assign(:windows, meter_windows(assigns.card))
-      |> assign(:standing, model_standing(assigns.card))
 
     ~H"""
     <div class="rs-model rs-provider-row">
@@ -243,8 +242,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
             <span class="rs-limit-label">Limits</span>
             <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)), 80, 90)} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
-            <span class="rs-limit-meta rs-limit-meta-wide">{durable_meta(durable_record(@card), @now)}</span>
-            <span class="rs-limit-meta rs-limit-meta-compact">{durable_compact_meta(durable_record(@card))}</span>
+            <span class="rs-limit-meta rs-limit-meta-wide">{durable_percent(durable_record(@card))}%</span>
+            <span class="rs-limit-meta rs-limit-meta-compact">{durable_percent(durable_record(@card))}%</span>
           </div>
           <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
             <span class="rs-limit-label">Limits</span>
@@ -253,8 +252,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{meter_percent(window)}%"}></i></div>
-            <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now, @standing)}</span>
-            <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now, @standing)}</span>
+            <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now)}</span>
+            <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now)}</span>
           </div>
         </div>
       </div>
@@ -267,38 +266,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp model_count_label(1), do: "1 model"
   defp model_count_label(count), do: "#{count} models"
 
-  # A card can stand at :stale or :partial while its retained windows are still
-  # stamped fresh — an adapter failure, or repeated probe failures over the last
-  # known-good values (`ProviderMeterProjection.health_state/3`). The row's head
-  # chip used to name that; with the chip gone the qualifier has to ride on the
-  # meta line, or those readings render as live ones — the confusion issue #1564
-  # exists to prevent.
-  defp model_standing(%{state: :stale}), do: "stale"
-  defp model_standing(%{state: :partial}), do: "partial"
-  defp model_standing(_card), do: nil
-
-  # `window_meta/2` already appends its own stale clause for a credit balance
-  # past its freshness horizon, and a stale-stamped window says so itself, so
-  # neither qualifier is added when the meta already carries the word.
-  defp model_window_meta(window, now, standing) do
-    meta = window_meta(window, now)
-
-    meta =
-      if Map.get(window, :freshness) == :stale and not String.contains?(meta, "stale") do
-        meta <> " (stale)"
-      else
-        meta
-      end
-
-    if standing && not String.contains?(meta, standing), do: meta <> " (#{standing})", else: meta
+  defp model_window_meta(window, now) do
+    window_meta(window, now)
   end
 
-  defp model_window_compact_meta(window, now, standing) do
+  defp model_window_compact_meta(window, now) do
     window
-    |> model_window_meta(now, standing)
+    |> model_window_meta(now)
     |> String.replace("resets in ", "")
     |> String.replace(" used", "")
-    |> String.replace(~r/ \((stale|partial)\)/, " \\1")
   end
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
@@ -387,6 +363,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp elevenlabs_invoice_due(_window), do: nil
 
   defp cents_amount(cents), do: "#{div(cents, 100)}.#{pad2(rem(cents, 100))}"
+
+  defp pad2(value), do: value |> Integer.to_string() |> String.pad_leading(2, "0")
 
   defp elevenlabs_reset_text(%DateTime{} = reset, %DateTime{} = now) do
     seconds = DateTime.diff(reset, now, :second)
@@ -722,22 +700,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # alongside the dollar amount; without a baseline the bar stays empty and the
   # meta carries the balance, so a prepaid provider never reads as a fabricated
   # "0% consumed" (issue #1436).
-  #
-  # A credit window whose freshness horizon is near or past is no longer a
-  # current reading: the meta names its observation time and marks it stale
-  # instead of presenting the balance as live (issue #1550).
-  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}} = window, now)
+  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}}, _now)
        when is_number(amount) and is_number(used_percent) do
-    base = "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
-    if credit_stale?(window, now), do: base <> credit_stale_suffix(window), else: base
+    "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
   end
 
   defp window_meta(%{kind: :credit, credits: %{amount: amount}} = window, now) when is_number(amount) do
-    if credit_stale?(window, now) do
-      "#{currency_amount("USD", amount)}" <> credit_stale_suffix(window)
-    else
-      "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
-    end
+    "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
   end
 
   defp window_meta(%{kind: :credit, credits: %{status: status}} = _window, _now) do
@@ -746,26 +715,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
   defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
-
-  # The probe stamps a credit window with a 300s freshness horizon
-  # (`observed_at + 300s`, the provider endpoint's rate limit). A balance is
-  # only a current reading while it sits comfortably inside that horizon; once
-  # the final minute has begun — or the horizon has passed — the value must not
-  # present as live. The 60s lead keeps a balance observed >4 minutes ago from
-  # reading as fresh (the regression this ticket pins).
-  @credit_stale_before_expiry_s 60
-
-  defp credit_stale?(%{expires_at: %DateTime{} = expires_at}, %DateTime{} = now) do
-    DateTime.compare(expires_at, DateTime.add(now, @credit_stale_before_expiry_s, :second)) != :gt
-  end
-
-  defp credit_stale?(_window, _now), do: false
-
-  defp credit_stale_suffix(%{observed_at: %DateTime{} = observed_at}) do
-    " · as of #{clock_label(observed_at)} (stale)"
-  end
-
-  defp credit_stale_suffix(_window), do: " (stale)"
 
   defp format_used_percent(percent) when is_number(percent) do
     percent = percent |> max(0) |> min(100)
@@ -778,31 +727,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end
   end
 
-  # A durable observation renders the last-known standing from the dispatch
-  # ledger with an explicit staleness label, so a value that is not a fresh
-  # probe is never mistaken for one. The row's head chip used to carry that
-  # word; the label now has to say it here, because the meta line is the only
-  # place left that qualifies the number it sits beside (issue #1564).
-  defp durable_meta(%{percent: percent, observed_at: observed_at}, _now) do
-    "#{percent}% used · as of #{clock_label(observed_at)} (stale)"
-  end
-
-  defp durable_compact_meta(%{percent: percent, observed_at: observed_at}) do
-    "#{percent}% · #{clock_label(observed_at)} stale"
-  end
-
   defp durable_percent(%{percent: percent}), do: percent
-
-  # The ledger stores observations in UTC; render them as such so the "as of"
-  # label is never mistaken for a local-time reading.
-  defp clock_label(%DateTime{} = observed_at) do
-    observed_at = DateTime.shift_zone!(observed_at, "Etc/UTC")
-    "#{pad2(observed_at.hour)}:#{pad2(observed_at.minute)} UTC"
-  end
-
-  defp clock_label(_observed_at), do: "time unknown"
-
-  defp pad2(value), do: value |> Integer.to_string() |> String.pad_leading(2, "0")
 
   defp reset_text(%DateTime{} = reset, %DateTime{} = now) do
     seconds = DateTime.diff(reset, now, :second)

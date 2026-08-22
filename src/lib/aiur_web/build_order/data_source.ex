@@ -20,6 +20,7 @@ defmodule AiurWeb.BuildOrder.DataSource do
   @callback unsubscribe_selected(TrackerIdentity.t()) :: :ok | {:error, term()}
   @callback selected(TrackerIdentity.t()) :: term()
   @callback demand(TrackerIdentity.t()) :: term()
+  @callback refresh(TrackerIdentity.t()) :: term()
   @callback release(TrackerIdentity.t()) :: term()
   @callback subscribe_sources() :: :ok | {:error, term()}
   @callback load_runtime_sources() :: %{activity: term(), execution: term()}
@@ -58,6 +59,10 @@ defmodule AiurWeb.BuildOrder.DataSource do
   @spec demand(TrackerIdentity.t(), keyword()) :: term()
   def demand(identity, opts \\ []),
     do: call(dependency(opts, :graph_projection, GraphProjection), :demand, [identity])
+
+  @spec refresh(TrackerIdentity.t(), keyword()) :: term()
+  def refresh(identity, opts \\ []),
+    do: call(dependency(opts, :graph_projection, GraphProjection), :refresh, [identity])
 
   @spec release(TrackerIdentity.t(), keyword()) :: term()
   def release(identity, opts \\ []),

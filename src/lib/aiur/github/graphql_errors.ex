@@ -97,6 +97,22 @@ defmodule Aiur.GitHub.GraphQLErrors do
 
   def rate_limit_message?(_body), do: false
 
+  @spec secondary_rate_limited_response?(map()) :: boolean()
+  def secondary_rate_limited_response?(%{status: status} = response) when status in [403, 429] do
+    retry_after(response) != nil or
+      secondary_rate_limit_message?(Map.get(response, :body)) or
+      (rate_limited_response?(response, :unknown) and rate_limit_remaining(response) != 0)
+  end
+
+  def secondary_rate_limited_response?(_response), do: false
+
+  defp secondary_rate_limit_message?(%{"message" => message}) when is_binary(message) do
+    normalized = String.downcase(message)
+    String.contains?(normalized, "secondary rate limit") or String.contains?(normalized, "abuse detection")
+  end
+
+  defp secondary_rate_limit_message?(_body), do: false
+
   defp graphql_provider_error(classification, response) do
     detail = rate_limit_observation(response) |> Map.put(:status, Map.get(response, :status))
     {:github, classification, detail}

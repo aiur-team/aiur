@@ -3,7 +3,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
   use Phoenix.Component
 
-  alias Aiur.CodingAgent
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
   alias Phoenix.LiveView.JS
 
@@ -31,7 +30,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       |> assign(:supervisor_answer?, supervisor_answer?(assigns.decision))
       |> assign(:confidence, supervisor_confidence(assigns.decision))
       |> assign(:agent_label, agent_label(assigns.decision))
-      |> assign(:agent_style, agent_style(assigns.decision))
       |> assign(:model_label, model_label(assigns.decision))
       |> assign(:status_badge, status_badge(assigns.decision))
 
@@ -66,7 +64,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
           <div class="decision-card-foot">
             <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
-            <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]} style={@agent_style}>{@agent_label}</span>
+            <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>
             <span :if={@model_label} class="chip mono">{@model_label}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
             <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
@@ -163,16 +161,6 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
       _other ->
         "is-generic"
-    end
-  end
-
-  defp agent_style(decision) do
-    case CodingAgent.provider_descriptor(agent_family(decision)) do
-      %{command_color: color, command_border: border} ->
-        "--provider-command-color: #{color}; --provider-command-border: #{border}"
-
-      _ ->
-        nil
     end
   end
 

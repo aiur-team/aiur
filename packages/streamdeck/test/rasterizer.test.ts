@@ -195,13 +195,13 @@ describe("createRasterizer key", () => {
     expect(neutral).not.toEqual(await keyPixel(zero, 42, 105));
   });
 
-  it("paints stale progress differently from fresh progress", () => {
+  it("paints stale progress the same as fresh progress", () => {
     const rasterizer = createRasterizer();
     const bar = (freshness: string): AgentInput =>
       agent({ bucket: "running", progress_percent: 70, progress_freshness: freshness });
     const fresh = rasterizer.key(layoutKeys([bar("fresh")], 0)[0]);
     const stale = rasterizer.key(layoutKeys([bar("stale")], 0)[0]);
-    expect(Buffer.from(fresh).equals(Buffer.from(stale))).toBe(false);
+    expect(Buffer.from(fresh).equals(Buffer.from(stale))).toBe(true);
   });
 
   it("does not ring stale progress with a full-width border", async () => {
@@ -211,12 +211,9 @@ describe("createRasterizer key", () => {
     const fresh = rasterizer.key(layoutKeys([bar("fresh")], 0)[0]);
     const stale = rasterizer.key(layoutKeys([bar("stale")], 0)[0]);
 
-    // x=100 is in the unfilled half of the track. Stale differs inside the
-    // filled half by alpha, but outside it must be the same plain track: an
-    // outline would tint this pixel and recreate the second segment/border.
-    const freshTrack = await keyPixel(fresh, 100, 105);
-    const staleTrack = await keyPixel(stale, 100, 105);
-    expect(staleTrack.map((value, index) => Math.abs(value - freshTrack[index]!))).toEqual([0, 0, 0]);
+    // Stale renders identically to fresh: the fill covers the same pixels, and
+    // no outline or second segment tints the plain track.
+    expect(Buffer.from(fresh).equals(Buffer.from(stale))).toBe(true);
   });
 });
 
