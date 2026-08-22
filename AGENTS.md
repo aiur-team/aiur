@@ -228,6 +228,20 @@ GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
 
+**Before changing anything that talks to GitHub — polling, budgets, the read
+cache, webhooks, credentials — read
+[`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
+the source of truth for how Aiur uses the GitHub API: what it polls and how
+often, how the Core/GraphQL budgets are metered and attributed, how to read
+`aiur github-cost` without misinterpreting it, which reads the cache refuses on
+purpose, the webhook delivery states and how they widen polling, and the
+Cloudflare tunnel boundary that keeps the dashboard off the public internet.
+
+Keep that page current when you change the behaviour it describes, and link to
+it rather than restating it — a second copy is a copy that goes stale. A run in
+2026-08 spent a day planning around webhook ingress it believed was missing and
+a reconciliation gap it read as a leak; that page already documented both.
+
 ## Compound Engineering
 
 Repo-local CE settings live at `.compound-engineering/config.local.yaml`
