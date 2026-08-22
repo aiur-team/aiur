@@ -7,11 +7,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{RunTelemetry, TrackerIdentity}
-  alias Aiur.RunTelemetry.Summaries
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
-  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
 
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
 
@@ -73,8 +71,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Run analytics"
-    assert html =~ "No retained run telemetry to analyze yet"
+    assert html =~ "No run telemetry to analyze yet"
+    assert html =~ ~s(data-empty-reason="no_telemetry")
     refute html =~ "Start a run with telemetry enabled"
+    refute html =~ "Retained run telemetry could not be read"
     refute html =~ "Peak concurrency"
     refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
   end
@@ -137,7 +137,46 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ ">#930<"
     assert html =~ "3.50 USD"
     refute html =~ "9.99 USD"
-    refute html =~ "No retained run telemetry to analyze yet"
+    assert html =~ ~s(data-source-kind="retained")
+    assert html =~ "retained run"
+    assert html =~ "observed"
+    refute html =~ "No run telemetry to analyze yet"
+  end
+
+  test "reports retained-but-unreadable telemetry instead of pretending the fleet is idle" do
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-unreadable")
+    summary = Path.join(root, "aiur-team/aiur/analytics/runs/boot-a/run-summary.json")
+    current = Path.join(root, "new-run/log/telemetry.ndjson")
+
+    previous_app_env = [
+      repo_base_root: Application.fetch_env(:aiur, :repo_base_root),
+      analytics_repo: Application.fetch_env(:aiur, :analytics_repo)
+    ]
+
+    previous_run_id = :persistent_term.get({Aiur.Boot, :run_id}, :unset)
+
+    # A truncated summary is present (so the fleet did run) but cannot be decoded.
+    File.mkdir_p!(Path.dirname(summary))
+    File.write!(summary, "{\"schema_version\": 1, \"records\": [")
+    File.mkdir_p!(Path.dirname(current))
+    File.write!(current, Jason.encode!(route_record("boot-after-restart", 1, "restart", ~U[2026-07-12 00:01:00Z], nil)) <> "\n")
+    Application.put_env(:aiur, :repo_base_root, root)
+    Application.put_env(:aiur, :analytics_repo, "aiur-team/aiur")
+    Application.put_env(:aiur, :analytics_telemetry_file, current)
+    :persistent_term.put({Aiur.Boot, :run_id}, "boot-after-restart")
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+      Aiur.TestSupport.restore_app_env(previous_app_env)
+      restore_run_id(previous_run_id)
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ ~s(data-empty-reason="retained_unreadable")
+    assert html =~ "Retained run telemetry could not be read"
+    refute html =~ "No run telemetry to analyze yet"
+    refute html =~ "Peak concurrency"
   end
 
   test "selects a prior run that is analyzable for the requested Build Order" do
@@ -169,27 +208,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Build Order #77, latest run"
     assert html =~ ">#999<"
     refute html =~ ">#941<"
-    refute html =~ "No retained run telemetry to analyze yet"
-  end
-
-  test "reuses decoded prior summaries while the current boot remains empty" do
-    {:ok, dataset} = @summary_fixture |> File.read!() |> Summaries.decode_summary()
-    cache_identity = make_ref()
-    parent = self()
-
-    loader = fn ->
-      send(parent, :loaded_prior_summaries)
-      [dataset]
-    end
-
-    opts = [cache_identity: cache_identity, prior_loader: loader]
-    analyzable? = fn _dataset -> true end
-
-    assert {:ok, ^dataset} = LatestRun.load("/nonexistent/current.ndjson", "new-boot", analyzable?, opts)
-    assert_received :loaded_prior_summaries
-
-    assert {:ok, ^dataset} = LatestRun.load("/nonexistent/current.ndjson", "new-boot", analyzable?, opts)
-    refute_received :loaded_prior_summaries
+    assert html =~ ~s(data-source-kind="retained")
+    assert html =~ "retained run"
+    refute html =~ "No run telemetry to analyze yet"
   end
 
   defp write_newer_summary!(path) do
@@ -215,7 +236,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Cost per ticket"
     assert html =~ "Complexity breakdown"
     assert html =~ "<svg"
-    refute html =~ "No retained run telemetry to analyze yet"
+    assert html =~ "Source:"
+    refute html =~ "No run telemetry to analyze yet"
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -276,6 +298,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Provider spend"
     assert html =~ "3.50 USD"
     assert html =~ "provider-reported estimate"
+    assert html =~ ~s(data-source-kind="live")
+    assert html =~ "live boot"
   end
 
   test "scopes analytics and provider spend to typed selected Build Order members" do

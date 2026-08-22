@@ -26,6 +26,9 @@ defmodule AiurWeb.AnalyticsLive do
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
+  # Matches the CLI's freshness threshold: telemetry observed within this
+  # window is "just now", anything older is shown with its elapsed age.
+  @source_fresh_ms 30_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -120,9 +123,19 @@ defmodule AiurWeb.AnalyticsLive do
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
 
       <section id="analytics-page" class="analytics-root" aria-label="Run analytics">
-        <div :if={@unavailable} class="an-empty">
-          <p><b>No retained run telemetry to analyze yet.</b></p>
-          <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
+        <div :if={@unavailable} class="an-empty" data-empty-reason={@unavailable}>
+          <div :if={@unavailable == :no_telemetry}>
+            <p><b>No run telemetry to analyze yet.</b></p>
+            <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
+          </div>
+          <div :if={@unavailable == :retained_unreadable}>
+            <p><b>Retained run telemetry could not be read.</b></p>
+            <p>A prior run recorded telemetry, but its retained summary cannot be decoded. Check the run-summary files under the analytics state node.</p>
+          </div>
+          <div :if={@unavailable == :error}>
+            <p><b>Run telemetry is unavailable.</b></p>
+            <p>The durable run-telemetry stream could not be analyzed right now.</p>
+          </div>
         </div>
 
         <div :if={!@unavailable} class="an-controls">
@@ -130,6 +143,11 @@ defmodule AiurWeb.AnalyticsLive do
             <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
             <p class="an-scope-note">
               {scope_note(@analytics_scope)}
+            </p>
+            <p :if={@source} class="an-source" data-source-kind={@source.kind} title={source_title(@source)}>
+              Source: <b>{source_kind_label(@source.kind)}</b>
+              <span :if={@source.boot_id} class="an-source-boot"> · boot {short_boot(@source.boot_id)}</span>
+              <span class="an-source-age"> · {age_label(@source.age_ms)}</span>
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">
@@ -278,6 +296,7 @@ defmodule AiurWeb.AnalyticsLive do
           provider_spend: provider_spend(socket, model.source_boot_id),
           selected: MapSet.new(model.actors, & &1.key),
           unavailable: nil,
+          source: source_info(model, now),
           now: now
         )
         |> assign_time_domain(domain)
@@ -289,6 +308,7 @@ defmodule AiurWeb.AnalyticsLive do
           provider_spend: %{state: :unavailable},
           time_domain: nil,
           selected: MapSet.new(),
+          source: nil,
           unavailable: reason,
           now: now
         )
@@ -410,6 +430,73 @@ defmodule AiurWeb.AnalyticsLive do
   defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in the latest run with telemetry."
   defp scope_note(:session), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
   defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
+
+  # The rendered charts can come from the live boot or from a retained prior
+  # run (the restart fallback). The source line makes which one visible so a
+  # run that ended an hour ago is never presented as the current boot, and so
+  # the cutover when a fresh boot takes over is not silent.
+  defp source_info(model, now) do
+    current = safe_boot_id()
+    boot_id = Map.get(model, :source_boot_id)
+    observed_at = parse_observed(Map.get(model, :source_observed_at))
+    age_ms = if observed_at, do: max(DateTime.diff(now, observed_at, :millisecond), 0), else: nil
+
+    %{
+      kind: source_kind(boot_id, current),
+      boot_id: boot_id,
+      observed_at: observed_at,
+      age_ms: age_ms
+    }
+  end
+
+  defp source_kind(boot_id, current) when is_binary(boot_id) and boot_id != "" and boot_id == current, do: :live
+  defp source_kind(_boot_id, _current), do: :retained
+
+  defp source_kind_label(:live), do: "live boot"
+  defp source_kind_label(:retained), do: "retained run"
+
+  defp source_title(%{boot_id: boot_id, observed_at: observed_at}) do
+    [
+      if(is_binary(boot_id), do: "boot #{boot_id}"),
+      if(observed_at, do: "observed #{DateTime.to_iso8601(observed_at)}")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp source_title(_source), do: ""
+
+  defp age_label(nil), do: "observed at an unknown time"
+  defp age_label(age_ms) when age_ms <= @source_fresh_ms, do: "observed just now"
+  defp age_label(age_ms), do: "observed #{elapsed_seconds(div(age_ms, 1000))} ago"
+
+  defp elapsed_seconds(seconds) when seconds < 60, do: "#{seconds}s"
+  defp elapsed_seconds(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+  defp elapsed_seconds(seconds) when seconds < 86_400, do: "#{div(seconds, 3_600)}h #{div(rem(seconds, 3_600), 60)}m"
+  defp elapsed_seconds(seconds), do: "#{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
+
+  defp short_boot(nil), do: nil
+  defp short_boot(id) when is_binary(id) and byte_size(id) > 8, do: binary_part(id, 0, 8)
+  defp short_boot(id), do: id
+
+  defp parse_observed(nil), do: nil
+
+  defp parse_observed(iso) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, observed_at, _offset} -> observed_at
+      _invalid -> nil
+    end
+  end
+
+  defp parse_observed(_other), do: nil
+
+  defp safe_boot_id do
+    Aiur.RunTelemetry.boot_id()
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
 
   # The live route defaults to the daemon-owned aggregate. The configurable
   # source exists only to keep the route's protected-query contract testable

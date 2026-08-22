@@ -56,6 +56,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     * `:timeline` — `:absolute` (default) or `:active` to elide idle gaps.
     * `:scope_total` — burn-up denominator when the scope knows its own size
       (a Build Order's member count) rather than inferring it from telemetry.
+
+  Unavailable reasons distinguish an idle fleet from a persistence failure:
+  `:no_telemetry` means nothing analyzable was recorded, while
+  `:retained_unreadable` means retained run summaries exist but could not be
+  decoded, and `:error` is an unexpected analysis failure.
   """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
@@ -75,8 +80,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       end
 
     case result do
-      {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
-      {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
+      {:ok, dataset} ->
+        dataset |> scope(opts) |> analyzable(opts)
+
+      {:error, {:no_telemetry_files, _paths}} ->
+        {:unavailable, :no_telemetry}
+
+      {:error, :retained_unreadable} ->
+        {:unavailable, :retained_unreadable}
     end
   rescue
     _error -> {:unavailable, :error}

@@ -26,6 +26,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Styles do
     .an-scope{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--an-mono);font-size:.68rem;font-weight:600;color:var(--muted)}
     .an-scope b{color:var(--fg);font-weight:700}
     .an-scope-note{font-size:.72rem;color:var(--faint);margin:0}
+    .an-source{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;font-size:.68rem;color:var(--faint);font-family:var(--an-mono);margin:.15rem 0 0}
+    .an-source b{color:var(--muted);font-weight:700}
+    .an-source-age{color:var(--faint)}
     .an-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:.7rem}
     .an-kpi{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow-sm);padding:.85rem .95rem;display:flex;flex-direction:column;gap:.15rem}
     .an-kpi-label{font-family:var(--an-mono);font-size:.62rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}

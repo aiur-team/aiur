@@ -211,14 +211,31 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc "Loads every materialized prior boot (excluding the live boot) as datasets."
   @spec load_prior_datasets(String.t() | nil) :: [map()]
   def load_prior_datasets(current_boot) do
-    summary_boot_ids()
-    |> Enum.reject(&(&1 == current_boot))
-    |> Enum.flat_map(fn boot_id ->
-      case load_dataset(boot_id) do
-        {:ok, dataset} -> [dataset]
-        {:error, _reason} -> []
-      end
-    end)
+    {datasets, _unreadable?} = load_prior_datasets_with_state(current_boot)
+    datasets
+  end
+
+  @doc """
+  Loads every materialized prior boot (excluding the live boot) as datasets,
+  alongside whether any retained summary could not be decoded.
+
+  The `unreadable?` flag distinguishes "no retained data" from "retained data
+  that is corrupt": the Analytics latest-run view must not present a truncated
+  `run-summary.json` as an idle fleet.
+  """
+  @spec load_prior_datasets_with_state(String.t() | nil) :: {[map()], boolean()}
+  def load_prior_datasets_with_state(current_boot) do
+    {datasets, unreadable?} =
+      summary_boot_ids()
+      |> Enum.reject(&(&1 == current_boot))
+      |> Enum.reduce({[], false}, fn boot_id, {datasets, unreadable?} ->
+        case load_dataset(boot_id) do
+          {:ok, dataset} -> {[dataset | datasets], unreadable?}
+          {:error, _reason} -> {datasets, true}
+        end
+      end)
+
+    {Enum.reverse(datasets), unreadable?}
   end
 
   @doc """

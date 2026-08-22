@@ -27,7 +27,7 @@ Use the browser when you need interactive detail; use the paired command when te
 | **Units** | `/` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
-| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. | `aiur analytics` |
+| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. | `aiur analytics` |
 | **GitHub cache** | `/github-cache` is a read-only inspector for the shared GitHub state cache. | none |
 | **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
