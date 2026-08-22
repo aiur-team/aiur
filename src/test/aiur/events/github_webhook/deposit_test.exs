@@ -321,7 +321,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
               %{
                 data: %{
                   "webhook_action" => "unresolved",
-                  "generation" => "2026-08-21T12:00:00Z"
+                  "generation" => "2026-08-21T12:00:00Z",
+                  "latest_unresolved_generation" => "2026-08-21T12:00:00Z"
                 },
                 version: "2026-08-21T12:00:00Z"
               }} =

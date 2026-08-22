@@ -381,13 +381,23 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         :unchanged
 
       true ->
-        %{
+        data = %{
           "webhook_action" => action,
           "generation" => generation,
           "thread" => thread
         }
+
+        case latest_unresolved_generation(held, action, generation) do
+          value when is_binary(value) and value != "" -> Map.put(data, "latest_unresolved_generation", value)
+          _other -> data
+        end
     end
   end
+
+  defp latest_unresolved_generation(_held, "unresolved", generation), do: generation
+  defp latest_unresolved_generation(%{"latest_unresolved_generation" => generation}, _action, _generation), do: generation
+  defp latest_unresolved_generation(%{"webhook_action" => "unresolved", "generation" => generation}, _action, _generation), do: generation
+  defp latest_unresolved_generation(_held, _action, _generation), do: nil
 
   defp same_thread_transition?(%{"webhook_action" => action}, action, held_version, version),
     do: is_nil(version) or held_version == version

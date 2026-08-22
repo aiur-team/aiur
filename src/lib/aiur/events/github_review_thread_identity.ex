@@ -6,6 +6,12 @@ defmodule Aiur.Events.GithubReviewThreadIdentity do
   @spec unresolved_generation(ResourceStore.key()) :: String.t() | nil
   def unresolved_generation(resource) do
     case ResourceStore.fetch(resource) do
+      {:ok, %{data: %{"latest_unresolved_generation" => generation}}}
+      when is_binary(generation) and generation != "" ->
+        generation
+
+      # Backward compatibility for markers written before the stable field was
+      # introduced. A resolved legacy marker intentionally has no generation.
       {:ok, %{data: %{"webhook_action" => "unresolved", "generation" => generation}}}
       when is_binary(generation) and generation != "" ->
         generation

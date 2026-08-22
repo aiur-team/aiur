@@ -124,6 +124,10 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
                  reconcile_fun: fn _hint -> :ok end
                )
 
+      clear_replay_window()
+      assert {:ok, %{count: 0}} = thread_sweep(thread_comment)
+      refute_receive {:event, %{topic: ^topic}}, 100
+
       assert %{status: :reconciled} =
                GithubWebhook.handle_delivery(
                  "pull_request_review_thread",

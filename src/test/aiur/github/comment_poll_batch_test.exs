@@ -453,13 +453,33 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
       refute Map.has_key?(batch, "42")
     end
+
+    test "falls out to the poller's own lookup when the current pull request is from a fork" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node =
+          77
+          |> pull_request("aiur/42-x")
+          |> put_in(["headRepository", "nameWithOwner"], "contributor/fork")
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+      refute Map.has_key?(batch, "42")
+    end
   end
 
   defp deliver_pull_request(target, number, opts \\ []) do
     :branch_pull_request
     |> ResourceStore.key_for_repo("owner/repo", target)
     |> ResourceStore.put_resource(
-      %{"number" => number, "state" => "open", "head" => %{"ref" => "aiur/#{target}-x"}},
+      %{
+        "number" => number,
+        "state" => "open",
+        "head" => %{"ref" => "aiur/#{target}-x", "repo" => %{"full_name" => "owner/repo"}}
+      },
       source: Keyword.get(opts, :source, :webhook),
       version: "2026-08-20T00:00:00Z"
     )

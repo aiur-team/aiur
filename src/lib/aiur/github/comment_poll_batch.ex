@@ -109,9 +109,11 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # a delivered number removes aliases from the document rather than discarding
   # their answers.
   defp target_entry(target, owner, repo, opts) do
+    expected_head_repo = "#{owner}/#{repo}"
+
     case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-      number when is_integer(number) -> %{target: target, pull_request_number: number}
-      nil -> branch_target_entry(target, opts, "#{owner}/#{repo}")
+      number when is_integer(number) -> %{target: target, pull_request_number: number, expected_head_repo: expected_head_repo}
+      nil -> branch_target_entry(target, opts, expected_head_repo)
     end
   end
 
@@ -281,7 +283,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_for_entry(%{pull_request_number: _number} = entry, _direct, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: {:ok, normalize_pull_request(node, true)}, else: :unknown
+        if open_pull_request_node?(node) and same_head_repo?(node, entry.expected_head_repo),
+          do: {:ok, normalize_pull_request(node, true)},
+          else: :unknown
 
       _other ->
         Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
@@ -329,15 +333,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp same_head_repo?(pull_request, expected) do
+  defp same_head_repo?(pull_request, expected) when is_map(pull_request) and is_binary(expected) do
     case get_in(pull_request, ["headRepository", "nameWithOwner"]) do
-      actual when is_binary(actual) and is_binary(expected) ->
+      actual when is_binary(actual) ->
         String.downcase(actual) == String.downcase(expected)
 
       _other ->
         false
     end
   end
+
+  defp same_head_repo?(_pull_request, _expected), do: false
 
   defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
 

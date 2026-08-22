@@ -98,7 +98,9 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
     |> MapSet.to_list()
   end
 
-  defp reconcile_target_limit(opts) do
+  @doc false
+  @spec reconcile_target_limit(keyword()) :: pos_integer()
+  def reconcile_target_limit(opts) do
     case Keyword.get(opts, :reconcile_target_limit, @reconcile_targets_per_poll) do
       limit when is_integer(limit) and limit > 0 -> limit
       _other -> @reconcile_targets_per_poll

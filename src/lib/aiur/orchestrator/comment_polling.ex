@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{State, TrackerHealth}
 
   @recent_merge_persistence_retry_limit 3
 
@@ -204,13 +204,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
         state
 
       target ->
-        state = %{state | github_comment_reconcile_targets: MapSet.put(state.github_comment_reconcile_targets, target)}
-
-        if state.poll_frozen do
-          state
-        else
-          start_async(state, Keyword.put(opts, :reconcile_only, true))
-        end
+        state
+        |> admit_reconcile_targets(MapSet.new([target]), opts)
+        |> schedule_reconcile()
     end
   end
 
@@ -235,11 +231,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> requeue_reconcile_targets(retry_targets)
       |> apply_comment_poll(payload)
 
-    if MapSet.size(retry_targets) > 0 do
-      maybe_schedule_reconcile_retry(state)
-    else
-      maybe_schedule_reconcile(state)
-    end
+    minimum_delay_ms = if MapSet.size(retry_targets) > 0, do: @reconcile_retry_delay_ms, else: 0
+    schedule_reconcile(state, minimum_delay_ms, MapSet.size(retry_targets) > 0)
   end
 
   def apply_async(%State{} = state, _stale_ref, _payload), do: state
@@ -288,14 +281,26 @@ defmodule Aiur.Orchestrator.CommentPolling do
         owner_monitor_ref
       ) do
     reap_poll_after_owner_down(poll)
-    state = state |> reclaim_reconcile_targets(poll) |> Map.put(:github_comment_poll, nil) |> maybe_schedule_reconcile()
+
+    state =
+      state
+      |> reclaim_reconcile_targets(poll)
+      |> Map.put(:github_comment_poll, nil)
+      |> schedule_reconcile(@reconcile_retry_delay_ms, true)
+
     {:handled, state}
   end
 
   def apply_async_down(%State{github_comment_poll: %{monitor_ref: monitor_ref} = poll} = state, monitor_ref) do
     release_poll_owner(poll)
     demonitor_owner(poll)
-    state = state |> reclaim_reconcile_targets(poll) |> Map.put(:github_comment_poll, nil) |> maybe_schedule_reconcile()
+
+    state =
+      state
+      |> reclaim_reconcile_targets(poll)
+      |> Map.put(:github_comment_poll, nil)
+      |> schedule_reconcile(@reconcile_retry_delay_ms, true)
+
     {:handled, state}
   end
 
@@ -316,7 +321,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
       poll = state.github_comment_poll
       abandon_poll(poll)
-      {:ready, state |> reclaim_reconcile_targets(poll) |> Map.put(:github_comment_poll, nil)}
+
+      state =
+        state
+        |> reclaim_reconcile_targets(poll)
+        |> Map.put(:github_comment_poll, nil)
+        |> schedule_reconcile(@reconcile_retry_delay_ms, true)
+
+      {:busy, state}
     end
   end
 
@@ -350,12 +362,20 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp reclaim_reconcile_targets(state, %{reconcile_targets: targets}) do
-    %{state | github_comment_reconcile_targets: MapSet.union(state.github_comment_reconcile_targets, targets)}
+    admit_reconcile_targets(state, targets, [])
   end
 
   defp reclaim_reconcile_targets(state, _poll), do: state
 
   defp requeue_reconcile_targets(state, targets) do
+    admit_reconcile_targets(state, targets, [])
+  end
+
+  defp admit_reconcile_targets(state, targets, _opts) do
+    # Admission is lossless and deduplicated by ticket identity. The bounded
+    # claim in TargetSelection limits every GraphQL batch; keeping the remainder
+    # here is what lets successive claims drain a burst without pretending an
+    # unrelated capped discovery sweep can reconstruct the dropped identities.
     %{state | github_comment_reconcile_targets: MapSet.union(state.github_comment_reconcile_targets, targets)}
   end
 
@@ -376,20 +396,90 @@ defmodule Aiur.Orchestrator.CommentPolling do
   defp failed_reconcile_targets(%{reconcile_targets: targets}, _unrecognised), do: targets
   defp failed_reconcile_targets(_poll, _payload), do: MapSet.new()
 
-  defp maybe_schedule_reconcile(%State{poll_frozen: true} = state), do: state
+  defp schedule_reconcile(state, minimum_delay_ms \\ 0, replace_timer? \\ false)
 
-  defp maybe_schedule_reconcile(%State{github_comment_reconcile_targets: targets} = state) do
-    if MapSet.size(targets) > 0, do: send(self(), :run_github_comment_reconcile)
-    state
+  defp schedule_reconcile(%State{poll_frozen: true} = state, _minimum_delay_ms, _replace_timer?), do: state
+
+  defp schedule_reconcile(%State{github_comment_poll: poll} = state, _minimum_delay_ms, _replace_timer?)
+       when not is_nil(poll),
+       do: state
+
+  defp schedule_reconcile(%State{github_comment_reconcile_targets: targets} = state, minimum_delay_ms, replace_timer?) do
+    if MapSet.size(targets) == 0 do
+      cancel_reconcile_timer(state.github_comment_reconcile_timer)
+      %{state | github_comment_reconcile_timer: nil}
+    else
+      delay_ms = max(minimum_delay_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
+      due_at_ms = System.monotonic_time(:millisecond) + delay_ms
+      schedule_reconcile_timer(state, delay_ms, due_at_ms, replace_timer?)
+    end
   end
 
-  defp maybe_schedule_reconcile_retry(%State{poll_frozen: true} = state), do: state
+  defp schedule_reconcile_timer(state, delay_ms, due_at_ms, true),
+    do: replace_reconcile_timer(state, delay_ms, due_at_ms)
 
-  defp maybe_schedule_reconcile_retry(%State{github_comment_reconcile_targets: targets} = state) do
-    if MapSet.size(targets) > 0,
-      do: Process.send_after(self(), :run_github_comment_reconcile, @reconcile_retry_delay_ms)
+  defp schedule_reconcile_timer(
+         %State{github_comment_reconcile_timer: %{delay_ms: delay_ms}} = state,
+         new_delay_ms,
+         _due_at_ms,
+         false
+       )
+       when delay_ms >= new_delay_ms,
+       do: state
 
+  defp schedule_reconcile_timer(%State{} = state, delay_ms, due_at_ms, false),
+    do: replace_reconcile_timer(state, delay_ms, due_at_ms)
+
+  defp replace_reconcile_timer(%State{} = state, delay_ms, due_at_ms) do
+    cancel_reconcile_timer(state.github_comment_reconcile_timer)
+    token = make_ref()
+    message = {:run_github_comment_reconcile, token}
+
+    timer_ref =
+      if delay_ms == 0 do
+        send(self(), message)
+        nil
+      else
+        Process.send_after(self(), message, delay_ms)
+      end
+
+    %{
+      state
+      | github_comment_reconcile_timer: %{
+          token: token,
+          timer_ref: timer_ref,
+          delay_ms: delay_ms,
+          due_at_ms: due_at_ms
+        }
+    }
+  end
+
+  defp cancel_reconcile_timer(%{timer_ref: timer_ref}) when is_reference(timer_ref), do: Process.cancel_timer(timer_ref)
+  defp cancel_reconcile_timer(_timer), do: false
+
+  @doc false
+  @spec run_scheduled_reconcile(State.t(), reference(), keyword()) :: State.t()
+  def run_scheduled_reconcile(state, token, opts \\ [])
+
+  def run_scheduled_reconcile(
+        %State{poll_frozen: true, github_comment_reconcile_timer: %{token: token}} = state,
+        token,
+        _opts
+      ),
+      do: %{state | github_comment_reconcile_timer: nil}
+
+  def run_scheduled_reconcile(%State{github_comment_reconcile_timer: %{token: token}} = state, token, opts) do
     state
+    |> Map.put(:github_comment_reconcile_timer, nil)
+    |> start_async(Keyword.put(opts, :reconcile_only, true))
+  end
+
+  def run_scheduled_reconcile(%State{} = state, _stale_token, _opts), do: state
+
+  @doc false
+  @spec reconcile_retry_delay_ms(State.t()) :: non_neg_integer()
+  def reconcile_retry_delay_ms(%State{} = state) do
+    max(@reconcile_retry_delay_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
   end
 
   defp comment_poll_abandon_after_ms(state, opts) do

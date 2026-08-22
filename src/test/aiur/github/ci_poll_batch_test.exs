@@ -24,6 +24,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       refute body["query"] =~ ~r/pullRequests\(states:\s*OPEN/
       refute body["query"] =~ ~r/pullRequests\(first:/
       assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
+      assert body["query"] =~ "headRepository { nameWithOwner }"
 
       # Merge-queue recovery observation is part of the same batch node, so
       # the parked-ready decision never pays a separate read.
@@ -123,6 +124,32 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              CIPollBatch.fetch(["42"], request_fun: request_fun, titles_by_target: %{"42" => "Some legacy ticket"})
 
     assert %{"number" => 77} = batch.pull_request
+  end
+
+  test "ignores a fork pull request that reuses the ticket branch" do
+    request_fun = fn %{method: :post} ->
+      fork_pull_request = put_in(pull_request(), ["headRepository", "nameWithOwner"], "contributor/fork")
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [fork_pull_request]}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
+             )
+
+    assert batch.pull_request == nil
   end
 
   test "falls back to the legacy branch name when orchestration knows no branch" do
@@ -328,13 +355,29 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       assert {:ok, batch} = CIPollBatch.fetch(["42"], request_fun: request_fun)
       refute Map.has_key?(batch, "42")
     end
+
+    test "leaves the target to REST fallback when the current pull request is from a fork" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node = put_in(pull_request(), ["headRepository", "nameWithOwner"], "contributor/fork")
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, batch} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+      refute Map.has_key?(batch, "42")
+    end
   end
 
   defp deliver_pull_request(target, number, opts \\ []) do
     :branch_pull_request
     |> ResourceStore.key_for_repo("owner/repo", target)
     |> ResourceStore.put_resource(
-      %{"number" => number, "state" => "open", "head" => %{"ref" => "aiur/#{target}-ci-batch"}},
+      %{
+        "number" => number,
+        "state" => "open",
+        "head" => %{"ref" => "aiur/#{target}-ci-batch", "repo" => %{"full_name" => "owner/repo"}}
+      },
       source: Keyword.get(opts, :source, :webhook),
       version: "2026-08-20T00:00:00Z"
     )
@@ -346,6 +389,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       "state" => "OPEN",
       "headRefName" => "aiur/42-ci-batch",
       "headRefOid" => "head-77",
+      "headRepository" => %{"nameWithOwner" => "owner/repo"},
       "baseRefName" => "develop",
       "isDraft" => true,
       "reviewDecision" => "APPROVED",

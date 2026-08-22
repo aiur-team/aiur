@@ -59,8 +59,8 @@ defmodule Aiur.Orchestrator do
   def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
     do: {:noreply, CommentPolling.request_reconcile(state, hint)}
 
-  def handle_info(:run_github_comment_reconcile, %State{} = state),
-    do: {:noreply, CommentPolling.start_async(state, reconcile_only: true)}
+  def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
+    do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
 
   def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
     state = Dispatcher.handle_ci_readiness_result(state, token, result)
