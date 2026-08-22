@@ -22,6 +22,8 @@ defmodule Aiur.CodingAgent do
   alias Aiur.ModelCatalog
   alias Aiur.ProviderMeterProbe
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Usage.PriceTable.Data
+  alias Aiur.Usage.PriceTable.Window
 
   @type backend :: String.t()
 
@@ -734,21 +736,81 @@ defmodule Aiur.CodingAgent do
   #
   # Two policies ship here — the backend must be dispatchable, and the route
   # must have its credential — and `:route_policies` is the seam for the rest.
-  # #1456's peak-pricing policy is the intended next occupant: it needs to
-  # compare entries by cost at the moment of selection, which it can, because a
-  # route already resolves to a price identity via `route_price_identity/1`.
+  # The peak-pricing policy (#1456) is the next occupant: it compares entries
+  # by cost at the moment of selection, which it can, because a route already
+  # resolves to a price identity via `route_price_identity/1`.
   # A policy that returns [] falls through to `{:ok, issue}` (dispatch with no
   # pinned route) rather than stranding the claim.
   defp eligible_routes(opts) do
     Keyword.get(opts, :backends, Config.switch_model_on_ratelimit())
     |> Enum.filter(&(RoutingValue.routing_backend(&1) in configured_backends(opts) and RouteCredentials.usable?(&1, opts)))
     |> apply_route_policies(opts)
+    |> apply_peak_pricing_policy(opts)
   end
 
   defp apply_route_policies(routes, opts) do
     opts
     |> Keyword.get(:route_policies, [])
     |> Enum.reduce(routes, fn policy, acc -> policy.(acc) end)
+  end
+
+  # #1456's cost-aware policy, shipping as a default: when `avoid_peak_pricing`
+  # is on, drop routes whose billing provider is currently inside a
+  # peak-pricing window and fall through to the next `agent.priority` entry.
+  #
+  # It fails toward NOT rerouting. When the window is unknown (`:unknown`) or
+  # the operator's preference cannot be read, the route is kept and
+  # `agent.priority` is used exactly as written — a stale window that wrongly
+  # believes it is peak would silently move work to another provider, and that
+  # is far harder to notice than paying a visible peak rate. See
+  # `Aiur.Config.Schema.PricingPolicy`.
+  defp apply_peak_pricing_policy(routes, opts) do
+    if peak_pricing_avoidance?(opts) do
+      now = Keyword.get(opts, :now, DateTime.utc_now())
+      schedule_for = Keyword.get(opts, :window_schedule_for, &Data.window_schedule/1)
+      Enum.reject(routes, &peak_priced_route?(&1, now, schedule_for))
+    else
+      routes
+    end
+  end
+
+  defp peak_pricing_avoidance?(opts) do
+    case Keyword.fetch(opts, :avoid_peak_pricing) do
+      {:ok, value} when is_boolean(value) ->
+        value
+
+      :error ->
+        case Config.settings() do
+          {:ok, %{agent: %{pricing_policy: %{avoid_peak_pricing: value}}}} when is_boolean(value) -> value
+          {:ok, _settings} -> true
+          # Config unreadable (including unit-test contexts): never reroute on
+          # a preference we cannot determine.
+          {:error, _reason} -> false
+        end
+    end
+  end
+
+  @doc """
+  Whether `avoid_peak_pricing` would drop `route` at `now` because its billing
+  provider is inside a peak-pricing window. `false` for routes whose provider
+  has no windowed schedule and for unknown windows (fail toward not rerouting).
+  """
+  @spec peak_priced_route?(String.t(), DateTime.t()) :: boolean()
+  def peak_priced_route?(route, now) when is_binary(route) and is_struct(now, DateTime) do
+    peak_priced_route?(route, now, &Data.window_schedule/1)
+  end
+
+  defp peak_priced_route?(route, now, schedule_for) do
+    case route_price_identity(route) do
+      %{provider: provider} when is_atom(provider) ->
+        case schedule_for.(provider) do
+          nil -> false
+          schedule -> Window.classify(now, schedule) == :peak
+        end
+
+      _other_identity ->
+        false
+    end
   end
 
   @doc """

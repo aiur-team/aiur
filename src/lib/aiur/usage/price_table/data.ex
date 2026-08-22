@@ -52,12 +52,45 @@ defmodule Aiur.Usage.PriceTable.Data do
   # effective date.
   @provider_effective_date ~D[2026-08-01]
 
+  # Beijing is UTC+8 year-round with no daylight saving since 1991, so a fixed
+  # offset is exactly correct for this schedule and needs no timezone database.
+  # The named constant is deliberate: a reader must not reach for `tzdata` or
+  # a DST-aware zone here, because there is no DST to model.
+  @beijing_utc_offset_hours 8
+
+  # DeepSeek peak/off-peak schedule, hand-maintained from the live pricing
+  # docs (`https://api-docs.deepseek.com/quick_start/pricing`, verified
+  # 2026-08-22). Peak windows are **not API-discoverable**, so the boundaries
+  # can only be a table compared against the clock (see
+  # `Aiur.Config.Schema.PricingPolicy`). The weekend rule — off-peak all
+  # Saturday and Sunday, Beijing time — took effect 00:00 Beijing 2026-08-23
+  # (= 16:00 UTC 2026-08-22) and is recorded here as **data**, not prose.
+  #
+  # `weekday_peak_windows_utc` are the daily peak (standard-rate) windows,
+  # expressed in UTC and applying on weekdays only; the weekend rule overrides
+  # them on Saturdays and Sundays Beijing time. Off-peak is exactly 50% of
+  # peak across every DeepSeek model.
+  @deepseek_window_schedule %{
+    utc_offset_hours: @beijing_utc_offset_hours,
+    weekday_peak_windows_utc: [{~T[01:00:00], ~T[04:00:00]}, {~T[06:00:00], ~T[10:00:00]}],
+    weekend_off_peak_effective: ~D[2026-08-23]
+  }
+
+  @spec beijing_utc_offset_hours() :: pos_integer()
+  def beijing_utc_offset_hours, do: @beijing_utc_offset_hours
+
+  @doc "The windowed-pricing schedule for a provider, or `nil` when it has none."
+  @spec window_schedule(atom()) :: map() | nil
+  def window_schedule(:deepseek), do: @deepseek_window_schedule
+  def window_schedule(_provider), do: nil
+
   # One model maps to one or more `{effective_date, rates, tag}` revisions.
   # Effective dates are inclusive and the next revision in a series is the
   # exclusive bound (see `Aiur.Usage.PriceTable`), so a repricing is an
   # addition that leaves historical spend correctly valued. `tag` decorates the
-  # price revision so a deliberately-windowed rate (e.g. `:peak`) is
-  # self-describing in cost surfaces.
+  # price revision so a deliberately-windowed rate (`:peak` / `:off_peak`) is
+  # self-describing in cost surfaces; the window the rate prices under is the
+  # `window` field every entry carries (`:flat` for rates with no window).
   @openai_compat_models %{
     kimi: [
       {"kimi-k2.7-code", [{@provider_effective_date, %{input: "0.95", cached_input: "0.19", output: "4.00"}, nil}]},
@@ -69,12 +102,29 @@ defmodule Aiur.Usage.PriceTable.Data do
          {@provider_effective_date, %{input: "0.14", cached_input: "0.0028", output: "0.28"}, nil},
          # DeepSeek repriced to peak/off-peak billing effective 16:00 UTC
          # 2026-08-16 (peak = 2x off-peak; verified against the live pricing
-         # docs). The price table is date-granular with one rate per dimension,
-         # so the conservative PEAK rate is priced here: it can never hide
-         # overspend (the retained $0.28 output rate under-reported peak spend
-         # by up to 79%). The off-peak schedule ($0.22 input / $0.007 cached /
-         # $0.66 output) is time-of-day dependent and tracked by #1456.
-         {~D[2026-08-16], %{input: "0.44", cached_input: "0.014", output: "1.32"}, :peak}
+         # docs 2026-08-22). The window a call lands in is resolved from its
+         # occurrence time via `@deepseek_window_schedule`; when the window
+         # cannot be determined the conservative PEAK rate is priced here: it
+         # can never hide overspend (the retained $0.28 output rate
+         # under-reported peak spend by up to 79%). The off-peak schedule
+         # ($0.22 input / $0.007 cached / $0.66 output) is time-of-day
+         # dependent.
+         {~D[2026-08-16], %{input: "0.44", cached_input: "0.014", output: "1.32"}, :peak},
+         {~D[2026-08-16], %{input: "0.22", cached_input: "0.007", output: "0.66"}, :off_peak}
+       ]},
+      # deepseek-v4-pro and deepseek-v4-flash-vision-exp share the same
+      # peak/off-peak regime and 50% split; their first reviewed peak/off-peak
+      # revisions are anchored to the flash repricing date (2026-08-16), and
+      # spend before that date is reported as unknown rather than guessed.
+      {"deepseek-v4-pro",
+       [
+         {~D[2026-08-16], %{input: "1.32", cached_input: "0.044", output: "3.96"}, :peak},
+         {~D[2026-08-16], %{input: "0.66", cached_input: "0.022", output: "1.98"}, :off_peak}
+       ]},
+      {"deepseek-v4-flash-vision-exp",
+       [
+         {~D[2026-08-16], %{input: "0.44", cached_input: "0.014", output: "1.32"}, :peak},
+         {~D[2026-08-16], %{input: "0.22", cached_input: "0.007", output: "0.66"}, :off_peak}
        ]}
     ],
     openrouter: [
@@ -132,10 +182,21 @@ defmodule Aiur.Usage.PriceTable.Data do
     [
       input: rates.input,
       cached_input: rates.cached_input,
+      # OpenAI-compatible providers bill cache-write tokens as input, and the
+      # relationship definition makes `cache_creation_input` a subset of input,
+      # so the subset remainder prices exactly at the input rate.
+      cache_creation_input: rates.input,
       output: rates.output,
       reasoning_output: rates.output
     ]
   end
+
+  # The revision tag becomes the entry's `window` field: `:flat` for rates with
+  # no time-of-day behaviour, `:peak` / `:off_peak` for windowed revisions that
+  # `Aiur.Usage.PriceTable` selects by occurrence time.
+  defp window_tag(nil), do: :flat
+  defp window_tag(:peak), do: :peak
+  defp window_tag(:off_peak), do: :off_peak
 
   defp openai_compat_entry(provider, model, dimension, price, effective_date, tag) do
     %{
@@ -144,6 +205,7 @@ defmodule Aiur.Usage.PriceTable.Data do
       token_dimension: dimension,
       relationship_revision: openai_compat_relationship(provider),
       currency: "USD",
+      window: window_tag(tag),
       context_tier: :not_applicable,
       cache_write_duration: :not_applicable,
       price: price,
@@ -175,6 +237,7 @@ defmodule Aiur.Usage.PriceTable.Data do
         token_dimension: dimension,
         relationship_revision: relationship_revision(provider),
         currency: "USD",
+        window: :flat,
         price: price,
         token_unit: @token_unit,
         effective_date: @effective_date,
