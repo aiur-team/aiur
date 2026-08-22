@@ -7,9 +7,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
-  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias AiurWeb.Endpoint
 
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 0, record: 3]
