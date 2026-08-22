@@ -25,15 +25,16 @@ defmodule Aiur.Opencode.Server do
     # Pre-allocating via gen_tcp.listen + close races against opencode's bind in TIME_WAIT.
     command = serve_command(host)
 
+    # Trap exits so terminate/2 always runs and reaps the opencode child. A
+    # start_link owner that dies abruptly (an ExUnit test process exiting at
+    # the end of its case, a slot worker killed mid-boot) otherwise kills this
+    # process via link teardown *before* any on_exit/GenServer.stop reaping
+    # runs, orphaning `opencode serve` to outlive the VM (#2340).
+    Process.flag(:trap_exit, true)
+
     # Non-login `-c`: a login shell reloads /etc/profile and drops the mise PATH the BEAM inherited.
     port_ref =
-      Port.open({:spawn_executable, System.find_executable("bash") || "/bin/bash"}, [
-        :binary,
-        :exit_status,
-        cd: workspace,
-        env: launch_env(workspace),
-        args: ["-c", command]
-      ])
+      Port.open({:spawn_executable, System.find_executable("bash") || "/bin/bash"}, port_opts(workspace, command))
 
     os_pid =
       case Port.info(port_ref, :os_pid) do
@@ -70,6 +71,27 @@ defmodule Aiur.Opencode.Server do
         {~c"OPENCODE_CONFIG_CONTENT", false},
         {~c"OPENCODE_CONFIG_DIR", String.to_charlist(workspace)}
       ]
+  end
+
+  @doc false
+  # Port options for the opencode-serve launch. `:stderr_to_stdout` routes the
+  # child's stderr through the port pipe instead of letting it inherit the
+  # BEAM's stderr. A child (or a child still winding down during teardown)
+  # that inherits the suite's stderr keeps the pipe open after the BEAM exits,
+  # so a piped `mix test | cat`/CI capture never sees EOF past the summary.
+  # Every other long-lived `Port.open` launch in the app (the codex app-server,
+  # model discovery, the GitHub budget probe) already isolates stdio this way;
+  # the opencode serve was the backend that missed it (#2340).
+  @spec port_opts(Path.t(), String.t()) :: [term()]
+  def port_opts(workspace, command) do
+    [
+      :binary,
+      :exit_status,
+      :stderr_to_stdout,
+      cd: workspace,
+      env: launch_env(workspace),
+      args: ["-c", command]
+    ]
   end
 
   @impl true
@@ -134,16 +156,34 @@ defmodule Aiur.Opencode.Server do
   @impl true
   def terminate(_reason, state) do
     if is_port(state.port_ref) do
-      case Port.info(state.port_ref, :os_pid) do
-        {:os_pid, pid} -> Aiur.ProcessReaper.unregister({:os_pid, pid})
-        _ -> :ok
-      end
+      os_pid =
+        case Port.info(state.port_ref, :os_pid) do
+          {:os_pid, pid} ->
+            Aiur.ProcessReaper.unregister({:os_pid, pid})
+            pid
 
-      reap_opencode_children(state.port_ref)
-      Port.close(state.port_ref)
+          _ ->
+            nil
+        end
+
+      # Close the port first while it is definitely open: killing the child
+      # below auto-closes the port via the :exit_status path, and closing an
+      # already-closed port raises ArgumentError (also possible if the child
+      # crashed on its own and the port already auto-closed).
+      close_port(state.port_ref)
+      reap_opencode_children(os_pid)
     end
 
     :ok
+  end
+
+  # The BEAM can auto-close the port (child exit) before terminate runs on the
+  # `{:exit_status, ...}` crash path; closing a closed port raises.
+  defp close_port(port) do
+    Port.close(port)
+    :ok
+  rescue
+    ArgumentError -> :ok
   end
 
   # `Port.close/1` only closes the file descriptors — Node-based
@@ -155,19 +195,47 @@ defmodule Aiur.Opencode.Server do
   #
   # `bash -c "<single command>"` implicitly execs into the command, so
   # the port's `os_pid` IS the opencode-serve PID (not a bash wrapper
-  # PID). Signal it directly.
-  defp reap_opencode_children(port_ref) do
-    case Port.info(port_ref, :os_pid) do
-      {:os_pid, pid} ->
-        try do
-          System.cmd("kill", ["-TERM", to_string(pid)], stderr_to_stdout: true)
-        catch
-          _, _ -> :ok
-        end
+  # PID). The BEAM's port spawn also makes it a session/process-group
+  # leader (os_pid == pgid), so signalling the group reaches the serve
+  # and any Node tool children it spawned. Send SIGTERM, give it a short
+  # grace to shut down cleanly (it owns a SQLite DB), then SIGKILL —
+  # a fire-and-forget SIGTERM can leave a slow-to-die serve alive long
+  # enough to survive the VM exit and hold a pipe open (#2340).
+  @terminate_grace_ms 1_000
 
-      _ ->
-        :ok
+  defp reap_opencode_children(os_pid) when is_integer(os_pid) and os_pid > 0 do
+    reap_process_group(os_pid)
+  end
+
+  defp reap_opencode_children(_os_pid), do: :ok
+
+  defp reap_process_group(pid) do
+    _ = System.cmd("kill", ["-TERM", "-#{pid}"], stderr_to_stdout: true)
+
+    if wait_for_process_exit(pid, @terminate_grace_ms) do
+      :ok
+    else
+      _ = System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
+      :ok
     end
+  end
+
+  defp wait_for_process_exit(pid, remaining_ms) when remaining_ms <= 0, do: not process_alive?(pid)
+
+  defp wait_for_process_exit(pid, remaining_ms) do
+    if process_alive?(pid) do
+      Process.sleep(50)
+      wait_for_process_exit(pid, remaining_ms - 50)
+    else
+      true
+    end
+  end
+
+  defp process_alive?(pid) do
+    {_output, status} = System.cmd("kill", ["-0", to_string(pid)], stderr_to_stdout: true)
+    status == 0
+  catch
+    _, _ -> false
   end
 
   defp os_pid(port_ref) do
