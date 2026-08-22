@@ -110,7 +110,7 @@ defmodule Aiur.Events.Publisher do
   @spec publish(String.t(), map(), keyword()) ::
           {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
-    require_resource_source!(opts)
+    _resource_source = require_resource_source!(opts)
     outcome = rejection(topic, payload, opts)
     record_webhook_activity(outcome, opts)
 
@@ -180,7 +180,6 @@ defmodule Aiur.Events.Publisher do
 
   defp require_resource_source!(opts) do
     if Keyword.has_key?(opts, :resource), do: Keyword.fetch!(opts, :resource_source)
-    :ok
   end
 
   # The gates, in the order they are cheapest to answer and most decisive.
