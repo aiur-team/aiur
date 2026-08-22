@@ -137,7 +137,9 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
   .ghc-usage-split-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .ghc-usage-unmeasured .ghc-usage-split-value { color: var(--muted); font-size: 0.9375rem; font-weight: 500; }
 
-  .ghc-usage-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+  .ghc-usage-table-scroll { max-width: 100%; overflow-x: auto; }
+  .ghc-usage-table-scroll:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+  .ghc-usage-table { width: 100%; min-width: 48rem; border-collapse: collapse; font-size: 0.8125rem; }
   .ghc-usage-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 0.25rem 0.5rem; }
   .ghc-usage-table td { padding: 0.25rem 0.5rem; border-top: 1px solid var(--hairline); font-variant-numeric: tabular-nums; }
   .ghc-usage-table td:first-child { font-variant-numeric: normal; }

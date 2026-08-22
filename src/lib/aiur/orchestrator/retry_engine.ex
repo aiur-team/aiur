@@ -525,6 +525,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       :continuation,
       :capacity_wait,
       :model_limit_wait,
+      :local_budget_hold,
       :precondition,
       :terminal_verification
     ]
@@ -638,6 +639,11 @@ defmodule Aiur.Orchestrator.RetryEngine do
     max(Config.poll_interval_seconds() * 1_000, 10_000)
   end
 
+  def retry_delay(_attempt, %{delay_type: :local_budget_hold, local_budget_hold: hold}) do
+    reset_delay = local_budget_reset_delay(hold)
+    min(max(reset_delay, 1_000), Config.settings!().agent.max_retry_backoff_ms)
+  end
+
   def retry_delay(_attempt, %{
         delay_type: :precondition,
         retry_poll_failures: retry_poll_failures
@@ -739,6 +745,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
       :capacity_wait ->
         Logger.warning("Retrying capacity precondition issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt})#{error_suffix}")
 
+      :local_budget_hold ->
+        Logger.warning("Retrying local GitHub budget hold issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt})#{error_suffix}")
+
       :precondition ->
         Logger.warning(
           "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=#{identifier} in #{delay_ms}ms (agent_attempt #{attempt}, retry_poll_failure #{retry_poll_failures}/#{@max_retry_poll_failures})#{error_suffix}"
@@ -775,7 +784,31 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
+  @doc false
+  @spec handle_retry_poll_failure(State.t(), String.t(), integer(), map(), term()) :: State.t()
+  def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, {:aiur, :locally_held, hold} = reason)
+      when is_map(hold) do
+    identifier = metadata[:identifier] || issue_id
+
+    Logger.warning(
+      "Retry poll deferred by local GitHub budget for issue_id=#{issue_id} issue_identifier=#{identifier} " <>
+        "agent_attempt=#{attempt} hold=#{inspect(hold)}"
+    )
+
+    schedule_issue_retry(
+      state,
+      issue_id,
+      attempt,
+      Map.merge(metadata, %{
+        delay_type: :local_budget_hold,
+        local_budget_hold: hold,
+        error: "retry poll locally held: #{inspect(reason)}",
+        retry_poll_failures: normalize_retry_poll_failures(metadata[:retry_poll_failures])
+      })
+    )
+  end
+
+  def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
     retry_poll_failures = normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
 
@@ -807,6 +840,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
           terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
         })
       )
+    end
+  end
+
+  defp local_budget_reset_delay(hold) do
+    case Map.get(hold, :reset_at) || Map.get(hold, "reset_at") do
+      %DateTime{} = reset_at -> max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 1_000)
+      _missing -> max(Config.poll_interval_seconds() * 1_000, 10_000)
     end
   end
 

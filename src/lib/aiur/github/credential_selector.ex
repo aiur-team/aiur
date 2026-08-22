@@ -53,21 +53,27 @@ defmodule Aiur.GitHub.CredentialSelector do
   The request with its `:token` (and `:credential_id`) set to the selected
   credential.
 
-  Returns the request untouched when pooling is not configured, which is the
-  default. One credential means there is nothing to choose and the legacy path
-  must stay exactly as it was.
+  One credential still keeps the request's token unchanged, but attaches the
+  stable accounting identity used by the broker and headroom meter.
   """
   @spec assign(map(), keyword()) :: map()
   def assign(request, opts \\ [])
 
   def assign(%{token: token} = request, opts) when is_binary(token) do
-    if CredentialRegistry.pooled?(opts) do
-      case select(request, opts) do
-        %Credential{} = credential -> apply_credential(request, credential)
-        _none -> request
-      end
-    else
-      request
+    case CredentialRegistry.credentials(opts) do
+      [_first, _second | _rest] = credentials ->
+        credentials
+        |> choose_from(resource(request), intent(request), opts)
+        |> then(fn
+          %Credential{} = credential -> apply_credential(request, credential)
+          _none -> request
+        end)
+
+      [%Credential{} = credential] ->
+        attach_accounting_identity(request, credential)
+
+      _none ->
+        request
     end
   end
 
@@ -86,6 +92,11 @@ defmodule Aiur.GitHub.CredentialSelector do
   def choose(resource, intent, opts \\ []) do
     opts
     |> CredentialRegistry.credentials()
+    |> choose_from(resource, intent, opts)
+  end
+
+  defp choose_from(credentials, resource, intent, opts) do
+    credentials
     |> Enum.filter(&Credential.eligible?(&1, intent))
     |> select_from(resource, opts)
     |> only_eligible(intent)
@@ -153,7 +164,8 @@ defmodule Aiur.GitHub.CredentialSelector do
     opts
     |> CredentialRegistry.configured()
     |> Enum.map(fn credential ->
-      token_key = Credential.token_key(credential)
+      available? = Credential.token(credential) != nil
+      token_key = Credential.identity_key(credential)
 
       %{
         id: credential.id,
@@ -161,7 +173,7 @@ defmodule Aiur.GitHub.CredentialSelector do
         identity: credential.identity,
         writes?: credential.writes?,
         primary?: credential.primary?,
-        available?: token_key != nil,
+        available?: available?,
         token_key: token_key,
         windows: Map.get(windows, token_key, %{})
       }
@@ -222,7 +234,7 @@ defmodule Aiur.GitHub.CredentialSelector do
   end
 
   defp observed_window(credential, resource, now, opts) do
-    token_key = Credential.token_key(credential)
+    token_key = Credential.identity_key(credential)
 
     case Keyword.fetch(opts, :windows) do
       {:ok, windows} -> windows |> Map.get(token_key, %{}) |> Map.get(resource)
@@ -232,8 +244,20 @@ defmodule Aiur.GitHub.CredentialSelector do
 
   defp apply_credential(request, credential) do
     case Credential.token(credential) do
-      token when is_binary(token) -> request |> Map.put(:token, token) |> Map.put(:credential_id, credential.id)
-      _unavailable -> request
+      token when is_binary(token) ->
+        request
+        |> Map.put(:token, token)
+        |> Map.put(:credential_id, credential.id)
+        |> Map.put(:credential_key, Credential.identity_key(credential))
+
+      _unavailable ->
+        request
     end
+  end
+
+  defp attach_accounting_identity(request, credential) do
+    if Credential.token(credential) == Map.get(request, :token),
+      do: Map.put(request, :credential_key, Credential.identity_key(credential)),
+      else: request
   end
 end

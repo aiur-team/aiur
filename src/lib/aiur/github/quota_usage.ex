@@ -2,11 +2,11 @@ defmodule Aiur.GitHub.QuotaUsage do
   @moduledoc """
   A read-only projection of `Aiur.GitHub.Quota` shaped for the usage charts.
 
-  The `/github-cache` page can answer "who is spending the GitHub budget" that
-  the `aiur github-cost` CLI cannot: the CLI boots a throwaway BEAM and reads an
-  empty meter, while the dashboard runs inside the daemon and reads the live
-  one. This module is the arithmetic between that meter and a chart, kept pure
-  so it can be tested against a fixed snapshot with no daemon.
+  Both the `/github-cache` page and `aiur github-cost` can answer "who is
+  spending the GitHub budget": the CLI reaches the running daemon through its
+  control RPC, so both surfaces read the same live meter. This module is the
+  arithmetic between that meter and a chart, kept pure so it can be tested
+  against a fixed snapshot with no daemon.
 
   ## The two budgets are never summed
 

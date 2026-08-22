@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.Transport do
           result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
 
           :ok =
-            Budget.observe(request, result,
+            Budget.observe(request, lease, result,
               timeout_ms: max(remaining_deadline_ms(deadline_at_ms), 1),
               deadline_at: deadline_at_ms
             )

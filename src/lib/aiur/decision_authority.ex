@@ -1,6 +1,7 @@
 defmodule Aiur.DecisionAuthority do
   @moduledoc """
-  Evaluates whether the configured supervising agent may mutate a Decision.
+  Evaluates whether the configured supervising agent may mutate a Decision and
+  exposes the narrower floor for direct Executor answers.
 
   The policy is deliberately narrowing: `human_required` is absolute, a kind
   must appear in the explicit allowlist, and non-reversible work needs a second
@@ -8,6 +9,7 @@ defmodule Aiur.DecisionAuthority do
   """
 
   @delegable_authorities [:supervisor_allowed, :supervisor_preferred]
+  @executor_answerable_reversibilities [:reversible]
   @non_reversible [:irreversible, :partially_reversible]
 
   @type policy :: %{
@@ -74,6 +76,22 @@ defmodule Aiur.DecisionAuthority do
       policy
     )
   end
+
+  @doc "Returns whether the Executor may answer the Decision without the operator."
+  @spec executor_answerable?(map()) :: boolean()
+  def executor_answerable?(decision) when is_map(decision) do
+    executor_authority_answerable?(decision) and executor_reversibility_answerable?(decision)
+  end
+
+  @doc false
+  @spec executor_authority_answerable?(map()) :: boolean()
+  def executor_authority_answerable?(decision) when is_map(decision),
+    do: Map.get(decision, :authority) in @delegable_authorities
+
+  @doc false
+  @spec executor_reversibility_answerable?(map()) :: boolean()
+  def executor_reversibility_answerable?(decision) when is_map(decision),
+    do: Map.get(decision, :reversibility) in @executor_answerable_reversibilities
 
   defp normalize_policy(%{allowed_kinds: allowed_kinds} = policy) when is_list(allowed_kinds) do
     %{

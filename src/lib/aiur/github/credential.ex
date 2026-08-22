@@ -15,7 +15,7 @@ defmodule Aiur.GitHub.Credential do
   repository already depends on.
   """
 
-  alias Aiur.GitHub.{AppTokenRefresher, Budget}
+  alias Aiur.GitHub.{AppCredentials, AppTokenRefresher, Budget}
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   @enforce_keys [:id, :kind]
@@ -54,13 +54,30 @@ defmodule Aiur.GitHub.Credential do
 
   def token(%__MODULE__{}), do: nil
 
-  @doc "The broker's one-way key for this credential's current token, or `nil`."
+  @doc "The broker's stable one-way key for this configured credential, or `nil` when unavailable."
   @spec token_key(t()) :: String.t() | nil
   def token_key(%__MODULE__{} = credential) do
     case token(credential) do
-      token when is_binary(token) -> Budget.token_key(token)
+      token when is_binary(token) -> identity_key(credential)
       _unavailable -> nil
     end
+  end
+
+  @doc "The stable one-way key independent of whether the current token resolves."
+  @spec identity_key(t()) :: String.t()
+  def identity_key(%__MODULE__{} = credential), do: Budget.identity_key(stable_identity(credential))
+
+  @doc "The non-secret stable identity input used to derive `token_key/1`."
+  @spec stable_identity(t()) :: String.t()
+  def stable_identity(%__MODULE__{kind: :app_installation, id: id}) do
+    app_id = AppCredentials.app_id() || "unknown-app"
+    installation_id = AppCredentials.installation_id() || "unknown-installation"
+    "app_installation:#{normalize_part(id)}:#{normalize_part(app_id)}:#{normalize_part(installation_id)}"
+  end
+
+  def stable_identity(%__MODULE__{kind: kind, id: id, identity: identity}) do
+    login = normalize_part(identity || id)
+    "#{kind}:#{normalize_part(id)}:#{login}"
   end
 
   @doc """
@@ -90,4 +107,6 @@ defmodule Aiur.GitHub.Credential do
   end
 
   defp normalize(_value), do: nil
+
+  defp normalize_part(value), do: value |> to_string() |> String.trim() |> String.downcase()
 end
