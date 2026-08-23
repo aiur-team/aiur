@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   alias Aiur.Events.{Exchange, GithubWebhook, Publisher}
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.GitHub.ReadCache
   alias Aiur.Webhooks
   alias Aiur.Webhooks.ModeRegistry
   alias Aiur.Workflow
@@ -307,6 +308,18 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("check_run", delivery, repo: @repo)
     end
 
+    test "a resolved pull request review thread reconciles without publishing a comment" do
+      delivery = %{
+        "action" => "resolved",
+        "repository" => %{"full_name" => @repo},
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug"}},
+        "thread" => %{"node_id" => "PRRT_resolved", "is_resolved" => true, "updated_at" => "2026-08-21T10:00:00Z"}
+      }
+
+      assert {:reconcile, %{kind: :review_threads, ticket: "42", pull_request: 901, source: "pull_request_review_thread"}} =
+               Normalizer.normalize("pull_request_review_thread", delivery, repo: @repo)
+    end
+
     test "an in-progress check is dropped" do
       delivery = %{
         "action" => "created",
@@ -381,6 +394,17 @@ defmodule Aiur.Events.GithubWebhookTest do
   # seam is actually wired: each one reads the mode back through the registry
   # rather than the return value, so dropping the call turns them red.
   describe "webhook proof of life" do
+    test "a delivery retires the read-cache entries for the issue it carries" do
+      request = graphql_request(42)
+
+      assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      assert %{status: :published} =
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(), repo: @repo)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
     test "a delivery for the tracked repo promotes it from configured-unproven to webhook-backed" do
       registry = start_mode_registry([@repo])
 
@@ -449,6 +473,19 @@ defmodule Aiur.Events.GithubWebhookTest do
       start_supervised({ModeRegistry, name: name, configured_repos: configured_repos, silence_threshold_ms: 900_000, sweep_interval_ms: 3_600_000, alert_fun: fn _name, _message, _opts -> :ok end})
 
     name
+  end
+
+  defp graphql_request(number) do
+    %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "t",
+      body: %{
+        "query" => "query Q($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: #{number}) { ... on Issue { title } } } }",
+        "variables" => %{"owner" => "owner", "repo" => "repo"}
+      },
+      caller: "issue_relationships"
+    }
   end
 
   defp issue_comment_delivery(repository \\ %{"full_name" => @repo}, comment \\ nil) do

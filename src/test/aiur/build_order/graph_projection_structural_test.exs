@@ -152,26 +152,33 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
         start: {Task.Supervisor, :start_link, [[]]}
       })
 
-    start_supervised!(%{
-      id: make_ref(),
-      start:
-        {GraphProjection, :start_link,
-         [
+    projection =
+      start_supervised!(%{
+        id: make_ref(),
+        start:
+          {GraphProjection, :start_link,
            [
-             name: nil,
-             task_supervisor: task_supervisor,
-             authority_snapshot: &authority/0,
-             configuration_subscriber: fn _pid -> :ok end,
-             catalog_reader: blocking_reader(parent, :catalog),
-             selected_reader: fn identity, _reader_opts ->
-               blocking_read(parent, {:selected, identity})
-             end,
-             now: now_fun(clock),
-             clock_ms: clock_ms_fun(clock),
-             after_broadcast: fn event -> send(parent, {:projection_event, event}) end
-           ]
-         ]}
-    })
+             [
+               name: nil,
+               task_supervisor: task_supervisor,
+               authority_snapshot: &authority/0,
+               configuration_subscriber: fn _pid -> :ok end,
+               catalog_reader: blocking_reader(parent, :catalog),
+               selected_reader: fn identity, _reader_opts ->
+                 blocking_read(parent, {:selected, identity})
+               end,
+               now: now_fun(clock),
+               clock_ms: clock_ms_fun(clock),
+               after_broadcast: fn event -> send(parent, {:projection_event, event}) end
+             ]
+           ]}
+      })
+
+    # The catalog is demand-gated since #2312: these tests drive its reads, so
+    # register the test process as the viewer a page would be.
+    GraphProjection.subscribe_catalog(projection)
+
+    projection
   end
 
   defp publish_catalog(projection, roots) do

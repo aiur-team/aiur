@@ -63,7 +63,9 @@ Press `?` in the board for the on-screen keybind and state-circle help.
 
 | Launch | Terminal behavior |
 | --- | --- |
-| `aiur` | Foreground board and chat panes. |
-| `aiur --bg --interactive` | Background daemon with attached TUI. |
+| `aiur` | Starts the foreground board when absent, or attaches to this repository's live session. Detaching an existing session leaves its run healthy. |
+| `aiur --bg --interactive` | Background daemon with an attachable TUI; run bare `aiur` later from the same repository to attach. |
 | `aiur --bg` | Headless; Dashboard and CLI remain available for an agent Executor. |
 | `aiur --debug` | Records attached panes at `log/record/chat.<issue>.ansi`. |
+
+Session lookup is per repository, so concurrent runs in different directories attach independently. Attaching to a default headless `--bg` session reconnects to its tmux lifetime holder, but it cannot add the TUI processes that were intentionally omitted at launch; use `--bg --interactive` when later TUI attachment is required.

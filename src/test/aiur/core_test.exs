@@ -147,7 +147,7 @@ defmodule Aiur.CoreTest do
     assert :ok = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: ["relative/path"]}
+      codex_turn_sandbox_policy: %{type: "workspaceWrite", writableRoots: [System.tmp_dir!()]}
     )
 
     assert :ok = Config.validate!()

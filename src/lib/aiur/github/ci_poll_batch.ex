@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -58,7 +58,13 @@ defmodule Aiur.GitHub.CIPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, owner, repo, opts)) |> Enum.chunk_every(@targets_per_query)
+      repo_identity = owner <> "/" <> repo
+      started_at_ms = System.system_time(:millisecond)
+
+      chunks =
+        targets
+        |> Enum.map(&target_entry(&1, owner, repo, opts, repo_identity, started_at_ms))
+        |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -77,12 +83,23 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  # The store is consulted before the query is written, not after it comes back.
-  defp target_entry(target, owner, repo, opts) do
-    case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-      number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
-      nil -> branch_target_entry(target, opts)
-    end
+  # Both store reads happen before the query is written. DeliveredPullRequest
+  # chooses the exact identity; PollSnapshots decides whether delivered check
+  # run fields can be omitted for that target. Legacy statuses remain live.
+  defp target_entry(target, owner, repo, opts, repo_identity, started_at_ms) do
+    entry =
+      case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
+        number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
+        nil -> branch_target_entry(target, opts)
+      end
+
+    cached_contexts =
+      case PollSnapshots.ci_contexts(repo_identity, target, opts) do
+        {:ok, contexts} -> contexts
+        :miss -> nil
+      end
+
+    Map.merge(entry, %{cached_contexts: cached_contexts, repo_identity: repo_identity, started_at_ms: started_at_ms})
   end
 
   defp branch_target_entry(target, opts) do
@@ -151,33 +168,53 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp branch_aliases(%{pull_request_number: number}, index) when is_integer(number) do
+  defp branch_aliases(%{pull_request_number: number} = entry, index) when is_integer(number) do
     """
-    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields()} }
+    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields(entry)} }
     """
   end
 
-  defp branch_aliases(%{branches: branches}, index) do
+  defp branch_aliases(%{branches: branches} = entry, index) do
     branches
     |> Enum.with_index()
-    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, index, candidate) end)
+    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, entry, index, candidate) end)
   end
 
-  defp branch_alias(branch, index, candidate) do
+  defp branch_alias(branch, entry, index, candidate) do
     """
     branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
-      nodes { #{pull_request_fields()} }
+      nodes { #{pull_request_fields(entry)} }
     }
     """
   end
 
-  defp pull_request_fields do
+  defp pull_request_fields(entry) do
     """
     number state headRefName headRefOid baseRefName
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
+    #{contexts_selection(entry)}
+    """
+  end
+
+  defp contexts_selection(%{cached_contexts: %{} = _contexts}) do
+    """
+    commits(last: 1) {
+      nodes {
+        commit {
+          status {
+            contexts { context state targetUrl createdAt description }
+          }
+        }
+      }
+    }
+    """
+  end
+
+  defp contexts_selection(_entry) do
+    """
     commits(last: 1) {
       nodes {
         commit {
@@ -186,7 +223,7 @@ defmodule Aiur.GitHub.CIPollBatch do
               pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { name status conclusion detailsUrl startedAt completedAt }
+                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt }
                 ... on StatusContext { context state targetUrl createdAt description }
               }
             }
@@ -281,12 +318,47 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_first_pull_request(acc, entry, node) do
     result = normalize_pull_request(node)
 
-    if Map.get(result, :contexts_overflow) do
-      Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
-      acc
-    else
-      Map.put(acc, entry.target, result)
+    cond do
+      cached_contexts_match?(entry, result) and not Map.get(result, :contexts_overflow) ->
+        Map.put(acc, entry.target, put_cached_contexts(result, entry.cached_contexts))
+
+      cached_contexts_match?(entry, result) ->
+        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+        acc
+
+      is_map(entry.cached_contexts) ->
+        # The held selection belongs to an older head. This query deliberately
+        # omitted check-run fields, so leave the target to its exact fallback
+        # rather than returning an invented empty CI result.
+        acc
+
+      Map.get(result, :contexts_overflow) ->
+        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+        acc
+
+      true ->
+        PollSnapshots.put_ci_contexts(
+          entry.repo_identity,
+          entry.target,
+          get_in(result, [:pull_request, "head", "sha"]),
+          result.check_runs,
+          result.commit_status,
+          started_at_ms: entry.started_at_ms
+        )
+
+        Map.put(acc, entry.target, result)
     end
+  end
+
+  defp cached_contexts_match?(%{cached_contexts: %{"head_sha" => head_sha}}, result),
+    do: get_in(result, [:pull_request, "head", "sha"]) == head_sha
+
+  defp cached_contexts_match?(_entry, _result), do: false
+
+  defp put_cached_contexts(result, cached_contexts) do
+    result
+    |> Map.put(:check_runs, Map.fetch!(cached_contexts, "check_runs"))
+    |> Map.put(:contexts_overflow, false)
   end
 
   defp normalize_pull_request(node) do
@@ -323,14 +395,35 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp status_contexts(nil), do: {[], false}
 
   defp status_contexts(commit_node) when is_map(commit_node) do
-    contexts = get_in(commit_node, ["commit", "statusCheckRollup", "contexts"]) || %{}
-    {Map.get(contexts, "nodes", []), get_in(contexts, ["pageInfo", "hasNextPage"]) == true}
+    commit = Map.get(commit_node, "commit") || %{}
+
+    case Map.fetch(commit, "status") do
+      {:ok, %{"contexts" => statuses}} when is_list(statuses) ->
+        {Enum.map(statuses, &Map.put(&1, "__typename", "StatusContext")), false}
+
+      {:ok, _nil_or_malformed} ->
+        {[], false}
+
+      :error ->
+        contexts = get_in(commit, ["statusCheckRollup", "contexts"]) || %{}
+        {Map.get(contexts, "nodes", []), get_in(contexts, ["pageInfo", "hasNextPage"]) == true}
+    end
   end
 
   defp status_contexts(_commit_node), do: {[], false}
 
+  # Paired with `Aiur.Events.GithubWebhook.Deposit.normalize_check_run/1`, which
+  # shapes the same run out of a REST delivery so the two merge into one
+  # snapshot. The keys here are the contract between them: `"id"` must be the
+  # numeric database id on both sides or the merge cannot join a delivery to the
+  # polled baseline, and a key one side emits and the other omits silently
+  # changes shape when a delivery overwrites a polled run. The one deliberate
+  # asymmetry is `"updated_at"`, which only the delivery carries and which
+  # `PollSnapshots.check_run_marker/1` uses to refuse a late delivery. Change
+  # one, change both.
   defp normalize_check_run(check_run) do
     %{
+      "id" => Map.get(check_run, "databaseId"),
       "name" => Map.get(check_run, "name"),
       "status" => Map.get(check_run, "status") |> to_string() |> String.downcase(),
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),

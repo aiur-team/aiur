@@ -180,6 +180,18 @@ Distinguish three things that present identically as "the fleet is idle":
 Resolve a bottleneck when it can be done without adding much complexity. Do not
 invent work.
 
+**When the bottleneck is review, the remedy is parallel review, not fewer
+agents.** A queue that is growing with nothing approved is the Executor's own
+throughput ceiling, and it is the most common steady-state bottleneck once the
+fleet is healthy — on 2026-08-22 it reached 32 non-draft PRs with zero approved
+against twelve agents. Measure it as two numbers, because they mean different
+things: how many PRs have **never been reviewed** (a coverage problem) and how
+many are reviewed but **not approved** (a throughput problem). Fan background
+agents across the open PRs one per PR to clear it; `aiur-run`'s "Review the queue
+in parallel" section owns the how, including the prompt contents that make a
+review agent useful rather than a summarizer. Raising `max-agents` while the
+queue grows makes it worse.
+
 ## 3. File what is broken
 
 Every finding becomes a ticket, linked to the run's meta epic. Not a note, not a

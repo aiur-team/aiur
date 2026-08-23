@@ -3,10 +3,11 @@ defmodule Aiur.GitHubUsageCLI do
   `aiur github-usage` — who is driving the shared GitHub hourly budget.
 
   One command, one question: per actor (the daemon and each agent workspace),
-  how much of the hourly Core and GraphQL ceilings has been used and when does
-  the window roll. The broker's `admissions` already carried the endpoint family
-  for every admitted request; this reads them per consumer, so the answer to
-  "daemon or agents?" is a table rather than a reconciliation delta.
+  how much of the hourly Core, GraphQL and `search` ceilings has been used and
+  when does the window roll. The broker's `admissions` already carried the
+  endpoint family for every admitted request; this reads them per consumer, so
+  the answer to "daemon or agents?" is a table rather than a reconciliation
+  delta.
 
   The ceilings are request-count ceilings, not GraphQL point budgets. The
   broker sees the request, never the point price GitHub charged for a query, so
@@ -111,7 +112,8 @@ defmodule Aiur.GitHubUsageCLI do
     %{
       actor: actor_label(actor),
       core: Map.get(actor, :core, %{}),
-      graphql: Map.get(actor, :graphql, %{})
+      graphql: Map.get(actor, :graphql, %{}),
+      search: Map.get(actor, :search, %{})
     }
   end
 
@@ -141,6 +143,7 @@ defmodule Aiur.GitHubUsageCLI do
         IO.puts(actor["actor"])
         IO.puts("  core    #{usage_line(actor["core"], now)}")
         IO.puts("  graphql #{usage_line(actor["graphql"], now)}")
+        IO.puts("  search  #{usage_line(actor["search"], now)}")
       end)
     end
 
