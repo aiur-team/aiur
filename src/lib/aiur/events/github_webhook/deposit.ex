@@ -295,23 +295,69 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # Deliberately runs even when the store is not running: a delivery proves the
   # change whether or not there is anywhere to hold its body.
   defp invalidate_read_cache(event_type, payload, repo) do
-    number =
+    case delivery_numbers(event_type, payload) do
+      [] -> ReadCache.invalidate_repo(repo)
+      numbers -> Enum.each(numbers, &ReadCache.invalidate_number(repo, &1))
+    end
+  end
+
+  # The numbers a delivery names, read from the payload rather than from the
+  # `ResourceStore` keys written: a comment's store key is its comment id, which
+  # is not a `ReadCache` identity. GitHub numbers issues and pull requests from
+  # one sequence, so a delivery about either retires the single shared
+  # `{:number, ...}` identity.
+  #
+  # `check_run` and `check_suite` name their pull requests through the
+  # `pull_requests` array; `pull_request_review_thread` through the pull request
+  # it carries. Before #2372, all three fell through to "no nameable number"
+  # and retired the *whole repository* on every delivery — and on a repo with
+  # continuous CI activity that emptied the read cache faster than anything
+  # could be served from it: 0% hits with a full, freshly-deposited table. They
+  # now retire exactly the pull requests they name.
+  #
+  # A delivery with no nameable number (defensive; every handled event carries
+  # one) answers `[]`, and `invalidate_read_cache/3` then falls back to retiring
+  # the whole repository — the only thing known is that something in it changed,
+  # and guessing which read is the failure mode this cache cannot afford.
+  defp delivery_numbers(event_type, payload) do
+    candidates =
       case event_type do
         "issue_comment" ->
-          get_in(payload, ["issue", "number"])
+          [get_in(payload, ["issue", "number"])]
 
         event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
-          get_in(payload, ["pull_request", "number"])
+          [get_in(payload, ["pull_request", "number"])]
 
         "issues" ->
-          get_in(payload, ["issue", "number"])
+          [get_in(payload, ["issue", "number"])]
+
+        event when event in ["check_run", "check_suite"] ->
+          pull_request_numbers(get_in(payload, [event, "pull_requests"]))
+
+        "pull_request_review_thread" ->
+          [get_in(payload, ["pull_request", "number"])]
 
         _other ->
-          nil
+          []
       end
 
-    invalidate_numbered(repo, number)
+    candidates
+    |> Enum.flat_map(fn number ->
+      case parse_number(number) do
+        parsed when is_integer(parsed) -> [parsed]
+        _unusable -> []
+      end
+    end)
+    |> Enum.uniq()
   end
+
+  defp pull_request_numbers(nil), do: []
+
+  defp pull_request_numbers(pull_requests) when is_list(pull_requests) do
+    Enum.map(pull_requests, &get_in(&1, ["number"]))
+  end
+
+  defp pull_request_numbers(_other), do: []
 
   # The delivery retires what it changed through the same primitive
   # `write_through/3` uses for Aiur's own writes — `ReadCache.invalidate_number/2`
@@ -325,22 +371,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # delivery that skipped it would serve pre-delivery bytes for the whole TTL.
   # Over-invalidating costs one re-fetch of an enumerating read;
   # under-invalidating serves a stale list for the whole TTL.
-  #
-  # The number is read from the payload rather than from the `ResourceStore`
-  # keys written, because a comment's store key is its comment id, which is not
-  # a `ReadCache` identity; GitHub numbers issues and pull requests from one
-  # sequence, so a delivery about either retires the single shared
-  # `{:number, ...}` identity. A delivery with no nameable number (defensive;
-  # every handled event carries one) falls back to retiring the whole
-  # repository — the only thing known is that something in it changed, and
-  # guessing which read is the failure mode this cache cannot afford.
-  defp invalidate_numbered(repo, number) do
-    case parse_number(number) do
-      parsed when is_integer(parsed) -> ReadCache.invalidate_number(repo, parsed)
-      _unusable -> ReadCache.invalidate_repo(repo)
-    end
-  end
-
   defp parse_number(number) when is_integer(number) and number > 0, do: number
 
   defp parse_number(number) when is_binary(number) do
