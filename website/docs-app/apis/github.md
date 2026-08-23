@@ -28,7 +28,9 @@ The CI poll drops from its batch a target a `check_run` delivery already answere
 
 ## GitHub App authentication
 
-The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise. When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`), so a machine with only a keyring login can run Aiur. Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise.
+
+When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`). Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
 
 ### Set up the App
 
@@ -54,7 +56,9 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 | `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
 | `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
 
-`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`; the env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
+
+The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
 ### Token lifecycle
 

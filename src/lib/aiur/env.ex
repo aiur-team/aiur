@@ -35,6 +35,7 @@ defmodule Aiur.Env do
 
   alias Aiur.Env.Schema
   alias Aiur.Env.Types
+  alias Aiur.GitHub.Config
   alias Aiur.Init.Dotenv
   alias Aiur.SupervisorToken
 
@@ -81,7 +82,7 @@ defmodule Aiur.Env do
       credential requirement applies. `Aiur.Application` resolves this from
       the active tracker kind so a Linear or memory tracker does not demand
       GitHub credentials.
-    * `:keyring_fun` (default `&Aiur.GitHub.Config.keyring_token/0`) — how the
+    * `:keyring_fun` (default `&Config.keyring_token/0`) — how the
       gate learns about a `gh` keyring login, so tests can inject a stub. The
       default is the exact shell-out the runtime's token resolution uses, so
       a keyring-only `gh auth login` boots (#2376).
@@ -91,7 +92,7 @@ defmodule Aiur.Env do
   @spec validate_startup!(map(), keyword()) :: :ok
   def validate_startup!(env \\ System.get_env(), opts \\ []) do
     require_github = Keyword.get(opts, :require_github_credential, true)
-    keyring_fun = Keyword.get(opts, :keyring_fun, &Aiur.GitHub.Config.keyring_token/0)
+    keyring_fun = Keyword.get(opts, :keyring_fun, &Config.keyring_token/0)
 
     errors =
       case validate(env) do
