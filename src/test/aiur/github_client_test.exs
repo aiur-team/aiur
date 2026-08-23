@@ -706,6 +706,47 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_open_pull_requests_for_branch/2" do
+    test "returns every open PR for a ticket's branches, across pages" do
+      next_page = "https://api.github.com/repos/owner/repo/pulls?per_page=100&state=open&page=2"
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url == next_page ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [],
+               body: [%{"number" => 52, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}]
+             }}
+
+          url =~ "/repos/owner/repo/pulls?" ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [{"link", "<#{next_page}>; rel=\"next\""}],
+               body: [
+                 %{"number" => 50, "head" => %{"ref" => "feature/not-a-ticket"}},
+                 %{"number" => 51, "head" => %{"ref" => "aiur/35-parallel-branch"}}
+               ]
+             }}
+        end
+      end
+
+      assert {:ok, pull_requests} =
+               Client.fetch_open_pull_requests_for_branch(35, request_fun: request_fun)
+
+      assert Enum.map(pull_requests, &Map.get(&1, "number")) == [51, 52]
+    end
+
+    test "returns an empty list when the ticket has no open PR" do
+      request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
+
+      assert {:ok, []} =
+               Client.fetch_open_pull_requests_for_branch("35", request_fun: request_fun)
+    end
+  end
+
   describe "fetch_commit_ci_status/2" do
     test "fetches both latest check runs and legacy commit statuses for the head SHA" do
       request_fun = fn %{method: :get, url: url} ->

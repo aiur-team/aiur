@@ -71,10 +71,10 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | --- | --- | --- |
 | `ci-wait` | orchestrator | `src/lib/aiur/orchestrator/ci_lifecycle.ex:88-96`, callers `:1030,:1167` |
 | `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle.ex:1068-1076`, `:1366-1375`; `shared-agent-instructions.md:44,49,120` |
-| `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection | `ci_lifecycle.ex:1100-1109`; `comment_wake.ex:950`; `human_review.ex:144-147` |
+| `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle.ex:1100-1109`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:118-174` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume.ex:166-169` |
-| `human-review`, `merging` | **the agent itself**, via `gh issue edit` — not orchestrator code | `shared-agent-instructions.md:44,49,120` |
-| `done` | orchestrator on merge | `merged_ticket_reconciler.ex:52-57`; `comment_wake.ex:83` |
+| `human-review`, `merging` | **the agent itself**, via `gh issue edit`; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:118-174` |
+| `done` | orchestrator on merge — only when no other open PR remains | `merged_ticket_reconciler.ex:59-77`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
@@ -454,8 +454,13 @@ happened and burns a dispatch (`rework_gate.ex:3-13`).
 ## Step 8 — Merge
 
 Merge the PR yourself or delegate it to your Executor. `agent:merging` →
-`agent:done`; a merged PR closes the issue, the orchestrator stamps `done`
-(`merged_ticket_reconciler.ex:52-57`), and the agent never self-merges.
+`agent:done`; a merged PR closes the issue and the orchestrator stamps `done`
+(`merged_ticket_reconciler.ex:59-77`) — but only when the ticket has no other
+open pull request. A ticket can legitimately carry two open `aiur/<ticket>-`
+PRs, so a merge that leaves one still open routes the ticket to `rework`
+(that PR has unresolved review findings) or `human-review` (it is merely
+awaiting review) instead of `done`, keeping the remaining PR's findings
+dispatchable. The agent never self-merges.
 
 ## Where tickets get stuck
 

@@ -43,7 +43,8 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
           :ok
         end,
         resume_blockees_fun: fn state, _identifier -> state end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert candidates == [open]
