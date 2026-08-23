@@ -469,6 +469,15 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.polling.intervals == %{"dispatch" => 120, "planning" => 600, "review" => 300}
     end
 
+    test "intervals accepts 0 as the on-demand (no timer) value" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "polling" => %{"intervals" => %{"planning" => 0, "firehose" => 0}}
+        })
+
+      assert settings.polling.intervals == %{"planning" => 0, "firehose" => 0}
+    end
+
     test "intervals rejects an unknown class" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"polling" => %{"intervals" => %{"plannning" => 600}}})
@@ -477,12 +486,12 @@ defmodule Aiur.Config.SchemaTest do
       assert message =~ "planning"
     end
 
-    test "intervals rejects a non-positive value" do
+    test "intervals rejects a negative value" do
       assert {:error, {:invalid_workflow_config, message}} =
-               Schema.parse(%{"polling" => %{"intervals" => %{"planning" => 0}}})
+               Schema.parse(%{"polling" => %{"intervals" => %{"planning" => -1}}})
 
       assert message =~ "planning"
-      assert message =~ "positive integer"
+      assert message =~ "non-negative"
     end
 
     test "usage_interval_seconds defaults above the floor" do

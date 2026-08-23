@@ -18,7 +18,7 @@ defmodule Aiur.PollCadence do
   inspect CI, comments and Build Order cost real points every time and can safely
   run far less often. Each class resolves its own interval; `polling.intervals`
   names a class and overrides `polling.interval_seconds` for that class only, so
-  an operator can run planning at 10 minutes while dispatch stays at 2:
+  an operator can run planning on demand while dispatch stays at 2 minutes:
 
   ```yaml
   polling:
@@ -27,8 +27,19 @@ defmodule Aiur.PollCadence do
       dispatch: 120
       ci: 60
       review: 300
-      planning: 600
+      planning: 0                # on-demand: no timer
+      firehose: 0                # self-regulating via X-Poll-Interval
   ```
+
+  A class interval of **`0` means the class has no timer** — it is on-demand,
+  refreshed only when a consumer explicitly asks, never on a cadence. That is
+  the correct value for the two classes whose polls are already self-driven
+  (`:planning` — the Build Order catalog refreshes on demand via its
+  demand-gating, and `:firehose` — repo events already honour GitHub's
+  `X-Poll-Interval`), and it is where most of the saving is. `0` is
+  deliberately *not* a placeholder: it is rejected nowhere, published as `0`,
+  shown in `aiur status` as `planning=0s`, and an operator who configures it is
+  asking the expensive loop to stop running on the dispatch tick altogether.
 
   The classes are:
 
@@ -40,10 +51,13 @@ defmodule Aiur.PollCadence do
       demand-scoped).
     * `:review` — comments and review threads. Expensive, moderately urgent.
     * `:planning` — Build Order catalog, pack status, ad-hoc listings.
-      Expensive per call and not urgent.
+      Expensive per call and not urgent. `0` (on-demand) is the recommended
+      value: the catalog's only consumers are web pages and it is demand-gated,
+      so it needs no timer.
     * `:firehose` — repo events. Self-regulating via GitHub's `X-Poll-Interval`;
       the class exists so status can show its configured cadence, not to change
-      its loop.
+      its loop. `0` is the recommended value — stop deriving anything from the
+      global interval; GitHub is telling us the right number.
 
   **A consumer derives from the class it means.** `stale_after_ms(3, class:
   :dispatch)` and `stale_after_ms(3, class: :planning)` can legitimately answer
@@ -155,12 +169,37 @@ defmodule Aiur.PollCadence do
 
   The optional `class:` names the class; the default is `:dispatch`, so an
   un-named publish keeps the historical single-value meaning.
+
+  `0` is a valid publish for a class that is on-demand (no timer, #2309). A
+  schedule that is *negative* — a momentary "poll now" reschedule, say — leaves
+  the last real cadence in force rather than erasing it.
   """
   @spec publish_effective_interval_ms(term(), keyword()) :: :ok
   def publish_effective_interval_ms(interval_ms, opts \\ [])
 
   def publish_effective_interval_ms(interval_ms, opts)
       when is_integer(interval_ms) and interval_ms > 0 do
+    put_published(interval_ms, opts)
+  end
+
+  # A `0` publish is the on-demand answer for a class (#2309) and is meaningful
+  # only for an explicitly-named non-dispatch class. An un-named `0` — or a `0`
+  # for `:dispatch` itself — is a momentary "poll now" reschedule and leaves the
+  # last real cadence in force rather than erasing it.
+  def publish_effective_interval_ms(0, opts) do
+    case class_from(opts) do
+      :dispatch -> :ok
+      class -> put_published(0, class: class)
+    end
+  end
+
+  # A negative schedule — an immediate reschedule after an operator wake, say —
+  # leaves the last real cadence in force rather than erasing it. A momentary
+  # "poll now" is not evidence the rhythm changed, and dropping to the
+  # cold-start fallback would move every threshold for one tick.
+  def publish_effective_interval_ms(_interval_ms, _opts), do: :ok
+
+  defp put_published(interval_ms, opts) do
     class = class_from(opts)
     key = effective_key(class)
 
@@ -170,12 +209,6 @@ defmodule Aiur.PollCadence do
 
     :ok
   end
-
-  # A schedule that is not a positive interval — an immediate reschedule after
-  # an operator wake, say — leaves the last real cadence in force rather than
-  # erasing it. A momentary "poll now" is not evidence the rhythm changed, and
-  # dropping to the cold-start fallback would move every threshold for one tick.
-  def publish_effective_interval_ms(_interval_ms, _opts), do: :ok
 
   @doc false
   @spec forget_effective_interval_ms() :: :ok
@@ -195,8 +228,10 @@ defmodule Aiur.PollCadence do
   deriving a *cadence* needs to tell the two apart, because the cold-start
   fallback is deliberately the widest cadence the configuration permits and
   "widest" is the wrong default for something that fires.
+
+  `0` answers for a class the dispatcher has published as on-demand (#2309).
   """
-  @spec published_effective_interval_ms(keyword()) :: pos_integer() | nil
+  @spec published_effective_interval_ms(keyword()) :: non_neg_integer() | nil
   def published_effective_interval_ms(opts \\ []) do
     class = class_from(opts)
     published_for(class)
@@ -207,16 +242,28 @@ defmodule Aiur.PollCadence do
   widening, bounded by `@max_effective_interval_ms` so a remote `X-Poll-Interval`
   cannot decide how long Aiur calls its own data fresh.
 
+  `0` means the class is on-demand — it has no timer (#2309) — and is returned
+  as-is: an on-demand class has no cadence a threshold can derive from, so
+  callers must fall back to a floor (`stale_after_ms/2`) or handle on-demand
+  explicitly (`Aiur.BuildOrder.Cadence`).
+
   `class:` names the poll class; the default is `:dispatch`.
   """
-  @spec effective_interval_ms(keyword()) :: pos_integer()
+  @spec effective_interval_ms(keyword()) :: non_neg_integer()
   def effective_interval_ms(opts \\ []) do
     class = class_from(opts)
 
     interval_ms =
-      with nil <- positive_integer(Keyword.get(opts, :effective_interval_ms)),
-           nil <- positive_integer(published_for(class)) do
-        widest_configured_interval_ms(opts)
+      case published_for(class) do
+        # On-demand class: published `0`, no cadence at all (#2309).
+        0 ->
+          0
+
+        published_ms ->
+          with nil <- positive_integer(Keyword.get(opts, :effective_interval_ms)),
+               nil <- positive_integer(published_ms) do
+            widest_configured_interval_ms(opts)
+          end
       end
 
     min(interval_ms, @max_effective_interval_ms)
@@ -226,10 +273,13 @@ defmodule Aiur.PollCadence do
   The configured base interval for a class, before any widening.
 
   A class with an entry in `polling.intervals` uses that entry; any other class
-  (or an absent map) falls back to `polling.interval_seconds`. `class:` names
-  the class; the default is `:dispatch`.
+  (or an absent map) falls back to `polling.interval_seconds`. An entry of `0`
+  means the class is on-demand and has no base cadence — it resolves to `0`,
+  not to the fallback, because `0` is the explicit "no timer" answer (#2309).
+
+  `class:` names the class; the default is `:dispatch`.
   """
-  @spec base_interval_ms(keyword()) :: pos_integer()
+  @spec base_interval_ms(keyword()) :: non_neg_integer()
   def base_interval_ms(opts \\ []) do
     case positive_integer(Keyword.get(opts, :base_interval_ms)) do
       nil -> configured_base_interval_ms(class_from(opts))
@@ -242,25 +292,31 @@ defmodule Aiur.PollCadence do
   interval times the webhook widen factor times the idle widen factor.
 
   This is the cold-start answer, used before the dispatcher has published a
-  real one. `class:` names the class; the default is `:dispatch`.
+  real one. An on-demand class (base `0`) is `0` here too — the widest cadence
+  an on-demand class may run is none. `class:` names the class; the default is
+  `:dispatch`.
   """
-  @spec widest_configured_interval_ms(keyword()) :: pos_integer()
+  @spec widest_configured_interval_ms(keyword()) :: non_neg_integer()
   def widest_configured_interval_ms(opts \\ []) do
-    base_ms = base_interval_ms(opts)
+    case base_interval_ms(opts) do
+      0 ->
+        0
 
-    base_ms
-    |> IntervalPolicy.widen(webhook_widen_factor(opts))
-    |> IntervalPolicy.widen(idle_widen_factor(opts))
+      base_ms ->
+        base_ms
+        |> IntervalPolicy.widen(webhook_widen_factor(opts))
+        |> IntervalPolicy.widen(idle_widen_factor(opts))
+    end
   end
 
   @doc """
   The live cadence for every poll class, keyed by class.
 
   The status surface uses this to show an operator, without reading config, that
-  planning is at 10 minutes while dispatch is at 2. Each class resolves exactly
-  as `effective_interval_ms/1` would with that class named.
+  planning is on-demand (`0`) while dispatch is at 2 minutes. Each class resolves
+  exactly as `effective_interval_ms/1` would with that class named.
   """
-  @spec effective_intervals(keyword()) :: %{required(atom()) => pos_integer()}
+  @spec effective_intervals(keyword()) :: %{required(atom()) => non_neg_integer()}
   def effective_intervals(opts \\ []) do
     Map.new(@poll_classes, fn class ->
       {class, effective_interval_ms(Keyword.put(opts, :class, class))}
@@ -272,12 +328,15 @@ defmodule Aiur.PollCadence do
   still inside its class cadence.
 
   A poll loop that rides on the dispatch tick (comment poll, CI poll) throttles
-  itself to the cadence of the class it serves (#2309). Two limits keep this a
+  itself to the cadence of the class it serves (#2309). Three limits keep this a
   no-op where it must be:
 
     * `last_started_ms` is `nil` (never fired) — run now;
     * the class has no published cadence yet (cold start, or a harness without
-      a live dispatcher) — run every tick, exactly as before the throttle.
+      a live dispatcher) — run every tick, exactly as before the throttle;
+    * the class cadence is published as `0` (on-demand) — never run on the
+      dispatch tick at all, because the loop is demand-driven and has no timer
+      (#2309).
 
   Once the dispatcher has published the class cadence, the gate binds only when
   that cadence is wider than the dispatch tick the loop rides on; at default
@@ -285,14 +344,21 @@ defmodule Aiur.PollCadence do
   skips a tick the loop would have run on.
   """
   @spec within_class_cadence?(non_neg_integer() | nil, non_neg_integer(), atom()) :: boolean()
-  def within_class_cadence?(last_started_ms, now_ms, class) when is_integer(last_started_ms) do
+  def within_class_cadence?(last_started_ms, now_ms, class) do
     case published_effective_interval_ms(class: class) do
-      cadence_ms when is_integer(cadence_ms) and cadence_ms > 0 -> now_ms - last_started_ms < cadence_ms
-      _unpublished -> false
+      0 ->
+        true
+
+      cadence_ms when is_integer(cadence_ms) and cadence_ms > 0 ->
+        case last_started_ms do
+          nil -> false
+          last_started_ms -> now_ms - last_started_ms < cadence_ms
+        end
+
+      _unpublished ->
+        false
     end
   end
-
-  def within_class_cadence?(_last_started_ms, _now_ms, _class), do: false
 
   @doc """
   A "we should have heard by now" threshold, in milliseconds.
@@ -304,6 +370,11 @@ defmodule Aiur.PollCadence do
   correctness-critical reader that wants no staleness at all must be able to say
   so, and quietly widening it to a cycle would be the worst possible way to
   ignore that. Only an absent or invalid floor falls back to `1`.
+
+  For an on-demand class (base `0`, no cadence, #2309) `effective_interval_ms/1`
+  is `0`, so the derived term is `0` and the answer is the floor: a threshold
+  must fall back to the caller's absolute bound when the class has no cadence to
+  derive from, never become instantly stale.
 
   `class:` names the poll class the threshold is about; the default is
   `:dispatch`.
@@ -373,6 +444,9 @@ defmodule Aiur.PollCadence do
     case Config.settings() do
       {:ok, %{polling: %{interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 ->
         case Map.fetch(Config.poll_intervals(), class) do
+          # `0` is the explicit on-demand answer, not an invalid entry — a class
+          # configured to 0 has no base cadence at all (#2309).
+          {:ok, 0} -> 0
           {:ok, class_seconds} when is_integer(class_seconds) and class_seconds > 0 -> class_seconds * 1_000
           _unset_or_invalid -> seconds * 1_000
         end

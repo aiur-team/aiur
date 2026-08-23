@@ -99,12 +99,13 @@ polling:
   view_state_sweep_seconds: 900          # the single view-state reconciliation sweep; recovers lost webhook deliveries, not a freshness knob
   # Per-class poll cadences in seconds; a class with no entry falls back to
   # interval_seconds. Optional — an unset map keeps the single-interval behaviour.
+  #   0 means on-demand: no timer, refresh only when a consumer explicitly asks.
   #   intervals:
   #     dispatch: 120      # tracker poll (open issues / agent:* labels)
   #     ci: 60             # check state on a PR with work in flight (demand-scoped)
   #     review: 300        # comments and review threads
-  #     planning: 600      # Build Order catalog, pack status, ad-hoc listings
-  #     firehose: 120      # repo events (self-regulating via X-Poll-Interval)
+  #     planning: 0        # Build Order catalog: demand-driven, no timer
+  #     firehose: 0        # repo events (self-regulating via X-Poll-Interval)
 max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 

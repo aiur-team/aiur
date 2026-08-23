@@ -154,9 +154,16 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   defp publish_class_cadences(_repo, _idle_factor), do: :ok
 
   defp class_effective_ms(class, repo, idle_factor) do
-    base_ms = PollCadence.base_interval_ms(class: class)
-    webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
-    if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+    case PollCadence.base_interval_ms(class: class) do
+      # On-demand class: no timer, publish 0 so status shows `planning=0s` and
+      # any tick-riding loop for the class is fully disabled (#2309).
+      0 ->
+        0
+
+      base_ms ->
+        webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
+        if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+    end
   end
 
   # The fleet is only actually idle when it has nothing to do AND has observed

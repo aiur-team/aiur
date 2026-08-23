@@ -76,7 +76,8 @@ polling:
   #     dispatch: 120
   #     ci: 60
   #     review: 300
-  #     planning: 600
+  #     planning: 0        # on-demand: no timer
+  #     firehose: 0        # self-regulating via X-Poll-Interval
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

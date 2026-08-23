@@ -516,9 +516,10 @@ defmodule Aiur.Config do
   @doc """
   Per-class poll cadences from `polling.intervals`, in seconds, keyed by poll
   class atom. `%{}` when the operator set none, in which case every class falls
-  back to `poll_interval_seconds/0`. See `Aiur.PollCadence`.
+  back to `poll_interval_seconds/0`. A value of `0` means the class is
+  on-demand (no timer, #2309). See `Aiur.PollCadence`.
   """
-  @spec poll_intervals() :: %{required(atom()) => pos_integer()}
+  @spec poll_intervals() :: %{required(atom()) => non_neg_integer()}
   def poll_intervals do
     settings!().polling.intervals
     |> Enum.reduce(%{}, fn {class, seconds}, acc when is_binary(class) ->

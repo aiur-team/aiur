@@ -80,7 +80,8 @@ polling:
   #     dispatch: 120
   #     ci: 30
   #     review: 300
-  #     planning: 600
+  #     planning: 0        # on-demand: no timer
+  #     firehose: 0        # self-regulating via X-Poll-Interval
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 server:

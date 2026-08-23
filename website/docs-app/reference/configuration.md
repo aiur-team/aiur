@@ -116,7 +116,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
-| `polling.intervals` | map of class → integer | `%{}` | Per-class poll cadences in seconds. Each key names a poll class — `dispatch`, `ci`, `review`, `planning`, `firehose` — and overrides `interval_seconds` for that class only. A class with no entry falls back to `interval_seconds`, so an unset map keeps today's single-interval behaviour exactly. An unknown class key or a non-positive value is rejected. |
+| `polling.intervals` | map of class → integer | `%{}` | Per-class poll cadences in seconds. Each key names a poll class — `dispatch`, `ci`, `review`, `planning`, `firehose` — and overrides `interval_seconds` for that class only. A class with no entry falls back to `interval_seconds`, so an unset map keeps today's single-interval behaviour exactly. `0` means the class is on-demand — no timer, refreshed only when a consumer explicitly asks — which is the recommended value for `planning` and `firehose`. An unknown class key or a negative value is rejected. |
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 | `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the single view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. It replaced the separate ticket-backlog, ad-hoc-overlay and pack-status cadences, which had no config key at all. The two view-only sources it sweeps are reconciled only while a LiveView is watching them; `PackStatus` is reconciled on every tick regardless of viewers because it writes the authoritative `status.json` projection. |
@@ -133,23 +133,27 @@ Freshness thresholds follow this cadence. You do not set them separately.
   | `dispatch` | open issues and `agent:*` labels (the dispatch trigger) | Cheap (conditional REST, usually `304`) and urgent. The default for every unlisted class and for un-named `PollCadence` reads. |
   | `ci` | check state on a pull request with work in flight | Expensive GraphQL and urgent, but only while a PR is actually in flight (the loop is demand-scoped). Keep `ci` at or below `dispatch`; a wide `ci` makes a stale CI read an agent-visible problem. |
   | `review` | comments and review threads | Expensive GraphQL, moderately urgent, and webhook-covered for comment *arrival* — the poll is a safety net, so minutes is defensible. |
-  | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. |
-  | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. |
+  | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. Recommended value `0` (on-demand): the catalog's only consumers are web pages and it is demand-gated, so it needs no timer. |
+  | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. Recommended value `0` — stop deriving anything from the global interval. |
 
 - The dashboard, the Units catalog and Build Order ticket history all judge
   staleness against the effective interval of the class they mean: the
   orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
   ticket history from `planning`.
 - Build Order's own refresh cadences follow the `planning` class, so an operator
-  can run the expensive Build Order reads at 10 minutes while dispatch stays at
-  2. Since #2312 that sweep runs only while a Build Order page is open.
+  can run the expensive Build Order reads on demand while dispatch stays at 2.
+  Since #2312 that sweep runs only while a Build Order page is open; with
+  `planning: 0` it has no timer at all — a page mount or an explicit refresh is
+  the only thing that reads it.
 - So a change to an interval needs no matching threshold edit.
 - `aiur status` prints the effective value and the live interval per class, for
   example:
   ```
   POLL idle backoff active: interval=1200s base=120s factor=5.0x
-  POLL class intervals: ci=60s dispatch=120s firehose=120s planning=600s review=300s
+  POLL class intervals: ci=60s dispatch=120s firehose=0s planning=0s review=300s
   ```
+  `0s` means the class is on-demand: no timer, refreshed only when a consumer
+  asks.
 - The idle widening only applies once the daemon has observed an idle cycle:
   a freshly restarted fleet starts at the base interval, and a live fleet with
   dispatchable tickets keeps the base interval so work is not left waiting

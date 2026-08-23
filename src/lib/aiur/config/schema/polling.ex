@@ -54,6 +54,8 @@ defmodule Aiur.Config.Schema.Polling do
     # exactly today's behaviour (every class shares the single value). See
     # `Aiur.PollCadence` for how each class resolves and is consumed.
     field(:intervals, {:map, :integer}, default: %{})
+    # A per-class interval of `0` means the class has no timer — it is
+    # on-demand, refreshed only when a consumer explicitly asks (#2309).
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -85,14 +87,16 @@ defmodule Aiur.Config.Schema.Polling do
   end
 
   # String keys, because `{:map, :integer}` casts keep the YAML keys verbatim.
+  # A class interval of `0` is deliberate — it means the class is on-demand and
+  # has no timer (#2309), so only negatives and non-integers are rejected.
   defp validate_intervals(:intervals, intervals) when is_map(intervals) do
     Enum.flat_map(intervals, fn {class, seconds} ->
       cond do
         class not in @known_poll_classes ->
           [{:intervals, "unknown poll class #{inspect(class)}; expected one of #{@known_poll_classes |> Enum.sort() |> Enum.join(", ")}"}]
 
-        not (is_integer(seconds) and seconds > 0) ->
-          [{:intervals, "interval for #{class} must be a positive integer (seconds), got: #{inspect(seconds)}"}]
+        not (is_integer(seconds) and seconds >= 0) ->
+          [{:intervals, "interval for #{class} must be a non-negative integer (seconds); 0 disables the class timer (on-demand), got: #{inspect(seconds)}"}]
 
         true ->
           []

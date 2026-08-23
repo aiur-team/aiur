@@ -135,7 +135,35 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
     refute_receive {:reader_started, :catalog, _reader}, 200
   end
 
-  defp start_projection do
+  # On-demand catalog (`planning: 0`, #2309): a viewer still buys the one refresh
+  # on mount — that is the "demand" — but the read completing arms no successor
+  # timer, because an on-demand catalog has no cadence. Without this, an open
+  # page would re-introduce the timer the pinned config value is meant to remove.
+  test "an on-demand catalog buys the mount refresh but arms no successor timer" do
+    parent = self()
+    {:ok, projection} = start_projection(catalog_refresh_ms: 0)
+
+    subscriber =
+      spawn(fn ->
+        GraphProjection.subscribe_catalog(projection)
+        send(parent, {:subscribed, self()})
+        receive do: (:stop -> :ok)
+      end)
+
+    assert_receive {:subscribed, ^subscriber}, 2_000
+
+    reader = await_reader(:catalog)
+    finish(reader, {:ok, ProviderResult.complete(catalog([root(identity(1, "I1"))]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    state = :sys.get_state(projection)
+    assert MapSet.size(state.catalog.demanders) == 1
+    # The mount read landed, but on-demand means no cadence: no successor timer.
+    assert state.catalog.timer == nil
+  end
+
+  defp start_projection(opts \\ []) do
     parent = self()
 
     task_supervisor =
@@ -147,13 +175,13 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
     GraphProjection.start_link(
       name: nil,
       task_supervisor: task_supervisor,
-      authority_snapshot: fn -> authority() end,
+      authority_snapshot: fn -> authority(opts) end,
       configuration_subscriber: fn _pid -> :ok end,
       catalog_reader: fn _reader_opts -> blocking_read(parent, :catalog) end,
       selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
       now: fn -> @now end,
       clock_ms: fn -> 0 end,
-      catalog_refresh_ms: 60_000,
+      catalog_refresh_ms: Keyword.get(opts, :catalog_refresh_ms, 60_000),
       refresh_timeout_ms: 30_000,
       max_selected_roots: 4,
       max_inflight: 4,
@@ -161,7 +189,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
     )
   end
 
-  defp authority do
+  defp authority(opts) do
     %{
       repository: @repository,
       generation: 1,
@@ -169,7 +197,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
       page_budget: 4,
       call_budget: 4,
       options: [
-        catalog_refresh_ms: 60_000,
+        catalog_refresh_ms: Keyword.get(opts, :catalog_refresh_ms, 60_000),
         refresh_timeout_ms: 30_000,
         max_selected_roots: 4,
         max_inflight: 4

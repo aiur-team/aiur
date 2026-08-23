@@ -638,8 +638,8 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   # #2309 acceptance: `aiur status` shows the live interval per class, so an
-  # operator can see planning is at 10 minutes while dispatch is at 2 without
-  # reading config.
+  # operator can see planning is on-demand (0) while dispatch is at 2 minutes
+  # without reading config.
   test "status prints the live poll interval per class" do
     snapshot = %{
       statuses: [],
@@ -650,7 +650,7 @@ defmodule Aiur.AgentControlCLITest do
         poll_interval_ms: 120_000,
         effective_interval_ms: 600_000,
         idle_backoff: %{active?: true, factor: 5.0},
-        class_intervals: %{dispatch: 120_000, ci: 60_000, review: 300_000, planning: 600_000, firehose: 120_000}
+        class_intervals: %{dispatch: 120_000, ci: 60_000, review: 300_000, planning: 0, firehose: 0}
       }
     }
 
@@ -661,7 +661,7 @@ defmodule Aiur.AgentControlCLITest do
         AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
       end)
 
-    assert output =~ "POLL class intervals: ci=60s dispatch=120s firehose=120s planning=600s review=300s"
+    assert output =~ "POLL class intervals: ci=60s dispatch=120s firehose=0s planning=0s review=300s"
   end
 
   defp unconstrained_capacity(overrides \\ %{}) do

@@ -238,9 +238,9 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_polling_backoff(_polling), do: :ok
 
-  # Per-class cadence (#2309): an operator can see that planning is at 10
-  # minutes while dispatch is at 2 without reading config. Present only when the
-  # snapshot carries `class_intervals`; the live orchestrator snapshot always
+  # Per-class cadence (#2309): an operator can see that planning is on-demand
+  # (0s) while dispatch is at 2 minutes without reading config. Present only when
+  # the snapshot carries `class_intervals`; the live orchestrator snapshot always
   # does, test fixtures may not.
   defp print_class_intervals(%{class_intervals: class_intervals}) when is_map(class_intervals) and map_size(class_intervals) > 0 do
     line =

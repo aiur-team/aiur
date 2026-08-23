@@ -39,6 +39,74 @@ defmodule Aiur.PerClassCadenceTest do
     end
   end
 
+  # The code owner's pinned config shape (#2309 comment) uses `0` for `planning`
+  # and `firehose`: "0 means no timer — refresh on demand only. That is not a
+  # placeholder." These tests pin that `0` is a first-class value end to end —
+  # accepted by the schema, resolved to an on-demand cadence, published, shown in
+  # status, and honoured by the Build Order catalog.
+  describe "on-demand classes (interval 0 = no timer)" do
+    test "Config.poll_intervals/0 keeps 0 as the on-demand value" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"planning" => 0, "firehose" => 0}
+      )
+
+      assert Config.poll_intervals() == %{planning: 0, firehose: 0}
+    end
+
+    test "an explicitly-zero class resolves a 0 base, not the fallback" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"planning" => 0}
+      )
+
+      assert PollCadence.base_interval_ms(class: :planning) == 0
+      assert PollCadence.widest_configured_interval_ms(class: :planning) == 0
+      # An unlisted class is untouched.
+      assert PollCadence.base_interval_ms(class: :dispatch) == 120_000
+      assert PollCadence.base_interval_ms(class: :review) == 120_000
+    end
+
+    test "an on-demand publish is read back as 0 and status shows it" do
+      PollCadence.publish_effective_interval_ms(120_000, class: :dispatch)
+      PollCadence.publish_effective_interval_ms(0, class: :planning)
+
+      assert PollCadence.published_effective_interval_ms(class: :planning) == 0
+      assert PollCadence.effective_interval_ms(class: :planning) == 0
+      assert PollCadence.effective_intervals()[:planning] == 0
+      assert PollCadence.effective_intervals()[:dispatch] == 120_000
+    end
+
+    test "an on-demand class never runs on the dispatch tick" do
+      PollCadence.publish_effective_interval_ms(0, class: :planning)
+      now = System.monotonic_time(:millisecond)
+
+      # Even a loop that has never fired must not start on the tick — on-demand
+      # means the demand, not the clock, starts it (#2309).
+      assert PollCadence.within_class_cadence?(nil, now, :planning)
+      assert PollCadence.within_class_cadence?(now - 1, now, :planning)
+    end
+
+    # Acceptance: "a test that a per-class value reaches the right consumer."
+    # With planning on-demand, the Build Order catalog must resolve a 0 cadence
+    # (no timer) while the orchestrator snapshot keeps the dispatch cadence.
+    test "the catalog resolves on-demand planning to no timer" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"planning" => 0}
+      )
+
+      assert Cadence.effective().graph_catalog_refresh_ms == 0
+      # The labels and ticket-detail values are display budgets, not timers, so
+      # they stay positive even when the catalog itself is on-demand.
+      assert Cadence.effective().graph_catalog_labels_refresh_ms > 0
+      assert Cadence.effective().ticket_detail_freshness_ms > 0
+
+      assert Aiur.Config.build_order_graph_projection_options()[:catalog_refresh_ms] == 0
+      assert SnapshotStore.stale_age_ceiling_ms() > 0
+    end
+  end
+
   describe "per-class effective intervals" do
     test "a per-class publish is read back per class, never globally" do
       PollCadence.publish_effective_interval_ms(120_000, class: :dispatch)
@@ -157,7 +225,9 @@ defmodule Aiur.PerClassCadenceTest do
     # poll PRs with work in flight) is its cost control, not a wider interval.
     @ci_cadence_ms 120_000
     @review_cadence_ms 300_000
-    @planning_cadence_ms 600_000
+    # Planning is on-demand (#2309, author-pinned `planning: 0`): no timer, so
+    # no hourly spend at all.
+    @planning_cadence_ms 0
 
     # Points per call, measured in the #2309 ledger table.
     @ci_points_per_call 2.0
@@ -165,9 +235,10 @@ defmodule Aiur.PerClassCadenceTest do
     @review_threads_points_per_call 1.0
     @planning_points_per_call 13.5
 
+    defp hourly_calls(0), do: 0
     defp hourly_calls(interval_ms), do: div(@hour_ms, interval_ms)
 
-    test "diverging review and planning moves the one-hour GraphQL spend" do
+    test "diverging review and making planning on-demand moves the one-hour GraphQL spend" do
       PollCadence.publish_effective_interval_ms(@dispatch_cadence_ms, class: :dispatch)
       PollCadence.publish_effective_interval_ms(@ci_cadence_ms, class: :ci)
       PollCadence.publish_effective_interval_ms(@review_cadence_ms, class: :review)
@@ -184,12 +255,13 @@ defmodule Aiur.PerClassCadenceTest do
             (@review_points_per_call + @review_threads_points_per_call) +
           hourly_calls(PollCadence.effective_interval_ms(class: :planning)) * @planning_points_per_call
 
-      # Before: 660 points/hour. After: 219 points/hour — the three GraphQL
-      # pollers drop by roughly two thirds once review and planning stop running
-      # at the dispatch rate, which is the whole point of the ticket.
+      # Before: 660 points/hour. After: 138 points/hour — CI stays demand-scoped
+      # at the dispatch tick, review halves, and the Build Order catalog (the
+      # most expensive per-call query) stops running on a timer entirely, which
+      # is the whole point of the ticket.
       assert before == 660
-      assert after_spend == 219
-      assert after_spend < before * 0.4
+      assert after_spend == 138
+      assert after_spend < before * 0.25
     end
   end
 end
