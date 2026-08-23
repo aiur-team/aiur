@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
       mix workspace.before_remove --repo openai/aiur
   """
 
+  alias Aiur.GitHub.HostCommand
+
   @default_repo "openai/aiur"
 
   @impl Mix.Task
@@ -53,15 +55,15 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp gh_available? do
-    not is_nil(System.find_executable("gh"))
+    not is_nil(HostCommand.find_executable())
   end
 
   defp gh_authenticated? do
-    match?({:ok, _output}, run_command("gh", ["auth", "status"]))
+    match?({:ok, _output}, run_gh(["auth", "status"]))
   end
 
   defp list_open_pull_request_numbers(repo, branch) do
-    case run_command("gh", [
+    case run_gh([
            "pr",
            "list",
            "--repo",
@@ -86,7 +88,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
   end
 
   defp close_pull_request(repo, branch, pr_number) do
-    case run_command("gh", [
+    case run_gh([
            "pr",
            "close",
            pr_number,
@@ -122,6 +124,13 @@ defmodule Mix.Tasks.Workspace.BeforeRemove do
 
       {:error, _reason} ->
         nil
+    end
+  end
+
+  defp run_gh(args) do
+    case HostCommand.run(args, stderr_to_stdout: true, bot_token: true) do
+      {output, 0} -> {:ok, output}
+      {output, status} -> {:error, {status, output}}
     end
   end
 
