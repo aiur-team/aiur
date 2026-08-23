@@ -269,27 +269,53 @@ Do not commit:
 
 ## Tests must fail without the production change they guard
 
-A test that passes with its production change reverted is not coverage — it
-asserts pre-existing behaviour and will pass on the trivially wrong
-implementation. This is the single most common way a review is wasted on this
-repo, so it is enforced before review, at author time:
+**A test that passes with your production change reverted is not coverage.**
+It asserts behavior that was already true, so it passes against the trivially
+wrong implementation and reports nothing. Before opening a PR, for each test
+you added: undo the production hunk it is meant to guard, run that test, and
+confirm it **fails**; restore the hunk and re-run — it must pass. If it still
+passes with the change reverted, the test is asserting something the code
+already did — fix it to assert the specific behavior the change adds, or
+delete it. If you cannot revert cleanly, say so in the PR body rather than
+skipping the check.
 
-1. **Before opening a PR, revert the production hunk each new test guards.**
-   `git stash push <the production file(s)>` (or `git checkout -- <file>` in a
-   scratch checkout), run the new test, and confirm it **fails**.
-2. **Restore the hunk and re-run the test** — it must pass with the change in
-   place.
-3. **Name the result in the PR body**: one line per new test, e.g.
-   "`sweep_once` test fails with the production hunk reverted". A test that
-   survives its own revert must be rewritten to assert the specific behaviour
-   the change adds — a `%{} = actual` pattern that matches any map, an
-   assertion pinned to a constant the change never touches, or
-   `f(x) == f(x)` are all vacuous.
+Name the result in the PR body: one line per new test ("`sweep_once` test
+fails with the production hunk reverted") or an explicit statement of why the
+check could not be run.
 
-The reviewer-side of this same discipline is in the `aiur-run` skill
-(`SKILL.md`, "Mutation-testing discipline"); this section is the author-side
-rule that makes the reviewer's check a formality instead of the first time it
-is ever performed.
+When you revert for this check, the tree must be dirty **only** in the
+intended way: `git diff` shows the production hunk you meant to remove and
+nothing else. Run it in a worktree, never the live checkout, and before the
+run assert no *unintended* modifications are present (`git status --porcelain`
+must show exactly the revert you made and no stray files) — a dirty tree from
+another process is the wrong-checkout signature #2362 is about, and HEAD alone
+does not catch it. Report the exact command you ran in the PR body so a
+reviewer can see what actually executed.
+
+Recurring shapes to avoid — each has shipped and cost a review round:
+
+- `assert %{} = …` and other patterns that match anything. `%{}` matches any
+  map, `_` matches anything, `is_binary(x)` proves nothing about a value whose
+  *content* is the point, and `f(x) == f(x)` self-comparisons can never fail.
+- Asserting a constant the change introduced (`assert {:cache, :issue_graph,
+  3_600_000} = ...`) instead of the behavior that produces it — a cache hit,
+  a reordered ranking, a persisted effect.
+- Asserting a rendered string without asserting the value behind it.
+- Fixtures built to avoid the failure mode. If the fixture cannot reach the
+  bug, the test cannot either — a broker double that delegates every command
+  but the one under test exercises a configuration that cannot exist.
+- Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
+  shared global path must point at a temp path explicitly. Green in CI and red
+  on a live host is worse than red everywhere.
+
+Keeping a test that already passes on `main` is fine when it is deliberately a
+guard against a *future* regression — but say so in the test name or a
+comment, and do not count it toward covering this change.
+
+The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
+discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
+author-side rule so the check happens before review, not for the first time in
+review.
 
 ## Manual testing — the only definition
 

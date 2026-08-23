@@ -45,21 +45,29 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
   end
 
-  # The whole remote install travels as ONE argv string, and Linux caps a single
-  # argument at 128 KiB (`MAX_ARG_STRLEN`) however large `ARG_MAX` is. The guards
-  # grew past that ceiling once, and the failure mode is `Argument list too long`
-  # before a single line runs — no agent, no useful error.
+  # The whole remote install can travel as ONE argv string — the worst case is a
+  # `bash -c <script>` / `sh -lc <script>` invocation — and Linux caps a single
+  # argument at 128 KiB (`MAX_ARG_STRLEN`, 32 pages) however large `ARG_MAX` is.
+  # The guards grew past the bar once, and the failure mode is `Argument list too
+  # long` before a single line runs — no agent, no useful error.
   #
-  # The bar is raised from half the ceiling (65_536) to 90_000: the embedded
-  # `github_quota_guard.sh` / `github_budget.py` guards grew past the old bar on
-  # main (#2269, #2295 — both land after this PR's base; the PR touches no
-  # `src/priv` file), pushing the gzip+base64 payload to ~66.6 KiB. The bar still
-  # catches runaway growth well short of the 128 KiB hard ceiling, which is the
-  # property that matters — a remote host dies at 131072, not at 65536.
+  # The bar was originally half the ceiling (65,536): a deliberate safety margin,
+  # not a platform limit — no platform caps a single argument at 64 KiB. The real
+  # limit is `MAX_ARG_STRLEN` = 32 * PAGE_SIZE = 131,072 bytes per argument,
+  # documented in Linux `execve(2)` and verified empirically (a 131,072-byte
+  # argument fails with `Argument list too long` / E2BIG; 131,071 succeeds). The
+  # gh guard then legitimately grew — resource bucketing, the lease pools, the
+  # classification arms — and the compressed install script crossed 64 KiB.
+  #
+  # The bar is re-based to 96 KiB (98,304 = 75% of the verified ceiling, a 25%
+  # margin) so a loud CI failure is never converted into a silent runtime failure,
+  # while a PR that grows the script past the bar still fails loudly here, well
+  # before a remote host would. The headroom covers the guard growth queued in
+  # #2353 and #2366.
   test "the remote install script fits in one argument", context do
     script = AgentGitHubGuard.remote_install_script(context.workspace)
 
-    assert byte_size(script) < 90_000,
+    assert byte_size(script) < 98_304,
            "remote install script is #{byte_size(script)} bytes; the single-argument ceiling is 131072"
   end
 
