@@ -22,7 +22,7 @@ describe("Stream Deck Phoenix channel", () => {
   it("mints a token, joins, consumes projected state, and sends control", async () => {
     const socket = socketHarness();
     const events = {
-      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(),
+      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(),
       voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn(),
     };
     const channel = await connectStreamDeckChannel({
@@ -60,7 +60,7 @@ describe("Stream Deck Phoenix channel", () => {
   it("queues focus until join and reports Phoenix channel shutdown frames", async () => {
     const socket = socketHarness();
     const events = {
-      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(),
+      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(),
       voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn(),
     };
     const channel = await connectStreamDeckChannel({
@@ -86,7 +86,7 @@ describe("Stream Deck Phoenix channel", () => {
 
   describe("voice", () => {
     const voiceEvents = () => ({
-      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(),
+      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(),
       voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn(),
     });
 
@@ -228,6 +228,54 @@ describe("Stream Deck Phoenix channel", () => {
       // transcription nobody can perform is the one wrong answer here.
       socket.message(["4", "9", "streamdeck:fleet", "snapshot", snapshot()]);
       expect(events.voiceAvailability).toHaveBeenLastCalledWith({ available: false, reason: null });
+    });
+  });
+
+  describe("commands", () => {
+    const commandsEvents = () => ({
+      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(),
+      voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn(),
+    });
+
+    const joined = async (events: ReturnType<typeof commandsEvents>) => {
+      const socket = socketHarness();
+      const channel = await connectStreamDeckChannel({
+        baseUrl: "http://aiur.test:4000",
+        username: "operator",
+        password: "secret",
+        fetch: vi.fn(async () => ({ ok: true, json: async () => ({ token: "signed-token" }) })),
+        websocket: vi.fn(() => socket),
+        events,
+      });
+      socket.open();
+      socket.message(["4", "1", "streamdeck:fleet", "phx_reply", { status: "ok", response: {} }]);
+      return { socket, channel };
+    };
+
+    // The exact version the device read and the idempotency key must survive
+    // the trip to the wire, or the server could not tell a stale press from a
+    // replay — the whole "conflict, never a double-answer" contract.
+    it("sends answer_command with the exact decision, version, idempotency key and answer", async () => {
+      const { socket, channel } = await joined(commandsEvents());
+      channel.answerCommand("dec-9", 7, "sd-key-1", { option_id: "ship" });
+      channel.answerCommand("dec-9", 7, "sd-key-2", { custom_response: "Hold everything" });
+      const frames = socket.sent.slice(1).map((frame) => JSON.parse(frame).slice(2));
+      expect(frames).toEqual([
+        ["streamdeck:fleet", "answer_command", { decision_id: "dec-9", version: 7, idempotency_key: "sd-key-1", option_id: "ship" }],
+        ["streamdeck:fleet", "answer_command", { decision_id: "dec-9", version: 7, idempotency_key: "sd-key-2", custom_response: "Hold everything" }],
+      ]);
+    });
+
+    it("routes the answer_command reply to commandAnswered or commandsError", async () => {
+      const events = commandsEvents();
+      const { socket, channel } = await joined(events);
+      channel.answerCommand("dec-9", 7, "sd-key-1", { option_id: "ship" });
+      socket.message(["4", JSON.parse(socket.sent[1])[1], "streamdeck:fleet", "phx_reply", { status: "ok", response: { status: "accepted", decision: { decision_id: "dec-9", version: 7, status: "decided" } } }]);
+      expect(events.commandAnswered).toHaveBeenCalledWith({ status: "accepted", decision: { decision_id: "dec-9", version: 7, status: "decided" } });
+
+      channel.answerCommand("dec-9", 7, "sd-key-2", { option_id: "ship" });
+      socket.message(["4", JSON.parse(socket.sent[2])[1], "streamdeck:fleet", "phx_reply", { status: "error", response: { reason: "conflict: stale_version" } }]);
+      expect(events.commandsError).toHaveBeenCalledWith("conflict: stale_version");
     });
   });
 });

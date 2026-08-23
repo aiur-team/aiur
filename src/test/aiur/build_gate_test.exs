@@ -837,6 +837,154 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "an unreapable adopted daemon does not hold the slot after the command exits", context do
+    # The #2381 incident, reproduced. The wrapped command exits, but a daemon
+    # from an unrelated session (dbus-daemon, gnome-keyring-daemon) has
+    # reparented onto the subreaper. `waitpid(-1)` never reaches ECHILD, so the
+    # holder used to wait — and, once the cap fired, spin in an unbounded kill
+    # loop — while still holding the slot flock. Four slots leaked this way in
+    # fifteen minutes.
+    #
+    # The daemon is never going to exit, so the release has to come from the
+    # bounded retain window rather than from `waitpid` — and it has to come
+    # without signalling the daemon.
+    daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon.pid")
+
+    gated_context =
+      Map.merge(context, %{
+        adopted_daemon_pid_path: daemon_pid_path,
+        retain_seconds: 2,
+        max_hold_seconds: 0,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate acquired slot=1 command=test"
+    wait_for_file!(daemon_pid_path)
+    daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+    on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true) end)
+
+    # The slot comes back on its own, well inside the retain window.
+    wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+
+    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    assert marker =~ "mix test"
+    assert marker =~ "reason=retained"
+
+    # The daemon is left running, deliberately. gnome-keyring-daemon holds the
+    # credential the fleet's GitHub access depends on: cleanup must scope
+    # itself to the leased command's session and never signal an adopted
+    # stranger, no matter how long it lives.
+    assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    # The flock is genuinely gone, not merely the owner file: the next gated
+    # command takes the same slot.
+    assert {next_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
+    assert next_output =~ "aiur_build_gate acquired slot=1 command=compile"
+  end
+
+  @tag @linux_only
+  test "a holder whose wrapped command exited releases its slot at the max-hold cap", context do
+    # The leak (#2349): the wrapped command exits but a descendant keeps the
+    # subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot is held
+    # long after the command is gone. The absolute wall-clock cap is the
+    # backstop that frees it regardless of how the child exited.
+    gated_context =
+      Map.merge(context, %{
+        descendant_sleep_seconds: 60,
+        max_hold_seconds: 3,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    wait_for_file!(context.descendant_path)
+
+    # The retained descendant is still alive, so the slot stays protected.
+    assert %{active: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The cap expires and the holder releases the slot, leaving a durable
+    # marker the daemon turns into a needs-attention alert naming the command.
+    wait_for_status!(context.gate_dir, 1, fn status ->
+      status.active == 0 and File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    end)
+
+    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    assert marker =~ "mix test"
+    assert marker =~ "reason=retained"
+    assert marker =~ "held_for_seconds="
+    assert %{active: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+  end
+
+  @tag @linux_only
+  test "a command running past the max-hold cap is terminated and releases its slot", context do
+    # The #2311 shape: a running command monopolises a slot (here simulated by a
+    # 30s fake mix). The absolute cap terminates it and releases the slot.
+    gated_context =
+      Map.merge(context, %{
+        sleep_seconds: 30,
+        max_hold_seconds: 1,
+        started_path: ""
+      })
+
+    assert {output, 124} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate released slot=1 status=124"
+
+    marker_path = Path.join(context.gate_dir, "slot-1.hold-timeout")
+    assert File.exists?(marker_path)
+    assert File.read!(marker_path) =~ "reason=running"
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    assert %{active: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The freed slot admits a later verification command.
+    assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
+  end
+
+  @tag @linux_only
+  test "status reports a holder self-release timeout marker", context do
+    marker_path = Path.join(context.gate_dir, "slot-1.hold-timeout")
+    File.write!(marker_path, "version=2\ncommand=mix test --trace\nheld_for_seconds=3600\nreason=running\n")
+
+    assert %{
+             enabled?: true,
+             timeouts: [%{slot: 1, command: "mix test --trace", held_for_seconds: 3600, reason: "running"}]
+           } = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The marker does not make the slot "active" — it is a released-lease record.
+    assert %{active: 0, queued: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+  end
+
+  test "status distinguishes a busy slot from a slot held without a command", %{gate_dir: gate_dir} do
+    File.mkdir_p!(Path.join(gate_dir, "slot-1"))
+    File.mkdir_p!(Path.join(gate_dir, "slot-2"))
+    self_pid = String.to_integer(System.pid())
+    {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
+    live_pgid = pgid |> String.trim() |> String.to_integer()
+
+    File.write!(
+      Path.join(gate_dir, "slot-1/owner"),
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=a\ncommand_pgid=#{live_pgid}\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
+    )
+
+    File.write!(
+      Path.join(gate_dir, "slot-2/owner"),
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=b\ncommand_pgid=999999999\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
+    )
+
+    assert %{active: 2, holders: holders} =
+             build_gate_status(gate_dir: gate_dir, capacity: 2, strategy: :pid)
+
+    slot1 = Enum.find(holders, &(&1.slot == 1))
+    slot2 = Enum.find(holders, &(&1.slot == 2))
+    assert slot1.command_alive? == true
+    assert slot2.command_alive? == false
+  end
+
+  @tag @linux_only
   test "cancellation after direct Mix exit reaps retained descendants before releasing capacity", context do
     gated_context =
       Map.merge(context, %{
@@ -1896,6 +2044,7 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_DESCENDANT", Map.get(context, :descendant_path, "")},
       {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
+      {"FAKE_MIX_ADOPTED_DAEMON_PID", Map.get(context, :adopted_daemon_pid_path, "")},
       {"FAKE_MIX_DESCENDANT_COMMAND", Map.get(context, :descendant_command, "")},
       {"FAKE_MIX_DESCENDANT_GATE_LOG", Map.get(context, :descendant_gate_log, "")},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
@@ -1907,6 +2056,8 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_BUILD_GATE_DIAGNOSTIC_PGID", Integer.to_string(Map.get(context, :diagnostic_pgid, 0))},
       {"AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN", if(Map.get(context, :holder_fail_after_popen, false), do: "1", else: "0")},
       {"AIUR_BUILD_GATE_HOLDER_START_DELAY_SECONDS", to_string(Map.get(context, :holder_start_delay_seconds, 0))},
+      {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(Map.get(context, :max_hold_seconds, 0))},
+      {"AIUR_BUILD_GATE_RETAIN_SECONDS", to_string(Map.get(context, :retain_seconds, ""))},
       {"AIUR_TEST_STATUS_READ_DELAY_SECONDS", to_string(Map.get(context, :status_read_delay_seconds, 0))},
       {"AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT", Map.get(context, :handshake_fifo_fragment, "")},
       {"AIUR_TEST_DELAY_OWNER_MV", if(Map.get(context, :delay_owner_publication, false), do: "1", else: "0")},
@@ -1987,6 +2138,19 @@ defmodule Aiur.BuildGateTest do
     case System.cmd("bash", ["-c", script, "wait-for-file", path, Integer.to_string(attempts)]) do
       {_output, 0} -> :ok
       _ -> flunk("timed out waiting for #{path}")
+    end
+  end
+
+  defp wait_for_status!(gate_dir, capacity, fun, attempts \\ 300)
+
+  defp wait_for_status!(_gate_dir, _capacity, _fun, 0), do: flunk("timed out waiting for gate status")
+
+  defp wait_for_status!(gate_dir, capacity, fun, attempts) do
+    if fun.(build_gate_status(gate_dir: gate_dir, capacity: capacity)) do
+      :ok
+    else
+      Process.sleep(20)
+      wait_for_status!(gate_dir, capacity, fun, attempts - 1)
     end
   end
 
@@ -2123,6 +2287,17 @@ defmodule Aiur.BuildGateTest do
     fi
     if [[ -n ${FAKE_MIX_STARTED:-} ]]; then
       : > "$FAKE_MIX_STARTED"
+    fi
+
+    if [[ -n ${FAKE_MIX_ADOPTED_DAEMON_PID:-} ]]; then
+      # A daemon from an unrelated session, the way dbus-daemon and
+      # gnome-keyring-daemon appear under a build. It leaves this command's
+      # session, ignores TERM, outlives mix, and reparents onto the holder.
+      setsid bash -c '
+        trap "" TERM
+        printf "%s\\n" "$$" > "$1"
+        exec sleep 600
+      ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
     fi
 
     if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]] || ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then

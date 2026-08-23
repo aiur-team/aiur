@@ -41,19 +41,32 @@ defmodule AiurWeb.SupervisorAuthTest do
     assert conn.assigns.decision_actor == @actor
   end
 
-  test "missing or invalid configured credentials fail closed" do
-    invalid_tokens = [nil, "", "   ", String.duplicate("a", 31), " " <> @token, @token <> " ", String.duplicate(":", 32)]
+  test "missing or blank configured credentials identify an instance configuration problem" do
+    # An empty or whitespace-only value means unset across the codebase, so it
+    # takes the "no usable credential configured" path rather than being
+    # accepted as a credential.
+    for token <- [nil, "", "   "] do
+      restore_env("AIUR_SUPERVISOR_TOKEN", token)
+
+      conn = authenticate("Bearer #{@token}")
+
+      assert_unauthorized(conn, "supervisor_auth_unconfigured", "No supervisor credential is configured on this instance")
+    end
+  end
+
+  test "a present-but-invalid configured token also identifies an instance configuration problem" do
+    invalid_tokens = [String.duplicate("a", 31), " " <> @token, @token <> " ", String.duplicate(":", 32)]
 
     for token <- invalid_tokens do
       restore_env("AIUR_SUPERVISOR_TOKEN", token)
 
       conn = authenticate("Bearer #{@token}")
 
-      assert_unauthorized(conn)
+      assert_unauthorized(conn, "supervisor_auth_unconfigured", "No supervisor credential is configured on this instance")
     end
   end
 
-  test "missing, malformed, duplicate, and mismatched authorization headers share one response" do
+  test "missing, malformed, and duplicate authorization headers require authentication" do
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
 
     invalid_headers = [
@@ -62,12 +75,11 @@ defmodule AiurWeb.SupervisorAuthTest do
       @token,
       "Basic #{@token}",
       "Bearer",
-      "Bearer wrong",
       "Bearer #{@token} trailing"
     ]
 
     for header <- invalid_headers do
-      header |> authenticate() |> assert_unauthorized()
+      header |> authenticate() |> assert_unauthorized("supervisor_auth_required", "Supervisor authentication required")
     end
 
     duplicate =
@@ -78,7 +90,19 @@ defmodule AiurWeb.SupervisorAuthTest do
       ])
       |> SupervisorAuth.call(SupervisorAuth.init([]))
 
-    assert_unauthorized(duplicate)
+    assert_unauthorized(duplicate, "supervisor_auth_required", "Supervisor authentication required")
+  end
+
+  test "a valid-shaped mismatched credential is distinct from unavailable instance configuration" do
+    System.delete_env("AIUR_SUPERVISOR_TOKEN")
+    unavailable = authenticate("Bearer #{@rotated_token}")
+
+    System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
+    mismatch = authenticate("Bearer #{@rotated_token}")
+
+    assert_unauthorized(unavailable, "supervisor_auth_unconfigured", "No supervisor credential is configured on this instance")
+    assert_unauthorized(mismatch, "supervisor_auth_invalid", "Supervisor credential did not match")
+    refute unavailable.resp_body == mismatch.resp_body
   end
 
   test "reads the configured token on every request so rotation is immediate" do
@@ -87,7 +111,7 @@ defmodule AiurWeb.SupervisorAuthTest do
 
     System.put_env("AIUR_SUPERVISOR_TOKEN", @rotated_token)
 
-    authenticate("Bearer #{@token}") |> assert_unauthorized()
+    authenticate("Bearer #{@token}") |> assert_unauthorized("supervisor_auth_invalid", "Supervisor credential did not match")
     refute authenticate("bearer #{@rotated_token}").halted
   end
 
@@ -97,9 +121,20 @@ defmodule AiurWeb.SupervisorAuthTest do
     conn = authenticate("Bearer #{@rotated_token}")
     body = conn.resp_body
 
-    assert_unauthorized(conn)
+    assert_unauthorized(conn, "supervisor_auth_invalid", "Supervisor credential did not match")
     refute body =~ @token
     refute body =~ @rotated_token
+  end
+
+  test "compares digests with a constant-time function" do
+    # Asserted structurally as well as behaviourally: a naive `==` passes every
+    # behavioural test above while leaking the configured credential by timing.
+    # Read the object code rather than `:code.which/1`, which returns
+    # `:cover_compiled` under the coverage partition CI runs.
+    {_module, beam, _path} = :code.get_object_code(SupervisorAuth)
+    {:ok, {_module, [imports: imports]}} = :beam_lib.chunks(beam, [:imports])
+
+    assert {Plug.Crypto, :secure_compare, 2} in imports
   end
 
   defp authenticate(nil) do
@@ -114,15 +149,15 @@ defmodule AiurWeb.SupervisorAuthTest do
     |> SupervisorAuth.call(SupervisorAuth.init([]))
   end
 
-  defp assert_unauthorized(conn) do
+  defp assert_unauthorized(conn, code, message) do
     assert conn.halted
     assert conn.status == 401
     assert get_resp_header(conn, "www-authenticate") == ["Bearer realm=\"Aiur Supervisor\""]
 
     assert Jason.decode!(conn.resp_body) == %{
              "error" => %{
-               "code" => "supervisor_auth_required",
-               "message" => "Supervisor authentication required"
+               "code" => code,
+               "message" => message
              }
            }
   end

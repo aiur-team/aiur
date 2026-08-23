@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.BudgetTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
@@ -144,6 +146,35 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
+  test "a box without python3 fails open to :bypass so requests stay unmetered (#2376)", %{root: root} do
+    # No explicit `:python` (equivalent to `System.find_executable("python3")`
+    # returning nil on a stock box): the broker cannot run, so `acquire/2` must
+    # fail open to unmetered operation rather than erroring every request.
+    opts = [state_dir: root, enabled?: true, python: nil]
+
+    assert :bypass = Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "warn_metering_unavailable/0 logs once, clearly, when python3 is absent", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: nil)
+      end)
+
+    assert log =~ "budget metering is disabled"
+    assert log =~ "python3 was not found"
+    assert log =~ "run unmetered"
+  end
+
+  test "warn_metering_unavailable/0 stays silent when the broker can run", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: "python3")
+      end)
+
+    assert log == ""
+  end
+
   test "lease duration can outlive the broker command timeout" do
     assert %{lease_ttl_ms: 25_000} =
              Budget.guard_settings(timeout_ms: 1_500, lease_timeout_ms: 10_000)
@@ -255,6 +286,39 @@ defmodule Aiur.GitHub.BudgetTest do
                enabled?: true,
                python: fake_python,
                timeout_ms: 10
+             )
+  end
+
+  test "a typed shared hold preserves resource and absolute reset", %{root: root} do
+    fake_python = Path.join(root, "typed-hold-broker")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared graphql #{reset_at_ms}'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:hold, %{reason: :shared_budget, resource: "graphql", reset_at: reset_at}} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+
+    assert DateTime.to_unix(reset_at, :millisecond) == reset_at_ms
+  end
+
+  test "malformed typed shared holds are broker failures", %{root: root} do
+    fake_python = Path.join(root, "malformed-typed-hold-broker")
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared admin never'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:error, :github_budget_broker_unavailable} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
              )
   end
 
