@@ -45,7 +45,6 @@ const openCommand = (overrides: Partial<StreamDeckCommand> = {}): StreamDeckComm
     { id: "run", label: "Run again", description: "Rerun the pipeline." },
   ],
   status: "open",
-  blocking: true,
   answer: null,
   created_at: "2026-08-18T00:00:00Z",
   ...overrides,
