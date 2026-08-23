@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.BudgetTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
@@ -144,13 +146,33 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
-  test "missing python3 degrades admission to :bypass instead of failing the request", %{root: root} do
-    # `python: nil` stands in for python3 not being on PATH. A configured broker
-    # that exists but fails keeps erroring (above); a broker that cannot run at
-    # all must not take every daemon GitHub request down with it (#2374).
+  test "a box without python3 fails open to :bypass so requests stay unmetered (#2376)", %{root: root} do
+    # No explicit `:python` (equivalent to `System.find_executable("python3")`
+    # returning nil on a stock box): the broker cannot run, so `acquire/2` must
+    # fail open to unmetered operation rather than erroring every request.
     opts = [state_dir: root, enabled?: true, python: nil]
 
     assert :bypass = Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "warn_metering_unavailable/0 logs once, clearly, when python3 is absent", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: nil)
+      end)
+
+    assert log =~ "budget metering is disabled"
+    assert log =~ "python3 was not found"
+    assert log =~ "run unmetered"
+  end
+
+  test "warn_metering_unavailable/0 stays silent when the broker can run", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: "python3")
+      end)
+
+    assert log == ""
   end
 
   test "lease duration can outlive the broker command timeout" do

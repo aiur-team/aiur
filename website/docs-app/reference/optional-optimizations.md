@@ -106,11 +106,11 @@ Not an optimization but a gate, and it belongs here because omitting it silently
 
 ### The symptom
 
-With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback listener binds but every dashboard request returns `503` naming both variables, and no dashboard page is usable. Beyond loopback the listener refuses to start at all.
+With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback listener binds but no dashboard page is usable — a writable dashboard (the default) challenges every request with basic auth, a read-only one refuses with `503` naming both variables. Beyond loopback the listener refuses to start at all.
 
 ### The `observability.dashboard_writable` interaction
 
-`dashboard_writable` (default `true`) is an authorization gate for the dashboard's write controls, not an authentication mechanism. The two credentials are required to view the dashboard at all; writable mode additionally requires them even on loopback. See [observability](/reference/configuration#observability).
+`dashboard_writable` (default `true`) is an authorization gate for the dashboard's write controls, not an authentication mechanism. Either way, the two credentials are required to view the dashboard: a loopback listener binds without them but fails closed on every request; a listener bound beyond loopback refuses to start at all. See [observability](/reference/configuration#observability).
 
 ### Configuration
 
@@ -156,7 +156,7 @@ Set `agent.priority` in `.aiur/config` and provide the matching provider keys vi
 | GitHub App identity | PAT rate limits; daemon writes attributed to your account | Dispatch, control, all polling |
 | Webhook ingress and tunnel | Up to 120s event latency | Polling is the default fallback |
 | Tailscale | Dashboard reachable only on the machine | Local dashboard, CLI, TUI |
-| Dashboard credentials | No usable dashboard (every request `503`) | CLI and TUI |
+| Dashboard credentials | No usable dashboard (every request refused) | CLI and TUI |
 | Stream Deck | Browser emulator instead of physical keys | Dashboard controls |
 | Model routing and provider keys | codex/claude default backend | Agent dispatch |
 

@@ -485,6 +485,10 @@ jittered admission starts. A primary exhaustion holds its resource globally;
 a secondary-limit response or `Retry-After` holds every consumer of that token,
 including separately started daemons and agent `gh` commands.
 
+The broker is an optimization, not a dependency: on a box without `python3` the
+broker cannot run, so metering fails open to unmetered requests (announced once
+at boot) rather than failing every GitHub request.
+
 The defaults are deliberately conservative and can be tuned per workflow:
 
 ```yaml

@@ -55,6 +55,29 @@ defmodule Aiur.GitHub.Budget do
     Keyword.get(opts, :enabled?, Application.get_env(:aiur, :github_budget_enabled?, true))
   end
 
+  @doc """
+  Logs, once at boot, that GitHub budget metering is disabled because the
+  broker cannot run (python3 not found on the box).
+
+  Metering is an optimization: `acquire/2` and `command/3` both fail open to
+  `:bypass` when the broker is unavailable, so the daemon keeps running
+  unmetered. This notice is the "says so once, clearly" counterpart to that
+  fail-open behaviour (#2376). A no-op when metering is enabled, the broker is
+  runnable, or an explicit `:python` is configured.
+  """
+  @spec warn_metering_unavailable(keyword()) :: :ok
+  def warn_metering_unavailable(opts \\ []) do
+    if enabled?(opts) and is_nil(python_executable(opts)) do
+      Logger.warning(
+        "aiur_boot phase=budget_metering_disabled reason=python3_not_found " <>
+          "GitHub budget metering is disabled because python3 was not found on this box; " <>
+          "GitHub requests run unmetered. Install python3 to enable the budget broker."
+      )
+    end
+
+    :ok
+  end
+
   @spec token_key(String.t()) :: String.t()
   def token_key(token) when is_binary(token) and token != "" do
     :crypto.hash(:sha256, token) |> Base.encode16(case: :lower)
@@ -127,12 +150,11 @@ defmodule Aiur.GitHub.Budget do
         python when is_binary(python) ->
           do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
 
-        _missing_python ->
-          # No python3 on PATH (and no explicit `:python`): degrade to direct
-          # request admission rather than failing every GitHub request. This is
-          # consistent with `command/3`, which already bypasses on missing
-          # python, so the broker being unavailable never takes the daemon's
-          # GitHub traffic down with it.
+        nil ->
+          # No python3 on the box, so the broker cannot run at all. Fail open to
+          # unmetered operation exactly like `command/3` does: a budget broker is
+          # an optimization, and its absence must degrade to unmetered requests,
+          # never to a dead daemon (#2376).
           :bypass
       end
     else

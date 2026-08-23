@@ -15,9 +15,9 @@ defmodule Aiur.Env do
     * a credential group is partially configured (`GITHUB_APP_ID` without
       `GITHUB_APP_INSTALLATION_ID`, or one dashboard credential without the
       other);
-    * no GitHub credential is configured (`GITHUB_TOKEN` absent, the GitHub App
-      group not complete, and no `gh` keyring token from `gh auth login`) —
-      only when the active tracker is GitHub.
+    * no GitHub credential is configured (`GITHUB_TOKEN` absent, the GitHub
+      App group not complete, and no `gh` keyring login) — only when the
+      active tracker is GitHub.
 
   Absence of an *optional* integration is never a failure: the schema encodes
   "feature off" defaults, and `warn_disabled_integrations/1` names what is off
@@ -82,11 +82,10 @@ defmodule Aiur.Env do
       credential requirement applies. `Aiur.Application` resolves this from
       the active tracker kind so a Linear or memory tracker does not demand
       GitHub credentials.
-    * `:keyring_fun` (default `&Aiur.GitHub.Config.keyring_token/0`) — probe
-      for a `gh` keyring credential. The GitHub credential requirement is
-      satisfied when the keyring holds a github.com token, so a developer who
-      has run `gh auth login` and nothing else can boot without setting
-      `GITHUB_TOKEN`.
+    * `:keyring_fun` (default `&Config.keyring_token/0`) — how the
+      gate learns about a `gh` keyring login, so tests can inject a stub. The
+      default is the exact shell-out the runtime's token resolution uses, so
+      a keyring-only `gh auth login` boots (#2376).
 
   The caller gates the whole call on a non-test environment.
   """
@@ -269,25 +268,24 @@ defmodule Aiur.Env do
     plain_missing ++ one_of_missing
   end
 
-  # Two independent notions of "do we have a GitHub credential" must agree at
-  # the boot gate. A `GITHUB_TOKEN` env var or a complete GitHub App set is the
-  # explicit path; the `gh` keyring from `gh auth login` is the implicit one
-  # that previously booted every other GitHub tool but not Aiur. The keyring
-  # probe runs only when neither explicit credential is present, so a plain
-  # `gh auth login` boot does not fail before `Aiur.GitHub.Config` can fall
-  # back to the same keyring at first use.
+  # The only boot-aborting credential requirement: the daemon must be able to
+  # authenticate with GitHub. It is satisfied by a GITHUB_TOKEN env var, a
+  # complete GitHub App group, or a gh keyring login (the same `gh auth token`
+  # shell-out the runtime's own token resolution falls back to). Absence of all
+  # three is a startup failure naming what is missing. The keyring lookup is
+  # injectable so tests stay deterministic regardless of the host's `gh`
+  # login state.
   defp credential_errors(env, keyring_fun) do
     requirement = Schema.github_credential_requirement()
-    group = Map.fetch!(Schema.credential_groups(), requirement.alternative_group)
 
     cond do
       set?(env, requirement.token) ->
         []
 
-      group_complete?(group, env) ->
+      group_complete?(Map.fetch!(Schema.credential_groups(), requirement.alternative_group), env) ->
         []
 
-      keyring_token?(keyring_fun) ->
+      keyring_credential?(keyring_fun) ->
         []
 
       true ->
@@ -295,9 +293,9 @@ defmodule Aiur.Env do
     end
   end
 
-  defp keyring_token?(keyring_fun) do
+  defp keyring_credential?(keyring_fun) when is_function(keyring_fun, 0) do
     case keyring_fun.() do
-      value when is_binary(value) -> String.trim(value) != ""
+      token when is_binary(token) -> String.trim(token) != ""
       _ -> false
     end
   end

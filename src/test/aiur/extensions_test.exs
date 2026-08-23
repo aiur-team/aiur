@@ -1541,15 +1541,10 @@ defmodule Aiur.ExtensionsTest do
 
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
 
-    # Losing a credential mid-run fails closed: the loopback dashboard keeps
-    # binding but every request is refused until both variables are set again.
-    # On loopback `dashboard_auth_required` is false, so the authentication plug
-    # answers 503 naming the missing variables rather than a bare 401 challenge
-    # (#2374).
     credential_loss_response =
       Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
 
-    assert credential_loss_response.status == 503
+    assert credential_loss_response.status == 401
     assert method_not_allowed_response.body["error"]["code"] == "method_not_allowed"
 
     assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)

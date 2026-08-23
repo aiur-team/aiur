@@ -46,30 +46,50 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "loopback bind without credentials" do
-    test "warns that requests fail closed and binds regardless of dashboard_writable" do
-      for writable <- [false, true] do
-        {result, log} =
-          with_log(fn ->
+    test "a read-only loopback listener binds and warns that requests fail closed" do
+      log =
+        capture_log(fn ->
+          HttpServer.start_link(
+            host: "127.0.0.1",
+            port: 0,
+            dashboard_writable: false,
+            orchestrator: Aiur.Orchestrator
+          )
+        end)
+
+      assert log =~ "every request is refused"
+      assert log =~ "AIUR_DASHBOARD_USERNAME"
+      assert log =~ "AIUR_DASHBOARD_PASSWORD"
+    end
+
+    test "a writable loopback listener binds instead of refusing to start (#2376)" do
+      # `dashboard_writable` defaults to true, so this is the shipped shape on a
+      # stock dev box: missing dashboard credentials must take the bind-and-fail-
+      # closed path — the listener comes up and the plug refuses every request —
+      # rather than disabling the dashboard entirely.
+      log =
+        capture_log(fn ->
+          result =
             HttpServer.start_link(
               host: "127.0.0.1",
               port: 0,
-              dashboard_writable: writable,
+              dashboard_writable: true,
               orchestrator: Aiur.Orchestrator
             )
-          end)
 
-        # `:ignore` would mean the gate rejected before binding. A first start
-        # returns `{:ok, pid}`; a repeat start in the same test process returns
-        # `{:error, {:already_started, pid}}` — both mean the gate let it through.
-        refute result == :ignore
-        assert log =~ "every request is refused (503)"
-        assert log =~ "AIUR_DASHBOARD_USERNAME"
-        assert log =~ "AIUR_DASHBOARD_PASSWORD"
-      end
+          # `:ignore` would mean the credential gate rejected before binding.
+          # Anything else (success, bind failure, exit) means the gate let the
+          # loopback bind through.
+          refute result == :ignore
+        end)
+
+      assert log =~ "every request is refused"
+      assert log =~ "AIUR_DASHBOARD_USERNAME"
+      assert log =~ "AIUR_DASHBOARD_PASSWORD"
     end
   end
 
-  describe "writable dashboard without credentials on a non-loopback host" do
+  describe "writable dashboard beyond loopback without credentials" do
     test "refuses to start and explains how to configure authentication" do
       log =
         capture_log(fn ->
