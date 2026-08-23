@@ -477,15 +477,15 @@ Findings raise needs-attention alerts in the Executor's alert feed
 (`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
 `system.pr_health.rework_merge_only`).
 
-Enabling the scan also enables the **rework re-queue**: a ticket in
+Enabling the scan enables the **rework re-queue**: a ticket in
 `agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
-since the blocking `CHANGES_REQUESTED` review is automatically moved to
-`agent:human-review` for the second look — GitHub keeps `reviewDecision =
-CHANGES_REQUESTED` until a brand-new review, so nothing else re-queues it. A PR
-whose head only moved via merges of the base branch (own contribution
-unchanged) is NOT re-queued; it raises
-`system.pr_health.rework_merge_only` so the merge-only state is visible
-distinctly from genuine rework.
+since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
+for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
+a brand-new review, so nothing else re-queues it.
+
+A PR whose head only moved via merges of the base branch (own contribution
+unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
+the merge-only state is visible distinctly from genuine rework.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
