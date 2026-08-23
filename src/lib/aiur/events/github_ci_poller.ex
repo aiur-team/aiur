@@ -339,16 +339,23 @@ defmodule Aiur.Events.GithubCIPoller do
       Enum.reduce(check_runs, {%{}, []}, fn run, {latest, ordered_names} ->
         name = Map.get(run, "name")
 
-        if Map.has_key?(latest, name) do
-          current = Map.fetch!(latest, name)
-          updated = if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
-          {Map.put(latest, name, updated), ordered_names}
-        else
-          {Map.put(latest, name, run), ordered_names ++ [name]}
+        case Map.fetch(latest, name) do
+          {:ok, current} ->
+            {put_latest_check_run(latest, name, run, current), ordered_names}
+
+          :error ->
+            {Map.put(latest, name, run), ordered_names ++ [name]}
         end
       end)
 
     Enum.map(ordered_names, &Map.fetch!(latest, &1))
+  end
+
+  # Keeps the newer run for a name when both a superseded and the current run
+  # of the same workflow reported on the head sha.
+  defp put_latest_check_run(latest, name, run, current) do
+    updated = if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
+    Map.put(latest, name, updated)
   end
 
   defp check_run_recency_key(check_run) do

@@ -217,17 +217,24 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
     else
       case state.reviews_fetcher.(number) do
         {:ok, reviews} when is_list(reviews) ->
-          if has_review?(reviews) do
-            state
-          else
-            emit_stale_alert(state, pr)
-            %{state | alerted: MapSet.put(state.alerted, key)}
-          end
+          maybe_alert_stale(state, pr, key, reviews)
 
         {:error, reason} ->
           Logger.warning("PRHealthScanner stale-PR reviews fetch failed: pr=#{number} reason=#{inspect(reason)}")
           state
       end
+    end
+  end
+
+  # Alerts only when the candidate truly has no completed review; a PR that
+  # already received review attention (approved, changes requested, commented)
+  # is not an unseen PR.
+  defp maybe_alert_stale(state, pr, key, reviews) do
+    if has_review?(reviews) do
+      state
+    else
+      emit_stale_alert(state, pr)
+      %{state | alerted: MapSet.put(state.alerted, key)}
     end
   end
 
