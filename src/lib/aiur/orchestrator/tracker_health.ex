@@ -147,6 +147,12 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     :ok
   end
 
+  # A non-positive delay — a momentary "poll now" reschedule, say — leaves the
+  # last published cadences in force rather than crashing the orchestrator. A
+  # skipped publish is never worse than a crash for a freshness bookkeeping
+  # step.
+  def publish_poll_cadence(_state, _schedule), do: :ok
+
   # The fleet is only actually idle when it has nothing to do AND has observed
   # that. Four conditions, all required:
   #
