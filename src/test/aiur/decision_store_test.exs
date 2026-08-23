@@ -2691,7 +2691,7 @@ defmodule Aiur.DecisionStoreTest do
       topic =
         "ticket.979.agent.attention.decision-delivery-#{String.replace(rejected_action.action_id, "_", "-")}"
 
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
       send(active_worker, :release)
       assert_receive {:saturation_dispatch_started, queued_id, queued_worker}, 1_000
       assert queued_id == queued.decision_id
@@ -3001,8 +3001,9 @@ defmodule Aiur.DecisionStoreTest do
       # operator can act on — an agent that no longer exists cannot act.
       assert [%{"topic" => ^topic, "needs_attention" => false}] =
                AlertFeed.list(roots: [], log_roots: [log_root])
+               |> Enum.filter(&(&1["topic"] == topic))
 
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
 
       refute_receive {:target_attempt, _, _}, 100
 
@@ -3010,7 +3011,7 @@ defmodule Aiur.DecisionStoreTest do
       assert_receive {:target_attempt, 2, true}, 1_000
       settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "projection repair failure after answer append suppresses dispatch", %{dir: dir} do
@@ -3079,13 +3080,13 @@ defmodule Aiur.DecisionStoreTest do
       topic =
         "ticket.979.agent.attention.decision-lifecycle-persistence-#{String.replace(action.action_id, "_", "-")}"
 
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
       assert_receive :background_dispatch, 1_000
       assert_receive {:lifecycle_reservation, 3}, 1_000
       _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "boot reconciliation tolerates failed delivery without an attempt", %{dir: dir} do
@@ -3293,7 +3294,7 @@ defmodule Aiur.DecisionStoreTest do
       assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
       failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
       assert List.last(failed.dispatch_attempts).failure_reason_class == "send_failed"
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       GenServer.stop(pid)
 
@@ -3303,11 +3304,11 @@ defmodule Aiur.DecisionStoreTest do
           terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
         )
 
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
       _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "target-agent-unavailable failure is recorded but never raised, including after a listener restart",
@@ -3340,15 +3341,16 @@ defmodule Aiur.DecisionStoreTest do
       # structurally absent, so re-raising would demand action nothing can take.
       assert [%{"topic" => ^topic, "needs_attention" => false}] =
                AlertFeed.list(roots: [], log_roots: [log_root])
+               |> Enum.filter(&(&1["topic"] == topic))
 
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
 
       # A listener restart must not re-raise it either: the failure class is
       # non-actionable, so the boot reprojection never even consults the
       # terminal resolver for it, and the feed stays empty.
       GenServer.stop(pid)
       _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "terminal-ticket delivery failure is resolved, not re-raised, on listener restart", %{dir: dir} do
@@ -3386,7 +3388,7 @@ defmodule Aiur.DecisionStoreTest do
       assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
       failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
       assert List.last(failed.dispatch_attempts).failure_reason_class == "send_failed"
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       GenServer.stop(pid)
 
@@ -3400,9 +3402,9 @@ defmodule Aiur.DecisionStoreTest do
           terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new(["979"])} end
         )
 
-      wait_for_feed_empty(log_root)
+      wait_for_feed_empty(log_root, topic)
 
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "target agent explicitly acknowledges and resolves with duplicate suppression", %{dir: dir} do
@@ -3925,17 +3927,17 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
-  defp wait_for_feed_empty(log_root, attempts \\ 200)
+  defp wait_for_feed_empty(log_root, topic, attempts \\ 200)
 
-  defp wait_for_feed_empty(_log_root, 0),
+  defp wait_for_feed_empty(_log_root, _topic, 0),
     do: flunk("needs-attention feed did not empty after listener restart")
 
-  defp wait_for_feed_empty(log_root, attempts) do
-    if AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == [] do
+  defp wait_for_feed_empty(log_root, topic, attempts) do
+    if case_attention_alerts(log_root, topic) == [] do
       :ok
     else
       Process.sleep(10)
-      wait_for_feed_empty(log_root, attempts - 1)
+      wait_for_feed_empty(log_root, topic, attempts - 1)
     end
   end
 
@@ -3956,5 +3958,18 @@ defmodule Aiur.DecisionStoreTest do
 
   defp unique_coordinator_name(suffix) do
     Module.concat(__MODULE__, "#{suffix}#{System.unique_integer([:positive])}")
+  end
+
+  # #2343: each case's own store writes its delivery attention into the
+  # case-scoped `log_root` via the shared `:log_file` app env, but any other
+  # emitter alive during the case body resolves that same global env, so the
+  # root can transiently carry sibling alerts (observed: `decision-expired-
+  # unanswerable` from other tickets). These cases assert on their OWN alert,
+  # so the read is scoped to the case's topic rather than assuming the root is
+  # globally empty — the root being "owned" by one case is not something a test
+  # can rely on while the log root is a VM-global knob.
+  defp case_attention_alerts(log_root, topic) do
+    AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+    |> Enum.filter(&(&1["topic"] == topic))
   end
 end
