@@ -143,6 +143,16 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :waiting_for_human
     end
 
+    test "a GitHub budget hold is transient rather than human-required" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "in-progress",
+               pause_reason: :github_budget_hold,
+               work_state: :paused,
+               stale_for_seconds: 5,
+               stall_timeout_seconds: 3600
+             }) == :paused_transient
+    end
+
     test "input_required also waits for a human" do
       assert WaitingReason.for_running(%{
                tracker_state: "in-progress",

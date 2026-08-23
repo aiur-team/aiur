@@ -11,6 +11,7 @@ defmodule Aiur.Env do
   expected, when:
 
     * a value fails its declared type — e.g. `AIUR_OPENCODE_BRIDGE_PORT=banana`;
+    * `AIUR_SUPERVISOR_TOKEN` is present but is not a usable bearer credential;
     * a credential group is partially configured (`GITHUB_APP_ID` without
       `GITHUB_APP_INSTALLATION_ID`, or one dashboard credential without the
       other);
@@ -34,6 +35,7 @@ defmodule Aiur.Env do
   alias Aiur.Env.Schema
   alias Aiur.Env.Types
   alias Aiur.Init.Dotenv
+  alias Aiur.SupervisorToken
 
   @doc "Delegated: every declared env-var spec entry, `{name, spec}`."
   @spec specs() :: [{String.t(), Schema.spec()}]
@@ -52,16 +54,17 @@ defmodule Aiur.Env do
   def secret_names, do: Schema.secret_names()
 
   @doc """
-  Validates `env` (defaults to the process environment) for type errors and
-  partial credential groups. Tracker-independent: the GitHub credential
-  requirement is applied by `validate_startup!/1`.
+  Validates `env` (defaults to the process environment) for type errors,
+  unusable configured credentials, and partial credential groups.
+  Tracker-independent: the GitHub credential requirement is applied by
+  `validate_startup!/1`.
 
   Returns `{:ok, :ok}` or `{:error, [message]}` where each message names the
   variable and what was expected.
   """
   @spec validate(map()) :: {:ok, :ok} | {:error, [String.t()]}
   def validate(env \\ System.get_env()) do
-    errors = type_errors(env) ++ group_errors(env)
+    errors = type_errors(env) ++ group_errors(env) ++ supervisor_token_errors(env)
 
     if errors == [], do: {:ok, :ok}, else: {:error, errors}
   end
@@ -270,6 +273,13 @@ defmodule Aiur.Env do
     end
   end
 
+  defp supervisor_token_errors(env) do
+    case SupervisorToken.classify(Map.get(env, "AIUR_SUPERVISOR_TOKEN")) do
+      :invalid -> ["AIUR_SUPERVISOR_TOKEN must be a bearer-safe token of at least 32 bytes with no surrounding whitespace"]
+      _missing_or_valid -> []
+    end
+  end
+
   defp group_complete?(group, env) do
     in_one_of = group.one_of |> List.flatten() |> MapSet.new()
 
@@ -327,8 +337,10 @@ defmodule Aiur.Env do
   end
 
   defp disabled_decision_api(env) do
-    unless set?(env, "AIUR_SUPERVISOR_TOKEN"),
-      do: "Supervisor Decision API off (no AIUR_SUPERVISOR_TOKEN)"
+    case SupervisorToken.classify(Map.get(env, "AIUR_SUPERVISOR_TOKEN")) do
+      :missing -> "Supervisor Decision API off (no AIUR_SUPERVISOR_TOKEN)"
+      _configured -> nil
+    end
   end
 
   defp disabled_provider_keys(env) do

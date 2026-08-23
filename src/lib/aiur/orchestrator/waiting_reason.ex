@@ -47,10 +47,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
       Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
       unresponsive?(attrs) -> :unresponsive
       tracker_reason != :active -> tracker_reason
-      agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human
-      Map.get(attrs, :pause_reason) == :global_pause -> :run_paused
-      Map.get(attrs, :work_state) in [:paused, :sleeping] -> :paused
-      true -> :active
+      true -> running_state_reason(attrs)
     end
   end
 
@@ -175,6 +172,16 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp unresponsive?(_attrs), do: false
 
   defp open_decision?(count), do: is_integer(count) and count > 0
+
+  defp running_state_reason(attrs) do
+    cond do
+      Map.get(attrs, :pause_reason) == :github_budget_hold -> :paused_transient
+      agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human
+      Map.get(attrs, :pause_reason) == :global_pause -> :run_paused
+      Map.get(attrs, :work_state) in [:paused, :sleeping] -> :paused
+      true -> :active
+    end
+  end
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
 

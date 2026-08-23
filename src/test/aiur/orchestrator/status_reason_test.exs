@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.StatusReasonTest do
     assert StatusReason.render({:latched, 20, 20}) == "latched 20/20"
     assert StatusReason.render(StatusReason.for_retry("tracker 403", 240_000)) == "transient: tracker 403, retry ~4m"
     assert StatusReason.render(StatusReason.for_pause(:operator_pause)) == "operator"
+    assert StatusReason.render(StatusReason.for_pause(:github_budget_hold)) == "GitHub budget hold; automatic retry"
   end
 
   test "keeps a lifetime latch visible while prewarm is blocked" do
