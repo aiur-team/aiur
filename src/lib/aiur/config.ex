@@ -517,7 +517,10 @@ defmodule Aiur.Config do
   How often the single view-state reconciliation sweep runs.
 
   A recovery bound for lost webhook deliveries, not a freshness knob. See
-  `Aiur.GitHub.ViewStateSweep`.
+  `Aiur.GitHub.ViewStateSweep`. The two view-only sources it sweeps
+  (`OpenTicketSource`, `AdHocSource`) are reconciled only while a LiveView is
+  watching them, so with no dashboard session open the sweep refreshes neither;
+  `PackStatus` stays reconciled on every tick regardless of viewers.
   """
   @spec view_state_sweep_seconds() :: pos_integer()
   def view_state_sweep_seconds do
