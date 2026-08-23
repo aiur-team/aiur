@@ -163,6 +163,12 @@ defmodule Aiur.GitHubCostCLITest do
     assert length(all["data"]["callers"]) == 4
   end
 
+  # #2298 acceptance 3: REST call sites stamp `caller:` (asserted on the request
+  # map in `Aiur.GitHub.ClientTest`), and the core section of `aiur github-cost`
+  # names the call site rather than folding every REST request into one endpoint
+  # shape or `unattributed`. Rendering a declared REST caller is unchanged
+  # behaviour of the CLI — covered by the existing caller-rendering tests below —
+  # so this file asserts the CLI surface, not the stamping.
   test "rejects an unknown budget rather than silently showing everything" do
     assert {:error, message} = GitHubCostCLI.build(snapshot_fun: fn -> snapshot() end, budget: "points")
     assert message =~ "--budget accepts graphql, core or all"
