@@ -400,21 +400,20 @@ different callers with different invalidation reach.
 
 An answer is kept for 60 seconds.
 
-**Why there is no conditional request.** The daemon's own REST reads recover a
-fifth of their traffic with `If-None-Match`/`ETag`, so it is natural to ask why
-the agent cache does not do the same. It cannot, structurally: the reads this
-cache serves are predominantly GraphQL.
+**Conditional requests and 304s.** `gh api` reads carry a validator where the
+store holds one: a re-read sends `If-None-Match` with the entry's stored `ETag`,
+and an unchanged answer returns `304`, is served from the cache, and is
+reconciled free — the same contract as the daemon's REST reads.
 
-`gh pr view`, `gh pr list`, `gh issue view` and `gh issue list` all hit
-GitHub's GraphQL endpoint, which returns no `ETag` and no `Last-Modified`, so
-there is no validator to send and no `304` to receive.
+The high-level subcommand reads — `gh pr view`, `gh pr list`, `gh issue view`,
+`gh issue list` — hit GitHub's GraphQL endpoint, which returns no `ETag` and no
+`Last-Modified`, so there is no validator for the store to send and those
+entries stay TTL-cached with invalidation markers. When a high-level read does
+return a `304` (an underlying REST read), the wrapper reconciles the lease as
+free rather than billing it full-price.
 
-The REST reads the wrapper does serve run inside the `gh` binary, which does not
-expose request-header injection for subcommand reads.
-
-The TTL body cache with invalidation markers is therefore the only mechanism
-this path has, and the free share it cannot recover is GraphQL's — which no
-cache on either side can recover.
+The free share a TTL body cache cannot recover is GraphQL's — which no cache on
+either side can recover.
 
 The GitHub cache page reports whether this sharing is effective. Its **Agent gh
 exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,

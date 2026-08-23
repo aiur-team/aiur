@@ -896,8 +896,9 @@ fi
 # exactly as beside the shared budget database; real containment needs a
 # separate UID per agent.
 #
-# WHY NO CONDITIONAL REQUEST (#2299): reads here are GraphQL or `gh`-internal
-# REST with no header injection — see apis/github.md.
+# CONDITIONAL REQUESTS (#2299): `gh api` reads revalidate with If-None-Match
+# against a stored ETag and a served 304 is reconciled free; high-level reads
+# are GraphQL with no validator and stay TTL-only — see apis/github.md.
 # ---------------------------------------------------------------------------
 # The store sits beside the budget broker's database, the one directory every
 # agent on a host shares. It derives from the RAW env var rather than
