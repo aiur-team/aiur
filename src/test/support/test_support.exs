@@ -700,9 +700,13 @@ defmodule Aiur.TestSupport do
             ensure_read_cache_running(retries - 1)
 
           _ ->
-            if Process.whereis(Aiur.GitHub.ReadCache), do: :ok, else: :error
+            read_cache_status()
         end
     end
+  end
+
+  defp read_cache_status do
+    if Process.whereis(Aiur.GitHub.ReadCache), do: :ok, else: :error
   end
 
   defp pubsub_status do

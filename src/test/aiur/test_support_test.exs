@@ -1,6 +1,9 @@
 defmodule Aiur.TestSupportTest do
   use Aiur.TestSupport
 
+  alias Aiur.CurrentRunMembership
+  alias Aiur.GitHub.ReadCache
+
   test "receive_barrier selectively receives and exports bindings without a clock" do
     send(self(), :unrelated)
     send(self(), {:ready, 42})
@@ -88,7 +91,7 @@ defmodule Aiur.TestSupportTest do
 
     assert is_pid(Process.whereis(Aiur.Supervisor))
     assert is_pid(Process.whereis(Aiur.PubSub))
-    assert is_pid(Process.whereis(Aiur.GitHub.ReadCache))
+    assert is_pid(Process.whereis(ReadCache))
 
     # A sibling terminating the shared PubSub child collapses the whole tree.
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
@@ -96,33 +99,33 @@ defmodule Aiur.TestSupportTest do
 
     assert is_nil(Process.whereis(Aiur.Supervisor))
     assert is_nil(Process.whereis(Aiur.PubSub))
-    assert is_nil(Process.whereis(Aiur.GitHub.ReadCache))
+    assert is_nil(Process.whereis(ReadCache))
 
     # The guard restarts the whole app and brings PubSub back before use.
     capture_log(fn -> assert :ok = Aiur.TestSupport.ensure_pubsub_running() end)
 
     assert is_pid(Process.whereis(Aiur.Supervisor))
     assert is_pid(Process.whereis(Aiur.PubSub))
-    assert is_pid(Process.whereis(Aiur.GitHub.ReadCache))
-    assert :ok = Aiur.CurrentRunMembership.subscribe()
+    assert is_pid(Process.whereis(ReadCache))
+    assert :ok = CurrentRunMembership.subscribe()
     Phoenix.PubSub.unsubscribe(Aiur.PubSub, "current-run-membership:changed")
-    assert Aiur.GitHub.ReadCache.snapshot().available?
+    assert ReadCache.snapshot().available?
   end
 
   test "ensure_read_cache_running recovers a stopped read cache (contained to one child)" do
     on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
 
-    assert is_pid(Process.whereis(Aiur.GitHub.ReadCache))
+    assert is_pid(Process.whereis(ReadCache))
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.GitHub.ReadCache)
     Process.sleep(100)
 
-    refute is_pid(Process.whereis(Aiur.GitHub.ReadCache))
+    refute is_pid(Process.whereis(ReadCache))
     # ReadCache is contained: stopping it must not take down PubSub or the app.
     assert is_pid(Process.whereis(Aiur.Supervisor))
     assert is_pid(Process.whereis(Aiur.PubSub))
 
     assert :ok = Aiur.TestSupport.ensure_read_cache_running()
-    assert is_pid(Process.whereis(Aiur.GitHub.ReadCache))
-    assert Aiur.GitHub.ReadCache.snapshot().available?
+    assert is_pid(Process.whereis(ReadCache))
+    assert ReadCache.snapshot().available?
   end
 end
