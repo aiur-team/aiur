@@ -837,6 +837,106 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "a holder whose wrapped command exited releases its slot at the max-hold cap", context do
+    # The leak (#2349): the wrapped command exits but a descendant keeps the
+    # subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot is held
+    # long after the command is gone. The absolute wall-clock cap is the
+    # backstop that frees it regardless of how the child exited.
+    gated_context =
+      Map.merge(context, %{
+        descendant_sleep_seconds: 60,
+        max_hold_seconds: 3,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    wait_for_file!(context.descendant_path)
+
+    # The retained descendant is still alive, so the slot stays protected.
+    assert %{active: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The cap expires and the holder releases the slot, leaving a durable
+    # marker the daemon turns into a needs-attention alert naming the command.
+    wait_for_status!(context.gate_dir, 1, fn status ->
+      status.active == 0 and File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    end)
+
+    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    assert marker =~ "mix test"
+    assert marker =~ "reason=retained"
+    assert marker =~ "held_for_seconds="
+    assert %{active: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+  end
+
+  @tag @linux_only
+  test "a command running past the max-hold cap is terminated and releases its slot", context do
+    # The #2311 shape: a running command monopolises a slot (here simulated by a
+    # 30s fake mix). The absolute cap terminates it and releases the slot.
+    gated_context =
+      Map.merge(context, %{
+        sleep_seconds: 30,
+        max_hold_seconds: 1,
+        started_path: ""
+      })
+
+    assert {output, 124} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate released slot=1 status=124"
+
+    marker_path = Path.join(context.gate_dir, "slot-1.hold-timeout")
+    assert File.exists?(marker_path)
+    assert File.read!(marker_path) =~ "reason=running"
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    assert %{active: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The freed slot admits a later verification command.
+    assert {_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
+  end
+
+  @tag @linux_only
+  test "status reports a holder self-release timeout marker", context do
+    marker_path = Path.join(context.gate_dir, "slot-1.hold-timeout")
+    File.write!(marker_path, "version=2\ncommand=mix test --trace\nheld_for_seconds=3600\nreason=running\n")
+
+    assert %{
+             enabled?: true,
+             timeouts: [%{slot: 1, command: "mix test --trace", held_for_seconds: 3600, reason: "running"}]
+           } = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The marker does not make the slot "active" — it is a released-lease record.
+    assert %{active: 0, queued: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+  end
+
+  test "status distinguishes a busy slot from a slot held without a command", %{gate_dir: gate_dir} do
+    File.mkdir_p!(Path.join(gate_dir, "slot-1"))
+    File.mkdir_p!(Path.join(gate_dir, "slot-2"))
+    self_pid = String.to_integer(System.pid())
+    {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
+    live_pgid = pgid |> String.trim() |> String.to_integer()
+
+    File.write!(
+      Path.join(gate_dir, "slot-1/owner"),
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=a\ncommand_pgid=#{live_pgid}\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
+    )
+
+    File.write!(
+      Path.join(gate_dir, "slot-2/owner"),
+      "pid=#{self_pid}\npgid=#{self_pid}\nversion=2\ntoken=b\ncommand_pgid=999999999\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 30}\n"
+    )
+
+    assert %{active: 2, holders: holders} =
+             build_gate_status(gate_dir: gate_dir, capacity: 2, strategy: :pid)
+
+    slot1 = Enum.find(holders, &(&1.slot == 1))
+    slot2 = Enum.find(holders, &(&1.slot == 2))
+    assert slot1.command_alive? == true
+    assert slot2.command_alive? == false
+  end
+
+  @tag @linux_only
   test "cancellation after direct Mix exit reaps retained descendants before releasing capacity", context do
     gated_context =
       Map.merge(context, %{
@@ -1907,6 +2007,7 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_BUILD_GATE_DIAGNOSTIC_PGID", Integer.to_string(Map.get(context, :diagnostic_pgid, 0))},
       {"AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN", if(Map.get(context, :holder_fail_after_popen, false), do: "1", else: "0")},
       {"AIUR_BUILD_GATE_HOLDER_START_DELAY_SECONDS", to_string(Map.get(context, :holder_start_delay_seconds, 0))},
+      {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(Map.get(context, :max_hold_seconds, 0))},
       {"AIUR_TEST_STATUS_READ_DELAY_SECONDS", to_string(Map.get(context, :status_read_delay_seconds, 0))},
       {"AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT", Map.get(context, :handshake_fifo_fragment, "")},
       {"AIUR_TEST_DELAY_OWNER_MV", if(Map.get(context, :delay_owner_publication, false), do: "1", else: "0")},
@@ -1987,6 +2088,19 @@ defmodule Aiur.BuildGateTest do
     case System.cmd("bash", ["-c", script, "wait-for-file", path, Integer.to_string(attempts)]) do
       {_output, 0} -> :ok
       _ -> flunk("timed out waiting for #{path}")
+    end
+  end
+
+  defp wait_for_status!(gate_dir, capacity, fun, attempts \\ 300)
+
+  defp wait_for_status!(_gate_dir, _capacity, _fun, 0), do: flunk("timed out waiting for gate status")
+
+  defp wait_for_status!(gate_dir, capacity, fun, attempts) do
+    if fun.(build_gate_status(gate_dir: gate_dir, capacity: capacity)) do
+      :ok
+    else
+      Process.sleep(20)
+      wait_for_status!(gate_dir, capacity, fun, attempts - 1)
     end
   end
 

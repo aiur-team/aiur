@@ -116,6 +116,11 @@ defmodule Aiur.Config.Schema.Agent do
     # Optional Linux MemAvailable floor shared by normal dispatch and the local
     # Mix build gate. Omitted means memory admission is disabled.
     field(:min_free_memory_mb, :integer)
+    # Absolute wall-clock cap (seconds) on how long any one build-gate slot may
+    # be held (#2349). The detached lease holder releases the slot at the cap
+    # and the daemon raises a needs-attention alert naming the command. 0
+    # disables the backstop.
+    field(:build_gate_max_hold_seconds, :integer, default: 3_600)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -196,6 +201,7 @@ defmodule Aiur.Config.Schema.Agent do
         :max_concurrent_builds,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
+        :build_gate_max_hold_seconds,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
@@ -226,6 +232,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
+    |> validate_number(:build_gate_max_hold_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)
     |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
