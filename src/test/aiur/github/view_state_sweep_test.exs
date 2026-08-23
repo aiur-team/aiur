@@ -15,7 +15,9 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
   # Each also answers `demanded?/0`, which the sweep consults before reconciling;
   # the stand-in defaults to demanded so the "every running source is
   # reconciled" tests keep passing, and a test can start one undemanded to
-  # assert the sweep skips it.
+  # assert the sweep skips it. `reseed_demand/0` is the uniform re-seed the
+  # sweep calls on every source; the stand-ins are not PubSub-backed, so theirs
+  # is a no-op (a `ReseedableSource` below has a real one).
   defmodule Source do
     @moduledoc false
     defmacro __using__(_opts) do
@@ -27,6 +29,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
         def calls, do: GenServer.call(__MODULE__, :calls)
         def demanded?, do: GenServer.call(__MODULE__, :demanded?)
         def demander_count, do: GenServer.call(__MODULE__, :demander_count)
+        def reseed_demand, do: :ok
 
         @impl true
         def init(opts), do: {:ok, %{calls: 0, demanders: if(Keyword.get(opts, :demanded, true), do: 1, else: 0)}}
@@ -59,6 +62,34 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     use Source
   end
 
+  # A stand-in whose `reseed_demand/0` restores demand, standing in for the real
+  # sources' re-seed from PubSub subscriber presence. It starts undemanded — the
+  # post-restart state — and the sweep's re-seed is what brings it back, so the
+  # sweep's recovery loop is the thing under test (review finding 3).
+  defmodule ReseedableSource do
+    @moduledoc false
+    use GenServer
+
+    def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    def refresh, do: GenServer.cast(__MODULE__, :refresh)
+    def calls, do: GenServer.call(__MODULE__, :calls)
+    def demanded?, do: GenServer.call(__MODULE__, :demanded?)
+    def reseed_demand, do: GenServer.cast(__MODULE__, :reseed_demand)
+
+    @impl true
+    def init(_opts), do: {:ok, %{calls: 0, demanders: 0}}
+
+    @impl true
+    def handle_call(:calls, _from, state), do: {:reply, state.calls, state}
+
+    def handle_call(:demanded?, _from, state), do: {:reply, state.demanders > 0, state}
+
+    @impl true
+    def handle_cast(:refresh, state), do: {:noreply, %{state | calls: state.calls + 1}}
+
+    def handle_cast(:reseed_demand, state), do: {:noreply, %{state | demanders: 1}}
+  end
+
   # A stand-in for a real reconciliation source: on each sweep it reads its whole
   # upstream back and publishes only what nothing has claimed, which is exactly
   # the shape the comment sweep has.
@@ -72,6 +103,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     def refresh, do: GenServer.cast(__MODULE__, :refresh)
     def published, do: GenServer.call(__MODULE__, :published)
     def demanded?, do: true
+    def reseed_demand, do: :ok
 
     @impl true
     def init(opts), do: {:ok, %{upstream: Keyword.fetch!(opts, :upstream), published: []}}
@@ -174,6 +206,26 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
 
       assert ViewStateSweep.sweep_now(pid) == []
       assert SourceA.calls() == 0
+    end
+
+    # The recovery half of the same rule. A source's demander set lives in its
+    # GenServer, so a supervisor restart empties it while the pages that watch
+    # it are still alive and still subscribed to its PubSub topic; without
+    # re-seeding, the gate would then skip the source forever and the open page
+    # would go silently stale. The stand-in starts undemanded (the post-restart
+    # state) and its `reseed_demand/0` restores the demand, so one sweep tick
+    # both re-seeds and reconciles it (review finding 3).
+    test "a source whose demander set was emptied by a restart is re-seeded and reconciled, not skipped" do
+      start_supervised!(ReseedableSource)
+
+      pid =
+        start_supervised!({ViewStateSweep, name: :sweep_reseed_test, sources: [ReseedableSource], interval_ms: 3_600_000})
+
+      refute ReseedableSource.demanded?()
+
+      assert ViewStateSweep.sweep_now(pid) == [ReseedableSource]
+
+      assert ReseedableSource.calls() == 1
     end
 
     # Without this the module could sweep once at boot and never again — every

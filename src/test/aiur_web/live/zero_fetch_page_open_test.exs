@@ -3,10 +3,17 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
-  One deliberate exception: opening the Build Order page registers the first
-  demander on the Ad Hoc overlay source, which buys a single view-originated
-  refresh (held state renders first, then one listing). That one request is
-  asserted explicitly below; every other route stays at zero.
+  Two deliberate exceptions, both asserted explicitly below:
+
+  * Opening the dashboard (`/`) registers the first demander on the open-ticket
+    backlog source, which buys a single view-originated refresh (held state
+    renders first, then one listing).
+  * Opening the Build Order page registers the first demander on the Ad Hoc
+    overlay source, which buys a single view-originated refresh.
+
+  Every other route stays at zero. The two exceptions are asserted with the
+  `eventually` wait and the exact request shape, so their one-request behaviour
+  is provable rather than racy.
 
   ## Why this file is hermetic and the `:external` one is not
 
@@ -48,13 +55,12 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
 
   # The dashboard routes that must never fetch when opened, paired with a marker
   # only that route renders. Each of these reads local GenServer state and could
-  # never have fetched. `/build-orders` and `/build-orders/:root_number` are
-  # deliberately NOT here: opening them now performs one view-originated refresh
-  # of the Ad Hoc overlay (see "the Build Order page" describe below), so their
-  # open does not cost zero and they assert the exact shape of that one request
-  # instead.
+  # never have fetched. `/` and `/build-orders` (+ `/build-orders/:root_number`)
+  # are deliberately NOT here: opening them now performs one view-originated
+  # refresh of a view-only source (see "the deliberate view-originated
+  # refreshes" describe below), so their open does not cost zero and they assert
+  # the exact shape of that one request instead.
   @zero_fetch_pages [
-    {"/", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
     {"/streamdeck", "streamdeck-page"}
@@ -171,11 +177,45 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert_egress_open!(counter)
     end
 
-    # The one deliberate exception to "viewing never fetches": opening the Build
-    # Order page registers the first demander on the Ad Hoc source, which buys a
-    # single view-originated refresh of the labelled overlay. Held state renders
-    # first; the listing is the one request this page is allowed. A second Build
-    # Order page coalesces on the in-flight guard, so the total stays one.
+    # The two deliberate exceptions to "viewing never fetches": opening the
+    # dashboard or the Build Order page registers the first demander on a
+    # view-only source, which buys a single view-originated refresh. Held state
+    # renders first; the listing is the one request that page is allowed, and a
+    # second page coalesces on the in-flight guard, so the total stays one.
+
+    # Opening `/` registers the first demander on `OpenTicketSource`, which
+    # would otherwise be skipped by the sweep forever. The open-ticket listing
+    # is gated on `tracker_kind == "github"` (a Linear or in-memory tracker has
+    # no such source), so this test overrides the workflow config to github —
+    # otherwise the refresh would silently not fire and the assertion would mean
+    # nothing, exactly the "zero, provably" trap the reviewer flagged.
+    test "opening the dashboard performs exactly one view-originated refresh", %{counter: counter} do
+      workflow_path = Aiur.Workflow.workflow_file_path()
+      :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
+
+      assert {:ok, view, html} = live(build_conn(), "/")
+      assert html =~ "dashboard-shell", "/ did not render the dashboard shell"
+      assert html =~ "usage-watch", "/ rendered a shell but not its own content"
+      assert render(view) =~ "usage-watch"
+
+      # The refresh is async — a cast from the LiveView to the open-ticket
+      # source, then a Task — so the listing can land after the render round
+      # trip above. Poll until it does, so the assertion is about the request's
+      # shape, not about winning a race.
+      assert eventually(fn -> Agent.get(counter, & &1) != [] end),
+             "opening / never performed its view-originated refresh"
+
+      requests = Agent.get(counter, & &1)
+
+      assert [{method, path}] = requests,
+             "opening / made #{length(requests)} GitHub requests: #{inspect(requests)}"
+
+      assert method == "GET"
+      assert path == "/repos/aiur-team/aiur/issues"
+
+      assert_egress_open!(counter)
+    end
+
     test "opening /build-orders performs exactly one view-originated refresh", %{counter: counter} do
       for path <- ["/build-orders", "/build-orders/2073"] do
         assert {:ok, view, html} = live(build_conn(), path)
@@ -208,9 +248,13 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell"
 
-      # The dashboard's own periodic ticks: a 1s clock, a 15s GitHub-quota read
-      # and a 60s ElevenLabs read. Driving them directly is deterministic where
-      # sleeping for 60s would be slow and still racy. If any of them ever
+      # This env runs a Linear tracker, so the dashboard's open-time
+      # OpenTicketSource refresh is gated to :unsupported and makes no request;
+      # the `/` deliberate-exception test covers that one request under a github
+      # tracker. What this test asserts is narrower: the dashboard's own
+      # periodic ticks — a 1s clock, a 15s GitHub-quota read and a 60s
+      # ElevenLabs read — never fetch. Driving them directly is deterministic
+      # where sleeping for 60s would be slow and still racy. If any of them ever
       # starts fetching rather than reading local GenServer state, this fails.
       Enum.each([:runtime_tick, :github_quota_tick, :elevenlabs_quota_tick], fn tick ->
         send(view.pid, tick)

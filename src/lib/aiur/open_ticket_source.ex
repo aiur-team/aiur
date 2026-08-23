@@ -47,6 +47,14 @@ defmodule Aiur.OpenTicketSource do
   # Issue bodies are large on a planning-heavy repository, so the response is
   # bounded rather than decoded in full.
   @max_response_bytes 4 * 1024 * 1024
+  # A reconnect buys no second full listing within this floor of the last
+  # successful read: the held snapshot is at most `@courtesy_refresh_floor_ms`
+  # old, which is younger than the ReadCache TTL the sweep is sized against.
+  # Without the floor a flaky connection (network blip, laptop wake, deploy,
+  # tab discard) would kill the old session and mount a new one, re-buying the
+  # whole paginated backlog on every 0->1 demander transition — strictly worse
+  # than the 900s sweep it replaces (review finding 2).
+  @courtesy_refresh_floor_ms :timer.seconds(30)
   # The Tickets panel search matches descriptions as well as titles, and this
   # listing already carries every body on the wire — GitHub's REST issue list
   # returns `body` inline, so reading descriptions costs no extra request. That
@@ -104,7 +112,13 @@ defmodule Aiur.OpenTicketSource do
   def demanded?(server \\ __MODULE__) do
     GenServer.call(server, :demanded?)
   catch
-    :exit, _reason -> false
+    # A busy or wedged source that blows the call timeout must not report
+    # "nobody is watching": the sweep's reconcile is exactly the recovery that
+    # should still run when a source is unhealthy, so an unknown answer
+    # defaults to "sweep it". `demander_count/1` keeps answering 0 in that
+    # case — a count no one can read is unknowable — so the two stay
+    # deliberately different (review finding 4).
+    :exit, _reason -> true
   end
 
   @doc "The number of LiveView sessions currently watching this source."
@@ -118,6 +132,20 @@ defmodule Aiur.OpenTicketSource do
   @doc "Explicitly releases the caller's demand on this source."
   @spec undemand(GenServer.server()) :: :ok
   def undemand(server \\ __MODULE__), do: GenServer.cast(server, {:undemand, self()})
+
+  @doc """
+  Re-registers demand from the source's PubSub subscribers after a restart.
+
+  The demander set lives in this GenServer, so a supervisor restart empties it
+  while the LiveViews that watch the source are still alive and still subscribed
+  to `#{inspect(@topic)}`. `Aiur.GitHub.ViewStateSweep` calls this before every
+  reconcile; a source with no demanders re-registers its current subscribers,
+  which is what lets the sweep keep recovering a page that stays open across a
+  source crash. Idempotent — a pid that already holds demand is a no-op, and a
+  source that still has demanders is left alone (review finding 3).
+  """
+  @spec reseed_demand(GenServer.server()) :: :ok
+  def reseed_demand(server \\ __MODULE__), do: GenServer.cast(server, :reseed_demand)
 
   @doc "Requests an out-of-band refresh (async)."
   @spec refresh(GenServer.server()) :: :ok
@@ -166,13 +194,33 @@ defmodule Aiur.OpenTicketSource do
   def handle_cast({:demand, pid}, state) do
     {state, first?} = ViewStateDemand.demand(state, pid)
     # The first demander is the page opening: render held state, then buy the
-    # fresh listing once. Later sessions coalesce on the in-flight guard, and
-    # the sweep's cadence keeps the source current while it stays demanded.
-    state = if first?, do: ensure_fetch(state, true), else: state
+    # fresh listing once — unless a recent read already covers it. Later
+    # sessions coalesce on the in-flight guard, and the sweep's cadence keeps
+    # the source current while it stays demanded.
+    state = if first? and courtesy_refresh_due?(state), do: ensure_fetch(state, true), else: state
     {:noreply, state}
   end
 
   def handle_cast({:undemand, pid}, state), do: {:noreply, ViewStateDemand.undemand(state, pid)}
+
+  # Recovery for a source that restarted under open pages: the old process took
+  # its demander set with it, so re-register every current subscriber of the
+  # topic (the still-open LiveViews) as a demander. Direct `ViewStateDemand`
+  # rather than the `{:demand, pid}` cast so re-seeding never buys a courtesy
+  # refresh of its own — the sweep's own `refresh/1` reconciles the same tick.
+  def handle_cast(:reseed_demand, state) do
+    state =
+      if ViewStateDemand.count(state) == 0 and Process.whereis(Aiur.PubSub) do
+        Enum.reduce(Registry.lookup(Aiur.PubSub, @topic), state, fn {pid, _metadata}, acc ->
+          {acc, _first?} = ViewStateDemand.demand(acc, pid)
+          acc
+        end)
+      else
+        state
+      end
+
+    {:noreply, state}
+  end
 
   def handle_cast({:refresh, view_originated?}, state),
     do: {:noreply, ensure_fetch(state, view_originated?)}
@@ -367,6 +415,20 @@ defmodule Aiur.OpenTicketSource do
     end
 
     :ok
+  end
+
+  # A snapshot with a recent `observed_at` means the opening page is a reconnect
+  # within the floor — it renders the held state and buys nothing more. An
+  # absent or older `observed_at` means this really is the first look in a
+  # while, so the first demander buys the one immediate refresh.
+  defp courtesy_refresh_due?(state) do
+    case state.snapshot.observed_at do
+      %DateTime{} = observed_at ->
+        DateTime.diff(now(state), observed_at, :millisecond) >= @courtesy_refresh_floor_ms
+
+      _other ->
+        true
+    end
   end
 
   defp now(state) do

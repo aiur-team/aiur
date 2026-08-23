@@ -43,6 +43,13 @@ defmodule Aiur.GitHub.ViewStateSweep do
   that writer on viewers would change *when a file on disk is written* — a
   different risk class, kept out of this change. See its moduledoc.
 
+  Because the demander set lives in each source's GenServer, a supervisor
+  restart empties it while the pages watching that source are still open. Every
+  tick therefore asks each running source to re-seed its demanders from its
+  PubSub subscriber presence before deciding whether to reconcile it, so a
+  crash cannot silently strand an open page — recovery just returns on the next
+  tick, as it did before the gate existed.
+
   ## What this is not, yet
 
   Stated plainly because the gap is easy to mistake for a bug: the three sources
@@ -159,11 +166,25 @@ defmodule Aiur.GitHub.ViewStateSweep do
   # daemon with no dashboard session open costs them nothing. `PackStatus` is
   # the exception: it answers demanded unconditionally, so it is reconciled on
   # every tick regardless of viewers (see its moduledoc).
+  #
+  # Every running source is asked to re-seed demand first. A source's demander
+  # set lives in its own GenServer, so a supervisor restart empties it while
+  # the pages that watch it are still alive and still subscribed to its PubSub
+  # topic; re-seeding from subscriber presence restores the demand and, with
+  # it, the reconcile. Without it a single crash would convert the demand gate
+  # into permanent silence for every open page — the exact self-healing the
+  # unconditional pre-gate sweep used to provide (review finding 3).
   defp sweep(state) do
     Enum.filter(state.sources, fn source ->
-      if Process.whereis(source) && source.demanded?() do
-        source.refresh()
-        true
+      if Process.whereis(source) do
+        source.reseed_demand()
+
+        if source.demanded?() do
+          source.refresh()
+          true
+        else
+          false
+        end
       else
         false
       end

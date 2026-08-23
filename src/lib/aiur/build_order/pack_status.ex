@@ -90,6 +90,17 @@ defmodule Aiur.BuildOrder.PackStatus do
   @spec demanded?(GenServer.server()) :: true
   def demanded?(_server \\ __MODULE__), do: true
 
+  @doc """
+  No-op half of the sweep's uniform re-seed protocol.
+
+  `Aiur.GitHub.ViewStateSweep` calls `reseed_demand/0` on every source before a
+  reconcile. The two view-only sources use it to re-register their PubSub
+  subscribers after a restart; this source holds no demander set at all (it is
+  not demand-gated), so there is nothing to re-seed.
+  """
+  @spec reseed_demand(GenServer.server()) :: :ok
+  def reseed_demand(_server \\ __MODULE__), do: :ok
+
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
