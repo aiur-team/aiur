@@ -93,6 +93,35 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :waiting_for_ci
     end
 
+    test "a duration-capped pause is one consistent paused state across tracker states" do
+      # #2329: #2310 and #2311 paused for the same `max_agent_duration` reason
+      # rendered `waiting_for_human` and `paused` depending on their tracker
+      # state. "maximum agent duration reached" is a local pause, not a tracker
+      # wait, so it must read `:paused` no matter what the tracker says.
+      for tracker_state <- ["in-progress", "rework", "human-review", "ci-wait"] do
+        assert WaitingReason.for_running(%{
+                 tracker_state: tracker_state,
+                 pause_reason: :max_agent_duration,
+                 work_state: :paused,
+                 stale_for_seconds: 999_999,
+                 stall_timeout_seconds: 3600
+               }) == :paused
+      end
+    end
+
+    test "an open decision still wins over a duration-capped pause" do
+      # An open question is a separate cause from the duration cap; it must
+      # not be hidden behind the pause's `:paused` classification.
+      assert WaitingReason.for_running(%{
+               tracker_state: "rework",
+               pause_reason: :max_agent_duration,
+               work_state: :paused,
+               open_decision_count: 1,
+               stale_for_seconds: 999_999,
+               stall_timeout_seconds: 3600
+             }) == :waiting_for_human
+    end
+
     test "tracker state ci-wait wins even without a live pause_reason (deactivated entry)" do
       assert WaitingReason.for_running(%{
                tracker_state: "ci-wait",
