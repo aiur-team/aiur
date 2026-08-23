@@ -19,9 +19,10 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
   Runs on the `pr_health` cadence (`pr_health.interval_seconds`, default 30
   minutes) as an opt-in supervised worker (`pr_health.enabled`). The open-PR
   list is a plain `GET /pulls?state=open`; only candidate PRs (very few — the
-  4-day tail and the human-merger PRs) incur a per-PR reviews read. Alerts are
-  deduped per condition per PR while the PR keeps matching, so a steady-state
-  scan costs one list read and no repeated alerts.
+  4-day tail and the human-merger PRs) incur a per-PR reviews read, and a
+  candidate already confirmed to have a review is memoised so it never pays
+  that read again. Alerts are deduped per condition per PR while the PR keeps
+  matching, so a steady-state scan costs one list read and no repeated alerts.
 
   The scan is deliberately separate from the orchestrator's hot poll path: a
   burst of open PRs or a slow reviews endpoint must never delay dispatch.
@@ -61,9 +62,11 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
       human_mergers_fun: Keyword.get(opts, :human_mergers_fun, &GitHubConfig.human_mergers/0),
       comment_fun: Keyword.get(opts, :comment_fun, &Tracker.create_comment/2),
       alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_system/2),
+      now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       enabled?: Keyword.get(opts, :enabled?, &default_enabled?/0),
       alerted: MapSet.new(),
       commented: MapSet.new(),
+      reviewed: MapSet.new(),
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
@@ -114,7 +117,8 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
     case state.open_prs_fetcher.() do
       {:ok, prs} when is_list(prs) ->
         human_mergers = state.human_mergers_fun.()
-        {unmergeable, stale_candidates} = evaluate(prs, state.stale_hours, DateTime.utc_now(), human_mergers)
+        now = state.now_fun.()
+        {unmergeable, stale_candidates} = evaluate(prs, state.stale_hours, now, human_mergers)
 
         state =
           unmergeable
@@ -122,7 +126,7 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
 
         state =
           stale_candidates
-          |> Enum.reduce(state, &flag_stale_if_unreviewed/2)
+          |> Enum.reduce(state, fn pr, acc -> flag_stale_if_unreviewed(pr, acc, now) end)
 
         prune_resolved(state, prs, unmergeable, stale_candidates)
 
@@ -144,14 +148,17 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
   @spec evaluate(list(), integer(), DateTime.t(), [String.t()]) ::
           {[map()], [map()]}
   def evaluate(prs, stale_hours, now, human_mergers) when is_list(prs) and is_list(human_mergers) do
+    # A PR without a usable number can never be keyed, alerted or reviewed, so
+    # reject it before any decision rule runs (#2346 review).
+    prs = Enum.reject(prs, &(pr_number(&1) == nil))
     unmergeable = Enum.filter(prs, &unmergeable_author?(&1, human_mergers))
     stale_unreviewed = Enum.filter(prs, &stale_unreviewed_candidate?(&1, stale_hours, now))
     {unmergeable, stale_unreviewed}
   end
 
   # Unmergeable-author flagging (cause 1): alert once, comment once.
-  defp flag_unmergeable(pr, state) do
-    number = pr_number(pr)
+  defp flag_unmergeable(%{"number" => number} = pr, state)
+       when is_integer(number) or is_binary(number) do
     key = {:unmergeable, number}
 
     if MapSet.member?(state.alerted, key) do
@@ -163,6 +170,8 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
       |> Map.put(:alerted, MapSet.put(state.alerted, key))
     end
   end
+
+  defp flag_unmergeable(_pr, state), do: state
 
   defp emit_unmergeable_alert(state, pr) do
     number = pr_number(pr)
@@ -207,41 +216,50 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
 
   # Ageing-unreviewed flagging (cause 3): the list read already bounded
   # candidates; each candidate pays one reviews read to confirm it truly has no
-  # completed review before alerting.
-  defp flag_stale_if_unreviewed(pr, state) do
-    number = pr_number(pr)
+  # completed review before alerting. A candidate already confirmed to have a
+  # review is memoised (`reviewed`) so it does not pay a reviews read on every
+  # tick forever (#2346 review).
+  defp flag_stale_if_unreviewed(%{"number" => number} = pr, state, now)
+       when is_integer(number) or is_binary(number) do
     key = {:stale_unreviewed, number}
 
-    if MapSet.member?(state.alerted, key) do
-      state
-    else
-      case state.reviews_fetcher.(number) do
-        {:ok, reviews} when is_list(reviews) ->
-          maybe_alert_stale(state, pr, key, reviews)
+    cond do
+      MapSet.member?(state.alerted, key) -> state
+      MapSet.member?(state.reviewed, number) -> state
+      true -> confirm_unreviewed(pr, number, key, state, now)
+    end
+  end
 
-        {:error, reason} ->
-          Logger.warning("PRHealthScanner stale-PR reviews fetch failed: pr=#{number} reason=#{inspect(reason)}")
-          state
-      end
+  defp flag_stale_if_unreviewed(_pr, state, _now), do: state
+
+  defp confirm_unreviewed(pr, number, key, state, now) do
+    case state.reviews_fetcher.(number) do
+      {:ok, reviews} when is_list(reviews) ->
+        maybe_alert_stale(state, pr, key, reviews, now)
+
+      {:error, reason} ->
+        Logger.warning("PRHealthScanner stale-PR reviews fetch failed: pr=#{number} reason=#{inspect(reason)}")
+        state
     end
   end
 
   # Alerts only when the candidate truly has no completed review; a PR that
   # already received review attention (approved, changes requested, commented)
-  # is not an unseen PR.
-  defp maybe_alert_stale(state, pr, key, reviews) do
+  # is not an unseen PR, and once confirmed it is memoised so the next tick
+  # does not re-read its reviews.
+  defp maybe_alert_stale(state, pr, key, reviews, now) do
     if has_review?(reviews) do
-      state
+      %{state | reviewed: MapSet.put(state.reviewed, pr_number(pr))}
     else
-      emit_stale_alert(state, pr)
+      emit_stale_alert(state, pr, now)
       %{state | alerted: MapSet.put(state.alerted, key)}
     end
   end
 
-  defp emit_stale_alert(state, pr) do
+  defp emit_stale_alert(state, pr, now) do
     number = pr_number(pr)
     title = pr_title(pr)
-    age_hours = pr_age_hours(pr, DateTime.utc_now())
+    age_hours = pr_age_hours(pr, now)
 
     state.alert_fun.(
       "system.pr_health.stale_unreviewed",
@@ -255,9 +273,9 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
     state
   end
 
-  # Forget alert/comment dedup for PRs that no longer match any finding (closed,
-  # merged, reviewed, or no longer authored by a human merger), so a recurrence
-  # alerts again and the maps cannot grow without bound.
+  # Forget alert/comment/review dedup for PRs that no longer match any finding
+  # (closed, merged, reviewed, or no longer authored by a human merger), so a
+  # recurrence alerts again and the maps cannot grow without bound.
   defp prune_resolved(state, prs, unmergeable, stale_candidates) do
     active_unmergeable = MapSet.new(unmergeable, &{:unmergeable, pr_number(&1)})
     active_stale = MapSet.new(stale_candidates, &{:stale_unreviewed, pr_number(&1)})
@@ -267,7 +285,8 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
     %{
       state
       | alerted: MapSet.intersection(state.alerted, active),
-        commented: MapSet.intersection(state.commented, active_numbers)
+        commented: MapSet.intersection(state.commented, active_numbers),
+        reviewed: MapSet.intersection(state.reviewed, active_numbers)
     }
   end
 

@@ -318,7 +318,7 @@ defmodule Aiur.Events.GithubCIPoller do
     check_runs =
       check_runs
       |> blocking_check_runs()
-      |> latest_check_runs_per_name()
+      |> latest_check_runs_per_workflow_and_name()
 
     statuses = commit_status |> Map.get("statuses", []) |> Enum.filter(&is_map/1)
     failed_checks = failed_check_runs(check_runs) ++ failed_commit_statuses(statuses)
@@ -346,32 +346,54 @@ defmodule Aiur.Events.GithubCIPoller do
   # A head sha can carry check runs from several runs of the same workflow when
   # a run was superseded by a re-run on the same sha. A superseded run's
   # failure is not a failure of the head — the current run is the verdict — so
-  # the gate considers only the latest run per workflow name (#2337 cause 4).
+  # the gate considers only the latest run per (workflow, name) (#2337 cause 4).
+  #
+  # The workflow scope is `check_suite.id`: GitHub re-runs of the same workflow
+  # reuse the suite id, while different workflows (ci, website, streamdeck,
+  # netlify…) each own a distinct suite. Keying on name alone would collapse a
+  # same-named job across workflows — ci.yml's `build` and
+  # streamdeck-package.yml's `build` land on one head sha, and a failing
+  # required `build` could be dropped by a later-starting green one from the
+  # other workflow. Scoping by suite keeps that impossible (#2346 review).
   # `started_at` is the recency key (falls back to `completed_at`); ISO8601
-  # strings compare chronologically. Output preserves each name's first-seen
-  # position so downstream failure lists keep their input order.
-  defp latest_check_runs_per_name(check_runs) do
-    {latest, ordered_names} =
-      Enum.reduce(check_runs, {%{}, []}, fn run, {latest, ordered_names} ->
-        name = Map.get(run, "name")
+  # strings compare chronologically. Output preserves each key's first-seen
+  # position so downstream failure lists keep their input order. A run with no
+  # suite identity is scoped by its own id, so it is never collapsed with any
+  # other run — failing toward not dropping a failure.
+  defp latest_check_runs_per_workflow_and_name(check_runs) do
+    {latest, ordered_keys} =
+      Enum.reduce(check_runs, {%{}, []}, fn run, {latest, ordered_keys} ->
+        key = {check_run_workflow(run), Map.get(run, "name")}
 
-        case Map.fetch(latest, name) do
+        case Map.fetch(latest, key) do
           {:ok, current} ->
-            {put_latest_check_run(latest, name, run, current), ordered_names}
+            {put_latest_check_run(latest, key, run, current), ordered_keys}
 
           :error ->
-            {Map.put(latest, name, run), ordered_names ++ [name]}
+            {Map.put(latest, key, run), ordered_keys ++ [key]}
         end
       end)
 
-    Enum.map(ordered_names, &Map.fetch!(latest, &1))
+    Enum.map(ordered_keys, &Map.fetch!(latest, &1))
   end
 
-  # Keeps the newer run for a name when both a superseded and the current run
-  # of the same workflow reported on the head sha.
-  defp put_latest_check_run(latest, name, run, current) do
+  # Keeps the newer run for a key when both a superseded and the current run of
+  # the same workflow reported on the head sha.
+  defp put_latest_check_run(latest, key, run, current) do
     updated = if check_run_recency_key(run) >= check_run_recency_key(current), do: run, else: current
-    Map.put(latest, name, updated)
+    Map.put(latest, key, updated)
+  end
+
+  # The check suite id identifies the workflow run a check run belongs to. It
+  # arrives flat (`"check_suite_id"`) from the GraphQL batch and webhook
+  # normalizers and nested (`["check_suite"]["id"]`) from the raw REST
+  # check-runs read. Absent either, the run's own id scopes it so same-named
+  # suite-less runs are never collapsed together.
+  defp check_run_workflow(check_run) do
+    case Map.get(check_run, "check_suite_id") || get_in(check_run, ["check_suite", "id"]) do
+      id when not is_nil(id) -> {:suite, id}
+      _other -> {:run, Map.get(check_run, "id")}
+    end
   end
 
   defp check_run_recency_key(check_run) do

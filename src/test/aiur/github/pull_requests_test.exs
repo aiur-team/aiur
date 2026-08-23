@@ -221,4 +221,47 @@ defmodule Aiur.GitHub.PullRequestsTest do
       assert request.etag == ~s("v1")
     end
   end
+
+  describe "fetch_open_pull_requests/1" do
+    # #2346 review: the unfiltered open-PR scan (the PR-health checks) had no
+    # coverage at all. Its own docstring says pagination is what stops an
+    # unmergeable or ageing PR past page 1 from hiding, so that stated
+    # requirement plus the failure branches are asserted here.
+    test "lists every open PR and follows Link rel=next across pages" do
+      page1 = %{"number" => 1, "state" => "open"}
+      page2 = %{"number" => 250, "state" => "open"}
+
+      request_fun = fn req ->
+        if String.contains?(req.url, "page=2") do
+          {:ok, %{status: 200, headers: [], body: [page2]}}
+        else
+          next = ~s(<https://api.github.com/repos/owner/repo/pulls?state=open&per_page=100&page=2>; rel="next")
+          {:ok, %{status: 200, headers: [{"link", next}], body: [page1]}}
+        end
+      end
+
+      assert {:ok, prs} = PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+      assert Enum.map(prs, & &1["number"]) == [1, 250]
+    end
+
+    test "returns an empty list when there are no open PRs" do
+      request_fun = fn _req -> {:ok, %{status: 200, headers: [], body: []}} end
+
+      assert {:ok, []} = PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+    end
+
+    test "surfaces a GitHub API error on a non-200 response" do
+      request_fun = fn _req -> {:ok, %{status: 500, headers: [], body: %{}}} end
+
+      assert {:error, {:github, :http, %{status: 500}}} =
+               PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+    end
+
+    test "surfaces a transport error" do
+      request_fun = fn _req -> {:error, :timeout} end
+
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
+               PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+    end
+  end
 end

@@ -32,8 +32,10 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       comment_fun: Keyword.get(opts, :comment_fun, fn _, _ -> :ok end),
       alert_fun: Keyword.get(opts, :alert_fun, fn _, _ -> :ok end),
       enabled?: Keyword.get(opts, :enabled?, fn -> true end),
+      now_fun: Keyword.get(opts, :now_fun, fn -> @now end),
       alerted: MapSet.new(),
       commented: MapSet.new(),
+      reviewed: MapSet.new(),
       start_paused?: true
     }
   end
@@ -72,6 +74,22 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       {_unmergeable, stale} = PRHealthScanner.evaluate([under], @stale_hours, @now, [])
 
       assert stale == []
+    end
+
+    test "ignores PRs with no usable number" do
+      numbered_unmergeable = pr(2180, %{"user" => %{"login" => "its-everdred"}})
+      numbered_stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
+
+      {unmergeable, stale} =
+        PRHealthScanner.evaluate(
+          [numbered_unmergeable, numbered_stale, %{"state" => "open"}, %{"number" => nil, "state" => "open"}],
+          @stale_hours,
+          @now,
+          ["its-everdred"]
+        )
+
+      assert unmergeable == [numbered_unmergeable]
+      assert stale == [numbered_stale]
     end
   end
 
@@ -176,6 +194,85 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       state = PRHealthScanner.tick(state)
       refute_receive {:alert, _}, 100
       assert state.alerted == MapSet.new()
+    end
+
+    test "a reviewed candidate is memoised and never pays a reviews read again" do
+      stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
+      reviews_reads = :atomics.new(1, [])
+
+      state =
+        base_state(
+          open_prs_fetcher: fn -> {:ok, [stale]} end,
+          reviews_fetcher: fn _number ->
+            :atomics.add(reviews_reads, 1, 1)
+            {:ok, [%{"state" => "APPROVED"}]}
+          end,
+          alert_fun: fn name, _opts ->
+            send(self(), {:alert, name})
+            :ok
+          end
+        )
+
+      state = PRHealthScanner.tick(state)
+      assert :atomics.get(reviews_reads, 1) == 1
+      assert MapSet.member?(state.reviewed, 2147)
+      refute_receive {:alert, _}, 100
+
+      # The candidate is still open and still stale, but the review is known —
+      # no second reviews read.
+      PRHealthScanner.tick(state)
+      assert :atomics.get(reviews_reads, 1) == 1
+    end
+
+    test "renders the age the decision used, not a re-read clock" do
+      stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
+
+      state =
+        base_state(
+          open_prs_fetcher: fn -> {:ok, [stale]} end,
+          reviews_fetcher: fn _number -> {:ok, []} end,
+          alert_fun: fn _name, opts ->
+            send(self(), {:alert_opts, opts})
+            :ok
+          end
+        )
+
+      PRHealthScanner.tick(state)
+      assert_receive {:alert_opts, opts}
+
+      # stale.created_at is 2026-08-18T00:00:00Z and the injected now is
+      # 2026-08-22T22:00:00Z (~4.9 days), so the rendered age must be 118 hours,
+      # not a number that depends on when the test process happened to run.
+      assert Keyword.get(opts, :message) =~ "open 118 hours with no review"
+    end
+  end
+
+  describe "init/1 wiring" do
+    test "init wires injected fns and the first tick scans with them" do
+      stale = pr(2147, %{"created_at" => "2026-08-18T00:00:00Z"})
+
+      {:ok, state} =
+        PRHealthScanner.init(
+          interval_ms: 60_000,
+          stale_hours: 24,
+          open_prs_fetcher: fn -> {:ok, [stale]} end,
+          reviews_fetcher: fn _ -> {:ok, []} end,
+          human_mergers_fun: fn -> [] end,
+          comment_fun: fn _, _ -> :ok end,
+          alert_fun: fn name, _opts ->
+            send(self(), {:alert, name})
+            :ok
+          end,
+          enabled?: fn -> true end,
+          start_paused?: true
+        )
+
+      assert state.start_paused? == true
+      assert %{interval_ms: 60_000, stale_hours: 24, alerted: alerted} = state
+      assert alerted == MapSet.new()
+
+      PRHealthScanner.tick(state)
+      assert_receive {:alert, "system.pr_health.stale_unreviewed"}
     end
   end
 
