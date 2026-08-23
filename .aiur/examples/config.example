@@ -32,6 +32,8 @@ agent:
   # next one in the list, returning to an earlier one once it recovers.
   priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
+  # pricing_policy:
+  #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
