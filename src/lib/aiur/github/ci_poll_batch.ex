@@ -354,22 +354,20 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_first_pull_request(acc, entry, node) do
     result = normalize_pull_request(node)
 
-    cond do
-      Map.get(result, :contexts_overflow) ->
-        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
-        acc
+    if Map.get(result, :contexts_overflow) do
+      Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+      acc
+    else
+      PollSnapshots.put_ci_contexts(
+        entry.owner <> "/" <> entry.repo,
+        entry.target,
+        get_in(result, [:pull_request, "head", "sha"]),
+        result.check_runs,
+        result.commit_status,
+        started_at_ms: entry.started_at_ms
+      )
 
-      true ->
-        PollSnapshots.put_ci_contexts(
-          entry.owner <> "/" <> entry.repo,
-          entry.target,
-          get_in(result, [:pull_request, "head", "sha"]),
-          result.check_runs,
-          result.commit_status,
-          started_at_ms: entry.started_at_ms
-        )
-
-        Map.put(acc, entry.target, result)
+      Map.put(acc, entry.target, result)
     end
   end
 
