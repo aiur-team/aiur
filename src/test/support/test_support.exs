@@ -1225,8 +1225,7 @@ defmodule Aiur.TestSupport do
         lines =
           intervals
           |> Enum.sort_by(fn {class, _seconds} -> to_string(class) end)
-          |> Enum.map(fn {class, seconds} -> "    #{class}: #{yaml_value(seconds)}" end)
-          |> Enum.join("\n")
+          |> Enum.map_join("\n", fn {class, seconds} -> "    #{class}: #{yaml_value(seconds)}" end)
 
         "  intervals:\n" <> lines
 

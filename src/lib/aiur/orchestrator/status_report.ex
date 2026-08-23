@@ -13,7 +13,6 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
-  alias Aiur.PollCadence
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
@@ -26,6 +25,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
+  alias Aiur.PollCadence
   alias Aiur.ProgressRetention
   alias Aiur.RepoBase
   alias Aiur.TicketActivity

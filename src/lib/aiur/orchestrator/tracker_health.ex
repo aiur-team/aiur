@@ -133,17 +133,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     # inheriting the dispatch one (#2309).
     PollCadence.publish_effective_interval_ms(delay_ms, class: :dispatch)
     idle_factor = if schedule.idle_backoff?, do: schedule.idle_widen_factor, else: 1.0
-    repo = Aiur.GitHub.Config.repo()
-
-    if is_binary(repo) do
-      for class <- PollCadence.poll_classes() -- [:dispatch] do
-        base_ms = PollCadence.base_interval_ms(class: class)
-        webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
-        effective_ms = if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
-        PollCadence.publish_effective_interval_ms(effective_ms, class: class)
-      end
-    end
-
+    publish_class_cadences(Aiur.GitHub.Config.repo(), idle_factor)
     :ok
   end
 
@@ -152,6 +142,22 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # skipped publish is never worse than a crash for a freshness bookkeeping
   # step.
   def publish_poll_cadence(_state, _schedule), do: :ok
+
+  defp publish_class_cadences(repo, idle_factor) when is_binary(repo) do
+    for class <- PollCadence.poll_classes() -- [:dispatch] do
+      PollCadence.publish_effective_interval_ms(class_effective_ms(class, repo, idle_factor), class: class)
+    end
+
+    :ok
+  end
+
+  defp publish_class_cadences(_repo, _idle_factor), do: :ok
+
+  defp class_effective_ms(class, repo, idle_factor) do
+    base_ms = PollCadence.base_interval_ms(class: class)
+    webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
+    if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+  end
 
   # The fleet is only actually idle when it has nothing to do AND has observed
   # that. Four conditions, all required:

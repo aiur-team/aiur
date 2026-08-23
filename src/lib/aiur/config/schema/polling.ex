@@ -82,11 +82,9 @@ defmodule Aiur.Config.Schema.Polling do
 
   # String keys, because `{:map, :integer}` casts keep the YAML keys verbatim.
   defp validate_intervals(:intervals, intervals) when is_map(intervals) do
-    known = MapSet.new(@known_poll_classes)
-
     Enum.flat_map(intervals, fn {class, seconds} ->
       cond do
-        not MapSet.member?(known, class) ->
+        class not in @known_poll_classes ->
           [{:intervals, "unknown poll class #{inspect(class)}; expected one of #{@known_poll_classes |> Enum.sort() |> Enum.join(", ")}"}]
 
         not (is_integer(seconds) and seconds > 0) ->
