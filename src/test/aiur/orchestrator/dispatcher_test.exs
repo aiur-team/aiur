@@ -871,6 +871,44 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved})
       assert resolved["reason"] =~ "Prewarm checking stalled"
     end
+
+    test "the orchestrator is subscribed to prewarm phase broadcasts" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      pid = Process.whereis(Aiur.Orchestrator)
+      refute is_nil(pid), "expected the supervised singleton orchestrator to be running"
+
+      # Force a blocked-alert state so the broadcast's effect is observable. If
+      # `Lifecycle.subscribe_to_prewarm/1` silently breaks, the stalled broadcast
+      # never reaches the orchestrator's handle_info/2 and no resolution event is
+      # emitted — the operator keeps staring at the blocked alert.
+      :sys.replace_state(pid, fn state ->
+        %{state | prewarm_blocked_alert_active: true, prewarm_blocked_alert_resolution_emitted: false}
+      end)
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          :sys.replace_state(pid, fn state ->
+            %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: false}
+          end)
+        end
+      end)
+
+      AgentPubSub.broadcast_prewarm_phase({:error, {:repo_base_dispatch_hold_stalled, :checking}})
+
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved}, 2_000
+      assert resolved["reason"] =~ "Prewarm checking stalled"
+
+      # The resolution event is emitted by the orchestrator's handle_info/2, so
+      # by the time it arrived the state was already flipped.
+      refute :sys.get_state(pid).prewarm_blocked_alert_active
+    end
   end
 
   describe "CPU headroom recovery integration" do
