@@ -1526,9 +1526,16 @@ cache_store() {
   cache_body_tmp=$cache_body.$$.tmp
   if cat "$cache_stage" > "$cache_body_tmp" 2>/dev/null && mv -f "$cache_body_tmp" "$cache_body" 2>/dev/null; then
     # The body lands first and the stamp commits the entry, so a reader that
-    # finds a readable stamp always finds a complete body behind it.
-    cache_write_file "$cache_meta" "$cache_started_at" || rm -f "$cache_body" 2>/dev/null || true
+    # finds a readable stamp always finds a complete body behind it. Line 1 of
+    # the meta stays the fetched-at stamp (the only line `cache_lookup` reads);
+    # line 2, when present, is the response ETag a later re-read validates
+    # against (#2307 conditional reads). No other reader touches line 2.
+    cache_meta_body=$cache_started_at
+    if [ -n "$cache_response_etag" ]; then cache_meta_body="$cache_started_at
+$cache_response_etag"; fi
+    cache_write_file "$cache_meta" "$cache_meta_body" || rm -f "$cache_body" 2>/dev/null || true
     cache_record store
+    unset cache_meta_body
   else
     rm -f "$cache_body_tmp" 2>/dev/null || true
   fi
@@ -2532,13 +2539,32 @@ output_file=
 api_capture=0
 api_requested_include=0
 stderr_streamed=0
+cache_served_304=0
+cache_response_etag=
+cache_conditional_etag=
+
+# A 304 "Not Modified" is detected from the response status line, never from
+# gh's exit code: gh exits 1 on a 304, but a served 304 is a SUCCESS that
+# answers from the cache (#2307 agent conditional reads). Reads the HTTP status
+# line that `--include` puts at the top of `output_file`.
+response_status_is_304() {
+  [ -n "$output_file" ] && [ -f "$output_file" ] || return 1
+  awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"
+}
 
 # `gh api` is always run with `--include` so the rate-limit headers can be read,
 # then the headers are stripped again unless the caller asked for them. The
 # bytes this prints are what the caller sees, so they are also exactly what the
-# cache must store.
+# cache must store. On a served 304 the response carried no body, so the answer
+# is the cached body — which for an `--include` entry is already the correct
+# include-shaped bytes (headers and body), and for a plain entry the body alone,
+# exactly as a fresh cache hit serves the same entry. A 304 means "what you hold
+# is current" (#2307), so serving the cached body to an `--include` caller must
+# not be replaced by the bare 304 status line the response actually carried.
 emit_api_output() {
-  if [ "$api_requested_include" -eq 1 ]; then
+  if [ "$cache_served_304" -eq 1 ] && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
+    cat "$cache_body"
+  elif [ "$api_requested_include" -eq 1 ]; then
     cat "$output_file"
   elif sed -n '1p' "$output_file" | grep -Eq '^HTTP/'; then
     sed '1,/^[[:space:]]*$/d' "$output_file"
@@ -2586,12 +2612,49 @@ if [ -n "$error_file" ]; then
   if [ "$api_capture" -eq 1 ]; then
     # stdout is already being captured for header parsing, so there is no live
     # output to interleave with; buffering stderr here costs nothing.
-    if [ "$api_requested_include" -eq 1 ]; then
+    #
+    # Conditional re-read (#2307): when the store holds a body AND a validator
+    # for this resource, the re-fetch sends If-None-Match so an unchanged
+    # answer comes back 304 and is reconciled free instead of billed again. The
+    # validator is only ever offered while a body is held — a 304 with no body
+    # would spend a request and learn nothing (the same contract as the
+    # daemon's ResourceStore). gh exits 1 on a 304, which is not a failure
+    # here: the 304 is detected from the status line below and the cached body
+    # answers the call.
+    cache_conditional_etag=
+    if [ -n "$cache_body" ] && [ -f "$cache_body" ] && [ -f "$cache_meta" ]; then
+      cache_conditional_etag=$(sed -n '2p' "$cache_meta" 2>/dev/null || printf '')
+    fi
+    if [ -n "$cache_conditional_etag" ]; then
+      if [ "$api_requested_include" -eq 1 ]; then
+        "$real_gh" "$@" -H "If-None-Match: $cache_conditional_etag" > "$output_file" 2> "$error_file"
+      else
+        "$real_gh" "$@" -H "If-None-Match: $cache_conditional_etag" --include > "$output_file" 2> "$error_file"
+      fi
+    elif [ "$api_requested_include" -eq 1 ]; then
       "$real_gh" "$@" > "$output_file" 2> "$error_file"
     else
       "$real_gh" "$@" --include > "$output_file" 2> "$error_file"
     fi
     status=$?
+
+    # The response's own ETag is what a later re-read validates against. On a
+    # served 304 the response carries the same validator, so capturing it here
+    # also keeps the entry's validator in place. `tr` is gated because an
+    # isolated `PATH` (the test harness, a hardened shell) may lack it; without
+    # it a trailing CR is left on the stored validator, which only costs a
+    # later 304 match, never correctness.
+    if [ -n "$output_file" ] && [ -f "$output_file" ]; then
+      cache_response_etag=$(sed -n -E 's/^[[:space:]]*[Ee][Tt][Aa][Gg]:[[:space:]]*(.*)$/\1/p' "$output_file" | tail -n 1)
+      if command -v tr >/dev/null 2>&1; then
+        cache_response_etag=$(printf '%s\n' "$cache_response_etag" | tr -d '\r')
+      fi
+    fi
+
+    if response_status_is_304 && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
+      cache_served_304=1
+      status=0
+    fi
   elif [ -n "$cache_stage" ]; then
     "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
     status=$?
@@ -2621,7 +2684,9 @@ if [ -n "$error_file" ]; then
 
     # The cache copy is produced by a SECOND pass rather than by redirecting the
     # first. The agent's stdout must not depend on the cache being writable.
-    if [ -n "$cache_body" ] && [ "$status" -eq 0 ]; then
+    # On a served 304 the response carried no body, so nothing is re-stored —
+    # the existing body stays and the entry's stamp is refreshed below.
+    if [ "$cache_served_304" -eq 0 ] && [ -n "$cache_body" ] && [ "$status" -eq 0 ]; then
       old_umask=$(umask)
       umask 077
       cache_stage=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-cache.XXXXXX" 2>/dev/null || true)
@@ -2631,7 +2696,14 @@ if [ -n "$error_file" ]; then
   fi
 
   if [ "$stderr_streamed" -eq 0 ]; then
-    while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line" >&2; done < "$error_file"
+    while IFS= read -r line || [ -n "$line" ]; do
+      # gh prints `gh: HTTP 304` on stderr for a served 304 — noise that would
+      # read as a failure. A 304 is a success answered from the cache.
+      if [ "$cache_served_304" -eq 1 ] && printf '%s\n' "$line" | grep -Eiq '^gh: HTTP 304'; then
+        continue
+      fi
+      printf '%s\n' "$line" >&2
+    done < "$error_file"
   fi
 else
   "$real_gh" "$@"
@@ -2716,6 +2788,16 @@ if [ -n "$cache_root" ]; then
 fi
 cache_invalidate_writes
 cache_store
+# A served 304 confirmed the cached body is current: refresh the fetched-at
+# stamp so the entry stays warm (the re-validated answer is as fresh as a 200)
+# while keeping the stored body — the 304 carried no bytes to store.
+if [ "$cache_served_304" -eq 1 ] && [ -n "$cache_meta" ]; then
+  cache_meta_body=$cache_started_at
+  if [ -n "$cache_conditional_etag" ]; then cache_meta_body="$cache_started_at
+$cache_conditional_etag"; fi
+  cache_write_file "$cache_meta" "$cache_meta_body" || true
+  unset cache_meta_body
+fi
 cache_prune
 if [ -n "$cache_root" ]; then umask "$cache_old_umask"; fi
 if [ -n "$cache_stage" ]; then rm -f "$cache_stage" 2>/dev/null || true; fi
