@@ -141,7 +141,11 @@ defmodule Aiur.GitHub.Budget do
   @spec guard_settings(keyword()) :: map()
   def guard_settings(opts \\ []), do: settings(opts)
 
-  @spec acquire(map(), keyword()) :: {:ok, lease()} | {:hold, hold()} | {:error, :github_budget_broker_unavailable} | :bypass
+  @spec acquire(map(), keyword()) ::
+          {:ok, lease()}
+          | {:hold, hold()}
+          | {:error, :github_budget_broker_unavailable | :github_budget_broker_timeout}
+          | :bypass
   def acquire(request, opts \\ []) do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
@@ -267,6 +271,15 @@ defmodule Aiur.GitHub.Budget do
 
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
+
+      # The deadline expired before the broker answered at all. That is
+      # distinguishable from a malformed reply: the broker may still be
+      # starting up (a `python3` subprocess that races the deadline under load)
+      # rather than having said something unintelligible, so a caller that
+      # wants a verdict — the ceiling-hold tests above all — can retry the
+      # former without retrying a genuinely broken broker (#2286).
+      {:error, :github_budget_broker_timeout} ->
+        {:error, :github_budget_broker_timeout}
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
@@ -449,7 +462,7 @@ defmodule Aiur.GitHub.Budget do
         {:ok, output, 0} -> {:ok, output}
         {:ok, output, status} -> broker_unavailable(status, output)
         {:error, reason} -> broker_unavailable(:exception, inspect(reason))
-        :timeout -> broker_unavailable(:timeout, "deadline exceeded")
+        :timeout -> broker_timeout()
       end
     else
       _unavailable -> :bypass
@@ -551,6 +564,11 @@ defmodule Aiur.GitHub.Budget do
   defp broker_unavailable(status, output) do
     Logger.warning("github_budget_broker_unavailable status=#{inspect(status)} output=#{inspect(String.trim(output))}")
     {:error, :github_budget_broker_unavailable}
+  end
+
+  defp broker_timeout do
+    Logger.warning("github_budget_broker_timeout")
+    {:error, :github_budget_broker_timeout}
   end
 
   defp python_executable(opts), do: Keyword.get(opts, :python, System.find_executable("python3"))

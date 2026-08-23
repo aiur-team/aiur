@@ -706,7 +706,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
-    assert_receive {:locked_budget_result, {:error, :github_budget_broker_unavailable}}, 2_000
+    assert_receive {:locked_budget_result, {:error, :github_budget_broker_timeout}}, 2_000
     assert answers?(pid)
     close_port(lock)
   end
