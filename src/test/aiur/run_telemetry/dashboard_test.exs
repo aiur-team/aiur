@@ -26,6 +26,7 @@ defmodule Aiur.RunTelemetry.DashboardTest do
              ["run-evidence"],
              ["review-findings"],
              ["actor-timeline"],
+             ["fleet-pressure"],
              ["ticket-lifecycle"],
              ["resource-profiles"],
              ["operational-notes"]
@@ -37,18 +38,77 @@ defmodule Aiur.RunTelemetry.DashboardTest do
     assert Floki.find(document, "#reset-zoom") != []
     assert Floki.find(document, "#phase-legend") != []
     assert Floki.find(document, "#actor-table caption") != []
+    assert Floki.find(document, "#pressure-chart") != []
+    assert Floki.find(document, "#pressure-table caption") != []
+    assert Floki.find(document, "#pressure-table-more[aria-controls='pressure-table-body']") != []
     assert Floki.find(document, "#lifecycle-table caption") != []
     assert html =~ "prefers-reduced-motion: reduce"
     assert html =~ "focus-visible"
     assert html =~ "Broken pause → resume"
     assert html =~ ~S(value === null || value === undefined || value === "")
     assert html =~ "decimateSamples"
+    assert html =~ "appendPressureTablePage"
+    assert html =~ "Fleet observed"
+    assert html =~ "Build observed"
+    assert html =~ "Build capacity"
+    refute html =~ "Math.min(...samples"
+    refute html =~ "Math.max(1,...samples"
+    refute html =~ "samples.flatMap(s=>countKeys"
+    assert html =~ ~s(sample.fleet_capacity_status === "current")
+    assert html =~ ~S|["measured","disabled","partial"].includes(sample.build_gate_status)|
 
     json = Floki.find(document, "#aiur-data") |> Floki.text(js: true)
     payload = Jason.decode!(json)
     point = Enum.find(payload["tickets"]["930"]["intervals"], &(&1["status"] == "point"))
     assert point["end_at"] == nil
     assert is_boolean(hd(payload["restarts"])["existing_records"])
+  end
+
+  test "renders healthy pressure despite unavailable daemon procfs and gaps degraded values" do
+    {:ok, dataset} = Dataset.build(@fixtures)
+    daemon = dataset.actors["_daemon"]
+
+    samples = [
+      %{
+        :actor => "_daemon",
+        :actor_type => "daemon",
+        :timestamp => "2026-07-11T00:00:01Z",
+        :timestamp_ms => 1_783_728_001_000,
+        :availability => "unavailable",
+        :fleet_capacity_status => "current",
+        "fleet_agents_occupied" => 13,
+        "fleet_agents_configured" => 16,
+        "fleet_agents_max" => 16,
+        "fleet_agents_effective" => 12,
+        :fleet_capacity_observed_at_ms => 1_783_727_980_000,
+        :build_gate_status => "measured",
+        "build_gate_capacity" => 3,
+        "build_gate_active" => 2,
+        "build_gate_queued" => 8,
+        "build_queue_oldest_wait_seconds" => 189,
+        :build_gate_observed_at_ms => 1_783_727_995_000
+      },
+      %{
+        :actor => "_daemon",
+        :actor_type => "daemon",
+        :timestamp => "2026-07-11T00:00:02Z",
+        :timestamp_ms => 1_783_728_002_000,
+        :availability => "measured",
+        :fleet_capacity_status => "stale",
+        "fleet_agents_occupied" => 99,
+        :build_gate_status => "degraded",
+        "build_gate_active" => 99
+      }
+    ]
+
+    html = Dashboard.render(put_in(dataset, [:actors, "_daemon"], %{daemon | samples: samples}))
+    assert html =~ "Fleet-wide build pressure"
+    assert html =~ "Missing or degraded observations remain gaps"
+    assert html =~ "fleet_agents_occupied"
+    assert html =~ "build_gate_capacity"
+    assert html =~ "fleet_capacity_observed_at_ms"
+    assert html =~ "build_gate_observed_at_ms"
+    assert html =~ "degraded build"
   end
 
   test "renders telemetry inputs through the same reducer without writing an artifact" do
