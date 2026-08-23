@@ -289,6 +289,24 @@ defmodule Aiur.AgentRunnerTest do
       refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})
       refute AgentRunner.transient_run_error?({:turn_start_failed, :provider_rejected}, "codex")
     end
+
+    # #2427: a GitHub transport failure during the run (DNS, timeout, TLS,
+    # connection closed, rate limit, 5xx, budget hold) is a transient
+    # infrastructure fault, not an agent defect. It must exit the run cleanly
+    # for a continuation re-dispatch with a fresh session; raising instead books
+    # a *failure* retry that counts against max_retry_attempts, so a few flaky
+    # sockets exhaust into `agent:error` or release the ticket's claim with no
+    # scheduled re-claim.
+    test "a GitHub transport failure is transient for any backend" do
+      assert AgentRunner.transient_run_error?(%Req.TransportError{reason: :closed}, "claude")
+      assert AgentRunner.transient_run_error?(%Req.TransportError{reason: :closed}, "codex")
+      assert AgentRunner.transient_run_error?(%Req.TransportError{reason: :timeout}, "claude")
+      assert AgentRunner.transient_run_error?(%Req.TransportError{reason: :nxdomain}, "claude")
+      assert AgentRunner.transient_run_error?({:github, :timeout, %{reason: :closed}}, "claude")
+      assert AgentRunner.transient_run_error?({:github, :rate_limited, %{status: 429}}, "claude")
+      refute AgentRunner.transient_run_error?({:github, :auth, %{status: 401}}, "claude")
+      refute AgentRunner.transient_run_error?({:github, :http, %{status: 403}}, "claude")
+    end
   end
 
   # #768: the delivered-queue bookkeeping RPCs return `{:error, :unavailable}`

@@ -7,18 +7,11 @@ defmodule Aiur.Orchestrator.HumanReview do
   require Logger
 
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State}
   alias Aiur.RunTelemetry.Lifecycle
-  @transient_github_graphql_error_types ~w(
-    INTERNAL
-    INTERNAL_SERVER_ERROR
-    RATE_LIMITED
-    SERVER_ERROR
-    SERVICE_UNAVAILABLE
-    TIMEOUT
-  )
 
   @doc false
   @spec human_review_state?(binary() | term()) :: boolean()
@@ -71,59 +64,15 @@ defmodule Aiur.Orchestrator.HumanReview do
 
   defp verify_human_review_ready(_issue), do: :ok
 
-  # A local GitHub budget hold is a transient infrastructure fault: the guard
-  # is throttling a resource for a bounded window, not reporting a provenance
-  # problem. The transport layer returns it in the raw `{:aiur, :locally_held,
-  # hold}` shape (`Transport.uncached_quota_request`), and `Errors.classify_error`
-  # additionally wraps it as `{:github, :transport, %{reason: ...}}`; both must
-  # defer the human-review transition (the ticket stays in `human-review` and the
-  # next poll re-verifies) rather than reverting it to `rework`, which strands a
-  # healthy PR in a state whose rework turn has nothing to fix (#2409).
-  defp transient_human_review_verification_error?({:aiur, :locally_held, _hold}), do: true
-
-  defp transient_human_review_verification_error?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}),
-    do: true
-
-  defp transient_human_review_verification_error?({:github, kind, _detail})
-       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
-       do: true
-
-  defp transient_human_review_verification_error?({:github_api_status, status})
-       when status in [408, 429] or status in 500..599,
-       do: true
-
-  defp transient_human_review_verification_error?({:github_graphql_errors, errors})
-       when is_list(errors),
-       do: Enum.any?(errors, &transient_github_graphql_error?/1)
-
-  defp transient_human_review_verification_error?(_reason), do: false
-
-  defp transient_github_graphql_error?(error) when is_map(error) do
-    error
-    |> github_graphql_error_values()
-    |> Enum.any?(&transient_github_graphql_error_value?/1)
-  end
-
-  defp transient_github_graphql_error?(_error), do: false
-
-  defp github_graphql_error_values(error) do
-    [
-      Map.get(error, "type"),
-      Map.get(error, :type),
-      Map.get(error, "code"),
-      Map.get(error, :code),
-      get_in(error, ["extensions", "code"]),
-      get_in(error, [:extensions, :code])
-    ]
-  end
-
-  defp transient_github_graphql_error_value?(value) when is_atom(value),
-    do: value |> Atom.to_string() |> transient_github_graphql_error_value?()
-
-  defp transient_github_graphql_error_value?(value) when is_binary(value),
-    do: String.upcase(value) in @transient_github_graphql_error_types
-
-  defp transient_github_graphql_error_value?(_value), do: false
+  # The transient/permanent split for the ready-verification lives in
+  # `Aiur.GitHub.Errors.retryable_github_error?/1`, the single shared classifier
+  # every retry/defer decision routes through (#2427). DNS, timeout, TLS,
+  # connection closed, rate limit, 5xx, and a local budget hold all defer (the
+  # ticket stays in `human-review` and the next poll re-verifies); anything
+  # permanent reverts — reverting a healthy PR to `rework` over a transient
+  # fault is what stranded #2409.
+  defp transient_human_review_verification_error?(reason),
+    do: Errors.retryable_github_error?(reason)
 
   defp defer_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
     Logger.warning("human-review transition verification deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")

@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Errors
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workspace.Ownership
@@ -463,7 +464,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
         severity: "warning"
       )
 
-      error_alert_emitted? = move_exhausted_issue_to_error_state(issue_id, identifier, error) == :alert_emitted
+      # The structured transient reason wins when recorded; otherwise the
+      # formatted error string is the fallback (which
+      # `Errors.retryable_github_error?/1` treats as permanent).
+      exhaustion_reason = effective_exhaustion_reason(transient_reason, error)
+
+      error_alert_emitted? = move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
 
       # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -484,12 +490,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # `claimed`, which is the behaviour #699 is fixing.
       #
       # When the exhaustion cause is a transient infrastructure fault (tracker
-      # 403 / rate limit / provider timeout), also schedule a bounded automatic
-      # re-dispatch so the ticket recovers once the cause clears instead of
-      # parking until an operator notices (#1453). The structured transient
-      # reason wins when recorded; otherwise the formatted error string is the
-      # fallback (which `AutoResume.classify/1` treats as terminal).
-      exhaustion_reason = effective_exhaustion_reason(transient_reason, error)
+      # 403 / rate limit / provider timeout / transport), `move_exhausted_issue_to_error_state`
+      # skips the terminal `agent:error` write, and the bounded automatic
+      # re-dispatch below recovers the ticket once the cause clears instead of
+      # parking it in a terminal state until an operator notices (#1453, #2427).
 
       released =
         state
@@ -756,35 +760,63 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
-    Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
+  #
+  # The terminal write is only appropriate for a *permanent* failure. When the
+  # exhaustion reason is a transient infrastructure fault (DNS, timeout, TLS,
+  # connection closed, rate limit, 5xx, budget hold), writing `agent:error`
+  # converts a recoverable blip into a terminal ticket state; the caller
+  # schedules a bounded auto-resume re-claim instead, so the ticket must stay in
+  # an active state and be re-dispatched once the cause clears (#2427).
+  # A raw `%Req.TransportError{}` a run surfaced is classified through the
+  # transport taxonomy before the shared classifier answers, so a closed socket
+  # during a run is recognized as the transient fault it is. Everything else
+  # (including the formatted error string) goes straight to the classifier,
+  # which treats it as permanent.
+  defp transient_exhaustion_reason?(%{__struct__: struct} = reason)
+       when struct in [Req.TransportError, Mint.TransportError] do
+    Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+  end
 
-    case Tracker.update_issue_state(identifier, "error") do
-      :ok ->
-        message =
-          "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
-            retry_exhausted_error_suffix(error)
+  defp transient_exhaustion_reason?(reason), do: Errors.retryable_github_error?(reason)
 
-        Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
-          issue: identifier,
-          reason: message,
-          needs_attention: true,
-          severity: "warning",
-          # Must reach the central feed: IssueSync rediscovers the persisted
-          # error cause from there after a restart.
-          central: true
-        )
+  defp move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) when is_binary(identifier) do
+    if transient_exhaustion_reason?(exhaustion_reason) do
+      Logger.warning(
+        "Skipping terminal error state for exhausted issue issue_id=#{issue_id} issue_identifier=#{identifier} " <>
+          "reason=retry_exhausted cause=transient classifier=#{inspect(exhaustion_reason)}; automatic re-claim scheduled"
+      )
 
-        :alert_emitted
+      :ok
+    else
+      Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
-      {:error, reason} ->
-        Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+      case Tracker.update_issue_state(identifier, "error") do
+        :ok ->
+          message =
+            "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
+              retry_exhausted_error_suffix(exhaustion_reason)
 
-        :ok
+          Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
+            issue: identifier,
+            reason: message,
+            needs_attention: true,
+            severity: "warning",
+            # Must reach the central feed: IssueSync rediscovers the persisted
+            # error cause from there after a restart.
+            central: true
+          )
+
+          :alert_emitted
+
+        {:error, reason} ->
+          Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
+
+          :ok
+      end
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _exhaustion_reason), do: :ok
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
     %{
@@ -797,6 +829,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
 
   defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
+  defp retry_exhausted_error_suffix(error) when is_atom(error) or is_tuple(error) or is_map(error), do: " Last error: #{inspect(error)}"
   defp retry_exhausted_error_suffix(_error), do: ""
 
   defp log_scheduled_retry(
