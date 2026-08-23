@@ -28,15 +28,20 @@ defmodule Aiur.AgentProcessLog do
   * `ticket` — the ticket whose workspace owns the root.
   * `comm` — the executable name, from `ps`.
   * `argv` — an allowlisted view of the command line, never the full argv
-    (#2255, #2245): the first `@max_argv_tokens` tokens with credential-shaped
-    substrings scrubbed, with `<...>` elision plus an `argv_sha` fingerprint
-    when the command line is longer. A denylist over unbounded agent argv
-    cannot be made correct — an agent can put a credential anywhere, in any
-    shape — so the token cap, not a blacklist, is the boundary: anything past
-    the cap is never written at all.
-  * `argv_sha` — SHA-256 of the full command line when it exceeded the token
-    cap, so two observations of the same long command can be correlated without
-    storing its content; blank when the command line fit in the allowlist.
+    (#2255, #2245): each of the first `@max_argv_tokens` tokens is recorded
+    verbatim only when it matches a known-safe shape — a dash flag (`-S`,
+    `--verbose`) or a filesystem path (`/ws/…`, `./mix.exs`) — and every other
+    token is replaced by `<redacted>`. A denylist over unbounded agent argv
+    cannot be made correct: a credential can arrive as a URL userinfo, a
+    header value, a `KEY=value`, an encoded blob (padded or not), or a bare
+    positional word, and no list of "bad shapes" can anticipate them all. The
+    boundary is therefore structural — only tokens positively known to be safe
+    are reproduced, and a bare word is never recorded because it cannot be
+    verified safe.
+  * `argv_sha` — SHA-256 of the full command line whenever the recorded argv is
+    lossy (a redacted token, or a tail past the token cap that was never
+    written), so two observations of the same command can still be correlated
+    without storing its content; blank when every token was recorded verbatim.
   * `duration_s` — set on `exit` rows, blank on `start`.
 
   ## Scope and the sub-interval gap
@@ -84,8 +89,10 @@ defmodule Aiur.AgentProcessLog do
   @max_bytes 4_194_304
   @generations 8
   # The argv allowlist: only this many leading tokens of a command line are ever
-  # recorded. Credentials live anywhere in argv, so this cap — not a denylist of
-  # "known credential shapes" — is the real security boundary.
+  # examined. Each token is then kept verbatim only if it matches a known-safe
+  # shape (`safe_token?/1`); credentials live anywhere in argv, so the per-token
+  # allowlist — not a denylist of "known credential shapes" — is the real
+  # security boundary, and this cap bounds the recorded row size.
   @max_argv_tokens 8
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -333,22 +340,33 @@ defmodule Aiur.AgentProcessLog do
     end)
   end
 
-  # The argv allowlist. Only the first `@max_argv_tokens` tokens are ever
-  # written; when the command line is longer, the remainder is never recorded
-  # and only a SHA-256 fingerprint of the whole line is written in its place so
-  # two observations of the same long command can still be correlated. The
-  # recorded prefix is additionally scrubbed of credential-shaped substrings,
-  # which is best-effort on top of the cap: a secret in the first tokens that
-  # takes a shape this scrub does not list would still be recorded, so the cap
-  # (not the scrub) is the actual security boundary.
+  # The argv allowlist. Each of the first `@max_argv_tokens` tokens is recorded
+  # verbatim only if it matches a known-safe shape; every other token — a
+  # credential in any encoding, a URL, a `KEY=value`, or a bare positional
+  # word — is replaced by `<redacted>`. When the command line is longer than
+  # the token cap, the tail is never recorded at all. Whenever the recorded
+  # argv is lossy (a redacted token, or a dropped tail), the whole line is
+  # reduced to a SHA-256 fingerprint so identical invocations can still be
+  # correlated without reproducing their content.
   defp argv_record(cmdline) when is_binary(cmdline) and cmdline != "" do
     tokens = String.split(cmdline, ~r/\s+/, trim: true)
     {kept, dropped} = Enum.split(tokens, @max_argv_tokens)
-    shown = scrub_cmdline(Enum.join(kept, " "))
 
-    case dropped do
-      [] -> {shown, ""}
-      _tail -> {shown <> " <...>", argv_fingerprint(cmdline)}
+    {shown, redacted?} =
+      Enum.map_reduce(kept, false, fn token, redacted? ->
+        if safe_token?(token) do
+          {token, redacted?}
+        else
+          {"<redacted>", true}
+        end
+      end)
+
+    shown = Enum.join(shown, " ")
+
+    case {dropped, redacted?} do
+      {[], false} -> {shown, ""}
+      {[], true} -> {shown, argv_fingerprint(cmdline)}
+      {_tail, _redacted} -> {shown <> " <...>", argv_fingerprint(cmdline)}
     end
   end
 
@@ -358,25 +376,20 @@ defmodule Aiur.AgentProcessLog do
     :crypto.hash(:sha256, cmdline) |> Base.encode16(case: :lower)
   end
 
-  defp scrub_cmdline(cmdline) do
-    cmdline
-    # URL userinfo: https://user:pass@host -> https://<redacted>@host
-    |> String.replace(~r{(://)[^/@\s]+@}, "\\1<redacted>@")
-    # GitHub PATs / fine-grained tokens / Anthropic API keys
-    |> String.replace(~r/(gh[pous]|github_pat)_[A-Za-z0-9_]+/, "\\1_<redacted>")
-    |> String.replace(~r/sk-ant-[A-Za-z0-9_-]+/, "<redacted>")
-    # Authorization / x-access-token header values (Bearer, basic, token schemes)
-    |> String.replace(~r/((?:authorization|x-access-token)\s*:\s*)\S+/i, "\\1<redacted>")
-    # git extraheader config values (the daemon's own GIT_CONFIG_VALUE_0 is
-    # passed exactly this way and must never appear here)
-    |> String.replace(~r/((?:http|https)\.extraheader\s*=\s*)\S+/i, "\\1<redacted>")
-    # credential key=value and --key <value> forms
-    |> String.replace(~r/(--?[^\s=]*(?:token|secret|password|api[_-]?key|private[_-]?key|auth|credential)[^\s=]*=)\S+/i, "\\1<redacted>")
-    |> String.replace(~r/(--?[^\s=]*(?:token|secret|password|api[_-]?key|private[_-]?key|auth|credential)[^\s=]*\s+)\S+/i, "\\1<redacted>")
-    # -u user:pass
-    |> String.replace(~r/(--?u(?:ser(?:name)?)?\s+)[^\s]+:[^\s]+/, "\\1<redacted>")
-    # long base64 blobs (the common shape of an encoded token passed inline)
-    |> String.replace(~r([A-Za-z0-9+/]{16,}={1,2}), "<redacted>")
+  # A token is recorded only when its shape cannot carry a credential. Two
+  # shapes qualify: a bare dash flag (`-S`, `--verbose` — never a `--key=value`
+  # form) and a filesystem path (`/ws/…`, `./mix.exs`, `../deps/…`). Everything
+  # else — including any bare word, because a bare positional secret is
+  # indistinguishable from a benign word — is treated as potentially sensitive
+  # and redacted. The length cap keeps a pathological flag or path from
+  # bloating a row; paths past it are simply not reproduced.
+  @safe_flag ~r/\A--?[A-Za-z0-9][A-Za-z0-9_-]*\z/
+  @safe_path ~r{\A(?:/|\./|\.\./)[A-Za-z0-9_./~-]+\z}
+  @safe_token_max_bytes 1024
+
+  defp safe_token?(token) do
+    byte_size(token) <= @safe_token_max_bytes and
+      (Regex.match?(@safe_flag, token) or Regex.match?(@safe_path, token))
   end
 
   defp append(nil, _row), do: :ok

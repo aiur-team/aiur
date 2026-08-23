@@ -16,10 +16,10 @@ defmodule Aiur.AgentProcessLogTest do
   defp processes_fun do
     fn ->
       %{
-        100 => %{pid: 100, ppid: 0, comm: "codex", cmdline: "codex exec"},
+        100 => %{pid: 100, ppid: 0, comm: "codex", cmdline: "codex exec --resume /ws/2255/session.json"},
         101 => %{pid: 101, ppid: 100, comm: "git-remote-https", cmdline: "git-remote-https origin"},
-        102 => %{pid: 102, ppid: 100, comm: "beam.smp", cmdline: "beam.smp -S 4:4"},
-        103 => %{pid: 103, ppid: 101, comm: "mix", cmdline: "mix test"}
+        102 => %{pid: 102, ppid: 100, comm: "beam.smp", cmdline: "beam.smp -pa /ws/2255/_build/dev"},
+        103 => %{pid: 103, ppid: 101, comm: "mix", cmdline: "mix test ./test/aiur/agent_process_log_test.exs"}
       }
     end
   end
@@ -46,21 +46,40 @@ defmodule Aiur.AgentProcessLogTest do
     assert length(rows) == 4
 
     ts = Integer.to_string(DateTime.to_unix(@now))
+    sha = fn cmdline -> :crypto.hash(:sha256, cmdline) |> Base.encode16(case: :lower) end
 
+    # argv is the allowlisted view: safe tokens (dash flags, paths) survive and
+    # bare words — which cannot be verified safe — are redacted.
     assert Enum.any?(rows, fn row ->
-             match?([^ts, "start", "100", "2255", "100", "0", "codex", "codex exec", "", "/ws/2255", ""], String.split(row, "\t"))
+             String.split(row, "\t") ==
+               [ts, "start", "100", "2255", "100", "0", "codex", "<redacted> <redacted> --resume /ws/2255/session.json", sha.("codex exec --resume /ws/2255/session.json"), "/ws/2255", ""]
            end)
 
     assert Enum.any?(rows, fn row ->
-             match?([^ts, "start", "100", "2255", "101", "100", "git-remote-https", "git-remote-https origin", "", "/ws/2255", ""], String.split(row, "\t"))
+             String.split(row, "\t") ==
+               [ts, "start", "100", "2255", "101", "100", "git-remote-https", "<redacted> <redacted>", sha.("git-remote-https origin"), "/ws/2255", ""]
            end)
 
     assert Enum.any?(rows, fn row ->
-             match?([^ts, "start", "100", "2255", "102", "100", "beam.smp", "beam.smp -S 4:4", "", "/ws/2255", ""], String.split(row, "\t"))
+             String.split(row, "\t") ==
+               [ts, "start", "100", "2255", "102", "100", "beam.smp", "<redacted> -pa /ws/2255/_build/dev", sha.("beam.smp -pa /ws/2255/_build/dev"), "/ws/2255", ""]
            end)
 
     assert Enum.any?(rows, fn row ->
-             match?([^ts, "start", "100", "2255", "103", "101", "mix", "mix test", "", "/ws/2255/src", ""], String.split(row, "\t"))
+             String.split(row, "\t") ==
+               [
+                 ts,
+                 "start",
+                 "100",
+                 "2255",
+                 "103",
+                 "101",
+                 "mix",
+                 "<redacted> <redacted> ./test/aiur/agent_process_log_test.exs",
+                 sha.("mix test ./test/aiur/agent_process_log_test.exs"),
+                 "/ws/2255/src",
+                 ""
+               ]
            end)
   end
 
@@ -121,19 +140,31 @@ defmodule Aiur.AgentProcessLogTest do
   end
 
   # The core security property (#2255, #2245): the recorded argv is an
-  # allowlist, not a denylist. Every shape the review flagged as leaking under
-  # the old full-argv redaction must appear scrubbed here.
-  test "records an allowlisted, scrubbed argv and never the credential shapes" do
+  # allowlist, not a denylist. A denylist has to anticipate every encoding a
+  # credential can take; the allowlist only reproduces tokens that match a
+  # known-safe shape (a dash flag or a filesystem path), so every shape the
+  # reviews flagged as leaking under the old full-argv redaction — including
+  # the unpadded-base64 git extraheader case that defeated the padded-base64
+  # regex — must never reach disk.
+  test "records only allowlisted argv tokens and never a credential shape" do
     path = tmp_path()
 
+    # Unpadded base64 of a git credential header value: the exact shape that
+    # defeated the old padded-base64 denylist regex. When the plaintext length
+    # is a multiple of three, base64 has no `=` padding at all.
+    unpadded = Base.encode64("x-access-token:ghs_", padding: false)
+    refute String.contains?(unpadded, "=")
+
     cmdlines = [
-      "git -c http.extraheader=AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hzX1NFQ1JFVA== fetch",
+      "git -c http.extraheader=AUTHORIZATION: basic #{unpadded} fetch",
       "curl -H \"Authorization: basic dXNlcjpwYXNzd29yZA==\"",
       "git clone https://oauth2:SUPERSECRET@github.com/o/r.git",
       "curl -u kevin:SUPERSECRET https://api.github.com",
       "claude --api-key sk-ant-api03-REALKEY",
       "psql postgres://user:PASSWORD@db:5432/x",
-      "mytool --token=SUPERSECRET"
+      "mytool --token=SUPERSECRET",
+      "env SOME_TOKEN=ghp_0123456789abcdefghijklmnop fetch",
+      "tool ghp_abcdefghijklmnopqrstuvwxyz0123456789"
     ]
 
     processes =
@@ -153,15 +184,25 @@ defmodule Aiur.AgentProcessLogTest do
     )
 
     content = File.read!(path)
+    refute content =~ unpadded
+    refute content =~ "x-access-token"
+    refute content =~ "ghs_"
     refute content =~ "eC1hY2Nlc3MtdG9rZW46Z2hzX1NFQ1JFVA=="
     refute content =~ "dXNlcjpwYXNzd29yZA=="
     refute content =~ "SUPERSECRET"
     refute content =~ "PASSWORD"
     refute content =~ "REALKEY"
     refute content =~ "sk-ant-api03"
-    # The URL survives (the path is the point of a process log), only the
-    # userinfo is gone.
-    assert content =~ "https://<redacted>@github.com/o/r.git"
+    refute content =~ "SOME_TOKEN"
+    refute content =~ "ghp_"
+    # A URL token is redacted whole: it carries `:`/`@`/`?` and cannot be
+    # verified safe, so neither its path nor its userinfo survives.
+    refute content =~ "github.com/o/r.git"
+    refute content =~ "api.github.com"
+    # The safe tokens on the same lines still survive the allowlist.
+    assert content =~ " -c "
+    assert content =~ " --api-key "
+    assert content =~ " -H "
   end
 
   # The other half of the allowlist: a command line longer than the token cap
@@ -269,12 +310,14 @@ defmodule Aiur.AgentProcessLogTest do
     assert length(rows) == 4
 
     exit_ts = Integer.to_string(DateTime.to_unix(DateTime.add(@now, 10, :second)))
+    mix_sha = :crypto.hash(:sha256, "mix test") |> Base.encode16(case: :lower)
 
     assert [^exit_ts, "exit", "100", "2255", "101", "100", "mix", "", "", "", _duration] =
              rows |> Enum.find(&String.contains?(&1, "\texit\t100\t2255\t101\t")) |> String.split("\t")
 
     assert Enum.any?(rows, fn row ->
-             match?([^exit_ts, "start", "100", "2255", "101", "100", "mix", "mix test", "", "/ws", ""], String.split(row, "\t"))
+             String.split(row, "\t") ==
+               [exit_ts, "start", "100", "2255", "101", "100", "mix", "<redacted> <redacted>", mix_sha, "/ws", ""]
            end)
   end
 
