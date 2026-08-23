@@ -438,6 +438,38 @@ defmodule Aiur.GitHub.BudgetTest do
     assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
   end
 
+  test "a daemon /rate_limit poll is recorded non-billable with its own family", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:primary:aiur-daemon[bot]")]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/rate_limit"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # GitHub meters `/rate_limit` at zero quota, so the ledger must not report
+    # it as spend: family `rate_limit` (not `rest`), resource `none` (not a
+    # pool), billable false (#2353).
+    assert %{admissions: [%{endpoint_family: "rate_limit", resource: "none", billable: false}]} =
+             Budget.snapshot("token", opts)
+
+    # And the pool usage the acceptance reconciles against never counts it.
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 0
+    assert actor.graphql.used == 0
+    assert actor.search.used == 0
+  end
+
+  test "a billable core call stays billable in the ledger", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert %{admissions: [%{endpoint_family: "issues", resource: "core", billable: true}]} =
+             Budget.snapshot("token", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 1
+  end
+
   test "resolves the broker from the installed application private directory" do
     assert Budget.broker_path() ==
              :aiur

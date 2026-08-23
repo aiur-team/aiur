@@ -79,6 +79,20 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     end
   end
 
+  # PackStatus is deliberately NOT demand-gated: it writes the daemon-owned
+  # status.json projection the planning contract names authoritative, so the
+  # sweep reconciles it on every tick whether or not a page is open. demanded?/0
+  # answering true unconditionally is what keeps the sweep's uniform protocol
+  # honest — see the moduledoc for the full reasoning.
+  test "always reports demanded, so the sweep never skips it", context do
+    poller =
+      start_poller(context.pack_path, fn _request ->
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+      end)
+
+    assert PackStatus.demanded?(poller) == true
+  end
+
   test "writes tracker completion for promoted members into status.json", context do
     poller =
       start_poller(

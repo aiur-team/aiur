@@ -24,6 +24,7 @@ defmodule Aiur.BuildGate do
           required(:queued) => non_neg_integer(),
           optional(:holders) => [holder()],
           optional(:timeouts) => [timeout_record()],
+          optional(:retain_seconds) => non_neg_integer(),
           optional(:degraded?) => boolean(),
           optional(:issues) => [map()]
         }
@@ -56,6 +57,7 @@ defmodule Aiur.BuildGate do
     stagger_seconds = Keyword.get_lazy(opts, :stagger_seconds, &Config.build_start_stagger_seconds/0)
     min_free_memory_mb = Keyword.get_lazy(opts, :min_free_memory_mb, &Config.min_free_memory_mb/0)
     max_hold_seconds = Keyword.get_lazy(opts, :max_hold_seconds, &Config.build_gate_max_hold_seconds/0)
+    retain_seconds = Keyword.get_lazy(opts, :retain_seconds, &Config.build_gate_retain_seconds/0)
 
     if enabled?(slots: slots, stagger_seconds: stagger_seconds, min_free_memory_mb: min_free_memory_mb) do
       gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
@@ -74,7 +76,8 @@ defmodule Aiur.BuildGate do
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
         {"AIUR_BUILD_START_STAGGER_SECONDS", Integer.to_string(stagger_seconds)},
         {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Keyword.get(opts, :timeout_seconds, @default_timeout_seconds))},
-        {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(max_hold_seconds)}
+        {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(max_hold_seconds)},
+        {"AIUR_BUILD_GATE_RETAIN_SECONDS", Integer.to_string(retain_seconds)}
       ] ++ memory_env(min_free_memory_mb)
     else
       []
@@ -152,12 +155,19 @@ defmodule Aiur.BuildGate do
 
     if enabled?(slots: capacity, stagger_seconds: stagger_seconds, min_free_memory_mb: min_free_memory_mb) do
       gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
+      retain_seconds = Keyword.get_lazy(opts, :retain_seconds, &Config.build_gate_retain_seconds/0)
 
-      if linux_lock_strategy?(opts) do
-        linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
-      else
-        pid_status(gate_dir, capacity)
-      end
+      result =
+        if linux_lock_strategy?(opts) do
+          linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
+        else
+          pid_status(gate_dir, capacity)
+        end
+
+      # The effective post-command retain window is part of the status surface
+      # so the gate's throughput trade is measurable at runtime, not inferred
+      # from `fuser` (#2398).
+      Map.put(result, :retain_seconds, retain_seconds)
     else
       %{enabled?: false, capacity: 0, active: 0, queued: 0, holders: []}
     end
