@@ -133,11 +133,12 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   this runs on every GitHub request the daemon makes.
   """
 
+  alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.ReadCache.Identity
   alias Aiur.Webhooks.ModeTable
 
   @type class :: :comments | :issue_graph | :repo_config
-  @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom()}
+  @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom() | {atom(), String.t()}}
 
   # The short bucket, in force for any repo that is not proven webhook-backed:
   # never configured, configured-but-unproven, or degraded from silence. For
@@ -286,7 +287,13 @@ defmodule Aiur.GitHub.ReadCache.Policy do
         cache(:repo_config, request)
 
       true ->
-        {:no_cache, :unclassified}
+        # The refusal keeps the URL's path template, not the URL. `route_shape/1`
+        # collapses numeric and sha segments and drops the query string, so the
+        # metric keys on the call family (`rest:GET /repos/:owner/:repo/...`),
+        # not on the 5,000 distinct reads that pass through it — and
+        # `Metrics.refused_shape/2` caps the map so a pathological URL cannot
+        # grow it without bound (#2357). Same derivation `Quota` bills spend by.
+        {:no_cache, {:unclassified, GraphQLCost.route_shape(request)}}
     end
   end
 

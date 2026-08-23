@@ -506,6 +506,57 @@ defmodule Aiur.GitHub.ReadCacheTest do
       refute Map.has_key?(snapshot.callers, "unattributed")
     end
 
+    test "keys a REST refusal on its path template, not one unclassified total" do
+      # An unclassified REST GET is refused with its route shape, so
+      # `github-cost` can name the call family instead of folding every
+      # unrecognised read into a single `unclassified` total (#2357). Same
+      # derivation `Quota` bills spend by.
+      request = rest("https://api.github.com/repos/aiur-team/aiur/labels?per_page=100")
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/labels"}} = Policy.classify(request)
+
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+      assert {:ok, _two} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{"rest:GET /repos/aiur-team/aiur/labels" => 2} = snapshot.refused_shapes
+      refute Map.has_key?(snapshot.refused, :unclassified)
+      assert snapshot.totals.refused == 2
+    end
+
+    test "a GraphQL read the policy cannot name stays a bare :unclassified refusal" do
+      # There is no REST URL to shape a GraphQL read by, so the unknown-caller
+      # fallback keeps its plain reason rather than being forced into the shape
+      # map.
+      request = graphql("an_unheard_of_caller", safe_document(2073))
+
+      assert {:no_cache, :unclassified} = Policy.classify(request)
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{unclassified: 1} = snapshot.refused
+      assert snapshot.refused_shapes == %{}
+    end
+
+    test "folds a refusal beyond the 200-shape cap into :overflow" do
+      # The refusal map is only bounded if the key set is: 200 distinct shapes
+      # fill the map, the 201st distinct shape must not add a key, and a repeat
+      # of an existing shape keeps accumulating under its own key.
+      Metrics.init()
+
+      Enum.each(1..200, fn i -> Metrics.refused_shape("rest:GET /path/#{i}", "x") end)
+      assert map_size(Metrics.snapshot().refused_shapes) == 200
+
+      Metrics.refused_shape("rest:GET /path/201", "x")
+      snapshot = Metrics.snapshot()
+      assert snapshot.refused_shapes.overflow == 1
+
+      Metrics.refused_shape("rest:GET /path/1", "x")
+      snapshot = Metrics.snapshot()
+      assert snapshot.refused_shapes["rest:GET /path/1"] == 2
+      assert snapshot.refused_shapes.overflow == 1
+    end
+
     test "reports nothing observed as nothing observed, never as zero" do
       assert Metrics.hit_rate(%{hit: 0, miss: 0}) == nil
       assert Metrics.hit_rate(%{hit: 1, miss: 1}) == 0.5
@@ -588,16 +639,22 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # The bare `/repos/{owner}/{repo}` is the auth-preflight probe, which must
       # exercise the current credential rather than be answered from a cache;
       # the open-issue candidate list is dispatch authority and must not be
-      # served stale. Both are correctly left uncached.
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
+      # served stale. Both are correctly left uncached, and both are refused
+      # with their route shape so the refusal metric names the call family.
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/issues"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
     end
 
     test "caches a numbered comment read but not the repo-wide comment stream" do
       # The stream already revalidates with an ETag, so holding its body would
       # trade a free 304 for staleness.
       assert {:cache, :comments, _ttl} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100"))
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/issues/comments"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
     end
 
     test "a declared cacheable caller is still refused on unsafe content" do

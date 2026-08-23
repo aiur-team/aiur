@@ -335,6 +335,11 @@ defmodule Aiur.GitHub.ReadCache do
     end
   end
 
+  defp refuse(fetch, {:unclassified, shape}, caller) do
+    Metrics.refused_shape(shape, caller)
+    fetch.()
+  end
+
   defp refuse(fetch, reason, caller) do
     Metrics.refused(reason, caller)
     fetch.()
