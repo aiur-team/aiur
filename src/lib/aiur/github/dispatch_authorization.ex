@@ -122,10 +122,29 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       event_id
     )
 
-    %{issue | dispatch_authorized?: authorized?}
+    authorization = if authorized?, do: :authorized, else: :denied
+    %{issue | dispatch_authorized?: authorized?, dispatch_authorization: authorization}
   end
 
   defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users, _opts), do: deny_ambiguous(issue, reason)
+
+  # A resource/transport failure on the provenance fetch is NOT a provenance
+  # verdict. `{:deferred, reason}` means "could not check right now" — a budget
+  # hold, rate limit, or transport outage — so the issue is not dispatched this
+  # cycle (fail-closed) but is deliberately not marked revoked: a running agent
+  # must not be killed, and once the cause clears the next poll re-verifies
+  # from a fresh timeline and the ticket returns to dispatchable with no
+  # operator action (#2409).
+  defp apply_label_decision({:deferred, reason}, issue, _allowed_users, _opts) do
+    Logger.warning(
+      "GitHub dispatch authorization deferred issue_id=#{inspect(issue.id)} " <>
+        "issue_identifier=#{inspect(issue.identifier)} reason=#{inspect(reason)} " <>
+        "state=#{inspect(issue.state)}; ticket is not dispatched this cycle and no " <>
+        "running agent is revoked (transient, not a provenance denial)"
+    )
+
+    %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred}
+  end
 
   # Aiur's own identity, never a human decision. Both logins count, and it has
   # to be both: the state label above is written with the *daemon's* credential,
@@ -171,8 +190,16 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         {:reused, events} ->
           timeline_decision(issue, label, prefix, events)
 
+        # The timeline could not be fetched or parsed — a budget hold, rate
+        # limit, transport failure, or pagination/truncation limit. None of
+        # these is a provenance finding: the fetch produced no label evidence
+        # either way, so this is a *deferred* authorization (not dispatched this
+        # cycle, never treated as revoked) rather than an `:ambiguous` denial.
+        # A genuinely hostile relabel still revokes — that verdict comes from
+        # `timeline_decision` over a fetched timeline, which this branch never
+        # reaches (#2409).
         {:error, reason} ->
-          {:ambiguous, reason}
+          {:deferred, reason}
       end
     else
       {:ambiguous, :missing_github_token}
@@ -496,7 +523,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp deny_ambiguous(issue, reason) do
     log_decision(:deny, issue, "ambiguous", nil, nil, reason)
     maybe_alert_ambiguity(issue, reason)
-    %{issue | dispatch_authorized?: false}
+    %{issue | dispatch_authorized?: false, dispatch_authorization: :denied}
   end
 
   defp maybe_alert_ambiguity(%Issue{id: id, updated_at: updated_at} = issue, reason)
