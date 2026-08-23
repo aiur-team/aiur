@@ -70,4 +70,33 @@ defmodule Aiur.Orchestrator.OperatorMessages.AlertsTest do
 
     refute_receive {:event, %{topic: ^resolved_topic}}, 100
   end
+
+  test "GitHub budget pause is informational and does not open an attention" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    wait_topic = "ticket.budget-pause.github-budget.wait"
+    attention_topic = "ticket.budget-pause.agent.attention.paused-github_budget_hold"
+    :ok = Exchange.subscribe(wait_topic)
+    :ok = Exchange.subscribe(attention_topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    assert :ok =
+             OperatorMessages.maybe_emit_agent_control_alert(:working, :paused, %{
+               identifier: "budget-pause",
+               paused_reason: :github_budget_hold
+             })
+
+    assert_receive {:event,
+                    %{
+                      "needs_attention" => false,
+                      "severity" => "info",
+                      topic: ^wait_topic
+                    }},
+                   500
+
+    refute_receive {:event, %{topic: ^attention_topic}}, 100
+  end
 end

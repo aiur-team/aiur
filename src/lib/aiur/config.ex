@@ -10,6 +10,7 @@ defmodule Aiur.Config do
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Config.Schema.EnvResolver
+  alias Aiur.GitHub.Budget
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
 
@@ -50,19 +51,21 @@ defmodule Aiur.Config do
   This is the single most-called read in the system, so it must be cheap and it
   must not serialize. Two things make it so (#1731):
 
-    * `Workflow.current_with_generation/0` is an ETS lookup, not a
+    * `Workflow.current_with_cache_identity/0` is an ETS lookup, not a
       `GenServer.call` into `Aiur.WorkflowStore`.
-    * the `Schema.parse/1` result is memoized against the store generation, so
-      the schema work happens once per *config change* rather than once per
-      read. Before this, every caller re-prepared and re-parsed the same map.
+    * the `Schema.parse/1` result is memoized against the store generation and
+      collision-free publication reference, plus the environment epoch, so the
+      schema work happens once per *config or environment change* rather than
+      once per read. Before this, every caller re-prepared and re-parsed the
+      same map.
   """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
   def settings do
-    case Workflow.current_with_generation() do
-      {:ok, workflow, generation} when is_integer(generation) ->
-        cached_settings(workflow, generation)
+    case Workflow.current_with_cache_identity() do
+      {:ok, workflow, generation, publication} when is_integer(generation) and is_reference(publication) ->
+        cached_settings(workflow, {generation, publication})
 
-      {:ok, workflow, _unknown} ->
+      {:ok, workflow, _unknown_generation, _unknown_publication} ->
         settings_from({:ok, workflow})
 
       {:error, reason} ->
@@ -75,11 +78,15 @@ defmodule Aiur.Config do
   # the process environment at parse time. Keying the memo on the config
   # generation alone would freeze a resolved secret for the life of the config —
   # and would break every test that sets an env var and re-reads settings. So
-  # the key carries an environment epoch as well; a `System.put_env` to any
-  # variable the parse depends on invalidates the memo exactly like a config
-  # edit does. See `env_epoch/2` for why that is not the whole environment.
-  defp cached_settings(workflow, generation) do
-    key = {generation, env_epoch(workflow, generation)}
+  # the key carries a collision-free publication reference and an environment
+  # epoch as well; a
+  # `System.put_env` to any variable the parse depends on invalidates the memo
+  # exactly like a config edit does. The publication reference prevents a late
+  # reader from republishing settings for older content if a generation is
+  # reused, without copying the full config term on this hot path. See
+  # `env_epoch/2` for why that is not the whole environment.
+  defp cached_settings(workflow, cache_identity) do
+    key = {cache_identity, env_epoch(workflow, cache_identity)}
 
     case WorkflowStoreCache.fetch_settings(key) do
       {:ok, settings} ->
@@ -114,21 +121,21 @@ defmodule Aiur.Config do
   # The dependency set is a superset of what is really read (every `$NAME`
   # anywhere in the config, not just in fields that resolve one), so the key
   # can only expire too eagerly, never too late.
-  defp env_epoch(workflow, generation) do
+  defp env_epoch(workflow, cache_identity) do
     workflow
-    |> env_names(generation)
+    |> env_names(cache_identity)
     |> Enum.map(&System.get_env/1)
     |> :erlang.phash2()
   end
 
-  defp env_names(workflow, generation) do
-    case WorkflowStoreCache.fetch_env_names(generation) do
+  defp env_names(workflow, cache_identity) do
+    case WorkflowStoreCache.fetch_env_names(cache_identity) do
       {:ok, names} ->
         names
 
       :error ->
         names = referenced_env_names(workflow)
-        WorkflowStoreCache.put_env_names(generation, names)
+        WorkflowStoreCache.put_env_names(cache_identity, names)
         names
     end
   end
@@ -510,7 +517,10 @@ defmodule Aiur.Config do
   How often the single view-state reconciliation sweep runs.
 
   A recovery bound for lost webhook deliveries, not a freshness knob. See
-  `Aiur.GitHub.ViewStateSweep`.
+  `Aiur.GitHub.ViewStateSweep`. The two view-only sources it sweeps
+  (`OpenTicketSource`, `AdHocSource`) are reconciled only while a LiveView is
+  watching them, so with no dashboard session open the sweep refreshes neither;
+  `PackStatus` stays reconciled on every tick regardless of viewers.
   """
   @spec view_state_sweep_seconds() :: pos_integer()
   def view_state_sweep_seconds do
@@ -719,6 +729,28 @@ defmodule Aiur.Config do
   @spec min_free_memory_mb() :: pos_integer() | nil
   def min_free_memory_mb do
     settings!().agent.min_free_memory_mb
+  end
+
+  @doc """
+  Absolute wall-clock cap (seconds) on how long any one build-gate slot may be
+  held before the detached lease holder releases it (#2349). `0` disables the
+  backstop.
+  """
+  @spec build_gate_max_hold_seconds() :: non_neg_integer()
+  def build_gate_max_hold_seconds do
+    settings!().agent.build_gate_max_hold_seconds || 0
+  end
+
+  @doc """
+  Maximum post-command courtesy window (seconds) the detached lease holder
+  keeps a slot after the wrapped command exits, gated on a descendant still
+  consuming CPU (#2398). The holder releases the moment the retained tree goes
+  idle, so this bounds only genuinely-busy descendants. `0` disables the
+  courtesy.
+  """
+  @spec build_gate_retain_seconds() :: non_neg_integer()
+  def build_gate_retain_seconds do
+    settings!().agent.build_gate_retain_seconds || 0
   end
 
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
@@ -1076,7 +1108,8 @@ defmodule Aiur.Config do
     with {:ok, turn_sandbox_policy} <-
            Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts),
          {:ok, turn_sandbox_policy} <-
-           maybe_add_package_manager_roots(turn_sandbox_policy, opts) do
+           maybe_add_package_manager_roots(turn_sandbox_policy, opts),
+         {:ok, turn_sandbox_policy} <- maybe_add_github_budget_root(turn_sandbox_policy, opts) do
       maybe_add_build_gate_root(turn_sandbox_policy, settings, opts)
     end
   end
@@ -1091,6 +1124,24 @@ defmodule Aiur.Config do
 
       true ->
         Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, AgentEnvironment.package_cache_paths(opts))
+    end
+  end
+
+  defp maybe_add_github_budget_root(turn_sandbox_policy, opts) do
+    cond do
+      Keyword.get(opts, :remote, false) ->
+        {:ok, turn_sandbox_policy}
+
+      not workspace_write_policy?(turn_sandbox_policy) ->
+        {:ok, turn_sandbox_policy}
+
+      not Budget.enabled?() ->
+        {:ok, turn_sandbox_policy}
+
+      true ->
+        with :ok <- Budget.ensure_state_dir() do
+          Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, [Budget.state_dir()])
+        end
     end
   end
 
@@ -1139,7 +1190,8 @@ defmodule Aiur.Config do
   end
 
   defp validate_semantics(settings) do
-    with :ok <- validate_kinds_and_secrets(settings) do
+    with :ok <- validate_kinds_and_secrets(settings),
+         :ok <- Schema.validate_turn_sandbox_policy(settings) do
       Aiur.Opencode.Config.validate!()
     end
   end

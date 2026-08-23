@@ -16,6 +16,8 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 
+The CI poll drops from its batch a target a `check_run` delivery already answered since the last read — the read is not bought again. Displacement is per target: a ticket with no delivery keeps its cadence, and only the read is skipped; no verdict is served from the held body. An unmatched check-run id keeps the target polled; polling stays the fallback.
+
 ## Who Aiur trusts
 
 | Source | Trust rule |
@@ -26,7 +28,9 @@ Where a webhook is proven, the comment sweep becomes a reconciliation pass rathe
 
 ## GitHub App authentication
 
-The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise. Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise.
+
+When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`). Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
 
 ### Set up the App
 
@@ -52,7 +56,9 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 | `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
 | `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
 
-`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`; the token remains the fallback when no App credentials are present.
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
+
+The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
 ### Token lifecycle
 
@@ -112,7 +118,7 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 
 | Widening | Effect |
 | --- | --- |
-| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is actively running, turning the 120-second base into a 10-minute sweep. |
+| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is running and nothing dispatchable is waiting — turning the 120-second base into a 10-minute sweep. A live fleet with claimable tickets, or a freshly started daemon that has not yet observed a full idle cycle, keeps the base interval so work dispatches promptly (#2138). |
 | Proven webhook repo (`webhooks.poll_widen_factor`, default 2.0) | Multiplies the interval for reconciliation polls. |
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
@@ -121,19 +127,23 @@ Dashboard and Build Order state is not on this cadence.
 
 | View state | Behaviour |
 | --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Opening the Tickets panel or a Build Order page | Renders held state first, then one view-originated refresh while you look. |
+| Ticket backlog, Ad Hoc overlay, with no page open | Zero API calls — the sweep skips a source nobody is watching. |
+| Ticket backlog, Ad Hoc overlay, while a page is open | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Pack status (`status.json`) | Always reconciled by the sweep, whether or not a page is open — the projection is authoritative on disk. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-A change made outside Aiur reaches those three panels within one sweep rather
-than at once, which is the trade for them costing nothing while nobody is
-looking.
+A change made outside Aiur reaches the backlog and Ad Hoc overlay within one
+sweep while their page is open — with nobody looking they cost nothing — and
+pack status is reconciled every sweep regardless of viewers because it writes
+the daemon-owned `status.json` projection the planning contract names
+authoritative.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
-| First startup sweep | Always immediate. |
+| First startup sweep | Always immediate, and the first scheduling decision after a restart stays at the base interval (no idleness has been observed yet). |
 | Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
-| `aiur --todo`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
+| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
 
@@ -178,6 +188,44 @@ rows against `limit - remaining` on the credential's own window:
 
 The command reads the meter the daemon already keeps and issues no GitHub
 request of its own, so checking it is free.
+
+### Reading these numbers without fooling yourself
+
+Three traps have each cost a run more than an hour. All three produce a figure
+that looks like a leak and is not.
+
+**A daemon restart invalidates reconciliation for the rest of the window.**
+
+The daemon's attribution window restarts with the process; GitHub's does not.
+Points spent before the restart stay in `limit - remaining` and appear in no row
+of the ranking.
+
+So the unattributed figure is inflated by exactly that much until the GitHub
+window rolls. Wait for the reset before comparing attribution against the
+credential's window.
+
+**The unattributed figure is not a leak.**
+
+As the table above says, it is expected. It counts anything sharing the
+credential that this process did not issue: a shell `gh` call, a script minting
+its own installation token, another Aiur instance.
+
+A monitoring loop sampling the API on the same credential *is itself*
+unattributed spend, so an investigation can widen the gap it is measuring.
+Baseline with the fleet quiet and your own tooling stopped.
+
+**Agent `gh` calls do not bill the daemon's credential.**
+
+Agents hold the bot PAT; the daemon under App auth holds an installation token.
+Separate budgets, separate windows.
+
+An agent-driven `gh pr view` never appears in the daemon's GraphQL ranking and
+never spends the App pool. Agent activity correlating with App-pool spend means
+something else scales with the fleet.
+
+Related: a low read-cache hit rate is not automatically a defect. See
+[Shared agent reads](#shared-agent-reads) for what the cache refuses on purpose
+and why refusing is correct.
 
 ### Credential pooling
 
@@ -294,13 +342,28 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 | Review submitted, edited or dismissed | The review, and the pull request. |
 | Pull request, any action | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
 | Issue, any action | The issue and its label set, whether or not the action is one Aiur reacts to. |
-| Check run | That check run. It says nothing about the other runs on the same head, so a reader asking about the head still reads. |
+| Check run | The matching run inside a complete CI-context snapshot already established for the same head. A lone delivery never invents the rest of the collection. |
+| Review thread resolved | The matching thread inside a complete review-thread snapshot already established for the pull request. |
 | A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
 | A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+
+Comment, CI, and review-thread pollers consult these complete snapshots before
+building their GraphQL documents. A poll-written snapshot is only a baseline;
+it does not suppress the next poll. When a verified delivery advances that
+baseline, the matching collection is eligible for 30 seconds.
+
+During that window Aiur omits `reviewThreads` or the delivered `CheckRun`
+fields. Legacy commit statuses, `reviewDecision`, `mergeable`, and other strict
+verdict state remain live reads.
+
+Successful polls write complete selections back so the next delivery and poll
+converge on the same state. Partial, stale, poll-only, head-mismatched, or
+unavailable entries fall back to GitHub. A review-comment delivery invalidates
+the complete thread snapshot because one comment cannot prove the collection.
 
 ## Shared agent reads
 
@@ -322,7 +385,52 @@ A verdict is refused rather than kept briefly because a push and a completing
 check run do not pass through the wrapper, so nothing could retire the answer
 before an agent acted on it.
 
+The same refusal applies to direct REST paths for check runs, check suites,
+commit statuses, reviews, requested reviewers, the pull-request resource
+itself, merge state, and Actions run or job state. Spelling a verdict read as
+`gh api` does not make it safe to cache.
+
+Stable Actions workflow *definitions* (`actions/workflows`) are still shared.
+
+A workflow definition changes when its YAML is edited, which is a
+wrapper-passing write that retires it, while a run's status is a verdict that
+nothing retires. This is a deliberate divergence from the daemon's `ReadCache`
+policy, which refuses every `/actions` path wholesale — the two stores serve
+different callers with different invalidation reach.
+
 An answer is kept for 60 seconds.
+
+The GitHub cache page reports whether this sharing is effective. Its **Agent gh
+exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
+alongside the raw hit and miss counts.
+
+It reads the durable `agent-cache.tsv` counters from agent workspaces on the
+daemon host; workspaces on remote SSH workers are not included.
+
+If no readable counter exists, or the readable files contain no hit or miss in
+that window, the page says **Not measured** instead of presenting zero as a
+measurement. Malformed or unreadable sources are retained as partial coverage
+rather than hiding the valid samples.
+
+The cache key intentionally includes the exact requested output shape. Two
+reads of one pull request that request different JSON fields, templates, or
+queries cannot share an answer without changing `gh`'s output, so each shape
+misses independently.
+
+Likewise, a write or daemon delivery retires every shape of the changed
+resource to protect correctness.
+
+Different output requests cannot share bytes, and a changed resource cannot
+safely reuse an older answer. The cache therefore keeps its byte-exact key,
+correctness invalidation, and 60-second lifetime.
+
+The wrapper now records a reason with every miss (`absent`, `expired`,
+`invalidated`, `bypassed`, `clock-skewed`, `corrupt`, or `torn`).
+
+That lets a later regression distinguish expected correctness misses from
+entries expiring before reuse, and can tell a cold cache from a
+store-integrity failure — a present stamp whose body has vanished is `torn`,
+never `absent`.
 
 Editing a ticket or a pull request discards the kept answers for it at once, so
 an agent never reads back what it just replaced.
@@ -416,6 +524,12 @@ Select every event listed above so a `pull_request_review_thread` delivery recon
 | Configured but never delivered | Polls at the full interval until a verified delivery proves the path works. |
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
+
+A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop.
+
+A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
+
+Repository-configuration reads are the one exception: branch protection, rulesets and workflow-file reads (`:repo_config`) ride a five-minute TTL in polling mode and still rise to an hour under a proven webhook, because every delivery also retires a repository's config reads.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
 

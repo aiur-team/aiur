@@ -3,6 +3,8 @@ defmodule Aiur.Config.CodexSandboxPolicy do
 
   alias Aiur.PathSafety
 
+  @configured_roots_key "agent.codex.turn_sandbox_policy.writableRoots"
+
   @spec resolve(map() | nil, Path.t() | nil, Path.t() | nil) :: map()
   def resolve(policy, workspace, fallback_workspace_root)
 
@@ -21,9 +23,15 @@ defmodule Aiur.Config.CodexSandboxPolicy do
           {:ok, map()} | {:error, term()}
   def resolve_runtime(policy, workspace, fallback_workspace_root, opts \\ [])
 
-  def resolve_runtime(%{} = policy, workspace, _fallback_workspace_root, opts) do
-    with {:ok, writable_roots} <- runtime_policy_writable_roots(workspace, opts) do
-      {:ok, maybe_add_workspace_writable_roots(policy, writable_roots)}
+  def resolve_runtime(%{} = policy, workspace, fallback_workspace_root, opts) do
+    effective_workspace = default_workspace_root(workspace, fallback_workspace_root)
+
+    with {:ok, writable_roots} <- runtime_policy_writable_roots(effective_workspace, opts) do
+      if Keyword.get(opts, :remote, false) do
+        {:ok, replace_workspace_writable_roots(policy, writable_roots)}
+      else
+        merge_configured_writable_roots(policy, writable_roots)
+      end
     end
   end
 
@@ -33,11 +41,26 @@ defmodule Aiur.Config.CodexSandboxPolicy do
     |> default_runtime_policy(opts)
   end
 
+  defp merge_configured_writable_roots(policy, writable_roots) do
+    with {:ok, canonical_policy} <- canonicalize_configured_writable_roots(policy) do
+      {:ok, maybe_add_workspace_writable_roots(canonical_policy, writable_roots)}
+    end
+  end
+
   @doc false
   @spec add_runtime_writable_roots(map(), [Path.t()]) :: {:ok, map()} | {:error, term()}
   def add_runtime_writable_roots(policy, roots) when is_map(policy) and is_list(roots) do
     with {:ok, canonical_roots} <- canonicalize_additional_roots(roots) do
       {:ok, maybe_add_workspace_writable_roots(policy, canonical_roots)}
+    end
+  end
+
+  @doc false
+  @spec validate_configured_writable_roots(map() | nil) :: :ok | {:error, term()}
+  def validate_configured_writable_roots(policy) do
+    case canonicalize_configured_writable_roots(policy) do
+      {:ok, _policy} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -138,6 +161,92 @@ defmodule Aiur.Config.CodexSandboxPolicy do
     end)
   end
 
+  defp canonicalize_configured_writable_roots(%{} = policy) do
+    if workspace_write_policy?(policy) do
+      with {:ok, roots} <- configured_writable_roots(policy),
+           {:ok, canonical_roots} <- validate_configured_roots(roots) do
+        {:ok, Map.put(policy, "writableRoots", canonical_roots)}
+      end
+    else
+      {:ok, policy}
+    end
+  end
+
+  defp canonicalize_configured_writable_roots(policy), do: {:ok, policy}
+
+  defp configured_writable_roots(policy) do
+    case Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || [] do
+      roots when is_list(roots) -> {:ok, roots}
+      roots -> configured_root_error(roots, :not_a_list)
+    end
+  end
+
+  defp validate_configured_roots(roots) do
+    Enum.reduce_while(roots, {:ok, []}, fn root, {:ok, canonical_roots} ->
+      case validate_configured_root(root) do
+        {:ok, canonical_root} -> {:cont, {:ok, append_unique(canonical_roots, canonical_root)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_configured_root(root) when is_binary(root) do
+    expanded_root = Path.expand(root)
+
+    if String.trim(root) == "" do
+      configured_root_error(expanded_root, :blank)
+    else
+      with {:ok, canonical_root} <- canonicalize_configured_root(expanded_root),
+           :ok <- configured_root_directory(canonical_root),
+           :ok <- probe_configured_root(canonical_root) do
+        {:ok, canonical_root}
+      end
+    end
+  end
+
+  defp validate_configured_root(root), do: configured_root_error(root, :invalid_path)
+
+  defp canonicalize_configured_root(expanded_root) do
+    case PathSafety.canonicalize(expanded_root) do
+      {:ok, canonical_root} -> {:ok, canonical_root}
+      {:error, reason} -> configured_root_error(expanded_root, {:canonicalize_failed, reason})
+    end
+  end
+
+  defp configured_root_directory(root) do
+    case File.stat(root) do
+      {:ok, %File.Stat{type: :directory}} -> :ok
+      {:ok, %File.Stat{}} -> configured_root_error(root, :not_a_directory)
+      {:error, :enoent} -> configured_root_error(root, :does_not_exist)
+      {:error, reason} -> configured_root_error(root, {:unavailable, reason})
+    end
+  end
+
+  defp probe_configured_root(root) do
+    probe =
+      Path.join(
+        root,
+        ".aiur-write-probe-#{:os.getpid()}-#{System.unique_integer([:positive, :monotonic])}"
+      )
+
+    case File.open(probe, [:write, :exclusive]) do
+      {:ok, io} ->
+        :ok = File.close(io)
+
+        case File.rm(probe) do
+          :ok -> :ok
+          {:error, reason} -> configured_root_error(root, {:not_writable, {:cleanup_failed, reason}})
+        end
+
+      {:error, reason} ->
+        configured_root_error(root, {:not_writable, reason})
+    end
+  end
+
+  defp configured_root_error(path, reason) do
+    {:error, {:unsafe_turn_sandbox_policy, {:invalid_configured_writable_root, %{config_key: @configured_roots_key, path: path, reason: reason}}}}
+  end
+
   defp expand_configured_workspace(workspace) when is_binary(workspace) do
     if String.trim(workspace) == "" do
       nil
@@ -156,16 +265,26 @@ defmodule Aiur.Config.CodexSandboxPolicy do
   end
 
   defp maybe_add_workspace_writable_roots(%{} = policy, writable_roots) when is_list(writable_roots) do
-    case Map.get(policy, "type") || Map.get(policy, :type) do
-      "workspaceWrite" ->
-        existing_roots = Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || []
-        existing_roots = if is_list(existing_roots), do: existing_roots, else: []
+    if workspace_write_policy?(policy) do
+      existing_roots = Map.get(policy, "writableRoots") || Map.get(policy, :writableRoots) || []
+      existing_roots = if is_list(existing_roots), do: existing_roots, else: []
 
-        Map.put(policy, "writableRoots", append_unique(existing_roots, writable_roots))
-
-      _ ->
-        policy
+      Map.put(policy, "writableRoots", append_unique(existing_roots, writable_roots))
+    else
+      policy
     end
+  end
+
+  defp replace_workspace_writable_roots(%{} = policy, writable_roots) when is_list(writable_roots) do
+    if workspace_write_policy?(policy) do
+      Map.put(policy, "writableRoots", writable_roots)
+    else
+      policy
+    end
+  end
+
+  defp workspace_write_policy?(policy) do
+    (Map.get(policy, "type") || Map.get(policy, :type)) == "workspaceWrite"
   end
 
   defp local_workspace_writable_roots(workspace_root) do

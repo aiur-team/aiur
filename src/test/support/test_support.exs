@@ -58,8 +58,9 @@ defmodule Aiur.TestSupport do
     path
   end
 
-  # Application keys the `use Aiur.TestSupport` setup redirects into the
-  # per-test workflow root, and must therefore put back on the way out.
+  # Application keys the `use Aiur.TestSupport` setup redirects or that its
+  # cases replace with process-owned test providers. They must all be put back
+  # on the way out so a dead provider cannot leak into the next test module.
   #
   # `:workflow_file_path` is restored rather than deleted: deleting it leaves
   # the global config resolving to a possibly-missing run-folder path, so any
@@ -87,7 +88,9 @@ defmodule Aiur.TestSupport do
     :log_file,
     :build_gate_dir_override,
     :global_pause_store_path,
+    :github_cache_inspector_source,
     :github_resource_store_path,
+    :github_cache_inspector_source,
     :repo_base_root,
     :executor_state_dir,
     :loadavg_source_override,
@@ -179,6 +182,7 @@ defmodule Aiur.TestSupport do
   def reset_global_state! do
     EventsPublisher.set_tracked_fn(fn _ -> true end)
     EventsSubscriptionStore.set_enqueue_fn(nil)
+    ensure_resource_store_running()
     GitHubResourceStore.reset()
     GitHubAuthPreflight.invalidate(:test_setup)
     PollCadence.forget_effective_interval_ms()
@@ -578,9 +582,41 @@ defmodule Aiur.TestSupport do
   sibling intentionally stopped one for an unavailable-service case.
   """
   def ensure_runtime_children_running do
+    with :ok <- ensure_aiur_supervisor_running(),
+         :ok <- ensure_pubsub_running(),
+         :ok <- ensure_branch_ref_store_running(),
+         :ok <- ensure_workflow_store_running() do
+      ensure_resource_store_running()
+    end
+  end
+
+  @doc """
+  Ensures the shared `Aiur.Events.BranchRefStore` singleton is running after a
+  sibling test tears down or restarts the application supervisor.
+  """
+  @spec ensure_branch_ref_store_running() :: :ok | :error
+  def ensure_branch_ref_store_running do
     ensure_aiur_supervisor_running()
-    ensure_pubsub_running()
-    ensure_workflow_store_running()
+
+    case Process.whereis(Aiur.Events.BranchRefStore) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_branch_ref_store()
+    end
+  end
+
+  @doc """
+  Ensures the shared GitHub resource store is running before a test resets or
+  seeds it. A stopped store deliberately makes writes no-ops, so merely calling
+  `ResourceStore.reset/0` cannot distinguish an empty store from a missing one.
+  """
+  @spec ensure_resource_store_running() :: :ok | :error
+  def ensure_resource_store_running do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(GitHubResourceStore) do
+      pid when is_pid(pid) -> :ok
+      nil -> restart_resource_store()
+    end
   end
 
   @doc """
@@ -660,8 +696,60 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  defp restart_branch_ref_store(retries \\ 1) do
+    case restart_branch_ref_store_child() do
+      {:ok, pid} when is_pid(pid) ->
+        :ok
+
+      {:error, {:already_started, pid}} when is_pid(pid) ->
+        :ok
+
+      :supervisor_unavailable when retries > 0 ->
+        ensure_aiur_supervisor_running()
+        restart_branch_ref_store(retries - 1)
+
+      :supervisor_unavailable ->
+        :error
+
+      {:error, _reason} ->
+        if Process.whereis(Aiur.Events.BranchRefStore), do: :ok, else: :error
+    end
+  end
+
   defp restart_workflow_store_child do
     Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_branch_ref_store_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.BranchRefStore)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_resource_store(retries \\ 1) do
+    case restart_resource_store_child() do
+      {:ok, pid} when is_pid(pid) ->
+        :ok
+
+      {:error, {:already_started, pid}} when is_pid(pid) ->
+        :ok
+
+      :supervisor_unavailable when retries > 0 ->
+        ensure_aiur_supervisor_running()
+        restart_resource_store(retries - 1)
+
+      :supervisor_unavailable ->
+        :error
+
+      {:error, _reason} ->
+        if Process.whereis(GitHubResourceStore), do: :ok, else: :error
+    end
+  end
+
+  defp restart_resource_store_child do
+    Supervisor.restart_child(Aiur.Supervisor, GitHubResourceStore)
   catch
     :exit, _reason -> :supervisor_unavailable
   end

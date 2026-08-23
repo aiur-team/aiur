@@ -387,11 +387,10 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   defp call(conn), do: AiurWeb.Endpoint.call(conn, AiurWeb.Endpoint.init([]))
 
   defp await_event(topic) do
-    receive do
-      {:event, %{topic: ^topic} = event} -> event
-    after
-      2_000 -> flunk("no event published on #{topic}")
-    end
+    # The endpoint intentionally answers before its supervised publish task
+    # finishes. Wait on that task's observable event, not a host-speed budget.
+    {:event, event} = receive_barrier({:event, %{topic: ^topic}})
+    event
   end
 
   defp refute_event(topic) do

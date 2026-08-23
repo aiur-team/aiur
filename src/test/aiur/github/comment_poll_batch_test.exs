@@ -1,16 +1,82 @@
 defmodule Aiur.GitHub.CommentPollBatchTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{CommentPollBatch, ResourceStore}
+  alias Aiur.GitHub.{CommentPollBatch, PollSnapshots, ResourceStore}
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+    ResourceStore.reset()
 
     on_exit(fn -> restore_env("GITHUB_TOKEN", previous_token) end)
     :ok
+  end
+
+  test "omits delivered review threads while keeping strict review context live" do
+    deliver_pull_request(42, 77)
+
+    assert :ok =
+             PollSnapshots.put_review_threads("owner/repo", 77, [
+               %{"id" => "PRRT_resolved", "isResolved" => false, "updatedAt" => "2026-08-21T09:59:00Z"}
+             ])
+
+    assert :ok = PollSnapshots.merge_review_thread("owner/repo", 77, %{"id" => "PRRT_resolved", "isResolved" => true, "updatedAt" => "2026-08-21T10:00:00Z"})
+
+    # Capture the document and assert on it after the fetch returns. Asserting
+    # inline would raise inside the transport's retry path, turning a real
+    # regression into a request-deadline timeout rather than a failed test.
+    test_pid = self()
+
+    request_fun = fn %{method: :post, body: body} ->
+      send(test_pid, {:query, body["query"]})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "delivered_0" => pull_request(77, "feature/watched") |> Map.delete("reviewThreads")
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"], request_fun: request_fun)
+
+    assert_received {:query, query}
+    assert query =~ "delivered_0: pullRequest(number: 77)"
+    refute query =~ "branch_0_0"
+    refute query =~ "reviewThreads(first: 100)"
+    assert query =~ "reviewDecision"
+
+    assert batch.review_thread_comments == []
+  end
+
+  test "writes complete queried review threads back with poll provenance" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => pull_request(77, "feature/watched"),
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"77" => _batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
+
+    assert {:ok, %{source: :poll, data: %{"complete" => true, "threads" => []}}} =
+             ResourceStore.fetch(PollSnapshots.review_threads_key("owner/repo", 77))
   end
 
   test "batches target issues with per-target headRefName pull request aliases" do
@@ -388,6 +454,49 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
       assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
       assert %{"number" => 77} = batch.open_pull_request
+    end
+
+    # #2326: this document parses `reviewThreads { comments { databaseId } }`,
+    # so it deposits the comment→thread mapping it read — the map a
+    # `pull_request_review_comment` webhook delivery consults before paying for a
+    # GraphQL node lookup (`Aiur.Events.GithubWebhook.ThreadResolver`).
+    test "deposits the comment→thread mapping the delivery resolver will read" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node =
+          pull_request(77, "aiur/42-x")
+          |> Map.put("reviewThreads", %{
+            "nodes" => [
+              %{
+                "id" => "PRRT_thread1",
+                "isResolved" => false,
+                "path" => "src/x.ex",
+                "line" => 1,
+                "comments" => %{
+                  "nodes" => [
+                    %{
+                      "databaseId" => 9_101,
+                      "body" => "inline",
+                      "createdAt" => "2026-06-24T12:00:00Z",
+                      "updatedAt" => "2026-06-24T12:00:00Z",
+                      "url" => "https://example.test/thread/1",
+                      "author" => %{"login" => "its-everdred"}
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+      assert Map.has_key?(batch, :review_thread_comments)
+
+      key = ResourceStore.key_for_repo(:pr_review_comment_thread, "owner/repo", 9_101)
+      assert {:ok, %{data: "PRRT_thread1"}} = ResourceStore.fetch(key)
     end
 
     # Keyed on `fetched_at_ms` — the age of the body — never on

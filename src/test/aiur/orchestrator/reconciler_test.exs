@@ -563,6 +563,51 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
+
+    # #2409: a deferred authorization (the provenance fetch was held/rate-limited,
+    # not a verified revocation) must NOT stop the running agent. Killing it here
+    # converted a 30-second budget hold into a terminal `agent:error` via retry
+    # exhaustion; the running agent stays and the next poll re-verifies once the
+    # cause clears.
+    test "keeps an active worker when refreshed dispatch authorization is deferred" do
+      parent = self()
+      identity = tracker_identity("I-authorization-deferred")
+
+      issue = %Issue{
+        id: "issue-authorization-deferred",
+        identifier: "I-authorization-deferred",
+        state: "in-progress",
+        tracker_identity: identity,
+        dispatch_authorized?: false,
+        dispatch_authorization: :deferred
+      }
+
+      entry = %{
+        pid: nil,
+        ref: make_ref(),
+        identifier: issue.identifier,
+        issue: issue,
+        started_at: DateTime.utc_now()
+      }
+
+      state = %State{running: %{issue.id => entry}, claimed: MapSet.new([issue.id])}
+
+      result =
+        Reconciler.reconcile_issue_state(
+          issue,
+          state,
+          MapSet.new(["in-progress"]),
+          MapSet.new(),
+          fn _observed_identity, _lifecycle ->
+            send(parent, :unexpected_membership)
+            :ok
+          end
+        )
+
+      refute_received :unexpected_membership
+      assert Map.has_key?(result.running, issue.id)
+      assert MapSet.member?(result.claimed, issue.id)
+    end
   end
 
   describe "blocking Command running-agent stop (#1965)" do

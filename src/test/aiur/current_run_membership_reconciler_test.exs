@@ -63,6 +63,21 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     assert_received {"I-allocated", :allocated}
   end
 
+  test "projects an orphaned claim as waiting rather than queued" do
+    parent = self()
+    snapshot = %{running: [], retrying: [], idle: [row("I-orphaned", waiting_reason: :orphaned_claim)]}
+
+    assert [_] =
+             Reconciler.reconcile_snapshot(
+               snapshot,
+               fn identity, lifecycle -> send(parent, {identity.provider_id, lifecycle}) end,
+               MapSet.new()
+             )
+
+    assert_received {"I-orphaned", :waiting}
+    refute_received {"I-orphaned", :queued}
+  end
+
   test "a reconciliation snapshot never removes an absent terminal store member" do
     dir = Path.join(System.tmp_dir!(), "aiur-membership-reconciler-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)

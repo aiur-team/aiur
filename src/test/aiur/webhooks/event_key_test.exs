@@ -70,6 +70,22 @@ defmodule Aiur.Webhooks.EventKeyTest do
     refute EventKey.derive("pull_request", base) == EventKey.derive("pull_request", moved)
   end
 
+  test "review thread keys identify the thread, action, and transition timestamp" do
+    payload = %{
+      "action" => "resolved",
+      "repository" => repo(),
+      "pull_request" => %{"number" => 42},
+      "thread" => %{"node_id" => "PRRT_abc"},
+      "updated_at" => "2026-08-09T10:00:00Z"
+    }
+
+    assert EventKey.derive("pull_request_review_thread", payload) ==
+             "pull_request_review_thread:owner/repo:PRRT_abc:resolved:2026-08-09T10:00:00Z"
+
+    refute EventKey.derive("pull_request_review_thread", payload) ==
+             EventKey.derive("pull_request_review_thread", %{payload | "action" => "unresolved"})
+  end
+
   test "push keys use the ref and resulting sha" do
     payload = %{"repository" => repo(), "ref" => "refs/heads/main", "after" => "abc123"}
 
