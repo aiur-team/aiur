@@ -39,7 +39,28 @@ defmodule Aiur.Events.GithubFirehose do
   alias Aiur.RunTelemetry.Lifecycle
 
   @repo_events_per_page 30
-  @max_event_pages 5
+
+  # Upper guard for the backfill page walk, not a steady-state cap. GitHub's
+  # repository-events endpoint serves at most 300 events (10 pages at the
+  # 30-per-page we fetch), so this is the size of the entire stream GitHub
+  # will ever return for the window. A normally-polling daemon never reaches
+  # it: the backfill pages until the previous tick's watermark is found or a
+  # page comes back not full, and the watermark is the newest event observed
+  # one tick ago, so it is always a handful of pages deep. Reaching the bound
+  # with the watermark still missing means the watermark was evicted from
+  # GitHub's 300-event window — events beyond it are genuinely lost — which is
+  # reported as a partial window (`partial_window?: true`) so the metric and
+  # the sustained-truncation alert can surface it instead of dropping silently
+  # (#2354).
+  @events_window_pages 10
+
+  @doc false
+  @spec repo_events_per_page() :: pos_integer()
+  def repo_events_per_page, do: @repo_events_per_page
+
+  @doc false
+  @spec events_window_pages() :: pos_integer()
+  def events_window_pages, do: @events_window_pages
 
   @doc """
   Polls one tick. Returns `{:ok, %{etag: ...}}` regardless of whether
@@ -48,6 +69,14 @@ defmodule Aiur.Events.GithubFirehose do
   should preserve the previous etag. A local recent-merge persistence failure
   returns its reason plus the successful response cursor so the caller can
   bound retries without refetching the same published event forever.
+
+  Successful polls report the window they read: `pages_fetched` is how many
+  event pages this tick required, and `partial_window?` is true only when the
+  backfill hit `@events_window_pages` without finding the previous tick's
+  watermark — the one case where events were truncated and are lost. In steady
+  state the watermark is always reached first, so `partial_window?: false` is
+  the normal answer even on a stream active enough that a fixed 5-page cap
+  used to truncate it every tick (#2354).
 
   Options:
     * `:etag` — previously-captured ETag for `If-None-Match`
@@ -68,12 +97,18 @@ defmodule Aiur.Events.GithubFirehose do
 
     case Client.fetch_repo_events(client_opts) do
       {:ok, {:not_modified, etag, poll_interval}} ->
+        # A 304 is one actual HTTP read (the If-None-Match revalidation GitHub
+        # does not bill), so the per-tick window metric must count it as page 1
+        # of an empty, complete window — not 0 pages, which would under-report
+        # the poller's cheapest and most common tick (#2354).
         {:ok,
          %{
            etag: etag,
            last_event_id: last_event_id,
            count: 0,
            poll_interval: poll_interval,
+           pages_fetched: 1,
+           partial_window?: false,
            recent_merge_persistence: :not_attempted
          }}
 
@@ -135,7 +170,7 @@ defmodule Aiur.Events.GithubFirehose do
     end
   end
 
-  defp fetch_backfill_pages(pages, page, last_event_id, opts) when page <= @max_event_pages do
+  defp fetch_backfill_pages(pages, page, last_event_id, opts) when page <= @events_window_pages do
     client_opts =
       [page: page, per_page: @repo_events_per_page]
       |> maybe_put(:request_fun, Keyword.get(opts, :request_fun))

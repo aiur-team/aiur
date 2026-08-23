@@ -30,7 +30,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{DispatchPolicy, StatusReason, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
   # One age shape wherever a stale surface appears — reuse #1814's renderer
@@ -1819,19 +1819,11 @@ defmodule Aiur.AgentControlCLI do
   defp format_observed_at(observed_at) when is_binary(observed_at), do: observed_at
   defp format_observed_at(_observed_at), do: "unknown"
 
-  # `capacity_hold` is the daemon's own persisted admission decision — the only
-  # source allowed to name an admission signal as the fleet's binding
-  # constraint. Nothing here re-derives a gate locally.
-  defp capacity_binding(%{capacity_hold: %{} = hold}, _polling),
-    do: {:admission, hold}
-
-  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling) do
-    case capacity_binding_ticket_supply(capacity, polling) do
-      {:ticket_supply, detail} -> {:ticket_supply, detail}
-      {:has_not_polled, detail} -> {:has_not_polled, detail}
-      :not_ticket_supply -> capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
-    end
-  end
+  # The classification lives in `Aiur.Orchestrator.CapacityBinding` so the CLI
+  # and the dashboards name the same constraint from the same rules. Only the
+  # label text below is CLI-specific — it carries the full admission
+  # measurement, which does not fit a KPI tile.
+  defp capacity_binding(capacity, polling), do: CapacityBinding.binding(capacity, polling)
 
   # A LOCAL host-pressure reading, taken before the control RPC so the
   # saturation signal survives an RPC timeout (the timeout is most likely
@@ -1859,85 +1851,6 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_load_status(_capacity), do: :ok
-
-  defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
-    cond do
-      paused_reservation_binding?(capacity) ->
-        {:paused_reservations, capacity.reserved_paused}
-
-      effective < max and occupied >= effective ->
-        {:envelope, effective}
-
-      occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
-        {:config_cap, configured}
-
-      occupied >= max ->
-        {:session_cap, max}
-
-      true ->
-        # Slots are available and nothing is binding: name where the effective
-        # ceiling came from so an operator whose `set max-agents` was silently
-        # dropped by a restart can see it (a session cap does not persist;
-        # `--max-agents N` and `agent.max_concurrent_agents` are the durable
-        # forms, #2138).
-        {:none, %{ceiling: capacity_ceiling_label(capacity)}}
-    end
-  end
-
-  # A slot-free, unconstrained fleet's effective ceiling provenance. The AGENTS
-  # line shows `session max_concurrent_agents` while `set max-agents` (or
-  # `--max-agents` at launch) is live, and `config max_concurrent_agents` once
-  # the session override is gone — so a restart that dropped the operator's
-  # live cap reads as config-sourced rather than as the operator's last command.
-  defp capacity_ceiling_label(%{session_override?: true}), do: "session max_concurrent_agents"
-  defp capacity_ceiling_label(_capacity), do: "config max_concurrent_agents"
-
-  defp capacity_binding_ticket_supply(
-         %{available: available, queued_demand?: false} = capacity,
-         polling
-       )
-       when is_integer(available) and available > 0 do
-    case poll_observation(polling) do
-      :fresh ->
-        # The daemon polled recently and found nothing dispatchable, so "ticket
-        # supply" is the honest binding. The ceiling provenance rides along so
-        # an operator whose `set max-agents` was silently dropped by a restart
-        # can see the effective ceiling came from config, not their last
-        # command (#2138).
-        {:ticket_supply, %{ceiling: capacity_ceiling_label(capacity)}}
-
-      {:backed_off, next_poll_in_ms} ->
-        {:has_not_polled, %{next_poll_in_ms: next_poll_in_ms, ceiling: capacity_ceiling_label(capacity)}}
-
-      :fetch_failed ->
-        {:has_not_polled, %{ceiling: capacity_ceiling_label(capacity)}}
-    end
-  end
-
-  defp capacity_binding_ticket_supply(_capacity, _polling), do: :not_ticket_supply
-
-  # Classify how fresh the daemon's most recent tracker observation is. `:fresh`
-  # means a recent successful poll found no work — the only state in which
-  # "ticket supply" is an honest binding. Idle backoff active means the last
-  # successful poll is a full backed-off interval old; a `tracker_snapshot_fresh?
-  # == false` means the last fetch failed. Both are "has not polled recently
-  # enough to know".
-  defp poll_observation(%{idle_backoff: %{active?: true}} = polling),
-    do: {:backed_off, Map.get(polling, :next_poll_in_ms)}
-
-  defp poll_observation(%{tracker_snapshot_fresh?: false}), do: :fetch_failed
-  defp poll_observation(_polling), do: :fresh
-
-  defp paused_reservation_binding?(%{
-         active: active,
-         effective: effective,
-         available: 0,
-         reserved_paused: reserved_paused
-       })
-       when reserved_paused > 0 and effective > active,
-       do: true
-
-  defp paused_reservation_binding?(_capacity), do: false
 
   @doc """
   Print registry provider headroom from the daemon-owned meter projection.

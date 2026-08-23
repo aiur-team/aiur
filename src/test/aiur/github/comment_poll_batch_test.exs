@@ -511,6 +511,49 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
       assert %{"number" => 77} = batch.open_pull_request
     end
 
+    # #2326: this document parses `reviewThreads { comments { databaseId } }`,
+    # so it deposits the comment→thread mapping it read — the map a
+    # `pull_request_review_comment` webhook delivery consults before paying for a
+    # GraphQL node lookup (`Aiur.Events.GithubWebhook.ThreadResolver`).
+    test "deposits the comment→thread mapping the delivery resolver will read" do
+      deliver_pull_request(42, 77)
+
+      request_fun = fn %{method: :post} ->
+        node =
+          pull_request(77, "aiur/42-x")
+          |> Map.put("reviewThreads", %{
+            "nodes" => [
+              %{
+                "id" => "PRRT_thread1",
+                "isResolved" => false,
+                "path" => "src/x.ex",
+                "line" => 1,
+                "comments" => %{
+                  "nodes" => [
+                    %{
+                      "databaseId" => 9_101,
+                      "body" => "inline",
+                      "createdAt" => "2026-06-24T12:00:00Z",
+                      "updatedAt" => "2026-06-24T12:00:00Z",
+                      "url" => "https://example.test/thread/1",
+                      "author" => %{"login" => "its-everdred"}
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{"delivered_0" => node}}}}}
+      end
+
+      assert {:ok, %{"42" => batch}} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+      assert Map.has_key?(batch, :review_thread_comments)
+
+      key = ResourceStore.key_for_repo(:pr_review_comment_thread, "owner/repo", 9_101)
+      assert {:ok, %{data: "PRRT_thread1"}} = ResourceStore.fetch(key)
+    end
+
     # Keyed on `fetched_at_ms` — the age of the body — never on
     # `recorded_at_ms`, which every write touches including a bodyless
     # processed-mark (#2174).

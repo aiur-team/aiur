@@ -336,7 +336,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # The REST half of the ticket-detail read. Proving the counter still catches
       # it is also what makes the zeros above meaningful rather than vacuous.
       _ignored =
-        Issues.fetch_issue_raw(2073,
+        Issues.fetch_issue_raw_conditional(2073,
           repository: {"aiur-team", "aiur"},
           token: "test-token-not-used-the-plug-intercepts"
         )
@@ -357,7 +357,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     before = length(Agent.get(counter, & &1))
 
     _ignored =
-      Issues.fetch_issue_raw(4242,
+      Issues.fetch_issue_raw_conditional(4242,
         repository: @repository,
         token: "test-token-not-used-the-plug-intercepts"
       )

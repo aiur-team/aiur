@@ -70,6 +70,19 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, _}, 100
     end
 
+    # #2354: the cheapest tick is the 304 revalidation, and the per-tick window
+    # metric must not zero it out. One actual HTTP read happened, so the window
+    # metric reports page 1 of a complete (empty) window — not 0 pages, which
+    # would under-count the poller's steady-state cost.
+    test "304 reports one page fetched and a complete window" do
+      stub = fn %{etag: ~s("e1")} ->
+        {:ok, %{status: 304, headers: [{"ETag", ~s("e1")}], body: ""}}
+      end
+
+      assert {:ok, %{etag: ~s("e1"), count: 0, pages_fetched: 1, partial_window?: false}} =
+               GithubFirehose.poll(etag: ~s("e1"), request_fun: stub)
+    end
+
     test "PushEvent on default branch publishes system.<branch>.branch.push" do
       :ok = Exchange.subscribe("system.main.branch.push")
 
@@ -296,7 +309,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
       assert_receive {:event, %{topic: "ticket.77.pr.merged", pr: %{"number" => 8_177}}}, 500
     end
 
-    test "a saturated reconciliation cap is disclosed instead of fetching an unbounded window" do
+    test "a saturated reconciliation window bound is disclosed instead of fetching an unbounded window" do
       parent = self()
 
       stub = fn req ->
@@ -310,15 +323,53 @@ defmodule Aiur.Events.GithubFirehoseTest do
         :ok
       end
 
-      assert {:ok, %{pages_fetched: 5, partial_window?: true}} =
+      assert {:ok, %{pages_fetched: 10, partial_window?: true}} =
                GithubFirehose.poll(
                  request_fun: stub,
                  recent_merge_reconciliation_fun: mark_reconciliation
                )
 
-      assert_receive {:reconciliation_marked, true, 5}
-      assert Enum.map(1..5, fn _ -> receive do: ({:events_page_requested, page} -> page) end) == [1, 2, 3, 4, 5]
-      refute_receive {:events_page_requested, 6}, 100
+      assert_receive {:reconciliation_marked, true, 10}
+      assert Enum.map(1..10, fn _ -> receive do: ({:events_page_requested, page} -> page) end) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+      refute_receive {:events_page_requested, 11}, 100
+    end
+
+    # Regression for #2354: on a stream active enough that the previous
+    # watermark sits on page 6, the old `@max_event_pages 5` cap truncated the
+    # window on every tick and silently dropped the newest events beyond page 5.
+    # The backfill now pages until the watermark is found, so a six-page window
+    # is read completely and an event on page 6 is published instead of lost.
+    test "pages past the old 5-page cap until the previous watermark is found" do
+      :ok = Exchange.subscribe("ticket.66.pr.opened")
+
+      parent = self()
+
+      pages = %{
+        "1" => ignored_events("burst-1", 30),
+        "2" => ignored_events("burst-2", 30),
+        "3" => ignored_events("burst-3", 30),
+        "4" => ignored_events("burst-4", 30),
+        "5" => ignored_events("burst-5", 30),
+        "6" => [
+          pr_opened_event("page-6-pr", 66, 779, "page-6-head"),
+          ignored_event("watermark"),
+          ignored_event("older-than-watermark")
+        ]
+      }
+
+      stub = fn req ->
+        page = request_page(req)
+        send(parent, {:events_page_requested, String.to_integer(page)})
+        {:ok, %{status: 200, headers: [{"ETag", ~s("e2354")}], body: Map.fetch!(pages, page)}}
+      end
+
+      assert {:ok, %{pages_fetched: 6, partial_window?: false, count: 1, last_event_id: "burst-1-1"}} =
+               GithubFirehose.poll(request_fun: stub, last_event_id: "watermark")
+
+      assert_receive {:event, %{topic: "ticket.66.pr.opened", pr: %{"number" => 779}}}, 500
+
+      assert Enum.map(1..6, fn _ -> receive do: ({:events_page_requested, page} -> page) end) == [1, 2, 3, 4, 5, 6]
+      refute_receive {:events_page_requested, 7}, 100
     end
 
     test "merged PR events bypass the tracked filter for human-review tickets" do

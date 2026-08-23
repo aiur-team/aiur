@@ -229,11 +229,12 @@ Named rather than folded into a percentage:
   `Aiur.GitHub.DispatchAuthorization` on the tracker poll path. Conditional
   support is possible and not done here.
 - `GET /repos/{owner}/{repo}/issues/{number}` reached through
-  `Aiur.GitHub.IssueDependencies` → `Aiur.GitHub.Client.fetch_issue_raw/2`. The
-  same URL as the read that did become free, but a third caller that still goes
-  through the unconditional `fetch_issue_raw/2` and neither reads nor populates
-  the store. It is an orchestrator path rather than a Build Order one, so it is
-  named here and left to the unit that owns that path.
+  `Aiur.GitHub.IssueDependencies` → `Aiur.GitHub.Client.fetch_issue_raw_conditional/2`.
+  The same URL as the read that did become free, and since #2326 this third
+  caller reads it through the same store-backed conditional reader — an
+  unchanged blocker resolves with a `304` rather than a full-price `200`. It was
+  an orchestrator path rather than a Build Order one, so it is named here and
+  left to the unit that owns that path.
 - `GET /repos/{owner}/{repo}/issues?labels=build-lane:adhoc&state=all&per_page=100`
   — the Build Order ad-hoc epic poll, REST, every 60s. Conditional support is
   possible and not done here.
