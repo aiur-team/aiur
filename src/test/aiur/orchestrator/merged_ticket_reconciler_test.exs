@@ -281,6 +281,122 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     assert opts[:message] =~ "human-review instead of done"
   end
 
+  test "a stale draft left open after a merge does not pin the ticket out of done" do
+    # The mirror-image of the #2307 defect: a dead draft from a superseded
+    # attempt left open forever must not keep a ticket out of `done`. A draft
+    # with no update within the staleness window is treated as abandoned and
+    # does not block the terminal transition — the specific label `done` is
+    # asserted, not merely "not rework".
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "draft" => true,
+               "updated_at" => "2026-07-30T00:00:00Z"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "done", "in-progress"}
+    refute_receive {:transition, "1570", "rework", _expected}
+    refute_receive {:transition, "1570", "human-review", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert opts[:message] =~ "closed ticket 1570"
+  end
+
+  test "a draft with recent activity still blocks done and routes to human-review" do
+    # Only drafts with no update within the staleness window are treated as
+    # abandoned. A draft updated recently is live work: it must still block the
+    # terminal transition so the ticket's remaining PR is not abandoned.
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "draft" => true,
+               "updated_at" => "2026-08-09T23:00:00Z"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "human-review", "in-progress"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+  end
+
+  test "a stale non-draft open PR still blocks done" do
+    # The draft requirement matters: a stale PR that was actually submitted for
+    # review is still awaiting that review, so it must keep blocking the
+    # terminal transition rather than being dismissed alongside abandoned
+    # drafts.
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "draft" => false,
+               "updated_at" => "2026-07-30T00:00:00Z",
+               "review_decision" => "APPROVED"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "human-review", "in-progress"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+  end
+
   test "a failed open-PR lookup never closes a ticket" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
     parent = self()
