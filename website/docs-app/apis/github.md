@@ -481,10 +481,9 @@ same OS user as the daemon, so an agent that deliberately goes looking can read
 the credential file, the shared budget database, or the operator keyring.
 
 What the file removes is the raw token from the *environment* of every agent
-process, where anything — a dependency's build script, a `curl` one-liner, a
-Python or Node fetch — would inherit it without trying. The broker ledger is
-a complete account of the governed calls, not of every request a determined
-agent could make.
+process — where a dependency's build script, a `curl` one-liner, or a Node
+fetch would inherit it — and the broker ledger counts the governed calls, not
+every request a determined agent could make.
 
 | Path | Governed by the guard |
 | --- | --- |
