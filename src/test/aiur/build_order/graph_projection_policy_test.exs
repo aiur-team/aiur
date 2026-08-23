@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
   alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.{Options, Policy}
+  alias Aiur.GitHub.Errors
   alias Aiur.TrackerIdentity
 
   @repository {"owner", "repo"}
@@ -222,8 +223,24 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
       assert Policy.failure_class({:aiur, :locally_held, %{reason: hold_reason, resource: "graphql"}}) == :budget
     end
 
+    # The Quota preflight hold carries no `:reason` at all — only the observed
+    # window. It is the most common cause of an unresolved planning read, and
+    # matching on `:reason` alone silently missed it.
+    assert Policy.failure_class({:aiur, :locally_held, %{resource: "graphql", remaining: 0, limit: 5000}}) == :budget
+
     assert Policy.failure_class({:github, :timeout, %{reason: :timeout}}) == :timeout
-    assert Policy.failure_class({:github, :transport, %{reason: :closed}}) == :provider_unavailable
+
+    # `Errors.classify_transport_reason/1` tags the whole unreachable family
+    # `:timeout` because they retry alike. They do not diagnose alike, so the
+    # preserved `:reason` separates them. These are the shapes `errors.ex`
+    # actually produces — the previous assertion used a `{:github, :transport,
+    # %{reason: :closed}}` tuple it never emits for these reasons.
+    for reason <- [:closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset] do
+      assert Policy.failure_class({:github, :timeout, %{reason: reason}}) == :unreachable
+    end
+
+    assert Errors.classify_transport_reason(:econnrefused) |> Policy.failure_class() == :unreachable
+    assert Errors.classify_transport_reason(:timeout) |> Policy.failure_class() == :timeout
   end
 
   test "a provider-sourced candidate defect is reported as a read fault, not a malformed graph" do

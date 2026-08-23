@@ -281,14 +281,13 @@ defmodule Aiur.BuildOrdersCLI do
     |> plain()
   end
 
-  # Count-resolution provenance is dashboard-only in schema version 2. Keep it
-  # out of the generic struct traversal so this internal catalog fact does not
-  # silently change the CLI JSON contract.
+  # The CLI reports the same unresolved counts the dashboard does, so it gets
+  # the same cause. Withholding it left `aiur build-orders --json` showing null
+  # epic and wave counts with no way to tell a real gap from a failed read —
+  # the very ambiguity this work exists to remove (#2250). Both keys are
+  # additive to schema version 2, so existing consumers are unaffected.
   defp plain(%Catalog{} = value) do
-    value
-    |> Map.from_struct()
-    |> Map.delete(:count_resolution_failure)
-    |> plain()
+    value |> Map.from_struct() |> plain()
   end
 
   defp plain(%{__struct__: _} = value), do: value |> Map.from_struct() |> plain()

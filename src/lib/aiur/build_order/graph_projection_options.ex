@@ -51,6 +51,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # counts. Cheap catalog reads cannot answer that question, so they retain
       # this fact until the next labelled success replaces it.
       catalog_labels_failure: nil,
+      catalog_labels_failure_reset_at: nil,
       catalog_labels_failures: 0,
       catalog_labels_penalty_ms: 0,
       selected: %{},

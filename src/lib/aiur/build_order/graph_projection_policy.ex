@@ -166,11 +166,28 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
   def failure_class({:github, classification, _detail}) when classification in [:rate_limited, :secondary_rate_limit],
     do: :rate_limited
 
+  # `Errors.classify_transport_reason/1` folds the whole unreachable family into
+  # `:timeout` because they retry identically. They do not *diagnose*
+  # identically: "connection refused" tells an operator something is not
+  # listening, and reporting that as a timeout sends them looking at latency
+  # (#2250). The retry taxonomy stays as it is; only the detail's preserved
+  # `:reason` is read back out here.
+  def failure_class({:github, :timeout, %{reason: reason}})
+      when reason in [:closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset],
+      do: :unreachable
+
   def failure_class({:github, :timeout, _detail}), do: :timeout
 
   def failure_class({:aiur, :locally_held, %{reason: reason, resource: "graphql"}})
       when reason in [:shared_budget, :actor_budget],
       do: :budget
+
+  # `Budget.acquire/2` stamps a `:reason`; the `Quota` preflight hold
+  # (`quota.ex`, `window_status/4` and `backoff_hold/3`) does not — it carries
+  # only the observed window. Matching on `:reason` alone therefore missed the
+  # *quota* hold, which is the single most common cause of an unresolved
+  # planning read and the one this classification exists to name (#2250).
+  def failure_class({:aiur, :locally_held, %{resource: "graphql"}}), do: :budget
 
   def failure_class(reason) when reason in [:catalog_overflow, :member_overflow], do: reason
   def failure_class(:page_budget_exhausted), do: :page_budget

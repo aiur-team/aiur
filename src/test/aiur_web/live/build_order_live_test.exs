@@ -268,6 +268,65 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert length(Enum.uniq(rendered)) == 4
   end
 
+  # "Budget exhausted" alone leaves an operator unable to tell whether to wait a
+  # minute or an hour. When the hold carries a reset, the cell names it.
+  test "catalog names when an exhausted budget resets", %{source: source} do
+    entries = [
+      progress_root(identity(57, "NODE-57"), "Pack held by budget", member_count: 35, epic_count: nil, phase_count: nil)
+    ]
+
+    snapshot = catalog_snapshot(entries, 1, :healthy)
+
+    data =
+      Catalog.put_count_resolution_failure(snapshot.data, :budget, reset_at: ~U[2026-08-23 15:30:00Z])
+
+    :ok = FakeDataSource.put_catalog(source, %{snapshot | data: data})
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+    counts = catalog_count_cells(document, "Pack held by budget")
+
+    assert Enum.map(counts, &catalog_count_text/1) == [
+             "35",
+             "Budget exhausted until 15:30 UTC",
+             "Budget exhausted until 15:30 UTC"
+           ]
+
+    [_tickets, epics, _waves] = counts
+    assert [title] = epics |> Floki.find(".bo-catalog-count-unresolved") |> Floki.attribute("title")
+    assert title =~ "It resets at 15:30 UTC."
+  end
+
+  # A ticket count comes from the cheap read, so the labelled-read cause does
+  # not apply to it — but an unresolved ticket count is still the *same kind* of
+  # unknown, and rendering it as a bare "—" while epics said "Unresolved" was
+  # the two-renderings-of-one-state defect in miniature (#2250).
+  test "an unresolved ticket count renders as unresolved, not a bare dash", %{source: source} do
+    entries = [
+      progress_root(identity(58, "NODE-58"), "Pack with no ticket count",
+        member_count: nil,
+        epic_count: nil,
+        phase_count: nil
+      )
+    ]
+
+    snapshot = catalog_snapshot(entries, 1, :healthy)
+    :ok = FakeDataSource.put_catalog(source, snapshot)
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+    counts = catalog_count_cells(document, "Pack with no ticket count")
+
+    assert Enum.map(counts, &catalog_count_text/1) == ["Unresolved", "Unresolved", "Unresolved"]
+    refute Floki.raw_html(counts) =~ "—"
+    refute Enum.any?(counts, &(catalog_count_text(&1) == "0"))
+
+    [tickets | _rest] = counts
+    assert [marker] = Floki.find(tickets, ".bo-catalog-count-unresolved")
+    assert Floki.attribute(marker, "data-count-state") == ["unresolved"]
+    assert Floki.attribute(marker, "aria-label") == ["Tickets not counted"]
+  end
+
   test "catalog marks unresolved epic and wave counts without conflating resolved zero", %{source: source} do
     entries = [
       progress_root(identity(55, "NODE-55"), "Pack with unfetched dimensions",
@@ -282,10 +341,16 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
     ]
 
+    # Every class the projection can establish, each naming its own cause. No
+    # entry here collapses a distinct fault into a shared, wrong explanation.
     classified_failures = [
       {:budget, "Budget exhausted", "planning query budget was exhausted"},
+      {:rate_limited, "Rate limited", "tracker rate limited the read"},
       {:timeout, "Timed out", "planning request timed out"},
-      {:upstream, "Upstream error", "tracker returned an upstream error"}
+      {:unreachable, "Unreachable", "connection to the tracker was refused or dropped"},
+      {:permission, "Not authorized", "tracker credential was missing or rejected"},
+      {:schema, "Unreadable response", "tracker response did not match the expected shape"},
+      {:incomplete, "Partial read", "read hit Aiur's planning page limit before every member"}
     ]
 
     rendered_failures =
@@ -310,10 +375,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
                  ["Waves not counted: #{String.downcase(visible_text)}"]
                ]
 
-        assert Enum.map(unresolved_markers, &Floki.attribute(&1, "title")) == [
-                 ["Epics could not be counted because the #{title_detail}."],
-                 ["Waves could not be counted because the #{title_detail}."]
-               ]
+        assert [[epics_title], [waves_title]] = Enum.map(unresolved_markers, &Floki.attribute(&1, "title"))
+        assert epics_title =~ "Epics could not be counted because the #{title_detail}."
+        assert waves_title =~ "Waves could not be counted because the #{title_detail}."
 
         refute Enum.any?(Enum.drop(unresolved_counts, 1), &(catalog_count_text(&1) == "0"))
         refute Floki.find(unresolved_counts, ".bo-catalog-invalid") != []
@@ -331,7 +395,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     generic_counts = catalog_count_cells(generic_document, "Pack with unfetched dimensions")
 
     assert Enum.map(generic_counts, &catalog_count_text/1) == ["35", "Unresolved", "Unresolved"]
-    assert length(Enum.uniq(rendered_failures ++ [Enum.map(Enum.drop(generic_counts, 1), &Floki.raw_html/1)])) == 4
+
+    assert length(Enum.uniq(rendered_failures ++ [Enum.map(Enum.drop(generic_counts, 1), &Floki.raw_html/1)])) ==
+             length(classified_failures) + 1
   end
 
   # The companion to the test above: once a catalog read resolves the label-

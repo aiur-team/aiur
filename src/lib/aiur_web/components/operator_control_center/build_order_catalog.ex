@@ -76,9 +76,28 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
             <td class="bo-catalog-progress-cell" data-sort-value={progress.percent || ""}>
               <.catalog_progress progress={progress} />
             </td>
-            <td class="bo-catalog-num mono num" data-sort-value={entry.member_count}>{count_display(entry.member_count)}</td>
-            <td class="bo-catalog-num mono num" data-sort-value={entry.epic_count}><.catalog_count count={entry.epic_count} label="Epics" failure={@catalog.count_resolution_failure} /></td>
-            <td class="bo-catalog-num mono num" data-sort-value={entry.phase_count}><.catalog_count count={entry.phase_count} label="Waves" failure={@catalog.count_resolution_failure} /></td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.member_count}>
+              <%!-- Tickets come from the cheap read, so the labelled-read cause does not
+                    apply to them. An unresolved ticket count still says "Unresolved"
+                    rather than a cryptic "—": the same unknown must not render two ways. --%>
+              <.catalog_count count={entry.member_count} label="Tickets" />
+            </td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.epic_count}>
+              <.catalog_count
+                count={entry.epic_count}
+                label="Epics"
+                failure={@catalog.count_resolution_failure}
+                reset_at={@catalog.count_resolution_reset_at}
+              />
+            </td>
+            <td class="bo-catalog-num mono num" data-sort-value={entry.phase_count}>
+              <.catalog_count
+                count={entry.phase_count}
+                label="Waves"
+                failure={@catalog.count_resolution_failure}
+                reset_at={@catalog.count_resolution_reset_at}
+              />
+            </td>
           </tr>
           <% end %>
         </tbody>
@@ -160,9 +179,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   attr(:count, :any, required: true)
   attr(:label, :string, required: true)
   attr(:failure, :atom, default: nil)
+  attr(:reset_at, :any, default: nil)
 
   defp catalog_count(assigns) do
-    assigns = assign(assigns, :unresolved, count_failure_presentation(assigns.label, assigns.failure))
+    assigns =
+      assign(assigns, :unresolved, count_failure_presentation(assigns.label, assigns.failure, assigns.reset_at))
 
     ~H"""
     <%= if is_integer(@count) do %>
@@ -181,36 +202,79 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
     """
   end
 
-  defp count_failure_presentation(label, :budget),
+  # Every class states a cause the projection actually established. The final
+  # clause is the honest unknown, not a default dressed as a diagnosis: an
+  # unrecognised failure renders "Unresolved" rather than sending an operator to
+  # GitHub's status page over their own expired token (#2250).
+  defp count_failure_presentation(label, :budget, reset_at),
     do: %{
-      text: "Budget exhausted",
-      aria_label: "#{label} not counted: budget exhausted",
-      title: "#{label} could not be counted because the planning query budget was exhausted."
+      text: "Budget exhausted" <> reset_suffix(reset_at),
+      aria_label: "#{label} not counted: budget exhausted" <> reset_suffix(reset_at),
+      title:
+        "#{label} could not be counted because the planning query budget was exhausted." <>
+          reset_sentence(reset_at)
     }
 
-  defp count_failure_presentation(label, :timeout),
+  defp count_failure_presentation(label, :rate_limited, reset_at),
+    do: %{
+      text: "Rate limited" <> reset_suffix(reset_at),
+      aria_label: "#{label} not counted: rate limited" <> reset_suffix(reset_at),
+      title: "#{label} could not be counted because the tracker rate limited the read." <> reset_sentence(reset_at)
+    }
+
+  defp count_failure_presentation(label, :timeout, _reset_at),
     do: %{
       text: "Timed out",
       aria_label: "#{label} not counted: timed out",
       title: "#{label} could not be counted because the planning request timed out."
     }
 
-  defp count_failure_presentation(label, :upstream),
+  defp count_failure_presentation(label, :unreachable, _reset_at),
     do: %{
-      text: "Upstream error",
-      aria_label: "#{label} not counted: upstream error",
-      title: "#{label} could not be counted because the tracker returned an upstream error."
+      text: "Unreachable",
+      aria_label: "#{label} not counted: unreachable",
+      title: "#{label} could not be counted because the connection to the tracker was refused or dropped."
     }
 
-  defp count_failure_presentation(label, _failure),
+  defp count_failure_presentation(label, :permission, _reset_at),
+    do: %{
+      text: "Not authorized",
+      aria_label: "#{label} not counted: not authorized",
+      title: "#{label} could not be counted because the tracker credential was missing or rejected. Check the token."
+    }
+
+  defp count_failure_presentation(label, :schema, _reset_at),
+    do: %{
+      text: "Unreadable response",
+      aria_label: "#{label} not counted: unreadable response",
+      title: "#{label} could not be counted because the tracker response did not match the expected shape."
+    }
+
+  # Aiur's own bound, not a tracker fault — say so, so nobody goes looking at
+  # GitHub for a limit we imposed.
+  defp count_failure_presentation(label, :incomplete, _reset_at),
+    do: %{
+      text: "Partial read",
+      aria_label: "#{label} not counted: partial read",
+      title: "#{label} could not be counted because the read hit Aiur's planning page limit before every member."
+    }
+
+  defp count_failure_presentation(label, _failure, _reset_at),
     do: %{
       text: "Unresolved",
       aria_label: "#{label} not counted",
       title: "#{label} could not be counted for this Build Order"
     }
 
-  defp count_display(count) when is_integer(count), do: Integer.to_string(count)
-  defp count_display(_count), do: "—"
+  defp reset_suffix(%DateTime{} = reset_at), do: " until #{format_reset(reset_at)}"
+  defp reset_suffix(_reset_at), do: ""
+
+  defp reset_sentence(%DateTime{} = reset_at), do: " It resets at #{format_reset(reset_at)}."
+  defp reset_sentence(_reset_at), do: ""
+
+  defp format_reset(%DateTime{} = reset_at) do
+    reset_at |> DateTime.truncate(:second) |> Calendar.strftime("%H:%M UTC")
+  end
 
   defp catalog_icon("bolt"), do: "ϟ"
   defp catalog_icon("cube"), do: "◆"
