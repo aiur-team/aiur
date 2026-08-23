@@ -3,6 +3,7 @@
 
 import ctypes
 import errno
+import fcntl
 import os
 import signal
 import stat
@@ -21,8 +22,24 @@ TERM_GRACE_SECONDS = 1.0
 # releases the lease and leaves a durable `slot-N.hold-timeout` marker the
 # daemon turns into a needs-attention alert naming the command (#2311).
 HOLD_TIMEOUT_STATUS = 124
+# Bound on the *post-command* retain (#2381). Once the wrapped command exits,
+# the holder keeps the slot only as a courtesy to descendants that are still
+# doing the build's work. It cannot tell those apart from a session daemon
+# reparented onto it — `dbus-daemon` and `gnome-keyring-daemon` autolaunched by
+# a `git`/`gh` credential lookup both land here and never exit — so the
+# courtesy is time-boxed well below the absolute cap. Four slots leaked for
+# forty minutes waiting on daemons that were never going to exit.
+DEFAULT_RETAIN_SECONDS = 120
+# Absolute bound on any descendant-cleanup loop (#2381). Cleanup is best
+# effort: a descendant that will not die must never keep the holder spinning,
+# because a wedged slot starves every queued build while a failed cleanup
+# leaks one process.
+CLEANUP_TIMEOUT_SECONDS = 10.0
 _cancel_signal = None
 _hold_timeout_reason = None
+_lease_fd = None
+_lease_released = False
+_started_monotonic = time.monotonic()
 
 
 def main() -> int:
@@ -43,11 +60,15 @@ def main() -> int:
         *command,
     ) = sys.argv[1:]
 
+    global _lease_fd, _started_monotonic
+
     parent_pid_int = int(parent_pid)
     agent_pgid_int = int(agent_pgid)
+    _started_monotonic = time.monotonic()
     handshake_deadline = time.monotonic() + max(1, int(handshake_seconds))
     hold_deadline = max_hold_deadline()
     process = None
+    _lease_fd = int(lease_fd)
 
     try:
         become_subreaper()
@@ -75,7 +96,7 @@ def main() -> int:
 
         detach_standard_streams(int(lease_fd))
 
-        result = wait_for_command(process, parent_pid_int, hold_deadline)
+        result = wait_for_command(process, parent_pid_int, hold_deadline, owner_path, token)
         if result < 0:
             result = 128 - result
 
@@ -84,17 +105,19 @@ def main() -> int:
         ack_deadline = time.monotonic() + max(1, int(ack_seconds))
         wait_for_status_ack(status_ack_path, token, parent_pid_int, ack_deadline)
 
-        # The absolute hold cap can fire inside `reap_remaining_children` (the
+        # A hold can end on its deadline inside `reap_remaining_children` (the
         # wrapped command already exited but adopted descendants kept the wait
         # alive) or inside `wait_for_command` (the command itself ran past the
-        # cap). Both paths record the timeout; write the durable marker either
-        # way so the daemon can raise a needs-attention alert naming the
-        # command.
+        # absolute cap). Both paths record the timeout; write the durable
+        # marker either way so the daemon can raise a needs-attention alert
+        # naming the command.
         if _hold_timeout_reason is None:
-            reap_remaining_children(agent_pgid_int, hold_deadline, process.pid)
+            reap_remaining_children(
+                retain_deadline(hold_deadline), owner_path, token, agent_pgid_int
+            )
 
         if _hold_timeout_reason is not None:
-            write_hold_timeout_marker(owner_path, command, max_hold_seconds(), _hold_timeout_reason)
+            write_hold_timeout_marker(owner_path, command, held_for_seconds(), _hold_timeout_reason)
 
         remove_owned_metadata(owner_path, token)
         cleanup_paths(
@@ -109,6 +132,8 @@ def main() -> int:
     except BaseException:
         if process is not None:
             terminate_process_tree(process.pid)
+
+        release_lease()
 
         remove_owned_metadata(owner_path, token)
         cleanup_paths(
@@ -241,7 +266,13 @@ def wait_until_ready(path: str, expected: str, parent_pid: int, deadline: float)
         time.sleep(POLL_SECONDS)
 
 
-def wait_for_command(process: subprocess.Popen, parent_pid: int, hold_deadline: float | None) -> int:
+def wait_for_command(
+    process: subprocess.Popen,
+    parent_pid: int,
+    hold_deadline: float | None,
+    owner_path: str,
+    token: str,
+) -> int:
     while True:
         result = process.poll()
         if result is not None:
@@ -254,28 +285,72 @@ def wait_for_command(process: subprocess.Popen, parent_pid: int, hold_deadline: 
 
         if hold_deadline is not None and time.monotonic() >= hold_deadline:
             # The wrapped command has run past the absolute slot cap (#2349).
-            # The command is still alive, so terminate it rather than let a
-            # single serialised run (`--trace`, #2311) starve the fleet, then
-            # report the timeout to the wrapper.
+            # Hand the slot back first (#2381): capacity must return even if
+            # terminating this command turns out to be slow or impossible.
+            # Then terminate it rather than let a single serialised run
+            # (`--trace`, #2311) starve the fleet, and report the timeout.
             record_hold_timeout("running")
+            release_slot(owner_path, token)
             terminate_process_tree(process.pid)
             return HOLD_TIMEOUT_STATUS
 
         time.sleep(POLL_SECONDS)
 
 
-def terminate_process_tree(root_pid: int) -> None:
-    signal_tree(root_pid, signal.SIGTERM)
-    deadline = time.monotonic() + TERM_GRACE_SECONDS
+def release_lease() -> None:
+    """Drop the slot flock, immediately and irreversibly.
 
-    while process_tree_alive(root_pid) and time.monotonic() < deadline:
+    The lease lives in a single inherited descriptor; the wrapper closed its
+    own copy once the handshake completed, so closing this one frees the slot
+    for the next build. Releasing is idempotent and never raises: a slot that
+    cannot be released is the failure this module exists to prevent.
+    """
+    global _lease_released
+
+    if _lease_released or _lease_fd is None:
+        return
+
+    _lease_released = True
+
+    try:
+        fcntl.flock(_lease_fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+    try:
+        os.close(_lease_fd)
+    except OSError:
+        pass
+
+
+def release_slot(owner_path: str, token: str) -> None:
+    """Free the slot completely: the flock and the owner record together.
+
+    Called *before* cleanup, never after it. Cleanup failing is survivable; a
+    slot wedged inside cleanup starves every queued build (#2381).
+    """
+    release_lease()
+    remove_owned_metadata(owner_path, token)
+
+
+def terminate_process_tree(root_pid: int, deadline: float | None = None) -> None:
+    if deadline is None:
+        deadline = time.monotonic() + CLEANUP_TIMEOUT_SECONDS
+
+    signal_tree(root_pid, signal.SIGTERM)
+    grace_deadline = min(time.monotonic() + TERM_GRACE_SECONDS, deadline)
+
+    while process_tree_alive(root_pid) and time.monotonic() < grace_deadline:
         reap_exited_children()
         time.sleep(POLL_SECONDS)
 
     if process_tree_alive(root_pid):
         signal_tree(root_pid, signal.SIGKILL)
 
-    while process_tree_alive(root_pid):
+    # Bounded (#2381). A descendant that survives SIGKILL — uninterruptible in
+    # the kernel, or one this holder may not signal — used to spin here
+    # forever while the flock stayed held.
+    while process_tree_alive(root_pid) and time.monotonic() < deadline:
         reap_exited_children()
         time.sleep(POLL_SECONDS)
 
@@ -343,17 +418,28 @@ def proc_children(pid: int) -> list[int]:
 
 
 def process_tree_alive(root_pid: int) -> bool:
-    return pid_alive(root_pid) or bool(descendants_of(root_pid)) or bool(proc_children(os.getpid()))
+    if pid_alive(root_pid, unsignalable_is_alive=False):
+        return True
+
+    return any(
+        pid_alive(pid, unsignalable_is_alive=False)
+        for pid in descendants_of(root_pid) | set(proc_children(os.getpid()))
+    )
 
 
-def pid_alive(pid: int) -> bool:
+def pid_alive(pid: int, unsignalable_is_alive: bool = True) -> bool:
     try:
         os.kill(pid, 0)
         return True
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        # A process this holder may not signal is one it can never kill or
+        # reap. Callers waiting for descendants to die must treat it as gone —
+        # counting it as live is how the cleanup loop wedged while holding the
+        # flock (#2381). Callers watching the wrapper's own liveness stay
+        # conservative: there, the safe answer is "still there".
+        return unsignalable_is_alive
 
 
 def process_group_alive(pgid: int) -> bool:
@@ -402,7 +488,7 @@ def reap_exited_children() -> bool:
 
 
 def reap_remaining_children(
-    agent_pgid: int, hold_deadline: float | None, command_pid: int
+    retain_until: float | None, owner_path: str, token: str, agent_pgid: int
 ) -> None:
     while True:
         raise_if_cancelled()
@@ -410,16 +496,22 @@ def reap_remaining_children(
         if not process_group_alive(agent_pgid):
             raise InterruptedError("agent process group exited while descendants retained the lease")
 
-        # Backstop (#2349): after the wrapped command exits, the holder keeps
-        # the lease only to protect genuine Mix descendants. A daemon
-        # reparented onto this subreaper (dbus, keyring, ...) can keep
-        # `waitpid(-1)` returning non-ECHILD forever while the agent group
-        # lives — the observed >1h leak. When the cap expires, terminate the
-        # adopted descendants so the release is clean and log a marker the
-        # daemon surfaces as a needs-attention alert.
-        if hold_deadline is not None and time.monotonic() >= hold_deadline:
+        # Backstop (#2349, bounded properly in #2381): after the wrapped
+        # command exits, the holder keeps the lease only to protect genuine
+        # Mix descendants. A daemon reparented onto this subreaper (dbus,
+        # keyring, ...) keeps `waitpid(-1)` from ever reaching ECHILD while
+        # the agent group lives — the observed multi-hour leak.
+        #
+        # On expiry: give the slot back and stop. Nothing is signalled. The
+        # holder cannot distinguish a stuck build descendant from a session
+        # daemon that a `git`/`gh` credential lookup autolaunched under the
+        # build, and killing the latter takes the keyring — and with it the
+        # fleet's GitHub access — down. A leaked process is a smaller failure
+        # than a wedged slot or a broken credential store, and the marker
+        # written by the caller names the command for a needs-attention alert.
+        if retain_until is not None and time.monotonic() >= retain_until:
             record_hold_timeout("retained")
-            terminate_process_tree(command_pid)
+            release_slot(owner_path, token)
             return
 
         try:
@@ -445,6 +537,36 @@ def max_hold_seconds() -> int:
 def max_hold_deadline() -> float | None:
     hold = max_hold_seconds()
     return time.monotonic() + hold if hold > 0 else None
+
+
+def retain_seconds() -> int:
+    value = os.environ.get("AIUR_BUILD_GATE_RETAIN_SECONDS", "")
+
+    try:
+        retain = int(value)
+    except ValueError:
+        return DEFAULT_RETAIN_SECONDS
+
+    return max(0, retain)
+
+
+def retain_deadline(hold_deadline: float | None) -> float:
+    """When the post-command courtesy retain ends.
+
+    The absolute cap still applies, but it is an hour by default and a slot
+    unavailable for an hour is indistinguishable from a lost slot. The retain
+    window is the tighter of the two (#2381).
+    """
+    retain_until = time.monotonic() + retain_seconds()
+
+    if hold_deadline is None:
+        return retain_until
+
+    return min(retain_until, hold_deadline)
+
+
+def held_for_seconds() -> int:
+    return max(0, int(time.monotonic() - _started_monotonic))
 
 
 def record_hold_timeout(reason: str) -> None:
