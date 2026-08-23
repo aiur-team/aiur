@@ -320,6 +320,19 @@ defmodule Aiur.GitHub.QuotaUsage do
 
   defp point(_sample, _budget), do: {nil, nil}
 
+  # The current window's start, carried so the chart can shade what predates it.
+  #
+  # This value descends from `Quota.window_start/3`, which derives the start
+  # from the credential's own `reset_at - @quota_window_seconds` while the
+  # window is live, but falls back to a *rolling* hour (`rolling_start/1`) once
+  # `now >= reset_at`. That fallback is a local-clock rolling edge, not a
+  # credential-window start, and plotting a "current window" marker on it would
+  # be drawing a fake reset. It stays unreachable here only because
+  # `Quota.window_spend/2` answers `nil` at/after the reset and
+  # `trailing_observed/1` drops every such sample before this projection is
+  # built — an invariant held two modules away. Keep that in mind before
+  # changing `trailing_observed/1`: it is the fence that keeps a rolling-hour
+  # edge out of the rendered chart.
   defp window_started_at_ms(%{window_started_at: %DateTime{} = started_at}),
     do: DateTime.to_unix(started_at, :millisecond)
 

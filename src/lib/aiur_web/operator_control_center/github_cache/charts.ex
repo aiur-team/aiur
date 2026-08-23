@@ -134,7 +134,7 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
         current_window_guide(boundary, xf, mt, ph) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph)
 
-    svg(h, inner, chart_label(series))
+    svg(h, inner, chart_label(series, boundary))
   end
 
   def spend_over_time(_series), do: ""
@@ -155,14 +155,18 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
 
   # The scope is in the label, never only in the caption: an attributed-only
   # chart read as the whole bill is the mistake this page exists to prevent.
-  defp chart_label(%{scope: :attributed, budget: budget} = series),
-    do: "#{budget} spend issued by this daemon over time, by caller — not the whole bill#{window_label(series)}"
+  defp chart_label(%{scope: :attributed, budget: budget}, boundary),
+    do: "#{budget} spend issued by this daemon over time, by caller — not the whole bill#{window_label(boundary)}"
 
-  defp chart_label(%{budget: budget} = series), do: "#{budget} spend over time, by caller#{window_label(series)}"
+  defp chart_label(%{budget: budget}, boundary), do: "#{budget} spend over time, by caller#{window_label(boundary)}"
 
-  defp window_label(series) do
-    if QuotaUsage.spans_previous_window?(series), do: ", with earlier-window history shaded", else: ""
-  end
+  # The aria-label suffix is the only non-visual cue that part of the plot is a
+  # prior window — the shade and dashed rule are purely visual — so it tracks
+  # the *effective* boundary, the same value that decides whether the shade is
+  # drawn, never the raw `current_window_started_at_ms`, which can sit outside
+  # the retained span (a boundary past the last sample shades nothing).
+  defp window_label(nil), do: ""
+  defp window_label(_boundary), do: ", with earlier-window history shaded"
 
   defp stack_total(point, bands), do: Enum.reduce(bands, 0, &(Map.get(point.values, &1.key, 0) + &2))
 
@@ -208,17 +212,24 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
 
   defp spend_segments(points, nil), do: [{:current, points}]
 
+  # The boundary is drawn only when it falls strictly inside the retained span
+  # (`window_boundary/3`), which keeps both sides non-empty. A degenerate domain
+  # can still hand this a split with an empty side — `spend_domain/2` returns
+  # `{first, first + 1}` when every point shares a `t_ms`, so a boundary of
+  # `first + 1` passes the guard and puts every point on one side — so render a
+  # one-sided split as a single band rather than crashing on a missing anchor.
   defp spend_segments(points, boundary) do
     {previous, current} = Enum.split_while(points, &(&1.t_ms < boundary))
-    previous = previous ++ [%{List.last(previous) | t_ms: boundary}]
 
-    current =
-      case current do
-        [%{t_ms: ^boundary} | _] -> current
-        [first | _] -> [%{first | t_ms: boundary} | current]
-      end
+    case {previous, current} do
+      {[_ | _], [_ | _]} ->
+        previous = previous ++ [%{List.last(previous) | t_ms: boundary}]
+        current = if hd(current).t_ms == boundary, do: current, else: [%{hd(current) | t_ms: boundary} | current]
+        [{:previous, previous}, {:current, current}]
 
-    [{:previous, previous}, {:current, current}]
+      _one_sided ->
+        [{:current, points}]
+    end
   end
 
   defp pre_window_shade(boundary, xf, x0, y0, height) do
