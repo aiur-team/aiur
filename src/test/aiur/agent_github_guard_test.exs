@@ -31,18 +31,32 @@ defmodule Aiur.AgentGitHubGuardTest do
           if [ "$fake_arg" = --include ]; then printf '%s\n' 'unexpected include' >&2; exit 99; fi
         done
       fi
-      # Emit a `GH_DEBUG=api`-shaped transcript to stderr, including an HTTP
-      # status line, so high-level 304 reconciliation can be exercised. The
+      # Emit a `GH_DEBUG=api`-shaped transcript to stderr, including HTTP
+      # status lines, so high-level 304 reconciliation can be exercised. The
       # transcript must end with `* Request took` (the strip boundary), and
       # `FAKE_GH_DEBUG_ERROR` — if set — lands after it exactly where `gh`
-      # prints real errors.
-      if [ -n "${FAKE_GH_DEBUG_STATUS:-}" ]; then
+      # prints real errors. `FAKE_GH_DEBUG_PRE` lands BEFORE the first request
+      # marker, standing in for the `[git remote -v]` / `[git config ...]`
+      # subprocess lines `gh` emits ahead of the request; `FAKE_GH_DEBUG_STATUSES`
+      # (space-separated) emits several status lines to model a command that
+      # makes more than one HTTP request under a single lease.
+      if [ -n "${FAKE_GH_DEBUG_PRE:-}" ]; then
+        printf '%s\n' "$FAKE_GH_DEBUG_PRE" >&2
+      fi
+      if [ -n "${FAKE_GH_DEBUG_STATUS:-}" ] || [ -n "${FAKE_GH_DEBUG_STATUSES:-}" ]; then
         printf '%s\n' "* Request at 2026-08-22 19:20:31 -0700 PDT m=+0.030400534" >&2
         printf '%s\n' "* Request to https://api.github.com/graphql" >&2
         printf '%s\n' "> POST /graphql HTTP/2" >&2
         printf '%s\n' "> Host: api.github.com" >&2
         printf '%s\n' "" >&2
-        printf '%s\n' "< HTTP/2.0 ${FAKE_GH_DEBUG_STATUS}" >&2
+        if [ -n "${FAKE_GH_DEBUG_STATUSES:-}" ]; then
+          for fake_debug_status in $FAKE_GH_DEBUG_STATUSES; do
+            printf '%s\n' "< HTTP/2.0 $fake_debug_status" >&2
+          done
+          unset fake_debug_status
+        else
+          printf '%s\n' "< HTTP/2.0 ${FAKE_GH_DEBUG_STATUS}" >&2
+        fi
         printf '%s\n' "< X-RateLimit-Limit: 5000" >&2
         printf '%s\n' "< X-RateLimit-Remaining: 4999" >&2
         printf '%s\n' "" >&2
@@ -1834,13 +1848,20 @@ defmodule Aiur.AgentGitHubGuardTest do
   test "api rate_limit is admitted non-billable in either spelling", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
-    key = "a" <> String.duplicate("0", 63)
 
     # `/rate_limit` is accepted with or without its leading slash and is never
     # booked to `rest`/core: family `rate_limit`, resource `none`, billable
     # false — the same row the daemon's Budget path records through the shared
     # EndpointPolicy table (#2353).
-    for spelling <- ["rate_limit", "/rate_limit"] do
+    #
+    # Each spelling uses its own token key, so the second iteration's assertion
+    # cannot pass on the first iteration's ledger row: the `/rate_limit`
+    # spelling is only asserted when THIS run recorded its own row. (A shared
+    # key made the `Enum.any?` a tautology — iteration 1's row satisfied it no
+    # matter what iteration 2 recorded.)
+    for {spelling, suffix} <- [{"rate_limit", "a"}, {"/rate_limit", "b"}] do
+      key = suffix <> String.duplicate("0", 63)
+
       assert {"5000 0 5000 0", 0} =
                run_guard(context, ["api", spelling],
                  AIUR_GITHUB_BUDGET_ROOT: budget_root,
@@ -1883,6 +1904,11 @@ defmodule Aiur.AgentGitHubGuardTest do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
+    # `gh` emits `[git remote -v]` / `[git config ...]` subprocess lines BEFORE
+    # the first request marker; they are part of the debug transcript, not
+    # caller-facing stderr, so they must be stripped too (#2353 review).
+    git_lines = "[git remote -v]\n[git config --get-regexp ^remote\\..*\\.gh-resolved$]"
+
     assert {output, 0} =
              run_guard(context, ["pr", "view", "1670", "--json", "body"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
@@ -1890,15 +1916,64 @@ defmodule Aiur.AgentGitHubGuardTest do
                AIUR_GITHUB_BUDGET_BROKER: broker,
                AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
                FAKE_GH_DEBUG_STATUS: "304",
+               FAKE_GH_DEBUG_PRE: git_lines,
                FAKE_GH_DEBUG_ERROR: "gh: a real error after the transcript"
              )
 
     # `gh` prints the 304 status only under GH_DEBUG=api; the wrapper consumes
-    # it for reconciliation and strips the transcript so the caller's stderr is
-    # unchanged, while a genuine error printed after the request survives.
+    # it for reconciliation and strips the transcript — request markers, status
+    # lines, and the `[git ...]` subprocess lines alike — so the caller's
+    # stderr is unchanged, while a genuine error printed after the request
+    # survives.
     assert output =~ "gh: a real error after the transcript"
     refute output =~ "Request at"
     refute output =~ "HTTP/2.0 304"
+    refute output =~ "git remote -v"
+    refute output =~ "git config --get-regexp"
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "pulls", "billable" => false}]} = Jason.decode!(snapshot)
+  end
+
+  test "a high-level 304 among 200s stays billable", context do
+    # `gh pr view` can issue several HTTP requests under one lease. A 304 after
+    # a 200 must NOT mark the whole lease free — that under-reports spend
+    # (#2353 review). Only a lease whose EVERY observed status is 304 is
+    # reconciled as unbilled.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {_output, 0} =
+             run_guard(context, ["pr", "view", "1670", "--json", "body"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_DEBUG_STATUSES: "200 304"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "pulls", "billable" => true}]} = Jason.decode!(snapshot)
+  end
+
+  test "a high-level lease whose every status is 304 is reconciled as unbilled", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["pr", "view", "1670", "--json", "body"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_DEBUG_STATUSES: "304 304"
+             )
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
@@ -1982,17 +2057,20 @@ defmodule Aiur.AgentGitHubGuardTest do
   test "a host gh call with no explicit key binds the resolved credential identity", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    formatted = Path.join(context.workspace, "host-identity-derivations")
 
     # No AIUR_GITHUB_BUDGET_KEY: the Executor wrapper resolves the token itself
     # (`gh auth token`) and derives the credential's stable identity from the
     # login that token authenticates as — here the keyring login the fake gh
-    # reports, standing in for its-everdred (#2353).
+    # reports, standing in for its-everdred (#2353). The derivation invokes
+    # `gh api user --jq .login`, which the fake `gh` logs to FAKE_GH_FORMAT_ARGS.
     assert {"ok\n", 0} =
              run_executor_guard(context, ["api", "repos/owner/repo/issues/1670"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_BROKER: broker,
                AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
                FAKE_GH_FORMAT_OUTPUT: "its-everdred\n",
+               FAKE_GH_FORMAT_ARGS: formatted,
                FAKE_GH_INCLUDE_HEADERS: "1",
                FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
              )
@@ -2022,6 +2100,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                AIUR_GITHUB_BUDGET_BROKER: broker,
                AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
                FAKE_GH_FORMAT_OUTPUT: "its-everdred\n",
+               FAKE_GH_FORMAT_ARGS: formatted,
                FAKE_GH_INCLUDE_HEADERS: "1",
                FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
              )
@@ -2040,6 +2119,100 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     admissions = Jason.decode!(snapshot)["admissions"]
     assert Enum.map(admissions, & &1["endpoint_family"]) == ["issues", "pulls"]
+
+    # M15: the second call read the identity cache rather than re-deriving, so
+    # `gh api user` ran exactly once across both calls.
+    assert line_count(formatted) == 1
+  end
+
+  test "a local auth token read never triggers identity derivation", context do
+    # Finding 2: derivation used to run before command classification, so EVERY
+    # guarded `gh` call paid a `gh api user` round trip on first use — including
+    # `auth token`, the boot gate behind Config.keyring_token/0, which must stay
+    # a local read. Gating the derivation on admission means a non-admitted
+    # `resource=none` call never hits the network.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    formatted = Path.join(context.workspace, "auth-token-derivations")
+
+    assert {"ok\n", 0} =
+             run_executor_guard(context, ["auth", "token"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_FORMAT_OUTPUT: "its-everdred\n",
+               FAKE_GH_FORMAT_ARGS: formatted
+             )
+
+    # The fake `gh` logs formatter invocations (`gh api user --jq .login` is
+    # one) to FAKE_GH_FORMAT_ARGS; a local read must log none.
+    refute File.exists?(formatted)
+  end
+
+  test "a failed identity derivation is cached so an outage is not re-paid per call", context do
+    # Finding 2: a derivation that cannot resolve the login (GitHub
+    # unreachable) must not be re-attempted on every admitted call. The failure
+    # is cached under the budget root for `budget_identity_retry_ttl` seconds,
+    # so a second call in the same window performs no `gh api user`.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    formatted = Path.join(context.workspace, "failed-derivations")
+
+    base_env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+      # A bare newline login means `gh api user --jq .login` resolves no
+      # identity, exactly as when GitHub is unreachable.
+      FAKE_GH_FORMAT_OUTPUT: "\n",
+      FAKE_GH_FORMAT_ARGS: formatted,
+      FAKE_GH_INCLUDE_HEADERS: "1",
+      FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+    ]
+
+    assert {"ok\n", 0} = run_executor_guard(context, ["api", "repos/owner/repo/issues/1670"], base_env)
+    assert {"ok\n", 0} = run_executor_guard(context, ["api", "repos/owner/repo/pulls/1670"], base_env)
+
+    # One `api user` invocation total — the second call honoured the cached
+    # failure instead of re-paying the timeout.
+    assert line_count(formatted) == 1
+  end
+
+  test "identity derivation downcases the login like the daemon side", context do
+    # Finding 5: the shell derivation hashed the login verbatim, while
+    # `Aiur.GitHub.Credential.stable_identity/1` downcases every identity part —
+    # so an uppercase login split one credential across two identity keys. The
+    # shell fingerprint must hash the downcased login.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+
+    assert {"ok\n", 0} =
+             run_executor_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_FORMAT_OUTPUT: "Its-Everdred\n",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    token_key = sha256_hex("ok")
+    # The downcased login is what the daemon's identity_key/1 would compute.
+    identity_key = sha256_hex("aiur-github-credential-v1\0machine_user:primary:its-everdred")
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               broker,
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               token_key,
+               "--identity-key",
+               identity_key
+             ])
+
+    assert %{"admissions" => [%{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
   end
 
   defp sha256_hex(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
@@ -3868,6 +4041,15 @@ defmodule Aiur.AgentGitHubGuardTest do
       {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
       {"AIUR_GITHUB_BUDGET_ROOT", ""},
       {"AIUR_GITHUB_BUDGET_KEY", ""},
+      # The test VM runs inside an Aiur agent workspace, so the daemon's own
+      # budget exports leak back in through System.cmd's env merge. Scrub them
+      # here so a `run_guard` test controls every admission: a leaked
+      # `AIUR_GITHUB_BUDGET_IDENTITY_KEY` makes the broker bind every run's
+      # ledger to whichever token first claimed the identity, silently merging
+      # two distinct token keys into one — the very vacuity the `/rate_limit`
+      # spelling test must catch (#2353 review).
+      {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", ""},
+      {"AIUR_GITHUB_BUDGET_CONSUMER", ""},
       {"AIUR_GITHUB_BUDGET_BROKER", "/nonexistent/aiur-github-budget"}
     ]
   end

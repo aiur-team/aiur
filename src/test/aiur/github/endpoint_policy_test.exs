@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.EndpointPolicyTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.GitHub.{Budget, EndpointPolicy}
+  alias Aiur.GitHub.{Budget, EndpointPolicy, Quota}
 
   # Representative URL paths for the families the daemon's Budget path can
   # classify from a request URL. `search` is a ledger family the guard produces
@@ -69,5 +69,42 @@ defmodule Aiur.GitHub.EndpointPolicyTest do
     refute EndpointPolicy.free_endpoint?("/repos/owner/repo/issues/1")
   end
 
+  test "Quota preflight honours the shared free-endpoint table" do
+    # Quota's `rate_limit_endpoint?/1` delegates to EndpointPolicy.free_endpoint?/1
+    # (quota.ex), so the meter's preflight gate must treat every non-billable
+    # family as free even while its resource pool is exhausted. This assertion
+    # goes through a real Quota entry point, table-driven over the free rows, so
+    # the two subsystems are held together by a test and a second free family
+    # cannot be added to the table without Quota observing it (mutation M4).
+    now = ~U[2026-08-09 21:00:00Z]
+    reset = ~U[2026-08-09 22:00:00Z]
+
+    quota =
+      start_supervised!({Quota, name: nil, clock: fn -> now end, hold_dir: nil, request_log_path: nil, refresh?: false})
+
+    # Exhaust the core pool so a billable endpoint's preflight returns a hold.
+    Quota.observe(quota, request("/repos/owner/repo/issues"), quota_response("core", 5000, 0, reset))
+
+    assert {:hold, %{resource: "core"}} = Quota.preflight(quota, request("/repos/owner/repo/issues"))
+
+    for {family, path, _resource, billable} <- @url_families, billable == false do
+      assert :ok = Quota.preflight(quota, request(path)), "Quota preflight for free family #{family}"
+    end
+  end
+
   defp request(path), do: %{method: :get, url: "https://api.github.com#{path}", token: "test-token"}
+
+  defp quota_response(resource, limit, remaining, reset) do
+    {:ok,
+     %{
+       status: 200,
+       headers: [
+         {"x-ratelimit-resource", resource},
+         {"x-ratelimit-limit", Integer.to_string(limit)},
+         {"x-ratelimit-remaining", Integer.to_string(remaining)},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(reset))}
+       ],
+       body: %{}
+     }}
+  end
 end

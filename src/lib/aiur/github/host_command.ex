@@ -122,7 +122,7 @@ defmodule Aiur.GitHub.HostCommand do
     ]
   end
 
-  defp bot_token_env(_opts, _unavailable), do: []
+  defp bot_token_env(opts, _unavailable), do: Keyword.get(opts, :env, [])
 
   # `System.cmd` accepts env names as strings or charlists; normalise so the
   # rejection above and the key below agree.

@@ -61,6 +61,10 @@ budget_lease=
 budget_renewal_pid=
 budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
 budget_ignore_token_cooldown=0
+# Seconds a failed identity derivation stays cached before the next admitted
+# call retries it. Bounds an outage to one `gh api user` per credential per
+# window instead of one per call (`budget_derive_identity`, #2353 review).
+budget_identity_retry_ttl=300
 budget_consumer=${AIUR_GITHUB_BUDGET_CONSUMER:-"executor:${PPID:-$$}"}
 budget_consumer_key=
 # Set when THIS wrapper resolved the credential key from a token rather than
@@ -88,9 +92,10 @@ fingerprint_value() {
 # The broker's stable one-way identity for a credential, domain-separated
 # exactly as `Aiur.GitHub.Budget.identity_key/1` computes it for a machine
 # user: sha256 of `aiur-github-credential-v1<NUL>machine_user:primary:<login>`.
-# `\000` is the octal NUL so the hashed input is byte-identical to the Elixir
-# side; a literal `\0` in the string would hash different bytes and split the
-# same credential across two identities in the usage report.
+# `\000` is the clear spelling of a NUL byte for POSIX printf, which treats `\0`
+# as the start of an octal escape — so `\0` and `\000` produce the identical NUL
+# and the hashed input is byte-identical to the Elixir side's
+# `aiur-github-credential-v1\0machine_user:primary:<login>` either way.
 identity_fingerprint() {
   if command -v shasum >/dev/null 2>&1; then
     printf 'aiur-github-credential-v1\000machine_user:primary:%s' "$1" | shasum -a 256 2>/dev/null | awk '{print $1}'
@@ -106,26 +111,74 @@ identity_fingerprint() {
 # credential the wrapper resolved (the bot's GITHUB_TOKEN, or the operator's
 # keyring account), so the binding matches the token's identity. The derivation
 # costs one Core request per new credential and is cached by token key under
-# the budget root, so subsequent host calls reuse it. A failed derivation
-# degrades to no identity key — the raw token hash is recorded, exactly as
-# today — never to a wrong identity.
+# the budget root, so subsequent host calls reuse it.
+#
+# The derivation runs only for a call that is about to be admitted against a
+# metered pool. A local credential read (`auth token`, `config`) must not pay a
+# GitHub network round trip just to learn its own identity — the boot gate that
+# consults `Config.keyring_token/0` would otherwise block offline, and the
+# derivation's own request is unadmitted (#2353 review). A failed derivation is
+# cached for `budget_identity_retry_ttl` seconds so an outage is not re-paid per
+# call; within the window the call degrades to no identity key — the raw token
+# hash is recorded, exactly as today — never to a wrong identity.
 budget_derive_identity() {
   [ -n "$budget_key" ] || return 0
   [ -z "$budget_identity_key" ] || return 0
   [ "$budget_key_derived" -eq 1 ] || return 0
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ "$admission_required" -eq 1 ] || return 0
+  [ "$resource" != none ] || return 0
 
   identity_cache="$budget_root/identity-$budget_key"
+  budget_cached=
   if [ -f "$identity_cache" ]; then
-    budget_identity_key=$(sed -n '1p' "$identity_cache" 2>/dev/null || true)
-    case "$budget_identity_key" in
-      ''|*[!0-9a-f]*) budget_identity_key= ;;
-      *) return 0 ;;
-    esac
+    budget_cached=$(sed -n '1p' "$identity_cache" 2>/dev/null || true)
   fi
 
+  case "$budget_cached" in
+    "failed "*) 
+      # A failed derivation is cached so an outage costs one `gh api user` per
+      # credential per window, not one per call. Once the window ages out, the
+      # next admitted call tries again, so a credential that was briefly
+      # offline still gets bound once GitHub is reachable.
+      budget_failed_at=${budget_cached#failed }
+      budget_now=$(date -u +%s 2>/dev/null || printf '')
+      if [ -n "$budget_failed_at" ] && [ -n "$budget_now" ] &&
+         [ "$budget_failed_at" -ge 0 ] 2>/dev/null && [ "$budget_now" -ge 0 ] 2>/dev/null &&
+         [ $((budget_now - budget_failed_at)) -lt $budget_identity_retry_ttl ]; then
+        unset budget_cached budget_failed_at budget_now
+        return 0
+      fi
+      unset budget_failed_at budget_now
+      ;;
+    ''|*[!0-9a-f]*)
+      : ;;  # no cache, or a value that is not a hex identity key — re-derive
+    *)
+      budget_identity_key=$budget_cached
+      unset budget_cached
+      return 0
+      ;;
+  esac
+  unset budget_cached
+
   budget_login=$("$real_gh" api user --jq .login 2>/dev/null || true)
+  # `Aiur.GitHub.Credential.stable_identity/1` downcases every identity part,
+  # so the shell derivation must too, or a login with any uppercase character
+  # would hash to a different identity key here than on the daemon side and
+  # split one credential across two identities in the usage report.
+  if command -v tr >/dev/null 2>&1; then
+    budget_login=$(printf '%s' "$budget_login" | tr '[:upper:]' '[:lower:]')
+  fi
   case "$budget_login" in
-    ''|*[!A-Za-z0-9_-]*) return 0 ;;
+    ''|*[!A-Za-z0-9_-]*)
+      budget_failed_at=$(date -u +%s 2>/dev/null || printf '')
+      case "$budget_failed_at" in
+        ''|*[!0-9]*) : ;;
+        *) printf 'failed %s\n' "$budget_failed_at" > "$identity_cache" 2>/dev/null || true ;;
+      esac
+      unset budget_failed_at
+      return 0
+      ;;
     *)
       budget_identity_key=$(identity_fingerprint "$budget_login") || budget_identity_key=
       if [ -n "$budget_identity_key" ]; then
@@ -180,7 +233,6 @@ if [ "$budget_required" -eq 1 ]; then
 fi
 
 if [ "$budget_enabled" -eq 1 ]; then
-  budget_derive_identity
   budget_consumer_key=$(fingerprint_value "$budget_consumer") || budget_consumer_key=
   [ -n "$budget_consumer_key" ] || budget_consumer_key=shared
 fi
@@ -590,6 +642,12 @@ fi
 if [ "$validate_only" -eq 1 ]; then exit 0; fi
 
 admission_resource=$resource
+# Identity derivation needs the command's admission decision (resource /
+# admission_required), which the classification above just made — so it runs
+# here, not at the top of the script, and only for a call that is about to be
+# admitted against a metered pool (`budget_derive_identity` re-checks the same
+# gates). A local `auth token`/`config` read never pays a GitHub round trip.
+budget_derive_identity
 # `none` is the shared EndpointPolicy table's pool for endpoints GitHub does
 # not meter (`/rate_limit`). They are admitted for ordering but their ledger
 # row keeps `resource: none` — the same row the daemon's Budget path writes —
@@ -1899,20 +1957,37 @@ budget_reconcile_response() {
 
 # 304 reconciliation for high-level commands. `gh` only exposes the HTTP status
 # under `GH_DEBUG=api`, so the guarded run above captured it in `$error_file` as
-# `< HTTP/... <status>` lines. The last response status is the one the lease
-# actually paid for, so it wins; then the whole debug transcript is stripped so
-# every later consumer (rate-limit classification, stderr replay) sees only the
-# real stderr. A command that produced no debug (budget disabled, no request, a
+# `< HTTP/... <status>` lines. A high-level command can issue several HTTP
+# requests under one lease (`gh pr view` resolves the repo through git
+# subprocesses and then makes one or more API requests), so the reconcile fires
+# only when EVERY observed status is 304 — a single 304 among 200s must not
+# mark the whole lease free, which under-reported spend whenever a 200 preceded
+# a 304 (#2353 review). Then the whole debug transcript is stripped so every
+# later consumer (rate-limit classification, stderr replay) sees only the real
+# stderr. A command that produced no debug (budget disabled, no request, a
 # caller that already set its own debug) is a no-op here.
 budget_reconcile_debug() {
   [ "$budget_enabled" -eq 1 ] || return 0
   [ -n "$budget_lease" ] || return 0
   [ -n "$error_file" ] && [ -f "$error_file" ] || return 0
 
-  debug_status=$(sed -n -E 's/^< HTTP\/[^[:space:]]+[[:space:]]+([0-9]{3}).*/\1/p' "$error_file" | tail -n 1)
-  case "$debug_status" in
-    304) budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true ;;
+  debug_statuses=$(sed -n -E 's/^< HTTP\/[^[:space:]]+[[:space:]]+([0-9]{3}).*/\1/p' "$error_file")
+  all_304=1
+  case "$debug_statuses" in
+    '') all_304=0 ;;
+    *)
+      for debug_status in $debug_statuses; do
+        case "$debug_status" in
+          304) ;;
+          *) all_304=0; break ;;
+        esac
+      done
+      ;;
   esac
+  if [ "$all_304" -eq 1 ]; then
+    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+  fi
+  unset all_304 debug_statuses debug_status
 
   strip_gh_debug "$error_file"
   return 0
@@ -1922,14 +1997,17 @@ budget_reconcile_debug() {
 # gh printed outside it (pre-request warnings and post-request errors). The
 # transcript is contiguous: every debug line between the request's start and
 # its `Request took` marker — request headers, request body, response headers,
-# response body — is removed so the caller's stderr and the error classifiers
-# see exactly what they saw before high-level debug was enabled.
+# response body — is removed, and the `[git ...]` subprocess lines `gh` prints
+# BEFORE the first request marker are dropped too (they are part of the debug
+# transcript, not caller-facing stderr), so the caller's stderr and the error
+# classifiers see exactly what they saw before high-level debug was enabled.
 strip_gh_debug() {
   [ -f "$1" ] || return 0
   strip_tmp="$1.dbg.$$"
   if awk '
     /^\* Request at / { in_debug = 1; next }
     in_debug && /^\* Request took / { in_debug = 0; next }
+    !in_debug && /^\[git / { next }
     !in_debug { print }
   ' "$1" > "$strip_tmp" 2>/dev/null; then
     mv -f "$strip_tmp" "$1" 2>/dev/null || rm -f "$strip_tmp" 2>/dev/null || true
