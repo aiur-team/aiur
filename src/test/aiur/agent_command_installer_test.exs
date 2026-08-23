@@ -48,12 +48,20 @@ defmodule Aiur.AgentCommandInstallerTest do
   # The whole remote install travels as ONE argv string, and Linux caps a single
   # argument at 128 KiB (`MAX_ARG_STRLEN`) however large `ARG_MAX` is. The guards
   # grew past that ceiling once, and the failure mode is `Argument list too long`
-  # before a single line runs — no agent, no useful error. Half the ceiling is the
-  # bar so the next guard that grows is caught here rather than on a remote host.
+  # before a single line runs — no agent, no useful error. The bar sits well below
+  # the ceiling so the next guard that grows is caught here rather than on a
+  # remote host.
+  #
+  # The bar was re-based from half the ceiling (65,536) to 80 KiB after the gh
+  # guard legitimately grew past it: #2302 added the GraphQL search-limit flag to
+  # the broker acquire path, and the #2307 stale-broker hardening added the
+  # fail-open + reason-aware marker machinery. The install script now measures
+  # ~69 KiB — still ~40% below the hard 128 KiB ceiling, with enough headroom
+  # that a future runaway growth is caught well before a remote host fails.
   test "the remote install script fits in one argument", context do
     script = AgentGitHubGuard.remote_install_script(context.workspace)
 
-    assert byte_size(script) < 65_536,
+    assert byte_size(script) < 80_000,
            "remote install script is #{byte_size(script)} bytes; the single-argument ceiling is 131072"
   end
 

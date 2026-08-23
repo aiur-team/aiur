@@ -2637,9 +2637,15 @@ if [ -n "$error_file" ]; then
 
     # The response's own ETag is what a later re-read validates against. On a
     # served 304 the response carries the same validator, so capturing it here
-    # also keeps the entry's validator in place.
+    # also keeps the entry's validator in place. `tr` is gated because an
+    # isolated `PATH` (the test harness, a hardened shell) may lack it; without
+    # it a trailing CR is left on the stored validator, which only costs a
+    # later 304 match, never correctness.
     if [ -n "$output_file" ] && [ -f "$output_file" ]; then
-      cache_response_etag=$(sed -n -E 's/^[[:space:]]*[Ee][Tt][Aa][Gg]:[[:space:]]*(.*)$/\1/p' "$output_file" | tail -n 1 | tr -d '\r')
+      cache_response_etag=$(sed -n -E 's/^[[:space:]]*[Ee][Tt][Aa][Gg]:[[:space:]]*(.*)$/\1/p' "$output_file" | tail -n 1)
+      if command -v tr >/dev/null 2>&1; then
+        cache_response_etag=$(printf '%s\n' "$cache_response_etag" | tr -d '\r')
+      fi
     fi
 
     if response_status_is_304 && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
