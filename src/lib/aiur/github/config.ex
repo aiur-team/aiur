@@ -382,12 +382,22 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
-  # Query the gh keyring with the env tokens CLEARED so gh returns the stored
-  # login rather than echoing the (possibly stale) env var. nil when gh is
-  # absent or not logged in via keyring (headless/CI). Routed through the host
-  # guard so the keyring lookup is admitted and recorded like every other gh
-  # call (#2353).
-  defp keyring_token do
+  @doc """
+  Query the gh keyring with the env tokens CLEARED so gh returns the stored
+  login rather than echoing the (possibly stale) env var.
+
+  Returns the stored PAT as a trimmed string, or `nil` when gh is absent, not
+  logged in via keyring (headless/CI), or the lookup fails.
+
+  Routed through the host guard so the keyring lookup is admitted and recorded
+  like every other gh call (#2353). This is the single source of truth for
+  "does a gh keyring credential exist": `resolve_pat_token/1` uses it as its
+  runtime fallback, and the boot gate in `Aiur.Env` consults the same function
+  so a keyring-only `gh auth login` satisfies the GitHub credential requirement
+  before any env token is set.
+  """
+  @spec keyring_token() :: String.t() | nil
+  def keyring_token do
     case HostCommand.run(["auth", "token", "--hostname", "github.com"],
            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
            stderr_to_stdout: true
