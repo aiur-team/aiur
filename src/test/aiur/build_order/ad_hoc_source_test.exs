@@ -66,6 +66,45 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
 
       assert snapshot.status == :unavailable
     end
+
+    # A re-list is unconditional (the source holds no validator — steady state
+    # is event-sourced and the boot/degraded/refresh listing is paid in full),
+    # so a page-1 `304` cannot arise. What matters is that a multi-page listing
+    # is fully re-followed on every re-list: a label change on a later page
+    # must be reflected, or the re-convergence path would serve stale members.
+    test "a re-list fully re-follows a multi-page listing and rebuilds membership" do
+      first_page = [gh_issue(10, "Ad hoc", ["build-lane:adhoc"], "open")]
+      second_page = [gh_issue(20, "Ad hoc", ["build-lane:adhoc"], "closed")]
+      next = ~s(<https://api.github.com/repos/owner/repo/issues?labels=build-lane%3Aadhoc&state=all&per_page=100&page=2>; rel="next")
+
+      counter = start_supervised!({Agent, fn -> 0 end})
+
+      request_fun = fn request ->
+        refute Map.has_key?(request, :etag),
+               "an event-sourced re-list never revalidates conditionally"
+
+        case Agent.get_and_update(counter, fn n -> {n, n + 1} end) do
+          0 -> {:ok, %{status: 200, body: first_page, headers: [{"link", next}]}}
+          1 -> {:ok, %{status: 200, body: second_page, headers: []}}
+          2 -> {:ok, %{status: 200, body: first_page, headers: [{"link", next}]}}
+          3 -> {:ok, %{status: 200, body: [gh_issue(20, "Ad hoc", [], "closed")], headers: []}}
+        end
+      end
+
+      server = start_source(request_fun: request_fun)
+
+      first = AdHocSource.refresh_sync(server)
+      assert first.status == :available
+      assert Enum.map(first.members, & &1.identifier) == ["10", "20"]
+
+      # Page 2's issue lost the label between re-lists; the re-list re-follows
+      # both pages and drops it from the snapshot.
+      second = AdHocSource.refresh_sync(server)
+      assert second.status == :available
+      assert Enum.map(second.members, & &1.identifier) == ["10"]
+
+      assert Agent.get(counter, & &1) == 4
+    end
   end
 
   describe "event-sourced projection" do

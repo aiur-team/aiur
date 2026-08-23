@@ -114,6 +114,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       trace_file = Path.join(test_root, "codex-git-metadata.trace")
 
       File.mkdir_p!(source_repo)
+      File.mkdir_p!(cache_root)
       File.write!(Path.join(source_repo, "README.md"), "initial\n")
       System.cmd("git", ["-C", source_repo, "init", "-b", "main"])
       System.cmd("git", ["-C", source_repo, "config", "user.name", "Test User"])
@@ -1151,6 +1152,55 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.exists?(Path.join([workspace, ".aiur-runtime", "bin", "gh"]))
     after
       File.rm_rf(workspace_root)
+    end
+  end
+
+  # Regression for #2287: the workflow file path used to live only in the
+  # VM-global app env, so a concurrent async test's `setup` could clobber it
+  # between this test's `write_workflow_file!/2` and its read. `Workspace`
+  # resolution then read a sibling's config — the observed failure resolved
+  # `MT-608` under the default `/tmp/aiur_workspaces` instead of this test's own
+  # `workspace_root`. The path is now pinned per process, so a clobber of the
+  # global env must not move this test's reads.
+  test "workspace resolution ignores a concurrent clobber of the global workflow path" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-workspace-clobber-#{System.unique_integer([:positive])}"
+      )
+
+    other_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-workspace-clobber-other-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      path = Workflow.workflow_file_path()
+      other = Path.join(Path.dirname(path), "clobber-other-config.yaml")
+
+      write_workflow_file!(path, workspace_root: workspace_root)
+      write_workflow_file!(other, workspace_root: other_root)
+
+      # A concurrent async sibling's setup lands here: it re-points the
+      # VM-global path at its own config and reloads the shared WorkflowStore
+      # onto it — exactly the race the issue reports. The raw app-env write
+      # leaves this process's per-test pin untouched.
+      Application.put_env(:aiur, :workflow_file_path, other)
+      :ok = WorkflowStore.force_reload()
+
+      # This test's own reads must stay pinned to its own path and root.
+      assert Workflow.workflow_file_path() == path
+
+      workspace = Path.join([workspace_root, "project", "MT-608"])
+      assert {:ok, canonical_workspace} = Aiur.PathSafety.canonicalize(workspace)
+
+      assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
+      assert File.dir?(workspace)
+      refute File.exists?(Path.join([other_root, "project", "MT-608"]))
+    after
+      File.rm_rf(workspace_root)
+      File.rm_rf(other_root)
     end
   end
 
@@ -2931,13 +2981,15 @@ defmodule Aiur.WorkspaceAndConfigTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       issue_workspace = Path.join(workspace_root, "MT-100")
+      configured_root = Path.join(test_root, "configured-extra")
       File.mkdir_p!(issue_workspace)
+      File.mkdir_p!(configured_root)
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
         codex_turn_sandbox_policy: %{
           type: "workspaceWrite",
-          writableRoots: ["relative/path"],
+          writableRoots: [configured_root],
           networkAccess: true
         }
       )
@@ -2958,7 +3010,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
                "type" => "workspaceWrite",
                "writableRoots" =>
                  [
-                   "relative/path",
+                   configured_root,
                    canonical_issue_workspace,
                    sidecar_roots,
                    Aiur.BuildGate.gate_dir()
@@ -2973,7 +3025,6 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert remote_settings.turn_sandbox_policy == %{
                "type" => "workspaceWrite",
                "writableRoots" => [
-                 "relative/path",
                  issue_workspace,
                  Path.join(issue_workspace, ".git")
                ],
@@ -2997,6 +3048,119 @@ defmodule Aiur.WorkspaceAndConfigTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  test "configured workspaceWrite roots must exist and be writable directories" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-configured-sandbox-roots-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(test_root)
+
+    on_exit(fn ->
+      File.chmod(test_root, 0o755)
+      File.rm_rf(test_root)
+    end)
+
+    nonexistent_root = Path.join(test_root, "does-not-exist")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [nonexistent_root]
+      }
+    )
+
+    assert {:error, {:unsafe_turn_sandbox_policy, root_error}} = Config.validate!()
+    assert inspect(root_error) =~ nonexistent_root
+    assert inspect(root_error) =~ "agent.codex.turn_sandbox_policy.writableRoots"
+
+    regular_file = Path.join(test_root, "regular-file")
+    File.write!(regular_file, "not a directory")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [regular_file]
+      }
+    )
+
+    assert {:error, {:unsafe_turn_sandbox_policy, regular_file_error}} = Config.validate!()
+    assert inspect(regular_file_error) =~ regular_file
+    assert inspect(regular_file_error) =~ "not_a_directory"
+
+    read_only_root = Path.join(test_root, "read-only")
+    File.mkdir_p!(read_only_root)
+    File.chmod!(read_only_root, 0o555)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [read_only_root]
+      }
+    )
+
+    assert {:error, {:unsafe_turn_sandbox_policy, read_only_error}} = Config.validate!()
+    assert inspect(read_only_error) =~ read_only_root
+    assert inspect(read_only_error) =~ "not_writable"
+
+    File.chmod!(read_only_root, 0o755)
+    valid_root = Path.join(test_root, "valid")
+    File.mkdir_p!(valid_root)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_turn_sandbox_policy: %{
+        type: "workspaceWrite",
+        writableRoots: [valid_root]
+      }
+    )
+
+    assert :ok = Config.validate!()
+  end
+
+  test "local runtime derives the enabled GitHub budget root exactly once" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-runtime-budget-root-#{System.unique_integer([:positive])}"
+      )
+
+    workspace = Path.join(test_root, "workspace")
+    budget_root = Path.join(test_root, "github-budget")
+    File.mkdir_p!(workspace)
+
+    previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
+    previous_root = Application.get_env(:aiur, :github_budget_dir)
+
+    on_exit(fn ->
+      if is_nil(previous_enabled),
+        do: Application.delete_env(:aiur, :github_budget_enabled?),
+        else: Application.put_env(:aiur, :github_budget_enabled?, previous_enabled)
+
+      if is_nil(previous_root),
+        do: Application.delete_env(:aiur, :github_budget_dir),
+        else: Application.put_env(:aiur, :github_budget_dir, previous_root)
+
+      File.rm_rf(test_root)
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace)
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_root)
+
+    assert {:ok, local_settings} = Config.codex_runtime_settings(workspace)
+    roots = local_settings.turn_sandbox_policy["writableRoots"]
+    assert Enum.count(roots, &(&1 == budget_root)) == 1
+    assert File.dir?(budget_root)
+
+    assert {:ok, remote_settings} = Config.codex_runtime_settings("/remote/workspace", remote: true)
+    refute budget_root in remote_settings.turn_sandbox_policy["writableRoots"]
+
+    Application.put_env(:aiur, :github_budget_enabled?, false)
+    assert {:ok, disabled_settings} = Config.codex_runtime_settings(workspace)
+    refute budget_root in disabled_settings.turn_sandbox_policy["writableRoots"]
   end
 
   test "generated local sandbox policy admits package-manager cache-miss writes only to sidecars" do
@@ -3229,6 +3393,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert blank_workspace_policy == default_policy
 
+      configured_root = Path.join(test_root, "configured-extra")
+      File.mkdir_p!(configured_root)
+
       workspace_write_settings = %{
         settings
         | agent: %{
@@ -3237,11 +3404,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
                 settings.agent.codex
                 | turn_sandbox_policy: %{
                     "type" => "workspaceWrite",
-                    "writableRoots" => ["relative/path"]
+                    "writableRoots" => [configured_root]
                   }
               }
           }
       }
+
+      assert {:ok, configured_default_policy} =
+               Schema.resolve_runtime_turn_sandbox_policy(workspace_write_settings)
+
+      assert configured_default_policy == %{
+               "type" => "workspaceWrite",
+               "writableRoots" => [configured_root, canonical_workspace_root]
+             }
 
       assert {:ok, workspace_write_policy} =
                Schema.resolve_runtime_turn_sandbox_policy(
@@ -3253,7 +3428,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => ["relative/path", canonical_issue_workspace]
+               "writableRoots" => [configured_root, canonical_issue_workspace]
              }
 
       remote_workspace = "/remote/workspaces/MT-101"
@@ -3267,7 +3442,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => ["relative/path", remote_workspace, Path.join(remote_workspace, ".git")]
+               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git")]
              }
 
       read_only_settings = %{

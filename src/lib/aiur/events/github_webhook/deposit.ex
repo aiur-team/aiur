@@ -52,11 +52,30 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   free, not a cached one. Holding the body is what permits that, because
   `ResourceStore.etag/1` answers only beside a held body.
 
-  **`:check_run` is not deposited at all** (#2126). No store reader addresses a
-  check run, and it is deliberately excluded from the agent cache on the
-  grounds that a CI verdict must never be served from a cache at any age, so a
-  deposit of one bought nothing. It was removed rather than kept as a dead
-  write.
+  A `check_run` delivery may advance the matching run inside a complete
+  `:ci_contexts` snapshot that a poll already established for the same head.
+  It never invents the rest of the collection from one run, and it never makes
+  review, merge, or CI verdict fields generally cacheable. The CI poller still
+  reads those strict pull-request fields and legacy commit statuses live; it
+  omits only the check-run fields a newer delivery already supplied.
+
+  ## What every deposit also retires
+
+  A delivery is not only a body to hold — it is a fact that the state Aiur was
+  caching has changed. Each deposit therefore retires the `Aiur.GitHub.ReadCache`
+  identities the delivery makes stale: the numbered issue or pull request it
+  carries and, unconditionally, the repository's collections. The collections
+  marker goes on every delivery rather than only on actions that create or
+  destroy a set member, because any change to a numbered resource changes what
+  a list of that repository's tickets answers — a label changes what a
+  `labels: [...]` enumeration answers, an edit changes what a ticket list
+  renders — and the `build_order_catalog` enumeration names no number, so the
+  collections marker is the only thing that retires it. This is
+  `ReadCache.invalidate_number/2`, the same primitive `write_through/3` uses
+  for Aiur's own mutations, wired to the second producer the read cache had no
+  knowledge of; it is what lets the `ReadCache` TTLs rise from seconds to
+  hours, with the delivery rather than the clock as the freshness mechanism and
+  the clock only a backstop against a missed delivery.
 
   ## What this module deliberately does not do
 
@@ -102,7 +121,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
   alias Aiur.TicketBranch
 
   @typedoc """
@@ -112,6 +131,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   @type work ::
           {ResourceStore.resource_type(), term(), term(), String.t() | nil}
           | {:drop, ResourceStore.resource_type(), term()}
+          | {:invalidate_review_threads, term()}
+          | {:merge_review_thread, term(), map()}
+          | {:merge_check_run, term(), String.t(), map()}
 
   @doc """
   Deposits every body `payload` carries, and returns the keys written.
@@ -122,14 +144,21 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   """
   @spec deposit(term(), term(), term()) :: [ResourceStore.key()]
   def deposit(event_type, payload, repo) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
-    if store_running?() do
-      Enum.flat_map(bodies(event_type, payload), fn
-        {:drop, type, id} -> drop(type, repo, id)
-        {type, id, body, version} -> store(type, repo, id, body, version)
-      end)
-    else
-      []
-    end
+    keys =
+      if store_running?() do
+        Enum.flat_map(bodies(event_type, payload), fn
+          {:drop, type, id} -> drop(type, repo, id)
+          {:invalidate_review_threads, pr_number} -> invalidate_review_threads(repo, pr_number)
+          {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
+          {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
+          {type, id, body, version} -> store(type, repo, id, body, version)
+        end)
+      else
+        []
+      end
+
+    invalidate_read_cache(event_type, payload, repo)
+    keys
   rescue
     error ->
       Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} error=#{Exception.message(error)}")
@@ -167,7 +196,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     comment = Map.get(payload, "comment")
     action = Map.get(payload, "action")
 
-    comment_deposits(:pr_review_comment, action, comment) ++
+    review_thread_invalidation(payload) ++
+      comment_deposits(:pr_review_comment, action, comment) ++
       pull_request_deposits(Map.get(payload, "pull_request"))
   end
 
@@ -176,6 +206,35 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     action = Map.get(payload, "action")
 
     review_deposits(action, review) ++ pull_request_deposits(Map.get(payload, "pull_request"))
+  end
+
+  defp bodies("pull_request_review_thread", %{"action" => "resolved"} = payload) do
+    with %{} = pull_request <- Map.get(payload, "pull_request"),
+         pr_number when not is_nil(pr_number) <- Map.get(pull_request, "number"),
+         %{} = thread <- Map.get(payload, "thread"),
+         %{"id" => id} = normalized when is_binary(id) and id != "" <- normalize_review_thread(thread) do
+      [{:merge_review_thread, pr_number, normalized}]
+    else
+      _other -> review_thread_invalidation(payload)
+    end
+  end
+
+  # Every other thread action — `unresolved` above all — is a statement that the
+  # held resolution state is wrong, and none of them carry enough to merge. An
+  # un-resolved thread left webhook-fresh as `isResolved: true` is filtered out
+  # of the unaddressed set, so the reviewer's re-raised objection disappears and
+  # the agent proceeds as though it were answered. Drop the snapshot and let the
+  # next poll pay for the truth.
+  defp bodies("pull_request_review_thread", payload), do: review_thread_invalidation(payload)
+
+  defp bodies("check_run", payload) do
+    with %{} = check_run <- Map.get(payload, "check_run"),
+         head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(check_run, "head_sha"),
+         %{"id" => id} = normalized when not is_nil(id) <- normalize_check_run(check_run) do
+      check_run_deposits(check_run, head_sha, normalized)
+    else
+      _other -> []
+    end
   end
 
   defp bodies("pull_request", payload), do: pull_request_deposits(Map.get(payload, "pull_request"))
@@ -198,6 +257,115 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp bodies(_event_type, _payload), do: []
 
+  defp check_run_deposits(check_run, head_sha, normalized) do
+    check_run
+    |> Map.get("pull_requests", [])
+    |> Enum.map(&(&1 |> get_in(["head", "ref"]) |> TicketBranch.ticket_id()))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(&{:merge_check_run, &1, head_sha, normalized})
+  end
+
+  defp normalize_review_thread(thread) do
+    %{
+      "id" => Map.get(thread, "node_id") || Map.get(thread, "id"),
+      "isResolved" => true,
+      "updatedAt" => Map.get(thread, "updated_at"),
+      "path" => Map.get(thread, "path"),
+      "line" => Map.get(thread, "line")
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  # Paired with `Aiur.GitHub.CIPollBatch.normalize_check_run/1`; see the note
+  # there. The REST `"id"` and the GraphQL `databaseId` are the same number,
+  # which is what lets a delivery merge into a polled baseline at all.
+  defp normalize_check_run(check_run) do
+    %{
+      "id" => Map.get(check_run, "id"),
+      "name" => Map.get(check_run, "name"),
+      "status" => Map.get(check_run, "status"),
+      "conclusion" => Map.get(check_run, "conclusion"),
+      "started_at" => Map.get(check_run, "started_at"),
+      "completed_at" => Map.get(check_run, "completed_at"),
+      "updated_at" => Map.get(check_run, "updated_at"),
+      "output" => Map.get(check_run, "output", %{})
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Retiring the daemon read cache
+  # ---------------------------------------------------------------------------
+
+  # A delivery is a fact about GitHub state that arrived for free, and the
+  # `ReadCache` entries about the resources it touches are stale from that
+  # moment — even when `ResourceStore` refuses the body, because the state
+  # changed regardless of whether we could hold it. Retiring those entries is
+  # what lets the `ReadCache` TTLs be measured in hours instead of seconds:
+  # the delivery, not the clock, is the freshness mechanism. This is the same
+  # primitive `write_through/3` already uses for Aiur's own writes, wired to
+  # the second producer that knows about changes made outside this daemon.
+  #
+  # Deliberately runs even when the store is not running: a delivery proves the
+  # change whether or not there is anywhere to hold its body.
+  defp invalidate_read_cache(event_type, payload, repo) do
+    number =
+      case event_type do
+        "issue_comment" ->
+          get_in(payload, ["issue", "number"])
+
+        event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
+          get_in(payload, ["pull_request", "number"])
+
+        "issues" ->
+          get_in(payload, ["issue", "number"])
+
+        _other ->
+          nil
+      end
+
+    invalidate_numbered(repo, number)
+  end
+
+  # The delivery retires what it changed through the same primitive
+  # `write_through/3` uses for Aiur's own writes — `ReadCache.invalidate_number/2`
+  # — which marks the numbered issue-or-pull-request and, unconditionally, the
+  # repository's collections. The collections marker has to go on *every*
+  # delivery, not only on actions that create or destroy a set member: a
+  # `labeled` delivery changes what a `labels: [...]` enumeration answers, an
+  # edit changes what a ticket list renders, a comment changes what a list of
+  # the repository's tickets answers. The `build_order_catalog` enumeration
+  # names no numbers, so its entry carries only the collections identity, and a
+  # delivery that skipped it would serve pre-delivery bytes for the whole TTL.
+  # Over-invalidating costs one re-fetch of an enumerating read;
+  # under-invalidating serves a stale list for the whole TTL.
+  #
+  # The number is read from the payload rather than from the `ResourceStore`
+  # keys written, because a comment's store key is its comment id, which is not
+  # a `ReadCache` identity; GitHub numbers issues and pull requests from one
+  # sequence, so a delivery about either retires the single shared
+  # `{:number, ...}` identity. A delivery with no nameable number (defensive;
+  # every handled event carries one) falls back to retiring the whole
+  # repository — the only thing known is that something in it changed, and
+  # guessing which read is the failure mode this cache cannot afford.
+  defp invalidate_numbered(repo, number) do
+    case parse_number(number) do
+      parsed when is_integer(parsed) -> ReadCache.invalidate_number(repo, parsed)
+      _unusable -> ReadCache.invalidate_repo(repo)
+    end
+  end
+
+  defp parse_number(number) when is_integer(number) and number > 0, do: number
+
+  defp parse_number(number) when is_binary(number) do
+    case Integer.parse(number) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _other -> nil
+    end
+  end
+
+  defp parse_number(_number), do: nil
+
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
 
   defp comment_deposits(type, "deleted", comment), do: [{:drop, type, Map.get(comment, "id")}]
@@ -210,6 +378,13 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # about the comment body, so it deposits nothing rather than re-writing what
   # is already held.
   defp comment_deposits(_type, _action, _comment), do: []
+
+  defp review_thread_invalidation(payload) do
+    case get_in(payload, ["pull_request", "number"]) do
+      pr_number when not is_nil(pr_number) -> [{:invalidate_review_threads, pr_number}]
+      _other -> []
+    end
+  end
 
   defp review_deposits("submitted", review) when is_map(review) do
     [{:pr_review, Map.get(review, "id"), Normalizer.review_shape(review), version(review)}]
@@ -366,6 +541,29 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # ---------------------------------------------------------------------------
   # Writing
   # ---------------------------------------------------------------------------
+
+  defp merge_review_thread(repo, pr_number, thread) do
+    key = PollSnapshots.review_threads_key(repo, pr_number)
+
+    case PollSnapshots.merge_review_thread(repo, pr_number, thread) do
+      :ok -> confirm(key)
+      :unchanged -> []
+    end
+  end
+
+  defp merge_check_run(repo, target, head_sha, check_run) do
+    key = PollSnapshots.ci_contexts_key(repo, target)
+
+    case PollSnapshots.merge_check_run(repo, target, head_sha, check_run) do
+      :ok -> confirm(key)
+      :unchanged -> []
+    end
+  end
+
+  defp invalidate_review_threads(repo, pr_number) do
+    PollSnapshots.invalidate_review_threads(repo, pr_number)
+    []
+  end
 
   defp store(_type, _repo, _id, body, _version) when not (is_map(body) or is_list(body)), do: []
 

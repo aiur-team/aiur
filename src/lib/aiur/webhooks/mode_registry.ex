@@ -32,7 +32,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
-  alias Aiur.Webhooks.DeliveryMode
+  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
 
   @type server :: GenServer.server()
 
@@ -214,7 +214,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
     {updated, transition} = DeliveryMode.record_delivery(current, at)
     announce(state, updated, transition)
 
-    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+    {:reply, {:ok, updated}, persist(state, repo, updated)}
   end
 
   def handle_call({:record_activity, repo, observation, at}, _from, state) do
@@ -232,7 +232,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   def handle_call({:configure, repo, configured?}, _from, state) do
     repo = normalize(repo)
     {updated, _transition} = state |> fetch(repo) |> DeliveryMode.configure(configured?)
-    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+    {:reply, {:ok, updated}, persist(state, repo, updated)}
   end
 
   def handle_call(:list, _from, state) do
@@ -284,7 +284,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   # A `nil` observation has no stable identity to compare, so it always counts.
   defp record_novel_activity(state, repo, mode, nil, at) do
     {updated, _transition} = DeliveryMode.record_activity(mode, at)
-    {:ok, updated, put_in(state.repos[repo], updated)}
+    {:ok, updated, persist(state, repo, updated)}
   end
 
   defp record_novel_activity(state, repo, mode, observation, at) do
@@ -298,7 +298,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       {:replay, state}
     else
       {updated, _transition} = DeliveryMode.record_activity(mode, at)
-      {:ok, updated, put_in(state.repos[repo], updated)}
+      {:ok, updated, persist(state, repo, updated)}
     end
   end
 
@@ -315,6 +315,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       Enum.reduce(state.repos, {%{}, []}, fn {repo, mode}, {acc, degraded} ->
         {updated, transition} = DeliveryMode.sweep(mode, now, state.silence_threshold_ms)
         announce(state, updated, transition)
+        ModeTable.put(repo, updated)
 
         {Map.put(acc, repo, updated), if(transition == :degraded, do: [repo | degraded], else: degraded)}
       end)
@@ -339,6 +340,17 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   defp fetch(state, repo), do: Map.get_lazy(state.repos, repo, fn -> DeliveryMode.new(repo) end)
+
+  # Every mode change is published to `ModeTable` so a hot read path
+  # (`Aiur.GitHub.ReadCache.Policy`) can read the transport without a round
+  # trip through this process. Publishing here — at each write site — rather
+  # than on read keeps the two views from drifting: a repo this process knows
+  # is a repo the table knows, and the sweep cannot degrade one without the
+  # other seeing it.
+  defp persist(state, repo, mode) do
+    ModeTable.put(repo, mode)
+    put_in(state.repos[repo], mode)
+  end
 
   # The degradation alert names the repo because an operator reading "webhooks
   # degraded" across a multi-repo fleet cannot act on it otherwise, and it

@@ -136,7 +136,7 @@ defmodule Aiur.AppServerTest do
       policy_cases = [
         %{"type" => "dangerFullAccess"},
         %{"type" => "externalSandbox", "profile" => "remote-ci"},
-        %{"type" => "workspaceWrite", "writableRoots" => ["relative/path"], "networkAccess" => true},
+        %{"type" => "workspaceWrite", "writableRoots" => [test_root], "networkAccess" => true},
         %{"type" => "futureSandbox", "nested" => %{"flag" => true}}
       ]
 
