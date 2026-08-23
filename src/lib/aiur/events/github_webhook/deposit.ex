@@ -307,6 +307,15 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # one sequence, so a delivery about either retires the single shared
   # `{:number, ...}` identity.
   #
+  # Retiring goes through `ReadCache.invalidate_number/2`, which marks the
+  # numbered issue-or-pull-request and, unconditionally, the repository's
+  # collections. The collections marker goes on *every* delivery, not only on
+  # actions that create or destroy a set member: a `labeled` delivery changes
+  # what a `labels: [...]` enumeration answers, an edit changes what a ticket
+  # list renders, a comment changes what a list of the repository's tickets
+  # answers — and the `build_order_catalog` enumeration names no numbers, so
+  # the collections identity is the only one that retires it.
+  #
   # `check_run` and `check_suite` name their pull requests through the
   # `pull_requests` array; `pull_request_review_thread` through the pull request
   # it carries. Before #2372, all three fell through to "no nameable number"
@@ -359,18 +368,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp pull_request_numbers(_other), do: []
 
-  # The delivery retires what it changed through the same primitive
-  # `write_through/3` uses for Aiur's own writes — `ReadCache.invalidate_number/2`
-  # — which marks the numbered issue-or-pull-request and, unconditionally, the
-  # repository's collections. The collections marker has to go on *every*
-  # delivery, not only on actions that create or destroy a set member: a
-  # `labeled` delivery changes what a `labels: [...]` enumeration answers, an
-  # edit changes what a ticket list renders, a comment changes what a list of
-  # the repository's tickets answers. The `build_order_catalog` enumeration
-  # names no numbers, so its entry carries only the collections identity, and a
-  # delivery that skipped it would serve pre-delivery bytes for the whole TTL.
-  # Over-invalidating costs one re-fetch of an enumerating read;
-  # under-invalidating serves a stale list for the whole TTL.
   defp parse_number(number) when is_integer(number) and number > 0, do: number
 
   defp parse_number(number) when is_binary(number) do
