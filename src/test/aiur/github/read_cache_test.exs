@@ -820,11 +820,13 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       # A branch ref is not a sha: `/commits/main` returns the mutable head
       # commit, so it must not be cached under a key that never changes.
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/commits/main"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
 
       # `/pulls/:n/files` carries no head sha, so a push changes the response
       # under a fixed cache key; it is deliberately left uncached.
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/pulls/:n/files"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
     end
 
     # Acceptance #2326: no verdict field becomes cacheable. Every selection the
