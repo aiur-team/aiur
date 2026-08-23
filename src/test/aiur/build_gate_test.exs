@@ -845,14 +845,16 @@ defmodule Aiur.BuildGateTest do
     # loop — while still holding the slot flock. Four slots leaked this way in
     # fifteen minutes.
     #
-    # The daemon is never going to exit, so the release has to come from the
+    # The daemons are never going to exit, so the release has to come from the
     # bounded retain window rather than from `waitpid` — and it has to come
-    # without signalling the daemon.
+    # without signalling the daemons.
     daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon.pid")
+    default_term_daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon-default-term.pid")
 
     gated_context =
       Map.merge(context, %{
         adopted_daemon_pid_path: daemon_pid_path,
+        adopted_daemon_default_term_pid_path: default_term_daemon_pid_path,
         retain_seconds: 2,
         max_hold_seconds: 0,
         started_path: ""
@@ -861,8 +863,16 @@ defmodule Aiur.BuildGateTest do
     assert {output, 0} = run_bash("mix test", gated_context)
     assert output =~ "aiur_build_gate acquired slot=1 command=test"
     wait_for_file!(daemon_pid_path)
+    wait_for_file!(default_term_daemon_pid_path)
     daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
-    on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true) end)
+
+    default_term_daemon_pid =
+      default_term_daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    on_exit(fn ->
+      System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(default_term_daemon_pid)], stderr_to_stdout: true)
+    end)
 
     # The slot comes back on its own, well inside the retain window.
     wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
@@ -872,11 +882,15 @@ defmodule Aiur.BuildGateTest do
     assert marker =~ "mix test"
     assert marker =~ "reason=retained"
 
-    # The daemon is left running, deliberately. gnome-keyring-daemon holds the
+    # The daemons are left running, deliberately. gnome-keyring-daemon holds the
     # credential the fleet's GitHub access depends on: cleanup must scope
     # itself to the leased command's session and never signal an adopted
-    # stranger, no matter how long it lives.
+    # stranger, no matter how long it lives. Both the TERM-ignoring daemon and
+    # the default-disposition one survive (#2404).
     assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    assert {_state, 0} =
+             System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(default_term_daemon_pid)])
 
     # The flock is genuinely gone, not merely the owner file: the next gated
     # command takes the same slot.
@@ -1057,20 +1071,28 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
-  test "pause containment spares an adopted session daemon while reaping the build", context do
+  test "pause containment spares adopted session daemons while reaping the build", context do
     # #2387: pausing an agent must never take out the session keyring. The
     # pause/cancel path (`PauseContainment` -> the holder's exception path)
     # used to sweep every child of the subreaper and `killpg` its process
     # group, which is how an adopted `dbus-daemon` / `gnome-keyring-daemon`
     # died. This mirrors the assertion #2381 added for the timeout path: the
-    # build's own process is gone but the adopted daemon is still alive.
+    # build's own process is gone but the adopted daemons are still alive.
+    #
+    # Two daemons stand in for the real daemon (#2404): one ignores TERM
+    # (covers the SIGKILL-escalation path), and one keeps the default SIGTERM
+    # disposition, as the real gnome-keyring-daemon does. A partial revert of
+    # #2391 that sweeps adopted daemons with SIGTERM alone kills only the
+    # default-disposition one; asserting both survive catches it.
     daemon_pid_path = Path.join(context.gate_dir, "pause-adopted-daemon.pid")
+    default_term_daemon_pid_path = Path.join(context.gate_dir, "pause-adopted-daemon-default-term.pid")
 
     gated_context =
       Map.merge(context, %{
         sleep_seconds: 30,
         started_path: context.started_path,
-        adopted_daemon_pid_path: daemon_pid_path
+        adopted_daemon_pid_path: daemon_pid_path,
+        adopted_daemon_default_term_pid_path: default_term_daemon_pid_path
       })
 
     task = Task.async(fn -> run_bash("mix test", gated_context) end)
@@ -1078,27 +1100,38 @@ defmodule Aiur.BuildGateTest do
     wait_for_file!(context.started_path)
     wait_for_file!(context.mix_pid_path)
     wait_for_file!(daemon_pid_path)
+    wait_for_file!(default_term_daemon_pid_path)
 
     mix_pid = context.mix_pid_path |> File.read!() |> String.trim() |> String.to_integer()
     daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
 
-    # Clean up both processes even if a later assertion fails mid-test; the
-    # daemon would otherwise outlive the run.
+    default_term_daemon_pid =
+      default_term_daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    # Clean up all processes even if a later assertion fails mid-test; the
+    # daemons would otherwise outlive the run.
     on_exit(fn ->
       System.cmd("kill", ["-KILL", Integer.to_string(mix_pid)], stderr_to_stdout: true)
       System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(default_term_daemon_pid)], stderr_to_stdout: true)
     end)
 
-    # Wait until the daemon's `setsid` parent has exited and it has reparented
-    # onto the holder's subreaper, so the pause lands on a genuinely adopted
-    # stranger rather than a process still owned by the build.
-    wait_for_adopted_daemon!(daemon_pid, mix_pid)
-
-    # The holder is the subreaper that Popen'd the build; signal it directly so
-    # its containment exception path (the one that used to sweep the adopted
-    # daemon) runs. In production `PauseContainment` reaches it via the
-    # agent's process group.
+    # The holder is the subreaper that Popen'd the build; its owner record
+    # carries its PID, published before the wrapped command even spawns.
     holder_pid = wait_for_holder_pid!(context.gate_dir)
+
+    # Wait until each daemon's `setsid` parent has exited and it has actually
+    # reparented onto the holder (PPID == holder_pid), so the pause lands on a
+    # genuinely adopted stranger rather than a process still owned by the
+    # build. Gating on "not the wrapped command" was satisfiable before the
+    # reparent, because the daemon's immediate parent is the intermediate
+    # subshell (#2404).
+    wait_for_adopted_daemon!(daemon_pid, holder_pid)
+    wait_for_adopted_daemon!(default_term_daemon_pid, holder_pid)
+
+    # Signal the holder directly so its containment exception path (the one
+    # that used to sweep the adopted daemons) runs. In production
+    # `PauseContainment` reaches it via the agent's process group.
     System.cmd("kill", ["-TERM", Integer.to_string(holder_pid)], stderr_to_stdout: true)
 
     assert {_output, status} = Task.await(task, 10_000)
@@ -1107,8 +1140,12 @@ defmodule Aiur.BuildGateTest do
     # The build's own process is contained...
     assert_process_gone!(mix_pid)
 
-    # ...while the adopted daemon (the gnome-keyring-daemon analogue) survives.
+    # ...while both adopted daemons (the gnome-keyring-daemon analogues)
+    # survive — the TERM-ignoring one and the default-disposition one.
     assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    assert {_state, 0} =
+             System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(default_term_daemon_pid)])
 
     # The slot is released promptly for the next build.
     assert {_output2, 0} =
@@ -2107,6 +2144,7 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
       {"FAKE_MIX_ADOPTED_DAEMON_PID", Map.get(context, :adopted_daemon_pid_path, "")},
+      {"FAKE_MIX_ADOPTED_DAEMON_DEFAULT_TERM_PID", Map.get(context, :adopted_daemon_default_term_pid_path, "")},
       {"FAKE_MIX_DESCENDANT_COMMAND", Map.get(context, :descendant_command, "")},
       {"FAKE_MIX_DESCENDANT_GATE_LOG", Map.get(context, :descendant_gate_log, "")},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
@@ -2295,27 +2333,30 @@ defmodule Aiur.BuildGateTest do
   end
 
   # A `setsid`-detached daemon keeps its own session once its `setsid` parent
-  # exits and reparents onto the holder's subreaper. Wait until that happened
-  # (PPID no longer the wrapped command) so a pause test provably targets an
-  # adopted stranger and not a process still owned by the build (#2387).
-  defp wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts \\ 300)
+  # exits and reparents onto the holder's subreaper. Wait until that actually
+  # happened — PPID equals the holder's PID — so a pause test provably targets
+  # an adopted stranger and not a process still owned by the build (#2387).
+  # Gating on "not the wrapped command" was satisfiable before the reparent,
+  # because the daemon's immediate parent is the intermediate subshell, never
+  # the wrapped command itself (#2404).
+  defp wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts \\ 300)
 
-  defp wait_for_adopted_daemon!(_daemon_pid, _mix_pid, 0),
+  defp wait_for_adopted_daemon!(_daemon_pid, _holder_pid, 0),
     do: flunk("timed out waiting for the daemon to reparent onto the holder")
 
-  defp wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts) do
+  defp wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts) do
     case System.cmd("ps", ["-o", "ppid=", "-p", Integer.to_string(daemon_pid)], stderr_to_stdout: true) do
       {output, 0} ->
-        if output |> String.trim() |> String.to_integer() != mix_pid do
+        if output |> String.trim() |> String.to_integer() == holder_pid do
           :ok
         else
           Process.sleep(10)
-          wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts - 1)
+          wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts - 1)
         end
 
       _ ->
         Process.sleep(10)
-        wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts - 1)
+        wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts - 1)
     end
   end
 
@@ -2423,6 +2464,21 @@ defmodule Aiur.BuildGateTest do
           printf "%s\\n" "$$" > "$1"
           exec sleep 600
         ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
+      ) </dev/null >/dev/null 2>&1
+    fi
+
+    if [[ -n ${FAKE_MIX_ADOPTED_DAEMON_DEFAULT_TERM_PID:-} ]]; then
+      # The real gnome-keyring-daemon does not ignore SIGTERM, so the
+      # TERM-ignoring daemon above is more robust than production: a partial
+      # revert of #2391 that sweeps adopted daemons with SIGTERM alone would
+      # kill this default-disposition daemon while the ignoring one survived,
+      # and the keyring-protection test would still look green. Both must
+      # survive containment (#2404).
+      (
+        setsid bash -c '
+          printf "%s\n" "$$" > "$1"
+          exec sleep 600
+        ' fake-adopted-daemon-default-term "$FAKE_MIX_ADOPTED_DAEMON_DEFAULT_TERM_PID" </dev/null >/dev/null 2>&1 &
       ) </dev/null >/dev/null 2>&1
     fi
 
