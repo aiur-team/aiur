@@ -65,7 +65,7 @@ defmodule Aiur.GitHub.RequestLog do
   ## Writing
 
   The `Quota` GenServer holds the log's io_device, opened once at boot in
-  `:delayed_write` and written through `append_io/3`, so an observe never pays
+  `:delayed_write` and written through `append_io/4`, so an observe never pays
   an open/close/stat on the message loop that gates the fleet's GitHub access.
   `append/4` (path-based) is kept for direct callers and tests. All writes are
   best-effort and fail open: a logging failure never refuses or distorts a
@@ -103,7 +103,8 @@ defmodule Aiur.GitHub.RequestLog do
   @doc false
   # The run's default path: the boot's session log directory, resolved once at
   # `Quota.init`. The test env never writes into the session log root — tests
-  # that want a request log pass `path:` explicitly.
+  # that want a request log pass `path:` explicitly. Fail-safe: a config read
+  # that cannot answer must disable the log, never fail boot.
   @spec default_path() :: String.t() | nil
   def default_path do
     if Application.get_env(:aiur, :env) == :test do
@@ -111,6 +112,8 @@ defmodule Aiur.GitHub.RequestLog do
     else
       Path.join(Aiur.Config.Paths.log_root_dir(), @file_name)
     end
+  rescue
+    _unavailable -> nil
   end
 
   @doc false

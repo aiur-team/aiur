@@ -623,7 +623,9 @@ defmodule Aiur.GitHub.Quota do
       end
     end
   rescue
-    _unavailable -> %{state | request_log_io: nil}
+    _unavailable ->
+      RequestLog.close(state.request_log_io)
+      %{state | request_log_io: nil}
   end
 
   # What the call actually cost the budget it was billed to.
