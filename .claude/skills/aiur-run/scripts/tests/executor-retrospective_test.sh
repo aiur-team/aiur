@@ -272,6 +272,7 @@ set -e
 [ "$url_missing_status" -eq 67 ] || fail "missing dashboard URL did not return its explicit failure status"
 grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit evidence"
 grep -q 'did not run' "$url_missing_retro" || fail "missing dashboard URL verdict did not say did-not-run"
+grep -q 'attention' "$url_missing_retro" && fail "missing dashboard URL verdict must not say attention"
 grep -q 'AIUR_DASHBOARD_URL is required' "$state_root/url-missing.err" || fail "missing dashboard URL did not print the stderr precondition line"
 [ -s "$state_root/url-missing.out" ] && fail "missing dashboard URL must not print a capture report on stdout"
 url_missing_report="$(find "$state_root/url-missing-retrospective.md.d" -name report.json -print -quit)"
@@ -298,6 +299,7 @@ password_missing_status=$?
 set -e
 [ "$password_missing_status" -eq 69 ] || fail "missing dashboard password did not return its explicit failure status"
 grep -q 'did not run' "$password_missing_retro" || fail "missing dashboard password verdict did not say did-not-run"
+grep -q 'attention' "$password_missing_retro" && fail "missing dashboard password verdict must not say attention"
 grep -q 'AIUR_DASHBOARD_PASSWORD is required' "$state_root/password-missing.err" || fail "missing dashboard password did not print the stderr precondition line"
 password_missing_report="$(find "$state_root/password-missing-retrospective.md.d" -name report.json -print -quit)"
 [ -n "$password_missing_report" ] || fail "missing dashboard password did not write a did-not-run report.json"
@@ -306,6 +308,32 @@ jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition |
 [ -e "$state_root/password-missing-retrospective.md.d" ] && \
   find "$state_root/password-missing-retrospective.md.d" -name build-orders.png -print -quit | grep -q . \
   && fail "password-missing run must not invoke the capture"
+
+# The hourly `record` path must not swallow the precondition line the way a
+# wrapper redirecting stdout+stderr to a log does. record still completes and
+# still writes the did-not-run narrative, but it forwards one stderr line
+# naming the failing precondition (its status plus the variable to set), so a
+# redirected log is never silently empty next to a bare exit code.
+record_precondition_retro="$state_root/record-precondition-retrospective.md"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=record-precondition \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$record_precondition_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET="no-such-aiur-tmux-socket" \
+  AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
+  AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
+  "$script" record "visual check" unchanged > "$state_root/record-precondition.out" 2> "$state_root/record-precondition.err"
+record_precondition_status=$?
+set -e
+[ "$record_precondition_status" -eq 0 ] || fail "record exited $record_precondition_status when the visual-check precondition failed"
+jq -e '.type == "hourly_retrospective"' "$state_root/record-precondition.out" >/dev/null ||
+  fail "record did not emit its hourly report when the visual-check precondition failed"
+grep -q 'visual check did not run (status 67)' "$state_root/record-precondition.err" ||
+  fail "record did not forward the visual-check precondition line to its stderr"
+grep -q 'AIUR_DASHBOARD_URL is required' "$state_root/record-precondition.err" ||
+  fail "record did not forward the failing variable name to its stderr"
 
 # The no-guessed-port invariant above is only as strong as the script's
 # refusal to hardcode one. This is the regression that shipped once already:

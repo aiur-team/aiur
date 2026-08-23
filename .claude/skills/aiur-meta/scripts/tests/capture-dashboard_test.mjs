@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, capturePageBounded, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
+
+const captureScript = fileURLToPath(new URL('../capture-dashboard.mjs', import.meta.url))
 
 const healthySnapshot = {
   title: 'Aiur',
@@ -308,7 +315,7 @@ test('a timed-out page is attention with a timeout issue naming the page', () =>
   assert.equal(renderVerdict({ verdict: 'attention', pages: [assessment] }).includes('timeout: Build Order capture exceeded 60000 ms'), true)
 })
 
-test('a page timeout is bounded so a hang cannot stall the whole run', async () => {
+test('a page timeout is bounded so a hang cannot stall the whole run', { timeout: 5000 }, async () => {
   const fast = await withPageTimeout(Promise.resolve('ok'), 1000, 'units')
   assert.equal(fast, 'ok')
 
@@ -320,6 +327,88 @@ test('a page timeout is bounded so a hang cannot stall the whole run', async () 
       return true
     }
   )
+})
+
+test('the per-page capture loop bounds a hung page, keeps its partial screenshot, and closes it', { timeout: 5000 }, async () => {
+  const writtenScreenshots = []
+  const closedPages = []
+  const hungPage = {
+    screenshot: async ({ path }) => { writtenScreenshots.push(path) },
+    close: async () => { closedPages.push(true) }
+  }
+
+  const assessment = await capturePageBounded(
+    async () => hungPage,
+    async () => new Promise(() => {}), // never resolves: the page hung
+    'build-orders', '/build-orders', 30
+  )
+
+  assert.equal(assessment.name, 'build-orders')
+  assert.equal(assessment.verdict, 'attention')
+  assert.equal(assessment.timedOut, true)
+  assert.equal(assessment.elapsedMs, 30)
+  assert.equal(assessment.issues.length, 1)
+  assert.equal(assessment.issues[0].kind, 'timeout')
+  assert.match(assessment.issues[0].detail, /Build Order capture exceeded 30 ms/)
+  assert.equal(writtenScreenshots.length, 1)
+  assert.match(writtenScreenshots[0], /build-orders\.png$/)
+  assert.equal(closedPages.length, 1)
+})
+
+// A direct invocation's precondition handling was previously unverified: the
+// tests imported only the pure helpers, so the PR's claim that the wrapper and
+// the capture script behave identically had no proof. Spawning the real script
+// with a temp OUT exercises main() itself: each precondition exits with its
+// distinct code, writes a did-not-run report.json and verdict.md, and exits
+// before Playwright is ever loaded. The script's own test-level timeout guards
+// the page-loop bound below, so a mutation that drops the bound fails the test
+// instead of hanging CI forever.
+test('a direct invocation with no dashboard URL exits 67 and writes did-not-run evidence', () => {
+  // OUT deliberately does not exist yet: the script must create it, so a
+  // mutation that moves mkdirSync below the precondition checks makes
+  // writeDidNotRun throw ENOENT and the run exit 1 instead of 67.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'aiur-capture-no-url-'))
+  const out = path.join(parent, 'captures')
+  try {
+    const result = spawnSync(process.execPath, [captureScript, out], {
+      env: { ...process.env, AIUR_DASHBOARD_URL: '', AIUR_DASHBOARD_PASSWORD: '' },
+      encoding: 'utf8'
+    })
+
+    assert.equal(result.status, 67)
+    assert.match(result.stderr, /AIUR_DASHBOARD_URL is required/)
+    const report = JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8'))
+    assert.equal(report.verdict, 'did-not-run')
+    assert.equal(report.precondition.includes('AIUR_DASHBOARD_URL'), true)
+    assert.deepEqual(report.pages, [])
+    assert.match(fs.readFileSync(path.join(out, 'verdict.md'), 'utf8'), /\*\*did not run\*\*/)
+    assert.doesNotMatch(fs.readFileSync(path.join(out, 'verdict.md'), 'utf8'), /attention|healthy/i)
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true })
+  }
+})
+
+test('a direct invocation with a URL but no password exits 69 and writes did-not-run evidence', () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'aiur-capture-no-pass-'))
+  const out = path.join(parent, 'captures')
+  try {
+    const result = spawnSync(process.execPath, [captureScript, out], {
+      env: { ...process.env, AIUR_DASHBOARD_URL: 'http://127.0.0.1:4099', AIUR_DASHBOARD_PASSWORD: '' },
+      encoding: 'utf8'
+    })
+
+    assert.equal(result.status, 69)
+    assert.match(result.stderr, /AIUR_DASHBOARD_PASSWORD is required/)
+    const report = JSON.parse(fs.readFileSync(path.join(out, 'report.json'), 'utf8'))
+    assert.equal(report.verdict, 'did-not-run')
+    assert.equal(report.precondition.includes('AIUR_DASHBOARD_PASSWORD'), true)
+    assert.equal(report.baseUrl, 'http://127.0.0.1:4099')
+    assert.deepEqual(report.pages, [])
+    assert.match(fs.readFileSync(path.join(out, 'verdict.md'), 'utf8'), /\*\*did not run\*\*/)
+    assert.doesNotMatch(fs.readFileSync(path.join(out, 'verdict.md'), 'utf8'), /attention|healthy/i)
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true })
+  }
 })
 
 function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {

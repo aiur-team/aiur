@@ -108,7 +108,7 @@ stderr, and writes a **did not run** verdict — a skipped check must never read
 as a healthy capture. Dashboard credentials are likewise refused (exit 69)
 after falling back to the running daemon's own environment when the wrapper
 carries none, so the password never has to be copied out by hand. A page that
-stalls past `AIUR_META_PAGE_TIMEOUT_MS` (default 60s) is reported as a timeout
+stalls past `AIUR_META_PAGE_TIMEOUT_MS` (default 120s) is reported as a timeout
 verdict naming that page, keeps whatever partial screenshot completed, and the
 remaining pages still run instead of the whole check hanging in silence.
 

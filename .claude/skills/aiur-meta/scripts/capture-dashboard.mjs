@@ -30,8 +30,10 @@ const SETTLE_MS = positiveInteger(process.env.AIUR_META_SETTLE_MS, 6000)
 // Hard bound for one page's whole turn (navigation + settle + inspection +
 // screenshot). A page that stalls past this is reported as a timeout verdict
 // naming the page, a partial screenshot is written, and the next page proceeds
-// instead of the run hanging in silence.
-const PAGE_TIMEOUT_MS = positiveInteger(process.env.AIUR_META_PAGE_TIMEOUT_MS, 60_000)
+// instead of the run hanging in silence. The bound sits well above a healthy
+// page's nominal budget (45s navigation + 6s settle), so it catches a genuine
+// hang without labelling a slow-but-healthy page as a timeout.
+const PAGE_TIMEOUT_MS = positiveInteger(process.env.AIUR_META_PAGE_TIMEOUT_MS, 120_000)
 const EXPECTED_CAPACITY = positiveInteger(process.env.AIUR_META_EXPECTED_CAPACITY, null)
 const EXPECTED_ACTIVE_AGENTS = nonNegativeInteger(process.env.AIUR_META_EXPECTED_ACTIVE_AGENTS, null)
 const PLAYWRIGHT_ROOT = process.env.AIUR_META_PLAYWRIGHT_ROOT || path.join(REPOSITORY_ROOT, 'src/browser')
@@ -523,6 +525,56 @@ async function runPageCapture(page, name, route, knownNoise) {
   return assessment
 }
 
+// Bound one page's whole capture turn so a hung page yields a timeout verdict
+// naming the page, keeps whatever partial screenshot completed, and lets the
+// remaining pages proceed instead of the run hanging in silence. newPage and
+// runCapture are injected so the loop's use of the bound is testable without
+// launching a browser; main() supplies context.newPage() and a runCapture that
+// closes over the page's own navigation/settle/inspection.
+export async function capturePageBounded(newPage, runCapture, name, route, timeoutMs) {
+  const page = await newPage()
+  let assessment
+  try {
+    assessment = await withPageTimeout(runCapture(page), timeoutMs, name)
+  } catch (error) {
+    if (error instanceof PageTimeoutError) {
+      // The page hung past its bound. Keep whatever partial screenshot exists
+      // so a hang reads as evidence, not silence.
+      await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: true }).catch(() => {})
+      assessment = timedOutAssessment(name, route, timeoutMs, error)
+    } else {
+      assessment = {
+        name,
+        verdict: 'attention',
+        route,
+        status: null,
+        timedOut: false,
+        elapsedMs: timeoutMs,
+        issues: [{ kind: 'capture-error', detail: `${pageLabel(name)} capture failed: ${String(error).slice(0, 200)}` }],
+        signals: {
+          title: null,
+          chars: 0,
+          liveViewConnected: false,
+          primaryContent: false,
+          rows: 0,
+          tables: 0,
+          staleBanners: [],
+          errorStates: [],
+          filterGroups: [],
+          countSummaries: [],
+          capacityReadings: []
+        },
+        consoleErrors: [],
+        failedRequests: [],
+        knownNoise: { consoleErrors: [], failedRequests: [] }
+      }
+    }
+  } finally {
+    await page.close().catch(() => {})
+  }
+  return assessment
+}
+
 // Write the precondition "did not run" evidence so a direct invocation of this
 // script (not just the wrapper) can never produce silence on a skipped run.
 function writeDidNotRun(out, detail) {
@@ -573,46 +625,13 @@ async function main() {
     }
 
     for (const [name, route] of PAGES) {
-      const page = await context.newPage()
-      let assessment
-      try {
-        assessment = await withPageTimeout(runPageCapture(page, name, route, knownNoise), PAGE_TIMEOUT_MS, name)
-      } catch (error) {
-        if (error instanceof PageTimeoutError) {
-          // The page hung past its bound. Keep whatever partial screenshot
-          // exists so a hang reads as evidence, not silence.
-          await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: true }).catch(() => {})
-          assessment = timedOutAssessment(name, route, PAGE_TIMEOUT_MS, error)
-        } else {
-          assessment = {
-            name,
-            verdict: 'attention',
-            route,
-            status: null,
-            timedOut: false,
-            elapsedMs: PAGE_TIMEOUT_MS,
-            issues: [{ kind: 'capture-error', detail: `${pageLabel(name)} capture failed: ${String(error).slice(0, 200)}` }],
-            signals: {
-              title: null,
-              chars: 0,
-              liveViewConnected: false,
-              primaryContent: false,
-              rows: 0,
-              tables: 0,
-              staleBanners: [],
-              errorStates: [],
-              filterGroups: [],
-              countSummaries: [],
-              capacityReadings: []
-            },
-            consoleErrors: [],
-            failedRequests: [],
-            knownNoise: { consoleErrors: [], failedRequests: [] }
-          }
-        }
-      } finally {
-        await page.close().catch(() => {})
-      }
+      const assessment = await capturePageBounded(
+        () => context.newPage(),
+        (page) => runPageCapture(page, name, route, knownNoise),
+        name,
+        route,
+        PAGE_TIMEOUT_MS
+      )
       pages.push(assessment)
       process.stdout.write(`assessed ${name}: ${assessment.verdict} in ${assessment.elapsedMs} ms\n`)
     }

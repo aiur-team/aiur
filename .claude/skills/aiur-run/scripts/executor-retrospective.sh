@@ -457,7 +457,7 @@ plan_wait() {
 }
 
 record() {
-  local assessment="${2:-}" adjustment="${3:-unchanged}" at epoch last elapsed report event current payload
+  local assessment="${2:-}" adjustment="${3:-unchanged}" at epoch last elapsed report event current payload visual_check_err
   [ -n "$assessment" ] || {
     printf 'usage: %s record <assessment> [adjustment-or-unchanged]\n' "$0" >&2
     exit 64
@@ -499,7 +499,15 @@ record() {
   # dashboard. Capture failure is itself durable attention evidence, but must
   # not discard the completed wake/outcome summary.
   if [ "${AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK:-1}" != "0" ]; then
-    visual_check visual-check >/dev/null 2>&1 || true
+    # The hourly path must not swallow the precondition line the way the
+    # wrapper that redirects stdout+stderr to a log does. record still
+    # completes and still writes the did-not-run narrative, but one stderr
+    # line naming the failing precondition survives, so a redirected log is
+    # never silently empty next to a bare exit code.
+    visual_check_err="$(mktemp "$run_dir/visual-check.XXXXXX")"
+    visual_check visual-check >/dev/null 2>"$visual_check_err" || \
+      printf 'visual check did not run (status %s): %s\n' "$?" "$(head -n 1 "$visual_check_err")" >&2
+    rm -f "$visual_check_err"
   fi
 
   # The terminal is an operator-facing surface too. Keep this outside the
@@ -541,7 +549,7 @@ dashboard_url_from_socket() {
 # the same daemon whose dashboard it is about to capture, never a sibling
 # instance on the host.
 dashboard_url() {
-  local url tmux_bin socket socket_dir candidate found
+  local url tmux_bin socket socket_dir candidate found found_socket
 
   if [ -n "${AIUR_DASHBOARD_URL:-}" ]; then
     printf '%s\t%s\n' "${AIUR_DASHBOARD_URL%/}" ""
@@ -701,7 +709,7 @@ EOF
 # serialized.
 visual_check() {
   local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
-  local dashboard_socket dashboard_username dashboard_password
+  local dashboard_socket dashboard_username dashboard_password discovery
   local url_override="${AIUR_DASHBOARD_URL:-}"
   # "$@" still carries the subcommand word (the dispatcher never shifts), so
   # $1 is "visual-check" and an operator-supplied base URL arrives as $2.
