@@ -268,6 +268,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
         "measured_points=#{inspect(measured && measured[:cost])} " <>
         "variables=#{inspect(variables)} document=#{query}"
     end)
+  end
 
   # This document parses `reviewThreads { comments { databaseId } }` on every
   # cycle — the same fact a `pull_request_review_comment` webhook delivery pays a
