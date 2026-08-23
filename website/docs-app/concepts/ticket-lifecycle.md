@@ -456,11 +456,14 @@ happened and burns a dispatch (`rework_gate.ex:3-13`).
 Merge the PR yourself or delegate it to your Executor. `agent:merging` →
 `agent:done`; a merged PR closes the issue and the orchestrator stamps `done`
 (`merged_ticket_reconciler.ex:59-77`) — but only when the ticket has no other
-open pull request. A ticket can legitimately carry two open `aiur/<ticket>-`
-PRs, so a merge that leaves one still open routes the ticket to `rework`
-(that PR has unresolved review findings) or `human-review` (it is merely
-awaiting review) instead of `done`, keeping the remaining PR's findings
-dispatchable. The agent never self-merges.
+open pull request.
+
+A ticket can legitimately carry two open `aiur/<ticket>-` PRs, so a merge that
+leaves one still open routes the ticket to `rework` (that PR has unresolved
+review findings) or `human-review` (it is merely awaiting review) instead of
+`done`, keeping the remaining PR's findings dispatchable.
+
+The agent never self-merges.
 
 ## Where tickets get stuck
 
