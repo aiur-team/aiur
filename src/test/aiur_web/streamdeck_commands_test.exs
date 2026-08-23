@@ -112,6 +112,19 @@ defmodule AiurWeb.StreamdeckCommandsTest do
     assert second["has_next"] == true
   end
 
+  test "history is bounded at the default page window", %{store: store} do
+    # The default page is `@history_limit` — an agent with many past Commands
+    # pages instead of overflowing the device's key grid. A mutant that relaxed
+    # or removed that bound would ship every Command in one page.
+    for index <- 1..10 do
+      request!(store, "q#{index}", :human_required, ~U[2026-07-12 08:00:00Z])
+    end
+
+    assert {:ok, first} = StreamdeckCommands.history("984", nil, store: store)
+    assert length(first["items"]) == 8
+    assert first["has_next"] == true
+  end
+
   test "detail reads one exact Command for the strip", %{store: store} do
     decision = request!(store, "exact", :human_required, ~U[2026-07-12 10:00:00Z])
 
