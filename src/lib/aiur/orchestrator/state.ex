@@ -53,7 +53,9 @@ defmodule Aiur.Orchestrator.State do
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
           startup_claim_reconciliation_complete?: boolean(),
-          startup_claim_reconciliation_failures: MapSet.t(),
+          # Per-ticket startup-claim release failures within this boot:
+          # `%{identifier => %{reason: term(), attempts: pos_integer()}}`.
+          startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
           ci_lifecycle: %{
@@ -181,7 +183,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_scope,
     :ci_readiness_result,
     startup_claim_reconciliation_complete?: false,
-    startup_claim_reconciliation_failures: MapSet.new(),
+    startup_claim_reconciliation_failures: %{},
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,

@@ -44,6 +44,16 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     :ok
   end
 
+  # Tests that overwrite the shared workflow config must put it back: `Config`
+  # re-reads the file on every call, so an unrestored write silently becomes the
+  # next test's configuration and raises the odds of the shared WorkflowStore
+  # singleton race a reload lands in (#2076 review).
+  defp restore_workflow_file_after_test do
+    path = Aiur.Workflow.workflow_file_path()
+    original = File.read!(path)
+    on_exit(fn -> File.write!(path, original) end)
+  end
+
   test "candidate selection emits one reason when a ticket is declined despite free fleet slots" do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       max_concurrent_agents: 4,
@@ -173,6 +183,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+    restore_workflow_file_after_test()
     write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
 
     candidate = %{issue("startup-orphan") | state: "in-progress"}
@@ -201,6 +212,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   test "a failed candidate poll does not run startup claim reconciliation" do
+    restore_workflow_file_after_test()
+
     write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "linear",
       tracker_active_states: ["Todo", "In Progress", "Rework", "Merging"]

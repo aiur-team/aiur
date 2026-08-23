@@ -772,6 +772,20 @@ defmodule Aiur.AgentControlCLITest do
     refute output =~ "Orphaned claim (awaiting-dispatch)"
   end
 
+  test "status names a post-reconciliation in-progress claim as stale, not awaiting-dispatch", %{orchestrator: pid} do
+    stale = %Issue{id: "issue-stale", identifier: "repo#2076b", state: "in-progress", title: "Stale claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | startup_claim_reconciliation_complete?: true, last_polled_issues: %{stale.id => stale}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "Stale claim (stale in-progress claim: no live agent) [waiting=stale_claim]"
+    refute output =~ "Stale claim (awaiting-dispatch)"
+    refute output =~ "Stale claim (orphaned claim"
+  end
+
   test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
     released = %Issue{id: "issue-released", identifier: "repo#1475", state: "todo", title: "Reclaim me"}
 

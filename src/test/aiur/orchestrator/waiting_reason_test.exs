@@ -212,6 +212,20 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle("in-progress", false, 0) == :orphaned_claim
     end
 
+    test "after the startup pass, an in-progress claim without a live runner is a stale claim, never awaiting-dispatch" do
+      assert WaitingReason.for_idle("in-progress", false, 0, startup_reconciliation_complete?: true) ==
+               :stale_claim
+
+      assert WaitingReason.render(:stale_claim) == "stale_claim"
+    end
+
+    test "a capacity hold does not reclassify a stale in-progress claim as dispatchable" do
+      assert WaitingReason.for_idle("in-progress", false, 0,
+               capacity_hold_active?: true,
+               startup_reconciliation_complete?: true
+             ) == :stale_claim
+    end
+
     test "an active capacity hold makes a dispatchable row back off instead of reading active" do
       assert WaitingReason.for_idle("todo", false, 0, capacity_hold_active?: true) == :backing_off
       assert WaitingReason.for_idle(nil, false, 0, capacity_hold_active?: true) == :backing_off

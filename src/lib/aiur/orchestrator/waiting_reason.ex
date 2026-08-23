@@ -27,6 +27,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :unresponsive
           | :claim_released
           | :orphaned_claim
+          | :stale_claim
           | :active
 
   @doc """
@@ -78,6 +79,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:unresponsive), do: "unresponsive"
   def render(:claim_released), do: "claim_released"
   def render(:orphaned_claim), do: "orphaned_claim"
+  def render(:stale_claim), do: "stale_claim"
   def render(:active), do: "active"
   def render(other), do: to_string(other)
 
@@ -103,6 +105,11 @@ defmodule Aiur.Orchestrator.WaitingReason do
     * `:dispatch_hold_reason` — the fleet-wide reason selection did not run;
       `:tracker_preflight` renders an otherwise-ready row as
       `:tracker_unavailable`
+    * `:startup_reconciliation_complete?` — whether the one-shot startup claim
+      pass finished. Before it runs, an idle in-progress row is an
+      `:orphaned_claim` awaiting the pass (criterion 4); after it, the same row
+      is a post-pass `:stale_claim` — never the healthy `awaiting-dispatch`
+      text that masked the original fleet stall.
 
   Precedence: an open decision, then a dependency, then the more specific
   #1453 causes (latch > operator pause > pending transient resume), then a
@@ -135,27 +142,27 @@ defmodule Aiur.Orchestrator.WaitingReason do
         :paused_transient
 
       Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
-        dispatch_hold_or_tracker_state(tracker_state)
+        dispatch_hold_or_tracker_state(tracker_state, opts)
 
       Keyword.get(opts, :capacity_hold_active?, false) ->
-        capacity_or_tracker_state(tracker_state)
+        capacity_or_tracker_state(tracker_state, opts)
 
       true ->
-        idle_by_tracker_state(tracker_state)
+        idle_by_tracker_state(tracker_state, opts)
     end
   end
 
   # A capacity hold only reclassifies dispatchable rows (the `:active` fallback)
   # as `:backing_off`; rows waiting on CI, review, etc. keep their own reason.
-  defp capacity_or_tracker_state(tracker_state) do
-    case idle_by_tracker_state(tracker_state) do
+  defp capacity_or_tracker_state(tracker_state, opts) do
+    case idle_by_tracker_state(tracker_state, opts) do
       :active -> :backing_off
       other -> other
     end
   end
 
-  defp dispatch_hold_or_tracker_state(tracker_state) do
-    case idle_by_tracker_state(tracker_state) do
+  defp dispatch_hold_or_tracker_state(tracker_state, opts) do
+    case idle_by_tracker_state(tracker_state, opts) do
       :active -> :tracker_unavailable
       other -> other
     end
@@ -182,10 +189,20 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
 
-  defp idle_by_tracker_state(state) do
+  # An idle in-progress row has a tracker claim but no live runtime. Before the
+  # one-shot startup pass runs it is an `:orphaned_claim` awaiting recovery;
+  # after the pass completes it is a post-pass `:stale_claim`. Either way it is
+  # never the healthy `awaiting-dispatch [waiting=active]` text that masked the
+  # original fleet stall.
+  defp idle_by_tracker_state(state, opts) do
     case DispatchPolicy.normalize_issue_state(state) do
-      state when state in ["in-progress", "in progress"] -> :orphaned_claim
-      _other -> by_tracker_state(state)
+      state when state in ["in-progress", "in progress"] ->
+        if Keyword.get(opts, :startup_reconciliation_complete?, false),
+          do: :stale_claim,
+          else: :orphaned_claim
+
+      _other ->
+        by_tracker_state(state)
     end
   end
 

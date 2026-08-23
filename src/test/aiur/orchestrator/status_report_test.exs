@@ -118,6 +118,23 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert snapshot_orphan.waiting_reason == :orphaned_claim
   end
 
+  test "after the startup pass an idle in-progress claim reads as stale, never awaiting-dispatch" do
+    orphan = %Issue{id: "stale-orphan", identifier: "repo#stale", state: "in-progress", title: "Stale claim"}
+
+    state = %State{
+      startup_claim_reconciliation_complete?: true,
+      last_polled_issues: %{orphan.id => orphan},
+      running: %{}
+    }
+
+    [status] = StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+
+    assert status.state == :idle
+    assert status.waiting_reason == :stale_claim
+    assert status.reason == :stale_claim
+    refute status.waiting_reason == :orphaned_claim
+  end
+
   test "idle dependency rows expose the blocker and dependency waiting reason" do
     blocker = %{id: "blocker", identifier: "repo#blocker", state: "in-progress"}
     issue = %Issue{id: "waiting", identifier: "repo#waiting", state: "todo", blocked_by: [blocker]}

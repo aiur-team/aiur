@@ -51,7 +51,15 @@ Agent ownership is durable in tracker labels while the owning process is not. Af
 
 - KTD1. Run reconciliation at the first successful candidate poll, immediately after candidate/running-state refresh and before normal dispatch. This is the first point where tracker evidence and the current-generation runtime registry are both available.
 - KTD2. Use `Tracker.update_issue_state(identifier, "todo", expected_state: "in-progress")` so concurrent operator or agent transitions win instead of being overwritten.
-- KTD3. Track the one-shot boot attempt explicitly in orchestrator state. A tracker write failure remains diagnosable and is retried on a later poll; completion occurs only after every candidate is either protected by a live runtime or successfully released.
+- KTD3. Track the one-shot boot attempt in a boot-scoped marker keyed by the
+  daemon's run id. A tracker write failure is diagnosable, retried on later
+  polls up to a per-ticket cap, and then latched; the pass completes once every
+  candidate is either protected by a live runtime, successfully released, or
+  latched — a permanently failing release must not re-run the pass forever.
+  Rework note (#2076 review): the original "retry until every candidate is
+  released" framing made one durable tracker error a lifetime reaper, and the
+  negative-evidence check would have released live claims on an
+  Orchestrator-only restart. The boot marker is the positive gate.
 - KTD4. Represent pre-reconciliation orphan status as a dedicated waiting reason. Keep the existing released-claim machinery reserved for runtime retry releases, since startup recovery changes the tracker state immediately and has different semantics.
 - KTD5. Extend the existing `system.fleet.capacity.starved` proof for the zero-agent/no-binding case instead of adding a competing alert episode.
 

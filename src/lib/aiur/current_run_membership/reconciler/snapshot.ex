@@ -12,6 +12,7 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
     :waiting_for_review,
     :awaiting_dispatch,
     :orphaned_claim,
+    :stale_claim,
     :tracker_unavailable,
     :backing_off,
     :unresponsive
