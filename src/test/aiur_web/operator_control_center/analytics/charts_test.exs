@@ -77,6 +77,66 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ "<path"
   end
 
+  test "fleet pressure renders aligned count, wait, and source-state lanes" do
+    series = [
+      %{
+        t_ms: @t0,
+        pressure_state: :measured,
+        fleet_agents_occupied: 13,
+        fleet_agents_effective: 12,
+        build_gate_capacity: 3,
+        build_gate_active: 2,
+        build_gate_queued: 8,
+        build_queue_oldest_wait_seconds: 189
+      },
+      %{t_ms: @t0 + 60_000, pressure_state: :degraded_build}
+    ]
+
+    svg = Charts.fleet_pressure(%{model() | series: series})
+    assert svg =~ "Whole-host fleet-wide occupancy and build pressure"
+    assert svg =~ "occupied agents"
+    assert svg =~ "build capacity"
+    assert svg =~ "oldest live wait"
+    assert svg =~ "degraded_build"
+    assert svg =~ ~s(data-time-brush="true")
+  end
+
+  test "fleet pressure breaks the SVG path at a gap instead of drawing through it" do
+    # A gap (degraded/unavailable sample with no numeric evidence) must split
+    # the line into two segments. Drawing through the gap at y=0 would render
+    # one connecting path and mislead the operator into reading zeros.
+    series = [
+      %{
+        t_ms: @t0,
+        pressure_state: :measured,
+        fleet_agents_occupied: 13,
+        build_gate_active: 2,
+        build_gate_queued: 8
+      },
+      %{t_ms: @t0 + 60_000, pressure_state: :degraded_build},
+      %{
+        t_ms: @t0 + 120_000,
+        pressure_state: :measured,
+        fleet_agents_occupied: 5,
+        build_gate_active: 1,
+        build_gate_queued: 2
+      }
+    ]
+
+    svg = Charts.fleet_pressure(%{model() | series: series})
+
+    # Occupied agents render with var(--accent): exactly two segments, one per
+    # measured run, never one path bridging the degraded gap.
+    assert count_paths(svg, "var(--accent)") == 2
+    assert svg =~ "M"
+    # A degraded gap must never inject a y=0 vertex into the occupied line.
+    refute svg =~ ~r/M[^"]*?L[^"]*?,0[^"]*?L/
+  end
+
+  defp count_paths(svg, color) do
+    Regex.scan(~r/<path[^>]*stroke="#{Regex.escape(color)}"/, svg) |> length()
+  end
+
   test "memory renders against the host ceiling" do
     assert Charts.memory(model()) =~ "host"
   end
@@ -122,6 +182,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     for chart <- [
           Charts.cpu_stack(m, MapSet.new(m.actors, & &1.key)),
           Charts.concurrency(m),
+          Charts.fleet_pressure(m),
           Charts.memory(m),
           Charts.burnup(m)
         ] do
@@ -146,6 +207,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
           Charts.gantt(zoomed),
           Charts.cpu_stack(zoomed, MapSet.new(m.actors, & &1.key)),
           Charts.concurrency(zoomed),
+          Charts.fleet_pressure(zoomed),
           Charts.memory(zoomed),
           Charts.burnup(zoomed)
         ] do
