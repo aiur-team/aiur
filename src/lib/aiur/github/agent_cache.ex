@@ -287,6 +287,12 @@ defmodule Aiur.GitHub.AgentCache do
   def record_served_read do
     :ets.update_counter(reads_table(), :served, 1, {:served, 0})
     :ok
+  rescue
+    # The table can vanish between the lookup and the update (a bridge restart
+    # mid-serve, a race on cold start). A measurement lost in that gap is a
+    # rounding error, not a reason to fail a poll task — the same fail-open
+    # `ReadCache.Metrics` uses.
+    ArgumentError -> :ok
   end
 
   @doc "How many daemon reads have been served from the agent store so far."
