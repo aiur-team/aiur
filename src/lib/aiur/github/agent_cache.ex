@@ -60,13 +60,16 @@ defmodule Aiur.GitHub.AgentCache do
   module's writes use.
 
   Freshness is a stated backstop, not a delivery guess. The daemon cannot know
-  the wrapper's configured TTL, and trusting delivery-driven retirement here
-  without #2331's gap-recovery path is the risk the issue calls worse than a
-  timer. So `read_body/2` accepts an entry only within `@agent_read_backstop_ms`
-  (or the caller's own tolerance, whichever is tighter) and only when no
-  covering invalidation marker is newer than the entry's fetch stamp — the same
-  marker test the wrapper applies. Once #2331 lands, this backstop is the value
-  to lengthen, not a number to forget about.
+  the wrapper's configured TTL. So `read_body/2` accepts an entry only within
+  `@agent_read_backstop_ms` (or the caller's own tolerance, whichever is
+  tighter) and only when no covering invalidation marker is newer than the
+  entry's fetch stamp — the same marker test the wrapper applies. The ceiling is
+  deliberately the wrapper's own 60 s freshness window: serving an entry older
+  than that would hand the daemon something the agent store itself no longer
+  serves. #2331's recovery defects (which previously made leaning on delivery
+  retirement unsafe) have since landed on main; evaluating a longer backstop
+  against measured delivery reliability is the documented follow-up, not a
+  change folded into this read-direction work.
 
   ## Numbers are shared between issues and pull requests
 
@@ -97,9 +100,12 @@ defmodule Aiur.GitHub.AgentCache do
   # retires the entry through this module, so an entry younger than this that
   # has not been invalidated is an agent's own recent, un-retired read of the
   # resource. That is exactly "within the window it remains valid" — the window
-  # the agent store itself honours. It is deliberately NOT longer: delivery
-  # retirement without #2331's gap recovery is not yet safe to lean on, so a
-  # real timer is the ceiling until that lands (see the moduledoc).
+  # the agent store itself honours. It is deliberately NOT longer than that
+  # window: serving an entry the agent store would no longer serve is exactly
+  # the stale-read risk this backstop exists to bound. #2331's gap recovery has
+  # since landed on main, which re-opens the question of a longer ceiling; that
+  # is the documented follow-up (see the moduledoc), not a change folded into
+  # this read-direction PR.
   @agent_read_backstop_ms 60_000
 
   # The resource types `read_body/2` will serve. Number-addressed only, and only
