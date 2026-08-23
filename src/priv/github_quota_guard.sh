@@ -1666,6 +1666,24 @@ valid_budget_lease() {
   [ "${#1}" -eq 32 ]
 }
 
+valid_budget_hold_reset() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+
+  python3 - "$1" <<'PY'
+import sys
+import time
+
+# Mirrors the Elixir-side bounded window in `GithubBudgetPause.parse/3`: a
+# reset no more than 24h in the future or 5 minutes in the past is a live
+# hold; anything older in the past is a stale or forged value and must not be
+# accepted as a typed hold (which would clamp to a zero delay and re-pause
+# immediately).
+reset_at_ms = int(sys.argv[1])
+now_ms = time.time_ns() // 1_000_000
+sys.exit(0 if now_ms - 300_000 <= reset_at_ms <= now_ms + 86_400_000 else 1)
+PY
+}
+
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
@@ -1718,6 +1736,22 @@ budget_acquire() {
           return 0
         fi
         printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
+        return 75
+        ;;
+      "hold shared "*)
+        budget_hold=${budget_result#hold shared }
+        budget_hold_resource=${budget_hold%% *}
+        budget_hold_reset_at_ms=${budget_hold#* }
+        case "$budget_hold_resource:$budget_hold_reset_at_ms" in
+          core:*|graphql:*)
+            if valid_budget_hold_reset "$budget_hold_reset_at_ms"; then
+              printf 'aiur: github budget hold resource=%s reset_at_ms=%s\n' \
+                "$budget_hold_resource" "$budget_hold_reset_at_ms" >&2
+              return 75
+            fi
+            ;;
+        esac
+        printf '%s\n' 'aiur: GitHub budget broker returned an invalid shared hold response' >&2
         return 75
         ;;
       "wait "*)
