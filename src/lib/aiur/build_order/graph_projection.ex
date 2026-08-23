@@ -9,10 +9,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   use GenServer
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary}
   alias Aiur.BuildOrder.GitHubGraph.Settings
-  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
+  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, StoreCatalog, TaskLifecycle}
+  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.ViewStateSweep
   alias Aiur.TrackerIdentity
+  alias Aiur.Webhooks.ModeRegistry
 
   @reset_topic "build_order:graph:reset"
 
@@ -97,6 +100,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     Process.flag(:trap_exit, true)
     state = Options.new(opts)
     subscribe_to_configuration(state)
+    subscribe_to_store()
     send(self(), :reconcile)
     {:ok, state}
   end
@@ -165,9 +169,16 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  def handle_call(:catalog_topic, _from, state) do
+  # Subscribing to the catalog is how a page declares it is watching it, so it
+  # is also where catalog demand is registered. The calling pid is monitored and
+  # held in `state.catalog.demanders`; when the session process dies the DOWN
+  # monitor removes it, and an authority change discards it with the catalog.
+  # Registering the first viewer buys one read now (the page's refresh on mount)
+  # and leaves the cadence to take over while anyone is watching.
+  def handle_call(:catalog_topic, {pid, _tag}, state) do
     {state, events} = reconcile(state)
-    broadcast_all(state, events)
+    {state, demand_events} = add_catalog_demand(state, pid)
+    broadcast_all(state, events ++ demand_events)
 
     if configuration_ready?(state) do
       {:reply, {:ok, Policy.catalog_topic(state.active_repository)}, state}
@@ -221,6 +232,33 @@ defmodule Aiur.BuildOrder.GraphProjection do
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
   end
+
+  # The event-sourced catalog (#2325): every input a catalog root needs —
+  # the `build-order`-labelled issues, their sub-issue edges, and each member's
+  # state and labels — is deposited in `Aiur.GitHub.ResourceStore` by a webhook
+  # delivery before the event is published. So a store change reconciles the
+  # affected root from the store, with no GitHub read. Only the active
+  # repository's changes are reconciled; the type subscriptions are repo-wide.
+  def handle_info({:github_resource_changed, %{key: {type, owner, repo, id}}}, state)
+      when type in [:issue, :issue_labels, :sub_issues, :issue_dependencies] do
+    case active_repository_for(state) do
+      {active_owner, active_repo}
+      when active_owner == owner and active_repo == repo ->
+        {state, events} = reconcile(state)
+        {state, store_events} = apply_store_change(state, type, id)
+        broadcast_all(state, events ++ store_events)
+        {:noreply, state}
+
+      _other_repository ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:webhook_degraded, degraded_repo}, state), do: relist_catalog_for(state, degraded_repo)
+
+  def handle_info({:webhook_recovered, degraded_repo}, state), do: relist_catalog_for(state, degraded_repo)
+
+  def handle_info({:view_state_diverged, degraded_repo}, state), do: relist_catalog_for(state, degraded_repo)
 
   def handle_info({ref, result}, state) when is_reference(ref) do
     {state, reconcile_events} = reconcile(state)
@@ -303,6 +341,32 @@ defmodule Aiur.BuildOrder.GraphProjection do
     |> cancel_all_timers()
 
     :ok
+  end
+
+  # The gap-based re-convergence: while the repo is degraded, deliveries are
+  # known to be dropped, so re-read the catalog from GitHub to re-establish the
+  # baseline the event stream then maintains. ModeRegistry re-publishes the
+  # degraded broadcast on every sweep while the repo stays degraded, so this is
+  # a coarse cadence that only runs during the outage itself. The `recovered`
+  # broadcast is the trailing edge — the gap has closed, so re-read once more to
+  # recover what the degraded window dropped. And the divergence watermark
+  # (ViewStateSweep) fires when GitHub is observed ahead of the store. All three
+  # are gap-based, never a clock in steady state.
+  defp relist_catalog_for(state, degraded_repo) do
+    case active_repository_for(state) do
+      {owner, repo} when is_binary(owner) and is_binary(repo) ->
+        if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
+          {state, events} = reconcile(state)
+          {state, refresh_events} = request_scope(state, :catalog)
+          broadcast_all(state, events ++ refresh_events)
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
+
+      _other ->
+        {:noreply, state}
+    end
   end
 
   defp reconcile(state, notified_generation \\ nil) do
@@ -524,6 +588,30 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
+  # The catalog's analogue of `add_demand/3`. Unlike a selected root, which is
+  # demanded separately from being subscribed, the catalog has exactly one kind
+  # of viewer — the Build Order page — so registering demand is folded into
+  # `subscribe_catalog/1` and needs no distinct API. The page renders the stored
+  # snapshot immediately; this buys the "one refresh on mount" that makes it
+  # update, and while any demander stays the cadence keeps it fresh.
+  defp add_catalog_demand(state, pid) do
+    if MapSet.member?(state.catalog.demanders, pid) do
+      {state, []}
+    else
+      ref = Process.monitor(pid)
+      catalog = %{state.catalog | demanders: MapSet.put(state.catalog.demanders, pid)}
+
+      state = %{
+        state
+        | catalog: catalog,
+          monitor_by_ref: Map.put(state.monitor_by_ref, ref, {:catalog, pid}),
+          monitor_by_demand: Map.put(state.monitor_by_demand, {:catalog, pid}, ref)
+      }
+
+      request_scope(state, :catalog)
+    end
+  end
+
   defp remove_demand(state, identity, pid) do
     key = Policy.root_key(identity)
     remove_demand_key(state, {key, pid}, true)
@@ -533,6 +621,30 @@ defmodule Aiur.BuildOrder.GraphProjection do
     case Map.get(state.monitor_by_ref, ref) do
       nil -> state
       demand_key -> remove_demand_key(state, demand_key, false)
+    end
+  end
+
+  defp remove_demand_key(state, {:catalog, pid} = demand_key, demonitor?) do
+    case Map.pop(state.monitor_by_demand, demand_key) do
+      {nil, _monitor_by_demand} ->
+        state
+
+      {ref, monitor_by_demand} ->
+        if demonitor?, do: Process.demonitor(ref, [:flush])
+
+        # The last viewer leaving cancels the cadence: `remove_demander/2`
+        # clears the timer when the demander set empties, and `active_scope?/2`
+        # being false stops anything from re-arming it.
+        catalog = remove_demander(state.catalog, pid)
+        pending = if(MapSet.size(catalog.demanders) > 0, do: state.pending, else: MapSet.delete(state.pending, :catalog))
+
+        %{
+          state
+          | catalog: catalog,
+            pending: pending,
+            monitor_by_ref: Map.delete(state.monitor_by_ref, ref),
+            monitor_by_demand: monitor_by_demand
+        }
     end
   end
 
@@ -910,7 +1022,14 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end)
   end
 
-  defp schedule_after_completion(state, :catalog, delay), do: schedule_scope(state, :catalog, delay)
+  # The catalog is event-sourced (#2325): the `ResourceStore` change stream is
+  # the refresh, so a completed read (the boot fill, a viewer's mount read, a
+  # degraded re-list, or an explicit `refresh_catalog`) arms no successor
+  # cadence — even while a Build Order page is open, the catalog is maintained
+  # from the store instead of being polled. The demander bookkeeping (#2312)
+  # is kept so a headless run buys no reads at all, but the recurring poll
+  # itself is gone.
+  defp schedule_after_completion(state, :catalog, _delay), do: state
 
   # A selected root never schedules its successor. Completing a read used to
   # queue the next one `graph_selected_refresh_ms` later for as long as anyone
@@ -923,6 +1042,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # on a viewer. A webhook or mutation write to `Aiur.GitHub.ResourceStore` does
   # *not* reach here — the store holds issues, not graphs — so it is not claimed.
   defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state
+
+  # The catalog is event-sourced (#2325): the `ResourceStore` change stream is
+  # the refresh, so a completed read (the boot fill, a degraded re-list, or an
+  # explicit `refresh_catalog`) arms no successor cadence. Retries are a
+  # separate path and still survive, so a boot read that fails still backs off.
+  defp schedule_from_success(state, :catalog), do: state
 
   defp schedule_from_success(state, scope) do
     entry = scope_entry(state, scope)
@@ -972,10 +1097,10 @@ defmodule Aiur.BuildOrder.GraphProjection do
     |> Map.put(:next_timer_token, token + 1)
   end
 
-  # Only the catalog gets a *cadence* restored here. A selected root has none any
-  # more, so re-arming one for every watched root — which is what this used to do
-  # — would quietly reintroduce the viewer-driven refresh that
-  # `schedule_after_completion/3` removes.
+  # Only the catalog gets a *cadence* restored here, and only while a viewer is
+  # holding it. A selected root has none any more, so re-arming one for every
+  # watched root — which is what this used to do — would quietly reintroduce the
+  # viewer-driven refresh that `schedule_after_completion/3` removes.
   #
   # A selected root's **retry** is a different thing and must survive, because
   # this runs on almost every message: it cancels all timers, so without
@@ -997,7 +1122,12 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end)
   end
 
-  defp active_scope?(_state, :catalog), do: true
+  # The catalog is active exactly when a Build Order page is holding it. Like the
+  # selected clause below, "somebody is watching" is the only thing that makes it
+  # active — which is what turns the unconditional timer into a demand-gated one:
+  # with no demander there is no cadence, no boot read and no refresh, so a
+  # headless run buys none of the most expensive query in the system (#2312).
+  defp active_scope?(state, :catalog), do: MapSet.size(state.catalog.demanders) > 0
 
   defp active_scope?(state, {:selected, identity}) do
     case Map.get(state.selected, Policy.root_key(identity)) do
@@ -1011,10 +1141,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # A selected root has no refresh interval of its own any more. What remains for
   # it are the two things an interval was still being read for — the base of the
   # failure backoff, and the window after which a snapshot is shown as ageing —
-  # and for both the honest number is the catalog cadence: the catalog
-  # reconciliation is the daemon-owned writer that would next notice this root
-  # changing, so it is the real bound on how stale the root can be without
-  # anyone finding out.
+  # and for both the honest number is the catalog cadence. That cadence runs
+  # while a Build Order page is open, and it is what next notices this root
+  # changing — so it is the real bound on how stale the root can be while anyone
+  # is looking. When no page is open the catalog does not run at all, but then
+  # nothing is being displayed or re-read either, so no interval applies.
   defp scope_interval(state, {:selected, _identity}), do: state.policy.catalog_refresh_ms
 
   defp scope_entry(state, :catalog), do: state.catalog
@@ -1042,6 +1173,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # The window after which a selected root is *displayed* as ageing. It is not a
   # refresh trigger — nothing reads this to decide whether to spend — it only
   # decides what the page tells the operator about the age of what it is showing.
+  # The catalog cadence is the honest base because, while a Build Order page is
+  # open, that is the bound on how soon the daemon will next re-read the root.
   defp selected_staleness_ms(state), do: state.policy.catalog_refresh_ms
 
   defp selected_snapshot(state, identity) do
@@ -1157,6 +1290,263 @@ defmodule Aiur.BuildOrder.GraphProjection do
     _error -> :ok
   catch
     _kind, _reason -> :ok
+  end
+
+  # The event-sourced catalog's change stream. Subscribed in the process, so the
+  # store's `ResourceEvents` broadcasts (delivered as
+  # `{:github_resource_changed, change}`) land in this GenServer's mailbox and
+  # are applied synchronously — a store change that lands while a rebuild is
+  # running is queued behind it, never lost. The degraded broadcast is the gap
+  # trigger that re-reads GitHub when deliveries are known to be dropped.
+  defp subscribe_to_store do
+    ResourceStore.subscribe(:issue)
+    ResourceStore.subscribe(:issue_labels)
+    ResourceStore.subscribe(:sub_issues)
+    ResourceStore.subscribe(:issue_dependencies)
+    ModeRegistry.subscribe()
+    ModeRegistry.subscribe_recovered()
+    ViewStateSweep.subscribe_diverged()
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  # The active repository as the store reports it (down-cased), for matching
+  # against the down-cased `owner`/`repo` a `ResourceStore` key carries.
+  defp active_repository_for(state) do
+    case state.active_repository do
+      {owner, repo} when is_binary(owner) and is_binary(repo) ->
+        {String.downcase(owner), String.downcase(repo)}
+
+      _other ->
+        nil
+    end
+  end
+
+  # The store-change reconciliation, dispatched per type. The boot read's
+  # baseline entries that are not in the store are left untouched — this is
+  # what "the event stream maintains the bootstrap baseline" means.
+  defp apply_store_change(state, type, id) do
+    case active_repository_for(state) do
+      nil ->
+        {state, []}
+
+      {owner, repo} ->
+        full_name = "#{owner}/#{repo}"
+
+        case type do
+          t when t in [:issue, :issue_labels] -> reconcile_issue_root(state, full_name, owner, repo, id)
+          :sub_issues -> reconcile_sub_issue_parent(state, full_name, owner, repo, id)
+          :issue_dependencies -> reconcile_dependency(state, full_name, owner, repo, id)
+        end
+    end
+  end
+
+  # An issue (or its label set) moved: derive the root for that issue from the
+  # store and upsert or drop it. A body with the label removed, a pull request,
+  # a deleted issue, or an issue the store no longer holds all derive `nil` and
+  # drop the root.
+  defp reconcile_issue_root(state, full_name, owner, repo, id) do
+    case Integer.parse(id) do
+      {number, ""} ->
+        body = ResourceStore.data(ResourceStore.key(:issue, owner, repo, number))
+        new_root = StoreCatalog.root_for(full_name, body)
+        upsert_or_remove_root(state, number, new_root)
+
+      _other ->
+        {state, []}
+    end
+  end
+
+  defp upsert_or_remove_root(state, number, new_root) do
+    apply_catalog_update(state, &replace_root(&1, number, new_root))
+  end
+
+  defp replace_root(entries, number, new_root) do
+    number = Integer.to_string(number)
+    replaced? = Enum.any?(entries, &(root_number(&1) == number))
+
+    cond do
+      replaced? and not is_nil(new_root) -> replace_root_entry(entries, number, new_root)
+      replaced? and is_nil(new_root) -> Enum.reject(entries, &(root_number(&1) == number))
+      not replaced? and not is_nil(new_root) -> sort_roots(entries ++ [new_root])
+      true -> entries
+    end
+  end
+
+  defp replace_root_entry(entries, number, new_root) do
+    Enum.map(entries, fn entry ->
+      if root_number(entry) == number, do: new_root, else: entry
+    end)
+  end
+
+  # A sub-issue edge moved. When the edge is held (added), read its parent and
+  # reconcile that root. When the edge is gone (removed), the parent cannot be
+  # read from the removed key, so reconcile every root the store still knows
+  # about and preserve any boot-baseline root it does not.
+  defp reconcile_sub_issue_parent(state, full_name, owner, repo, id) do
+    case ResourceStore.data(ResourceStore.key(:sub_issues, owner, repo, id)) do
+      %{"parent" => %{"number" => number}} when is_integer(number) ->
+        reconcile_issue_root(state, full_name, owner, repo, Integer.to_string(number))
+
+      %{"parent" => %{"node_id" => node_id}} when is_binary(node_id) ->
+        case issue_number_for_node_id(full_name, node_id) do
+          nil -> reconcile_all_roots(state, full_name)
+          number -> reconcile_issue_root(state, full_name, owner, repo, Integer.to_string(number))
+        end
+
+      nil ->
+        reconcile_all_roots(state, full_name)
+    end
+  end
+
+  defp reconcile_all_roots(state, full_name) do
+    fresh = StoreCatalog.build(full_name)
+
+    apply_catalog_update(state, fn entries ->
+      fresh_numbers = MapSet.new(fresh.entries, &root_number/1)
+      preserved = Enum.reject(entries, &MapSet.member?(fresh_numbers, root_number(&1)))
+      sort_roots(preserved ++ fresh.entries)
+    end)
+  end
+
+  # A dependency edge lives on the selected-root graphs, not on the catalog's
+  # RootSummary entries, so the catalog itself does not move. But a page showing
+  # the edge is stale, so re-read the selected roots the edge touches. When the
+  # edge is gone (removed) the endpoints cannot be read, so re-read every held
+  # root — a rare event, and one extra read per held root on it is the honest
+  # cost of not having tracked the parent.
+  defp reconcile_dependency(state, _full_name, owner, repo, id) do
+    case ResourceStore.data(ResourceStore.key(:issue_dependencies, owner, repo, id)) do
+      %{} = dependency -> reconcile_dependency_numbers(state, dependency_numbers(dependency))
+      nil -> reconcile_dependency_all(state)
+    end
+  end
+
+  defp reconcile_dependency_numbers(state, numbers) do
+    Enum.reduce(numbers, {state, []}, fn number, {state, events} ->
+      case held_selected_scope(state, number) do
+        nil -> {state, events}
+        scope -> with_scope_events(state, scope, events)
+      end
+    end)
+  end
+
+  defp reconcile_dependency_all(state) do
+    Enum.reduce(state.selected, {state, []}, fn {_key, entry}, {state, events} ->
+      if active_scope?(state, entry.scope) do
+        with_scope_events(state, entry.scope, events)
+      else
+        {state, events}
+      end
+    end)
+  end
+
+  defp with_scope_events(state, scope, events) do
+    {state, next_events} = request_scope(state, scope)
+    {state, events ++ next_events}
+  end
+
+  # Both endpoints of the edge can be held roots, so both are considered.
+  defp dependency_numbers(dependency) do
+    Enum.flat_map(["dependency", "dependant"], fn key ->
+      case get_in(dependency, [key, "number"]) do
+        number when is_integer(number) -> [number]
+        _other -> []
+      end
+    end)
+  end
+
+  defp held_selected_scope(state, number) do
+    number = Integer.to_string(number)
+
+    state.selected
+    |> Enum.find_value(fn {_key, entry} ->
+      if active_scope?(state, entry.scope) and selected_matches_number?(entry.scope, number) do
+        entry.scope
+      end
+    end)
+  end
+
+  defp selected_matches_number?({:selected, %TrackerIdentity{identifier: identifier}}, number),
+    do: identifier == number
+
+  defp selected_matches_number?(_scope, _number), do: false
+
+  defp issue_number_for_node_id(full_name, node_id) do
+    case ResourceStore.list_type(:issue, full_name) do
+      [] -> nil
+      issues -> find_issue_number(issues, node_id)
+    end
+  end
+
+  defp find_issue_number(issues, node_id) do
+    Enum.find_value(issues, fn {_key, body} ->
+      if Map.get(body, "node_id") == node_id, do: Map.get(body, "number")
+    end)
+  end
+
+  # Applies a transform to the catalog's entries and, when the content changed,
+  # publishes a new generation and re-reads any selected root whose catalog
+  # marker moved.
+  defp apply_catalog_update(state, fun) do
+    case state.catalog.data do
+      # No baseline catalog exists yet — cold start before the boot read lands,
+      # or a boot read that failed and is backing off. A store rebuild here
+      # would publish a catalog derived from a near-empty store as a healthy
+      # new generation: the "confident wrong number" the #2325 review forbids.
+      # The store stream *maintains* a baseline; it never substitutes for one,
+      # so decline until a real GitHub read establishes the baseline.
+      nil ->
+        {state, []}
+
+      catalog ->
+        apply_catalog_update_entries(state, catalog, fun)
+    end
+  end
+
+  defp apply_catalog_update_entries(state, catalog, fun) do
+    new_entries = fun.(catalog.entries)
+
+    if new_entries == catalog.entries do
+      {state, []}
+    else
+      apply_store_catalog_result(state, %{catalog | entries: new_entries})
+    end
+  end
+
+  defp apply_store_catalog_result(state, catalog) do
+    now = now(state)
+    now_ms = now_ms(state)
+    generation = state.next_generation
+    entry = state.catalog |> Policy.apply_success(catalog, generation, now, now_ms) |> cancel_entry_schedule()
+
+    state = %{state | catalog: entry, next_generation: generation + 1}
+    events = [{:generation, catalog_snapshot(state)}]
+    {state, follow_up} = request_changed_selected_roots(state, :catalog)
+    {state, events ++ follow_up}
+  end
+
+  defp root_number(%RootSummary{identity: %TrackerIdentity{identifier: identifier}}) when is_binary(identifier),
+    do: identifier
+
+  defp root_number(_root), do: nil
+
+  defp sort_roots(roots) do
+    Enum.sort_by(roots, &sort_number(root_number(&1)))
+  end
+
+  # Numeric identifiers sort first (1, 2, 10), everything else after, so the
+  # merged list never reshuffles between two equally-ordered reads.
+  defp sort_number(nil), do: {1, 0}
+
+  defp sort_number(identifier) do
+    case Integer.parse(identifier) do
+      {number, ""} -> {0, number}
+      _other -> {1, 0}
+    end
   end
 
   defp subscribe_scope(topic_fun) do

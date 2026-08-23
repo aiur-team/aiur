@@ -283,6 +283,13 @@ defmodule Aiur.AgentControlCLITest do
           poll_frozen: true,
           candidate_snapshot_fresh?: true,
           snapshot_ready?: false,
+          # Pin the pre-reconciliation baseline. The "orphaned claim" case below
+          # asserts the `[waiting=orphaned_claim]` classification, which only
+          # holds before startup reconciliation completes; the shared
+          # Orchestrator may already have finished it (or a prior test may have
+          # set it), so leaking the live value made that case order-dependent
+          # (#2387 CI flake). The "stale claim" case pins `true` explicitly.
+          startup_claim_reconciliation_complete?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
@@ -630,6 +637,125 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "POLL idle backoff active: interval=600s base=120s factor=5.0x next=590s"
   end
 
+  defp unconstrained_capacity(overrides \\ %{}) do
+    Map.merge(
+      %{
+        occupied: 0,
+        max: 2,
+        effective: 2,
+        configured: 2,
+        available: 2,
+        queued_demand?: false,
+        session_override?: false,
+        active: 0,
+        reserved_paused: 0,
+        capacity_hold: nil
+      },
+      overrides
+    )
+  end
+
+  # The core #2138 status defect: `binding: ticket supply` was reported while
+  # claimable tickets existed, because the daemon had not polled recently enough
+  # to see them. While idle backoff is active (or the candidate snapshot is not
+  # fresh), the line must say the fleet has not polled, never blame ticket
+  # supply.
+  test "status never blames ticket supply while the fleet is idle-backed off" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(),
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 590_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0},
+        tracker_snapshot_fresh?: true
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~
+             "AGENTS 0/2 (binding: has not polled yet (POLL backed off, next poll in 590s; ceiling: config max_concurrent_agents))"
+
+    refute output =~ "binding: ticket supply"
+  end
+
+  test "status never blames ticket supply when the last candidate fetch failed" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(),
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 1_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 120_000,
+        idle_backoff: %{active?: false, factor: 5.0},
+        tracker_snapshot_fresh?: false
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~ "AGENTS 0/2 (binding: has not polled yet (ceiling: config max_concurrent_agents))"
+    refute output =~ "binding: ticket supply"
+  end
+
+  # Criterion 5 of #2138: `set max-agents` is a session cap and does not
+  # survive a restart, so an unconstrained fleet's AGENTS line must show where
+  # the effective ceiling came from — an operator whose live cap was silently
+  # dropped reads `config` rather than their last command.
+  test "status shows the effective ceiling source when the fleet is unconstrained" do
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    polling = %{
+      checking?: false,
+      next_poll_in_ms: 1_000,
+      poll_interval_ms: 120_000,
+      effective_interval_ms: 120_000,
+      idle_backoff: %{active?: false, factor: 5.0},
+      tracker_snapshot_fresh?: true
+    }
+
+    session_snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(%{max: 2, configured: 16, session_override?: true}),
+      polling: polling
+    }
+
+    session_output =
+      capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, session_snapshot, freshness}) end)
+
+    assert session_output =~ "AGENTS 0/2 (binding: ticket supply; ceiling: session max_concurrent_agents)"
+
+    config_snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(%{max: 16, configured: 16, session_override?: false}),
+      polling: polling
+    }
+
+    config_output =
+      capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, config_snapshot, freshness}) end)
+
+    assert config_output =~ "AGENTS 0/16 (binding: ticket supply; ceiling: config max_concurrent_agents)"
+    refute config_output =~ "ceiling: session"
+  end
+
   test "status surfaces whether the Executor listener is currently listening", %{orchestrator: _pid} do
     previous = Application.get_env(:aiur, :executor_listener_alive_fun)
 
@@ -757,6 +883,33 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
+  end
+
+  test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
+    orphan = %Issue{id: "issue-orphan", identifier: "repo#2076", state: "in-progress", title: "Orphaned claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{orphan.id => orphan}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#2076  idle    Orphaned claim (orphaned claim: no live agent) [waiting=orphaned_claim]"
+    refute output =~ "Orphaned claim (awaiting-dispatch)"
+  end
+
+  test "status names a post-reconciliation in-progress claim as stale, not awaiting-dispatch", %{orchestrator: pid} do
+    stale = %Issue{id: "issue-stale", identifier: "repo#2076b", state: "in-progress", title: "Stale claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | startup_claim_reconciliation_complete?: true, last_polled_issues: %{stale.id => stale}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "Stale claim (stale in-progress claim: no live agent) [waiting=stale_claim]"
+    refute output =~ "Stale claim (awaiting-dispatch)"
+    refute output =~ "Stale claim (orphaned claim"
   end
 
   test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
@@ -1056,7 +1209,7 @@ defmodule Aiur.AgentControlCLITest do
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert fallback_output =~ "AGENTS 0/10 (binding: none)"
+    assert fallback_output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
     refute fallback_output =~ "AGENTS 0/10 (binding: load"
 
     assert fallback_output =~
@@ -1121,6 +1274,13 @@ defmodule Aiur.AgentControlCLITest do
         | max_concurrent_agents: 2,
           effective_concurrent_agents: 2,
           capacity_hold: nil,
+          # A recent successful poll found nothing dispatchable (every row is
+          # paused or unauthorized), so "ticket supply" is the honest binding
+          # here. This requires the fleet NOT to be idle-backed-off: a backed
+          # off / failed-fetch fleet is "has not polled yet", never a claim
+          # about ticket supply (#2138).
+          candidate_snapshot_fresh?: true,
+          idle_poll_backoff: %{active?: false, factor: 5.0},
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
             "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
@@ -1130,7 +1290,7 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "AGENTS 0/2 (binding: ticket supply)"
+    assert output =~ "AGENTS 0/2 (binding: ticket supply; ceiling: config max_concurrent_agents)"
     refute output =~ "AGENTS 0/2 (binding: load"
 
     # The local reading is still reported — just as a local host sample, not as
@@ -1291,10 +1451,87 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: none)"
+    assert output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
     assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
     assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
+    File.touch!(release_path)
+    assert_receive {^holder, {:exit_status, 0}}, 2_000
+  end
+
+  test "status distinguishes a slot held without a command from a busy gate", %{orchestrator: pid} do
+    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-leaked-#{System.unique_integer([:positive])}")
+    lock_dir = BuildGate.lock_dir(gate_dir)
+    previous = Application.get_env(:aiur, :build_gate_dir_override)
+    release_path = Path.join(gate_dir, "holder.release")
+    slot_lock = Path.join(lock_dir, "slot-1.lock")
+    slot_owner = Path.join(gate_dir, "slot-1.owner")
+    queue_path = Path.join(gate_dir, "queue/lease-v2-status")
+    timeout_path = Path.join(gate_dir, "slot-1.hold-timeout")
+
+    # `command_pgid=999999999` is dead: the slot is locked but no command is
+    # running — the #2349 leaked-holder shape.
+    metadata =
+      "version=2\ntoken=status\npid=2\npgid=1\nholder_pid=2\ncommand_pgid=999999999\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 90}\n"
+
+    Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
+    File.mkdir_p!(Path.join(gate_dir, "queue"))
+    File.write!(slot_owner, metadata)
+    File.write!(queue_path, metadata)
+    File.write!(timeout_path, "version=2\ncommand=mix test\nheld_for_seconds=3600\nreason=retained\n")
+
+    bash = System.find_executable("bash") || flunk("bash is required for build-gate status tests")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          exec 8<>"$1"
+          flock 8
+          exec 9<>"$2"
+          flock 9
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-holder",
+          slot_lock,
+          queue_path,
+          release_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :build_gate_dir_override)
+      else
+        Application.put_env(:aiur, :build_gate_dir_override, previous)
+      end
+
+      File.rm_rf!(gate_dir)
+      File.rm_rf!(lock_dir)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      issue = %Issue{id: "issue-idle", identifier: "repo#idle", state: "In Progress", title: "Idle"}
+      %{state | last_polled_issues: %{"issue-idle" => issue}, max_concurrent_agents: 10}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "BUILD GATE 0/2 active, 1 held without a command, 1 queued"
+    assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"mix test\" held="
+    assert output =~ "(command gone)"
+    assert output =~ "BUILD GATE TIMEOUT slot=1 command=\"mix test\" held=1h0m reason=retained"
     File.touch!(release_path)
     assert_receive {^holder, {:exit_status, 0}}, 2_000
   end
@@ -2058,6 +2295,39 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "aiur: resumed #44 (was: paused)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "resume of a duration-capped agent succeeds and clears the pause", %{orchestrator: pid} do
+    # #2329 acceptance: `aiurdev resume <id>` on an agent paused by
+    # `max_agent_duration` succeeds and the ticket leaves `paused`. The
+    # duration marker is owned by the resume control path, so after the worker
+    # acknowledges the resume the reason is cleared and the agent is working.
+    agent = acknowledging_agent("issue-44")
+
+    entry =
+      "issue-44"
+      |> modern_running_entry("repo#44", :paused, agent)
+      |> Map.put(:paused_reason, :max_agent_duration)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => entry},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    output =
+      with_resume_confirm_timeout(3_000, fn ->
+        capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      end)
+
+    assert output =~ "aiur: resumed #44 (was: paused)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+
+    resumed = :sys.get_state(pid).running["issue-44"]
+    assert get_in(resumed, [:control, :status]) == :working
+    refute Map.has_key?(resumed, :paused_reason)
   end
 
   test "resume exits non-zero when one of several targets fails", %{orchestrator: pid} do

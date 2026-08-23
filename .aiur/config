@@ -104,12 +104,8 @@ agent:
     turn_sandbox_policy:
       type: workspaceWrite
       writableRoots:
-        # Was /home/orangekid/code/aiur-workspaces — a stale path for another user,
-        # so no agent workspace was actually writable here. The shared GitHub budget
-        # root was missing entirely, which made every coordinated GitHub operation
-        # fail closed (`github-budget-root-readonly`) and paused agents mid-turn.
-        - /home/everdred/code/aiur-workspaces
-        - /home/everdred/.aiur/github-budget
+        # Optional local extras must already exist and be writable. Aiur derives
+        # the issue workspace and enabled shared GitHub budget root at dispatch.
         - /tmp
       networkAccess: true
 opencode:

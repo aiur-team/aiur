@@ -6,7 +6,7 @@
  * their own timer adapter.
  */
 
-export type StreamDeckMode = "grid" | "cmd" | "logs" | "settings";
+export type StreamDeckMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 export type AgentId = string;
 export type LiveRefreshTimer = unknown;
 
@@ -50,10 +50,12 @@ export interface StreamDeckModeState extends ModeDialState {
  *
  * `prioritize`/`deprioritize` are gone: the orchestrator ranks tickets itself
  * and the key was a second, weaker way to say the same thing. `settings` took
- * its slot, and `send`/`cancel` appear only once there is transcribed text to
- * act on.
+ * its slot, and `commands` opens the Commands page — a stable destination that
+ * is always present, not a conditional button, so its absence can never be
+ * mistaken for "no Commands". `send`/`cancel` appear only once there is
+ * transcribed text to act on.
  */
-export type CommandId = "pause" | "logs" | "mic" | "settings" | "send" | "cancel";
+export type CommandId = "pause" | "logs" | "mic" | "settings" | "commands" | "send" | "cancel";
 
 export interface CommandKey {
   command: CommandId;
@@ -114,9 +116,9 @@ export const commandKeys = (
   { command: "logs", label: "Logs" },
   { command: "mic", label: "Mic" },
   { command: "settings", label: "Settings" },
+  { command: "commands", label: "Commands" },
   hasTranscript ? { command: "send", label: "Send" } : null,
   hasTranscript ? { command: "cancel", label: "Cancel" } : null,
-  null,
   null,
 ];
 
@@ -156,10 +158,21 @@ export const transitionMode = (state: StreamDeckModeState, action: ModeAction): 
     return { state: { ...state, mode: "settings", micHeld: false }, effects: [] };
   }
 
+  // Commands is a leaf of cmd, like settings and logs: the operator arrived
+  // from a focused agent, and going back must return to that agent's commands
+  // rather than dropping the focus they were in the middle of using.
+  if (action.type === "command.press" && action.command === "commands" && state.mode === "cmd") {
+    return { state: { ...state, mode: "commands", micHeld: false }, effects: [] };
+  }
+
   // Settings is a leaf of cmd, not of grid: the operator arrived from a focused
   // agent and going back must return to that agent's commands, not drop the
   // focus they were in the middle of using.
   if (action.type === "back" && state.mode === "settings") {
+    return { state: { ...state, mode: "cmd", micHeld: false }, effects: [] };
+  }
+
+  if (action.type === "back" && state.mode === "commands") {
     return { state: { ...state, mode: "cmd", micHeld: false }, effects: [] };
   }
 

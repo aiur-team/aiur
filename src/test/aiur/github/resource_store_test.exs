@@ -14,6 +14,14 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   end
 
   describe "resource identity" do
+    test "selection snapshots are restart-durable resource identities" do
+      assert ResourceStore.key(:pr_review_threads, "owner", "repo", 77) ==
+               {:pr_review_threads, "owner", "repo", "77"}
+
+      assert ResourceStore.key(:ci_contexts, "owner", "repo", 42) ==
+               {:ci_contexts, "owner", "repo", "42"}
+    end
+
     test "keys are addressed by resource, not by call site" do
       assert ResourceStore.key(:issue_comment, "owner", "repo", 42) ==
                {:issue_comment, "owner", "repo", "42"}
@@ -777,6 +785,51 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert log =~ "processed: true with no version"
       assert ResourceStore.processed?(key, "v1"), "the earlier versioned mark must stand"
       refute ResourceStore.processed?(key, nil)
+    end
+  end
+
+  describe "list_type/2 — enumerating a type's held bodies" do
+    test "lists only the bodies of one type within one repository" do
+      ResourceStore.reset()
+
+      ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 1), %{"number" => 1})
+      ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 2), %{"number" => 2})
+      # Same type, different repo; and same repo, different type — neither may
+      # leak into the answer.
+      ResourceStore.put_resource(ResourceStore.key(:issue, "other", "repo", 3), %{"number" => 3})
+      ResourceStore.put_resource(ResourceStore.key(:issue_labels, "owner", "repo", 2), [%{"name" => "x"}])
+
+      assert ResourceStore.list_type(:issue, "owner/repo")
+             |> Enum.sort_by(&elem(&1, 0)) == [
+               {ResourceStore.key(:issue, "owner", "repo", 1), %{"number" => 1}},
+               {ResourceStore.key(:issue, "owner", "repo", 2), %{"number" => 2}}
+             ]
+    end
+
+    test "an entry holding no body and an expired entry are both omitted" do
+      ResourceStore.reset()
+
+      body_key = ResourceStore.key(:issue, "owner", "repo", 1)
+      ResourceStore.put_resource(body_key, %{"number" => 1})
+      # A validator with no body is legitimate and must not be served here.
+      ResourceStore.put_etag(ResourceStore.key(:issue, "owner", "repo", 2), "W/\"v2\"")
+      # An expired body must be omitted exactly as `fetch/1` omits it. The body's
+      # `fetched_at_ms` is what `fetch/1` judges, so age it past the 72-hour
+      # retention window directly.
+      expired_key = ResourceStore.key(:issue, "owner", "repo", 3)
+
+      :ets.insert(Aiur.GitHub.ResourceStore.Table, {expired_key, %{data: %{"number" => 3}, fetched_at_ms: 0}})
+
+      assert [{^body_key, %{"number" => 1}}] = ResourceStore.list_type(:issue, "owner/repo")
+    end
+
+    test "answers [] for a malformed repo or an unlisted type" do
+      ResourceStore.reset()
+      ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 1), %{"number" => 1})
+
+      assert ResourceStore.list_type(:issue, "owner") == []
+      assert ResourceStore.list_type(:issue, nil) == []
+      assert ResourceStore.list_type(:not_a_type, "owner/repo") == []
     end
   end
 

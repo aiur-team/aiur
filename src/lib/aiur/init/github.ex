@@ -9,6 +9,7 @@ defmodule Aiur.Init.GitHub do
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.Transport
 
@@ -208,7 +209,7 @@ defmodule Aiur.Init.GitHub do
 
   @spec detect_github_login() :: String.t() | nil
   def detect_github_login do
-    case System.cmd("gh", ["api", "user", "--jq", ".login"], stderr_to_stdout: true) do
+    case HostCommand.run(["api", "user", "--jq", ".login"], stderr_to_stdout: true, bot_token: true) do
       {output, 0} ->
         output
         |> String.trim()
@@ -256,7 +257,7 @@ defmodule Aiur.Init.GitHub do
   @doc false
   @spec detect_default_branch(String.t() | nil) :: String.t() | nil
   @spec detect_default_branch(String.t() | nil, (String.t(), [String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
-  def detect_default_branch(repo, command_fun \\ &System.cmd/3)
+  def detect_default_branch(repo, command_fun \\ &host_command/3)
 
   def detect_default_branch(nil, _command_fun), do: nil
 
@@ -274,6 +275,12 @@ defmodule Aiur.Init.GitHub do
   rescue
     _error -> nil
   end
+
+  # The default `command_fun` for `detect_default_branch/2`: `gh` goes through
+  # the budget guard and names the daemon's credential, so the wizard's repo
+  # probe is admitted and recorded like every other call (#2353).
+  defp host_command("gh", args, opts), do: HostCommand.run(args, Keyword.put(opts, :bot_token, true))
+  defp host_command(command, args, opts), do: System.cmd(command, args, opts)
 
   @doc false
   @spec parse_repo(String.t()) :: String.t() | nil

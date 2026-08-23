@@ -263,6 +263,50 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Quota.snapshot(quota).coverage.estimated?
   end
 
+  test "transport errors still attribute estimated GraphQL spend" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query TimedOut { repository { id } }", %{"number" => 1670}), {:error, :fetch_deadline_exceeded})
+    Quota.observe(quota, graphql_request("query Exited { repository { id } }", %{"number" => 1671}), {:error, {:github_request_task_exit, :timeout}})
+
+    assert [
+             %{consumer: "ticket:1670", total: 1, cost: 1, estimated?: true},
+             %{consumer: "ticket:1671", total: 1, cost: 1, estimated?: true}
+           ] = Quota.snapshot(quota).attribution
+  end
+
+  test "a Core transport error retains the API's fixed one-request charge" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), {:error, :fetch_deadline_exceeded})
+
+    assert [%{consumer: "ticket:1670", total: 1, cost: 1, estimated?: false}] = Quota.snapshot(quota).attribution
+  end
+
+  test "a 502 without a reported GraphQL cost is visibly estimated" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query FailedGateway { repository { id } }", %{"number" => 1670}),
+      {:ok, %{status: 502, headers: [], body: %{"message" => "Bad Gateway"}}}
+    )
+
+    assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
+  end
+
+  test "a 200 GraphQL errors body without rateLimit is visibly estimated" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query Rejected { repository { id } }", %{"number" => 1670}),
+      {:ok, %{status: 200, headers: [], body: %{"data" => nil, "errors" => [%{"message" => "rejected"}]}}}
+    )
+
+    assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
+  end
+
   test "preserves process-scoped view attribution in the caller summary" do
     quota = start_quota()
     {:label, previous_label} = Process.info(self(), :label)
@@ -398,6 +442,7 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Map.keys(snapshot.windows) |> Enum.sort() == ["core", "graphql"]
     assert snapshot.windows["core"].remaining == 4200
     assert snapshot.windows["graphql"].remaining == 3900
+    assert snapshot.attribution == []
   end
 
   test "includes recent agent-shell attribution and ignores stale or malformed rows" do
@@ -420,6 +465,26 @@ defmodule Aiur.GitHub.QuotaTest do
              # Rows written before the resource column are still counted, against core.
              %{consumer: "ticket:1672", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}, estimated?: false}
            ] = Quota.snapshot(quota).attribution
+  end
+
+  # The wrapper now appends a credential fingerprint and its own pid to each
+  # agent request row (#2255), so the daemon can attribute a call to the ticket
+  # AND the credential pool AND the exact subprocess. Rows written before the
+  # columns carried them must keep parsing (the existing test above), and rows
+  # carrying them must flow through.
+  test "reads the credential fingerprint and wrapper pid from agent request rows" do
+    now_unix = DateTime.to_unix(@now)
+
+    assert %{consumer: "ticket:1670", resource: "core", token_key: "abc123", pid: 4242} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\tabc123\t4242")
+
+    assert %{consumer: "ticket:1671", resource: "graphql", token_key: nil, pid: nil} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1671\twrite\tgraphql")
+
+    assert %{consumer: "ticket:1670", token_key: nil, pid: nil} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\t\tbad-pid")
+
+    assert Quota.parse_shell_observation("malformed") == nil
   end
 
   # Agent-shell attribution never reached the panel: the log lives under each
@@ -702,7 +767,10 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   defp start_quota(opts \\ []) do
-    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
+    # Request logging is disabled here unless a test opts in; otherwise the
+    # resolved default path would point at this checkout's repo state and every
+    # observe would write a stray file.
+    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil, request_log_path: nil], opts)})
   end
 
   defp eventually(fun, attempts \\ 50)

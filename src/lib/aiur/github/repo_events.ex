@@ -23,6 +23,13 @@ defmodule Aiur.GitHub.RepoEvents do
 
     * `:page` — GitHub events page to fetch, defaulting to 1
     * `:per_page` — events per page, defaulting to 30
+
+  The validator belongs to the page fetched — page 1 unless `:page` says
+  otherwise. The firehose reads page 1 only, and because the feed is
+  newest-first the only question it asks of the validator is "any new
+  events?", which always lands on page 1; older pages are backfilled
+  unconditionally when the watermark is missing, never through this
+  validator (#2330).
   """
   @spec fetch_repo_events(keyword()) ::
           {:ok,
@@ -40,11 +47,16 @@ defmodule Aiur.GitHub.RepoEvents do
       query = URI.encode_query(%{"page" => page, "per_page" => per_page})
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/events?#{query}"
 
+      # #2298 item 4: the events firehose is the one endpoint GitHub serves
+      # conditionally for free, so the validator is already sent here; the
+      # `caller:` makes the repeated conditional reads attributable instead of
+      # billing the endpoint shape.
       case request_fun.(%{
              method: :get,
              url: url,
              token: token,
-             etag: etag
+             etag: etag,
+             caller: "repo_events"
            }) do
         {:ok, %{status: 304, headers: headers}} ->
           {:ok, {:not_modified, Transport.header(headers, "etag") || etag, Transport.poll_interval(headers)}}
