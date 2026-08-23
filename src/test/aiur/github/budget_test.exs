@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.BudgetTest do
   alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-github-budget-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-github-budget")
     File.mkdir_p!(root)
 
     previous = Application.get_env(:aiur, :github_budget_enabled?)
