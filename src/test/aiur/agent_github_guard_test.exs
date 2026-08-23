@@ -1799,10 +1799,13 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{"billable" => true}]} = Jason.decode!(snapshot)
 
     # A second 304 does not re-write the marker (exactly one alert, not
-    # per-request noise): the sentinel proves the guard never rewrote it.
-    File.write!(marker, "sentinel\n")
+    # per-request noise): the sentinel proves the guard never rewrote it. The
+    # reason tag is `reconcile` — this broker acquires fine but cannot
+    # reconcile — so even the second run's successful acquire must NOT clear
+    # it; only a successful reconcile clears a reconcile-reason marker.
+    File.write!(marker, "sentinel\nreconcile\n")
     assert {"ok\n", 0} = run_304.()
-    assert File.read!(marker) == "sentinel\n"
+    assert File.read!(marker) == "sentinel\nreconcile\n"
   end
 
   test "a broker that predates the ledger schema fails open at acquire and raises one alert", context do
@@ -1870,6 +1873,88 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.write!(marker, "sentinel\n")
     assert {"ok\n", 0} = run.()
     assert File.read!(marker) == "sentinel\n"
+  end
+
+  test "a healthy broker that prints to stderr before granting is still admitted", context do
+    # The acquire's 2>&1 merge exists so a stale-broker abort's trigger/stamp
+    # message is visible to budget_stale_abort, but it also merges a HEALTHY
+    # broker's stderr (a Python DeprecationWarning, a wrapper notice, a locale
+    # complaint) into the parse stream. The guard must take the last non-empty
+    # line — the actual grant — not prefix-match the merged stream, or a
+    # working broker's stderr noise would turn admission into a hard 75 with
+    # gh never called (#2307 review).
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = noisy_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+  end
+
+  test "a reconcile failure outside the legacy three-literal allowlist still alerts", context do
+    # Regression guard for the widened structural detection (#2307 review): the
+    # old allowlist matched only "invalid choice: 'reconcile'", the stamp, and
+    # the trigger message, and silently swallowed everything else — so a broker
+    # that could not reconcile for any OTHER reason (broken install, unreadable
+    # ledger, missing module) stayed invisible. Every non-transient reconcile
+    # failure must surface one alert; only a transient SQLite lock is exempt.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = broken_reconcile_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    assert output =~ "is stale for this ledger"
+    assert File.exists?(marker)
+  end
+
+  test "a successful acquire clears a stale-broker marker left by an earlier structural failure", context do
+    # The marker previously cleared only via the 304/reconcile path, so a
+    # refreshed workspace that never happened to see a 304 kept alerting
+    # forever. A successful acquire is proof the current broker is in charge
+    # and must clear it too (#2307 review). The reason tag is `acquire` — the
+    # broker could not even be admitted before — which is exactly the marker a
+    # successful grant is allowed to clear (a `reconcile`-reason marker is only
+    # cleared by a successful reconcile, so it never re-alerts per 304).
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+    File.mkdir_p!(Path.dirname(marker))
+    File.write!(marker, "sentinel\nacquire\n")
+
+    # A 200 (not 304) so the reconcile path is never consulted: only the
+    # acquire-side clear may remove the marker.
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    refute File.exists?(marker)
   end
 
   test "auth token remains local when a configured budget cannot start", context do
@@ -3424,6 +3509,51 @@ defmodule Aiur.AgentGitHubGuardTest do
         sys.stderr.write("usage: aiur-github-budget [-h] command ...\\n")
         sys.stderr.write("aiur-github-budget: error: argument command: invalid choice: 'reconcile' (choose from 'acquire', 'release', 'renew', 'hold')\\n")
         sys.exit(2)
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # A HEALTHY broker that warns on stderr before delegating — a Python
+  # DeprecationWarning, a wrapper notice, a locale complaint. The acquire
+  # response is still a real grant on stdout; the guard must take the last
+  # non-empty line rather than prefix-match the merged 2>&1 stream, or this
+  # broker's noise would turn admission into a hard 75 (#2307 review).
+  defp noisy_broker_path(context) do
+    path = Path.join(context.workspace, "noisy-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import subprocess
+    import sys
+    sys.stderr.write("DeprecationWarning: aiur-github-budget: consider --legacy-broker\\n")
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # A broker that delegates every command to the real broker except `reconcile`,
+  # where it fails with a message the pre-#2307 three-literal allowlist would
+  # NOT have matched (a Python runtime error — broken install, unreadable
+  # ledger — not argparse's "invalid choice" and not the ledger's own
+  # trigger/stamp strings). This pins the widened structural detection: any
+  # non-transient reconcile failure must surface one fleet alert, or a silently
+  # broken broker would go undetected (#2307 review).
+  defp broken_reconcile_broker_path(context) do
+    path = Path.join(context.workspace, "broken-reconcile-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import subprocess
+    import sys
+    if sys.argv[1] == "reconcile":
+        raise RuntimeError("aiur-github-budget: reconcile failed: ledger unreadable: permission denied")
     sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
     """)
 

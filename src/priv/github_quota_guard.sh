@@ -1705,7 +1705,7 @@ budget_acquire() {
       # as the stale broker behaved before the ledger was versioned — and write
       # the marker once so the daemon raises a fleet alert.
       if budget_stale_abort "$budget_result"; then
-        budget_mark_stale_broker
+        budget_mark_stale_broker acquire
         return 0
       fi
       printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
@@ -1713,11 +1713,27 @@ budget_acquire() {
     fi
     unset budget_ignore_flag budget_cache_flags
 
+    # The broker's response is the last non-empty line of its output. Stderr is
+    # merged into $budget_result above (2>&1) so a stale-broker abort's trigger
+    # or stamp message reaches budget_stale_abort, but a HEALTHY broker's stderr
+    # — a Python DeprecationWarning, a wrapper notice, a locale complaint —
+    # must not corrupt the protocol parse. The response is single-line, so take
+    # the last non-empty line and match on that, not on the merged stream
+    # (#2307 review: the 2>&1 change had re-opened an outage on healthy brokers
+    # whose prefix-matched grant was buried under stderr noise).
+    budget_result=$(printf '%s\n' "$budget_result" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' | tail -n 1)
+
     case "$budget_result" in
       "granted "*)
         budget_lease=${budget_result#granted }
         if valid_budget_lease "$budget_lease"; then
-          # Admitted, and therefore about to spend. The window between this
+          # Admitted, and therefore about to spend. A grant is proof this
+          # workspace's broker is current for the ledger, so any stale-broker
+          # marker left by an earlier structural failure is cleared here as well
+          # as by the reconcile path — a refreshed workspace that never happens
+          # to see a 304 must not keep alerting (#2307 review).
+          budget_clear_stale_broker acquire
+          # The window between this
           # call's own lookup and this grant is exactly where a simultaneous
           # reader's answer lands, and it is not covered by the claim: a caller
           # arriving after the leader released has no claim to wait behind and
@@ -1801,12 +1817,39 @@ budget_stale_abort() {
 # failure in that period (while the marker still stands) stays quiet so a fleet
 # of 304s does not become per-request noise (#2307). The daemon's quota reader
 # turns the marker into one fleet alert per workspace and rearms it when the
-# marker disappears (a refreshed broker self-heals).
+# marker disappears (a refreshed broker self-heals). Line 1 is the consumer
+# label the daemon reads; line 2 records WHY the marker was written so the
+# guard can decide which recovery signal may clear it (#2307 review).
 budget_mark_stale_broker() {
+  budget_stale_reason=$1
   if [ -n "$agent_quota_dir" ] && [ ! -f "$agent_quota_dir/broker-reconcile-stale" ]; then
-    printf '%s\n' "$budget_consumer_label" > "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
+    printf '%s\n%s\n' "$budget_consumer_label" "$budget_stale_reason" > "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
     printf '%s\n' 'aiur: GitHub budget broker is stale for this ledger (missing reconcile subcommand, or predates the ledger schema/version stamp); budget accounting for this workspace is disabled until the current broker is installed' >&2
   fi
+  unset budget_stale_reason
+}
+
+# Which recovery signal may clear the marker depends on why it was written.
+#   acquire   marker: the broker could not even be admitted to the ledger. The
+#             first successful grant is proof the workspace now runs a broker
+#             the daemon's release accepts, so it clears the marker even if
+#             the workspace never happens to see a 304 (#2307 review).
+#   reconcile marker: the broker IS admitted but cannot reconcile 304s. A later
+#             grant does not prove reconcile works, so clearing on every grant
+#             would re-alert on the next 304 — exactly the per-request noise
+#             #2307 forbids. Only a successful reconcile clears it.
+#   unknown  (a marker written before this rework, single line): conservative —
+#             cleared only by a successful reconcile, same as before.
+budget_clear_stale_broker() {
+  budget_stale_signal=$1
+  [ -n "$agent_quota_dir" ] && [ -f "$agent_quota_dir/broker-reconcile-stale" ] || { unset budget_stale_signal; return 0; }
+  budget_marker_reason=$(sed -n '2p' "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || printf '')
+  case "$budget_stale_signal:$budget_marker_reason" in
+    reconcile:*|acquire:acquire)
+      rm -f "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
+      ;;
+  esac
+  unset budget_stale_signal budget_marker_reason
 }
 
 # A reconcile failure is structural — broker predates the `reconcile`
@@ -1835,11 +1878,9 @@ budget_reconcile_response() {
     if budget_reconcile_output=$(budget_command reconcile --lease-id "$budget_lease" --status 304 2>&1); then
       # Reconcile succeeded: a refreshed broker has recovered, so clear any
       # stale-broker marker left by an earlier structural failure.
-      if [ -n "$agent_quota_dir" ] && [ -f "$agent_quota_dir/broker-reconcile-stale" ]; then
-        rm -f "$agent_quota_dir/broker-reconcile-stale" 2>/dev/null || true
-      fi
+      budget_clear_stale_broker reconcile
     elif ! budget_reconcile_transient "$budget_reconcile_output"; then
-      budget_mark_stale_broker
+      budget_mark_stale_broker reconcile
     fi
   fi
   unset budget_reconcile_output
