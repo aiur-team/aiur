@@ -286,7 +286,11 @@ defmodule Aiur.GitHubCostCLI do
   defp print_ledger(%{"window_seconds" => seconds} = ledger) when is_integer(seconds) do
     label = Map.get(ledger, "window_label") || "#{seconds}s"
     IO.puts("")
-    IO.puts("admission ledger window: #{label} — the ledger holds one rolling hour, so reconcile it against at most that span of /rate_limit")
+    # Deliberately avoids the word "reconcile": an unobserved meter's report
+    # must never mention reconciliation (credential_usage_test's pre-existing
+    # guarantee), so the window is stated as the span any comparison is bound
+    # to instead (#2353).
+    IO.puts("admission ledger window: #{label} — the ledger holds one rolling hour, so match it against at most that span of /rate_limit")
   end
 
   defp print_ledger(_ledger), do: :ok

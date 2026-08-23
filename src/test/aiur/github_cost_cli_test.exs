@@ -276,7 +276,7 @@ defmodule Aiur.GitHubCostCLITest do
     # The statement sits on the same screen as the reconciliation totals, so
     # nobody reconciles a longer interval against a one-hour ledger.
     assert output =~ "admission ledger window: 1 hour"
-    assert output =~ "reconcile it against at most that span of /rate_limit"
+    assert output =~ "match it against at most that span of /rate_limit"
   end
 
   defp snapshot do
