@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State}
+  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State, TrackerHealth}
 
   test "set_global_pause distinguishes a timeout from an unavailable server" do
     server = spawn(fn -> Process.sleep(:infinity) end)
@@ -156,6 +156,56 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       applied_state = apply_worker_resume(resumed_state, held, held_rid)
       refute Map.has_key?(applied_state.running[held], :paused_reason)
       assert applied_state.running[individual].paused_reason == :operator_pause
+    end
+
+    # Criterion 1 of #2138: lifting a global pause after a long deliberate pause
+    # (the fleet idle-backed-off at the widened ceiling, next poll many minutes
+    # away) must cancel that timer and schedule a prompt poll, so dispatch
+    # happens within one base interval rather than one backed-off interval. The
+    # immediate `schedule_tick(0)` on unpause is pre-existing
+    # `Lifecycle.request_refresh_state` behaviour; the property this PR actually
+    # adds is that once the woken cycle observes dispatchable work, the NEXT
+    # schedule stays at the base interval instead of re-widening to the backed-
+    # off ceiling it sat at through the pause.
+    test "unpausing a fleet with waiting work keeps the post-wake schedule at the base interval" do
+      issue = %Issue{
+        id: "issue-1",
+        identifier: "owner/repo#1",
+        title: "Work",
+        state: "todo",
+        labels: ["agent:todo"]
+      }
+
+      state =
+        base_state(
+          globally_paused: true,
+          poll_interval_ms: 120_000,
+          poll_cycles_completed: 10,
+          idle_poll_backoff: %{active?: true, factor: 5.0},
+          effective_poll_interval_ms: 600_000,
+          next_poll_due_at_ms: System.monotonic_time(:millisecond) + 590_000
+        )
+
+      {:reply, {:ok, %{globally_paused: false}}, resumed_state} =
+        GlobalPause.set_global_pause_call(state, false)
+
+      refute resumed_state.globally_paused
+      assert is_reference(resumed_state.tick_timer_ref)
+      assert resumed_state.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+
+      # The woken cycle just fetched a board with a claimable ticket: the fleet
+      # is no longer idle-backed-off, so the next schedule is the base interval,
+      # not the 600s ceiling it was sitting at before the unpause (#2138).
+      polled_state = %{
+        resumed_state
+        | running: %{},
+          poll_cycles_completed: 11,
+          last_polled_issues: %{"issue-1" => issue},
+          candidate_snapshot_fresh?: true
+      }
+
+      assert %{delay_ms: 120_000, idle_backoff?: false} =
+               TrackerHealth.poll_schedule(polled_state, idle_widen_factor: 5.0)
     end
 
     test "preserves a tracker pause added while an agent is globally held" do

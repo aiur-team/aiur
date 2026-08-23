@@ -21,6 +21,11 @@ These three skills, together with the complete pinned Compound Engineering set, 
 
 Executor skills are deliberately excluded from this set: an issue worker has no reason to run Aiur itself.
 
+The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
+credential failure. A budget-held agent requests a typed, expiring pause and is
+resumed automatically; it does not raise a credential attention for a healthy
+token.
+
 ## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.
