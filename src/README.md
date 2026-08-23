@@ -483,6 +483,10 @@ jittered admission starts. A primary exhaustion holds its resource globally;
 a secondary-limit response or `Retry-After` holds every consumer of that token,
 including separately started daemons and agent `gh` commands.
 
+The broker is an optimization, not a dependency: on a box without `python3` the
+broker cannot run, so metering fails open to unmetered requests (announced once
+at boot) rather than failing every GitHub request.
+
 The defaults are deliberately conservative and can be tuned per workflow:
 
 ```yaml
@@ -510,8 +514,13 @@ workspaces receive the wrapper automatically.
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
 credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32
-random bearer-safe bytes. Keep the dashboard on loopback/private tunneling or
-terminate HTTPS before using the credential remotely.
+random bearer-safe bytes. Generate one with `openssl rand -base64 32`, then put
+`AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the
+repository `.env` (project-local); an already-exported value wins, followed by
+the global file and then the repository file. A present non-empty short,
+whitespace-surrounded, or non-bearer-safe value aborts startup, while an absent
+or empty value leaves the API disabled. Keep the dashboard on loopback/private
+tunneling or terminate HTTPS before using the credential remotely.
 
 Supervisor answers and revisions are disabled until their Decision kinds are
 explicitly delegated:

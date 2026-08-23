@@ -348,12 +348,21 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     {~r{/repos/[^/?#]+/[^/?#]+/events(?:$|\?)}, :repo_events},
     # Rows 8/9 — repo-wide comment streams (ETag-conditional; refused).
     {~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/comments}, :comment_stream},
-    # Row 10 — pull request changed files (refused: single-valued, no validator).
+    # Row 10 — pull request changed files (refused: the URL carries no head sha,
+    # so a push changes the response while the cache key does not; nothing is
+    # cached that the URL cannot pin to an immutable object — #2332).
     {~r{/repos/[^/?#]+/[^/?#]+/pulls/\d+/files}, :pull_files},
     # Tail — repository configuration (cacheable): /contents, /branches, /rulesets.
     {~r{/repos/[^/?#]+/[^/?#]+/(?:contents|branches|rulesets)}, :repo_config},
     # Numbered comment reads (cacheable): /issues/{n}/comments, /pulls/{n}/comments.
     {~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, :comments},
+    # A bare commit read (`/commits/:sha`) is immutable per sha — a commit's
+    # content cannot change while the sha is the same — so a body cache can
+    # never serve a moved verdict (#2332). The sha is matched exactly (7–40 hex
+    # digits), never a branch ref: a read by ref returns the head commit and is
+    # highly mutable. The verdict shapes (`/commits/:sha/status`, check runs,
+    # reviews, merge gating) are refused earlier, on content, by `@unsafe_rest`.
+    {~r{/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}$}, :comments},
     # The anchored CIReadiness config forms, including /actions/workflows.
     {@repo_config_rest, :repo_config}
   ]

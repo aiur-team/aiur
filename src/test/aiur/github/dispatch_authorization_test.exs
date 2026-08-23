@@ -21,6 +21,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     denied = authorize_with_events(issue(creator_login: "trusted"), events, ["trusted"])
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :denied
   end
 
   # The bot login has to be in `allowed_users` for the fleet to work at all, so
@@ -50,6 +51,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       authorize_with_events(issue(state: "in-progress"), events, ["trusted"], bot_account: "aiur-bot")
 
     assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
   end
 
   test "an Aiur state transition carries nothing forward when no trusted actor ever triaged" do
@@ -62,6 +64,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       authorize_with_events(issue(state: "in-progress"), events, ["trusted"], bot_account: "aiur-bot")
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :denied
   end
 
   # Carry-forward is deliberately limited to Aiur's own identity. "Latest
@@ -407,7 +410,14 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert_receive :unconditional
   end
 
-  test "retries an ambiguous timeline fetch on the next poll" do
+  # #2409: a rate-limited provenance fetch is a *resource* failure, not a
+  # provenance finding. The ticket is not dispatched this cycle (fail-closed)
+  # but is marked `:deferred` — no ambiguous-attention alert, and no verdict
+  # that could be read as revoked — and the next poll re-verifies from a fresh
+  # timeline. Before this change a transient throttle was reported as "label
+  # provenance could not be verified" and the deny could kill a running agent
+  # and exhaust its retry budget.
+  test "a rate-limited timeline fetch defers, then re-authorizes on the next poll" do
     counter = start_supervised!({Agent, fn -> 0 end})
 
     request_fun = fn _request ->
@@ -420,13 +430,19 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     :ok = AgentPubSub.subscribe_agent("42")
     issue = issue()
 
-    refute DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-             allowed_users: ["trusted"],
-             token: "test-token",
-             request_fun: request_fun
-           ).dispatch_authorized?
+    deferred =
+      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
 
-    assert_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", needs_attention: true}}, 500
+    refute deferred.dispatch_authorized?
+    assert deferred.dispatch_authorization == :deferred
+
+    # A deferred authorization is not a provenance ambiguity, so it raises no
+    # `ambiguous` needs-attention alert.
+    refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", needs_attention: true}}, 100
 
     assert DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
              allowed_users: ["trusted"],
@@ -435,6 +451,48 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
            ).dispatch_authorized?
 
     assert Agent.get(counter, & &1) == 2
+  end
+
+  # #2409 acceptance: a simulated budget hold during dispatch authorization
+  # leaves the ticket dispatchable once the hold lifts, with no operator
+  # action. This is the incident's exact transport shape —
+  # `{:aiur, :locally_held, %{reason: :shared_budget, resource: "core"}}` —
+  # which now *defers* instead of denying: no provenance alert, and the next
+  # poll re-verifies to `:authorized`.
+  test "a local budget hold on the timeline fetch defers, not denies, then re-authorizes" do
+    counter = start_supervised!({Agent, fn -> 0 end})
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+
+    request_fun = fn _request ->
+      case Agent.get_and_update(counter, fn number -> {number, number + 1} end) do
+        0 -> {:error, {:aiur, :locally_held, hold}}
+        1 -> {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+      end
+    end
+
+    :ok = AgentPubSub.subscribe_agent("42")
+    issue = issue()
+
+    deferred =
+      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    refute deferred.dispatch_authorized?
+    assert deferred.dispatch_authorization == :deferred
+    refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous", needs_attention: true}}, 100
+
+    authorized =
+      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    assert authorized.dispatch_authorized?
+    assert authorized.dispatch_authorization == :authorized
   end
 
   test "fails closed when the timeline contains no matching trigger-label event" do
@@ -465,7 +523,11 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     refute denied.dispatch_authorized?
   end
 
-  test "reports a truncated 200 timeline body as :timeline_truncated, not an HTTP status error" do
+  # A truncated timeline body is an inability to fetch/parse, not a provenance
+  # verdict: it *defers* (fail-closed, never revoked) instead of emitting an
+  # ambiguous attention alert, and the underlying cause is the truncation, not
+  # a self-contradictory `{:github, :http, %{status: 200}}` (#1454, #2409).
+  test "a truncated 200 timeline body defers with :timeline_truncated, not an HTTP status error" do
     :ok = AgentPubSub.subscribe_agent("42")
 
     denied =
@@ -480,17 +542,14 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :deferred
 
-    assert_receive {:alert,
+    refute_receive {:alert,
                     %{
                       name: "github.dispatch_authorization.ambiguous",
-                      reason: reason,
                       needs_attention: true
                     }},
                    500
-
-    assert reason =~ ":timeline_truncated"
-    refute reason =~ "{:github, :http, %{status: 200}}"
   end
 
   test "authorizes from a full per_page=100 timeline page without truncation" do

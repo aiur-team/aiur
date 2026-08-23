@@ -39,6 +39,7 @@ import type { PagerModel } from "./pagerSegment.js";
 import { providerPanelModel, WIDE_PANEL_THRESHOLD, type ProviderPanelModel, type ProviderPanelRow } from "./providerPanel.js";
 import type { SummaryModel } from "./summarySegment.js";
 import type { VoicePanelData } from "../voicePanel.js";
+import type { CommandsPanelModel } from "../commands.js";
 
 /** The four touch-strip modes. */
 export type StripMode = "grid" | "cmd" | "logs" | "settings";
@@ -80,6 +81,13 @@ export type SegmentContent =
       readonly deviceCount: number;
       readonly pageLabel: string;
     }
+  /**
+   * The Commands page readout: a full-width Command question with its reading,
+   * an OPEN/ANSWERED status, and the green APPROVE state when an answer is
+   * armed. The approval label must be unmistakable — this is the only strip
+   * that commits a durable operator decision.
+   */
+  | { readonly kind: "commands"; readonly model: CommandsPanelModel }
   /** A panel with nothing to show; painted as bare background, not a label. */
   | { readonly kind: "blank" };
 
@@ -120,6 +128,16 @@ export interface SettingsData {
   readonly voice?: VoicePanelData;
 }
 
+/** Data the `commands` mode needs: the Commands readout and the dictation voice. */
+export interface CommandsData {
+  readonly panel: CommandsPanelModel;
+  /**
+   * The voice readout, when the host has a voice session. Shown only while the
+   * dictation is held or the buffer still holds text — see {@link showsVoice}.
+   */
+  readonly voice?: VoicePanelData;
+}
+
 /** Data the `logs` mode needs: the visible transcript rows and the scroll hints. */
 export interface LogsData {
   /**
@@ -139,7 +157,8 @@ export type StripData =
   | { readonly mode: "grid"; readonly data: GridData }
   | { readonly mode: "cmd"; readonly data: CmdData }
   | { readonly mode: "logs"; readonly data: LogsData }
-  | { readonly mode: "settings"; readonly data: SettingsData };
+  | { readonly mode: "settings"; readonly data: SettingsData }
+  | { readonly mode: "commands"; readonly data: CommandsData };
 
 const BLANK: SegmentContent = { kind: "blank" };
 
@@ -221,6 +240,18 @@ export function composeStrip(input: StripData): readonly StripPanel[] {
             voice !== undefined && voice.holding
               ? { kind: "voice", data: voice }
               : { kind: "settings", selectedLabel, deviceCount, pageLabel },
+        },
+      ];
+    }
+    case "commands": {
+      const { panel, voice } = input.data;
+      // The dictation readout stays up after the release while the buffer still
+      // holds text, so the operator can read what was heard before choosing
+      // Approve or Cancel — the same rule as the cmd surface's Send/Cancel.
+      return [
+        {
+          region: STRIP_REGION,
+          content: showsVoice(voice) ? { kind: "voice", data: voice } : { kind: "commands", model: panel },
         },
       ];
     }
