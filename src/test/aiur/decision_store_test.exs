@@ -2995,7 +2995,14 @@ defmodule Aiur.DecisionStoreTest do
       assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
 
       topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+      # A structurally-unreachable target is recorded but never raised as
+      # needs-attention (#2419): the alert carries the failure, not a demand an
+      # operator can act on — an agent that no longer exists cannot act.
+      assert [%{"topic" => ^topic, "needs_attention" => false}] =
+               AlertFeed.list(roots: [], log_roots: [log_root])
+
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
 
       refute_receive {:target_attempt, _, _}, 100
 
@@ -3082,7 +3089,13 @@ defmodule Aiur.DecisionStoreTest do
     end
 
     test "boot reconciliation tolerates failed delivery without an attempt", %{dir: dir} do
-      pid = start_store!(dir, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
+      pid =
+        start_store!(dir,
+          dispatch_delay_ms: 5_000,
+          reconcile_delay_ms: 5_000,
+          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+        )
+
       assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-empty-failure"))
       payload = %{"idempotency_key" => "empty-failure-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, _result} = answer(pid, decision.decision_id, payload)
@@ -3283,11 +3296,112 @@ defmodule Aiur.DecisionStoreTest do
       assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
 
       GenServer.stop(pid)
-      pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+
+      pid2 =
+        start_store!(dir,
+          dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
+          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+        )
+
       assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
 
       assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
       _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+    end
+
+    test "target-agent-unavailable failure is recorded but never raised, including after a listener restart",
+         %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "absent-agent-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-target"))
+      payload = %{"idempotency_key" => "absent-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+
+      topic =
+        "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      # Recorded in the feed, but never as needs-attention: the target agent is
+      # structurally absent, so re-raising would demand action nothing can take.
+      assert [%{"topic" => ^topic, "needs_attention" => false}] =
+               AlertFeed.list(roots: [], log_roots: [log_root])
+
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+
+      # A listener restart must not re-raise it either: the failure class is
+      # non-actionable, so the boot reprojection never even consults the
+      # terminal resolver for it, and the feed stays empty.
+      GenServer.stop(pid)
+      _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+    end
+
+    test "terminal-ticket delivery failure is resolved, not re-raised, on listener restart", %{dir: dir} do
+      parent = self()
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "terminal-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:queue_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 94}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-terminal"))
+      payload = %{"idempotency_key" => "terminal-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+      assert_receive {:queue_attempt, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      item = correlated_queue_item(decision, action, attempt_id, 94)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+      topic =
+        "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "send_failed"
+      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+      GenServer.stop(pid)
+
+      # Ticket #979 is terminal: the restarted listener must clear the stale
+      # delivery alert instead of re-raising it — the feed must end up empty,
+      # not merely smaller (a count assertion would pass on today's code with
+      # one fewer entry, which is the non-constraining shape this test rejects).
+      _pid2 =
+        start_store!(dir,
+          dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
+          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new(["979"])} end
+        )
+
+      wait_for_feed_empty(log_root)
+
       assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
     end
 
@@ -3808,6 +3922,20 @@ defmodule Aiur.DecisionStoreTest do
     else
       Process.sleep(10)
       wait_for_dispatch_count(pid, expected, attempts - 1)
+    end
+  end
+
+  defp wait_for_feed_empty(log_root, attempts \\ 200)
+
+  defp wait_for_feed_empty(_log_root, 0),
+    do: flunk("needs-attention feed did not empty after listener restart")
+
+  defp wait_for_feed_empty(log_root, attempts) do
+    if AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == [] do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_feed_empty(log_root, attempts - 1)
     end
   end
 
