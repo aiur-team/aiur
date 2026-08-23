@@ -261,6 +261,87 @@ defmodule Aiur.Opencode.ServerTest do
 
       refute Process.alive?(server)
     end
+
+    test "a trapped-exit message from a dying linked process is swallowed, not a crash" do
+      # trap_exit is on so terminate/2 runs on owner death; that also delivers
+      # an `{:EXIT, _, _}` message for every dying linked non-parent process
+      # (the opencode child's port closing, another linked process). Without a
+      # clause the GenServer default handler raises FunctionClauseError on the
+      # first trapped exit, turning a clean shutdown into a crash report
+      # (#2340 review). The server must swallow it and keep serving. (An
+      # `{:EXIT, parent, _}` is intercepted by gen_server itself, so the
+      # message must carry a non-parent pid to reach handle_info/2.)
+      root = prepare_serve_root()
+      on_exit(root.cleanup)
+
+      %{server: server, os_pid: os_pid} = boot_serve(root)
+
+      other = spawn(fn -> :ok end)
+      send(server, {:EXIT, other, :some_reason})
+
+      # The call is queued behind the EXIT message, so it only succeeds if the
+      # handler swallowed the EXIT first.
+      assert {:ok, _base_url, ^os_pid} = Server.await_ready(server)
+      assert Process.alive?(server)
+
+      :ok = GenServer.stop(server)
+    end
+
+    test "reap escalates past a SIGTERM-ignoring serve and targets its process group" do
+      # #2340 review, M3: reverting the escalation (grace → SIGKILL) or
+      # narrowing the group kill to a single pid both survive the other tests.
+      # This pins both by booting a stub `opencode` that ignores SIGTERM and
+      # spawns a child in its group: (a) the reap must escalate to SIGKILL
+      # after @terminate_grace_ms, and (b) it must signal the *group* — the
+      # stub's child dies too — not just the leader pid. The stub is a
+      # Port.open spawn, so it is a session/group leader (os_pid == pgid),
+      # exactly the shape the pgid guard must confirm before group-killing.
+      root = prepare_serve_root()
+      on_exit(root.cleanup)
+
+      child_pid_file = Path.join(root.root, "stubborn-child.pid")
+
+      stub_dir = Path.join(root.root, "stub-bin")
+      File.mkdir_p!(stub_dir)
+      stub = Path.join(stub_dir, "opencode")
+
+      File.write!(stub, """
+      #!/usr/bin/env bash
+      trap '' TERM
+      sleep 30 &
+      echo $! > #{child_pid_file}
+      echo "stub up"
+      wait
+      """)
+
+      File.chmod!(stub, 0o755)
+
+      original_path = System.get_env("PATH")
+      System.put_env("PATH", stub_dir <> ":" <> original_path)
+      on_exit(fn -> System.put_env("PATH", original_path) end)
+
+      {:ok, server} =
+        Server.start_link(%{identifier: "_stubborn-#{System.unique_integer([:positive])}", workspace: root.workspace})
+
+      {:os_pid, os_pid} = Port.info(:sys.get_state(server).port_ref, :os_pid)
+
+      assert eventually(fn -> File.regular?(child_pid_file) end), "stub child never started"
+      child_pid = child_pid_file |> File.read!() |> String.trim() |> String.to_integer()
+      assert process_alive?(child_pid)
+      assert os_pid == process_group_id(os_pid)
+
+      :ok = GenServer.stop(server)
+
+      # SIGKILL escalation: the stub ignores TERM, so a grace-only reap leaves
+      # it running. Poll well past @terminate_grace_ms (1s).
+      assert eventually(fn -> not process_alive?(os_pid) end, 100),
+             "SIGTERM-ignoring stub pid #{inspect(os_pid)} was never escalated to SIGKILL"
+
+      # Group targeting: a single-pid reap would kill the leader but leave its
+      # child (same pgid) orphaned.
+      assert eventually(fn -> not process_alive?(child_pid) end, 100),
+             "stub child pid #{inspect(child_pid)} survived a group reap"
+    end
   end
 
   defp prepare_serve_root do
@@ -320,11 +401,25 @@ defmodule Aiur.Opencode.ServerTest do
   end
 
   defp process_alive?(pid) when is_integer(pid) and pid > 0 do
-    {_output, status} = System.cmd("kill", ["-0", to_string(pid)], stderr_to_stdout: true)
-    status == 0
+    {output, status} = System.cmd("ps", ["-o", "stat=", "-p", to_string(pid)], stderr_to_stdout: true)
+    # `kill -0` also succeeds for a zombie (terminated but not yet reaped), so
+    # a kill -0-only liveness check would report a reaped group member as
+    # surviving. ps reports the state directly: gone → non-zero status,
+    # zombie → a stat starting with "Z". Only a non-zombie live process counts
+    # as alive.
+    status == 0 and not String.starts_with?(String.trim(output), "Z")
   end
 
   defp process_alive?(_pid), do: false
+
+  # Same `ps -o pgid=` probe the production pgid guard uses; here it asserts
+  # the Port.open stub is a process-group leader before we rely on group kills.
+  defp process_group_id(pid) when is_integer(pid) and pid > 0 do
+    {output, 0} = System.cmd("ps", ["-o", "pgid=", "-p", Integer.to_string(pid)], stderr_to_stdout: true)
+    output |> String.trim() |> String.to_integer()
+  end
+
+  defp process_group_id(_pid), do: nil
 
   defp eventually(fun, attempts \\ 40)
 

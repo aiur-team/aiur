@@ -130,6 +130,15 @@ defmodule Aiur.Opencode.Server do
   end
 
   @impl true
+  # trap_exit is on (init/1) so terminate/2 runs when the owning process dies
+  # via link teardown; that also delivers `{:EXIT, _, _}` for every dying
+  # linked process/port. The server acts on the port's `:exit_status` message
+  # and its terminate/2, not on EXIT signals, so swallow them — without this
+  # clause the GenServer default handler raises FunctionClauseError on the
+  # first trapped exit, turning a clean `{:shutdown, {:opencode_exit_status, n}}`
+  # stop into a crash report (the same shape Aiur.ProcessReaper already handles).
+  def handle_info({:EXIT, _from, _reason}, state), do: {:noreply, state}
+
   def handle_info({_port, {:exit_status, status}}, state) do
     reason = {:opencode_exit_status, status}
     Enum.each(state.ready_waiters, &GenServer.reply(&1, {:error, reason}))
@@ -204,34 +213,75 @@ defmodule Aiur.Opencode.Server do
   #
   # `bash -c "<single command>"` implicitly execs into the command, so
   # the port's `os_pid` IS the opencode-serve PID (not a bash wrapper
-  # PID). The BEAM's port spawn also makes it a session/process-group
-  # leader (os_pid == pgid), so signalling the group reaches the serve
-  # and any Node tool children it spawned. Send SIGTERM, give it a short
-  # grace to shut down cleanly (it owns a SQLite DB), then SIGKILL —
-  # a fire-and-forget SIGTERM can leave a slow-to-die serve alive long
-  # enough to survive the VM exit and hold a pipe open (#2340).
+  # PID). The BEAM's port spawn makes it a session/process-group leader
+  # (os_pid == pgid) on the platforms we run on, so signalling the group
+  # reaches the serve and any Node tool children it spawned. That is an
+  # empirical property, not a guarantee: the pgid is verified before any
+  # group signal (see reap_opencode_children/1) so a mismatched group is
+  # never signalled. Send SIGTERM, give it a short grace to shut down
+  # cleanly (it owns a SQLite DB), then SIGKILL — a fire-and-forget
+  # SIGTERM can leave a slow-to-die serve alive long enough to survive
+  # the VM exit and hold a pipe open (#2340).
   @terminate_grace_ms 1_000
 
   defp reap_opencode_children(os_pid) when is_integer(os_pid) and os_pid > 0 do
-    reap_process_group(os_pid)
+    # Only signal the process group when the port child is actually its
+    # leader (os_pid == pgid); `kill -<signal> -pid` on a *mismatched* group
+    # would signal an inherited group that is not ours (the PauseContainment /
+    # #2387 hazard). Confirmed leader → group reap; anything else (unknown or
+    # mismatched pgid) narrows to the single pid rather than widening.
+    if os_pid == process_group_id(os_pid) do
+      reap_process_group(os_pid)
+    else
+      reap_single_pid(os_pid)
+    end
   end
 
   defp reap_opencode_children(_os_pid), do: :ok
 
   defp reap_process_group(pid) do
-    _ = System.cmd("kill", ["-TERM", "-#{pid}"], stderr_to_stdout: true)
+    _ = System.cmd("kill", ["-TERM", "--", "-#{pid}"], stderr_to_stdout: true)
 
-    if wait_for_process_exit(pid, @terminate_grace_ms) do
-      :ok
-    else
-      # Group signals are the norm (os_pid == pgid), but fall back to the
-      # single pid so a platform or setup where the port is not a group leader
-      # still cannot leave the serve behind.
-      _ = System.cmd("kill", ["-KILL", "-#{pid}"], stderr_to_stdout: true)
-      _ = System.cmd("kill", ["-KILL", to_string(pid)], stderr_to_stdout: true)
-      :ok
+    unless wait_for_process_exit(pid, @terminate_grace_ms) do
+      _ = System.cmd("kill", ["-KILL", "--", "-#{pid}"], stderr_to_stdout: true)
     end
+
+    :ok
   end
+
+  # Narrowed fallback for a port child that is not a process-group leader:
+  # signal only the pid itself, never a group we have not verified as ours.
+  defp reap_single_pid(pid) do
+    _ = System.cmd("kill", ["-TERM", Integer.to_string(pid)], stderr_to_stdout: true)
+
+    unless wait_for_process_exit(pid, @terminate_grace_ms) do
+      _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+    end
+
+    :ok
+  end
+
+  # The pgid of `pid`, or nil when it cannot be determined (process gone, no
+  # `ps` on the host, ps error). nil never equals a positive os_pid, so the
+  # caller falls back to the single-pid path — fail closed, never signal an
+  # unverified group. Same `ps -o pgid=` probe the build-gate suite already
+  # uses to read a live process group.
+  defp process_group_id(pid) when is_integer(pid) and pid > 0 do
+    case System.cmd("ps", ["-o", "pgid=", "-p", Integer.to_string(pid)], stderr_to_stdout: true) do
+      {output, 0} ->
+        case Integer.parse(String.trim(output)) do
+          {pgid, _rest} -> pgid
+          :error -> nil
+        end
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp process_group_id(_pid), do: nil
 
   defp wait_for_process_exit(pid, remaining_ms) when remaining_ms <= 0, do: not process_alive?(pid)
 
