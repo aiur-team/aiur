@@ -23,6 +23,13 @@ defmodule Aiur.GitHub.RepoEvents do
 
     * `:page` — GitHub events page to fetch, defaulting to 1
     * `:per_page` — events per page, defaulting to 30
+
+  The validator belongs to the page fetched — page 1 unless `:page` says
+  otherwise. The firehose reads page 1 only, and because the feed is
+  newest-first the only question it asks of the validator is "any new
+  events?", which always lands on page 1; older pages are backfilled
+  unconditionally when the watermark is missing, never through this
+  validator (#2330).
   """
   @spec fetch_repo_events(keyword()) ::
           {:ok,
