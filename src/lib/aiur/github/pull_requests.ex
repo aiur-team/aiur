@@ -448,6 +448,45 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
+  Fetches a pull request's head ref with `If-None-Match` support.
+
+  The list-only `fetch_pull_request_head_ref/2` contract is unchanged. This
+  variant exists so a `/pulls/{n}` read can be a `304` in steady state — a
+  request GitHub does not bill against the primary REST limit — instead of the
+  unconditional re-read that made row 5 of #2352 pure waste.
+  """
+  @spec fetch_pull_request_head_ref_conditional(String.t() | integer(), keyword()) ::
+          {:ok, String.t(), String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_head_ref_conditional(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      etag = Keyword.get(opts, :etag)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+      request = %{method: :get, url: url, token: token}
+      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+      request = Transport.put_caller(request, opts)
+
+      case request_fun.(request) do
+        {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}} = response} when is_binary(ref) ->
+          {:ok, ref, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: 200}} ->
+          {:error, :head_ref_missing}
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  @doc """
   Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
   for PR-anchored routing of watched/commanded PR comments.
 
@@ -471,6 +510,55 @@ defmodule Aiur.GitHub.PullRequests do
 
         {:ok, %{status: 404}} ->
           {:ok, nil}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  @doc """
+  Fetches the OPEN pull request numbered `pr_number` with `If-None-Match`
+  support.
+
+  The list-only `fetch_open_pull_request/2` contract is unchanged for callers
+  that need a fresh answer. This variant exists because the `/pulls/{n}` read
+  was the one row of #2352 with **no validator at all** — unconditional, so
+  every repeat was pure waste rather than a cheap revalidation. `Client`
+  routes through it under `ResourceFetch`, so a read GitHub confirms unchanged
+  answers `304` — a request it does not bill against the primary REST limit —
+  instead of a full-price re-read.
+
+  A `304` against the held validator reuses the held pull request, exactly the
+  page-one contract the other conditional reads trust. A `404` (the number is a
+  plain issue) or a closed/merged PR carries no validator and answers
+  `{:ok, nil, nil}` / `{:ok, nil, etag}` respectively, matching the `{:ok, nil}`
+  signal `fetch_open_pull_request/2` already uses for the non-PR fallthrough.
+  """
+  @spec fetch_open_pull_request_conditional(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_request_conditional(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      etag = Keyword.get(opts, :etag)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+      request = %{method: :get, url: url, token: token}
+      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+      request = Transport.put_caller(request, opts)
+
+      case request_fun.(request) do
+        {:ok, %{status: 200, body: %{} = pr} = response} ->
+          {:ok, open_pull_request_or_nil(pr), Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: 404}} ->
+          {:ok, nil, nil}
 
         {:ok, %{status: _status} = response} ->
           {:error, Errors.github_status_error(response)}

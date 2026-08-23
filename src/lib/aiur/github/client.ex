@@ -266,10 +266,49 @@ defmodule Aiur.GitHub.Client do
   def fetch_pull_request_head_ref(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_head_ref(pr_number, opts)
 
+  @spec fetch_pull_request_head_ref_conditional(String.t() | integer(), keyword()) ::
+          {:ok, String.t(), String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_head_ref_conditional(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_head_ref_conditional(pr_number, opts)
+
   @spec fetch_open_pull_request(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
-  def fetch_open_pull_request(pr_number, opts \\ []),
-    do: PullRequests.fetch_open_pull_request(pr_number, opts)
+  def fetch_open_pull_request(pr_number, opts \\ []) do
+    fetch_open_pull_request_stored(pr_number, opts)
+  end
+
+  # Row 5 of #2352: the `/pulls/{n}` read was unconditional, with no validator
+  # at all, so every repeat was pure waste rather than a cheap revalidation.
+  # Routing it through `ResourceFetch` under the `:pull_request` key makes it a
+  # conditional revalidate — a `304` GitHub does not bill — in steady state,
+  # while the read cache's `:pull` TTL absorbs the repeat reads that fall inside
+  # one window. The strict tolerance keeps the routing decision (PR-anchored vs
+  # legacy, takeover snapshots) fresh: the store is never read for the answer,
+  # upstream is always asked with `If-None-Match`, and an unchanged PR costs a
+  # `304`.
+  defp fetch_open_pull_request_stored(pr_number, opts) do
+    key = ResourceStore.key_for_repo(:pull_request, repo_full_name(opts), pr_number)
+
+    fetcher = fn fetch_opts ->
+      PullRequests.fetch_open_pull_request_conditional(
+        pr_number,
+        Keyword.merge(opts,
+          etag: Keyword.get(fetch_opts, :etag),
+          caller: "open_pull_request"
+        )
+      )
+    end
+
+    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "open pull request") do
+      {:ok, pull_request, _meta} -> {:ok, pull_request}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec fetch_open_pull_request_conditional(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_request_conditional(pr_number, opts \\ []),
+    do: PullRequests.fetch_open_pull_request_conditional(pr_number, opts)
 
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
