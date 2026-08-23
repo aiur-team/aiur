@@ -135,42 +135,13 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp stranded_ticket?(%State{} = state, %Issue{id: issue_id} = issue) do
     cond do
-      Map.has_key?(state.running, issue_id) ->
+      owned_or_scheduled?(state, issue_id) ->
         false
 
-      MapSet.member?(state.claimed, issue_id) ->
+      legitimately_unowned?(issue) ->
         false
 
-      Map.has_key?(state.retry_attempts, issue_id) ->
-        false
-
-      Map.has_key?(state.auto_resume, issue_id) ->
-        false
-
-      Issue.paused?(issue) ->
-        false
-
-      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) ->
-        false
-
-      external_wait_state?(issue.state) ->
-        false
-
-      DispatchPolicy.normalize_issue_state(issue.state) == "todo" ->
-        false
-
-      # A released claim with no recovery scheduled is the strand label checks
-      # cannot see: a valid state label, no owner, nothing scheduled to give it
-      # one (#2361). A dispatch latch or thrash hold on the same ticket still
-      # leaves the released claim unresolved, so re-queueing remains correct.
-      Map.has_key?(state.released_claims, issue_id) ->
-        true
-
-      # An open ticket with no derivable state at all (zero state labels) is
-      # invisible to dispatch and has no legitimate wait reason. F2's zero-label
-      # heal normally restores it earlier in the poll; this is the sweep's own
-      # fallback so the invariant holds even if that write fails.
-      DispatchPolicy.normalize_issue_state(issue.state) == "" ->
+      stranded_by_claim_or_labels?(state, issue) ->
         true
 
       true ->
@@ -179,6 +150,39 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp stranded_ticket?(_state, _issue), do: false
+
+  # A live owner, an in-flight claim, a pending retry, or a scheduled transient
+  # resume means the ticket has someone (or something) responsible for it, so a
+  # missing live agent is not a strand.
+  defp owned_or_scheduled?(%State{} = state, issue_id) do
+    Map.has_key?(state.running, issue_id) or
+      MapSet.member?(state.claimed, issue_id) or
+      Map.has_key?(state.retry_attempts, issue_id) or
+      Map.has_key?(state.auto_resume, issue_id)
+  end
+
+  # States where an open ticket is deliberately unowned need no claim: operator
+  # pause, a dependency or capacity wait, an external wait (CI/review/error), or
+  # a `todo` ticket waiting for a free slot.
+  defp legitimately_unowned?(%Issue{} = issue) do
+    Issue.paused?(issue) or
+      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) or
+      external_wait_state?(issue.state) or
+      DispatchPolicy.normalize_issue_state(issue.state) == "todo"
+  end
+
+  # The two strand shapes label checks cannot see. A released claim with no
+  # recovery scheduled is a valid state label, no owner, and nothing scheduled
+  # to give it one (#2361); a dispatch latch or thrash hold on the same ticket
+  # still leaves the released claim unresolved, so re-queueing remains correct.
+  # An open ticket with no derivable state at all (zero state labels) is
+  # invisible to dispatch and has no legitimate wait reason; F2's zero-label
+  # heal normally restores it earlier in the poll, and this is the sweep's own
+  # fallback so the invariant holds even if that write fails.
+  defp stranded_by_claim_or_labels?(%State{} = state, %Issue{} = issue) do
+    Map.has_key?(state.released_claims, issue.id) or
+      DispatchPolicy.normalize_issue_state(issue.state) == ""
+  end
 
   # A stranded ticket's owner evaporated without a scheduled replacement, so the
   # work is stale: restore it to a dispatchable state (its last known running
