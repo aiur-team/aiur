@@ -283,6 +283,13 @@ defmodule Aiur.AgentControlCLITest do
           poll_frozen: true,
           candidate_snapshot_fresh?: true,
           snapshot_ready?: false,
+          # Pin the pre-reconciliation baseline. The "orphaned claim" case below
+          # asserts the `[waiting=orphaned_claim]` classification, which only
+          # holds before startup reconciliation completes; the shared
+          # Orchestrator may already have finished it (or a prior test may have
+          # set it), so leaking the live value made that case order-dependent
+          # (#2387 CI flake). The "stale claim" case pins `true` explicitly.
+          startup_claim_reconciliation_complete?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}

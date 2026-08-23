@@ -65,7 +65,11 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # unresponsive, duration cap) are ruled out: tracker state first, then the
   # pause-reason-specific labels, then the `:paused`/`:sleeping` work state.
   defp running_reason(attrs, tracker_reason) do
-    if tracker_reason != :active, do: tracker_reason, else: running_state_reason(attrs)
+    if tracker_reason != :active do
+      tracker_reason
+    else
+      running_state_reason(attrs)
+    end
   end
 
   defp duration_capped_pause?(%{pause_reason: :max_agent_duration, work_state: :paused}),

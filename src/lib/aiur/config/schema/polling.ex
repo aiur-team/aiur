@@ -41,7 +41,11 @@ defmodule Aiur.Config.Schema.Polling do
     # freshness knob: a delivery that arrives is already free and instant, and
     # shortening this makes nothing fresher. 15 minutes bounds the worst-case
     # blind spot to well inside an operator's attention span while costing a
-    # fraction of what the three per-source cadences it replaced did.
+    # fraction of what the three per-source cadences it replaced did. The two
+    # view-only sources it sweeps are reconciled only while a LiveView is
+    # watching them, so an idle daemon with no dashboard session open makes no
+    # requests from those two; PackStatus stays reconciled on every tick
+    # regardless of viewers (it writes the authoritative status.json projection).
     field(:view_state_sweep_seconds, :integer, default: 900)
     # Per-class poll cadences, in seconds, for the state classes Aiur polls.
     # Each entry names a poll class (`dispatch`, `ci`, `review`, `planning`,
