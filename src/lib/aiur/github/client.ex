@@ -132,8 +132,10 @@ defmodule Aiur.GitHub.Client do
   def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
     do: DependenciesApi.remove_dependency(blocked_issue_number, blocker_issue_id, opts)
 
-  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def fetch_issue_raw(issue_number, opts \\ []), do: Issues.fetch_issue_raw(issue_number, opts)
+  @spec fetch_issue_raw_conditional(integer() | String.t(), keyword()) ::
+          {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
+  def fetch_issue_raw_conditional(issue_number, opts \\ []),
+    do: Issues.fetch_issue_raw_conditional(issue_number, opts)
 
   @spec fetch_team_members(String.t(), String.t(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
@@ -148,11 +150,6 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_pull_request_review_comments(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_review_comments(pr_number, opts)
-
-  @spec fetch_pull_request_reviews(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_pull_request_reviews(pr_number, opts \\ []),
-    do: PullRequests.fetch_pull_request_reviews(pr_number, opts)
 
   @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -244,14 +241,6 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_recent_repo_issue_comments_conditional(keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_recent_repo_issue_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_issue_comments_conditional(opts)
-
-  @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_issue_comments(issue_number, opts \\ []) do
-    CycleFetchCache.fetch({:issue_comments, to_string(issue_number), comment_cursor_key(opts)}, fn ->
-      Comments.fetch_issue_comments(issue_number, opts)
-    end)
-  end
 
   @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
