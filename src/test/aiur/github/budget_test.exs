@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.BudgetTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
@@ -144,6 +146,35 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
+  test "a box without python3 fails open to :bypass so requests stay unmetered (#2376)", %{root: root} do
+    # No explicit `:python` (equivalent to `System.find_executable("python3")`
+    # returning nil on a stock box): the broker cannot run, so `acquire/2` must
+    # fail open to unmetered operation rather than erroring every request.
+    opts = [state_dir: root, enabled?: true, python: nil]
+
+    assert :bypass = Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "warn_metering_unavailable/0 logs once, clearly, when python3 is absent", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: nil)
+      end)
+
+    assert log =~ "budget metering is disabled"
+    assert log =~ "python3 was not found"
+    assert log =~ "run unmetered"
+  end
+
+  test "warn_metering_unavailable/0 stays silent when the broker can run", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: "python3")
+      end)
+
+    assert log == ""
+  end
+
   test "lease duration can outlive the broker command timeout" do
     assert %{lease_ttl_ms: 25_000} =
              Budget.guard_settings(timeout_ms: 1_500, lease_timeout_ms: 10_000)
@@ -258,6 +289,39 @@ defmodule Aiur.GitHub.BudgetTest do
              )
   end
 
+  test "a typed shared hold preserves resource and absolute reset", %{root: root} do
+    fake_python = Path.join(root, "typed-hold-broker")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared graphql #{reset_at_ms}'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:hold, %{reason: :shared_budget, resource: "graphql", reset_at: reset_at}} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+
+    assert DateTime.to_unix(reset_at, :millisecond) == reset_at_ms
+  end
+
+  test "malformed typed shared holds are broker failures", %{root: root} do
+    fake_python = Path.join(root, "malformed-typed-hold-broker")
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared admin never'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:error, :github_budget_broker_unavailable} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+  end
+
   test "an exhausted successful response shares the resource named by GitHub", %{root: root} do
     opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
     core = request("shared-token", "/repos/owner/repo/issues/1477")
@@ -309,6 +373,38 @@ defmodule Aiur.GitHub.BudgetTest do
     refute key =~ "secret"
     assert Budget.endpoint_family(request("token", "/repos/owner/repo/issues/1477/comments")) == "issues"
     assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
+  end
+
+  test "a daemon /rate_limit poll is recorded non-billable with its own family", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:primary:aiur-daemon[bot]")]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/rate_limit"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # GitHub meters `/rate_limit` at zero quota, so the ledger must not report
+    # it as spend: family `rate_limit` (not `rest`), resource `none` (not a
+    # pool), billable false (#2353).
+    assert %{admissions: [%{endpoint_family: "rate_limit", resource: "none", billable: false}]} =
+             Budget.snapshot("token", opts)
+
+    # And the pool usage the acceptance reconciles against never counts it.
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 0
+    assert actor.graphql.used == 0
+    assert actor.search.used == 0
+  end
+
+  test "a billable core call stays billable in the ledger", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert %{admissions: [%{endpoint_family: "issues", resource: "core", billable: true}]} =
+             Budget.snapshot("token", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 1
   end
 
   test "resolves the broker from the installed application private directory" do

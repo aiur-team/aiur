@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.Budget do
   """
 
   alias Aiur.{Alerts, Config}
-  alias Aiur.GitHub.{CredentialHeadroom, GraphQLErrors, Transport}
+  alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger
 
@@ -53,6 +53,29 @@ defmodule Aiur.GitHub.Budget do
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
     Keyword.get(opts, :enabled?, Application.get_env(:aiur, :github_budget_enabled?, true))
+  end
+
+  @doc """
+  Logs, once at boot, that GitHub budget metering is disabled because the
+  broker cannot run (python3 not found on the box).
+
+  Metering is an optimization: `acquire/2` and `command/3` both fail open to
+  `:bypass` when the broker is unavailable, so the daemon keeps running
+  unmetered. This notice is the "says so once, clearly" counterpart to that
+  fail-open behaviour (#2376). A no-op when metering is enabled, the broker is
+  runnable, or an explicit `:python` is configured.
+  """
+  @spec warn_metering_unavailable(keyword()) :: :ok
+  def warn_metering_unavailable(opts \\ []) do
+    if enabled?(opts) and is_nil(python_executable(opts)) do
+      Logger.warning(
+        "aiur_boot phase=budget_metering_disabled reason=python3_not_found " <>
+          "GitHub budget metering is disabled because python3 was not found on this box; " <>
+          "GitHub requests run unmetered. Install python3 to enable the budget broker."
+      )
+    end
+
+    :ok
   end
 
   @spec token_key(String.t()) :: String.t()
@@ -122,9 +145,18 @@ defmodule Aiur.GitHub.Budget do
   def acquire(request, opts \\ []) do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
-         key when is_binary(key) <- token_key(token),
-         python when is_binary(python) <- python_executable(opts) do
-      do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+         key when is_binary(key) <- token_key(token) do
+      case python_executable(opts) do
+        python when is_binary(python) ->
+          do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+
+        nil ->
+          # No python3 on the box, so the broker cannot run at all. Fail open to
+          # unmetered operation exactly like `command/3` does: a budget broker is
+          # an optimization, and its absence must degrade to unmetered requests,
+          # never to a dead daemon (#2376).
+          :bypass
+      end
     else
       false -> :bypass
       _unavailable -> {:error, :github_budget_broker_unavailable}
@@ -213,21 +245,11 @@ defmodule Aiur.GitHub.Budget do
   end
 
   @spec endpoint_family(map()) :: String.t()
-  def endpoint_family(%{url: url}) when is_binary(url) do
-    case URI.parse(url).path do
-      "/graphql" -> "graphql"
-      "/repos/" <> path -> path |> String.split("/", trim: true) |> Enum.at(2, "rest")
-      _path -> "rest"
-    end
-  end
-
+  def endpoint_family(%{url: url}) when is_binary(url), do: EndpointPolicy.endpoint_family(url)
   def endpoint_family(_request), do: "rest"
 
   @spec request_resource(map()) :: String.t()
-  def request_resource(%{url: url}) when is_binary(url) do
-    if URI.parse(url).path == "/graphql", do: "graphql", else: "core"
-  end
-
+  def request_resource(%{url: url}) when is_binary(url), do: EndpointPolicy.resource(url)
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
@@ -240,11 +262,33 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "wait actor " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :actor_budget)
 
+      {:ok, "hold shared " <> metadata} ->
+        shared_hold(request, key, python, opts, deadline_at, metadata)
+
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
+    end
+  end
+
+  defp shared_hold(request, key, python, opts, deadline_at, metadata) do
+    with [resource, reset_at_ms] <- String.split(String.trim(metadata), " ", parts: 2),
+         true <- resource in ["core", "graphql"],
+         {reset_at_ms, ""} when reset_at_ms > 0 <- Integer.parse(reset_at_ms),
+         {:ok, reset_at} <- DateTime.from_unix(reset_at_ms, :millisecond),
+         true <- reset_at_ms > System.system_time(:millisecond) do
+      delay_ms = reset_at_ms - System.system_time(:millisecond)
+
+      if System.monotonic_time(:millisecond) + delay_ms >= deadline_at do
+        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
+      else
+        Process.sleep(max(delay_ms, @retry_floor_ms))
+        do_acquire(request, key, python, opts, deadline_at)
+      end
+    else
+      _invalid -> {:error, :github_budget_broker_unavailable}
     end
   end
 
@@ -320,6 +364,13 @@ defmodule Aiur.GitHub.Budget do
   defp acquire_args(request, opts) do
     settings = settings(opts)
     {core_limit, graphql_limit, search_limit} = actor_limits(consumer_identity(opts), settings)
+    family = endpoint_family(request)
+
+    # Endpoints GitHub does not meter (e.g. `/rate_limit`) are admitted for
+    # ordering but recorded non-billable, so the ledger never reports them as
+    # spend — the same decision `Quota` reaches through the shared
+    # `EndpointPolicy` table (#2353).
+    billable_args = if EndpointPolicy.billable_for(family), do: [], else: ["--billable", "0"]
 
     [
       "acquire",
@@ -330,7 +381,7 @@ defmodule Aiur.GitHub.Budget do
       "--consumer-label",
       consumer_identity(opts),
       "--endpoint-family",
-      endpoint_family(request),
+      family,
       "--max-inflight",
       Integer.to_string(settings.max_inflight),
       "--max-inflight-per-endpoint",
@@ -347,7 +398,7 @@ defmodule Aiur.GitHub.Budget do
       Integer.to_string(graphql_limit),
       "--search-limit",
       Integer.to_string(search_limit)
-    ]
+    ] ++ billable_args
   end
 
   # The daemon and each agent workspace are separate actors with separate hourly
@@ -676,7 +727,16 @@ defmodule Aiur.GitHub.Budget do
     %{
       cooldown_until_ms: cooldown,
       inflight: inflight,
-      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], resource: &1["resource"], admitted_at_ms: &1["admitted_at_ms"]})
+      admissions:
+        Enum.map(
+          admissions,
+          &%{
+            endpoint_family: &1["endpoint_family"],
+            resource: &1["resource"],
+            admitted_at_ms: &1["admitted_at_ms"],
+            billable: &1["billable"]
+          }
+        )
     }
   end
 

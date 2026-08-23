@@ -23,6 +23,8 @@ defmodule Aiur.BuildGate do
           required(:active) => non_neg_integer(),
           required(:queued) => non_neg_integer(),
           optional(:holders) => [holder()],
+          optional(:timeouts) => [timeout_record()],
+          optional(:retain_seconds) => non_neg_integer(),
           optional(:degraded?) => boolean(),
           optional(:issues) => [map()]
         }
@@ -34,10 +36,19 @@ defmodule Aiur.BuildGate do
           required(:pgid) => pos_integer() | nil,
           required(:holder_pid) => pos_integer() | nil,
           required(:command_pgid) => pos_integer() | nil,
+          required(:command_alive?) => boolean() | nil,
           required(:phase) => String.t() | nil,
           required(:command) => String.t() | nil,
           required(:started_at) => pos_integer() | nil,
           required(:held_for_seconds) => non_neg_integer() | nil
+        }
+
+  @type timeout_record :: %{
+          required(:slot) => pos_integer() | nil,
+          required(:command) => String.t() | nil,
+          required(:held_for_seconds) => non_neg_integer() | nil,
+          required(:reason) => String.t() | nil,
+          required(:path) => Path.t()
         }
 
   @spec shell_env(keyword()) :: [{String.t(), String.t()}]
@@ -45,6 +56,8 @@ defmodule Aiur.BuildGate do
     slots = Keyword.get_lazy(opts, :slots, &Config.max_concurrent_builds/0)
     stagger_seconds = Keyword.get_lazy(opts, :stagger_seconds, &Config.build_start_stagger_seconds/0)
     min_free_memory_mb = Keyword.get_lazy(opts, :min_free_memory_mb, &Config.min_free_memory_mb/0)
+    max_hold_seconds = Keyword.get_lazy(opts, :max_hold_seconds, &Config.build_gate_max_hold_seconds/0)
+    retain_seconds = Keyword.get_lazy(opts, :retain_seconds, &Config.build_gate_retain_seconds/0)
 
     if enabled?(slots: slots, stagger_seconds: stagger_seconds, min_free_memory_mb: min_free_memory_mb) do
       gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
@@ -62,7 +75,9 @@ defmodule Aiur.BuildGate do
         {"AIUR_BUILD_GATE_LOCK_DIR", lock_dir},
         {"AIUR_BUILD_GATE_SLOTS", Integer.to_string(slots)},
         {"AIUR_BUILD_START_STAGGER_SECONDS", Integer.to_string(stagger_seconds)},
-        {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Keyword.get(opts, :timeout_seconds, @default_timeout_seconds))}
+        {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Keyword.get(opts, :timeout_seconds, @default_timeout_seconds))},
+        {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(max_hold_seconds)},
+        {"AIUR_BUILD_GATE_RETAIN_SECONDS", Integer.to_string(retain_seconds)}
       ] ++ memory_env(min_free_memory_mb)
     else
       []
@@ -140,12 +155,19 @@ defmodule Aiur.BuildGate do
 
     if enabled?(slots: capacity, stagger_seconds: stagger_seconds, min_free_memory_mb: min_free_memory_mb) do
       gate_dir = Keyword.get(opts, :gate_dir, gate_dir())
+      retain_seconds = Keyword.get_lazy(opts, :retain_seconds, &Config.build_gate_retain_seconds/0)
 
-      if linux_lock_strategy?(opts) do
-        linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
-      else
-        pid_status(gate_dir, capacity)
-      end
+      result =
+        if linux_lock_strategy?(opts) do
+          linux_status(gate_dir, Keyword.get(opts, :lock_dir, lock_dir(gate_dir)), capacity)
+        else
+          pid_status(gate_dir, capacity)
+        end
+
+      # The effective post-command retain window is part of the status surface
+      # so the gate's throughput trade is measurable at runtime, not inferred
+      # from `fuser` (#2398).
+      Map.put(result, :retain_seconds, retain_seconds)
     else
       %{enabled?: false, capacity: 0, active: 0, queued: 0, holders: []}
     end
@@ -188,7 +210,7 @@ defmodule Aiur.BuildGate do
       issues = legacy_issues(gate_dir) ++ slot_issues ++ queue_issues ++ phase_issues
 
       base
-      |> Map.merge(%{active: active, queued: queued, holders: slot_holders ++ queue_holders})
+      |> Map.merge(%{active: active, queued: queued, holders: slot_holders ++ queue_holders, timeouts: linux_hold_timeouts(gate_dir)})
       |> degraded(issues)
     else
       nil -> degraded(base, [status_issue(:flock_unavailable, gate_dir)])
@@ -347,6 +369,7 @@ defmodule Aiur.BuildGate do
     now = System.os_time(:second)
     started_at = int_field(fields, "started_at")
     held_for_seconds = if is_integer(started_at) and started_at > 0 and now >= started_at, do: now - started_at, else: nil
+    command_pgid = int_field(fields, "command_pgid")
 
     %{
       kind: kind,
@@ -354,11 +377,72 @@ defmodule Aiur.BuildGate do
       pid: int_field(fields, "pid"),
       pgid: int_field(fields, "pgid"),
       holder_pid: int_field(fields, "holder_pid"),
-      command_pgid: int_field(fields, "command_pgid"),
+      command_pgid: command_pgid,
+      # A slot whose command process group is gone is "held, command gone" —
+      # a leaked holder waiting on reparented daemons, not a running build
+      # (#2349). nil means the record cannot tell (no command_pgid).
+      command_alive?: command_alive?(command_pgid),
       phase: Map.get(fields, "phase"),
       command: Map.get(fields, "command"),
       started_at: started_at,
       held_for_seconds: held_for_seconds
+    }
+  end
+
+  defp command_alive?(command_pgid) when is_integer(command_pgid) and command_pgid > 0,
+    do: process_group_alive?(command_pgid)
+
+  defp command_alive?(_command_pgid), do: nil
+
+  # Durable `slot-N.hold-timeout` markers the detached lease holder writes when
+  # it self-releases at the absolute max-hold cap (#2349). Reported on the
+  # status surface and consumed by BuildGateHoldMonitor to raise a
+  # needs-attention alert naming the command, so the alert survives the race
+  # between the holder releasing and the daemon's next poll.
+  defp linux_hold_timeouts(gate_dir) do
+    case File.ls(gate_dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.filter(&String.ends_with?(&1, ".hold-timeout"))
+        |> Enum.flat_map(&parse_timeout_marker(Path.join(gate_dir, &1)))
+
+      _ ->
+        []
+    end
+  end
+
+  defp parse_timeout_marker(path) do
+    case read_metadata(path) do
+      {:ok, contents} ->
+        case parse_v2_record(contents) do
+          {:ok, fields} -> [timeout_from_fields(fields, path)]
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp timeout_from_fields(fields, path) do
+    slot =
+      case Path.basename(path) do
+        "slot-" <> rest ->
+          case Integer.parse(rest) do
+            {slot, ".hold-timeout"} -> slot
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+
+    %{
+      slot: slot,
+      command: Map.get(fields, "command"),
+      held_for_seconds: int_field(fields, "held_for_seconds"),
+      reason: Map.get(fields, "reason"),
+      path: path
     }
   end
 

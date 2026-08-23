@@ -52,11 +52,36 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
   test "free slots with no queued demand are a supply problem, not a capacity one" do
     capacity = %{@full | occupied: 0, available: 2, queued_demand?: false}
 
-    assert CapacityBinding.binding(capacity) == {:ticket_supply, 0}
+    assert CapacityBinding.binding(capacity, %{tracker_snapshot_fresh?: true}) ==
+             {:ticket_supply, %{ceiling: "config max_concurrent_agents"}}
   end
 
-  test "an unconstrained fleet, and an unreadable capacity map, bind nothing" do
-    assert CapacityBinding.binding(%{@full | occupied: 0, available: 2}) == {:none, nil}
+  # "Ticket supply" is a claim about what the daemon *saw*. A fleet that has not
+  # looked recently enough cannot make it — that false explanation is #2138.
+  test "a fleet that has not polled recently enough may not blame ticket supply" do
+    capacity = %{@full | occupied: 0, available: 2, queued_demand?: false}
+
+    assert CapacityBinding.binding(capacity, %{idle_backoff: %{active?: true}, next_poll_in_ms: 30_000}) ==
+             {:has_not_polled, %{next_poll_in_ms: 30_000, ceiling: "config max_concurrent_agents"}}
+
+    assert CapacityBinding.binding(capacity, %{tracker_snapshot_fresh?: false}) ==
+             {:has_not_polled, %{ceiling: "config max_concurrent_agents"}}
+
+    assert CapacityBinding.short_label({:has_not_polled, %{}}) == "has not polled yet"
+  end
+
+  # A dropped `set max-agents` leaves the fleet running on the config ceiling.
+  # The provenance is what tells the operator their last command is gone.
+  test "an unconstrained fleet names where its effective ceiling came from" do
+    free = %{@full | occupied: 0, available: 2}
+
+    assert CapacityBinding.binding(free) == {:none, %{ceiling: "config max_concurrent_agents"}}
+
+    assert CapacityBinding.binding(%{free | session_override?: true}) ==
+             {:none, %{ceiling: "session max_concurrent_agents"}}
+  end
+
+  test "an unreadable capacity map binds nothing" do
     assert CapacityBinding.binding(%{}) == {:none, nil}
     assert CapacityBinding.short_label({:none, nil}) == nil
   end

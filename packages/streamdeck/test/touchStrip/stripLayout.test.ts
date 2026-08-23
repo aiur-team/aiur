@@ -197,6 +197,46 @@ describe("composeStrip", () => {
     });
   });
 
+  describe("commands mode", () => {
+    const commands = (voiceData?: VoicePanelData) => {
+      const panel = {
+        view: "detail" as const,
+        ticketId: "AIUR-1",
+        activeCount: 0,
+        total: null,
+        page: "",
+        title: "Ship the change?",
+        description: "Merge and deploy now.",
+        status: "OPEN",
+        answerable: true,
+        approving: true,
+        recorded: null,
+      };
+      return composeStrip({ mode: "commands", data: { panel, voice: voiceData } });
+    };
+
+    it("is one full-width panel carrying the Commands readout", () => {
+      const panels = commands();
+      expect(panels).toHaveLength(1);
+      expect(panels[0].region).toMatchObject({ x: 0, y: 0, width: 800, height: 100 });
+      expect(panels[0].content).toMatchObject({ kind: "commands", model: { approving: true } });
+    });
+
+    it("tiles the whole strip", () => {
+      expect(tilesTheStrip(commands())).toBe(true);
+    });
+
+    // The dictation readout stays up after the release while the buffer still
+    // holds text, so the operator can read what was heard before Approve/Cancel.
+    it("shows the voice readout while dictation text is held", () => {
+      expect(commands(voice({ holding: false, text: "hold the ship" }))[0].content).toMatchObject({ kind: "voice" });
+    });
+
+    it("shows the Commands readout when nothing is being dictated", () => {
+      expect(commands(voice({ holding: false, text: "" }))[0].content.kind).toBe("commands");
+    });
+  });
+
   it("logs mode normalises the four independent scroll bounds", () => {
     const [both] = composeStrip({
       mode: "logs",

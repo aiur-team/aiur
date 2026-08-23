@@ -50,6 +50,7 @@ defmodule Aiur.Application do
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
+    Budget.warn_metering_unavailable()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -244,7 +245,9 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.AgentProcessLog,
       Aiur.SaturationSentinel,
+      Aiur.BuildGateHoldMonitor,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},

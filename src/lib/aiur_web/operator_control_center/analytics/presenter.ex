@@ -768,14 +768,18 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   # Every ceiling the daemon reports travels together. Reading only `effective`
   # is what let the page and `aiur status` disagree: the CLI prints the session
   # ceiling, so a page that never mentions it cannot be reconciled with the CLI.
-  defp cap_facts({%{effective: effective} = capacity, staleness})
+  defp cap_facts({%{effective: effective} = capacity, polling, staleness})
        when is_integer(effective) and effective > 0 do
     [
       cap: effective,
       cap_available?: true,
       session_cap: positive_or(Map.get(capacity, :max), effective),
       configured_cap: positive_or(Map.get(capacity, :configured), effective),
-      cap_binding: CapacityBinding.short_label(CapacityBinding.binding(capacity)),
+      # The polling report travels from the same snapshot as the capacity, so
+      # the page cannot blame "ticket supply" in a state where `aiur status`
+      # says "has not polled yet" (#2138). Two surfaces, one classifier, one
+      # answer.
+      cap_binding: CapacityBinding.short_label(CapacityBinding.binding(capacity, polling)),
       cap_staleness: staleness
     ]
   end
@@ -800,11 +804,19 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
 
     case Orchestrator.dashboard_snapshot(orchestrator, timeout) do
-      {:current, %{capacity: %{} = capacity}, _freshness} -> {capacity, nil}
-      {:stale, %{capacity: %{} = capacity}, freshness} -> {capacity, staleness(freshness)}
-      _other -> :unavailable
+      {:current, %{capacity: %{} = capacity} = snapshot, _freshness} ->
+        {capacity, snapshot_polling(snapshot), nil}
+
+      {:stale, %{capacity: %{} = capacity} = snapshot, freshness} ->
+        {capacity, snapshot_polling(snapshot), staleness(freshness)}
+
+      _other ->
+        :unavailable
     end
   end
+
+  defp snapshot_polling(%{polling: %{} = polling}), do: polling
+  defp snapshot_polling(_snapshot), do: %{}
 
   # The two degraded states must not collapse into one message. An aged reading
   # from a live daemon is a cap that may have moved since; a retained reading

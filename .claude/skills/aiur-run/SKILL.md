@@ -733,6 +733,73 @@ tightly-coupled pair) and run them concurrently**, then post the reviews
 yourself. This is the same parallelism the run applies to implementation, applied
 to the lane that gates it.
 
+**Check load before every fan-out, and again before topping up.** Review agents
+run `mix test`; each one is a BEAM plus a compile. They are *not* governed by
+`agent.max_load_average` — that gate holds the Aiur fleet, and nothing holds
+these. On 2026-08-22 a fan-out of eight reviewers alongside eleven fleet agents
+drove a 16-core box to **load 45 against a threshold of 24**, with an 83 five-minute
+average and 31 concurrent BEAMs. The fleet correctly reported `binding: load+cpu
+contention` and stopped dispatching; the reviewers kept going, because nothing
+told them not to.
+
+Read `/proc/loadavg` and `free -g` first. If one-minute load is already near the
+threshold, dispatch fewer and top up as they return rather than launching the
+whole set. Prefer batching several small PRs into one agent over one agent per PR
+when the box is busy — the wall-clock cost of a queued agent is lower than the
+cost of freezing the host the fleet is working on.
+
+**Watch for rework while you review.** Rework lands minutes after a review, and
+`gh pr list` shows `CHANGES_REQUESTED` identically whether the author has
+responded or not. The only way to see it is to compare each PR's last commit
+timestamp against its last review timestamp. Measured on this repo:
+**15 of 20 PRs showing `CHANGES_REQUESTED` had been reworked since the review
+that blocked them, and 12 of those were mergeable with zero failing checks.** The
+queue was not blocked — it was unattended, and three quarters of it was already
+finished work waiting for a second look nobody scheduled.
+
+One asymmetry explains why this only ever accumulates: a branch ruleset with
+`dismiss_stale` dismisses stale **approvals** on push, and nothing dismisses a
+stale **`CHANGES_REQUESTED`**. Worse, the stale block keeps re-routing the ticket
+to `agent:rework`, sending an agent to redo work that is already done. A
+re-review is far cheaper than the first pass: scope it to *"were these named
+blockers fixed?"*, passing the original findings with their file:line, and ask
+for FIXED / NOT FIXED / PARTIAL per blocker rather than a fresh read.
+
+**Give every review subagent its own scratchpad and require worktree isolation
+for mutation testing.** Concurrent review agents on one box share a session
+scratchpad root, and a shared default write path is the failure: two agents
+pick the same obvious worktree name (`wt`, `worktree`, `pr`, `build`), the
+second repoints the first's checkout at a different branch *mid-run*, and the
+first agent's mutation test then runs against a tree that never contained the
+change it just reverted — a confident wrong verdict on a PR. The contamination
+is bidirectional: another agent writing into your correctly-identified worktree
+is indistinguishable from your own tree, so only isolating the write paths
+fixes it. Naming discipline alone never will — each instruction to be unique
+creates a new shared name one level up. Tracked as #2362.
+
+- **Give each subagent a per-agent scratchpad.** Key the scratchpad on the
+  subagent's id, mirroring `tasks/<agentId>.output`, so no two subagents share
+  a default write root. If a shared area is genuinely needed, put it in an
+  explicit `shared/` subdirectory so sharing is a choice, not the default.
+- **Never persist the worktree path in a file.** Shell state does not survive
+  between a subagent's calls, and telling it to remember a unique path in
+  `scratchpad/wt.txt` moves the collision one level up — five agents
+  independently invented the same filename and clobbered each other. Require
+  the agent to recompute the path inline per command (e.g.
+  `scripts/agent-worktree path <n> --unique <agent-component>`) instead of
+  reading a stored value.
+- **Assert the worktree HEAD before every mutation batch.** `git -C <wt>
+  rev-parse HEAD` must equal the intended SHA (`gh pr view <n> --json
+  headRefOid`), and the batch aborts loudly on drift.
+  `scripts/agent-worktree head-check <wt> <sha>` makes this one command and
+  exits non-zero on mismatch. The tree must be clean too: the #2362
+  contamination overwrote a file in place without committing, so HEAD alone
+  proves nothing. Pass `--allow-dirty` only for the batch's own reverts,
+  asserted before the first mutation.
+- **Forbid mutation testing in the live checkout.** A worktree is required,
+  not optional: never `git checkout <sha> -- <files>` inside the Executor's
+  own checkout.
+
 What a review agent needs in its prompt, every time:
 
 - **The established facts it must not re-derive.** Measured numbers, the file:line
