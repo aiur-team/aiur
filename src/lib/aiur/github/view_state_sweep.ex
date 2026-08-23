@@ -15,6 +15,41 @@ defmodule Aiur.GitHub.ViewStateSweep do
   is not a refresh cadence and it must never be tuned as though shortening it
   made anything fresher.
 
+  ## Demand-driven: it refreshes only what somebody is watching
+
+  The three sources are read exclusively by `aiur_web`. Two of them —
+  `Aiur.OpenTicketSource` and `Aiur.BuildOrder.AdHocSource` — are reconciled
+  **only while at least one LiveView session is watching them**. A watching
+  session is a demander, registered when the page subscribes to the source
+  (`OpenTicketSource.subscribe/0` and the Build Order sources' `subscribe/0`,
+  both already called on mount); a monitor releases it when the session dies.
+
+  Two consequences follow from that shape:
+
+    * Opening the page that needs a source renders its held snapshot first, and
+      the first demander also buys one immediate refresh — so a freshly opened
+      page does not wait a full interval for its first fresh read.
+    * With no session open there is no demander, and the sweep refreshes
+      neither of those two sources. An idle daemon with no dashboard session
+      open makes zero requests from either of them, which is the entire reason
+      this gate exists: a 900-second sweep against a 30-second cache TTL is a
+      guaranteed cache miss, so the only honest reason to run it at all is that
+      someone is looking.
+
+  `Aiur.BuildOrder.PackStatus` is the deliberate exception: it reports demanded
+  unconditionally (`demanded?/0` answers `true`), so the sweep reconciles it on
+  every tick whether or not a page is open. It writes the daemon-owned
+  `status.json` projection the planning contract names authoritative, and gating
+  that writer on viewers would change *when a file on disk is written* — a
+  different risk class, kept out of this change. See its moduledoc.
+
+  Because the demander set lives in each source's GenServer, a supervisor
+  restart empties it while the pages watching that source are still open. Every
+  tick therefore asks each running source to re-seed its demanders from its
+  PubSub subscriber presence before deciding whether to reconcile it, so a
+  crash cannot silently strand an open page — recovery just returns on the next
+  tick, as it did before the gate existed.
+
   ## What this is not, yet
 
   Stated plainly because the gap is easy to mistake for a bug: the three sources
@@ -43,8 +78,8 @@ defmodule Aiur.GitHub.ViewStateSweep do
   against GitHub's own `rateLimit { cost }`, each of those reads costs one point,
   so the three together were 1.7 requests per minute for state nobody was
   necessarily looking at. They now hold no timer at all: this process ticks and
-  asks each of them to reconcile, and each one still refreshes on demand through
-  its own `refresh/1`.
+  asks each of them to reconcile only while it is demanded, and each one still
+  refreshes on demand through its own `refresh/1`.
 
   ## Bounding the sweep rather than tightening it
 
@@ -123,18 +158,43 @@ defmodule Aiur.GitHub.ViewStateSweep do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  # A source that is not running is skipped rather than started: the sweep is
-  # recovery for state somebody is holding, and there is nothing to recover for a
-  # source this deployment does not run at all.
+  # A source is refreshed only while it reports demanded, and a source that is
+  # not running is skipped rather than started: the sweep is recovery for state
+  # somebody is holding, and there is nothing to recover for a source this
+  # deployment does not run at all. With no demander the two view-only sources
+  # are skipped too — the recovery is for a page that is open, and an idle
+  # daemon with no dashboard session open costs them nothing. `PackStatus` is
+  # the exception: it answers demanded unconditionally, so it is reconciled on
+  # every tick regardless of viewers (see its moduledoc).
+  #
+  # Every running source is asked to re-seed demand first. A source's demander
+  # set lives in its own GenServer, so a supervisor restart empties it while
+  # the pages that watch it are still alive and still subscribed to its PubSub
+  # topic; re-seeding from subscriber presence restores the demand and, with
+  # it, the reconcile. Without it a single crash would convert the demand gate
+  # into permanent silence for every open page — the exact self-healing the
+  # unconditional pre-gate sweep used to provide (review finding 3).
   defp sweep(state) do
     Enum.filter(state.sources, fn source ->
       if Process.whereis(source) do
-        source.refresh()
-        true
+        source.reseed_demand()
+        refresh_if_demanded(source)
       else
         false
       end
     end)
+  end
+
+  # Kept out of `sweep/1` so the per-source decision stays within Credo's
+  # nesting ceiling; the demand gate is the single `if` that decides whether
+  # the sweep reconciles a running source this tick.
+  defp refresh_if_demanded(source) do
+    if source.demanded?() do
+      source.refresh()
+      true
+    else
+      false
+    end
   end
 
   # Arming cancels first, so this process holds **at most one** timer no matter

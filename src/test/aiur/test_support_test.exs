@@ -63,4 +63,17 @@ defmodule Aiur.TestSupportTest do
 
     :sys.resume(store)
   end
+
+  test "ensure_runtime_children_running restores a stopped branch ref store" do
+    store = Process.whereis(Aiur.Events.BranchRefStore)
+    assert is_pid(store)
+
+    on_exit(fn -> Aiur.TestSupport.ensure_branch_ref_store_running() end)
+
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Events.BranchRefStore)
+    refute Process.whereis(Aiur.Events.BranchRefStore)
+
+    assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
+    assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
+  end
 end

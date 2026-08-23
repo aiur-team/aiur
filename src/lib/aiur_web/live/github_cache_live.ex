@@ -78,12 +78,16 @@ defmodule AiurWeb.GithubCacheLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.GitHub.AgentCacheMetrics
+  alias Aiur.GitHub.BudgetLedger
+  alias Aiur.GitHub.BudgetMap
   alias Aiur.GitHub.CacheHistory
   alias Aiur.GitHub.CacheInspector
   alias Aiur.GitHub.CacheInspector.Events
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.GitHub.QuotaHistory
   alias Aiur.GitHub.QuotaUsage
+  alias Aiur.GitHub.ReadCache
 
   alias AiurWeb.OperatorControlCenter.{
     AwaitingCommands,
@@ -180,7 +184,10 @@ defmodule AiurWeb.GithubCacheLive do
      socket
      |> assign(:quota, quota)
      |> assign(:usage, QuotaUsage.sample(quota))
-     |> assign(:quota_history, quota_history())}
+     |> assign(:read_cache, read_cache_snapshot())
+     |> assign(:quota_history, quota_history())
+     |> assign(:agent_cache_metrics, agent_cache_metrics())
+     |> assign(:budget_map, budget_map_snapshot(socket.assigns.projection, quota))}
   end
 
   def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
@@ -224,8 +231,34 @@ defmodule AiurWeb.GithubCacheLive do
     |> assign(:projection, projection)
     |> assign(:quota, quota)
     |> assign(:usage, QuotaUsage.sample(quota))
+    |> Phoenix.Component.assign_new(:read_cache, &read_cache_snapshot/0)
     |> assign(:history, history())
     |> assign(:quota_history, quota_history())
+    |> assign(:agent_cache_metrics, agent_cache_metrics())
+    |> assign(:budget_map, budget_map_snapshot(projection, quota))
+  end
+
+  defp agent_cache_metrics do
+    provider = Application.get_env(:aiur, :github_agent_cache_metrics_provider, AgentCacheMetrics)
+    provider.snapshot()
+  rescue
+    _unavailable -> %{available?: false, measured?: false}
+  catch
+    :exit, _reason -> %{available?: false, measured?: false}
+  end
+
+  # Cache metrics are observational and independent from quota accounting. The
+  # provider seam keeps an unavailable process distinct from a live cache with
+  # no hits, and lets tests exercise that boundary without depending on the
+  # production cache's ETS state.
+  defp read_cache_snapshot do
+    :aiur
+    |> Application.get_env(:github_read_cache_provider, ReadCache)
+    |> then(& &1.snapshot())
+  rescue
+    _unavailable -> %{available?: false, callers: %{}}
+  catch
+    :exit, _reason -> %{available?: false, callers: %{}}
   end
 
   # The same provider seam `history/0` uses, for the same reason.
@@ -266,6 +299,50 @@ defmodule AiurWeb.GithubCacheLive do
     :exit, _reason -> %{}
   end
 
+  # The budget map is the page's answer to "who is calling, what stands in
+  # front of the call, and which pool pays". Every figure comes from local
+  # state, and every provider is seam-ed the same way the rest of the page is,
+  # so a test can point the quota, read-cache, ledger and headroom sources at
+  # deterministic doubles without a daemon. A source that is unavailable reads
+  # as "not measured" on the page — never as zero. The projection is threaded
+  # in because the page already computed it for the render; re-projecting the
+  # store here would read ETS twice on every page load.
+  defp budget_map_snapshot(projection, quota) do
+    opts = [quota: quota, projection: projection]
+
+    opts =
+      case Application.get_env(:aiur, :github_budget_map_headroom_fun) do
+        fun when is_function(fun, 1) -> Keyword.put(opts, :headroom_fun, fun)
+        _unset -> opts
+      end
+
+    opts =
+      case Application.get_env(:aiur, :github_budget_map_modes_fun) do
+        fun when is_function(fun, 1) -> Keyword.put(opts, :modes_fun, fun)
+        _unset -> opts
+      end
+
+    BudgetMap.snapshot(opts)
+  rescue
+    _unavailable -> empty_budget_map()
+  catch
+    :exit, _reason -> empty_budget_map()
+  end
+
+  defp empty_budget_map do
+    %{
+      captured_at: nil,
+      credentials: [],
+      callers: [],
+      map: [],
+      admissions: BudgetLedger.unavailable(),
+      read_cache: %{available?: false, callers: %{}, refused: %{}, totals: %{}},
+      resource_store: %{available?: false, size: nil, retention_ms: nil, resource_types: [], per_type: []},
+      webhooks: [],
+      agent_cache: %{available?: false, workspaces: [], totals: %{workspaces: 0, hits: 0, misses: 0, stores: 0, refusals: 0, hit_rate: nil}}
+    }
+  end
+
   @impl true
   def render(assigns) do
     matched = matching_entries(assigns)
@@ -303,7 +380,7 @@ defmodule AiurWeb.GithubCacheLive do
           no eviction. It renders what the cache already holds and updates when a writer writes.
         </p>
 
-        <.cost_strip quota={@quota} projection={@projection} />
+        <.cost_strip quota={@quota} projection={@projection} agent_metrics={@agent_cache_metrics} />
 
         <div :if={not @projection.available?} class="ghc-empty" data-role="store-unavailable">
           <strong>No cache store is running yet.</strong>
@@ -317,7 +394,9 @@ defmodule AiurWeb.GithubCacheLive do
 
         <.trends :if={@projection.available? and is_nil(@group)} history={@history} />
 
-        <.usage_layer :if={is_nil(@group)} usage={@usage} quota_history={@quota_history} />
+        <.budget_map_layer :if={is_nil(@group)} budget_map={@budget_map} projection={@projection} />
+
+        <.usage_layer :if={is_nil(@group)} usage={@usage} quota_history={@quota_history} read_cache={@read_cache} />
 
         <.group_layer
           :if={@projection.available? and not is_nil(@group) and is_nil(@entry_identity)}
@@ -360,6 +439,7 @@ defmodule AiurWeb.GithubCacheLive do
       |> assign(:observed_calls, CacheInspector.observed_calls(assigns.quota))
       |> assign(:writers, CacheInspector.writes_by_writer(assigns.projection))
       |> assign(:windows, Map.get(assigns.quota, :windows, %{}))
+      |> assign(:agent_rate, agent_rate(assigns.agent_metrics))
 
     ~H"""
     <div class="ghc-cost" aria-label="Cache cost">
@@ -375,6 +455,16 @@ defmodule AiurWeb.GithubCacheLive do
         <span class="ghc-tile-value">{budget_value(window)}</span>
         <span class="ghc-tile-label">{resource} remaining / limit</span>
         <span class="ghc-tile-note">resets {value(Map.get(window, :reset_at))}</span>
+      </div>
+
+      <div
+        class="ghc-tile ghc-tile-wide"
+        data-role="agent-cache-hit-rate"
+        data-value={@agent_rate.value}
+      >
+        <span class="ghc-tile-value">{@agent_rate.display}</span>
+        <span class="ghc-tile-label">Agent gh exact-shape hit rate</span>
+        <span class="ghc-tile-note">{@agent_rate.note}</span>
       </div>
 
       <div class="ghc-tile" data-role="entry-count">
@@ -506,7 +596,7 @@ defmodule AiurWeb.GithubCacheLive do
   # surface for the question. Two wrong diagnoses were made in one night against
   # the CLI's blind spot.
   #
-  # Three rules the rendering must not break:
+  # Four rules the rendering must not break:
   #
   #   * GraphQL and core are never summed. They are separate budgets on separate
   #     windows with separate limits; core sat at 88/5000 while GraphQL hit
@@ -519,10 +609,8 @@ defmodule AiurWeb.GithubCacheLive do
   #     whose reset has passed each say so in words.
   #   * The ranking is of calls that reached GitHub, and says so. Since the
   #     read cache landed, a hit never reaches `Quota` at all — which is the
-  #     whole saving, and which also means a caller can fall down this table
-  #     because it is being served from cache rather than because it went
-  #     quiet. Those are opposite conclusions from identical columns, so the
-  #     page names the ambiguity instead of leaving it to be inferred.
+  #     whole saving. Served-free reads therefore get a separate, boot-scoped
+  #     column that never participates in spend arithmetic.
   #
   # It renders even when the cache store is absent: the meter is a different
   # process and a budget can be burning while nothing at all is cached.
@@ -612,40 +700,52 @@ defmodule AiurWeb.GithubCacheLive do
 
         <.usage_chart series={QuotaUsage.series(@quota_history, resource)} resource={resource} />
 
-        <table class="ghc-usage-table" data-role="usage-table">
-          <caption class="ghc-usage-split-label">
-            {resource} spend by caller, this window. Share is of the attributed total, not of the bill.
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Caller</th>
-              <th scope="col">Points</th>
-              <th scope="col">Calls</th>
-              <th scope="col">Points/hr</th>
-              <th scope="col">Share of attributed</th>
-              <th scope="col">Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={caller <- QuotaUsage.ranked_callers(budget)} data-role="usage-caller" data-caller={caller.caller}>
-              <td>{caller.caller}</td>
-              <td>{caller.points}</td>
-              <td>{caller.calls}</td>
-              <td>{measured(caller.points_per_hour)}</td>
-              <td>{share_text(QuotaUsage.share_of_attributed(caller, budget))}</td>
-              <td class={source_class(caller.estimated?)}>{source_text(caller.estimated?)}</td>
-            </tr>
+        <div
+          class="ghc-usage-table-scroll"
+          data-role="usage-table-scroll"
+          role="region"
+          aria-label={"#{resource} spend ranking"}
+          tabindex="0"
+        >
+          <table class="ghc-usage-table" data-role="usage-table">
+            <caption class="ghc-usage-split-label">
+              {resource} spend by caller, this window. ReadCache activity is caller-wide since daemon boot and is not
+              spend. Share is of the attributed total, not of the bill.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Caller</th>
+                <th scope="col">Points</th>
+                <th scope="col">Calls</th>
+                <th scope="col">ReadCache served free</th>
+                <th scope="col">Points/hr</th>
+                <th scope="col">Share of attributed</th>
+                <th scope="col">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={caller <- QuotaUsage.ranked_callers(budget)} data-role="usage-caller" data-caller={caller.caller}>
+                <td>{caller.caller}</td>
+                <td>{caller.points}</td>
+                <td>{caller.calls}</td>
+                <td data-role="usage-served-free">{served_free(@read_cache, caller.caller)}</td>
+                <td>{measured(caller.points_per_hour)}</td>
+                <td>{share_text(QuotaUsage.share_of_attributed(caller, budget))}</td>
+                <td class={source_class(caller.estimated?)}>{source_text(caller.estimated?)}</td>
+              </tr>
 
-            <tr class="ghc-usage-row-outside" data-role="usage-outside-row">
-              <td>{QuotaUsage.outside_label(QuotaUsage.observation_complete?(budget))}</td>
-              <td>{measured(budget.outside)}</td>
-              <td>unknown</td>
-              <td>unknown</td>
-              <td>not attributed</td>
-              <td class="ghc-usage-source">{outside_source(budget)}</td>
-            </tr>
-          </tbody>
-        </table>
+              <tr class="ghc-usage-row-outside" data-role="usage-outside-row">
+                <td>{QuotaUsage.outside_label(QuotaUsage.observation_complete?(budget))}</td>
+                <td>{measured(budget.outside)}</td>
+                <td>unknown</td>
+                <td data-role="usage-served-free-outside">not applicable</td>
+                <td>unknown</td>
+                <td>not attributed</td>
+                <td class="ghc-usage-source">{outside_source(budget)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <p class="ghc-usage-note" data-role="usage-outside-explainer">
           {outside_explainer(budget)}
@@ -653,15 +753,340 @@ defmodule AiurWeb.GithubCacheLive do
 
         <p class="ghc-usage-note" data-role="usage-cache-caveat">
           This ranks what reached GitHub. A read the daemon's own cache answered never reaches the
-          meter — that is the saving — so it contributes no points and no calls here. A caller can
-          therefore fall down this table because it is being served from cache rather than because
-          it stopped polling, and the two look identical from these columns alone. The cache's own
-          hit rate, per caller, is what separates them.
+          meter — that is the saving — so it contributes no points, calls, share or totals here.
+          The ReadCache column reports those reads separately for each caller since daemon boot, and says when
+          ReadCache refused or never observed that caller instead of presenting either state as zero served.
+        </p>
+
+        <p
+          :if={resource == "core"}
+          class="ghc-usage-note ghc-usage-note-strong"
+          data-role="usage-rest-caveat"
+        >
+          <strong>REST spend cannot be attributed by caller.</strong>
+          The caller tag is attached only inside <code>Transport.maybe_put_caller/2</code>, which is invoked solely
+          from the GraphQL send path — so every REST request bills as <code>unattributed</code>. Until that changes
+          (#2298), this table shows one shared row rather than a per-caller ranking, and it says so instead of
+          pretending a partial ranking is complete.
         </p>
       </article>
     </section>
     """
   end
+
+  # The live budget map. Every figure is a byproduct of requests somebody
+  # already made — the quota meter, per-credential headroom, the broker ledger,
+  # the read cache, the resource store, the webhook registry and the agent-cache
+  # event files — so this section renders without issuing a single GitHub call,
+  # and refreshing the page leaves the admission count untouched. The static
+  # classification of which cache layer stands in front of a call site lives in
+  # `Aiur.GitHub.BudgetMap`; the numbers are all live.
+  defp budget_map_layer(assigns) do
+    ~H"""
+    <section class="ghc-bmap" data-role="budget-map" aria-labelledby="ghc-bmap-title">
+      <div class="ghc-trends-head">
+        <h2 id="ghc-bmap-title" class="ghc-trends-title">The budget map</h2>
+        <p class="ghc-trends-note" data-role="bmap-note">
+          Who is calling, what stands in front of the call, and which pool pays — for the current run,
+          all from local state. Refreshing this page issues zero GitHub requests.
+        </p>
+      </div>
+
+      <.identity_meters credentials={@budget_map.credentials} />
+      <.caller_map edges={@budget_map.map} />
+      <.admissions_panel admissions={@budget_map.admissions} />
+      <.store_panel store={@budget_map.resource_store} />
+      <.webhook_panel webhooks={@budget_map.webhooks} />
+      <.agent_cache_panel agent_cache={@budget_map.agent_cache} />
+    </section>
+    """
+  end
+
+  # One meter per configured credential, per primary budget. The figure comes
+  # from the credential's own `x-ratelimit-*` headers (`CredentialHeadroom`),
+  # never from the fleet meter's last-writer-wins window, and a credential with
+  # no recent observation renders as an explicit stale marker — never as zero.
+  defp identity_meters(assigns) do
+    ~H"""
+    <div class="ghc-bmap-identities" data-role="identity-meters" aria-label="Per-credential quota">
+      <p :if={@credentials == []} class="ghc-empty" data-role="identity-meters-unavailable">
+        No credentials are configured or resolvable on this host, so there is no per-credential headroom to show.
+      </p>
+
+      <div :for={credential <- @credentials} class="ghc-bmap-credential" data-role="identity-meter" data-credential={credential.id}>
+        <div class="ghc-bmap-credential-head">
+          <span class="ghc-bmap-credential-name">{identity_label(credential)}</span>
+          <span class="ghc-bmap-credential-note" data-role="identity-meter-note">{credential_note(credential)}</span>
+        </div>
+
+        <div class="ghc-bmap-meter-row">
+          <span class="ghc-bmap-meter-label">GraphQL</span>
+          <.meter meter={credential.graphql} resource="graphql" />
+        </div>
+
+        <div class="ghc-bmap-meter-row">
+          <span class="ghc-bmap-meter-label">REST core</span>
+          <.meter meter={credential.core} resource="core" />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp meter(assigns) do
+    ~H"""
+    <div class={meter_class(@meter)} data-role="meter" data-state={@meter.state} data-resource={@resource}>
+      <span :if={@meter.state == :observed} class="ghc-bmap-meter-value" data-role="meter-value">
+        {used_text(@meter)}
+        <span class="ghc-bmap-meter-limit">/ {value(@meter.limit)}</span>
+      </span>
+      <span :if={@meter.state == :observed} class="ghc-bmap-meter-note" data-role="meter-note">
+        resets {moment(@meter.reset_at)} · {observed_age_text(@meter.observed_age_seconds)}
+      </span>
+      <span :if={@meter.state == :stale} class="ghc-bmap-meter-stale" data-role="meter-stale">
+        {stale_text(@meter.reason)}<span :if={is_integer(@meter.age_seconds)} data-role="meter-stale-age"> · last observed {age_text(@meter.age_seconds)} ago</span>
+      </span>
+    </div>
+    """
+  end
+
+  # Left to right: caller → cache or store layer → pool. Edges are weighted by
+  # live volume and coloured by verdict. A caller that consults neither cache
+  # layer (no read-cache hit, no ResourceStore body, no ETag) is marked wasted
+  # and is visually distinct from one that does — that is the whole reason the
+  # map exists.
+  defp caller_map(assigns) do
+    ~H"""
+    <div class="ghc-bmap-panel" data-role="caller-map">
+      <h3 class="ghc-bmap-panel-title">Caller → cache / store → pool</h3>
+
+      <p :if={@edges == []} class="ghc-empty" data-role="bmap-no-callers">
+        No calls have been attributed in the current window. The meter has observed nothing to rank yet —
+        that is not the same as nothing having been spent.
+      </p>
+
+      <div :if={@edges != []} class="ghc-bmap-table-scroll" role="region" aria-label="budget map edges" tabindex="0">
+        <table class="ghc-bmap-table" data-role="bmap-table">
+          <thead>
+            <tr>
+              <th scope="col">Caller</th>
+              <th scope="col">Budget</th>
+              <th scope="col">Volume</th>
+              <th scope="col">Cache / store layer</th>
+              <th scope="col">Pool</th>
+              <th scope="col">Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              :for={edge <- @edges}
+              data-role="bmap-edge"
+              data-caller={edge.caller}
+              data-resource={edge.resource}
+              data-verdict={edge.verdict}
+              class={edge_class(edge)}
+            >
+              <td>{edge.caller}</td>
+              <td>{edge.resource}</td>
+              <td data-role="bmap-volume">{volume_text(edge)}</td>
+              <td data-role="bmap-cache-layer">{cache_layer_text(edge)}</td>
+              <td data-role="bmap-pool">{pool_text(edge)}</td>
+              <td><span class={verdict_chip(edge.verdict)} data-role="bmap-verdict">{verdict_text(edge.verdict)}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="ghc-usage-note" data-role="bmap-legend">
+        free — reconciled 304s, git traffic, inbound webhooks. billed — metered spend with a reuse path (a store body, an
+        ETag, a read-cache hit next cycle). wasted — no validator, no stored body, no reuse. unclassified — no evidence either way.
+      </p>
+    </div>
+    """
+  end
+
+  defp admissions_panel(assigns) do
+    ~H"""
+    <div class="ghc-bmap-panel" data-role="admissions">
+      <h3 class="ghc-bmap-panel-title">Broker admissions — rolling hour</h3>
+
+      <p :if={not @admissions.available?} class="ghc-empty" data-role="admissions-unavailable">
+        The broker ledger is not readable on this host, so admissions are not measured. That is not the same
+        as zero admissions.
+      </p>
+
+      <div :if={@admissions.available?} class="ghc-bmap-splits" data-role="admissions-totals">
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{value(@admissions.admission_count)}</span>
+          <span class="ghc-bmap-split-label">admissions</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{value(@admissions.billable)}</span>
+          <span class="ghc-bmap-split-label">billable</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{value(@admissions.free)}</span>
+          <span class="ghc-bmap-split-label">304-free</span>
+        </span>
+      </div>
+
+      <table :if={@admissions.available? and @admissions.rows != []} class="ghc-bmap-table" data-role="admissions-table">
+        <thead>
+          <tr>
+            <th scope="col">Consumer</th>
+            <th scope="col">Family</th>
+            <th scope="col">Billable</th>
+            <th scope="col">304-free</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={row <- @admissions.rows} data-role="admissions-row" data-consumer={row.consumer} data-family={row.family}>
+            <td>{row.consumer}</td>
+            <td>{row.family}</td>
+            <td>{row.billable}</td>
+            <td>{row.free}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p :if={@admissions.available? and @admissions.rows == []} class="ghc-empty" data-role="admissions-empty">
+        The ledger holds no admissions in this rolling hour.
+      </p>
+
+      <p class="ghc-usage-note" data-role="admissions-caveat">
+        Admissions count <strong>requests</strong>, while the ranking tables count GraphQL points and core calls, so
+        the two views deliberately disagree. The broker also books GraphQL-on-the-wire <code>gh</code> commands
+        (<code>pr view</code>, <code>issue view</code>, <code>list</code>, <code>search</code>) under
+        <code>pulls</code>/<code>issues</code>/<code>search</code>/<code>actions</code> families and counts them against
+        core until #2297 — so a family split is not a budget split, and it is labelled as such.
+      </p>
+    </div>
+    """
+  end
+
+  defp store_panel(assigns) do
+    ~H"""
+    <div class="ghc-bmap-panel" data-role="resource-store">
+      <h3 class="ghc-bmap-panel-title">ResourceStore</h3>
+
+      <div :if={@store.available?} class="ghc-bmap-splits" data-role="store-totals">
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{value(@store.size)}</span>
+          <span class="ghc-bmap-split-label">entries held</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{store_retention(@store.retention_ms)}</span>
+          <span class="ghc-bmap-split-label">retention</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{length(@store.per_type)}</span>
+          <span class="ghc-bmap-split-label">resource types</span>
+        </span>
+      </div>
+
+      <p :if={not @store.available?} class="ghc-empty" data-role="store-unavailable">
+        No resource store is running yet, so there is no stored body or validator to measure.
+      </p>
+
+      <ul :if={@store.per_type != []} class="ghc-bmap-list" data-role="store-types">
+        <li :for={type <- @store.per_type} data-role="store-type" data-resource-type={type.resource_type}>
+          <span class="ghc-bmap-type-name">{type.label}</span>
+          <span class="ghc-bmap-type-count">{type.count} entries</span>
+          <span :if={type.bodyless > 0} class="ghc-bmap-type-bodyless">{type.bodyless} validator only</span>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  defp webhook_panel(assigns) do
+    ~H"""
+    <div class="ghc-bmap-panel" data-role="webhooks">
+      <h3 class="ghc-bmap-panel-title">Webhook delivery</h3>
+
+      <p :if={@webhooks == []} class="ghc-empty" data-role="webhooks-unavailable">
+        No repository has a registered delivery mode, so webhook freshness is not measured.
+      </p>
+
+      <table :if={@webhooks != []} class="ghc-bmap-table" data-role="webhooks-table">
+        <thead>
+          <tr>
+            <th scope="col">Repo</th>
+            <th scope="col">Mode</th>
+            <th scope="col">Last delivery</th>
+            <th scope="col">Reason (if polling)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={repo <- @webhooks} data-role="webhook-row" data-repo={repo.repo} data-state={repo.state}>
+            <td>{repo.repo}</td>
+            <td>{repo.mode_label}</td>
+            <td>{last_delivery_text(repo)}</td>
+            <td>{value(repo.reason_label)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp agent_cache_panel(assigns) do
+    ~H"""
+    <div class="ghc-bmap-panel" data-role="agent-cache">
+      <h3 class="ghc-bmap-panel-title">Agent-side cache</h3>
+
+      <p :if={not @agent_cache.available?} class="ghc-empty" data-role="agent-cache-unavailable">
+        No <code>agent-cache.tsv</code> event files were found under the workspaces' quota state dirs, so the agents'
+        cache effectiveness is not measured. That is not the same as a zero hit rate.
+      </p>
+
+      <div :if={@agent_cache.available?} class="ghc-bmap-splits" data-role="agent-cache-totals">
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{agent_hit_rate(@agent_cache.totals.hit_rate)}</span>
+          <span class="ghc-bmap-split-label">hit rate</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{@agent_cache.totals.hits}</span>
+          <span class="ghc-bmap-split-label">hits</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{@agent_cache.totals.misses}</span>
+          <span class="ghc-bmap-split-label">misses</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{@agent_cache.totals.stores}</span>
+          <span class="ghc-bmap-split-label">stores</span>
+        </span>
+        <span class="ghc-bmap-split">
+          <span class="ghc-bmap-split-value">{@agent_cache.totals.refusals}</span>
+          <span class="ghc-bmap-split-label">refusals</span>
+        </span>
+      </div>
+
+      <ul :if={@agent_cache.available?} class="ghc-bmap-list" data-role="agent-cache-workspaces">
+        <li :for={workspace <- @agent_cache.workspaces} data-role="agent-cache-workspace" data-path={workspace.path}>
+          <span class="ghc-bmap-type-name">{workspace_label(workspace.path)}</span>
+          <span class="ghc-bmap-type-count">{workspace.hits} hits · {workspace.misses} misses · {workspace.stores} stores</span>
+          <span class="ghc-bmap-type-bodyless">rate {agent_hit_rate(workspace.hit_rate)}</span>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  defp served_free(%{available?: true, callers: callers}, caller) when is_map(callers) do
+    case Map.fetch(callers, caller) do
+      {:ok, %{hit: 1}} -> "1 read"
+      {:ok, %{hit: hits}} when is_integer(hits) and hits > 1 -> "#{hits} reads"
+      {:ok, %{refused: 1}} -> "1 policy refusal"
+      {:ok, %{refused: refusals}} when is_integer(refusals) and refusals > 1 -> "#{refusals} policy refusals"
+      {:ok, _observed} -> "none this boot"
+      :error -> "not observed by ReadCache"
+    end
+  end
+
+  defp served_free(%{available?: true}, _caller), do: "not observed by ReadCache"
+  defp served_free(_snapshot, _caller), do: "cache unavailable"
 
   # An empty ring and an unobserved window are different facts and get different
   # words. Neither draws an axis: an empty chart reads as a measured flat zero,
@@ -739,6 +1164,110 @@ defmodule AiurWeb.GithubCacheLive do
   # glance rather than differ in precision for no reason the reader can see.
   defp moment(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
   defp moment(_absent), do: "an unknown time"
+
+  # -- budget map helpers ---------------------------------------------------
+
+  defp identity_label(credential) do
+    case {credential.identity, credential.id} do
+      {nil, id} -> "#{id} (identity unknown)"
+      {identity, _id} -> identity
+    end
+  end
+
+  defp credential_note(credential) do
+    [
+      if(credential.primary?, do: "primary", else: nil),
+      kind_label(credential.kind),
+      if(credential.writes?, do: "read+write", else: "read-only"),
+      if(credential.available?, do: nil, else: "token not on this host")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp kind_label(:app_installation), do: "App installation"
+  defp kind_label(:machine_user), do: "machine user"
+  defp kind_label(:human), do: "human"
+  defp kind_label(_kind), do: "credential"
+
+  defp meter_class(%{state: :observed}), do: "ghc-bmap-meter"
+  defp meter_class(%{state: :stale}), do: "ghc-bmap-meter ghc-bmap-meter-stale"
+
+  defp used_text(%{used: used}) when is_integer(used), do: to_string(used)
+  defp used_text(_meter), do: "unknown"
+
+  # A stale credential is never rendered as zero. Either it has not been
+  # observed in the current window or its token is not resolvable on this host,
+  # and the two get different words because only one of them is actionable. The
+  # age, when there is one, rides beside the reason (see `meter/1`).
+  defp stale_text(:unavailable), do: "stale — token not resolvable on this host"
+  defp stale_text(_no_window), do: "stale — no observation in the current window"
+
+  # An observed window whose observation time is missing must never read as a
+  # fresh one: "observed at an unknown time" is the honest wording for a claim
+  # the data cannot back. `age_text/1` itself also refuses to invent a moment
+  # for `nil`, so no caller can reintroduce the confident-wrong "a moment".
+  defp observed_age_text(seconds) when is_integer(seconds), do: "observed #{age_text(seconds)} ago"
+  defp observed_age_text(_unknown), do: "observed at an unknown time"
+
+  defp age_text(nil), do: "an unknown time"
+  defp age_text(seconds) when seconds < 60, do: "#{seconds}s"
+  defp age_text(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
+  defp age_text(seconds), do: "#{div(seconds, 3_600)}h"
+
+  defp volume_text(%{resource: "graphql", points: points}), do: "#{points} points"
+  defp volume_text(%{resource: "core", calls: calls}), do: "#{calls} calls"
+  defp volume_text(_edge), do: "unknown"
+
+  defp cache_layer_text(edge) do
+    read_cache =
+      if edge.read_cache.observed? do
+        "ReadCache: #{edge.read_cache.hit} hit · #{edge.read_cache.miss} miss · #{edge.read_cache.refused} refused"
+      else
+        "ReadCache: not observed"
+      end
+
+    store =
+      case edge.hint do
+        %{store?: true, etag?: true} -> "ResourceStore + ETag"
+        %{store?: true} -> "ResourceStore"
+        %{} -> "no store ref, no ETag"
+        nil -> "unclassified"
+      end
+
+    "#{read_cache} · #{store}"
+  end
+
+  defp pool_text(%{pool: :graphql}), do: "GraphQL pool"
+  defp pool_text(%{pool: :core}), do: "REST core pool"
+  defp pool_text(%{pool: :free}), do: "costs no quota"
+
+  defp verdict_text(:free), do: "free"
+  defp verdict_text(:billed), do: "billed"
+  defp verdict_text(:wasted), do: "wasted"
+  defp verdict_text(:unclassified), do: "unclassified"
+
+  defp verdict_chip(verdict), do: "ghc-bmap-chip ghc-bmap-chip-#{verdict}"
+
+  defp edge_class(edge), do: "ghc-bmap-row ghc-bmap-verdict-#{edge.verdict}"
+
+  defp store_retention(ms) when is_integer(ms) and ms >= 3_600_000, do: "#{div(ms, 3_600_000)}h"
+  defp store_retention(_ms), do: "unknown"
+
+  defp last_delivery_text(%{last_delivery_at: nil}), do: "never"
+  defp last_delivery_text(%{last_delivery_age_seconds: age}) when is_integer(age), do: "#{age_text(age)} ago"
+  defp last_delivery_text(_repo), do: "unknown"
+
+  defp workspace_label(path) do
+    path
+    |> Path.dirname()
+    |> Path.dirname()
+    |> Path.dirname()
+    |> Path.basename()
+  end
+
+  defp agent_hit_rate(rate) when is_float(rate), do: "#{Float.round(rate * 100, 1)}%"
+  defp agent_hit_rate(_rate), do: "not measured"
 
   defp outside_explainer(budget) do
     if QuotaUsage.observation_complete?(budget) do
@@ -1147,6 +1676,62 @@ defmodule AiurWeb.GithubCacheLive do
   defp budget_value(window) do
     "#{value(Map.get(window, :remaining))} / #{value(Map.get(window, :limit))}"
   end
+
+  defp agent_rate(%{measured?: true, hit_ratio: ratio} = metrics) when is_number(ratio) do
+    percent = ratio |> Kernel.*(100) |> Float.round(1)
+
+    %{
+      value: to_string(percent),
+      display: "#{percent}%",
+      note:
+        "#{count_label(Map.get(metrics, :hits, 0), "hit")} · #{count_label(Map.get(metrics, :misses, 0), "miss")} · " <>
+          agent_metrics_window(metrics) <> partial_coverage(metrics)
+    }
+  end
+
+  defp agent_rate(%{available?: true} = metrics) do
+    %{
+      value: nil,
+      display: "Not measured",
+      note:
+        "Readable agent-workspace counters on this host contain no hit or miss rows in the previous 24 hours." <>
+          partial_coverage(metrics)
+    }
+  end
+
+  defp agent_rate(_unavailable) do
+    %{
+      value: nil,
+      display: "Not measured",
+      note: "No readable agent-workspace counters on this host were found for the previous 24 hours."
+    }
+  end
+
+  defp agent_metrics_window(metrics) do
+    "previous 24 hours (#{moment(Map.get(metrics, :window_started_at))}–#{moment(Map.get(metrics, :window_ended_at))}); " <>
+      "agent workspaces on this host"
+  end
+
+  defp partial_coverage(%{partial?: true} = metrics) do
+    details =
+      [
+        count_if_present(Map.get(metrics, :malformed_rows, 0), "malformed row"),
+        count_if_present(Map.get(metrics, :skipped_sources, 0), "unreadable source")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("; ")
+
+    if details == "", do: " · Partial coverage", else: " · Partial coverage — #{details}"
+  end
+
+  defp partial_coverage(_complete), do: ""
+
+  defp count_if_present(0, _label), do: nil
+  defp count_if_present(count, label), do: count_label(count, label)
+
+  defp count_label(1, label), do: "1 #{label}"
+  defp count_label(count, "miss"), do: "#{count} misses"
+  defp count_label(count, label), do: "#{count} #{label}s"
 
   # Redaction happens here, for the one entry on screen, rather than for every
   # entry on every re-render. See `Aiur.GitHub.CacheInspector.Entry.payload/1`.

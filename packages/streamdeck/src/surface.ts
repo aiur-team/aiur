@@ -18,8 +18,15 @@ import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
 import { settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
+import {
+  detailKeyDescriptors,
+  detailPanel,
+  historyKeyDescriptors,
+  historyPanel,
+} from "./commands.js";
+import type { StreamDeckCommand, StreamDeckCommandsPage } from "./channel.js";
 
-export type PhysicalMode = "grid" | "cmd" | "logs" | "settings";
+export type PhysicalMode = "grid" | "cmd" | "logs" | "settings" | "commands";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
   readonly focusedIdentifier: string | null;
@@ -53,6 +60,22 @@ export interface PhysicalSurfaceState {
    * does scrolling the transcript past that event's header.
    */
   readonly selectedEvent?: number | null;
+  /** The focused agent's Command history, for the Commands surface. */
+  readonly commandsPage?: StreamDeckCommandsPage;
+  /** Whether the Commands page is showing history or a Command's detail. */
+  readonly commandsView?: "history" | "detail";
+  /** First Command shown on the history window. */
+  readonly historyOffset?: number;
+  /** The Command the detail view is reading. */
+  readonly selectedCommand?: StreamDeckCommand | null;
+  /** First option shown on the detail window. */
+  readonly optionOffset?: number;
+  /** Index into the selected Command's options, or null. */
+  readonly selectedOption?: number | null;
+  /** True while the Commands dictation buffer holds settled text. */
+  readonly commandDictation?: boolean;
+  /** An answer error from the channel, shown on the Commands strip. */
+  readonly commandsError?: string | null;
 }
 
 const faceColours: Readonly<Record<string, RgbColor>> = {
@@ -203,9 +226,9 @@ const descriptorCommands = (
     command("logs", "Logs", "logs", "OPEN"),
     command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
     command("settings", "Settings", "settings", "OPEN"),
+    command("commands", "Commands", "question", "OPEN"),
     hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
     hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
-    undefined,
     undefined,
   ];
 };
@@ -310,6 +333,12 @@ export const createPhysicalSurface = () => {
         ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true))
         : state.mode === "settings"
         ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
+        : state.mode === "commands"
+        ? layoutPhysicalKeys(
+            state.commandsView === "detail" && state.selectedCommand != null
+              ? detailKeyDescriptors(state.selectedCommand, state.optionOffset ?? 0, state.selectedOption ?? null, state.micHeld === true, state.commandDictation === true)
+              : historyKeyDescriptors(state.commandsPage ?? { items: [] }, state.historyOffset ?? 0, null),
+          )
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {
@@ -322,6 +351,11 @@ export const createPhysicalSurface = () => {
       // identifier, the panel shows the ticket and an unknown status, which is
       // the truth.
       const selectedMic = mics.mics.find((slot) => slot?.selected === true);
+      const commandsPanel = state.mode === "commands"
+        ? state.commandsView === "detail" && state.selectedCommand != null
+          ? { ...detailPanel(state.selectedCommand, state.selectedOption ?? null, state.commandDictation === true), error: state.commandsError ?? null }
+          : { ...historyPanel(state.commandsPage ?? { items: [] }, state.historyOffset ?? 0, state.focusedIdentifier ?? ""), error: state.commandsError ?? null }
+        : null;
       const strip: StripData = state.mode === "cmd" ? {
         mode: "cmd",
         data: { detail: agentDetailModel(focused ?? { identifier: state.focusedIdentifier }), voice },
@@ -346,6 +380,9 @@ export const createPhysicalSurface = () => {
           eventHasPrevious: state.eventHasPrevious,
           eventHasNext: state.eventHasNext,
         },
+      } : state.mode === "commands" && commandsPanel !== null ? {
+        mode: "commands",
+        data: { panel: commandsPanel, voice },
       } : {
         mode: "grid",
         data: {

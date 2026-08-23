@@ -9,9 +9,9 @@ defmodule AiurWeb.AnalyticsLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.{PollCadence, UsageAggregate}
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
-  alias Aiur.UsageAggregate
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   alias AiurWeb.OperatorControlCenter.{
@@ -302,7 +302,9 @@ defmodule AiurWeb.AnalyticsLive do
       [
         range: socket.assigns.range,
         session: session,
-        telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
+        telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file),
+        orchestrator: AiurWeb.Endpoint.config(:orchestrator) || Aiur.Orchestrator,
+        snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.Endpoint.config(:snapshot_timeout_ms) || 15_000)
       ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
 
     socket = assign(socket, :provider_spend, provider_spend(socket))
@@ -345,7 +347,7 @@ defmodule AiurWeb.AnalyticsLive do
       %{
         label: "Peak concurrency",
         val: k.peak_conc,
-        sub: "#{k.conc_now} now / #{k.cap} cap",
+        sub: "#{k.conc_now} now / #{Presenter.cap_label(model)}",
         tone: nil
       },
       %{
@@ -370,7 +372,7 @@ defmodule AiurWeb.AnalyticsLive do
       provider_spend_item(provider_spend),
       %{
         label: "Wasted capacity",
-        val: "#{k.wasted_slot_hours}h",
+        val: Presenter.wasted_slot_hours_label(k.wasted_slot_hours),
         sub: "idle unit-slots",
         tone: "block"
       }

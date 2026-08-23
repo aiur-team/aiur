@@ -6,6 +6,9 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
   @moduledoc """
   Deterministically maps changed source files to their ExUnit test files so the
   scoped pre-PR gate does not need the agent to reason about which tests to run.
+  It also scans the full test tree for function, option-key, atom, and string
+  references deleted from individual source diff hunks, so root-level sibling
+  tests are not hidden by topic-directory selections.
 
       mix aiur.affected_tests [base_ref]
 
@@ -30,9 +33,10 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
 
     with {:ok, base} <- requested_or_default_base(root, args),
          {:ok, changed} <- changed_files(root, base),
-         {:ok, dependents} <- xref_dependents(root, changed) do
+         {:ok, dependents} <- xref_dependents(root, changed),
+         {:ok, references} <- deleted_reference_tests(root, base) do
       changed
-      |> Aiur.AffectedTests.select(base_dir: root, dependent_sources: dependents)
+      |> Aiur.AffectedTests.select(base_dir: root, dependent_sources: dependents, reference_tests: references)
       |> command()
       |> Enum.each(fn line -> Mix.shell().info(line) end)
     else
@@ -65,6 +69,24 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
          {:ok, working} <- git(root, ["diff", "--name-only", "--"]),
          {:ok, untracked} <- git(root, ["ls-files", "--others", "--exclude-standard"]) do
       {:ok, Enum.uniq(committed ++ working ++ untracked)}
+    end
+  end
+
+  @doc false
+  @spec deleted_reference_tests(String.t(), String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def deleted_reference_tests(root, base) do
+    case git(root, ["diff", "--unified=0", base, "--", "src/lib"]) do
+      {:ok, lines} ->
+        tests =
+          lines
+          |> Enum.join("\n")
+          |> Aiur.AffectedTests.deleted_reference_terms()
+          |> then(&Aiur.AffectedTests.reference_test_files(root, &1))
+
+        {:ok, tests}
+
+      error ->
+        error
     end
   end
 

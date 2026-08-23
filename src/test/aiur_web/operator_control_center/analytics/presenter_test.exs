@@ -101,6 +101,62 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     m = model()
     assert m.kpis.peak_conc == 2
     assert m.kpis.cap == 4
+    assert Presenter.cap_label(m) == "4 cap"
+  end
+
+  describe "cap_label/1" do
+    test "leads with the effective cap and names every other ceiling that differs" do
+      model = model(cap: 3, session_cap: 8, configured_cap: 16)
+
+      # `aiur status` prints the session ceiling as `AGENTS n/8`; a page that
+      # renders only 3 and 16 cannot be reconciled with it.
+      assert Presenter.cap_label(model) == "3 cap (session 8, configured 16)"
+      assert Presenter.cap_label(%{model | session_cap: 3}) == "3 cap (configured 16)"
+      assert Presenter.cap_label(%{model | session_cap: 16}) == "3 cap (configured 16)"
+    end
+
+    test "names the binding constraint, which the cap figure alone cannot" do
+      model = model(cap: 2, session_cap: 2, configured_cap: 2)
+
+      for {binding, expected} <- [
+            {"AIMD envelope", "2 cap (binding: AIMD envelope)"},
+            {"paused reservations=8", "2 cap (binding: paused reservations=8)"},
+            {"config max_concurrent_agents", "2 cap (binding: config max_concurrent_agents)"}
+          ] do
+        assert Presenter.cap_label(%{model | cap_binding: binding}) == expected
+      end
+    end
+
+    test "marks a degraded reading, and tells a stale one from an unreachable daemon" do
+      model = model(cap: 3, session_cap: 3, configured_cap: 3)
+
+      assert Presenter.cap_label(%{model | cap_staleness: {:stale, 600_000}}) == "3 cap (stale, 10m old)"
+      assert Presenter.cap_label(%{model | cap_staleness: {:stale, 7_200_000}}) == "3 cap (stale, 2.0h old)"
+
+      assert Presenter.cap_label(%{model | cap_staleness: {:retained, 0}}) ==
+               "3 cap (retained, daemon unreachable)"
+    end
+
+    test "renders an unknown cap without substituting a ceiling it does not have" do
+      model = model(cap: 10, cap_available?: false, configured_cap: nil, session_cap: nil)
+
+      assert Presenter.cap_label(model) == "unknown cap"
+    end
+  end
+
+  test "reports no wasted-slot-hours figure when no effective cap is known" do
+    # Idle slot-hours are a subtraction from the cap. A figure derived from a
+    # cap the model just called unknown reads as precise and is not.
+    assert model(cap_available?: false).kpis.wasted_slot_hours == nil
+    assert model(cap: 4).kpis.wasted_slot_hours > 0
+  end
+
+  test "measures idle slot-hours against the effective cap, not the configured one" do
+    lowered = model(cap: 2, configured_cap: 16)
+    configured = model(cap: 16, configured_cap: 16)
+
+    # A cap lowered 16 -> 2 leaves far fewer slots that could have been filled.
+    assert lowered.kpis.wasted_slot_hours < configured.kpis.wasted_slot_hours
   end
 
   test "buckets exact fleet pressure independently of process availability" do
