@@ -12,23 +12,13 @@ defmodule Aiur.DecisionApiIntegrationTest do
   @ticket %{identifier: "984", title: "OCC-7", url: "https://github.com/its-everdred/aiur/issues/984"}
   @source %{agent_id: "agent-984", session_id: "session-984", event_id: nil}
 
-  # A test-started `AiurWeb.Endpoint` is bound to the ExUnit test supervisor
-  # that started it and is torn down when that test finishes. The registered
-  # name can outlive the endpoint's config ETS table for a short window while
-  # it terminates, so `Process.whereis/1` observing a live pid does not mean
-  # the endpoint will be alive for the whole test. `ensure_endpoint_running/0`
-  # monitors the observed pid and only treats it as durable after it outlives
-  # this grace window.
-  @teardown_grace_ms 1_000
-
   setup do
     original_dir = Application.get_env(:aiur, :decision_state_dir)
     original_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
     dir = Path.join(System.tmp_dir!(), "aiur-decision-api-integration-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
-    endpoint_started? = ensure_endpoint_running()
-    original_writable = Endpoint.config(:dashboard_writable)
+    ensure_endpoint_running()
     configure_endpoint(dashboard_writable: true)
 
     parent = self()
@@ -55,7 +45,6 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(store)
-      restore_endpoint_config(original_writable, endpoint_started?)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_token)
 
       case original_dir do
@@ -259,69 +248,49 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
   defp maybe_put_mutation_headers(conn, _method), do: conn
 
+  # This test always starts and owns its own `AiurWeb.Endpoint`, so it never
+  # depends on another test's process. `start_supervised/1` (not `!`) returns
+  # `{:error, {:already_started, pid}}` when a prior test's `start_supervised!`
+  # endpoint is still registered while its ExUnit supervisor tears it down
+  # (#2288): the registered name can outlive the endpoint's config ETS table
+  # for a short window, and relying on that pid would hit a missing table
+  # mid-test (`Endpoint.call/2` raising `ArgumentError`). Instead of betting on
+  # a wall-clock grace window, wait deterministically for the dying endpoint's
+  # DOWN (guaranteed to arrive — it is mid-teardown) and then start our own.
   defp ensure_endpoint_running do
-    if endpoint_alive_for_whole_test?() do
-      false
-    else
-      endpoint_config = Application.get_env(:aiur, Endpoint, [])
+    endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
-      Application.put_env(
-        :aiur,
-        Endpoint,
-        Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
-      )
+    Application.put_env(
+      :aiur,
+      Endpoint,
+      Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+    )
 
-      start_supervised!({Endpoint, []})
-      on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
-      true
-    end
+    {:ok, _pid} = start_owned_endpoint()
+
+    on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
+    true
   end
 
-  # Do not infer endpoint ownership from `Process.whereis/1`: a prior test's
-  # `start_supervised!` endpoint is still registered for a short window while
-  # its test supervisor tears it down, and if this test then relied on it, the
-  # `AiurWeb.Endpoint` config ETS table would be destroyed mid-test and
-  # `Endpoint.call/2` would raise (the #2288 flake). Monitor the observed pid
-  # and treat a dying endpoint as absent — only a process that outlives the
-  # teardown grace window is durable enough to depend on.
-  defp endpoint_alive_for_whole_test? do
-    case Process.whereis(Endpoint) do
-      nil -> false
-      pid -> survives_teardown_grace?(pid)
-    end
-  end
+  defp start_owned_endpoint do
+    case start_supervised({Endpoint, []}) do
+      {:ok, pid} ->
+        {:ok, pid}
 
-  defp survives_teardown_grace?(pid) do
-    ref = Process.monitor(pid)
+      {:error, {:already_started, pid}} ->
+        ref = Process.monitor(pid)
 
-    receive do
-      {:DOWN, ^ref, :process, ^pid, _reason} -> false
-    after
-      @teardown_grace_ms ->
-        Process.demonitor(ref, [:flush])
-        # Re-check: a process that terminated right at the grace boundary is
-        # absent, not durable.
-        Process.alive?(pid)
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> start_owned_endpoint()
+        end
+
+      {:error, reason} ->
+        raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
     end
   end
 
   defp configure_endpoint(changed) do
     Endpoint.config_change(%{Endpoint => changed}, [])
-  end
-
-  defp restore_endpoint_config(_original_writable, true), do: :ok
-
-  defp restore_endpoint_config(original_writable, false) do
-    if Process.whereis(Endpoint) do
-      try do
-        configure_endpoint(dashboard_writable: original_writable)
-      rescue
-        # The endpoint we observed at setup can be torn down before this
-        # teardown runs, taking its config ETS table with it — nothing left to
-        # restore (the #2288 teardown twin of the setup race).
-        ArgumentError -> :ok
-      end
-    end
   end
 
   defp audit_type(%DecisionEvent{type: type}), do: type
