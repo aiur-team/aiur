@@ -362,7 +362,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     # digits), never a branch ref: a read by ref returns the head commit and is
     # highly mutable. The verdict shapes (`/commits/:sha/status`, check runs,
     # reviews, merge gating) are refused earlier, on content, by `@unsafe_rest`.
-    {~r{/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}$}, :comments},
+    {~r"/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}(?:$|\?)", :comments},
     # The anchored CIReadiness config forms, including /actions/workflows.
     {@repo_config_rest, :repo_config}
   ]

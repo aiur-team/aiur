@@ -869,12 +869,15 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234/status"))
 
       # A branch ref is not a sha: `/commits/main` returns the mutable head
-      # commit, so it must not be cached under a key that never changes.
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
+      # commit, so it must not be cached under a key that never changes. The
+      # refusal carries no named shape (the classifier only names the shapes it
+      # recognises), so it folds to the `:unclassified` fallback.
+      assert {:no_cache, {:unclassified, :unclassified}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
 
       # `/pulls/:n/files` carries no head sha, so a push changes the response
-      # under a fixed cache key; it is deliberately left uncached.
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
+      # under a fixed cache key; it is deliberately left uncached, named so the
+      # refusal report says which call family it was.
+      assert {:no_cache, {:unclassified, :pull_files}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
     end
 
     # Acceptance #2326: no verdict field becomes cacheable. Every selection the
