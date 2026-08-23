@@ -124,8 +124,12 @@ defmodule Aiur.RunTelemetry.GitHubEnricher do
     :exit, _reason -> {:error, :request_exit}
   end
 
+  # #2298 item 7: a third, uncached paginated variant of the pulls/comments/
+  # reviews reads. Enrichment is generation-time and best-effort, off the daemon
+  # hot path, so it is not routed through ResourceStore; declaring the caller
+  # makes its (up to 20-request) cost visible.
   defp fetch_page(url, request_fun, token, pages_left, seen, items) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "run_telemetry_enricher"}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         next_url = Transport.parse_next_page_url(Map.get(response, :headers, %{}))
         continue_pages(next_url, request_fun, token, pages_left, [url | seen], items ++ body)
