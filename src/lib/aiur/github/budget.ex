@@ -275,7 +275,7 @@ defmodule Aiur.GitHub.Budget do
 
   defp shared_hold(request, key, python, opts, deadline_at, metadata) do
     with [resource, reset_at_ms] <- String.split(String.trim(metadata), " ", parts: 2),
-         true <- resource in ["core", "graphql"],
+         true <- resource in ["core", "graphql", "search"],
          {reset_at_ms, ""} when reset_at_ms > 0 <- Integer.parse(reset_at_ms),
          {:ok, reset_at} <- DateTime.from_unix(reset_at_ms, :millisecond),
          true <- reset_at_ms > System.system_time(:millisecond) do
@@ -650,9 +650,22 @@ defmodule Aiur.GitHub.Budget do
     resource = response_resource(headers, request)
 
     case limit_hold(response, headers) do
-      {:resource, delay} -> hold(key, :resource, resource, delay, opts)
-      {:token, delay} -> hold(key, :token, resource, delay, opts)
-      :none -> :ok
+      {:resource, delay} when is_binary(resource) ->
+        log_resource_hold(resource, headers, request, delay)
+        hold(key, :resource, resource, delay, opts)
+
+      {:resource, _delay} ->
+        # The response names a rate-limit pool we do not model (GitHub also
+        # meters `integration_manifest`, `code_scanning_upload`, …). Attributing
+        # its exhaustion to the request's bucket would create a false hold on
+        # `core`; skip rather than guess (#2409).
+        :ok
+
+      {:token, delay} ->
+        hold(key, :token, resource, delay, opts)
+
+      :none ->
+        :ok
     end
   end
 
@@ -709,12 +722,41 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
+  # A resource hold is only ever issued for a pool the request actually targets
+  # or that the response names as one we model. The response's
+  # `x-ratelimit-resource` header is authoritative when it names `core`,
+  # `graphql`, or `search`; an absent header falls back to the request's own
+  # pool; a header naming any other pool (which GitHub uses for
+  # `integration_manifest`, `code_scanning_upload`, …) resolves to `nil` so the
+  # caller skips the hold instead of misattributing that pool's exhaustion to
+  # `core` (#2409).
   defp response_resource(headers, request) do
     case Transport.header(headers, "x-ratelimit-resource") do
-      resource when resource in ["core", "graphql"] -> resource
-      _other -> request_resource(request)
+      resource when resource in ["core", "graphql", "search"] -> resource
+      nil -> request_resource(request)
+      _other_pool -> nil
     end
   end
+
+  # Acceptance #2409: a hold decision must say which ceiling it hit and what was
+  # measured. Log every issued resource hold with the observed remaining (0 is
+  # what triggered it), the ceiling (`x-ratelimit-limit`), and the reset so a
+  # post-incident read of the daemon log can tell a real exhaustion from a
+  # misattribution without guessing.
+  defp log_resource_hold(resource, headers, request, delay_ms) do
+    Logger.warning(
+      "github_budget_resource_hold resource=#{resource} " <>
+        "remaining=#{inspect(remaining(headers))} " <>
+        "limit=#{inspect(nonnegative_parse(Transport.header(headers, "x-ratelimit-limit")))} " <>
+        "reset_after_ms=#{delay_ms} " <>
+        "x_ratelimit_reset=#{inspect(Transport.header(headers, "x-ratelimit-reset"))} " <>
+        "url=#{inspect(Map.get(request, :url))}"
+    )
+  end
+
+  defp nonnegative_parse(nil), do: nil
+  defp nonnegative_parse(value) when is_binary(value), do: parse_integer(value)
+  defp nonnegative_parse(value) when is_integer(value), do: value
 
   defp parse_integer(value) do
     case Integer.parse(value) do

@@ -4,12 +4,12 @@ defmodule Aiur.GitHub.EndpointPolicyTest do
   alias Aiur.GitHub.{Budget, EndpointPolicy, Quota}
 
   # Representative URL paths for the families the daemon's Budget path can
-  # classify from a request URL. `search` is a ledger family the guard produces
-  # (from the `gh search` subcommand) but no daemon request URL resolves to it,
-  # so it is covered by the table walk, not by a URL here.
+  # classify from a request URL. `search` resolves from `/search/*` (#2409); the
+  # guard also produces it directly from the `gh search` subcommand.
   @url_families [
     {"rate_limit", "/rate_limit", "none", false},
     {"graphql", "/graphql", "graphql", true},
+    {"search", "/search/issues?q=repo:owner/repo+label:agent", "search", true},
     {"pulls", "/repos/owner/repo/pulls/1477", "core", true},
     {"issues", "/repos/owner/repo/issues/1477/comments", "core", true},
     {"actions", "/repos/owner/repo/actions/runs/123", "core", true},
