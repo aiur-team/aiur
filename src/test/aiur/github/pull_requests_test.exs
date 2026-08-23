@@ -45,6 +45,63 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "fetch_compare_files/3" do
+    test "returns content-sensitive {filename, sha} fingerprints from the compare endpoint" do
+      body = %{
+        "status" => "ahead",
+        "ahead_by" => 2,
+        "behind_by" => 0,
+        "files" => [
+          %{"filename" => "lib/foo.ex", "status" => "modified", "sha" => "blob-sha-1"},
+          %{"filename" => "test/foo_test.exs", "status" => "added", "sha" => "blob-sha-2"}
+        ]
+      }
+
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/compare/base-sha...head-sha"
+        {:ok, %{status: 200, body: body, headers: []}}
+      end
+
+      assert {:ok, [{"lib/foo.ex", "blob-sha-1"}, {"test/foo_test.exs", "blob-sha-2"}]} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "returns an empty fingerprint list when nothing changed" do
+      request_fun = fn _ -> {:ok, %{status: 200, body: %{"files" => []}, headers: []}} end
+
+      assert {:ok, []} = PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "drops entries that carry no filename or sha" do
+      body = %{
+        "files" => [
+          %{"filename" => "lib/foo.ex", "status" => "modified", "sha" => "blob-sha-1"},
+          %{"status" => "removed"},
+          %{"filename" => "lib/bar.ex"}
+        ]
+      }
+
+      request_fun = fn _ -> {:ok, %{status: 200, body: body, headers: []}} end
+
+      assert {:ok, [{"lib/foo.ex", "blob-sha-1"}]} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "surfaces a GitHub API error" do
+      request_fun = fn _ -> {:ok, %{status: 404, body: %{}}} end
+
+      assert {:error, {:github, :http, %{status: 404}}} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "surfaces a transport error" do
+      request_fun = fn _ -> {:error, :timeout} end
+
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+  end
+
   describe "fetch_pull_request_head_ref/2" do
     test "returns head ref from PR response" do
       request_fun = fn %{method: :get, url: url} ->

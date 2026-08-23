@@ -276,6 +276,11 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_request(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request(pr_number, opts)
 
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ []),
+    do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
+
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
   def ensure_pull_request_base(pr, expected_base, opts \\ []),

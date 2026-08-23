@@ -26,6 +26,48 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
+  @doc """
+  The fingerprint of a pull request's own contribution at a given head.
+
+  `GET /repos/{o}/{r}/compare/{base}...{head}` returns the three-dot diff
+  between the merge-base of `base` and `head` and `head` — the PR's own
+  contribution, with merges of the base branch excluded. The returned
+  `{filename, sha}` pairs are content-sensitive (the blob sha changes when the
+  file's content changes), so comparing the fingerprint at a blocking review's
+  `commit_id` against the current head distinguishes a genuine rework from a
+  merge-only push of the base branch (#2337 rework follow-up).
+  """
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ [])
+      when is_binary(base_sha) and is_binary(head_sha) and base_sha != "" and head_sha != "" do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/compare/#{base_sha}...#{head_sha}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: %{"files" => files}}} when is_list(files) ->
+          {:ok, Enum.map(files, &compare_file_fingerprint/1) |> Enum.reject(&is_nil/1)}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  defp compare_file_fingerprint(file) when is_map(file) do
+    case {Map.get(file, "filename"), Map.get(file, "sha")} do
+      {filename, sha} when is_binary(filename) and is_binary(sha) -> {filename, sha}
+      _other -> nil
+    end
+  end
+
+  defp compare_file_fingerprint(_file), do: nil
+
   @spec fetch_pull_request_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_pull_request_review_comments(pr_number, opts \\ []) do

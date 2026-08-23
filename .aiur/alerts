@@ -121,6 +121,10 @@ alerts:
     message: Open PR is ageing with no review
     sound:
       - "~/alerts/advisor/advisor-under-attack.wav"
+  "system.pr_health.rework_merge_only":
+    message: Rework push was only a base merge — still not addressed
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":

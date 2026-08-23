@@ -469,15 +469,27 @@ agent:
 
 Periodic scan of open pull requests for conditions that stall PRs silently: a
 PR authored by a configured human merger (unmergeable by construction, since
-GitHub blocks self-approval), and a non-draft PR older than `stale_hours` with
-no review.
+GitHub blocks self-approval), a non-draft PR older than `stale_hours` with no
+review, and a rework ticket whose PR's own contribution has genuinely changed
+since its blocking review.
 
 Findings raise needs-attention alerts in the Executor's alert feed
-(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed`).
+(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
+`system.pr_health.rework_merge_only`).
+
+Enabling the scan also enables the **rework re-queue**: a ticket in
+`agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
+since the blocking `CHANGES_REQUESTED` review is automatically moved to
+`agent:human-review` for the second look — GitHub keeps `reviewDecision =
+CHANGES_REQUESTED` until a brand-new review, so nothing else re-queues it. A PR
+whose head only moved via merges of the base branch (own contribution
+unchanged) is NOT re-queued; it raises
+`system.pr_health.rework_merge_only` so the merge-only state is visible
+distinctly from genuine rework.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `pr_health.enabled` | boolean | false | Enables the PR-health scan. |
+| `pr_health.enabled` | boolean | false | Enables the PR-health scan and the rework re-queue. |
 | `pr_health.interval_seconds` | integer | 1800 | How often the scan lists open PRs. |
 | `pr_health.stale_hours` | integer | 24 | A non-draft PR older than this with no review is flagged. |
 
