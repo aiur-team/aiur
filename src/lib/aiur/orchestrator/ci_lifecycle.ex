@@ -513,12 +513,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp apply_ci_poll_result_for_target(state, result, issues_by_target, opts) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
-        state
-        |> reconcile_draft_stall_alert(issue, result, opts)
-        |> reconcile_parked_ready_alert(issue, result, opts)
-        |> reconcile_base_repair_invalidation(issue, result)
-        |> stash_last_ci_result(issue, result)
-        |> apply_ci_poll_result(issue, result)
+        if Map.get(result, :delivered) do
+          # A target the batch displaced because a webhook delivery answered it:
+          # the read was skipped, and nothing rides on the delivery — no state
+          # transition, no alert, no cache projection — because a CI verdict is
+          # never answered from a held body at any age (R10). The next
+          # non-displaced read produces the real verdict.
+          state
+        else
+          state
+          |> reconcile_draft_stall_alert(issue, result, opts)
+          |> reconcile_parked_ready_alert(issue, result, opts)
+          |> reconcile_base_repair_invalidation(issue, result)
+          |> stash_last_ci_result(issue, result)
+          |> apply_ci_poll_result(issue, result)
+        end
 
       _ ->
         state

@@ -245,6 +245,7 @@ defmodule Aiur.Application do
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
       Aiur.SaturationSentinel,
+      Aiur.BuildGateHoldMonitor,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
