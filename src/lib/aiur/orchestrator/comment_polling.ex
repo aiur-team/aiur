@@ -96,8 +96,17 @@ defmodule Aiur.Orchestrator.CommentPolling do
   # Fires the attention once a truncated window becomes the steady state, and
   # resolves it the first tick the window is complete again. Mirrors the
   # dispatcher's prewarm-blocked alert lifecycle.
-  defp reconcile_firehose_truncation_alert(%State{firehose_truncation_alert_active: true} = state, false, _streak, opts),
-    do: resolve_firehose_truncation_alert(state, opts)
+  #
+  # The resolve decision reads both the in-memory latch and the durable alert
+  # feed: after an Orchestrator restart the in-memory flag is lost while the
+  # feed still carries the attention, so a complete window must still clear it.
+  defp reconcile_firehose_truncation_alert(%State{} = state, false, _streak, opts) do
+    resolve? =
+      state.firehose_truncation_alert_active or
+        AlertFeed.active_system_attention?("system.firehose.event_truncation")
+
+    if resolve?, do: resolve_firehose_truncation_alert(state, opts), else: state
+  end
 
   defp reconcile_firehose_truncation_alert(state, true, streak, opts) when streak >= @firehose_truncation_threshold,
     do: arm_firehose_truncation_alert(state, opts)
@@ -127,22 +136,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
     do: %{state | firehose_truncation_alert_active: false}
 
   defp resolve_firehose_truncation_alert(%State{} = state, opts) do
-    active? =
-      state.firehose_truncation_alert_active or
-        AlertFeed.active_system_attention?("system.firehose.event_truncation")
+    _ =
+      firehose_truncation_alert_fun(opts).("system.firehose.event_truncation.resolved",
+        reason: "The GitHub repo-events firehose returned a complete event window; the truncation attention clears.",
+        needs_attention: false,
+        severity: "info"
+      )
 
-    if active? do
-      case firehose_truncation_alert_fun(opts).("system.firehose.event_truncation.resolved",
-             reason: "The GitHub repo-events firehose returned a complete event window; the truncation attention clears.",
-             needs_attention: false,
-             severity: "info"
-           ) do
-        :ok -> %{state | firehose_truncation_alert_active: false, firehose_truncation_alert_resolution_emitted: true}
-        {:error, _reason} -> state
-      end
-    else
-      %{state | firehose_truncation_alert_active: false, firehose_truncation_alert_resolution_emitted: true}
-    end
+    %{state | firehose_truncation_alert_active: false, firehose_truncation_alert_resolution_emitted: true}
   end
 
   defp firehose_truncation_alert_fun(opts) do
