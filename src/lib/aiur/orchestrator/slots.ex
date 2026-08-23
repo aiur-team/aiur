@@ -245,8 +245,10 @@ defmodule Aiur.Orchestrator.Slots do
   end
 
   # Deliberate/Executor pauses keep their slot reserved so the polling loop
-  # cannot auto-claim replacement work. CI-wait is the exception: the daemon
-  # owns that wait, so the parked runner releases normal dispatch capacity.
+  # cannot auto-claim replacement work. CI-wait, dependency-blocked, and
+  # duration-capped pauses are the exception: the daemon owns those waits (or
+  # the agent has simply hit its time cap and is parked for review), so the
+  # parked runner releases normal dispatch capacity (#2329).
   @spec used_slots(State.t()) :: non_neg_integer()
   def used_slots(%State{} = state) do
     State.active_running_count(state.running) +
