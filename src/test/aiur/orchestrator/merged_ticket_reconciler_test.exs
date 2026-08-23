@@ -304,6 +304,29 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     assert opts[:needs_attention]
   end
 
+  test "an open-PR listing in an unexpected shape never closes a ticket" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, %{"unexpected" => "shape"}} end
+      )
+
+    refute_receive {:transition, "1570", _state_name, _expected}
+    assert issues == [issue]
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
+    assert opts[:needs_attention]
+  end
+
   defp blocked_state(blocker, blockee) do
     %State{
       running: %{

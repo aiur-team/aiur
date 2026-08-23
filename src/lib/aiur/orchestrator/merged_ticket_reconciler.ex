@@ -166,6 +166,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
           {:ok, "human-review"}
         end
 
+      {:ok, _other} ->
+        # An unexpected listing shape must never close the ticket: fail safe so
+        # the caller retains it and retries rather than guessing at done.
+        {:error, :invalid_open_pull_requests_listing}
+
       {:error, _reason} = error ->
         error
     end
