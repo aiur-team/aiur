@@ -64,10 +64,13 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # The residual classification once the overrides (open decision, completed,
   # unresponsive, duration cap) are ruled out: tracker state first, then the
   # pause-reason-specific labels, then the `:paused`/`:sleeping` work state.
+  # `if`, not `cond`: Credo's CondStatements requires at least two conditions
+  # besides `true`, and this residual has only the one.
   defp running_reason(attrs, tracker_reason) do
-    cond do
-      tracker_reason != :active -> tracker_reason
-      true -> running_state_reason(attrs)
+    if tracker_reason != :active do
+      tracker_reason
+    else
+      running_state_reason(attrs)
     end
   end
 
