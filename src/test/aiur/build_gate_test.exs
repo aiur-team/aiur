@@ -837,6 +837,54 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "an unreapable adopted daemon does not hold the slot after the command exits", context do
+    # The #2381 incident, reproduced. The wrapped command exits, but a daemon
+    # from an unrelated session (dbus-daemon, gnome-keyring-daemon) has
+    # reparented onto the subreaper. `waitpid(-1)` never reaches ECHILD, so the
+    # holder used to wait — and, once the cap fired, spin in an unbounded kill
+    # loop — while still holding the slot flock. Four slots leaked this way in
+    # fifteen minutes.
+    #
+    # The daemon is never going to exit, so the release has to come from the
+    # bounded retain window rather than from `waitpid` — and it has to come
+    # without signalling the daemon.
+    daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon.pid")
+
+    gated_context =
+      Map.merge(context, %{
+        adopted_daemon_pid_path: daemon_pid_path,
+        retain_seconds: 2,
+        max_hold_seconds: 0,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate acquired slot=1 command=test"
+    wait_for_file!(daemon_pid_path)
+    daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+    on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true) end)
+
+    # The slot comes back on its own, well inside the retain window.
+    wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+
+    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    assert marker =~ "mix test"
+    assert marker =~ "reason=retained"
+
+    # The daemon is left running, deliberately. gnome-keyring-daemon holds the
+    # credential the fleet's GitHub access depends on: cleanup must scope
+    # itself to the leased command's session and never signal an adopted
+    # stranger, no matter how long it lives.
+    assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    # The flock is genuinely gone, not merely the owner file: the next gated
+    # command takes the same slot.
+    assert {next_output, 0} = run_bash("mix compile", Map.put(context, :started_path, ""))
+    assert next_output =~ "aiur_build_gate acquired slot=1 command=compile"
+  end
+
+  @tag @linux_only
   test "a holder whose wrapped command exited releases its slot at the max-hold cap", context do
     # The leak (#2349): the wrapped command exits but a descendant keeps the
     # subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot is held
@@ -1996,6 +2044,7 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_DESCENDANT", Map.get(context, :descendant_path, "")},
       {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
+      {"FAKE_MIX_ADOPTED_DAEMON_PID", Map.get(context, :adopted_daemon_pid_path, "")},
       {"FAKE_MIX_DESCENDANT_COMMAND", Map.get(context, :descendant_command, "")},
       {"FAKE_MIX_DESCENDANT_GATE_LOG", Map.get(context, :descendant_gate_log, "")},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
@@ -2008,6 +2057,7 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_BUILD_GATE_HOLDER_FAIL_AFTER_POPEN", if(Map.get(context, :holder_fail_after_popen, false), do: "1", else: "0")},
       {"AIUR_BUILD_GATE_HOLDER_START_DELAY_SECONDS", to_string(Map.get(context, :holder_start_delay_seconds, 0))},
       {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(Map.get(context, :max_hold_seconds, 0))},
+      {"AIUR_BUILD_GATE_RETAIN_SECONDS", to_string(Map.get(context, :retain_seconds, ""))},
       {"AIUR_TEST_STATUS_READ_DELAY_SECONDS", to_string(Map.get(context, :status_read_delay_seconds, 0))},
       {"AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT", Map.get(context, :handshake_fifo_fragment, "")},
       {"AIUR_TEST_DELAY_OWNER_MV", if(Map.get(context, :delay_owner_publication, false), do: "1", else: "0")},
@@ -2237,6 +2287,17 @@ defmodule Aiur.BuildGateTest do
     fi
     if [[ -n ${FAKE_MIX_STARTED:-} ]]; then
       : > "$FAKE_MIX_STARTED"
+    fi
+
+    if [[ -n ${FAKE_MIX_ADOPTED_DAEMON_PID:-} ]]; then
+      # A daemon from an unrelated session, the way dbus-daemon and
+      # gnome-keyring-daemon appear under a build. It leaves this command's
+      # session, ignores TERM, outlives mix, and reparents onto the holder.
+      setsid bash -c '
+        trap "" TERM
+        printf "%s\\n" "$$" > "$1"
+        exec sleep 600
+      ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
     fi
 
     if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]] || ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then
