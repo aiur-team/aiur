@@ -1,10 +1,11 @@
 defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
-  # The demand-gating half of #2312. The catalog is the most expensive single
-  # GraphQL query in the system and its only consumers are web pages, so it must
-  # not run on an unconditional timer: with no Build Order page open it should
-  # buy nothing at all. These tests pin that gating — the acceptance criteria
-  # that a headless run costs zero, and that closing the last session stops the
-  # refresh with the demander count reaching zero.
+  # The demand-gating half of #2312, reconciled with the event-sourced catalog
+  # (#2325). The catalog is the most expensive single GraphQL query in the
+  # system and its only consumers are web pages, so a headless run must buy none
+  # of it. These tests pin that gating — with no Build Order page open the
+  # catalog starts no read and arms nothing — and that a viewer's mount read is
+  # a one-shot, not a cadence: the store change stream is the refresh, so the
+  # completed read arms no successor timer even while the page stays open.
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary}
@@ -44,7 +45,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
     assert state.catalog.timer == nil
   end
 
-  test "registering a viewer buys one refresh on mount and arms the cadence while it stays" do
+  test "registering a viewer buys one refresh on mount but arms no cadence" do
     parent = self()
     {:ok, projection} = start_projection()
 
@@ -64,16 +65,18 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
 
     state = :sys.get_state(projection)
     assert MapSet.size(state.catalog.demanders) == 1
-    assert state.catalog.timer != nil
+    # The catalog is event-sourced (#2325): the store change stream is the
+    # refresh, so even with a page open the mount read arms no successor cadence.
+    assert state.catalog.timer == nil
 
     monitor = Process.monitor(subscriber)
     send(subscriber, :stop)
     assert_receive {:DOWN, ^monitor, :process, ^subscriber, :normal}, 2_000
   end
 
-  # Acceptance criterion: closing the last session stops the refresh. A test
-  # covers demander count reaching zero, and nothing is armed to spend later.
-  test "closing the last session takes demander count to zero and stops the refresh" do
+  # Acceptance criterion: closing the last session leaves nothing armed to spend
+  # later. A test covers demander count reaching zero and no timer surviving.
+  test "closing the last session takes demander count to zero and leaves nothing armed" do
     parent = self()
     {:ok, projection} = start_projection()
 
@@ -89,7 +92,6 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
     reader = await_reader(:catalog)
     finish(reader, {:ok, ProviderResult.complete(catalog([root(identity(1, "I1"))]))})
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
-    assert :sys.get_state(projection).catalog.timer
 
     monitor = Process.monitor(subscriber)
     send(subscriber, :stop)
