@@ -57,6 +57,35 @@ Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 Executor helper for the reverse lookup: it queries the remote, prints the one
 matching branch, and exits non-zero when no branch or more than one branch exists.
 
+## Collision-proof worktrees
+
+Concurrent agents on one box share a scratchpad root, and left to choose for
+themselves they pick the same obvious worktree name — `wt`, `worktree`, `pr`,
+`build`. When two collide, the second silently repoints the checkout at a
+different branch *mid-run*, and the first agent's mutation test then runs
+against a tree that never contained the change it just reverted — a confident
+wrong verdict that gates a merge (#2362). This is a cross-skill override: it
+applies to every worktree you create, however the CE skills frame it.
+
+- **Every agent-created worktree path carries the PR number AND a per-agent
+  unique component**, never a generic name. Two agents can legitimately review
+  the same PR, so the PR number alone is not enough. When the repo ships
+  `scripts/agent-worktree`, use it: `scripts/agent-worktree create <n>` fetches
+  the PR head onto a unique local branch and creates
+  `.worktrees/pr-<n>-<unique>`, refusing on collision. Without it, use the same
+  scheme by hand: `git fetch origin pull/<n>/head:pr-<n>-<unique>` then
+  `git worktree add .worktrees/pr-<n>-<unique> pr-<n>-<unique>`, deriving
+  `<unique>` per agent run (hostname + pid + random, or the agent's session id).
+- **An existing path is an error, not a reuse opportunity.** If worktree
+  creation reports the target path already exists, stop and pick a fresh unique
+  path. Never `git -C <existing-worktree> checkout <other-branch>` or
+  `gh pr checkout <n>` inside an existing worktree to "reuse" it — that is the
+  exact repoint that corrupts another agent's run.
+- **Prune stale worktrees before creating.** `git worktree prune` (or
+  `scripts/agent-worktree prune` when available) clears registrations from
+  merged branches so a real collision is visible instead of hidden. Never
+  remove a worktree another live agent is using.
+
 ## Docs ship in the same PR
 
 Documentation is part of the change, not a follow-up ticket. Update

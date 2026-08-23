@@ -73,6 +73,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "`reset --hard`"
     assert content =~ "`clean -fd`"
     assert content =~ "`checkout -- .`"
+
     assert content =~ "`worktree remove`"
     assert content =~ "stop rather than fall back to the current directory"
     assert content =~ "This is a cross-skill override"
@@ -81,6 +82,38 @@ defmodule Aiur.AiurAgentSkillTest do
 
     overview = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/overview.md"))
     assert overview =~ "`git -C \"$workspace\" ls-remote`"
+  end
+
+  test "aiur-agent dev loop teaches collision-proof worktree paths and fail-loudly (#2362)" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md"))
+
+    # cross-skill override so the rule applies no matter how a CE skill frames worktrees
+    assert content =~ "## Collision-proof worktrees"
+    assert content =~ "cross-skill override"
+
+    # the PR isolation scheme must carry a per-agent unique component, not just
+    # the PR number, and must route through scripts/agent-worktree when present
+    assert content =~ "a per-agent"
+    assert content =~ "unique component"
+    assert content =~ "pr-<n>-<unique>"
+    assert content =~ "Two agents can legitimately review"
+    assert content =~ "`scripts/agent-worktree create <n>`"
+
+    # an existing path is an error, never a reuse/repoint
+    assert content =~ "An existing path is an error, not a reuse opportunity"
+    assert content =~ "Never `git -C <existing-worktree> checkout <other-branch>`"
+    assert content =~ "fresh unique"
+
+    # stale worktrees must be pruned before creating
+    assert content =~ "Prune stale worktrees before creating"
+    assert content =~ "`git worktree prune`"
+    assert content =~ "Never\n  remove a worktree another live agent is using"
+
+    # the helper script itself carries the same guarantees
+    helper = File.read!(Path.join(@repo_root, "scripts/agent-worktree"))
+    assert helper =~ "#2362"
+    assert helper =~ "refusing create"
+    assert helper =~ "do not reuse or repoint"
   end
 
   test "aiur-agent dev loop audits the complete test tree for renames" do
