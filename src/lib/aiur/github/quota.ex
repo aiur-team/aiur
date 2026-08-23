@@ -35,6 +35,7 @@ defmodule Aiur.GitHub.Quota do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.EndpointPolicy
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.RequestLog
@@ -1205,7 +1206,7 @@ defmodule Aiur.GitHub.Quota do
     })
   end
 
-  defp rate_limit_endpoint?(%{url: url}) when is_binary(url), do: URI.parse(url).path == "/rate_limit"
+  defp rate_limit_endpoint?(%{url: url}) when is_binary(url), do: EndpointPolicy.free_endpoint?(url)
   defp rate_limit_endpoint?(_request), do: false
 
   defp integer_value(value) when is_integer(value), do: {:ok, value}
