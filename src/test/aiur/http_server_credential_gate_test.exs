@@ -46,30 +46,36 @@ defmodule Aiur.HttpServerCredentialGateTest do
   end
 
   describe "loopback bind without credentials" do
-    test "warns that requests fail closed" do
-      log =
-        capture_log(fn ->
-          HttpServer.start_link(
-            host: "127.0.0.1",
-            port: 0,
-            dashboard_writable: false,
-            orchestrator: Aiur.Orchestrator
-          )
-        end)
+    test "warns that requests fail closed and binds regardless of dashboard_writable" do
+      for writable <- [false, true] do
+        {result, log} =
+          with_log(fn ->
+            HttpServer.start_link(
+              host: "127.0.0.1",
+              port: 0,
+              dashboard_writable: writable,
+              orchestrator: Aiur.Orchestrator
+            )
+          end)
 
-      assert log =~ "every request is refused (503)"
-      assert log =~ "AIUR_DASHBOARD_USERNAME"
-      assert log =~ "AIUR_DASHBOARD_PASSWORD"
+        # `:ignore` would mean the gate rejected before binding. A first start
+        # returns `{:ok, pid}`; a repeat start in the same test process returns
+        # `{:error, {:already_started, pid}}` — both mean the gate let it through.
+        refute result == :ignore
+        assert log =~ "every request is refused (503)"
+        assert log =~ "AIUR_DASHBOARD_USERNAME"
+        assert log =~ "AIUR_DASHBOARD_PASSWORD"
+      end
     end
   end
 
-  describe "writable dashboard without credentials" do
+  describe "writable dashboard without credentials on a non-loopback host" do
     test "refuses to start and explains how to configure authentication" do
       log =
         capture_log(fn ->
           assert :ignore =
                    HttpServer.start_link(
-                     host: "127.0.0.1",
+                     host: "192.0.2.1",
                      port: 0,
                      dashboard_writable: true,
                      orchestrator: Aiur.Orchestrator
@@ -87,7 +93,7 @@ defmodule Aiur.HttpServerCredentialGateTest do
       assert capture_log(fn ->
                assert :ignore =
                         HttpServer.start_link(
-                          host: "127.0.0.1",
+                          host: "192.0.2.1",
                           port: 0,
                           dashboard_writable: true,
                           orchestrator: Aiur.Orchestrator
