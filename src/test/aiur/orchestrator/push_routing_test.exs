@@ -59,6 +59,173 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       assert result.running["issue-1"].control.status == :working
       refute Map.has_key?(result.running["issue-1"], :paused_reason)
     end
+
+    test "types a valid GitHub budget pause and retains its recovery generation" do
+      reset_at_ms = System.system_time(:millisecond) + 60_000
+
+      running_entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :working}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => running_entry}}
+
+      result =
+        PushRouting.maybe_pause_on_request(state, "ISSUE-1", %{
+          payload: %{reason: "github_budget_hold", resource: "graphql", reset_at_ms: reset_at_ms}
+        })
+
+      assert result.running["issue-1"].github_budget_pause == %{
+               resource: "graphql",
+               reset_at_ms: reset_at_ms,
+               generation: 1
+             }
+    end
+
+    test "invalid GitHub budget metadata remains a generic agent pause" do
+      running_entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :working}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => running_entry}}
+
+      result =
+        PushRouting.maybe_pause_on_request(state, "ISSUE-1", %{
+          payload: %{reason: "github_budget_hold", resource: "admin", reset_at_ms: "never"}
+        })
+
+      refute Map.has_key?(result.running["issue-1"], :github_budget_pause)
+    end
+
+    test "stale GitHub budget metadata remains a generic agent pause" do
+      running_entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :working}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => running_entry}}
+
+      result =
+        PushRouting.maybe_pause_on_request(state, "ISSUE-1", %{
+          payload: %{
+            reason: "github_budget_hold",
+            resource: "core",
+            reset_at_ms: System.system_time(:millisecond) - 86_400_001
+          }
+        })
+
+      refute Map.has_key?(result.running["issue-1"], :github_budget_pause)
+    end
+
+    test "retains an elapsed GitHub budget hold for immediate generation-matched recovery" do
+      reset_at_ms = System.system_time(:millisecond) - 1
+
+      running_entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :working, can_interrupt: true}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => running_entry}, max_concurrent_agents: 2}
+
+      result =
+        PushRouting.maybe_pause_on_request(state, "ISSUE-1", %{
+          payload: %{reason: "github_budget_hold", resource: "core", reset_at_ms: reset_at_ms}
+        })
+
+      assert result.running["issue-1"].github_budget_pause == %{
+               resource: "core",
+               reset_at_ms: reset_at_ms,
+               generation: 1
+             }
+
+      assert result.running["issue-1"].paused_reason == :github_budget_hold
+      assert is_reference(result.running["issue-1"].github_budget_pause_timer)
+
+      recovered = PushRouting.recover_github_budget_pause(result, "ISSUE-1", 1)
+
+      assert_receive {:resume_agent, _request_id}
+      assert recovered.running["issue-1"].control.status == :working
+      refute Map.has_key?(recovered.running["issue-1"], :paused_reason)
+    end
+  end
+
+  describe "recover_github_budget_pauses/2" do
+    test "resumes only the current expired budget-pause generation" do
+      now_ms = System.system_time(:millisecond)
+
+      entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :github_budget_hold,
+        github_budget_pause_generation: 1,
+        github_budget_pause: %{resource: "graphql", reset_at_ms: now_ms, generation: 1}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => entry}, max_concurrent_agents: 2}
+      result = PushRouting.recover_github_budget_pause(state, "ISSUE-1", 1, now_ms)
+
+      assert_receive {:resume_agent, _request_id}
+      assert result.running["issue-1"].control.status == :working
+      refute Map.has_key?(result.running["issue-1"], :paused_reason)
+
+      newer =
+        entry
+        |> Map.put(:github_budget_pause_generation, 2)
+        |> Map.put(:github_budget_pause, %{resource: "graphql", reset_at_ms: now_ms + 60_000, generation: 2})
+
+      unchanged = PushRouting.recover_github_budget_pause(%{state | running: %{"issue-1" => newer}}, "ISSUE-1", 1, now_ms)
+      assert unchanged.running["issue-1"] == newer
+      refute_receive {:resume_agent, _request_id}
+    end
+
+    test "observed quota recovery waits for the recorded reset and wakes per entry" do
+      now_ms = System.system_time(:millisecond)
+
+      entry = %{
+        identifier: "ISSUE-1",
+        pid: self(),
+        issue: %Aiur.Issue{id: "issue-1", identifier: "ISSUE-1", state: "active"},
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :github_budget_hold,
+        github_budget_pause_generation: 3,
+        github_budget_pause: %{resource: "core", reset_at_ms: now_ms + 60_000, generation: 3}
+      }
+
+      state = %{base_state() | running: %{"issue-1" => entry}, max_concurrent_agents: 2}
+      unchanged = PushRouting.recover_github_budget_pause(state, "ISSUE-1", 3, now_ms)
+
+      assert unchanged == state
+      refute_receive {:resume_agent, _request_id}
+
+      result = PushRouting.recover_github_budget_pauses(state, now_ms)
+
+      assert result == state
+      refute_receive {:resume_agent, _request_id}
+
+      # Fleet recovery does not resume synchronously: it wakes each eligible
+      # entry on its own jittered timer, and the expiry path resumes it. This
+      # keeps a recovered fleet from stampeding the same credential at once.
+      woken = PushRouting.recover_github_budget_pauses(state, now_ms + 60_000)
+      assert woken == state
+      refute_receive {:resume_agent, _request_id}
+
+      recovered = PushRouting.recover_github_budget_pause(woken, "ISSUE-1", 3, now_ms + 60_000)
+
+      assert_receive {:resume_agent, _request_id}
+      assert recovered.running["issue-1"].control.status == :working
+      refute Map.has_key?(recovered.running["issue-1"], :paused_reason)
+    end
   end
 
   describe "maybe_notify_agents_on_default_branch_push/3" do
