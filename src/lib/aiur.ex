@@ -299,7 +299,7 @@ defmodule Aiur.Application do
       # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
       # observations — a GenServer call, no client and no transport — so it too
       # changes nothing about the page's zero-fetch property.
-      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory]),
+      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory, Aiur.GitHub.AgentCacheMetrics]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
