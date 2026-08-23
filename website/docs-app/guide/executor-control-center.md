@@ -65,7 +65,7 @@ The page is strictly view-only. There is no refresh, no invalidate, no eviction 
 
 That is the store's own rule applied to its inspector: looking at cached state never costs a GitHub call, so a page that could trigger a fetch would break the property it exists to demonstrate.
 
-Truly outdated entries do not linger: the store's own sweep deletes an entry once its cached body is past the 72-hour retention window, so `expired` rows clear themselves rather than accumulating.
+Truly outdated bodies do not linger: the store's own sweep drops a cached body once it is past the 72-hour retention window, and deletes the whole entry only when the entry itself has had no write in that window — so `expired` rows clear themselves rather than accumulating, while a still-live processed mark or validator survives the body.
 
 Its headline tile, **Fetches caused by viewing**, counts GitHub requests whose request chain began in a LiveView process. Merely opening or navigating the cache inspector leaves it at `0`; operator actions on other pages that intentionally fetch fresh detail can raise it.
 
