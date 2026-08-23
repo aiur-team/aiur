@@ -74,6 +74,12 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  def handle_info({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _phase}} = stalled}, state) do
+    {:noreply, Dispatcher.clear_prewarm_blocked_alert(state, stalled)}
+  end
+
+  def handle_info({:prewarm_phase, _phase}, state), do: {:noreply, state}
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case CommentPolling.apply_async_down(state, ref) do
       {:handled, next_state} -> {:noreply, next_state}
