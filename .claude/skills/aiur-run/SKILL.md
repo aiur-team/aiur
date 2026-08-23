@@ -751,11 +751,33 @@ cost of freezing the host the fleet is working on.
 **Watch for rework while you review.** Rework lands minutes after a review, and
 `gh pr list` shows `CHANGES_REQUESTED` identically whether the author has
 responded or not. The only way to see it is to compare each PR's last commit
-timestamp against its last review timestamp. On the same day, eleven PRs were
-reworked while later reviews were still running and none of them surfaced. A
+timestamp against its last review timestamp. Measured on this repo:
+**15 of 20 PRs showing `CHANGES_REQUESTED` had been reworked since the review
+that blocked them, and 12 of those were mergeable with zero failing checks.** The
+queue was not blocked — it was unattended, and three quarters of it was already
+finished work waiting for a second look nobody scheduled.
+
+One asymmetry explains why this only ever accumulates: a branch ruleset with
+`dismiss_stale` dismisses stale **approvals** on push, and nothing dismisses a
+stale **`CHANGES_REQUESTED`**. Worse, the stale block keeps re-routing the ticket
+to `agent:rework`, sending an agent to redo work that is already done. A
 re-review is far cheaper than the first pass: scope it to *"were these named
 blockers fixed?"*, passing the original findings with their file:line, and ask
 for FIXED / NOT FIXED / PARTIAL per blocker rather than a fresh read.
+
+**Name a unique worktree path in the prompt.** Concurrent review agents share a
+scratchpad root, and left to choose for themselves they pick the same obvious
+name — `wt`, `worktree`, `pr`, `build`. When two collide, the second repoints the
+checkout at a different branch *mid-run*, and the first agent's mutation test
+then runs against a tree that never contained the change it just reverted. That
+returns "the test still passed with the production change reverted" — which reads
+as missing coverage and is actually a wrong-checkout artifact. It is the
+confident-wrong-number failure applied to the evidence that gates a merge.
+
+One agent caught this and redid its run; the cost of not catching it is a false
+verdict on a PR. Give each agent a path carrying both the PR number and a
+per-agent unique component, since two agents may legitimately review the same PR.
+Tracked as #2362.
 
 What a review agent needs in its prompt, every time:
 
