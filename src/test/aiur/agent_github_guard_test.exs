@@ -3,7 +3,7 @@ defmodule Aiur.AgentGitHubGuardTest do
   @moduletag :tmp_dir
 
   alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.{AgentCache, ResourceStore}
+  alias Aiur.GitHub.{AgentCache, AgentCacheMetrics, ResourceStore}
   alias Aiur.GitHub.Budget
 
   setup %{tmp_dir: root} do
@@ -1653,6 +1653,28 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "refusing uncoordinated request"
+    assert output =~ budget_root
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    refute File.exists?(context.calls)
+  end
+
+  test "an unavailable budget root names the root and recovery configuration", context do
+    parent_file = Path.join(context.state_path, "not-a-directory")
+    budget_root = Path.join(parent_file, "github-budget")
+    File.mkdir_p!(context.state_path)
+    File.write!(parent_file, "blocking file")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "shared budget unavailable"
+    assert output =~ budget_root
+    assert output =~ "repair ownership/permissions and redispatch"
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
     refute File.exists?(context.calls)
   end
 
@@ -2671,19 +2693,105 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 1
     end
 
-    test "hits and misses are recorded for cost attribution", context do
-      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
-      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+    test "ten identical reads spend once and report a ninety percent hit rate", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      outputs =
+        for _read <- 1..10 do
+          assert {output, 0} = run_cached_guard(context, args)
+          output
+        end
+
+      assert Enum.uniq(outputs) |> length() == 1
+      assert upstream_calls(context) == 1
+
+      events = Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
 
       rows =
-        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        events
         |> File.read!()
         |> String.split("\n", trim: true)
         |> Enum.map(&String.split(&1, "\t"))
 
-      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670"], &1))
-      assert Enum.any?(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1))
-      assert Enum.any?(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1))
+      assert Enum.count(rows, &match?([_at, _consumer, "miss", "pr", "1670", "absent"], &1)) == 1
+      assert Enum.count(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1)) == 1
+      assert Enum.count(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1)) == 9
+
+      metrics = AgentCacheMetrics.snapshot(paths: [events])
+      assert metrics.hits == 9
+      assert metrics.misses == 1
+      assert metrics.hit_ratio == 0.9
+    end
+
+    test "multiple rotations retain one complete measurement window", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+      assert {_, 0} = run_cached_guard(context, args)
+
+      events = Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+      row = "#{System.os_time(:second)}\tticket:1670\thit\tpr\t1670\n"
+      oversized = String.duplicate(row, div(1_048_576, byte_size(row)) + 1)
+
+      File.write!(events, oversized)
+      assert {_, 0} = run_cached_guard(context, args)
+      File.write!(events, oversized)
+      assert {_, 0} = run_cached_guard(context, args)
+
+      archives = Path.wildcard(events <> ".*")
+      assert length(archives) == 2
+
+      metrics = AgentCacheMetrics.snapshot(paths: [events | archives])
+      assert metrics.sources_read == 3
+      assert metrics.hits > 50_000
+      assert upstream_calls(context) == 1
+    end
+
+    test "miss rows classify every cache lookup failure", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      # No artifact exists yet.
+      assert {_, 0} = run_cached_guard(context, args)
+      [{_key, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+
+      # A caller explicitly refusing replay.
+      assert {_, 0} = run_cached_guard(context, args, AIUR_GITHUB_STATE_CACHE_BYPASS: "1")
+
+      # An unreadable body and timestamp are both corrupt artifacts.
+      File.chmod!(body, 0o000)
+      assert {_, 0} = run_cached_guard(context, args)
+      assert last_cache_miss_reason(context) == "corrupt"
+
+      File.write!(meta, "not-a-timestamp\n")
+      assert {_, 0} = run_cached_guard(context, args)
+
+      # Future timestamp and timestamp outside the TTL have distinct causes.
+      File.write!(meta, "#{System.os_time(:second) + 60}\n")
+      assert {_, 0} = run_cached_guard(context, args)
+      File.write!(meta, "1\n")
+      assert {_, 0} = run_cached_guard(context, args)
+
+      # A stamp that survived while its body vanished is a torn entry — the
+      # store was pruned or a partial write removed the body. It is a distinct
+      # cause from `absent` (nothing was ever stored) and from `corrupt`
+      # (present but unreadable).
+      File.rm!(body)
+      assert {_, 0} = run_cached_guard(context, args)
+      assert last_cache_miss_reason(context) == "torn"
+
+      # A daemon-side resource retirement is the final independent cause.
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+      assert {_, 0} = run_cached_guard(context, args)
+
+      reasons =
+        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.split(&1, "\t"))
+        |> Enum.filter(&(Enum.at(&1, 2) == "miss"))
+        |> Enum.map(&Enum.at(&1, 5))
+        |> MapSet.new()
+
+      assert reasons == MapSet.new(~w(absent bypassed corrupt torn clock-skewed expired invalidated))
     end
 
     # -------------------------------------------------------------------------
@@ -2789,17 +2897,20 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 2
     end
 
-    test "a REST read of a pull request is filed under that pull request", context do
-      # The join with the daemon's writers. `gh api repos/owner/repo/pulls/1670`
-      # and `gh pr view 1670` are the same resource; filed under a digest of the
-      # URL instead, the first would survive a writer retiring the second.
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+    test "a REST read of an issue is filed under that issue", context do
+      # The join with the daemon's writers. `gh api repos/owner/repo/issues/1670`
+      # and `gh issue view 1670` are the same resource; filed under a digest of the
+      # URL instead, the first would survive a writer retiring the second. Pull
+      # requests are exercised separately: their REST resource is a merge
+      # verdict and is refused outright (see the REST verdict test), so the
+      # identity join is proven on the issue resource, which is still cacheable.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
       assert upstream_calls(context) == 1
 
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
 
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
       assert upstream_calls(context) == 2
     end
 
@@ -2893,6 +3004,44 @@ defmodule Aiur.AgentGitHubGuardTest do
       end
     end
 
+    test "REST verdict and merge-gating reads are never served from the store", context do
+      endpoints = [
+        "repos/owner/repo/commits/deadbeef/check-runs",
+        "repos/owner/repo/commits/deadbeef/check-suites",
+        "repos/owner/repo/commits/deadbeef/status",
+        "repos/owner/repo/statuses/main",
+        "repos/owner/repo/pulls/1670",
+        "repos/owner/repo/pulls/1670/merge",
+        "repos/owner/repo/pulls/1670/requested_reviewers",
+        "repos/owner/repo/pulls/1670/reviews",
+        "repos/owner/repo/actions/runs"
+      ]
+
+      for endpoint <- endpoints do
+        File.rm(context.calls)
+
+        assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+        assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+
+        assert upstream_calls(context) == 2, "#{endpoint} was served from the store"
+      end
+
+      assert cache_events(context, "hit") == 0
+      assert cache_events(context, "miss") == 0
+      assert cached_shapes(context) == []
+    end
+
+    test "stable Actions workflow metadata is still shared", context do
+      endpoint = "repos/owner/repo/actions/workflows"
+
+      assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+      assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+
+      assert upstream_calls(context) == 1
+      assert cache_events(context, "miss") == 1
+      assert cache_events(context, "hit") == 1
+    end
+
     test "a field set carrying no verdict is still shared", context do
       # The exclusion must be the named fields, not `--json` in general.
       assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body,title,author"])
@@ -2970,29 +3119,69 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
 
     test "a REST read with a query string is still filed under its resource", context do
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      # Pull requests are a refused verdict resource (see the REST verdict test),
+      # so the query-string identity rule is exercised on the issue resource,
+      # which is still cacheable.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
       assert upstream_calls(context) == 1
 
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
 
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
       assert upstream_calls(context) == 2
     end
 
-    test "a vanished body falls through instead of answering with nothing", context do
+    test "a body that vanished before lookup falls through and is recorded as torn", context do
+      # The original hazard this pair guards: the store's prune (`cache_prune`,
+      # `-mmin +120 -delete` on `*.body` and `*.meta`) or a partial disk-full
+      # write can leave a meta behind while its body is gone. That is a torn
+      # entry, not a cold read — it must fall through to the real `gh` (never
+      # answer with nothing) and be recorded as `torn`, so the dashboard shows a
+      # store-integrity failure instead of a wall of `absent` that reads as a
+      # cold cache with diverse shapes.
       assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
       [{_shape, body}] = cached_shapes(context)
 
-      # The entry's stamp survives its body — the window between a writer removing
-      # a body it could not commit and the reader that already passed the
-      # readability check.
       File.rm!(body)
 
       assert {output, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert output != ""
+      assert upstream_calls(context) == 2
+      assert last_cache_miss_reason(context) == "torn"
+    end
+
+    test "a body vanishing after lookup is fetched and recorded as corrupt", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      [{_shape, body}] = cached_shapes(context)
+
+      real_cat = System.find_executable("cat") || flunk("cat is required")
+      fake_cat = Path.join(Path.dirname(context.fake_gh), "cat")
+
+      File.write!(
+        fake_cat,
+        """
+        #!/bin/sh
+        if [ -n "${FAKE_CAT_VANISH:-}" ]; then
+          case "${1:-}" in *.body) rm -f -- "$1" ;; esac
+        fi
+        exec "#{real_cat}" "$@"
+        """
+      )
+
+      File.chmod!(fake_cat, 0o755)
+
+      env = [
+        FAKE_CAT_VANISH: body,
+        PATH: "#{Path.dirname(context.fake_gh)}:#{System.get_env("PATH")}"
+      ]
+
+      assert {output, 0} =
+               run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
 
       assert output != ""
       assert upstream_calls(context) == 2
+      assert last_cache_miss_reason(context) == "corrupt"
     end
 
     test "the merge gate still refuses with the store enabled", context do
@@ -3087,6 +3276,20 @@ defmodule Aiur.AgentGitHubGuardTest do
       _missing ->
         0
     end
+  end
+
+  defp last_cache_miss_reason(context) do
+    [context.state_path, "github-quota", "agent-cache.tsv"]
+    |> Path.join()
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.reverse()
+    |> Enum.find_value(fn row ->
+      case String.split(row, "\t") do
+        [_at, _consumer, "miss", _kind, _id, reason] -> reason
+        _other -> nil
+      end
+    end)
   end
 
   # Each stored answer as the broker names it: `owner/repo/kind/id/<shape>`.
