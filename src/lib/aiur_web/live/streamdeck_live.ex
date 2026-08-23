@@ -24,6 +24,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias AiurWeb.{
     Endpoint,
+    StreamdeckCommands,
     StreamDeckGrid,
     StreamdeckKeyFaceContract,
     StreamdeckLogs,
@@ -97,6 +98,14 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:sd_mode, :grid)
       |> assign(:sd_active, nil)
       |> assign(:transcript_relay, nil)
+      |> assign(:commands, %{"items" => [], "unavailable" => false})
+      |> assign(:commands_view, :history)
+      |> assign(:commands_selection, nil)
+      |> assign(:commands_option, nil)
+      |> assign(:commands_offset, 0)
+      |> assign(:commands_cursor, nil)
+      |> assign(:commands_page_index, 0)
+      |> assign(:commands_error, nil)
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
       |> assign(:install_modal?, false)
@@ -184,6 +193,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", %{"command" => "settings"}, socket), do: {:noreply, enter_settings(socket)}
 
+  def handle_event("command-press", %{"command" => "commands"}, socket), do: {:noreply, enter_commands(socket)}
+
   def handle_event("command-press", %{"command" => command}, socket) when command in @control_commands do
     if dashboard_writable?() do
       {:noreply, invoke_command(socket, command)}
@@ -196,10 +207,24 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("dial-press", %{"action" => "back"}, socket), do: {:noreply, back(socket)}
 
-  def handle_event("dial-press", %{"action" => "cycle-window"}, socket),
-    do: {:noreply, enter_logs(socket)}
+  # Dial D (cycle-window) is the focused window's paging knob: in logs it opens
+  # the log surface, and on the Commands page it pages the history window
+  # forward (or, on the detail view, cycles the option window) — the same
+  # deliberate-reading direction as the physical deck.
+  def handle_event("dial-press", %{"action" => "cycle-window"}, socket) do
+    case socket.assigns.sd_mode do
+      :commands -> {:noreply, page_commands(socket)}
+      _ -> {:noreply, enter_logs(socket)}
+    end
+  end
 
   def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
+
+  # Selecting a Commands key reads: on the history view it opens one Command's
+  # detail, and on the detail view it selects an option for reading. Selecting
+  # never commits — the same reading-not-committing rule as the physical deck.
+  def handle_event("command-select", %{"index" => index}, socket),
+    do: {:noreply, select_command(socket, parse_integer(index, 0))}
 
   # Mic is press-and-hold, so the server tracks the held state rather than
   # toggling it: a `pointerup`/`pointerleave`/`pointercancel` that never arrives
@@ -407,6 +432,7 @@ defmodule AiurWeb.StreamdeckLive do
                     <svg :if={key.icon == "logs"} data-streamdeck-icon="logs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
                     <svg :if={key.icon == "mic"} data-streamdeck-icon="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>
                     <svg :if={key.icon == "settings"} data-streamdeck-icon="settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+                    <svg :if={key.icon == "commands"} data-streamdeck-icon="commands" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M9.8 9a2.3 2.3 0 1 1 3.2 2.6c-.9.5-1.2 1-1.2 2"/><path d="M12 17.5h.01"/></svg>
                   </span>
                   <span class="sd-cmd-label">{key.label}</span>
                   <span class="sd-cmd-sub">{key.sub}</span>
@@ -472,6 +498,46 @@ defmodule AiurWeb.StreamdeckLive do
           </div>
           <% end %>
 
+          <%!-- The Commands page mirrors the physical deck's history-first
+                surface. The browser emulator can read history and options but
+                cannot hold a microphone or approve from the browser: like
+                Settings, the physical-only parts are stated rather than faked. --%>
+          <%= if @sd_mode == :commands do %>
+          <div id="sd-commands-view" class="sd-commands-view" data-mode-view="commands" data-focused-identifier={@sd_active.identifier} role="group" aria-label="Agent Commands">
+            <ul id="sd-command-keys" class="sd-keys sd-command-keys" aria-label="Command keys" data-commands-view={@commands_view}>
+              <%= if @commands_view == :detail and @commands_selection do %>
+                <li :for={key <- commands_option_keys(@commands_selection, @commands_offset)} class={["sd-key", "sd-cmd-key", key.empty? && "is-empty", !key.empty? && key.index == @commands_option && "is-selected"]}>
+                  <button :if={!key.empty?} type="button" class="sd-key-face" data-command-option={key.index} data-command-selected={key.index == @commands_option && "true"} phx-click="command-select" phx-value-index={key.index} aria-label={"Option: #{key.label}"}>
+                    <span class="sd-cmd">
+                      <span class="sd-cmd-label">{key.label}</span>
+                      <span class="sd-cmd-sub">OPT {key.index + 1}</span>
+                    </span>
+                  </button>
+                  <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
+                </li>
+                <li class={["sd-key", "sd-cmd-key", "sd-command-mic", "is-disabled"]}>
+                  <button type="button" class="sd-key-face" disabled aria-label="Mic">
+                    <span class="sd-cmd">
+                      <span class="sd-cmd-label">Mic</span>
+                      <span class="sd-cmd-sub">SIDECAR</span>
+                    </span>
+                  </button>
+                </li>
+              <% else %>
+                <li :for={key <- commands_history_keys(@commands, nil)} class={["sd-key", "sd-cmd-key", key.empty? && "is-empty"]}>
+                  <button :if={!key.empty?} type="button" class="sd-key-face" data-command-key={key.decision_id} phx-click="command-select" phx-value-index={key.index} aria-label={key.question}>
+                    <span class="sd-cmd">
+                      <span class="sd-cmd-label">{key.question}</span>
+                      <span class="sd-cmd-sub">{key.status}</span>
+                    </span>
+                  </button>
+                  <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
+                </li>
+              <% end %>
+            </ul>
+          </div>
+          <% end %>
+
           <div
             id="sd-screen"
             class={["sd-screen", "sd-screen-#{@sd_mode}"]}
@@ -531,6 +597,29 @@ defmodule AiurWeb.StreamdeckLive do
               </div>
               <p :if={@logs.transcript_visible == []} class="sd-log-strip-empty">No recent transcript.</p>
             </div>
+            <%= if @sd_mode == :commands do %>
+            <% commands_panel = commands_panel(assigns) %>
+            <div class="sd-strip-commands" data-mode-view="commands-strip" data-commands-view={commands_panel.view}>
+              <%= if commands_panel.view == "history" do %>
+                <div class="sd-strip-commands-heading">
+                  <span class="sd-strip-commands-title">COMMANDS</span>
+                  <span class="sd-strip-commands-status" data-commands-active={commands_panel.active}>
+                    <%= if commands_panel.unavailable? do %>UNAVAILABLE<% else %><%= commands_panel.active %> OPEN<% end %>
+                  </span>
+                </div>
+                <p class="sd-strip-commands-reading"><%= commands_panel.note %></p>
+                <span class="sd-strip-commands-page"><%= if commands_panel.has_next?, do: "page #{commands_panel.page_index + 1} · dial D for more", else: "" %></span>
+              <% else %>
+                <div class="sd-strip-commands-heading">
+                  <span class="sd-strip-commands-status" data-commands-status={commands_panel.status}><%= commands_panel.status %></span>
+                  <span class="sd-strip-commands-ticket"><%= @sd_active.identifier %></span>
+                </div>
+                <p class="sd-strip-commands-title"><%= commands_panel.question %></p>
+                <p class="sd-strip-commands-reading"><%= commands_panel.reading %></p>
+                <span class="sd-strip-commands-note"><%= commands_panel.note %></span>
+              <% end %>
+            </div>
+            <% end %>
             <div
               :for={segment <- @screen}
               :if={@sd_mode == :grid or segment.kind == :pager}
@@ -987,7 +1076,10 @@ defmodule AiurWeb.StreamdeckLive do
       # Settings is navigation too, and sits beside Mic because it is where the
       # deck reports what voice input is doing.
       command_key("settings", "Settings", "OPEN", icon: "settings", state: "ready"),
-      empty_command_key(),
+      # Commands is navigation to the focused agent's Command history, so
+      # read-only leaves it enabled: it changes what the operator reads, never
+      # what the fleet does.
+      command_key("commands", "Commands", "OPEN", icon: "commands", state: "ready"),
       empty_command_key(),
       empty_command_key(),
       empty_command_key()
@@ -1020,6 +1112,102 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp empty_command_key, do: %{empty?: true, mic?: false}
+
+  # The Commands page's history window: one key per Command, newest first, with
+  # an OPEN/ANSWERED badge like the physical deck. Empty slots stay disabled so
+  # a pressed index always addresses the painted key.
+  defp commands_history_keys(commands, selected_index) do
+    (commands["items"] || [])
+    |> Enum.with_index()
+    |> Enum.take(8)
+    |> Enum.map(fn {command, index} ->
+      %{
+        empty?: false,
+        decision_id: command["decision_id"],
+        question: command["question"] || "",
+        status: command_status_badge(command["status"]),
+        answerable?: command["status"] in ["open", "deferred"],
+        selected?: index == selected_index,
+        index: index
+      }
+    end)
+    |> pad_slots(8, %{empty?: true})
+  end
+
+  # The detail view's option window, four to a page, then a Mic slot that is
+  # explained as physical-only (the browser has no local microphone).
+  defp commands_option_keys(selection, offset) do
+    options = selection["options"] || []
+    offset = min(offset, max(0, length(options) - 4))
+
+    Enum.slice(options, offset, 4)
+    |> Enum.with_index()
+    |> Enum.map(fn {option, index} ->
+      %{
+        empty?: false,
+        index: offset + index,
+        label: option["label"] || "",
+        selected?: false
+      }
+    end)
+    |> pad_slots(4, %{empty?: true})
+  end
+
+  defp pad_slots(list, count, filler), do: list ++ List.duplicate(filler, max(0, count - length(list)))
+
+  defp command_status_badge(status) when status in ["open", "deferred"], do: "OPEN"
+  defp command_status_badge(status) when status in ["decided", "acknowledged", "resolved"], do: "ANSWERED"
+  defp command_status_badge(status) when status in ["dismissed", "expired"], do: "CLOSED"
+  defp command_status_badge(_status), do: "UNKNOWN"
+
+  # The strip readout for the Commands page: a history heading, or the selected
+  # Command's question and reading on the detail view.
+  defp commands_panel(assigns) do
+    if assigns.commands_view == :detail and is_map(assigns.commands_selection) do
+      command = assigns.commands_selection
+      options = command["options"] || []
+      offset = assigns.commands_offset || 0
+      answerable? = command["status"] in ["open", "deferred"]
+
+      %{
+        view: "detail",
+        question: command["question"] || "",
+        reading: option_reading(command, assigns.commands_option),
+        status: command_status_badge(command["status"]),
+        answerable?: answerable?,
+        selected?: assigns.commands_option != nil,
+        more_options?: offset + 4 < length(options),
+        note: answerable? && "Reading only — approve on the physical deck"
+      }
+    else
+      items = assigns.commands["items"] || []
+      active = Enum.count(items, &(&1["status"] in ["open", "deferred"]))
+
+      %{
+        view: "history",
+        active: active,
+        unavailable?: assigns.commands["unavailable"] == true,
+        has_next?: assigns.commands["has_next"] == true,
+        page_index: assigns.commands_page_index || 0,
+        note: "Select a Command to read it"
+      }
+    end
+  end
+
+  defp option_reading(command, option_index) when is_integer(option_index) do
+    case Enum.at(command["options"] || [], option_index) do
+      %{"description" => description} when is_binary(description) and description != "" -> description
+      %{"label" => label} when is_binary(label) -> label
+      _ -> "No description"
+    end
+  end
+
+  defp option_reading(command, _option_index) do
+    case get_in(command, ["context", "short"]) do
+      short when is_binary(short) and short != "" -> short
+      _ -> "No description"
+    end
+  end
 
   defp invoke_command(socket, command) do
     case socket.assigns.sd_active do
@@ -1113,7 +1301,95 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp enter_settings(socket), do: socket
 
-  defp back(%{assigns: %{sd_mode: mode}} = socket) when mode in [:logs, :settings],
+  defp enter_commands(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active) do
+    identifier = to_string(active.identifier)
+
+    socket
+    |> assign(:sd_mode, :commands)
+    |> assign(:commands, load_commands(identifier))
+    |> assign(:commands_view, :history)
+    |> assign(:commands_selection, nil)
+    |> assign(:commands_option, nil)
+    |> assign(:commands_offset, 0)
+    |> assign(:commands_cursor, nil)
+    |> assign(:commands_page_index, 0)
+    |> assign(:commands_error, nil)
+    |> refresh_knobs()
+  end
+
+  defp enter_commands(socket), do: socket
+
+  # The Commands page is history-first: pressing a history key opens one
+  # Command's detail (answering an open one, read-only for a completed one), and
+  # pressing an option key on the detail view selects it for reading. Selecting
+  # never commits; approving is the deliberate second action on the physical
+  # deck, which the browser emulator cannot hold a microphone for.
+  defp select_command(%{assigns: %{sd_mode: :commands, commands_view: :history}} = socket, index) do
+    case Enum.at(socket.assigns.commands["items"] || [], index) do
+      nil ->
+        socket
+
+      command ->
+        socket
+        |> assign(:commands_view, :detail)
+        |> assign(:commands_selection, command)
+        |> assign(:commands_option, nil)
+        |> assign(:commands_offset, 0)
+        |> assign(:commands_error, nil)
+    end
+  end
+
+  defp select_command(
+         %{assigns: %{sd_mode: :commands, commands_view: :detail, commands_selection: command}} = socket,
+         index
+       )
+       when is_map(command) do
+    if index < length(command["options"] || []) do
+      assign(socket, :commands_option, index)
+    else
+      socket
+    end
+  end
+
+  defp select_command(socket, _index), do: socket
+
+  # Dial D pages the Commands page: the option window on the detail view
+  # (wrapping), or the history window forward through the opaque server cursor.
+  defp page_commands(%{assigns: %{sd_mode: :commands, commands_view: :detail, commands_selection: command}} = socket)
+       when is_map(command) do
+    count = length(command["options"] || [])
+    offset = socket.assigns.commands_offset || 0
+    next = if offset + 4 < count, do: offset + 4, else: 0
+
+    socket
+    |> assign(:commands_offset, next)
+    |> assign(:commands_option, nil)
+  end
+
+  defp page_commands(%{assigns: %{sd_mode: :commands, commands_view: :history, sd_active: active}} = socket) do
+    case socket.assigns.commands do
+      %{"has_next" => true, "next_cursor" => cursor} when is_binary(cursor) and cursor != "" ->
+        identifier = to_string(active.identifier)
+
+        case commands_page(identifier, cursor) do
+          {:ok, next_page} ->
+            socket
+            |> assign(:commands, next_page)
+            |> assign(:commands_cursor, cursor)
+            |> assign(:commands_page_index, socket.assigns.commands_page_index + 1)
+
+          {:error, _reason} ->
+            assign(socket, :commands_error, "Commands page failed")
+        end
+
+      _page ->
+        socket
+    end
+  end
+
+  defp page_commands(socket), do: socket
+
+  defp back(%{assigns: %{sd_mode: mode}} = socket) when mode in [:logs, :settings, :commands],
     do: socket |> assign(:sd_mode, :cmd) |> refresh_knobs()
 
   defp back(%{assigns: %{sd_mode: :cmd}} = socket) do
@@ -1153,6 +1429,25 @@ defmodule AiurWeb.StreamdeckLive do
       _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
     end
     |> log_entries()
+  end
+
+  # The focused agent's Command history for the emulator's Commands surface. A
+  # `streamdeck_commands_fun` seam exists only for tests, mirroring
+  # `streamdeck_logs_fun`; the production path reads the retained decision store
+  # through the same projection the physical channel uses.
+  defp load_commands(identifier) do
+    case commands_page(identifier, nil) do
+      {:ok, page} -> page
+      {:error, _reason} -> %{"items" => [], "unavailable" => true}
+    end
+  end
+
+  defp commands_page(identifier, cursor) do
+    case endpoint_config(:streamdeck_commands_fun) do
+      fun when is_function(fun, 2) -> safe_call(fn -> fun.(identifier, cursor) end, {:error, :unavailable})
+      fun when is_function(fun, 1) -> safe_call(fn -> {:ok, fun.(identifier)} end, {:error, :unavailable})
+      _ -> safe_call(fn -> StreamdeckCommands.history(identifier, cursor) end, {:error, :unavailable})
+    end
   end
 
   defp agent_event_feed(identifier) do
@@ -1427,6 +1722,7 @@ defmodule AiurWeb.StreamdeckLive do
       case mode do
         :cmd -> StreamdeckStrip.hint(0, 0, "BACK")
         :settings -> StreamdeckStrip.hint(0, 0, "BACK")
+        :commands -> StreamdeckStrip.hint(0, 0, "BACK")
         :logs -> StreamdeckStrip.hint(Map.get(logs, :transcript_offset, 0), Map.get(logs, :transcript_max_offset, 0), "BACK")
         _ -> nil
       end

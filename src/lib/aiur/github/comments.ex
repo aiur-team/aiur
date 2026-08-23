@@ -72,25 +72,13 @@ defmodule Aiur.GitHub.Comments do
     fetch_recent_repo_comment_stream_conditional("issues/comments", opts)
   end
 
-  @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_issue_comments(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- Transport.parse_repo(),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      query = comment_query(opts)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
-
-      Transport.fetch_json_list(request_fun, token, url)
-    end
-  end
-
   @doc """
   Fetches an issue's comments with `If-None-Match` support.
 
-  The established `fetch_issue_comments/2` contract remains list-only for
-  foreground callers. Pollers use this variant so a 304 does not look like an
-  API failure or force a second request for an unchanged list.
+  This is the only reader of the issue-comments endpoint; the unconditional
+  `fetch_issue_comments/2` was retired (#2326) so no new call site could pick a
+  full-price read by accident. A `304` does not look like an API failure and does
+  not force a second request for an unchanged list.
   """
   @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -129,7 +117,7 @@ defmodule Aiur.GitHub.Comments do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
 
-      case Transport.fetch_json_list(request_fun, token, url) do
+      case Transport.fetch_json_list(request_fun, token, url, caller: "classified_issue_comments") do
         {:ok, comments} ->
           {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
 

@@ -22,9 +22,10 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
     * **CI status of any kind** — `statusCheckRollup`, check runs, check suites,
       commit statuses, and the `:ci_poll_batch` document that carries them.
-      `Aiur.GitHub.ResourceStore` reached the same conclusion independently and
-      removed `:check_run` from the store entirely when its deposit ceased
-      (#2126); a CI verdict is never cached.
+      A complete internal CI-context snapshot may let the daemon omit that one
+      selection immediately after a webhook advances it, but this policy still
+      refuses the document and agent-facing verdict cache; a CI verdict is never
+      served from a TTL cache.
     * **Review state and merge gating** — `reviewDecision`, `mergeable`,
       `mergeStateStatus`, review threads, requested reviewers, the human-review
       gate's strict reads. An approval that was dismissed thirty seconds ago must
@@ -46,6 +47,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | --- | --- | --- | --- |
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
+  | `:repo_config` | 5 min | 1 h | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a five-minute polling body cache costs little; every webhook delivery retires it via the collections marker, which is what lets it ride the same long bucket as the other classes. |
 
   There are two buckets, and which one applies is decided by the repository's
   delivery mode, not by the class. A repo that is not proven webhook-backed —
@@ -134,15 +136,18 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   alias Aiur.GitHub.ReadCache.Identity
   alias Aiur.Webhooks.ModeTable
 
-  @type class :: :comments | :issue_graph
+  @type class :: :comments | :issue_graph | :repo_config
   @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom()}
 
   # The short bucket, in force for any repo that is not proven webhook-backed:
   # never configured, configured-but-unproven, or degraded from silence. For
   # those repos the TTL *is* the freshness mechanism — nothing else retires
   # their entries — so it stays at the value chosen against the poll cadence
-  # below.
-  @default_ttls %{comments: 30_000, issue_graph: 30_000}
+  # below. `:repo_config` is the one exception: it rides the CIReadiness
+  # assessment cadence (its assessment is itself cached for an hour) rather
+  # than the 30-second Build Order window, so its short value is five minutes,
+  # not thirty seconds.
+  @default_ttls %{comments: 30_000, issue_graph: 30_000, repo_config: 300_000}
 
   # The long bucket, in force only for a repo proven webhook-backed. Once a
   # delivery retires what it changes (`Aiur.Events.GithubWebhook.Deposit`),
@@ -157,7 +162,16 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # four times that bound, turning the four expensive GraphQL reads
   # (`build_order_catalog` above all) from a 30-second re-fetch into an
   # hourly one while leaving the correction path intact.
-  @webhook_backed_ttls %{comments: 3_600_000, issue_graph: 3_600_000}
+  #
+  # `:repo_config` rides the same long bucket because every delivery also
+  # retires the repository's collections — `invalidate_number/2` writes the
+  # `{:collections, ...}` marker unconditionally, and a repo-config read is a
+  # number-less REST read that carries exactly that identity (see `Identity`).
+  # Repository configuration is also the class that changes *with* a delivery —
+  # a push updates `.github/workflows`, branch protection or a ruleset — rather
+  # than independently of one, so the delivery is precisely the correction path
+  # the long bucket requires.
+  @webhook_backed_ttls %{comments: 3_600_000, issue_graph: 3_600_000, repo_config: 3_600_000}
 
   # Declared callers, keyed by the string `Transport` stamps on the request from
   # `opts[:caller]`. A caller absent from this table falls through to the REST
@@ -179,7 +193,14 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @unsafe_selections ~r/statusCheckRollup|checkSuites|\bCheckRun\b|StatusContext|reviewDecision|mergeStateStatus|\bmergeable\b|reviewThreads|\blatestReviews\b|\breviews\s*\(/
 
   # REST paths whose staleness is unsafe, by the same argument.
-  @unsafe_rest ~r{/(?:check-runs|check-suites|status|statuses|commits/[^/]+/status|merge|requested_reviewers|reviews|actions)(?:/|$|\?)}
+  #
+  # `actions` is deliberately NOT here as a bare alternative: the daemon's only
+  # `/actions/` read is the workflow *list* (`/repos/o/r/actions/workflows`),
+  # which is repository configuration, not a CI verdict. The verdict endpoints —
+  # workflow runs and their jobs — are covered by the explicit `actions/(?:runs|jobs)`
+  # alternative below, so narrowing the pattern refuses CI status while leaving
+  # CI configuration cacheable (#2298).
+  @unsafe_rest ~r{/(?:check-runs|check-suites|status|statuses|commits/[^/]+/status|merge|requested_reviewers|reviews|actions/(?:runs|jobs))(?:/|$|\?)}
 
   @doc """
   Classifies a request.
@@ -236,19 +257,62 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
-  # One shape, anchored to a numbered issue or pull request. The repo-wide
+  # Three shapes, anchored to a numbered issue or pull request. The repo-wide
   # comment streams (`/repos/o/r/issues/comments`) deliberately do not match:
   # they are already conditional reads that revalidate for free with an ETag,
   # and holding a body instead of sending `If-None-Match` would trade a free
   # `304` for staleness. A cache is only an improvement where no validator
   # exists.
+  # `/commits/:sha` is immutable per sha — a commit's timestamp cannot change
+  # while the sha is the same — so its TTL can never serve a verdict that has
+  # moved. The verdict shapes (`/commits/:sha/status`, check runs, reviews,
+  # merge gating) are refused earlier, on content, by `@unsafe_rest`. The sha
+  # is matched exactly (7–40 hex digits), never a branch ref: a commit read
+  # by ref returns the head commit and is highly mutable.
+  #
+  # `/pulls/:n/files` deliberately does NOT match. The URL carries no head sha,
+  # so a push changes the response while the cache key does not — a stale
+  # changed-paths answer would be served for the TTL (review #2332). Nothing is
+  # cached that the URL cannot pin to an immutable object.
+  #
+  # Repository configuration gets its own class because it is the one REST
+  # surface the safety regex above over-matched: `/actions/workflows` is the
+  # workflow *list* — configuration — not a CI verdict, and the same reasoning
+  # covers branch protection, branch existence and rulesets. `CiReadiness`
+  # reads these on every inspection; caching the body lets a repeated check
+  # answer from the meter instead of the socket.
+  #
+  # The bare `/repos/{owner}/{repo}` repository read is deliberately NOT
+  # classified: it is the auth-preflight probe, which must exercise the current
+  # credential rather than be answered from a cache. The open-issue candidate
+  # list is deliberately NOT classified either: dispatch labels are mutable
+  # authority and a stale list is a stale dispatch decision (see the moduledoc's
+  # "what must never be cached").
   defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
-    if Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url),
-      do: cache(:comments, request),
-      else: {:no_cache, :unclassified}
+    cond do
+      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url) ->
+        cache(:comments, request)
+
+      Regex.match?(~r"/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}\z", url) ->
+        cache(:comments, request)
+
+      repo_config?(url) ->
+        cache(:repo_config, request)
+
+      true ->
+        {:no_cache, :unclassified}
+    end
   end
 
   defp classify_rest(_request), do: {:no_cache, :unclassified}
+
+  # Branch existence, branch protection, the workflow contents/state/action
+  # listings, and the ruleset list/detail — the CIReadiness config surface,
+  # minus the bare repository read and the candidate issue list (see above).
+  # The optional query string rides along so `?ref=`/`?per_page=` URLs match.
+  @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
+
+  defp repo_config?(url), do: Regex.match?(@repo_config_rest, url)
 
   @doc """
   The TTL in force for a class, after any operator override.

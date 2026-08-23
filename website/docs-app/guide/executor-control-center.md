@@ -8,8 +8,8 @@ The Dashboard is Aiur's browser interface for supervising a run. It combines the
 | --- | --- |
 | Normal foreground or headless run | Listener requested. |
 | `--no-dashboard` | Listener disabled. |
-| Writable mode | Username and password required, including on loopback. |
-| Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request returns `503`. |
+| Writable mode | On loopback it binds without credentials and fails closed; beyond loopback it refuses to start without both credentials. |
+| Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request is refused until both credentials are set. |
 | Host selection | `server.host` wins over authenticated Tailscale or loopback default. |
 
 Startup prints the URL and effective bind only when the listener runs:
@@ -86,6 +86,16 @@ Served-free reads cost no GitHub budget. They are shown alongside the ranking fo
 Cache counters do not identify a GitHub budget, so callers seen only by the cache are not assigned to the GraphQL or core table.
 
 Reads served by `ResourceStore` are also outside this column. The header explicitly names `ReadCache`, so absence from one store is not presented as absence from every shared-state path.
+
+The **Agent gh exact-shape hit rate** tile measures the separate cache used by
+agent `gh` subprocesses.
+
+It shows `hits / (hits + misses)` plus the raw counts for the previous 24 hours
+across agent workspaces on the daemon host; remote SSH workers are outside that
+coverage.
+
+Missing counters and a zero denominator read **Not measured**, never `0%`, and
+skipped or malformed sources are labeled as partial coverage.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
@@ -199,8 +209,12 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set.
+Aiur refuses to start a dashboard bound beyond loopback without both credentials. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
-The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
+The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Generate one with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` for all projects or the repository `.env` for one project.
+
+An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
+
+Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.

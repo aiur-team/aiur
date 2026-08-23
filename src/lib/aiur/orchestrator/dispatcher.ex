@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Reconciler,
     RetryEngine,
     Slots,
+    StartupClaimReconciler,
     State,
     StatusReport,
     TrackedSet,
@@ -61,6 +62,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Lifecycle.schedule_tick(schedule.delay_ms)
       |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
+      # Counted AFTER the schedule is computed so the first cycle after a
+      # restart schedules at the base interval: a freshly started daemon has
+      # observed no idleness, so the idle backoff may only apply from the
+      # second scheduling decision onward (#2138).
+      |> Map.update!(:poll_cycles_completed, &(&1 + 1))
 
     # Every freshness threshold is a multiple of the cadence actually in force,
     # so the scheduled delay — idle backoff, webhook widening and GitHub's own
@@ -158,6 +164,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # so a ticket relabelled since the previous poll is judged on its
         # current labels rather than a stale cached copy (#1682).
         state = Reconciler.refresh_running_issue_states(state, issues)
+        # Tracker claims survive a daemon restart, while the runtime registry
+        # does not. Once both views are fresh, release only claims with no
+        # positive current-generation runtime evidence before normal dispatch.
+        {state, issues} = StartupClaimReconciler.reconcile(state, issues)
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 

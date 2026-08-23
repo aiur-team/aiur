@@ -28,6 +28,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
         streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
         streamdeck_logs_fun: &fixture_logs/1,
+        streamdeck_commands_fun: &fixture_commands/2,
         # The control seams stand in for the orchestrator: they settle the
         # shared snapshot the same way a real control call would, so the view
         # can only render the new state by re-reading that snapshot.
@@ -652,16 +653,21 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  test "cmd mode offers the design's four command keys, with Mic as press-and-hold" do
+  test "cmd mode offers the design's five command keys, with Mic as press-and-hold" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert_receive {:streamdeck_pause, "1352"}
 
-    # Four keys, in the design's order, with the design's labels and sub lines.
+    # Five keys, in the design's order, with the design's labels and sub lines.
     # Prioritize is not among them: the slot it held is Settings now.
-    assert [{"pause", "Pause", "HOLD"}, {"logs", "Logs", "SCROLL"}, {"mic", "Mic", "HOLD"}, {"settings", "Settings", "OPEN"}] ==
-             rendered_command_keys(html)
+    assert [
+             {"pause", "Pause", "HOLD"},
+             {"logs", "Logs", "SCROLL"},
+             {"mic", "Mic", "HOLD"},
+             {"settings", "Settings", "OPEN"},
+             {"commands", "Commands", "OPEN"}
+           ] == rendered_command_keys(html)
 
     # Mic is the only press-and-hold key, so it is the only one the hook drives
     # from pointer events rather than a click.
@@ -716,7 +722,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  test "renders state-derived command keys with four disabled blank slots" do
+  test "renders state-derived command keys with three disabled blank slots" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     refute html =~ "data-streamdeck-command"
@@ -724,8 +730,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "settings") =~ "Settings"
-    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 4
-    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 4
+    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 5
+    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 3
 
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
@@ -745,6 +751,95 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
     assert command_icon(html, "pause") == "play"
+  end
+
+  test "the Commands key is always on the agent row and opens the history view" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # The Commands key is a stable destination, not a conditional alert: it is
+    # present whether or not the agent has an open Command.
+    assert command_key(html, "commands") =~ "Commands"
+    assert command_key(html, "commands") =~ ~s(data-command-state="ready")
+
+    html = render_hook(view, "command-press", %{"command" => "commands"})
+
+    assert html =~ ~s(id="sd-commands-view")
+    assert html =~ ~s(data-mode-view="commands")
+    # History-first: the answerable Command carries an OPEN badge, newest first.
+    assert html =~ "Ship the change?"
+    assert html =~ ~s(data-command-key="dec-open-1")
+    assert html =~ "Rotate the key?"
+    assert html =~ "OPEN"
+  end
+
+  test "selecting a history key enters the detail view where an option reads but never commits" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+    render_hook(view, "command-press", %{"command" => "commands"})
+
+    html = render_hook(view, "command-select", %{"index" => 0})
+
+    # The detail view paints the Command's options and the strip reads the
+    # Command's own description before anything is selected.
+    assert html =~ ~s(data-commands-view="detail")
+    assert html =~ ~s(data-command-option="0")
+    assert html =~ "Ship it"
+    assert html =~ "The checks are green."
+
+    html = render_hook(view, "command-select", %{"index" => 0})
+
+    # Selecting an option is reading, not committing: the strip now reads that
+    # option's detail and no answer is recorded (the browser cannot approve).
+    assert html =~ ~s(data-command-selected="true")
+    assert html =~ "Merge and deploy now."
+  end
+
+  test "back returns from the Commands page to the agent row" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+    render_hook(view, "command-press", %{"command" => "commands"})
+    render_hook(view, "command-select", %{"index" => 0})
+
+    html = render_hook(view, "dial-press", %{"action" => "back"})
+    assert html =~ ~s(data-mode="cmd")
+    refute html =~ ~s(id="sd-commands-view")
+  end
+
+  test "a Command with no description reads as No description" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+    render_hook(view, "command-press", %{"command" => "commands"})
+    # dec-done-1 has no context and no options: entering it reads No description.
+    html = render_hook(view, "command-select", %{"index" => 1})
+    assert html =~ "No description"
+  end
+
+  test "an unavailable Commands store says so instead of an empty history" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+
+    Endpoint.config_change(
+      %{Endpoint => Keyword.put(endpoint_config, :streamdeck_commands_fun, fn _, _ -> {:ok, %{"items" => [], "unavailable" => true}} end)},
+      []
+    )
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      render_hook(view, "key-press", %{"identifier" => "1352"})
+      assert_receive {:streamdeck_pause, "1352"}
+      html = render_hook(view, "command-press", %{"command" => "commands"})
+      assert html =~ "UNAVAILABLE"
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
   end
 
   defp rendered_command_keys(html) do
@@ -1490,6 +1585,42 @@ defmodule AiurWeb.StreamdeckLiveTest do
       timestamp: fixture_stamp(index, 0)
     }
   end
+
+  # The Commands fixture mirrors the allowlisted page the channel projects: one
+  # answerable Command with options and one completed read-only Command. The
+  # browser surface reads it the same way the physical deck would.
+  defp fixture_commands(identifier, _cursor) when identifier in ["1352"] do
+    {:ok,
+     %{
+       "items" => [
+         %{
+           "decision_id" => "dec-open-1",
+           "version" => 1,
+           "question" => "Ship the change?",
+           "status" => "open",
+           "context" => %{"short" => "The checks are green."},
+           "options" => [
+             %{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."},
+             %{"id" => "wait", "label" => "Wait", "description" => "Hold until tomorrow."}
+           ]
+         },
+         %{
+           "decision_id" => "dec-done-1",
+           "version" => 1,
+           "question" => "Rotate the key?",
+           "status" => "decided",
+           "options" => []
+         }
+       ],
+       "next_cursor" => nil,
+       "has_next" => false,
+       "total" => 2,
+       "partial" => false,
+       "unavailable" => false
+     }}
+  end
+
+  defp fixture_commands(_identifier, _cursor), do: {:ok, %{"items" => [], "unavailable" => false}}
 
   defp feed_entry(body, timestamp) do
     %{
