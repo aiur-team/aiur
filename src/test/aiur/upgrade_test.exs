@@ -62,7 +62,7 @@ defmodule Aiur.Upgrade.VersionTest do
 end
 
 defmodule Aiur.UpgradeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
   require Logger
@@ -101,7 +101,7 @@ defmodule Aiur.UpgradeTest do
   end
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "aiur-upgrade-test-#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur-upgrade-test")
     File.mkdir_p!(tmp)
     state_file = Path.join(tmp, "upgrade.json")
     Process.put(:upgrade_test_state_file, state_file)

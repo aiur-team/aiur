@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionPolicyTest do
   alias Aiur.GitHub.ReviewThreads.ResolutionPolicy
 
   defp codeowners_repo!(content) do
-    repo_root = Path.join(System.tmp_dir!(), "aiur-rp-test-#{System.unique_integer([:positive])}")
+    repo_root = Aiur.TestSupport.tmp_root!("aiur-rp-test")
     path = Path.join(repo_root, ".github/CODEOWNERS")
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, content)

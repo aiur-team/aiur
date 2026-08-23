@@ -9,7 +9,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
 
     store_path =
-      Path.join(System.tmp_dir!(), "github_ci_poller_#{System.unique_integer([:positive])}.json")
+      Aiur.TestSupport.tmp_root!("github_ci_poller") <> ".json"
 
     System.put_env("GITHUB_TOKEN", "test-gh-token")
     Application.put_env(:aiur, :ci_approval_store_path, store_path)
@@ -166,6 +166,39 @@ defmodule Aiur.Events.GithubCIPollerTest do
                 }
               ]
             }} = GithubCIPoller.poll(["42"], ci_batch: ci_batch, base_branch: "main")
+  end
+
+  # #2310 — a target the batch displaced because a webhook delivery answered it
+  # carries an inert result: no verdict, no failure, no pass. The lifecycle
+  # treats it as a no-op (`delivered: true`), because a CI verdict is never
+  # answered from a held body at any age (R10); the next non-displaced read
+  # produces the real verdict.
+  test "a delivered (displaced) batch entry carries an inert result, never a verdict" do
+    ci_batch = %{
+      "42" => %{
+        delivered: true,
+        head_sha: "head-77",
+        pr_number: 77,
+        check_run: %{
+          "id" => 5501,
+          "name" => "test",
+          "status" => "completed",
+          "conclusion" => "success",
+          "started_at" => "2026-08-22T11:55:00Z",
+          "completed_at" => "2026-08-22T12:05:00Z"
+        }
+      }
+    }
+
+    assert {:ok, %{errors: [], results: [result]}} = GithubCIPoller.poll(["42"], ci_batch: ci_batch)
+
+    assert result.delivered == true
+    assert result.target == "42"
+    assert result.head_sha == "head-77"
+    assert result.pr_number == 77
+    refute Map.has_key?(result, :decision)
+    refute Map.has_key?(result, :failures)
+    refute Map.has_key?(result, :pending_reason)
   end
 
   test "returns pending for no observed checks or in-progress work" do

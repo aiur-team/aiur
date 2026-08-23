@@ -777,11 +777,7 @@ defmodule Aiur.GitHub.ClientTest do
     end
 
     test "fails closed on comments when CODEOWNERS is missing" do
-      repo_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-github-client-test-#{System.unique_integer([:positive])}"
-        )
+      repo_root = Aiur.TestSupport.tmp_root!("aiur-github-client-test")
 
       File.mkdir_p!(repo_root)
 
@@ -2100,11 +2096,7 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   defp codeowners_repo!(content) do
-    repo_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-github-client-test-#{System.unique_integer([:positive])}"
-      )
+    repo_root = Aiur.TestSupport.tmp_root!("aiur-github-client-test")
 
     path = Path.join(repo_root, ".github/CODEOWNERS")
     File.mkdir_p!(Path.dirname(path))

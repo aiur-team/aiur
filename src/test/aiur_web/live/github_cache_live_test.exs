@@ -827,7 +827,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
   defp seed_ledger do
     path =
-      Path.join(System.tmp_dir!(), "aiur-ghc-live-ledger-#{System.unique_integer([:positive])}.sqlite3")
+      Aiur.TestSupport.tmp_root!("aiur-ghc-live-ledger") <> ".sqlite3"
 
     {:ok, conn} = Basic.open(path)
     _ = Basic.exec(conn, @ledger_admissions_schema)
@@ -1007,6 +1007,24 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
       assert view |> render() |> budget_block() |> served_free("issue_relationships") == "5 reads"
       assert reading(quota) == before
+    end
+
+    test "says when a caller's reads were not deposited, rather than pretending none happened" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+
+      # A caller whose reads all missed and failed to deposit would otherwise
+      # read as "none this boot" — the same text as a caller with no traffic.
+      ReadCacheProvider.install(%{
+        available?: true,
+        callers: %{"issue_relationships" => %{hit: 0, miss: 3, not_deposited: 3}}
+      })
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html |> budget_block() |> served_free("issue_relationships") == "3 reads not deposited"
     end
 
     test "keeps the widened ranking keyboard-reachable on narrow viewports" do

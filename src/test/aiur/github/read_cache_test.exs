@@ -330,6 +330,154 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
+    test "a numbered write retires a numbers-free enumerating read" do
+      # The `build_order_catalog` document names no numbers, so its identity set
+      # is only [:root, {:repo, ...}, {:collections, ...}] — the collections
+      # marker is the one identity a numbered write can write that retires it.
+      # Before #2372 the catalog was retired *structurally*, by the `{:repo, ...}`
+      # marker every numbered write then wrote; precise retirement must still
+      # retire it, or a comment added to a ticket would serve pre-write bytes for
+      # the whole webhook TTL.
+      catalog = graphql("build_order_catalog", catalog_document())
+      assert {:ok, _response} = ReadCache.through(catalog, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2073/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(catalog, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a repo-named write with no number still retires a numbered read" do
+      # The `numbers == [] -> [repo]` branch: a write that names a repository
+      # but no number (a git-ref write, a repo-config write) still retires
+      # repository-wide. A numbered read carries `{:repo, ...}` but not
+      # `{:collections, ...}`, so the repo marker is the only identity that
+      # holds this; weakening the branch to the collections marker would let a
+      # repo-wide write leave every numbered read of the repository cached.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/labels", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    # Regression for #2372: the read cache reported 0.0% hits with a full,
+    # freshly-deposited table because invalidation was repository-wide. A write
+    # or a CI delivery that changed *one* numbered resource marked `{:repo, ...}`,
+    # which every read of the repository carries, so on a repo the daemon writes
+    # to continuously nothing ever survived to be served. These pin the
+    # precision: a change to one number must not retire a read of a different
+    # number, and a deposit followed by an identical cacheable read within the
+    # TTL must produce a hit.
+    test "a write to one issue does not retire a cached read of a different issue" do
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2070/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a write to issue 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a check_run delivery retires only the pull requests it names, not the whole repository" do
+      # A check_run delivery names the pull requests it belongs to, but
+      # `Deposit.invalidate_read_cache` used to fall through to
+      # `invalidate_repo`, retiring *every* read of the repository. CI
+      # check-run deliveries are effectively continuous on an active repo, so
+      # that wiped the cache faster than anything could be served from it.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("check_run", check_run_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a check_run for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a check_run delivery with a malformed pull_requests element still retires the valid ones" do
+      # `delivery_numbers` reads the numbers from `check_run.pull_requests`, and
+      # a malformed element (not a map) must not abort the whole read: the old
+      # `Enum.map` raised, `deposit/3`'s rescue swallowed the entire
+      # `invalidate_read_cache/3` call, and the delivery retired *nothing* —
+      # silently leaving the cache stale. The valid elements must still be
+      # retired.
+      read = graphql("issue_relationships", safe_document(2070))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      malformed = %{
+        "check_run" => %{
+          "id" => 55_03,
+          "name" => "test",
+          "status" => "completed",
+          "conclusion" => "success",
+          "head_sha" => "deadbeef",
+          "output" => %{},
+          "pull_requests" => ["not-a-map", %{"number" => 2070, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+        }
+      }
+
+      Deposit.deposit("check_run", malformed, @repo)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a check_suite delivery retires only the pull requests it names, not the whole repository" do
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("check_suite", check_suite_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a check_suite for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a pull_request_review_thread delivery retires the pull request it names" do
+      # A `pull_request_review_thread` delivery names its pull request in
+      # `pull_request.number`, and `Deposit.delivery_numbers` must retire that
+      # number. Before #2372 this event type fell through to "no nameable
+      # number" and retired the *whole repository* on every thread delivery.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("pull_request_review_thread", review_thread_delivery(2073), @repo)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a pull_request_review_thread delivery does not retire a read of a different number" do
+      # The other half of the pin: a thread delivery for one pull request must
+      # not retire a read of a different number. If `delivery_numbers` fell back
+      # to `[]` for this event type, `invalidate_read_cache` would call
+      # `invalidate_repo` and a read of issue 2073 would be retired by a thread
+      # delivery about PR 2070.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("pull_request_review_thread", review_thread_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a review-thread delivery for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a deposited read survives unrelated writes and deliveries, so the hit rate stays above zero" do
+      # The hit-rate guard for #2372: the cache used to serve 0.0% of cacheable
+      # reads on this repository because both the daemon's own writes and CI
+      # deliveries retired the whole repository. A deposit followed by unrelated
+      # activity followed by an identical read within the TTL must still hit.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _one} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2070/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+      Deposit.deposit("check_run", check_run_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("hit") end)
+      assert ReadCache.snapshot().hit_rate > 0
+    end
+
     test "an invalidation written during a slow fetch retires the entry that fetch deposits" do
       # The write-after-invalidate race, and the delay is the whole test.
       #
@@ -482,6 +630,45 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert %{hit: 1, miss: 1, deposit: 1} = snapshot.callers["issue_relationships"]
     end
 
+    test "counts a response refused at deposit as unsuccessful, not as a silent gap" do
+      request = graphql("issue_relationships", safe_document(2073))
+
+      partial = {:ok, %{status: 200, body: %{"data" => %{}, "errors" => [%{"type" => "RATE_LIMITED"}]}}}
+
+      assert ^partial = ReadCache.through(request, fn -> partial end)
+
+      snapshot = Metrics.snapshot()
+
+      assert %{unsuccessful: 1} = snapshot.not_deposited
+      assert %{not_deposited: 1, deposit: 0, miss: 1} = snapshot.classes[:issue_graph]
+      assert %{not_deposited: 1} = snapshot.callers["issue_relationships"]
+      # The accounting remainder closes: this miss deposited nothing and said why.
+      assert %{not_deposited: 1, miss: 1, deposit: 0} = snapshot.totals
+    end
+
+    test "counts a good response refused at the entry ceiling as no_room" do
+      request = graphql("issue_relationships", safe_document(2073))
+
+      # Fill the table to the ceiling; the deposit refusal is the backstop
+      # answering "the cache could not hold it", and it must be counted as
+      # `no_room` rather than folded into the unsuccessful bucket.
+      ceiling = ReadCache.max_entries()
+      now = System.monotonic_time(:millisecond)
+      rows = for n <- 1..ceiling, do: {{:filler, n}, "x", now}
+      :ets.insert(:aiur_github_read_cache_entries, rows)
+      assert :ets.info(:aiur_github_read_cache_entries, :size) == ceiling
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "good"}} end)
+      end)
+
+      snapshot = Metrics.snapshot()
+
+      assert %{no_room: 1} = snapshot.not_deposited
+      assert %{not_deposited: 1, deposit: 0} = snapshot.classes[:issue_graph]
+      assert %{not_deposited: 1} = snapshot.totals
+    end
+
     test "counts a refusal against its caller with a reason, not as a miss" do
       assert {:ok, _response} = ReadCache.through(graphql("ci_poll_batch", ci_document()), fn -> {:ok, %{status: 200, body: "x"}} end)
 
@@ -585,6 +772,51 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
     end
 
+    # #2326: a commit's timestamp is immutable per sha, so the bare commit read
+    # is cacheable without ever serving a verdict that has moved. The sha is
+    # matched exactly — a commit read by branch ref is highly mutable, and a
+    # PR's changed paths carry no sha in their URL, so neither is cached (review
+    # #2332).
+    test "caches a commit read keyed by a real sha, and nothing keyed by ref or by PR" do
+      commit = rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234")
+      assert {:cache, :comments, _ttl} = Policy.classify(commit)
+
+      # The verdict refusal is not weakened: a commit *status* read — CI — is
+      # still refused even though the bare commit read is now cacheable.
+      assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234/status"))
+
+      # A branch ref is not a sha: `/commits/main` returns the mutable head
+      # commit, so it must not be cached under a key that never changes.
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
+
+      # `/pulls/:n/files` carries no head sha, so a push changes the response
+      # under a fixed cache key; it is deliberately left uncached.
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
+    end
+
+    # Acceptance #2326: no verdict field becomes cacheable. Every selection the
+    # policy refuses on content is asserted to stay refused, whichever call site
+    # sends it.
+    test "no verdict field becomes cacheable" do
+      for selection <- [
+            "statusCheckRollup { state }",
+            "checkSuites(first: 1) { nodes { status } }",
+            "CheckRun(id: 1) { status }",
+            "StatusContext { state }",
+            "reviewDecision",
+            "mergeStateStatus",
+            "mergeable",
+            "reviewThreads(first: 10) { nodes { id } }",
+            "latestReviews(first: 1) { nodes { state } }",
+            "reviews(first: 1) { nodes { state } }"
+          ] do
+        request = graphql("issue_relationships", "query Q { repository(owner: $o, name: $r) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { #{selection} } } } }")
+
+        assert {:no_cache, :unsafe_kind} = Policy.classify(request),
+               "#{selection} must not become cacheable"
+      end
+    end
+
     test "a declared cacheable caller is still refused on unsafe content" do
       assert {:cache, :issue_graph, _ttl} = Policy.classify(graphql("issue_relationships", safe_document(2073)))
       assert {:no_cache, :unsafe_kind} = Policy.classify(graphql("issue_relationships", ci_document()))
@@ -596,7 +828,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # overrides freshness the call site thought it controlled, so the *short*
       # bucket must never outrun the tightest cadence a caller can be on. The
       # long bucket is a different thing: see the mode test below.
-      #
       # The poll-cadence classes (Build Order detail, comments) stay at or below
       # the Build Order detail freshness derived from the default poll interval.
       # `:repo_config` rides the CIReadiness assessment cadence instead (its
@@ -609,6 +840,63 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       # No class may be left without a bound when one is added.
       assert Enum.sort(Policy.classes()) == [:comments, :issue_graph, :repo_config]
+    end
+
+    test "every unsafe selection is refused however high the TTL is set" do
+      # #2327 raised the TTLs a webhook-backed repo can earn to an hour. The
+      # safety half of that change is that the refusal is decided by content,
+      # never by a number that happens to be small — so each term in
+      # `@unsafe_selections` is asserted against a TTL far above anything
+      # shipped, and above the sweep bound, to prove the refusal cannot be
+      # bought off by raising one.
+      previous = Application.get_env(:aiur, :github_read_cache_ttls)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:aiur, :github_read_cache_ttls, previous),
+          else: Application.delete_env(:aiur, :github_read_cache_ttls)
+      end)
+
+      Application.put_env(:aiur, :github_read_cache_ttls, %{comments: 3_600_000, issue_graph: 3_600_000})
+
+      # The override is live, so a safe read IS cacheable at the raised TTL —
+      # the loop below is only meaningful if the raised value actually applies.
+      assert {:cache, :issue_graph, 3_600_000} = Policy.classify(graphql("issue_relationships", safe_document(2073)))
+
+      selections = [
+        "statusCheckRollup { state }",
+        "checkSuites(first: 1) { nodes { status } }",
+        # The `CheckRun` and `StatusContext` terms are GraphQL *type* names,
+        # so they appear in documents as inline-fragment guards, exactly as the
+        # CI poll batch writes them.
+        "... on CheckRun { name status conclusion }",
+        "... on StatusContext { state }",
+        "reviewDecision",
+        "mergeStateStatus",
+        "mergeable",
+        "reviewThreads(first: 1) { nodes { id } }",
+        "latestReviews(first: 1) { nodes { id } }",
+        "reviews(first: 1) { nodes { id } }"
+      ]
+
+      for selection <- selections do
+        request = graphql("issue_relationships", unsafe_document(2073, selection))
+
+        assert {:no_cache, :unsafe_kind} = Policy.classify(request),
+               "a high TTL must not make a cacheable-looking read of #{selection} servable"
+      end
+    end
+
+    test "no class TTL, in either bucket, reaches the sweep bound" do
+      # `@max_ttl_ms` is the retention bound the sweep deletes past. A TTL at
+      # or above it would mean the sweep deletes entries still inside their own
+      # validity window and turns the backstop into a silent miss generator —
+      # so both the polling bucket and the webhook-backed bucket must stay
+      # below it.
+      for class <- Policy.classes() do
+        assert Policy.ttl_ms(class) < ReadCache.max_ttl_ms()
+        assert Policy.ttl_ms(class, :webhook) < ReadCache.max_ttl_ms()
+      end
     end
 
     test "the TTL widens for a webhook-backed repo and collapses when it degrades" do
@@ -764,6 +1052,10 @@ defmodule Aiur.GitHub.ReadCacheTest do
     "query C($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } }"
   end
 
+  defp unsafe_document(number, selection) do
+    "query Q($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: #{number}) { ... on PullRequest { #{selection} } } } }"
+  end
+
   defp issue_comment_delivery(number) do
     %{
       "action" => "created",
@@ -775,6 +1067,49 @@ defmodule Aiur.GitHub.ReadCacheTest do
         "updated_at" => "2026-06-24T12:00:00Z",
         "user" => %{"login" => "its-everdred"}
       }
+    }
+  end
+
+  # A `check_run` delivery carrying the pull request it belongs to. GitHub's
+  # real payload puts the PR `number` on each entry of `check_run.pull_requests`;
+  # that is what lets a delivery retire exactly the PR it changed rather than
+  # the whole repository.
+  defp check_run_delivery(number) do
+    %{
+      "check_run" => %{
+        "id" => 55_01,
+        "name" => "test",
+        "status" => "completed",
+        "conclusion" => "success",
+        "head_sha" => "deadbeef",
+        "started_at" => "2026-06-24T12:00:00Z",
+        "completed_at" => "2026-06-24T12:01:00Z",
+        "output" => %{},
+        "pull_requests" => [%{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+      }
+    }
+  end
+
+  defp check_suite_delivery(number) do
+    %{
+      "check_suite" => %{
+        "id" => 55_02,
+        "status" => "completed",
+        "conclusion" => "success",
+        "head_sha" => "deadbeef",
+        "pull_requests" => [%{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+      }
+    }
+  end
+
+  # A `pull_request_review_thread` delivery carrying the pull request it names.
+  # `Deposit.delivery_numbers/2` reads the PR number from
+  # `pull_request.number`, which is what lets a thread delivery retire exactly
+  # the PR it changed rather than the whole repository.
+  defp review_thread_delivery(number) do
+    %{
+      "action" => "unresolved",
+      "pull_request" => %{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}
     }
   end
 

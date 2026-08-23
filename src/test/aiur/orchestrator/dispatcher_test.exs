@@ -10,6 +10,10 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
+  defmodule CandidateFetchFailureLinearClient do
+    def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
+  end
+
   setup do
     CiReadiness.clear_cached_result()
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -38,6 +42,16 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end)
 
     :ok
+  end
+
+  # Tests that overwrite the shared workflow config must put it back: `Config`
+  # re-reads the file on every call, so an unrestored write silently becomes the
+  # next test's configuration and raises the odds of the shared WorkflowStore
+  # singleton race a reload lands in (#2076 review).
+  defp restore_workflow_file_after_test do
+    path = Aiur.Workflow.workflow_file_path()
+    original = File.read!(path)
+    on_exit(fn -> File.write!(path, original) end)
   end
 
   test "candidate selection emits one reason when a ticket is declined despite free fleet slots" do
@@ -166,6 +180,61 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert Map.has_key?(recovered.running, candidate.id)
     assert MapSet.member?(recovered.claimed, candidate.id)
     Process.exit(recovered.running[candidate.id].pid, :kill)
+  end
+
+  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+    restore_workflow_file_after_test()
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    candidate = %{issue("startup-orphan") | state: "in-progress"}
+    candidate_identifier = candidate.identifier
+    previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
+    previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+    Application.put_env(:aiur, :memory_tracker_issues, [candidate])
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+    on_exit(fn ->
+      restore_app_env(:memory_tracker_issues, previous_issues)
+      restore_app_env(:memory_tracker_recipient, previous_recipient)
+    end)
+
+    next =
+      Dispatcher.maybe_dispatch(%State{
+        initial_dispatch_cycle: true,
+        max_concurrent_agents: 1
+      })
+
+    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}
+    assert next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute next.initial_dispatch_cycle
+  end
+
+  test "a failed candidate poll does not run startup claim reconciliation" do
+    restore_workflow_file_after_test()
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_active_states: ["Todo", "In Progress", "Rework", "Merging"]
+    )
+
+    previous_client = Application.get_env(:aiur, :linear_client_module)
+    Application.put_env(:aiur, :linear_client_module, CandidateFetchFailureLinearClient)
+    on_exit(fn -> restore_app_env(:linear_client_module, previous_client) end)
+
+    state = %State{
+      initial_dispatch_cycle: true,
+      last_polled_issues: %{
+        "startup-orphan" => %{issue("startup-orphan") | state: "In Progress"}
+      }
+    }
+
+    next = Dispatcher.maybe_dispatch(state)
+
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues == state.last_polled_issues
+    assert next.initial_dispatch_cycle
   end
 
   describe "dispatch_issue blocked_by dependency gate" do
@@ -600,6 +669,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = %State{
       poll_interval_ms: 5_000,
       candidate_snapshot_fresh?: false,
+      poll_cycles_completed: 1,
       ci_lifecycle: %{
         approved_heads: %{},
         test_failure_heads: %{},
@@ -736,7 +806,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :building)
       assert held.prewarm_blocked_alert_active
       assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"} = event}, 500
-      assert event["reason"] =~ "Prewarm is building"
+      assert event["reason"] =~ "Prewarm build is running"
+      assert event["reason"] =~ "monitored build is expected to clear"
 
       assert Dispatcher.emit_prewarm_blocked_alert(held, :building) == held
       refute_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 100
@@ -749,6 +820,94 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       rearmed = Dispatcher.emit_prewarm_blocked_alert(recovered, :building)
       assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 500
       refute rearmed.prewarm_blocked_alert_resolution_emitted
+    end
+
+    test "checking alert promises bounded fallback and stalled resolution releases dispatch" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :checking)
+
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked"} = blocked})
+      assert blocked["reason"] =~ "remote freshness probe is running"
+      assert blocked["reason"] =~ "bounded dispatch watchdog"
+
+      released =
+        Dispatcher.clear_prewarm_blocked_alert(
+          held,
+          {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+        )
+
+      refute released.prewarm_blocked_alert_active
+
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved})
+      assert resolved["reason"] =~ "Prewarm checking stalled"
+      assert resolved["reason"] =~ "released the fleet dispatch gate for cold-clone fallback"
+    end
+
+    test "watchdog phase broadcast resolves the alert without a successful dispatch poll" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :checking)
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked"}})
+
+      stalled = {:error, {:repo_base_dispatch_hold_stalled, :checking}}
+      assert {:noreply, released} = Orchestrator.handle_info({:prewarm_phase, stalled}, held)
+      refute released.prewarm_blocked_alert_active
+
+      receive_barrier({:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved})
+      assert resolved["reason"] =~ "Prewarm checking stalled"
+    end
+
+    test "the orchestrator is subscribed to prewarm phase broadcasts" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      pid = Process.whereis(Aiur.Orchestrator)
+      refute is_nil(pid), "expected the supervised singleton orchestrator to be running"
+
+      # Force a blocked-alert state so the broadcast's effect is observable. If
+      # `Lifecycle.subscribe_to_prewarm/1` silently breaks, the stalled broadcast
+      # never reaches the orchestrator's handle_info/2 and no resolution event is
+      # emitted — the operator keeps staring at the blocked alert.
+      :sys.replace_state(pid, fn state ->
+        %{state | prewarm_blocked_alert_active: true, prewarm_blocked_alert_resolution_emitted: false}
+      end)
+
+      on_exit(fn ->
+        if Process.alive?(pid) do
+          :sys.replace_state(pid, fn state ->
+            %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: false}
+          end)
+        end
+      end)
+
+      AgentPubSub.broadcast_prewarm_phase({:error, {:repo_base_dispatch_hold_stalled, :checking}})
+
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked.resolved"} = resolved}, 2_000
+      assert resolved["reason"] =~ "Prewarm checking stalled"
+
+      # The resolution event is emitted by the orchestrator's handle_info/2, so
+      # by the time it arrived the state was already flipped.
+      refute :sys.get_state(pid).prewarm_blocked_alert_active
     end
   end
 
@@ -2075,7 +2234,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   # test. No `base_build` and a memory tracker keep RepoBase's own resolve/poll
   # inert while `Config.prewarm_enabled?/0` reads true.
   defp with_prewarm_enabled_config do
-    tmp = Path.join(System.tmp_dir!(), "dispatcher_prewarm_#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("dispatcher_prewarm")
     File.mkdir_p!(tmp)
     cfg = Path.join(tmp, "config")
     File.write!(cfg, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  poll_seconds: 0\n")

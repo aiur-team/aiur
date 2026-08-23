@@ -108,11 +108,14 @@ defmodule Aiur.GitHub.HumanReviewGate do
     # Unconditional, and it stays that way here (#2126): this is a paginated
     # *search* of open pull requests by head branch, not a read of one resource,
     # so a validator for it would belong to the query rather than to the pull
-    # request the answer names. It costs one request per gate check. The deposit
-    # still makes this key worth holding: `Aiur.Events.GithubWebhook.Deposit`
-    # files the same PR body here under the ticket number (so `etag/1` answers),
-    # and the derived validator keeps the entry revalidatable — the mechanism a
-    # conditional strict reader uses, proven at the `ResourceFetch` level.
+    # request the answer names. It costs one request per gate check, and the
+    # fetcher deliberately does not consume the `etag:` `ResourceFetch` offers —
+    # that validator describes the stored `:branch_pull_request` body, and this
+    # search cannot answer with it. The deposit still makes the key worth
+    # holding: `Aiur.Events.GithubWebhook.Deposit` files the same PR body here
+    # under the ticket number, so a *conditional* reader of this key could
+    # revalidate with `If-None-Match` for free, and a strict read that returns
+    # the identical body keeps the held validator rather than knocking it out.
     #
     # The per-cycle `Client.fetch_open_pull_request_for_branch` lookup runs the
     # same search conditionally under its own `:branch_pull_request_listing` key

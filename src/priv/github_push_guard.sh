@@ -167,10 +167,12 @@ destructive_command=false
 after_git_command=false
 worktree_subcommand=
 worktree_remove=0
+worktree_add=0
 worktree_target=
 worktree_target_abs=
 worktree_dirty=0
 worktree_dirty_override=0
+worktree_expect_value=
 clean_force=false
 clean_dry_run=false
 
@@ -203,10 +205,15 @@ for arg in "$@"; do
           -*) ;;
           *)
             worktree_subcommand=$arg
-            if [ "$worktree_subcommand" = remove ]; then
-              destructive_command=true
-              worktree_remove=1
-            fi
+            case "$worktree_subcommand" in
+              remove)
+                destructive_command=true
+                worktree_remove=1
+                ;;
+              add)
+                worktree_add=1
+                ;;
+            esac
             ;;
         esac
       elif [ "$worktree_remove" -eq 1 ] && [ -z "$worktree_target" ]; then
@@ -214,6 +221,19 @@ for arg in "$@"; do
           -*) ;;
           *) worktree_target=$arg ;;
         esac
+      elif [ "$worktree_add" -eq 1 ] && [ -z "$worktree_target" ]; then
+        # `git worktree add` takes the target path as its first non-flag
+        # argument after the subcommand, but `-b`/`-B` consume a following
+        # branch name that must not be mistaken for the path (#2362).
+        if [ -n "$worktree_expect_value" ]; then
+          worktree_expect_value=
+        else
+          case "$arg" in
+            -b|-B) worktree_expect_value=1 ;;
+            -*) ;;
+            *) worktree_target=$arg ;;
+          esac
+        fi
       fi
       ;;
   esac
@@ -347,6 +367,50 @@ if [ "$destructive_command" = true ]; then
     fi
     if [ "$worktree_dirty" -eq 1 ] && [ "$worktree_dirty_override" -ne 1 ]; then
       printf 'aiur: refusing git worktree remove: %s has uncommitted changes; pass --aiur-remove-dirty to destroy them\n' "$worktree_target_abs" >&2
+      exit 64
+    fi
+  fi
+fi
+
+# -------------------------------------------------------------------------
+# `git worktree add` collision guard (#2362). Concurrent agents on one box
+# used to create worktrees at the same generic path, and the second silently
+# repointed the first's checkout at a different branch mid-run, so mutation
+# tests ran against a tree that never contained the change and returned a
+# confident wrong verdict. Creating a worktree at a path that already exists
+# must fail loudly rather than reuse or repoint it. git itself refuses a
+# registered or non-empty path but silently proceeds when the existing path
+# is an empty directory - this guard closes that gap and names the failure
+# mode so the caller picks a fresh unique path instead of reusing.
+# -------------------------------------------------------------------------
+if [ "$worktree_add" -eq 1 ] && [ -n "$worktree_target" ]; then
+  if [ "$competing_context" = true ] || [ "$config_override" = true ] || [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
+    printf '%s\n' 'aiur: git worktree add cannot validate an existing-path collision under competing repository context' >&2
+    exit 64
+  fi
+
+  worktree_base=$PWD
+  if [ "$git_context_count" -eq 1 ]; then worktree_base=$git_context; fi
+  worktree_base_resolved=$(CDPATH= cd -P "$worktree_base" 2>/dev/null && pwd) || worktree_base_resolved=
+  case "$worktree_target" in
+    /*) worktree_target_abs=$worktree_target ;;
+    *)
+      if [ -n "$worktree_base_resolved" ]; then
+        worktree_target_abs=$worktree_base_resolved/$worktree_target
+      fi
+      ;;
+  esac
+  worktree_target_abs=${worktree_target_abs%/}
+
+  if [ -n "$worktree_target_abs" ]; then
+    if [ -d "$worktree_target_abs" ]; then
+      printf 'aiur: refusing git worktree add: %s already exists\n' "$worktree_target_abs" >&2
+      printf 'aiur: reusing an existing path can silently repoint another agent'\''s checkout; pick a fresh unique path (scripts/agent-worktree create) instead\n' >&2
+      exit 64
+    fi
+    if git_in_context worktree list --porcelain 2>/dev/null | grep -q "^worktree ${worktree_target_abs}$"; then
+      printf 'aiur: refusing git worktree add: %s is already a registered worktree\n' "$worktree_target_abs" >&2
+      printf 'aiur: reusing an existing path can silently repoint another agent'\''s checkout; pick a fresh unique path (scripts/agent-worktree create) instead\n' >&2
       exit 64
     fi
   fi

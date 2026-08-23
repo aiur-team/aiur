@@ -6,7 +6,7 @@ defmodule Aiur.RunTelemetryTest do
   alias Aiur.Workflow
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-run-telemetry-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-run-telemetry")
     on_exit(fn -> File.rm_rf!(root) end)
 
     %{root: root}

@@ -63,8 +63,23 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     assert_received {"I-allocated", :allocated}
   end
 
+  test "projects an orphaned claim as waiting rather than queued" do
+    parent = self()
+    snapshot = %{running: [], retrying: [], idle: [row("I-orphaned", waiting_reason: :orphaned_claim)]}
+
+    assert [_] =
+             Reconciler.reconcile_snapshot(
+               snapshot,
+               fn identity, lifecycle -> send(parent, {identity.provider_id, lifecycle}) end,
+               MapSet.new()
+             )
+
+    assert_received {"I-orphaned", :waiting}
+    refute_received {"I-orphaned", :queued}
+  end
+
   test "a reconciliation snapshot never removes an absent terminal store member" do
-    dir = Path.join(System.tmp_dir!(), "aiur-membership-reconciler-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-membership-reconciler")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     {:ok, store} = Store.start_link(name: nil, state_dir: dir, run_id: "reconciler-membership-run")
@@ -97,7 +112,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
 
   test "a membership store restart schedules a fresh reconciliation" do
     parent = self()
-    dir = Path.join(System.tmp_dir!(), "aiur-membership-store-restart-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-membership-store-restart")
     store_name = Module.concat(__MODULE__, "Store#{System.unique_integer([:positive])}")
     reconciler_name = Module.concat(__MODULE__, "Reconciler#{System.unique_integer([:positive])}")
     snapshot = %{running: [], retrying: [], idle: [row("I-recovered", [])]}
@@ -140,7 +155,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
 
   test "a new run generation periodically discovers current agents without another dispatch event" do
     parent = self()
-    dir = Path.join(System.tmp_dir!(), "aiur-membership-generation-reconcile-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-membership-generation-reconcile")
     reconciler_name = Module.concat(__MODULE__, "Generation#{System.unique_integer([:positive])}")
     old_identity = row("I-old-generation", []).tracker_identity
     current_row = row("I-current-generation", [])

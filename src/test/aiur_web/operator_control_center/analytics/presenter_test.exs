@@ -101,6 +101,139 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     m = model()
     assert m.kpis.peak_conc == 2
     assert m.kpis.cap == 4
+    assert Presenter.cap_label(m) == "4 cap"
+  end
+
+  describe "cap_label/1" do
+    test "leads with the effective cap and names every other ceiling that differs" do
+      model = model(cap: 3, session_cap: 8, configured_cap: 16)
+
+      # `aiur status` prints the session ceiling as `AGENTS n/8`; a page that
+      # renders only 3 and 16 cannot be reconciled with it.
+      assert Presenter.cap_label(model) == "3 cap (session 8, configured 16)"
+      assert Presenter.cap_label(%{model | session_cap: 3}) == "3 cap (configured 16)"
+      assert Presenter.cap_label(%{model | session_cap: 16}) == "3 cap (configured 16)"
+    end
+
+    test "names the binding constraint, which the cap figure alone cannot" do
+      model = model(cap: 2, session_cap: 2, configured_cap: 2)
+
+      for {binding, expected} <- [
+            {"AIMD envelope", "2 cap (binding: AIMD envelope)"},
+            {"paused reservations=8", "2 cap (binding: paused reservations=8)"},
+            {"config max_concurrent_agents", "2 cap (binding: config max_concurrent_agents)"}
+          ] do
+        assert Presenter.cap_label(%{model | cap_binding: binding}) == expected
+      end
+    end
+
+    test "marks a degraded reading, and tells a stale one from an unreachable daemon" do
+      model = model(cap: 3, session_cap: 3, configured_cap: 3)
+
+      assert Presenter.cap_label(%{model | cap_staleness: {:stale, 600_000}}) == "3 cap (stale, 10m old)"
+      assert Presenter.cap_label(%{model | cap_staleness: {:stale, 7_200_000}}) == "3 cap (stale, 2.0h old)"
+
+      assert Presenter.cap_label(%{model | cap_staleness: {:retained, 0}}) ==
+               "3 cap (retained, daemon unreachable)"
+    end
+
+    test "renders an unknown cap without substituting a ceiling it does not have" do
+      model = model(cap: 10, cap_available?: false, configured_cap: nil, session_cap: nil)
+
+      assert Presenter.cap_label(model) == "unknown cap"
+    end
+  end
+
+  test "reports no wasted-slot-hours figure when no effective cap is known" do
+    # Idle slot-hours are a subtraction from the cap. A figure derived from a
+    # cap the model just called unknown reads as precise and is not.
+    assert model(cap_available?: false).kpis.wasted_slot_hours == nil
+    assert model(cap: 4).kpis.wasted_slot_hours > 0
+  end
+
+  test "measures idle slot-hours against the effective cap, not the configured one" do
+    lowered = model(cap: 2, configured_cap: 16)
+    configured = model(cap: 16, configured_cap: 16)
+
+    # A cap lowered 16 -> 2 leaves far fewer slots that could have been filled.
+    assert lowered.kpis.wasted_slot_hours < configured.kpis.wasted_slot_hours
+  end
+
+  test "buckets exact fleet pressure independently of process availability" do
+    daemon = %{
+      samples: [
+        pressure_sample(@t0 + 10_000,
+          availability: "unavailable",
+          occupied: 3,
+          max_agents: 4,
+          effective: 2,
+          active: 1,
+          queued: 7,
+          wait: 12,
+          admission_signal: "build",
+          load: 3.77,
+          load_threshold: 24,
+          schedulers: 16
+        ),
+        pressure_sample(@t0 + 20_000, occupied: 5, max_agents: 6, effective: 4, active: 2, queued: 9, wait: 18, admission_signal: "build", load: 3.77, load_threshold: 24, schedulers: 16),
+        pressure_sample(@t0 + 300_000, fleet_status: "stale", build_status: "degraded", occupied: 99, max_agents: 99, effective: 99, active: 99, queued: 99, wait: 99)
+      ],
+      profile: profile(0, 0, 0, 0)
+    }
+
+    pressure_dataset = put_in(dataset(), [:actors, "_daemon"], daemon)
+    model = Presenter.model(pressure_dataset, cap: 10, cores: 4, buckets: 10)
+    measured = Enum.find(model.series, &(Map.get(&1, :fleet_agents_occupied) == 5))
+
+    assert measured.fleet_agents_effective == 4
+    assert measured.build_gate_capacity == 2
+    assert measured.build_gate_active == 2
+    assert measured.build_gate_queued == 9
+    assert measured.build_queue_oldest_wait_seconds == 18
+    assert measured.pressure_state == :measured
+    assert measured.fleet_capacity_observed_at_ms == @t0 + 19_998
+    assert measured.build_gate_observed_at_ms == @t0 + 19_999
+    assert Enum.any?(model.series, &(&1.pressure_state == :stale_fleet))
+    # The first sample is "current" despite an unavailable process table, so
+    # its binding signal and host load are part of the exact pressure evidence.
+    assert model.pressure.latest_admission_signal == "build"
+    assert model.pressure.latest_load == 3.77
+    assert model.pressure.latest_load_threshold == 24
+    assert model.pressure.latest_schedulers == 16
+    assert model.pressure.peak_occupied == 5
+    assert model.pressure.latest_effective_capacity == 4
+    assert model.pressure.latest_build_capacity == 2
+    assert model.pressure.latest_fleet_observed_at_ms == @t0 + 19_998
+    assert model.pressure.latest_build_observed_at_ms == @t0 + 19_999
+    assert model.pressure.longest_wait_seconds == 18
+    # A non-"current" fleet sample must never populate the pressure metrics:
+    # the third sample is stale, so its 99s must not surface anywhere.
+    refute Enum.any?(model.series, &(Map.get(&1, :fleet_agents_occupied) == 99))
+    refute Enum.any?(model.series, &(Map.get(&1, :fleet_load) == 99))
+    refute model.pressure.peak_occupied == 99
+    refute model.pressure.latest_effective_capacity == 99
+  end
+
+  test "keeps missing source observation times unavailable in a later bucket" do
+    daemon = %{
+      samples: [
+        pressure_sample(@t0 + 10_000, occupied: 3, max_agents: 4, effective: 2, active: 1, queued: 7, wait: 12),
+        pressure_sample(@t0 + 20_000, build_status: "partial", occupied: 5, max_agents: 6, effective: 4, active: 2, queued: 9, wait: 18)
+        |> Map.put(:fleet_capacity_observed_at_ms, nil)
+        |> Map.put(:build_gate_observed_at_ms, nil)
+        |> Map.put("build_gate_capacity", nil)
+      ],
+      profile: profile(0, 0, 0, 0)
+    }
+
+    model = Presenter.model(put_in(dataset(), [:actors, "_daemon"], daemon), cap: 10, cores: 4, buckets: 10)
+    measured = Enum.find(model.series, &(Map.get(&1, :fleet_agents_occupied) == 5))
+
+    assert measured.fleet_capacity_observed_at_ms == nil
+    assert measured.build_gate_observed_at_ms == nil
+    assert model.pressure.latest_fleet_observed_at_ms == nil
+    assert model.pressure.latest_build_observed_at_ms == nil
+    assert model.pressure.latest_build_capacity == nil
   end
 
   test "counts merged tickets and derives lifecycle status from real phases" do
@@ -112,6 +245,29 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert by_id["5"].status == :merged
     assert by_id["5"].merged_at == @t0 + 480_000
     assert by_id["6"].status == :rework
+  end
+
+  defp pressure_sample(ts, opts) do
+    sample("_daemon", "daemon", ts, 0.0, 0)
+    |> Map.merge(%{
+      :availability => Keyword.get(opts, :availability, "measured"),
+      :fleet_capacity_status => Keyword.get(opts, :fleet_status, "current"),
+      "fleet_agents_occupied" => Keyword.fetch!(opts, :occupied),
+      "fleet_agents_configured" => Keyword.fetch!(opts, :max_agents),
+      "fleet_agents_max" => Keyword.fetch!(opts, :max_agents),
+      "fleet_agents_effective" => Keyword.fetch!(opts, :effective),
+      :fleet_admission_signal => Keyword.get(opts, :admission_signal),
+      "fleet_load" => Keyword.get(opts, :load),
+      "fleet_load_threshold" => Keyword.get(opts, :load_threshold),
+      "fleet_schedulers" => Keyword.get(opts, :schedulers),
+      :fleet_capacity_observed_at_ms => ts - 2,
+      :build_gate_status => Keyword.get(opts, :build_status, "measured"),
+      "build_gate_capacity" => 2,
+      "build_gate_active" => Keyword.fetch!(opts, :active),
+      "build_gate_queued" => Keyword.fetch!(opts, :queued),
+      "build_queue_oldest_wait_seconds" => Keyword.fetch!(opts, :wait),
+      :build_gate_observed_at_ms => ts - 1
+    })
   end
 
   test "groups dispatch-time complexity with average wall-clock and emdash-ready empty tiers" do

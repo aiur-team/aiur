@@ -6,6 +6,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
@@ -42,6 +43,28 @@ defmodule AiurWeb.AnalyticsLiveTest do
   setup context do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
+    orchestrator = {:global, {__MODULE__, context.test}}
+
+    if capacity = Map.get(context, :analytics_capacity) do
+      # A publisher has to be alive under the orchestrator's registered name, or
+      # every read is `:orchestrator_unavailable` — a retained-cache state, not
+      # the live one these tests are about.
+      publisher = start_supervised!({Agent, fn -> :ok end})
+      :yes = :global.register_name({__MODULE__, context.test}, publisher)
+
+      SnapshotStore.publish(orchestrator, %{capacity: capacity})
+
+      if age_ms = Map.get(context, :analytics_capacity_age_ms) do
+        # Pin the ceiling: it otherwise derives from the effective poll cadence,
+        # so a test that asked the code for its own ceiling would pass against
+        # one wide enough that staleness is never reported at all.
+        previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+        Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 120_000)
+        on_exit(fn -> reset_env(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
+
+        age_published_snapshot(orchestrator, age_ms)
+      end
+    end
 
     endpoint_config =
       :aiur
@@ -50,7 +73,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
         server: false,
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: false,
-        dashboard_auth_required: false
+        dashboard_auth_required: false,
+        orchestrator: orchestrator
       )
       |> Keyword.merge(awaiting_commands_config(context))
 
@@ -58,6 +82,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     start_supervised!({Endpoint, []})
 
     on_exit(fn ->
+      SnapshotStore.forget(orchestrator)
       reset_env(Endpoint, previous_endpoint)
       reset_env(:analytics_telemetry_file, previous_telemetry)
     end)
@@ -230,14 +255,113 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
+    assert html =~ ~r/\d+ now \/ unknown cap</
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
     assert html =~ "Cost per ticket"
     assert html =~ "Complexity breakdown"
+    assert html =~ "Fleet-wide build pressure"
+    assert html =~ "Accessible fleet pressure data"
+    assert html =~ "stale fleet"
+    assert html =~ ">empty<"
     assert html =~ "<svg"
     assert html =~ "Source:"
     refute html =~ "No run telemetry to analyze yet"
+  end
+
+  test "renders exact source-gated values in the keyboard-reachable pressure table" do
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture!(RunTelemetry.boot_id()))
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ ~s(<table id="analytics-pressure-table">)
+    assert html =~ "13"
+    assert html =~ "16 / 16 / 12"
+    assert html =~ ">2<"
+    assert html =~ "2 / 8"
+    assert html =~ "189s"
+    assert html =~ "2026-07-11T00:00:40.000Z"
+    assert html =~ "2026-07-11T00:00:55.000Z"
+    assert html =~ ">current<"
+    assert html =~ ">measured<"
+  end
+
+  test "renders unavailable pressure evidence as em-dash, never a confident zero" do
+    boot_id = RunTelemetry.boot_id()
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id))
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # The gap row's degraded build must render its missing wait as "—", and a
+    # missing fleet figure must never be coerced into a confident "0".
+    assert html =~ "—"
+    assert html =~ ">degraded<"
+    refute html =~ ">0s<"
+    # The measured row still carries its exact values (not blurred by the gap).
+    assert html =~ "13"
+    assert html =~ "189s"
+  end
+
+  @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 3, available: 0, active: 3, reserved_paused: 0, queued_demand?: true}
+  test "renders the runtime cap with every other ceiling the daemon reports" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # The effective cap leads. The session ceiling is the figure `aiur status`
+    # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
+    # contradict each other; the configured value is what #2241 saw alone.
+    assert html =~ ~r/\d+ now \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
+    refute html =~ ~r/\d+ now \/ 16 cap/
+    refute html =~ ~r/\d+ now \/ 8 cap/
+  end
+
+  @tag analytics_capacity: %{
+         effective: 8,
+         max: 8,
+         configured: 16,
+         occupied: 4,
+         active: 4,
+         available: 0,
+         reserved_paused: 4,
+         queued_demand?: true,
+         session_override?: true
+       }
+  test "names the binding constraint, which a bare cap figure cannot distinguish" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # Same `8 cap` string as a plain session override; only the binding clause
+    # tells the operator this fleet wants paused reservations reclaimed.
+    assert html =~ "binding: paused reservations=4"
+  end
+
+  @tag analytics_capacity: %{effective: 3, max: 3, configured: 3, occupied: 0, available: 3, queued_demand?: true}
+  @tag analytics_capacity_age_ms: 600_000
+  test "marks a retained snapshot with its age instead of rendering it as current" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # The stale snapshot still renders — that is the SnapshotStore contract —
+    # but never unmarked. A ten-minute-old cap read as current is #1564.
+    assert html =~ "3 cap (stale, 10m old)"
+    refute html =~ "3 cap<"
+  end
+
+  test "reports no wasted-capacity figure when no effective cap is known" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # Idle slot-hours are a subtraction from the cap. With no cap reported the
+    # page must not substitute the local config file and print a precise hour
+    # count under a ceiling it just called unknown.
+    assert html =~ ~r/\d+ now \/ unknown cap</
+    refute html =~ "unknown cap (configured"
+    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -302,6 +426,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "live boot"
   end
 
+  @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 0, available: 3, queued_demand?: true}
   test "scopes analytics and provider spend to typed selected Build Order members" do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
@@ -333,6 +458,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(conn, "/analytics?build_order=77")
 
     assert html =~ "Build Order #77, latest run"
+    # The Build Order strip renders the same effective cap as the run strip;
+    # without this the whole Build Order cap path is uncovered.
+    assert html =~ "now / 3 cap (session 8, configured 16)"
+    refute html =~ "now / 16 cap"
     assert html =~ ">#941<"
     refute html =~ ">#942<"
     assert html =~ "PRs merged"
@@ -379,14 +508,14 @@ defmodule AiurWeb.AnalyticsLiveTest do
       render_hook(view, "time-domain", %{"t0" => 1_783_728_061_000, "t1" => 1_783_728_065_000})
 
     assert zoomed =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 5
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 5
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, zoomed)) == 6
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, zoomed)) == 6
     assert zoomed =~ "phx-click=\"reset-time-domain\""
 
     patched = render_click(view, "sort", %{"by" => "mem"})
     assert patched =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 5
-    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 5
+    assert length(Regex.scan(~r/data-time-start="1783728061000"/, patched)) == 6
+    assert length(Regex.scan(~r/data-time-end="1783728065000"/, patched)) == 6
 
     nav_patched = render_click(view, "toggle-nav", %{})
     assert nav_patched =~ ~s(class="an-zoombar")
@@ -397,8 +526,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     reset = render_click(view, "reset-time-domain", %{})
 
     refute reset =~ ~s(class="an-zoombar")
-    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 5
-    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 5
+    assert length(Regex.scan(~r/data-time-start="#{full_start}"/, reset)) == 6
+    assert length(Regex.scan(~r/data-time-end="#{full_end}"/, reset)) == 6
   end
 
   test "a degenerate domain event leaves the full chart range intact" do
@@ -483,11 +612,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   defp restore_run_id(value), do: :persistent_term.put({Aiur.Boot, :run_id}, value)
 
   defp complexity_fixture! do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-analytics-complexity-#{System.unique_integer([:positive])}"
-      )
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-complexity")
 
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
@@ -507,7 +632,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   defp route_fixture!(current_boot_id) do
     root =
-      Path.join(System.tmp_dir!(), "aiur-analytics-route-#{System.unique_integer([:positive])}")
+      Aiur.TestSupport.tmp_root!("aiur-analytics-route")
 
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
@@ -519,6 +644,115 @@ defmodule AiurWeb.AnalyticsLiveTest do
       route_record(current_boot_id, 2, "dispatch", ~U[2026-07-11 00:01:01Z], "941"),
       route_record(current_boot_id, 3, "pr_opened", ~U[2026-07-11 00:01:02Z], "941"),
       route_record(current_boot_id, 4, "pr_merged", ~U[2026-07-11 00:01:03Z], "941")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+    path
+  end
+
+  defp pressure_fixture_with_gap!(boot_id) do
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-gap-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+    timestamp = ~U[2026-07-11 00:01:01Z]
+    gap_timestamp = ~U[2026-07-11 00:11:01Z]
+
+    records = [
+      route_record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], nil),
+      %{
+        schema_version: 2,
+        kind: "resource",
+        timestamp: DateTime.to_iso8601(timestamp),
+        recorded_at: DateTime.to_iso8601(timestamp),
+        boot_id: boot_id,
+        sequence: 2,
+        record_id: "#{boot_id}:2",
+        attributes: %{
+          "actor" => "_daemon",
+          "actor_type" => "daemon",
+          "availability" => "unavailable",
+          "fleet_capacity_status" => "current",
+          "fleet_agents_occupied" => 13,
+          "fleet_agents_configured" => 16,
+          "fleet_agents_max" => 16,
+          "fleet_agents_effective" => 12,
+          "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond),
+          "build_gate_status" => "measured",
+          "build_gate_capacity" => 2,
+          "build_gate_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:55Z], :millisecond),
+          "build_gate_active" => 2,
+          "build_gate_queued" => 8,
+          "build_queue_oldest_wait_seconds" => 189
+        }
+      },
+      %{
+        schema_version: 2,
+        kind: "resource",
+        timestamp: DateTime.to_iso8601(gap_timestamp),
+        recorded_at: DateTime.to_iso8601(gap_timestamp),
+        boot_id: boot_id,
+        sequence: 3,
+        record_id: "#{boot_id}:3",
+        attributes: %{
+          "actor" => "_daemon",
+          "actor_type" => "daemon",
+          "availability" => "unavailable",
+          "fleet_capacity_status" => "stale",
+          "fleet_agents_occupied" => nil,
+          "fleet_agents_configured" => nil,
+          "fleet_agents_max" => nil,
+          "fleet_agents_effective" => nil,
+          "build_gate_status" => "degraded",
+          "build_gate_capacity" => nil,
+          "build_gate_active" => nil,
+          "build_gate_queued" => nil,
+          "build_queue_oldest_wait_seconds" => nil
+        }
+      },
+      route_record(boot_id, 4, "dispatch", ~U[2026-07-11 00:01:02Z], "941")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+    path
+  end
+
+  defp pressure_fixture!(boot_id) do
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+    timestamp = ~U[2026-07-11 00:01:01Z]
+
+    records = [
+      route_record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], nil),
+      %{
+        schema_version: 2,
+        kind: "resource",
+        timestamp: DateTime.to_iso8601(timestamp),
+        recorded_at: DateTime.to_iso8601(timestamp),
+        boot_id: boot_id,
+        sequence: 2,
+        record_id: "#{boot_id}:2",
+        attributes: %{
+          "actor" => "_daemon",
+          "actor_type" => "daemon",
+          "availability" => "unavailable",
+          "fleet_capacity_status" => "current",
+          "fleet_agents_occupied" => 13,
+          "fleet_agents_configured" => 16,
+          "fleet_agents_max" => 16,
+          "fleet_agents_effective" => 12,
+          "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond),
+          "build_gate_status" => "measured",
+          "build_gate_capacity" => 2,
+          "build_gate_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:55Z], :millisecond),
+          "build_gate_active" => 2,
+          "build_gate_queued" => 8,
+          "build_queue_oldest_wait_seconds" => 189
+        }
+      },
+      route_record(boot_id, 3, "dispatch", ~U[2026-07-11 00:01:02Z], "941")
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
@@ -597,6 +831,24 @@ defmodule AiurWeb.AnalyticsLiveTest do
     }
   end
 
+  # `publish/2` stamps the current monotonic clock, so restating the observation
+  # time is the only way to read a ten-minute-old snapshot without waiting.
+  defp age_published_snapshot(orchestrator, age_ms) do
+    cached = :persistent_term.get({SnapshotStore, orchestrator})
+
+    :persistent_term.put(
+      {SnapshotStore, orchestrator},
+      %{
+        cached
+        | observed_at_ms: System.monotonic_time(:millisecond) - age_ms,
+          observed_at: DateTime.add(DateTime.utc_now(), -age_ms, :millisecond),
+          recent_gaps_ms: []
+      }
+    )
+
+    :ok
+  end
+
   defp build_order_context(root, member) do
     health = ProviderHealth.new(1, :healthy, true)
 
@@ -653,7 +905,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   defp build_order_route_fixture!(current_boot_id) do
-    root = Path.join(System.tmp_dir!(), "aiur-analytics-build-order-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-build-order")
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
 

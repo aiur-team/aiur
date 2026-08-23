@@ -31,7 +31,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   """
 
   setup do
-    directory = Path.join(System.tmp_dir!(), "pack-status-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("pack-status")
     pack_path = Path.join([directory, "analytics-streamdeck", "build-order.json"])
     workspace_directory = Path.join(directory, "workspace-build-orders")
     previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
@@ -77,6 +77,20 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       send(test, {:query, query})
       {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
     end
+  end
+
+  # PackStatus is deliberately NOT demand-gated: it writes the daemon-owned
+  # status.json projection the planning contract names authoritative, so the
+  # sweep reconciles it on every tick whether or not a page is open. demanded?/0
+  # answering true unconditionally is what keeps the sweep's uniform protocol
+  # honest — see the moduledoc for the full reasoning.
+  test "always reports demanded, so the sweep never skips it", context do
+    poller =
+      start_poller(context.pack_path, fn _request ->
+        {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
+      end)
+
+    assert PackStatus.demanded?(poller) == true
   end
 
   test "writes tracker completion for promoted members into status.json", context do
@@ -502,9 +516,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   end
 
   test "default polling ignores foreign override packs", _context do
-    suffix = System.unique_integer([:positive])
-    state_root = Path.join(System.tmp_dir!(), "pack-status-tracked-state-#{suffix}")
-    override_directory = Path.join(System.tmp_dir!(), "pack-status-tracked-override-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("pack-status-tracked-state")
+    override_directory = Aiur.TestSupport.tmp_root!("pack-status-tracked-override")
     repository = Config.repo()
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
@@ -558,7 +571,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
   test "default polling projects lifecycle for a workspace-published pack", context do
     suffix = System.unique_integer([:positive])
-    state_root = Path.join(System.tmp_dir!(), "pack-status-workspace-state-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("pack-status-workspace-state")
     workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "pack-status-workspace-#{suffix}.json")
     status_path = PackPaths.status_path(workspace_path)
@@ -634,8 +647,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   end
 
   test "default polling surfaces malformed tracked manifests", _context do
-    suffix = System.unique_integer([:positive])
-    state_root = Path.join(System.tmp_dir!(), "pack-status-malformed-state-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("pack-status-malformed-state")
     repository = Config.repo()
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_pack = Application.get_env(:aiur, :build_order_planning_pack)

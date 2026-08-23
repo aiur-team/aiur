@@ -94,19 +94,12 @@ defmodule Aiur.GitHub.IssueState do
   def do_update_issue_state(update_context, state_name) do
     new_label = StatePolicy.state_label(update_context.prefix, state_name)
 
-    case update_context.request_fun.(%{
-           method: :get,
-           url: update_context.issue_url,
-           token: update_context.token
-         }) do
-      {:ok, %{status: 200, body: issue_body}} ->
+    case Issues.fetch_issue_raw_conditional(update_context.issue_number, issue_read_opts(update_context)) do
+      {:ok, issue_body, _outcome} ->
         apply_issue_state_update(update_context, issue_body, state_name, new_label)
 
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
-
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -133,19 +126,19 @@ defmodule Aiur.GitHub.IssueState do
 
   defp revalidate_expected_state(%{opts: opts} = context, issue_body) do
     if Keyword.has_key?(opts, :expected_state) do
-      case context.request_fun.(%{
-             method: :get,
-             url: context.issue_url,
-             token: context.token
-           }) do
-        {:ok, %{status: 200, body: current_issue_body}} ->
+      # The point of this second read is to be *sure* the state has not moved
+      # since the first, so it must always contact GitHub — `revalidate: true`
+      # skips the served-from-store path and sends the held ETag, which costs a
+      # free `304` when nothing changed.
+      case Issues.fetch_issue_raw_conditional(
+             context.issue_number,
+             issue_read_opts(context) |> Keyword.put(:revalidate, true)
+           ) do
+        {:ok, current_issue_body, _outcome} ->
           validate_revalidated_state(context, current_issue_body)
 
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
+        {:error, _reason} = error ->
+          error
       end
     else
       {:ok, issue_body}
@@ -235,8 +228,8 @@ defmodule Aiur.GitHub.IssueState do
 
   @spec add_active_issue_label(map(), String.t()) :: :ok | {:error, term()}
   def add_active_issue_label(context, new_label) do
-    case context.request_fun.(%{method: :get, url: context.issue_url, token: context.token}) do
-      {:ok, %{status: 200, body: issue_body}} ->
+    case Issues.fetch_issue_raw_conditional(context.issue_number, issue_read_opts(context)) do
+      {:ok, issue_body, _outcome} ->
         if closed_issue?(issue_body) do
           remove_active_state_labels(
             context.request_fun,
@@ -258,11 +251,21 @@ defmodule Aiur.GitHub.IssueState do
           )
         end
 
-      {:ok, %{status: _status} = response} ->
-        {:error, Errors.github_status_error(response)}
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
-      {:error, reason} ->
-        {:error, Errors.classify_error({:error, reason})}
+  # Options for the shared issue conditional reader. The token is passed
+  # explicitly so `Transport.require_token/1` never falls through to its
+  # `:request_fun` test seam in production (the caller's real token wins either
+  # way), and `request_fun` is forwarded only when the caller supplied one —
+  # a caller with no override must not be handed the synthetic test token.
+  defp issue_read_opts(%{opts: opts, request_fun: request_fun, token: token}) do
+    if Keyword.has_key?(opts, :request_fun) do
+      [token: token, request_fun: request_fun]
+    else
+      [token: token]
     end
   end
 
