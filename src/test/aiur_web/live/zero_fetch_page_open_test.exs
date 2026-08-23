@@ -3,17 +3,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
-  Two deliberate exceptions, both asserted explicitly below:
-
-  * Opening the dashboard (`/`) registers the first demander on the open-ticket
-    backlog source, which buys a single view-originated refresh (held state
-    renders first, then one listing).
-  * Opening the Build Order page registers the first demander on the Ad Hoc
-    overlay source, which buys a single view-originated refresh.
-
-  Every other route stays at zero. The two exceptions are asserted with the
-  `eventually` wait and the exact request shape, so their one-request behaviour
-  is provable rather than racy.
+  There are no exceptions: every dashboard route, including `/` and
+  `/build-orders`, reaches GitHub zero times on open. The ticket backlog, Ad
+  Hoc overlay and Build Order catalog are event-sourced (#2325) — they
+  subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
+  a page opens onto the held snapshot and costs nothing. The two routes that
+  used to be the deliberate one-request exceptions (a first demander buying a
+  view-originated refresh) are now asserted as zeros below, with the
+  github-tracker path proven explicitly so that zero means something.
 
   ## Why this file is hermetic and the `:external` one is not
 
@@ -54,16 +51,19 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   @endpoint AiurWeb.Endpoint
 
   # The dashboard routes that must never fetch when opened, paired with a marker
-  # only that route renders. Each of these reads local GenServer state and could
-  # never have fetched. `/` and `/build-orders` (+ `/build-orders/:root_number`)
-  # are deliberately NOT here: opening them now performs one view-originated
-  # refresh of a view-only source (see "the deliberate view-originated
-  # refreshes" describe below), so their open does not cost zero and they assert
-  # the exact shape of that one request instead.
+  # only that route renders. `/` and `/build-orders` (+ `/build-orders/:root_number`)
+  # used to be the two deliberate exceptions — a first demander buying a
+  # view-originated refresh — but they are event-sourced (#2325) now and open
+  # onto the held snapshot, so they join the zero set. The github-tracker path
+  # for `/` is proven separately below, since the route test runs the env's
+  # Linear tracker where `OpenTicketSource` is `:unsupported`.
   @zero_fetch_pages [
+    {"/", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
-    {"/streamdeck", "streamdeck-page"}
+    {"/streamdeck", "streamdeck-page"},
+    {"/build-orders", "build-order-page"},
+    {"/build-orders/2073", "build-order-page"}
   ]
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -177,19 +177,15 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert_egress_open!(counter)
     end
 
-    # The two deliberate exceptions to "viewing never fetches": opening the
-    # dashboard or the Build Order page registers the first demander on a
-    # view-only source, which buys a single view-originated refresh. Held state
-    # renders first; the listing is the one request that page is allowed, and a
-    # second page coalesces on the in-flight guard, so the total stays one.
+    # The two routes that used to be the deliberate exceptions to "viewing never
+    # fetches" are now event-sourced (#2325): opening the dashboard or the Build
+    # Order page subscribes to the projection's PubSub topic and renders held
+    # state, with no fetch. The generic route test above runs under the env's
+    # Linear tracker, where `OpenTicketSource` is `:unsupported` — so the github
+    # tracker path is proven explicitly here, or the zero would be trivially
+    # true for the wrong reason (the "zero, provably" trap the reviewer flagged).
 
-    # Opening `/` registers the first demander on `OpenTicketSource`, which
-    # would otherwise be skipped by the sweep forever. The open-ticket listing
-    # is gated on `tracker_kind == "github"` (a Linear or in-memory tracker has
-    # no such source), so this test overrides the workflow config to github —
-    # otherwise the refresh would silently not fire and the assertion would mean
-    # nothing, exactly the "zero, provably" trap the reviewer flagged.
-    test "opening the dashboard performs exactly one view-originated refresh", %{counter: counter} do
+    test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter} do
       workflow_path = Aiur.Workflow.workflow_file_path()
       :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
 
@@ -198,25 +194,15 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert html =~ "usage-watch", "/ rendered a shell but not its own content"
       assert render(view) =~ "usage-watch"
 
-      # The refresh is async — a cast from the LiveView to the open-ticket
-      # source, then a Task — so the listing can land after the render round
-      # trip above. Poll until it does, so the assertion is about the request's
-      # shape, not about winning a race.
-      assert eventually(fn -> Agent.get(counter, & &1) != [] end),
-             "opening / never performed its view-originated refresh"
-
       requests = Agent.get(counter, & &1)
 
-      assert [{method, path}] = requests,
-             "opening / made #{length(requests)} GitHub requests: #{inspect(requests)}"
-
-      assert method == "GET"
-      assert path == "/repos/aiur-team/aiur/issues"
+      assert requests == [],
+             "opening / under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       assert_egress_open!(counter)
     end
 
-    test "opening /build-orders performs exactly one view-originated refresh", %{counter: counter} do
+    test "opening the Build Order pages reaches GitHub zero times", %{counter: counter} do
       for path <- ["/build-orders", "/build-orders/2073"] do
         assert {:ok, view, html} = live(build_conn(), path)
         assert html =~ "dashboard-shell", "#{path} did not render the dashboard shell"
@@ -224,23 +210,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
         assert render(view) =~ "build-order-page"
       end
 
-      # The refresh is async — a cast from the LiveView to the Ad Hoc source,
-      # then a Task — so the listing can land after the render round trip above.
-      # Poll until it does, so the assertion is about the request's shape, not
-      # about winning a race.
-      assert eventually(fn -> Agent.get(counter, & &1) != [] end),
-             "opening /build-orders never performed its view-originated refresh"
-
       requests = Agent.get(counter, & &1)
 
-      assert [{method, path}] = requests,
+      assert requests == [],
              "opening the Build Order pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
-      assert method == "GET"
-      assert path == "/repos/aiur-team/aiur/issues"
-
-      # A view-originated refresh that quietly stopped firing would show up as
-      # this request disappearing, so a positive control belongs here too.
+      # A view-originated refresh that quietly stopped firing would have shown
+      # up as a disappearing request here; asserting the egress path is open
+      # keeps the zero meaningful instead.
       assert_egress_open!(counter)
     end
 
@@ -376,14 +353,6 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       )
 
     identity
-  end
-
-  defp eventually(fun, attempts \\ 200) do
-    cond do
-      fun.() -> true
-      attempts <= 0 -> false
-      true -> Process.sleep(10) && eventually(fun, attempts - 1)
-    end
   end
 
   defp held_issue(number) do
