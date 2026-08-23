@@ -14,7 +14,7 @@ Everything below this section is optional. A local run needs only:
 | tmux | The launcher runs each daemon in its own detached tmux session. |
 | A tracker repository | The repo you point `aiur init` at, with issues carrying `agent:todo`. |
 
-Nothing else is load-bearing. Webhooks, the tunnel, the GitHub App, Tailscale, dashboard credentials, Stream Deck hardware, a pinned model backend, and even `python3` can all be omitted; absent, each degrades to a supported "feature off" default rather than a failed boot. `python3` powers the local budget broker, which is itself an optimization: without the executable the daemon runs GitHub requests unmetered, with no shared admission budget.
+Nothing else is load-bearing — webhooks, the tunnel, the GitHub App, Tailscale, dashboard credentials, Stream Deck hardware, a pinned model backend, and even `python3` all degrade to a supported "feature off" default. `python3` only powers the local budget broker, and without it the daemon runs GitHub requests unmetered.
 
 ## GitHub App identity
 
@@ -53,7 +53,9 @@ Poll latency. By default the daemon reconciles GitHub state on a poll cadence, s
 
 ### When you want it
 
-You want events to arrive immediately and to save the poll spend that would buy them. The numbers this repo owns: base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s; the daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads (repository-configuration reads ride a five-minute TTL instead — the [GitHub API reference](/apis/github#optional-webhook) carries the exception).
+You want events to arrive immediately and to save the poll spend that would buy them. Base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s.
+
+The daemon read-cache TTL for comment and issue reads rises from 30s to one hour on a proven repo; repository-configuration reads stay at five minutes — see [Optional webhook](/apis/github#optional-webhook).
 
 ### Configuration
 
@@ -144,7 +146,11 @@ Cost and concurrency: which model backend handles a ticket, and which provider A
 
 ### When you want it
 
-You want to pin the default backend or route by complexity. The shipped default is an empty `agent.priority`, so the effective backend is `agent.kind`, else the registry default (codex). `priority` is live, not advisory: the first priority route becomes the effective backend with no enablement filter, so `priority: [deepseek]` — one operator's choice in this repo's `.aiur/config` — selects DeepSeek even though DeepSeek is not dispatch-enabled by default. That default-off flag gates `agent.kind`, `rate_limit_primary`, `switch_model_on_ratelimit`, and fleet-wide provider gating, not a `priority` entry. The "codex → claude" pairing is the automatic rate-limit reroute, not the default backend.
+You want to pin the default backend or route by complexity. The shipped default is an empty `agent.priority`, so the effective backend is `agent.kind`, else the registry default (codex).
+
+`priority` is live: the first priority route becomes the effective backend with no enablement filter, so `priority: [deepseek]` (this repo's own `.aiur/config`) selects DeepSeek even though it is not dispatch-enabled by default. The flag gates `agent.kind`, `rate_limit_primary`, `switch_model_on_ratelimit`, and fleet gating, not `priority` entries.
+
+The "codex → claude" pairing is the automatic rate-limit reroute, not the default backend.
 
 ### Configuration
 
