@@ -31,11 +31,21 @@ defmodule Aiur.GitHub.CommentPollBatch do
       whose threads were actually part of the query; a target discovered
       through a branch alias omits the key entirely so the poller falls back to
       a per-pull-request read rather than mistaking "not asked for" for "none".
+
+  ## A free side effect: the comment→thread map
+
+  Every thread this document parses also deposits its comment→thread mapping
+  (`:pr_review_comment_thread`, keyed by comment `databaseId`) into the shared
+  store. A `pull_request_review_comment` webhook delivery consults that map
+  before paying for a GraphQL node lookup (`Aiur.Events.GithubWebhook.ThreadResolver`),
+  so a comment the batch has already seen never costs a point on delivery
+  (#2326). A comment's thread is immutable, so the mapping never goes stale and
+  a repeat deposit of the same value is declined inside the store's swap.
   """
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, PollSnapshots, ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -194,13 +204,64 @@ defmodule Aiur.GitHub.CommentPollBatch do
     case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
-          %{} = repository -> {:ok, build_target_batch(indexed, repository, opts)}
-          _other -> {:error, :comment_poll_batch_missing}
+          %{} = repository ->
+            deposit_comment_thread_map(owner, repo, repository)
+            {:ok, build_target_batch(indexed, repository, opts)}
+
+          _other ->
+            {:error, :comment_poll_batch_missing}
         end
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # This document parses `reviewThreads { comments { databaseId } }` on every
+  # cycle — the same fact a `pull_request_review_comment` webhook delivery pays a
+  # GraphQL point to learn (`Aiur.Events.GithubWebhook.ThreadResolver`). Depositing
+  # the comment→thread mapping here means the delivery resolves from the store
+  # instead (#2326). The nodes are only the ones this document actually included
+  # (delivered-number and issueOrPullRequest aliases); a comment's thread is
+  # immutable, so a stored mapping never goes stale.
+  defp deposit_comment_thread_map(owner, repo, repository) do
+    repository
+    |> Enum.flat_map(fn {_alias, node} -> batch_threads(node) end)
+    |> Enum.each(&deposit_thread_mapping(owner, repo, &1))
+  end
+
+  defp batch_threads(%{"reviewThreads" => %{"nodes" => nodes}}) when is_list(nodes), do: nodes
+  defp batch_threads(_node), do: []
+
+  defp deposit_thread_mapping(owner, repo, thread) do
+    with thread_id when is_binary(thread_id) and thread_id != "" <- Map.get(thread, "id"),
+         nodes when is_list(nodes) <- get_in(thread, ["comments", "nodes"]) do
+      Enum.each(nodes, &deposit_thread_comment(owner, repo, thread_id, &1))
+    else
+      _other -> :ok
+    end
+  end
+
+  defp deposit_thread_comment(owner, repo, thread_id, comment) do
+    with database_id when is_integer(database_id) <- Map.get(comment, "databaseId"),
+         key when not is_nil(key) <- ResourceStore.key(:pr_review_comment_thread, owner, repo, database_id) do
+      remember_comment_thread(key, thread_id)
+    else
+      _other -> :ok
+    end
+  end
+
+  # The mapping is a constant fact, so a repeat deposit of the same value is
+  # declined inside the store's swap rather than re-stamped every cycle.
+  defp remember_comment_thread(key, thread_id) do
+    ResourceStore.update_resource(
+      key,
+      fn
+        ^thread_id -> :unchanged
+        _held -> thread_id
+      end,
+      source: :poll
+    )
   end
 
   defp query(indexed) do
