@@ -4,11 +4,7 @@ defmodule Aiur.Workspace.ProvisionerLifecycleTest do
   alias Aiur.Workspace.Provisioner
 
   test "an existing checkout emits an honest point outcome instead of an interval" do
-    workspace =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-existing-workspace-#{System.unique_integer([:positive])}"
-      )
+    workspace = Aiur.TestSupport.tmp_root!("aiur-existing-workspace")
 
     init_repo!(workspace)
     on_exit(fn -> File.rm_rf!(workspace) end)

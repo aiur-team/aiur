@@ -420,11 +420,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   defp reset_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp complexity_fixture! do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-analytics-complexity-#{System.unique_integer([:positive])}"
-      )
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-complexity")
 
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
@@ -444,7 +440,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
   defp route_fixture!(current_boot_id) do
     root =
-      Path.join(System.tmp_dir!(), "aiur-analytics-route-#{System.unique_integer([:positive])}")
+      Aiur.TestSupport.tmp_root!("aiur-analytics-route")
 
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
@@ -608,7 +604,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   defp build_order_route_fixture!(current_boot_id) do
-    root = Path.join(System.tmp_dir!(), "aiur-analytics-build-order-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-analytics-build-order")
     File.mkdir_p!(root)
     path = Path.join(root, "telemetry.ndjson")
 

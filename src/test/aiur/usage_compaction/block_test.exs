@@ -7,7 +7,7 @@ defmodule Aiur.UsageCompaction.BlockTest do
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 1, claude_envelope: 1, record: 2]
 
   defp tmp(name) do
-    dir = Path.join(System.tmp_dir!(), "aiur-block-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-block")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
     Path.join(dir, name)

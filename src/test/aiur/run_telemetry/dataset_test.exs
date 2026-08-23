@@ -367,7 +367,7 @@ defmodule Aiur.RunTelemetry.DatasetTest do
   end
 
   test "returns an explicit error when no telemetry file exists" do
-    empty = Path.join(System.tmp_dir!(), "aiur-empty-dataset-#{System.unique_integer([:positive])}")
+    empty = Aiur.TestSupport.tmp_root!("aiur-empty-dataset")
     File.mkdir_p!(empty)
     on_exit(fn -> File.rm_rf!(empty) end)
 
@@ -426,7 +426,7 @@ defmodule Aiur.RunTelemetry.DatasetTest do
   end
 
   defp temporary_stream! do
-    root = Path.join(System.tmp_dir!(), "aiur-dataset-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-dataset")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     Path.join(root, "telemetry.ndjson")

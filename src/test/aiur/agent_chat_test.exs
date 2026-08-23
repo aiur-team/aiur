@@ -52,7 +52,7 @@ defmodule Aiur.AgentChatTest do
     pid = Process.whereis(Orchestrator)
     original = :sys.get_state(pid)
 
-    store_path = Path.join(System.tmp_dir!(), "aiur_agent_chat_controls_#{System.unique_integer([:positive])}.json")
+    store_path = Aiur.TestSupport.tmp_root!("aiur_agent_chat_controls") <> ".json"
     previous_store_path = Application.get_env(:aiur, :control_lifecycle_store_path)
     Application.put_env(:aiur, :control_lifecycle_store_path, store_path)
 

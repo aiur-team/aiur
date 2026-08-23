@@ -16,7 +16,7 @@ defmodule Aiur.IssueLogTranscriptTest do
   setup do
     original_log_file = Application.get_env(:aiur, :log_file)
     identifier = "transcript-#{System.unique_integer([:positive])}"
-    tmp = Path.join(System.tmp_dir!(), "aiur-transcript-#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur-transcript")
     File.mkdir_p!(Path.join(tmp, "log"))
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
 
