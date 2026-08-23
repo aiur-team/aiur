@@ -121,10 +121,14 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
     # The stored object is `{{:refused_shapes, shape}, count}`, so a match spec
     # would need a nested-tuple head (which the spec compiler rejects here);
     # a fold over the table is unambiguous and refusals are low-frequency.
-    :ets.foldl(fn
-      {{:refused_shapes, _shape}, _count}, acc -> acc + 1
-      _other, acc -> acc
-    end, 0, @table)
+    :ets.foldl(
+      fn
+        {{:refused_shapes, _shape}, _count}, acc -> acc + 1
+        _other, acc -> acc
+      end,
+      0,
+      @table
+    )
   rescue
     ArgumentError -> 0
   end
