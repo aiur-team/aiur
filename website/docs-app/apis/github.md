@@ -407,10 +407,11 @@ reconciled free — the same contract as the daemon's REST reads.
 
 The high-level subcommand reads — `gh pr view`, `gh pr list`, `gh issue view`,
 `gh issue list` — hit GitHub's GraphQL endpoint, which returns no `ETag` and no
-`Last-Modified`, so there is no validator for the store to send and those
-entries stay TTL-cached with invalidation markers. When a high-level read does
-return a `304` (an underlying REST read), the wrapper reconciles the lease as
-free rather than billing it full-price.
+`Last-Modified`, so there is no validator for the store to send. Those entries
+stay TTL-cached with invalidation markers.
+
+When a high-level read does return a `304` (an underlying REST read), the
+wrapper reconciles the lease as free rather than billing it full-price.
 
 The free share a TTL body cache cannot recover is GraphQL's — which no cache on
 either side can recover.
