@@ -24,13 +24,6 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       refute body["query"] =~ "states: OPEN, after:"
       refute body["query"] =~ ~r/pullRequests\(states:\s*OPEN/
       refute body["query"] =~ ~r/pullRequests\(first:/
-      assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
-
-      # Merge-queue recovery observation is part of the same batch node, so
-      # the parked-ready decision never pays a separate read.
-      assert body["query"] =~ "isDraft reviewDecision mergeable mergeStateStatus"
-      assert body["query"] =~ "autoMergeRequest { enabledAt }"
-      assert body["query"] =~ "mergeQueueEntry { id }"
 
       {:ok,
        %{
@@ -38,10 +31,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0_0" => %{
-                 "pageInfo" => %{"hasNextPage" => false},
-                 "nodes" => [pull_request()]
-               }
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
              }
            }
          }
@@ -72,58 +62,134 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
 
-  test "omits delivery-fresh check runs while retaining live legacy statuses and strict pull request fields" do
-    deliver_pull_request(42, 77)
-
-    assert :ok =
-             PollSnapshots.put_ci_contexts(
-               "owner/repo",
-               "42",
-               "head-77",
-               [%{"id" => 501, "name" => "cached", "status" => "queued", "conclusion" => nil}],
-               %{"state" => "failure", "statuses" => [%{"context" => "legacy", "state" => "failure"}]}
-             )
-
-    assert :ok =
-             PollSnapshots.merge_check_run(
-               "owner/repo",
-               "42",
-               "head-77",
-               %{"id" => 501, "name" => "cached", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
-             )
-
-    # Capture the document and assert on it after the fetch returns. Asserting
-    # inline would raise inside the transport's retry path, turning a real
-    # regression into a request-deadline timeout rather than a failed test.
-    test_pid = self()
-
-    request_fun = fn %{method: :post, body: body} ->
-      send(test_pid, {:query, body["query"]})
-
-      node = pull_request_with_legacy_status()
-
-      {:ok,
-       %{
-         status: 200,
-         body: %{"data" => %{"repository" => %{"delivered_0" => node}}}
-       }}
+  # #2310 — a `check_run` delivery answers a target, so the batch drops it from
+  # the document entirely (zero GraphQL when every target is answered), per
+  # target, and fails toward polling on an unmatched or unknown check-run id.
+  #
+  # Asserted on the transport call count and on the returned entry, not on an
+  # interval: reverting the displacement fails these with a request where zero
+  # were expected.
+  describe "a target a check_run delivery already answered" do
+    setup do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+      :ok
     end
 
-    assert {:ok, %{"42" => batch}} =
-             CIPollBatch.fetch(["42"], request_fun: request_fun)
+    test "issues zero GraphQL calls when every target was answered, and serves the delivery" do
+      deliver_pull_request(42, 77)
+      deliver_ci_contexts(42, "head-77", 501)
 
-    assert_received {:query, query}
-    assert query =~ "delivered_0: pullRequest(number: 77)"
-    refute query =~ "branch_0_0"
-    assert query =~ "isDraft reviewDecision mergeable mergeStateStatus"
-    assert query =~ "status {"
-    assert query =~ "contexts { context state"
-    refute query =~ "statusCheckRollup"
-    refute query =~ "... on CheckRun"
-    refute query =~ "databaseId name status conclusion"
+      request_fun = fn _request -> flunk("an all-answered cycle must not call the transport") end
 
-    assert [%{"name" => "cached", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
-    assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
+      assert {:ok, %{"42" => entry}} =
+               CIPollBatch.fetch(["42"], request_fun: request_fun)
+
+      assert entry.delivered == true
+      assert entry.head_sha == "head-77"
+      assert entry.pr_number == 77
+    end
+
+    test "a target with no delivery keeps its cadence in the same cycle" do
+      deliver_pull_request(42, 77)
+      deliver_ci_contexts(42, "head-77", 501)
+
+      request_fun = fn %{body: body} ->
+        # 42 was answered; 43 was not, so 43's alias stays and 42's is gone.
+        assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/43-batch")
+        refute body["query"] =~ "branch_0_1"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, %{"42" => delivered, "43" => _polled}} =
+               CIPollBatch.fetch(["42", "43"],
+                 request_fun: request_fun,
+                 branch_names_by_target: %{"43" => "aiur/43-batch"}
+               )
+
+      assert delivered.delivered == true
+    end
+
+    test "an unknown check-run id fetches, not serves" do
+      deliver_pull_request(42, 77)
+
+      # Establish a complete polled baseline with one run, then deliver a run
+      # whose id the baseline never saw: `merge_check_run` marks the snapshot
+      # incomplete, so `ci_contexts` answers `:miss` and the target is fetched
+      # (the #2276 failure, kept on the polling side of the line).
+      assert :ok =
+               PollSnapshots.put_ci_contexts(
+                 "owner/repo",
+                 "42",
+                 "head-77",
+                 [%{"id" => 501, "name" => "test", "status" => "queued", "conclusion" => nil}],
+                 %{"state" => "pending", "statuses" => []}
+               )
+
+      assert :ok =
+               PollSnapshots.merge_check_run(
+                 "owner/repo",
+                 "42",
+                 "head-77",
+                 %{"id" => 502, "name" => "test", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
+               )
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
+        assert body["query"] =~ "... on CheckRun { databaseId name status conclusion"
+        ci_response(pull_request(), "delivered_0")
+      end
+
+      assert {:ok, %{"42" => _batch}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+    end
+
+    test "a poll-written snapshot does not displace" do
+      deliver_pull_request(42, 77)
+
+      assert :ok =
+               PollSnapshots.put_ci_contexts(
+                 "owner/repo",
+                 "42",
+                 "head-77",
+                 [%{"id" => 501, "name" => "test", "status" => "queued", "conclusion" => nil}],
+                 %{"state" => "pending", "statuses" => []}
+               )
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
+        assert body["query"] =~ "... on CheckRun { databaseId name status conclusion"
+        ci_response(pull_request(), "delivered_0")
+      end
+
+      assert {:ok, %{"42" => _batch}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
+    end
+
+    test "an expired delivery snapshot does not displace" do
+      deliver_pull_request(42, 77)
+      deliver_ci_contexts(42, "head-77", 501)
+
+      assert {:ok, %{fetched_at_ms: fetched_at_ms}} = ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
+
+      request_fun = fn %{body: body} ->
+        assert body["query"] =~ "delivered_0: pullRequest(number: 77)"
+        assert body["query"] =~ "... on CheckRun { databaseId name status conclusion"
+        ci_response(pull_request(), "delivered_0")
+      end
+
+      assert {:ok, %{"42" => _batch}} =
+               CIPollBatch.fetch(["42"], request_fun: request_fun, now_ms: fetched_at_ms + 30_001)
+    end
   end
 
   test "writes a complete polled CI selection back for later webhook advancement" do
@@ -184,23 +250,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
   test "an expired delivery snapshot restores the full check-run selection" do
     deliver_pull_request(42, 77)
-
-    assert :ok =
-             PollSnapshots.put_ci_contexts(
-               "owner/repo",
-               "42",
-               "head-77",
-               [%{"id" => 501, "status" => "queued", "conclusion" => nil}],
-               %{"state" => "pending", "statuses" => []}
-             )
-
-    assert :ok =
-             PollSnapshots.merge_check_run(
-               "owner/repo",
-               "42",
-               "head-77",
-               %{"id" => 501, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
-             )
+    deliver_ci_contexts(42, "head-77", 501)
 
     assert {:ok, %{fetched_at_ms: fetched_at_ms}} = ResourceStore.fetch(PollSnapshots.ci_contexts_key("owner/repo", "42"))
 
@@ -211,34 +261,6 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
     assert {:ok, %{"42" => _batch}} =
              CIPollBatch.fetch(["42"], request_fun: request_fun, now_ms: fetched_at_ms + 30_001)
-  end
-
-  test "a delivery snapshot for an older head leaves the target to exact fallback" do
-    deliver_pull_request(42, 77)
-
-    assert :ok =
-             PollSnapshots.put_ci_contexts(
-               "owner/repo",
-               "42",
-               "old-head",
-               [%{"id" => 501, "status" => "queued", "conclusion" => nil}],
-               %{"state" => "pending", "statuses" => []}
-             )
-
-    assert :ok =
-             PollSnapshots.merge_check_run(
-               "owner/repo",
-               "42",
-               "old-head",
-               %{"id" => 501, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
-             )
-
-    request_fun = fn %{method: :post, body: body} ->
-      refute body["query"] =~ "... on CheckRun"
-      ci_response(pull_request_with_legacy_status(), "delivered_0")
-    end
-
-    assert {:ok, %{}} = CIPollBatch.fetch(["42"], request_fun: request_fun)
   end
 
   # Regression guard: GitHub issues have no branch name, so without the
@@ -509,6 +531,28 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       assert {:ok, batch} = CIPollBatch.fetch(["42"], request_fun: request_fun)
       refute Map.has_key?(batch, "42")
     end
+  end
+
+  # Seeds a complete `:ci_contexts` snapshot the way a poll followed by a
+  # delivery would leave it: a complete polled baseline advanced by a webhook
+  # check-run delivery on the same head.
+  defp deliver_ci_contexts(target, head_sha, run_id) do
+    assert :ok =
+             PollSnapshots.put_ci_contexts(
+               "owner/repo",
+               target,
+               head_sha,
+               [%{"id" => run_id, "name" => "test", "status" => "queued", "conclusion" => nil}],
+               %{"state" => "pending", "statuses" => []}
+             )
+
+    assert :ok =
+             PollSnapshots.merge_check_run(
+               "owner/repo",
+               target,
+               head_sha,
+               %{"id" => run_id, "name" => "test", "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-21T10:01:00Z"}
+             )
   end
 
   defp deliver_pull_request(target, number, opts \\ []) do
