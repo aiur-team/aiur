@@ -102,8 +102,15 @@ retrospective, then appends that verdict to the narrative log:
 
 The runner reads the daemon-published `@aiur_control_url` from its tmux socket,
 rather than guessing a fixed port. Set `AIUR_DASHBOARD_URL` only when running
-outside that tmux session; if neither source is available it records an explicit
-attention verdict without attempting the wrong dashboard.
+outside that tmux session. If neither source is available the check refuses
+before the browser ever launches: it exits 67, prints which variable to set on
+stderr, and writes a **did not run** verdict — a skipped check must never read
+as a healthy capture. Dashboard credentials are likewise refused (exit 69)
+after falling back to the running daemon's own environment when the wrapper
+carries none, so the password never has to be copied out by hand. A page that
+stalls past `AIUR_META_PAGE_TIMEOUT_MS` (default 60s) is reported as a timeout
+verdict naming that page, keeps whatever partial screenshot completed, and the
+remaining pages still run instead of the whole check hanging in silence.
 
 Pass `AIUR_META_EXPECTED_CAPACITY` when the configured cap is known; it catches
 a page reporting a stale cap as well as a peak greater than the displayed cap.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { DEFAULT_KNOWN_NOISE, analyzeDashboardSnapshot, extractCapacityReadings, inspectPage, renderVerdict } from '../capture-dashboard.mjs'
+import { DEFAULT_KNOWN_NOISE, PageTimeoutError, analyzeDashboardSnapshot, didNotRunVerdict, extractCapacityReadings, inspectPage, renderVerdict, timedOutAssessment, withPageTimeout } from '../capture-dashboard.mjs'
 
 const healthySnapshot = {
   title: 'Aiur',
@@ -285,6 +285,41 @@ test('extracts the peak card value separately from current concurrency and its c
   ])
   const result = analyzeDashboardSnapshot('analytics', { ...healthySnapshot, capacityReadings: readings }, 14)
   assert.deepEqual(result.issues.filter((issue) => issue.kind === 'capacity-overrun').map((issue) => issue.detail), ['peak concurrency is 33 above its cap 32'])
+})
+
+test('a precondition verdict says did not run, never attention', () => {
+  const verdict = didNotRunVerdict('AIUR_DASHBOARD_PASSWORD is not set; the dashboard refuses all requests without it.')
+
+  assert.match(verdict, /\*\*did not run\*\*/)
+  assert.doesNotMatch(verdict, /attention|healthy/i)
+  assert.match(verdict, /AIUR_DASHBOARD_PASSWORD is not set/)
+})
+
+test('a timed-out page is attention with a timeout issue naming the page', () => {
+  const assessment = timedOutAssessment('build-orders', '/build-orders', 60_000, 'net::ERR_ABORTED')
+
+  assert.equal(assessment.verdict, 'attention')
+  assert.equal(assessment.timedOut, true)
+  assert.equal(assessment.elapsedMs, 60_000)
+  assert.deepEqual(assessment.issues, [{
+    kind: 'timeout',
+    detail: 'Build Order capture exceeded 60000 ms: net::ERR_ABORTED; partial screenshot only'
+  }])
+  assert.equal(renderVerdict({ verdict: 'attention', pages: [assessment] }).includes('timeout: Build Order capture exceeded 60000 ms'), true)
+})
+
+test('a page timeout is bounded so a hang cannot stall the whole run', async () => {
+  const fast = await withPageTimeout(Promise.resolve('ok'), 1000, 'units')
+  assert.equal(fast, 'ok')
+
+  await assert.rejects(
+    withPageTimeout(new Promise(() => {}), 50, 'analytics'),
+    (error) => {
+      assert.ok(error instanceof PageTimeoutError)
+      assert.match(error.message, /capture of analytics exceeded 50 ms/)
+      return true
+    }
+  )
 })
 
 function fakePage({ elements = [], primarySelectors = [], filterGroups = [], countSummaries = [] } = {}) {
