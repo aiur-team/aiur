@@ -118,7 +118,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
-| `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the single view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. It replaced the separate ticket-backlog, ad-hoc-overlay and pack-status cadences, which had no config key at all. The two view-only sources it sweeps are reconciled only while a LiveView is watching them; `PackStatus` is reconciled on every tick regardless of viewers because it writes the authoritative `status.json` projection. |
+| `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep reconciles the daemon-owned Build Order pack-status projection (which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too) and runs the issue-family divergence watermark — a single bounded `updated_at`-ordered head page that keeps webhook loss detectable and re-converges a dropped delivery. |
 
 Freshness thresholds follow this cadence. You do not set them separately.
 
@@ -126,10 +126,11 @@ Freshness thresholds follow this cadence. You do not set them separately.
   `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
 - The dashboard, the Units catalog and Build Order ticket history all judge
   staleness against that effective interval.
-- Build Order's own refresh cadences are derived from it too, so an idle fleet
-  widens the Build Order catalog sweep exactly as it widens the tracker poll.
-  Since #2312 that sweep runs only while a Build Order page is open; the cadence
-  still follows the effective interval for the pages that are open.
+- Build Order's remaining catalog cadence (the base for its boot/mount/degraded
+  reads and its staleness window) is derived from it too, so an idle fleet widens
+  it exactly as it widens the tracker poll. The catalog itself is event-sourced
+  (#2325) and demand-gated (#2312): there is no recurring sweep — reads happen
+  when a page opens or a degradation needs a re-list.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
@@ -604,8 +605,8 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence while a Build Order page is open. Since #2312 the catalog is demand-gated: no page open, no refresh. |
-| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Base cadence for the Build Order catalog's reads (boot, a viewer's mount, a degraded re-list) and the window after which a selected root is displayed as ageing. The catalog is event-sourced (#2325) and demand-gated (#2312): it is maintained from the resource store's change stream, so this is not a recurring poll, and no page open means no read. |
+| `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the labelled catalog read that resolves epic and wave counts on a boot/mount/degraded read; the event-sourced catalog resolves those counts from the store instead. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
 | `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
@@ -621,7 +622,7 @@ No value makes that correct, because it makes API cost track how many people are
 looking rather than what has changed. They were removed rather than retuned.
 
 A selected root is now read by the daemon's own catalog reconciliation, and by
-nothing else. Each catalog poll carries a per-root change marker — the root's
+nothing else. Each catalog update carries a per-root change marker — the root's
 identity, member count and update time, plus a digest of its members' states — and
 a watched root whose marker moved is re-read once, as is a watched root that has
 never been read.
@@ -659,17 +660,25 @@ The previous fixed defaults were chosen when the tracker polled every 5 seconds,
 and did not move when the tracker changed to 120 seconds. Deriving them is what
 stops that recurring.
 
-The two **graph cadences** follow the *effective* interval: the one the daemon
-actually scheduled.
+Since #2325 the Build Order **catalog is event-sourced**: it is maintained from
+`Aiur.GitHub.ResourceStore` change events, so there is no recurring catalog poll
+at all — a root's membership and a blocked-by edge reach the page the moment the
+delivery deposits them.
+
+What remains on a cadence is the boot fill (one GraphQL read per daemon start),
+the degraded re-read, and the selected-root reads those changes trigger; the two
+graph keys below size those and the staleness window that follows, and they
+follow the *effective* interval: the one the daemon actually scheduled.
 
 - It is not `polling.interval_seconds` alone. It includes
   `polling.idle_widen_factor` and `webhooks.poll_widen_factor`.
 - It is the value `aiur status` reports as `interval=`.
-- So an idle fleet widens the Build Order catalog exactly as it widens the
-  tracker, and a fleet that picks up work narrows both back together.
-- The widening matters only while a page is open: since #2312 the catalog does
-  not poll at all when no Build Order page is open, so "with nobody watching"
-  it costs nothing rather than merely running slowly.
+- So an idle fleet widens the catalog's reads and the staleness window exactly
+  as it widens the tracker, and a fleet that picks up work narrows both back
+  together.
+- The widening matters only while a page is open: the catalog is event-sourced
+  (#2325) and demand-gated (#2312), so with no Build Order page open it neither
+  polls nor reads — it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts
@@ -689,10 +698,11 @@ once that repository is a proven webhook source (`webhooks.poll_widen_factor`
 multiplies again). The labelled catalog read reaches its 3600000 ceiling in that
 last column.
 
-`graph_catalog_labels_refresh_ms` covers the 26-point catalog variant, so it is
-the slowest of the three, and it can never fall below the catalog cadence it
-rides on — a labels read that outran the catalog poll would make every poll buy
-the expensive query.
+`graph_catalog_labels_refresh_ms` covers the 26-point labelled variant used by
+the boot fill and a degraded re-read, so it is the slowest of the three, and it
+can never fall below the catalog cadence it rides on — a labels read that
+outran the catalog read would make every boot or degraded re-read buy the
+expensive query.
 
 `ticket_detail_freshness_ms` is not a cadence: nothing fires on it. It is the
 staleness a ticket-detail reader accepts from the shared store before
