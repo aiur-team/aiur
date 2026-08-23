@@ -209,11 +209,16 @@ defmodule Aiur.GitHub.ResourceStore do
   same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels,
   pull requests and the open pull request for a ticket's head branch,
   `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
-  merges its own responses, `Aiur.GitHub.PollSnapshots` converges complete
-  review-thread and CI-context selections, and `Aiur.Events.Publisher` marks
-  individual comment resources processed. Readers: the poller and the
-  command scan both serve their own `304` from the held list, `Aiur.GitHub.Issues`
-  and the dashboard read bodies, and the three GraphQL poll paths consult
+  merges its own responses, and `Aiur.Events.Publisher` marks individual comment
+  resources processed. `Aiur.GitHub.CommentPollBatch` deposits the comment→thread
+  mapping it parses (`:pr_review_comment_thread`), `Aiur.GitHub.DependenciesApi`
+  both reads and writes the blocked-by list (`:issue_blocked_by`), whose edges
+  the webhook deposit and the dependency mutation also merge in, and
+  `Aiur.GitHub.PollSnapshots` converges complete review-thread and CI-context
+  selections (#2326). Readers: the poller and the command scan both serve their
+  own `304` from the held list, `Aiur.GitHub.Issues` and the dashboard read
+  bodies, the thread resolver reads the comment→thread map, the dependencies
+  reader serves the blocked-by list, and the three GraphQL poll paths consult
   delivery-fresh selection snapshots before spending.
 
   ## Two versions, deliberately kept apart
@@ -281,6 +286,13 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # Build Order relationship edges — the `sub_issues` and `issue_dependencies`
+    # webhook deliveries keyed per relationship so an event-sourced catalog can
+    # rebuild its roots' membership from the store instead of polling GitHub.
+    # `:sub_issues` is keyed by the sub-issue number and `:issue_dependencies`
+    # by the dependency relationship id.
+    :sub_issues,
+    :issue_dependencies,
     # Complete selection families shared by the GraphQL pollers and webhook
     # deltas. They deliberately exclude strict review/merge verdict fields.
     :pr_review_threads,
@@ -302,6 +314,21 @@ defmodule Aiur.GitHub.ResourceStore do
     # ticket number rather than the PR number, because that is the only identity
     # the caller holds before the lookup answers.
     :branch_pull_request,
+    # The set of issues an issue is currently blocked by, answered by
+    # `GET /repos/:o/:r/issues/:n/dependencies/blocked_by` and read through
+    # `Aiur.GitHub.DependenciesApi.dependency_get/3`. Keyed by the blocked
+    # issue's number. Written by the endpoint's own 200 (the full list, with the
+    # response ETag), and fed from free sources: `dependency_mutate`'s own write
+    # and the `issue_dependencies` webhook delivery both merge the single edge
+    # they carried into the held list (#2326).
+    :issue_blocked_by,
+    # The review thread a comment belongs to, keyed by the comment's `databaseId`
+    # and holding the thread's GraphQL node id. Fed by `Aiur.GitHub.CommentPollBatch`,
+    # which parses `reviewThreads { comments { databaseId } }` on every cycle; a
+    # `pull_request_review_comment` webhook delivery consults it before paying for
+    # a GraphQL node lookup (#2326). A comment's thread is immutable, so the
+    # mapping never goes stale.
+    :pr_review_comment_thread,
     # The conditional validator for that lookup's open-pull-request listing
     # (`GET /pulls?state=open`), held separately from `:branch_pull_request`.
     # The three writers of the PR-body key — webhook deposit, human-review gate,
@@ -320,9 +347,21 @@ defmodule Aiur.GitHub.ResourceStore do
   # `:branch_pull_request` is written by both the webhook deposit and
   # `Aiur.GitHub.ResourceFetch` (the human-review gate's strict read stores its
   # fetch), so a late delivery can roll the held PR back — the same reason
-  # `:pull_request` is here. `:check_run` was removed from the store entirely
-  # when its deposit was ceased (#2126); a CI verdict is never cached.
-  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :branch_pull_request]
+  # `:pull_request` is here. `:issue_blocked_by` is written by the webhook edge
+  # deposit, the dependency mutation and the full `blocked_by` fetch, and a late
+  # `blocked_by_added` arriving after a `blocked_by_removed` would roll the held
+  # list back to claiming an edge the removal already dropped — so it is ordered
+  # too, and the merge writes carry the delivery's own marker. `:check_run` was
+  # removed from the store entirely when its deposit was ceased (#2126); a CI
+  # verdict is never cached.
+  @order_sensitive_types [
+    :issue,
+    :issue_labels,
+    :pull_request,
+    :pr_review_thread,
+    :branch_pull_request,
+    :issue_blocked_by
+  ]
 
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}
@@ -985,6 +1024,62 @@ defmodule Aiur.GitHub.ResourceStore do
     case fetch(key) do
       {:ok, %{data: data}} -> data
       :miss -> nil
+    end
+  end
+
+  @doc """
+  Lists every held body of `type` within one `"owner/repo"`.
+
+  Answers `[{key, body}]` for the type in that repository, in arbitrary order.
+  Used by event-sourced projections (the Build Order catalog) to rebuild their
+  state from the store after a change event rather than holding their own copy
+  of the world, and by a projection that must resolve a delivered node id to a
+  held issue number.
+
+  Only bodies that `fetch/1` would serve are returned: an expired entry and an
+  entry holding no body are both omitted, so a projection rebuilding from this
+  list sees exactly what a reader would have seen. A key the store would refuse
+  (an unknown type, a malformed repo identity) answers `[]`.
+  """
+  @spec list_type(resource_type(), String.t() | nil) :: [{key(), term()}]
+  def list_type(type, full_name) when is_atom(type) and is_binary(full_name) do
+    case String.split(full_name, "/") do
+      [owner, repo] when owner != "" and repo != "" and type in @resource_types ->
+        # `match_object/2` matches whole stored objects (`{key, entry}`), so the
+        # pattern wraps the key in the tuple that is actually stored.
+        pattern = {{type, String.downcase(owner), String.downcase(repo), :_}, :_}
+
+        with_table([], fn table -> list_type_entries(table, pattern) end)
+
+      _other ->
+        []
+    end
+  end
+
+  def list_type(_type, _full_name), do: []
+
+  defp list_type_entries(table, pattern) do
+    table
+    |> :ets.match_object(pattern)
+    |> Enum.flat_map(&type_entry/1)
+  end
+
+  defp type_entry({key, entry}) do
+    case held_entry(entry) do
+      nil -> []
+      data -> [{key, data}]
+    end
+  end
+
+  # The same expiry rule `fetch/1` applies, so a projection rebuilding from
+  # `list_type/2` never serves a body the store itself would have declined.
+  defp held_entry(entry) do
+    case Map.get(entry, :data) do
+      nil ->
+        nil
+
+      data ->
+        if expired?(Map.get(entry, :fetched_at_ms) || 0), do: nil, else: data
     end
   end
 

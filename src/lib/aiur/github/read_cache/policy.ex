@@ -257,12 +257,23 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
-  # One shape, anchored to a numbered issue or pull request. The repo-wide
+  # Three shapes, anchored to a numbered issue or pull request. The repo-wide
   # comment streams (`/repos/o/r/issues/comments`) deliberately do not match:
   # they are already conditional reads that revalidate for free with an ETag,
   # and holding a body instead of sending `If-None-Match` would trade a free
   # `304` for staleness. A cache is only an improvement where no validator
   # exists.
+  # `/commits/:sha` is immutable per sha — a commit's timestamp cannot change
+  # while the sha is the same — so its TTL can never serve a verdict that has
+  # moved. The verdict shapes (`/commits/:sha/status`, check runs, reviews,
+  # merge gating) are refused earlier, on content, by `@unsafe_rest`. The sha
+  # is matched exactly (7–40 hex digits), never a branch ref: a commit read
+  # by ref returns the head commit and is highly mutable.
+  #
+  # `/pulls/:n/files` deliberately does NOT match. The URL carries no head sha,
+  # so a push changes the response while the cache key does not — a stale
+  # changed-paths answer would be served for the TTL (review #2332). Nothing is
+  # cached that the URL cannot pin to an immutable object.
   #
   # Repository configuration gets its own class because it is the one REST
   # surface the safety regex above over-matched: `/actions/workflows` is the
@@ -280,6 +291,9 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
     cond do
       Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url) ->
+        cache(:comments, request)
+
+      Regex.match?(~r"/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}\z", url) ->
         cache(:comments, request)
 
       repo_config?(url) ->
