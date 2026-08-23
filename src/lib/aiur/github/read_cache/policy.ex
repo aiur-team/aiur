@@ -22,9 +22,10 @@ defmodule Aiur.GitHub.ReadCache.Policy do
 
     * **CI status of any kind** — `statusCheckRollup`, check runs, check suites,
       commit statuses, and the `:ci_poll_batch` document that carries them.
-      `Aiur.GitHub.ResourceStore` reached the same conclusion independently and
-      removed `:check_run` from the store entirely when its deposit ceased
-      (#2126); a CI verdict is never cached.
+      A complete internal CI-context snapshot may let the daemon omit that one
+      selection immediately after a webhook advances it, but this policy still
+      refuses the document and agent-facing verdict cache; a CI verdict is never
+      served from a TTL cache.
     * **Review state and merge gating** — `reviewDecision`, `mergeable`,
       `mergeStateStatus`, review threads, requested reviewers, the human-review
       gate's strict reads. An approval that was dismissed thirty seconds ago must

@@ -74,6 +74,26 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
+  defp handle_running_agent_down(
+         state,
+         issue_id,
+         %{runtime_terminal_failure: %{kind: :startup_failed} = failure} = running_entry,
+         _reason,
+         session_id
+       ) do
+    reason = Map.get(failure, :reason)
+
+    Logger.warning("Agent startup failed for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling failure retry")
+
+    state
+    |> remove_stopped_running_entry(issue_id, running_entry)
+    |> schedule_issue_retry(
+      issue_id,
+      next_retry_attempt_from_running(running_entry),
+      runtime_terminal_failure_retry_metadata(running_entry, reason)
+    )
+  end
+
   defp handle_running_agent_down(state, issue_id, running_entry, :normal, session_id) do
     if State.completed_running_entry?(running_entry) do
       Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
@@ -142,6 +162,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
       worker_host: Map.get(running_entry, :worker_host),
       workspace_path: Map.get(running_entry, :workspace_path)
     }
+  end
+
+  defp runtime_terminal_failure_retry_metadata(running_entry, reason) do
+    running_entry
+    |> failure_retry_metadata({:startup_failed, reason})
+    |> Map.put(:error, "startup failed: #{inspect(reason)}")
   end
 
   defp maybe_reap_orphaned_agent_shell(state, running_entry) do

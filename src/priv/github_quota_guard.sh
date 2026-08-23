@@ -56,6 +56,7 @@ budget_db=
 budget_enabled=0
 budget_required=0
 budget_unavailable_reason=
+budget_recovery="budget root $budget_root; repair ownership/permissions and redispatch (current runtimes derive this grant); stale runtimes must add $budget_root to agent.codex.turn_sandbox_policy.writableRoots"
 budget_lease=
 budget_renewal_pid=
 budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
@@ -733,7 +734,7 @@ if [ "$agent_guard" -eq 1 ] && undecidable_agent_command "$@"; then
 fi
 
 if [ "$admission_required" -eq 1 ] && [ "$budget_required" -eq 1 ] && [ "$budget_enabled" -ne 1 ]; then
-  printf 'aiur: GitHub shared budget unavailable (%s); refusing uncoordinated request\n' "$budget_unavailable_reason" >&2
+  printf 'aiur: GitHub shared budget unavailable (%s; %s); refusing uncoordinated request\n' "$budget_unavailable_reason" "$budget_recovery" >&2
   exit 75
 fi
 
@@ -1039,6 +1040,37 @@ cache_volatile_fields() {
   return 1
 }
 
+# REST equivalents of the verdict and merge-gating fields above: a caller
+# spelling the same read as `gh api` must not acquire a stale answer merely by
+# bypassing `gh pr view`. The pull-request resource itself is included because
+# its default document carries `mergeable`, `mergeable_state`, `merged` and
+# `state` — the exact fields `gh pr view --json ...` refuses — and nothing that
+# changes them passes through this wrapper (a merge is a human or ruleset
+# action), so even a `pulls/<n>/comments` read filed under that PR can never be
+# retired by the write that would stale it. Refusing the whole family costs
+# throughput, never correctness.
+#
+# Deliberate divergence from `Aiur.GitHub.ReadCache.Policy`: the daemon refuses
+# every `/actions` path wholesale (`policy.ex` refuses `actions(?:/|$|\?)`),
+# while this wrapper keeps stable workflow metadata (`actions/workflows`, the
+# definition list) cacheable and refuses only run and job state. A workflow
+# definition changes when its YAML is edited, which is a wrapper-passing write
+# that invalidates it; a run's status is a verdict that nothing retires. So the
+# shell is narrower than the daemon, on purpose, because the two stores serve
+# different callers with different invalidation reach.
+cache_unsafe_rest_endpoint() {
+  case "/${1#/}" in
+    */check-runs|*/check-runs/*|*/check-suites|*/check-suites/*|\
+    */status|*/status/*|*/statuses|*/statuses/*|\
+    */pulls|*/pulls/*|*/merge|*/merge/*|*/requested_reviewers|*/requested_reviewers/*|\
+    */reviews|*/reviews/*|*/actions/runs|*/actions/runs/*|\
+    */actions/jobs|*/actions/jobs/*|*/actions/workflows/*/runs|\
+    */actions/workflows/*/runs/*|*/actions/workflows/*/workflow_runs|\
+    */actions/workflows/*/workflow_runs/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The output shapes this guard serves. Everything absent from this list — a
 # bare `gh pr view` with no number, `gh pr diff`, `gh api graphql`, every write
 # — falls through to the real `gh` untouched.
@@ -1138,6 +1170,7 @@ if [ -n "$cache_root" ]; then
         # a digest of the URL, where the resource's own writers cannot reach it.
         cache_endpoint=${cache_endpoint%%\?*}
         cache_endpoint=${cache_endpoint%%\#*}
+        if cache_unsafe_rest_endpoint "$cache_endpoint"; then cache_reads=0; fi
         case "$cache_endpoint" in
           repos/*/*/*|repos/*/*)
             cache_api_rest=${cache_endpoint#repos/}
@@ -1317,11 +1350,31 @@ cache_record() {
     ''|*[!0-9]*) cache_events_size=0 ;;
   esac
   if [ "$cache_events_size" -gt 1048576 ]; then
-    mv -f "$cache_events_file" "$cache_events_file.1" 2>/dev/null || true
+    # Timestamped rotations retain the complete 24-hour measurement window.
+    # The pid keeps simultaneous writers from replacing one another's archive;
+    # row timestamps, not filenames, decide which samples enter the ratio.
+    mv -f "$cache_events_file" "$cache_events_file.$cache_started_at.$$" 2>/dev/null || true
+
+    # Pruning is outside the call's output descriptors and keeps a one-hour
+    # safety margin beyond the reader's window. The exact prefix confines the
+    # deletion to this bounded effectiveness log. `-mmin` and `-delete` are
+    # non-POSIX, so this is gated exactly as `cache_prune` gates its own use of
+    # them: on a host without GNU/BSD find the prune is a no-op rather than a
+    # silent failure that lets archives accumulate with no recovery path.
+    if command -v find >/dev/null 2>&1; then
+      (
+        find "$agent_quota_dir" -type f -name 'agent-cache.tsv.*' -mmin +1500 -delete || true
+      ) >/dev/null 2>&1 &
+    fi
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" \
-    >> "$cache_events_file" 2>/dev/null || true
+  if [ -n "${2:-}" ]; then
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" "$2" \
+      >> "$cache_events_file" 2>/dev/null || true
+  else
+    printf '%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" \
+      >> "$cache_events_file" 2>/dev/null || true
+  fi
   unset cache_events_size
   return 0
 }
@@ -1344,15 +1397,24 @@ cache_marker_at() {
 }
 
 cache_lookup() {
+  cache_miss_reason=absent
   [ -n "$cache_body" ] || return 1
-  [ "$cache_bypass" -eq 0 ] || return 1
+  if [ "$cache_bypass" -ne 0 ]; then cache_miss_reason=bypassed; return 1; fi
   [ -f "$cache_meta" ] || return 1
-  [ -r "$cache_body" ] || return 1
+  # A meta that survived but whose body did not is a torn entry, not a cold
+  # read: `cache_prune` or a partial disk-full write left the stamp behind. The
+  # old comment called this "the entry's stamp survives its body". Recorded as
+  # `absent` it reads on the dashboard as a cold cache with diverse shapes, and
+  # store-integrity failures go unseen — the misdiagnosis #2207 exists to
+  # prevent. It is a distinct cause from `corrupt` (present but unreadable) and
+  # from `absent` (nothing was ever stored).
+  [ -f "$cache_body" ] || { cache_miss_reason=torn; return 1; }
+  if [ ! -r "$cache_body" ]; then cache_miss_reason=corrupt; return 1; fi
 
   cache_fetched_at=
-  IFS= read -r cache_fetched_at < "$cache_meta" 2>/dev/null || return 1
+  IFS= read -r cache_fetched_at < "$cache_meta" 2>/dev/null || { cache_miss_reason=corrupt; return 1; }
   case "$cache_fetched_at" in
-    ''|*[!0-9]*) return 1 ;;
+    ''|*[!0-9]*) cache_miss_reason=corrupt; return 1 ;;
   esac
 
   # A clock that moved backwards, or an entry stamped in the future, is not
@@ -1362,8 +1424,8 @@ cache_lookup() {
   # coalesced follower looks again after waiting: measured from its start, an
   # entry the leader wrote one second later reads as stamped in the future and is
   # refused, which is precisely the duplicate fetch the wait existed to avoid.
-  [ "$cache_fetched_at" -le "$cache_now" ] || return 1
-  [ $((cache_now - cache_fetched_at)) -le "$cache_ttl" ] || return 1
+  if [ "$cache_fetched_at" -gt "$cache_now" ]; then cache_miss_reason=clock-skewed; return 1; fi
+  if [ $((cache_now - cache_fetched_at)) -gt "$cache_ttl" ]; then cache_miss_reason=expired; return 1; fi
 
   cache_invalidated_at=0
   cache_marker_at "$cache_root/v1/.invalidated"
@@ -1371,7 +1433,8 @@ cache_lookup() {
   [ "$cache_collection" -eq 0 ] || cache_marker_at "$cache_repo_dir/.collections-invalidated"
   cache_marker_at "$cache_entry_dir/.invalidated"
 
-  [ "$cache_fetched_at" -gt "$cache_invalidated_at" ] || return 1
+  if [ "$cache_fetched_at" -le "$cache_invalidated_at" ]; then cache_miss_reason=invalidated; return 1; fi
+  cache_miss_reason=
   return 0
 }
 
@@ -1513,7 +1576,10 @@ cache_prune() {
 # reads as "the body is empty". A refusal here falls through to the real `gh`,
 # which is the same answer every other doubt in this file produces.
 cache_serve() {
-  cat "$cache_body" || return 1
+  if ! cat "$cache_body"; then
+    cache_miss_reason=corrupt
+    return 1
+  fi
   cache_record "$1"
   return 0
 }
@@ -1535,7 +1601,7 @@ if cache_lookup && cache_serve hit; then
   exit 0
 fi
 
-[ -z "$cache_body" ] || cache_record miss
+[ -z "$cache_body" ] || cache_record miss "${cache_miss_reason:-absent}"
 
 # COALESCING (#2073 U6). A hit above costs no `python3` and no network, so the
 # store already removes the second and later reads of a resource. It cannot
@@ -1629,7 +1695,7 @@ budget_acquire() {
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
       --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
       --search-limit "${AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
-      printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
+      printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
       return 75
     fi
     unset budget_ignore_flag budget_cache_flags

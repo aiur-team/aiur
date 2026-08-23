@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   @spec reconcile_running_lifecycle(State.t()) :: State.t()
   def reconcile_running_lifecycle(%State{} = state) do
+    state = Orchestrator.reconcile_runtime_health(state)
     state = Orchestrator.reconcile_stalled_running_issues(state)
     state = Orchestrator.reconcile_overrunning_agents(state)
     state = Orchestrator.reconcile_pending_auto_resumes(state)
