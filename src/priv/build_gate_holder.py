@@ -40,6 +40,13 @@ _hold_timeout_reason = None
 _lease_fd = None
 _lease_released = False
 _started_monotonic = time.monotonic()
+# PIDs this holder directly spawned, recorded at spawn time. Containment
+# signals ONLY these roots and their current descendants. A session daemon
+# (dbus-daemon, gnome-keyring-daemon) that reparented onto this subreaper is
+# never a spawned root, is never a descendant of one, and is deliberately
+# never signalled: killing it takes the session keyring and with it the
+# fleet's GitHub credentials (#2387).
+_spawned_roots: set[int] = set()
 
 
 def main() -> int:
@@ -87,6 +94,7 @@ def main() -> int:
             start_new_session=True,
             env=command_environment,
         )
+        record_spawned_root(process.pid)
         write_reserved_regular(command_pid_path, f"{process.pid}\n")
 
         wait_until_ready(command_ready_path, "ready\n", parent_pid_int, handshake_deadline)
@@ -337,7 +345,7 @@ def terminate_process_tree(root_pid: int, deadline: float | None = None) -> None
     if deadline is None:
         deadline = time.monotonic() + CLEANUP_TIMEOUT_SECONDS
 
-    signal_tree(root_pid, signal.SIGTERM)
+    signal_tree(signal.SIGTERM)
     grace_deadline = min(time.monotonic() + TERM_GRACE_SECONDS, deadline)
 
     while process_tree_alive(root_pid) and time.monotonic() < grace_deadline:
@@ -345,7 +353,7 @@ def terminate_process_tree(root_pid: int, deadline: float | None = None) -> None
         time.sleep(POLL_SECONDS)
 
     if process_tree_alive(root_pid):
-        signal_tree(root_pid, signal.SIGKILL)
+        signal_tree(signal.SIGKILL)
 
     # Bounded (#2381). A descendant that survives SIGKILL — uninterruptible in
     # the kernel, or one this holder may not signal — used to spin here
@@ -357,16 +365,14 @@ def terminate_process_tree(root_pid: int, deadline: float | None = None) -> None
     reap_exited_children()
 
 
-def signal_tree(root_pid: int, signal_number: int) -> None:
-    pids = descendants_of(root_pid)
-    pids.add(root_pid)
-
-    # Once the direct command exits, daemonized descendants are reparented to
-    # this subreaper and no longer appear below root_pid in /proc. Every child
-    # of the holder still belongs to this one leased command tree.
-    for child in proc_children(os.getpid()):
-        pids.add(child)
-        pids.update(descendants_of(child))
+def signal_tree(signal_number: int) -> None:
+    # Containment signals ONLY what this holder directly spawned and their
+    # descendants. The old code also swept every child of this subreaper
+    # (`proc_children(os.getpid())`), which is where an adopted session daemon
+    # lands when its original parent exits — sweeping it and `killpg`-ing its
+    # session took down the GNOME keyring and broke `gh` auth for the whole
+    # fleet (#2387).
+    pids = owned_process_ids()
 
     own_group = os.getpgrp()
     groups = set()
@@ -391,6 +397,29 @@ def signal_tree(root_pid: int, signal_number: int) -> None:
             os.kill(pid, signal_number)
         except ProcessLookupError:
             pass
+
+
+def record_spawned_root(pid: int) -> None:
+    """Track a process the holder directly spawned (#2387)."""
+    if pid > 0:
+        _spawned_roots.add(pid)
+
+
+def owned_process_ids() -> set[int]:
+    """PIDs this holder may signal: directly-spawned roots plus their descendants.
+
+    Roots are recorded explicitly at spawn time. A session daemon
+    (dbus-daemon, gnome-keyring-daemon) that reparented onto this subreaper is
+    not a spawned root and is not a descendant of one, so it is never in this
+    set and never signalled.
+    """
+    pids: set[int] = set()
+
+    for root in _spawned_roots:
+        pids.add(root)
+        pids.update(descendants_of(root))
+
+    return pids
 
 
 def descendants_of(root_pid: int) -> set[int]:
@@ -421,9 +450,12 @@ def process_tree_alive(root_pid: int) -> bool:
     if pid_alive(root_pid, unsignalable_is_alive=False):
         return True
 
+    # Only what the holder directly spawned counts as "the tree". An adopted
+    # session daemon is never owned, so it must not keep the bounded cleanup
+    # loops spinning either (#2387).
     return any(
         pid_alive(pid, unsignalable_is_alive=False)
-        for pid in descendants_of(root_pid) | set(proc_children(os.getpid()))
+        for pid in owned_process_ids()
     )
 
 
