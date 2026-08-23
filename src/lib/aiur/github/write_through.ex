@@ -74,7 +74,7 @@ defmodule Aiur.GitHub.WriteThrough do
 
   require Logger
 
-  alias Aiur.GitHub.{ResourceStore, Transport}
+  alias Aiur.GitHub.{PollSnapshots, ResourceStore, Transport}
 
   @doc """
   Deposits an issue comment from a `POST .../issues/:number/comments` response.
@@ -195,7 +195,28 @@ defmodule Aiur.GitHub.WriteThrough do
   def review_thread(thread, opts \\ []) do
     guarded(fn ->
       deposit(:pr_review_thread, node_id(thread), thread, nil, opts)
+
+      with %{} <- thread,
+           pr_number when not is_nil(pr_number) <- get_in(thread, ["pullRequest", "number"]),
+           {:ok, owner, repo} <- repo_identity(thread, opts) do
+        apply_review_thread_snapshot("#{owner}/#{repo}", pr_number, thread)
+      else
+        _other -> :ok
+      end
     end)
+  end
+
+  # An unresolve can race a delayed `resolved` webhook for the original
+  # mutation. The mutation response has no version, so merging it into the
+  # complete aggregate would leave that old delivery free to overwrite it and
+  # make the collection delivery-fresh. Keep the individual thread
+  # write-through, but require a fresh poll for the aggregate.
+  defp apply_review_thread_snapshot(repo_slug, pr_number, %{"isResolved" => false}) do
+    PollSnapshots.invalidate_review_threads(repo_slug, pr_number)
+  end
+
+  defp apply_review_thread_snapshot(repo_slug, pr_number, thread) do
+    PollSnapshots.merge_review_thread(repo_slug, pr_number, thread, source: :mutation)
   end
 
   # -- internals ------------------------------------------------------------

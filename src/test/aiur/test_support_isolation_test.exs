@@ -20,6 +20,7 @@ defmodule Aiur.TestSupportIsolationTest do
   alias Aiur.Config.Paths
   alias Aiur.GitHub.DispatchAuthorization
   alias Aiur.GitHub.Issues
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.GlobalPauseStore
 
@@ -96,6 +97,21 @@ defmodule Aiur.TestSupportIsolationTest do
     assert Task.yield(waiter, 0) == nil
     send(process, :stop)
     assert {:ok, :ok} = Task.yield(waiter, 1_000)
+  end
+
+  test "global reset restores a resource store a prior case left terminated" do
+    store = Process.whereis(ResourceStore)
+    ref = Process.monitor(store)
+
+    on_exit(fn -> Aiur.TestSupport.ensure_resource_store_running() end)
+
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
+    assert_receive {:DOWN, ^ref, :process, ^store, _reason}
+    refute ResourceStore.running?()
+
+    assert :ok = Aiur.TestSupport.reset_global_state!()
+    assert ResourceStore.running?()
+    assert ResourceStore.size() == 0
   end
 
   # Regression guard for #2082. `DispatchAuthorization` keeps its decision cache

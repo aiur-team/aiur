@@ -40,11 +40,16 @@ defmodule Aiur.GitHub.RepoEvents do
       query = URI.encode_query(%{"page" => page, "per_page" => per_page})
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/events?#{query}"
 
+      # #2298 item 4: the events firehose is the one endpoint GitHub serves
+      # conditionally for free, so the validator is already sent here; the
+      # `caller:` makes the repeated conditional reads attributable instead of
+      # billing the endpoint shape.
       case request_fun.(%{
              method: :get,
              url: url,
              token: token,
-             etag: etag
+             etag: etag,
+             caller: "repo_events"
            }) do
         {:ok, %{status: 304, headers: headers}} ->
           {:ok, {:not_modified, Transport.header(headers, "etag") || etag, Transport.poll_interval(headers)}}

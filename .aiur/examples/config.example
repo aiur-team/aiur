@@ -57,6 +57,9 @@ agent:
     # thread_sandbox: workspace-write
     # danger-full-access defaults turns to dangerFullAccess unless turn_sandbox_policy is set
     # default workspace-write turns allow network access so local build tools can open loopback sockets
+    # writableRoots entries are existing writable daemon-host extras; Aiur derives the
+    # issue workspace and enabled shared GitHub budget root, and does not send extras to SSH workers
+    # turn_sandbox_policy: {type: workspaceWrite, writableRoots: [/tmp]}
     # read_timeout_ms: 5000
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60

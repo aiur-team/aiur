@@ -61,6 +61,7 @@ defmodule Aiur.DecisionDispatchTasks do
        max_pending_per_ticket: Keyword.get(opts, :max_pending_per_ticket, default_per_ticket_limit(max_pending)),
        max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
        operation_timeout_ms: Keyword.get(opts, :operation_timeout_ms, @default_operation_timeout_ms),
+       timeout_scheduler: Keyword.get(opts, :timeout_scheduler, &Worker.schedule_timeout/2),
        task_starter: Keyword.get(opts, :task_starter, &Worker.start_supervised/1),
        saturation_notifier: Keyword.get(opts, :saturation_notifier, &Saturation.notify/1),
        saturated?: false
@@ -171,7 +172,7 @@ defmodule Aiur.DecisionDispatchTasks do
       owner: entry.owner,
       pid: task.pid,
       ref: task.ref,
-      timer: Worker.schedule_timeout(task.ref, entry.timeout)
+      timer: state.timeout_scheduler.(task.ref, entry.timeout)
     }
 
     %{state | active: Map.put(state.active, ticket, active_task)}
