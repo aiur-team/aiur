@@ -78,13 +78,13 @@ describe("Stream Deck mode state", () => {
 
   // The order is a parity contract with the Elixir emulator's command row, so
   // it is asserted as a whole rather than key by key.
-  it("renders pause, logs, mic and settings, with the pause label toggled", () => {
+  it("renders pause, logs, mic, settings and commands, with the pause label toggled", () => {
     expect(commandKeys({ paused: true })).toEqual([
       { command: "pause", label: "Play" },
       { command: "logs", label: "Logs" },
       { command: "mic", label: "Mic" },
       { command: "settings", label: "Settings" },
-      null,
+      { command: "commands", label: "Commands" },
       null,
       null,
       null,
@@ -96,9 +96,9 @@ describe("Stream Deck mode state", () => {
   // a press that delivers an empty message.
   it("adds Send and Cancel only while the buffer holds text", () => {
     expect(commandKeys({ paused: false }, true).slice(4)).toEqual([
+      { command: "commands", label: "Commands" },
       { command: "send", label: "Send" },
       { command: "cancel", label: "Cancel" },
-      null,
       null,
     ]);
   });
@@ -135,5 +135,23 @@ describe("Stream Deck mode state", () => {
 
   it("holds mic only while the command key is down", () => {
     expect(transitionMode(commandState(), { type: "mic.down" }).state.micHeld).toBe(true);
+  });
+
+  it("opens the Commands page from commands and returns to commands, not to the grid", () => {
+    const commands = transitionMode(commandState(), { type: "command.press", command: "commands" }).state;
+    expect(commands).toMatchObject({ mode: "commands", activeAgentId: "agent-1" });
+    expect(transitionMode(commands, { type: "back" }).state).toMatchObject({ mode: "cmd", activeAgentId: "agent-1" });
+  });
+
+  it("ignores a commands press from anywhere but commands mode", () => {
+    const state = createModeState();
+    expect(transitionMode(state, { type: "command.press", command: "commands" })).toEqual({ state, effects: [] });
+  });
+
+  it("drops the mic hold when entering and leaving the Commands page", () => {
+    const held = transitionMode(commandState(), { type: "mic.down" }).state;
+    const commands = transitionMode(held, { type: "command.press", command: "commands" }).state;
+    expect(commands).toMatchObject({ mode: "commands", micHeld: false });
+    expect(transitionMode(commands, { type: "back" }).state).toMatchObject({ mode: "cmd", micHeld: false });
   });
 });

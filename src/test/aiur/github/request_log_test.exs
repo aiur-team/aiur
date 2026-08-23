@@ -1,158 +1,26 @@
 defmodule Aiur.GitHub.RequestLogTest do
-  @moduledoc """
-  The durable request log writes one TSV row per observed request, with a
-  closed-vocabulary route shape and a `billable` flag that the reconciliation
-  criterion sums over.
-
-  The lead test is the mutation-checked integration one: a real `Quota` is
-  started with an explicit log path, two requests are observed through the
-  public path, the `:delayed_write` buffer is flushed, and two rows must be on
-  disk. Delete the `log_request` call in `Quota` and it fails — the test does
-  not write the file itself.
-  """
-
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Quota, RequestLog, RouteShape}
+  alias Aiur.GitHub.{Budget, Quota, RequestLog}
 
   @now ~U[2026-08-09 21:00:00Z]
+  @reset ~U[2026-08-09 22:00:00Z]
 
-  describe "integration with Quota" do
-    test "observing requests writes one TSV row each through the public path" do
-      path = unique_log_path()
-
-      quota = start_quota(request_log_path: path)
-
-      Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 3750))
-      Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), response("graphql", 5000, 4400))
-
-      Quota.flush_request_log(quota)
-
-      lines = File.read!(path) |> String.split("\n", trim: true)
-      assert length(lines) == 2
-
-      [core_row, graphql_row] = lines
-      core_cells = String.split(core_row, "\t")
-      graphql_cells = String.split(graphql_row, "\t")
-
-      # timestamp identity pool route_shape caller disposition status billable points
-      assert length(core_cells) == 9
-      assert Enum.at(core_cells, 0) == Integer.to_string(DateTime.to_unix(@now))
-      assert Enum.at(core_cells, 2) == "core"
-      assert Enum.at(core_cells, 3) in RouteShape.known_shapes()
-      assert Enum.at(core_cells, 5) == "refused:unclassified"
-      assert Enum.at(core_cells, 6) == "200"
-      assert Enum.at(core_cells, 7) == "1"
-      assert Enum.at(core_cells, 8) == "1"
-
-      assert Enum.at(graphql_cells, 2) == "graphql"
-      assert Enum.at(graphql_cells, 3) == "graphql"
-    end
-  end
-
-  describe "billable" do
-    test "a 304 costs nothing and is not billable" do
-      path = unique_log_path()
-      quota = start_quota(request_log_path: path)
-
-      Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), not_modified("core", 3750))
-      Quota.flush_request_log(quota)
-
-      cells = File.read!(path) |> String.split("\n", trim: true) |> hd() |> String.split("\t")
-
-      # status 304 → billable 0, points 0
-      assert Enum.at(cells, 6) == "304"
-      assert Enum.at(cells, 7) == "0"
-      assert Enum.at(cells, 8) == "0"
-    end
-
-    test "a request that never got a response is not billable" do
-      path = unique_log_path()
-      quota = start_quota(request_log_path: path)
-
-      Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), {:error, :fetch_deadline_exceeded})
-      Quota.flush_request_log(quota)
-
-      cells = File.read!(path) |> String.split("\n", trim: true) |> hd() |> String.split("\t")
-
-      assert Enum.at(cells, 6) == ""
-      assert Enum.at(cells, 7) == "0"
-    end
-
-    test "a GraphQL response reports the points it billed" do
-      path = unique_log_path()
-      quota = start_quota(request_log_path: path)
-
-      Quota.observe(quota, graphql_request("query A { viewer { login } }", %{}), graphql_response(4400, 7))
-      Quota.flush_request_log(quota)
-
-      cells = File.read!(path) |> String.split("\n", trim: true) |> hd() |> String.split("\t")
-
-      assert Enum.at(cells, 2) == "graphql"
-      assert Enum.at(cells, 7) == "1"
-      assert Enum.at(cells, 8) == "7"
-    end
-  end
-
-  describe "route shape vocabulary" do
-    test "the route-shape column is always one of the known constants" do
-      path = unique_log_path()
-      quota = start_quota(request_log_path: path)
-
-      hostile = "https://api.github.com/repos/o/r/issues/1?access_token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-
-      Quota.observe(quota, request(:get, hostile), response("core", 5000, 3750))
-      Quota.flush_request_log(quota)
-
-      cells = File.read!(path) |> String.split("\n", trim: true) |> hd() |> String.split("\t")
-
-      shape = Enum.at(cells, 3)
-      assert shape in RouteShape.known_shapes()
-      refute String.contains?(shape, "ghp_")
-    end
-  end
-
-  describe "path resolution" do
-    test "the run default is under the session log directory, disabled in test env" do
-      assert RequestLog.default_path() == nil
-      assert RequestLog.file_name() == "github-requests.tsv"
-    end
-
-    test "append/4 writes a row to an explicit path" do
-      path = unique_log_path()
-      :ok = RequestLog.append(request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 3750), @now, path: path)
-
-      assert File.read!(path) |> String.split("\n", trim: true) |> length() == 1
-    end
-  end
-
-  defp start_quota(opts) do
-    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
-  end
-
-  defp unique_log_path do
-    path = Path.join(System.tmp_dir!(), "github-requests-#{System.unique_integer([:positive])}.tsv")
-    on_exit(fn -> File.rm(path) end)
+  defp tmp_path do
+    path = Path.join(System.tmp_dir!(), "aiur-request-log-#{System.unique_integer([:positive])}.tsv")
+    on_exit(fn -> File.rm_rf(path) end)
     path
   end
 
-  defp request(method, url_or_path) do
-    url =
-      if String.starts_with?(url_or_path, "http"), do: url_or_path, else: "https://api.github.com#{url_or_path}"
-
-    %{method: method, url: url, token: "secret"}
+  defp request(method, path) do
+    %{method: method, url: "https://api.github.com#{path}", token: "secret-token"}
   end
 
   defp graphql_request(query, variables) do
-    %{
-      method: :post,
-      url: "https://api.github.com/graphql",
-      token: "secret",
-      body: %{"query" => query, "variables" => variables}
-    }
+    %{method: :post, url: "https://api.github.com/graphql", token: "secret-token", body: %{"query" => query, "variables" => variables}}
   end
 
-  defp response(resource, limit, remaining, reset \\ DateTime.add(@now, 3600, :second)) do
+  defp response(resource, limit, remaining, reset \\ @reset) do
     {:ok,
      %{
        status: 200,
@@ -166,18 +34,155 @@ defmodule Aiur.GitHub.RequestLogTest do
      }}
   end
 
-  defp not_modified(resource, remaining) do
-    {:ok, response} = response(resource, 5000, remaining)
-    {:ok, %{response | status: 304}}
+  defp columns(line), do: String.split(line, "\t")
+
+  test "writes one row per request with the full record for a REST read" do
+    path = tmp_path()
+
+    :ok =
+      RequestLog.append(
+        request(:get, "/repos/owner/repo/issues/1670"),
+        response("core", 5000, 3750),
+        @now,
+        path: path
+      )
+
+    [line] = File.read!(path) |> String.split("\n", trim: true)
+    ts = Integer.to_string(DateTime.to_unix(@now))
+    pid = :os.getpid() |> List.to_integer() |> Integer.to_string()
+
+    assert [^ts, ^pid, "ticket:1670", caller, "get", "api.github.com", "/repos/owner/repo/issues/1670", "200", "core", "read", "1", "reported", token_key] = columns(line)
+
+    # The caller is the REST route shape (numeric segments collapsed). This is
+    # exactly the fix that closes the "REST requests billed unattributed" hole,
+    # so it is pinned precisely rather than as "non-empty".
+    assert caller == "rest:GET /repos/owner/repo/issues/:n"
+    assert token_key == Budget.token_key("secret-token")
+    refute line =~ "secret-token"
   end
 
-  defp graphql_response(remaining, cost) do
-    {:ok, response} = response("graphql", 5000, remaining)
+  test "records the path without its query string" do
+    path = tmp_path()
 
-    {:ok,
-     %{
-       response
-       | body: %{"data" => %{"rateLimit" => %{"cost" => cost, "remaining" => remaining, "limit" => 5000}}}
-     }}
+    :ok =
+      RequestLog.append(
+        request(:get, "/repos/owner/repo/issues/1670?access_token=SUPERSECRET&page=2"),
+        response("core", 5000, 3750),
+        @now,
+        path: path
+      )
+
+    [line] = File.read!(path) |> String.split("\n", trim: true)
+    ts = Integer.to_string(DateTime.to_unix(@now))
+    assert [^ts, _, _, _, "get", _, path_column, _, _, _, _, _, _] = columns(line)
+
+    # A token in the query string must never reach the log.
+    assert path_column == "/repos/owner/repo/issues/1670"
+    refute path_column =~ "access_token"
+    refute line =~ "SUPERSECRET"
+  end
+
+  test "GraphQL requests record the operation name as caller and the reported cost" do
+    path = tmp_path()
+    response = {:ok, %{status: 200, headers: [], body: %{"data" => %{"rateLimit" => %{"cost" => 26, "remaining" => 4973, "limit" => 5000}}}}}
+
+    :ok =
+      RequestLog.append(
+        graphql_request("query Catalog { repository { issues { nodes { id } } } }", %{"number" => 1790}),
+        response,
+        @now,
+        path: path
+      )
+
+    [line] = File.read!(path) |> String.split("\n", trim: true)
+    ts = Integer.to_string(DateTime.to_unix(@now))
+    assert [^ts, _, "ticket:1790", "graphql:Catalog", "post", "api.github.com", "/graphql", "200", "graphql", "read", "26", "reported", _] = columns(line)
+  end
+
+  test "a not-modified response is recorded at zero cost" do
+    path = tmp_path()
+
+    :ok =
+      RequestLog.append(
+        request(:get, "/repos/owner/repo/issues/1670"),
+        {:ok, %{status: 304, headers: [], body: %{}}},
+        @now,
+        path: path
+      )
+
+    [line] = File.read!(path) |> String.split("\n", trim: true)
+    ts = Integer.to_string(DateTime.to_unix(@now))
+    assert [^ts, _, "ticket:1670", _, "get", _, _, "304", "core", "read", "0", "reported", _] = columns(line)
+  end
+
+  test "a failed request is recorded with an error status and an assumed cost" do
+    path = tmp_path()
+
+    :ok =
+      RequestLog.append(
+        request(:get, "/repos/owner/repo/issues/1670"),
+        {:error, :fetch_deadline_exceeded},
+        @now,
+        path: path
+      )
+
+    [line] = File.read!(path) |> String.split("\n", trim: true)
+    ts = Integer.to_string(DateTime.to_unix(@now))
+    assert [^ts, _, "ticket:1670", _, "get", _, _, "error", "core", "read", "1", "assumed", _] = columns(line)
+  end
+
+  test "rotates the active file and keeps the previous generations for retention" do
+    path = tmp_path()
+    # One row far past the rotation cap so the next append rotates immediately.
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, String.duplicate("x", 1_048_577) <> "\n")
+
+    :ok = RequestLog.append(request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 3750), @now, path: path)
+
+    assert File.exists?(path)
+    assert File.exists?("#{path}.1")
+  end
+
+  test "is a no-op when no path can be resolved" do
+    assert :ok = RequestLog.append(request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 3750), @now, path: nil)
+  end
+
+  # The acceptance criterion's mutation check (#2255): a GitHub request issued
+  # through the real request path must ALWAYS produce a corresponding log row.
+  # This test never writes the file itself — the row can only appear if
+  # `Quota.handle_cast({:observe, ...})` calls `RequestLog.append`. Delete that
+  # call and this fails: a request with no log record.
+  test "a GitHub request observed by Quota always lands a request-log row" do
+    path = tmp_path()
+    quota = start_quota(request_log_path: path)
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 3750))
+    Quota.observe(quota, graphql_request("query Ticket { repository { issue(number: 1790) { id } } }", %{"number" => 1790}), graphql_response())
+    # The call settles the two casts above (they run before any later message).
+    _snapshot = Quota.snapshot(quota)
+    # The request log is written through a delayed-write io_device held by the
+    # Quota GenServer; flush it so the rows are on disk before we read them.
+    :ok = Quota.flush_request_log(quota)
+
+    rows = File.read!(path) |> String.split("\n", trim: true)
+    assert length(rows) == 2
+
+    ts = Integer.to_string(DateTime.to_unix(@now))
+
+    assert Enum.any?(rows, fn row ->
+             match?([^ts, _, "ticket:1670", _, "get", _, "/repos/owner/repo/issues/1670", "200", "core", "read", "1", "reported", _], columns(row))
+           end)
+
+    assert Enum.any?(rows, fn row ->
+             match?([^ts, _, "ticket:1790", "graphql:Ticket", "post", _, "/graphql", "200", "graphql", "read", "1", "reported", _], columns(row))
+           end)
+  end
+
+  defp graphql_response do
+    {:ok, %{status: 200, headers: [], body: %{"data" => %{"rateLimit" => %{"cost" => 1, "remaining" => 4973, "limit" => 5000}}}}}
+  end
+
+  defp start_quota(opts) do
+    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
   end
 end

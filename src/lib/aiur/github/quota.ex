@@ -138,12 +138,10 @@ defmodule Aiur.GitHub.Quota do
     :exit, _reason -> :available
   end
 
-  @doc """
-  Flushes the durable request log's `:delayed_write` buffer to disk.
-
-  Exposed for the request-log mutation test, which observes through the public
-  path and then reads its own write deterministically.
-  """
+  @doc false
+  # Forces the durable request log's delayed-write buffer to disk, so a caller
+  # that observed through the public path can read its own rows
+  # deterministically (the request-log mutation test relies on this).
   @spec flush_request_log(GenServer.server()) :: :ok
   def flush_request_log(server \\ __MODULE__) do
     GenServer.call(server, :flush_request_log)
@@ -155,10 +153,16 @@ defmodule Aiur.GitHub.Quota do
   def init(opts) do
     refresh? = Keyword.get(opts, :refresh?, Application.get_env(:aiur, :github_quota_refresh?, true))
 
-    # Resolved once at boot: every observe appends to the same durable file
-    # through a `:delayed_write` io_device, so the message loop that gates the
-    # fleet's GitHub access never pays an open/close/stat per request.
-    request_log_path = Keyword.get_lazy(opts, :request_log_path, &RequestLog.default_path/0)
+    # Resolved once at boot: every observe appends to the same durable file,
+    # and re-resolving `GitHub.Config.repo()` per request would add a config
+    # read to the hot path. An explicit `nil` disables the log (tests); an
+    # absent value resolves the configured default.
+    request_log_path =
+      case Keyword.fetch(opts, :request_log_path) do
+        {:ok, nil} -> nil
+        {:ok, path} -> path
+        :error -> RequestLog.default_path()
+      end
 
     state = %{
       windows: %{},
@@ -181,17 +185,22 @@ defmodule Aiur.GitHub.Quota do
       emit_fun: Keyword.get(opts, :emit_fun, &Alerts.emit_system/2),
       shell_log_path: Keyword.get_lazy(opts, :shell_log_path, &default_shell_log_path/0),
       hold_dir: Keyword.get_lazy(opts, :hold_dir, &default_hold_dir/0),
+      request_log_path: request_log_path,
+      # The durable request log's io_device, opened once here in
+      # `:delayed_write` and closed on terminate (#2255). Holding it keeps an
+      # observe from paying an open/close/stat on this GenServer's message
+      # loop, which gates every agent's GitHub access.
+      request_log_io: RequestLog.open_writer(request_log_path),
+      # Bytes written to the current file, tracked so rotation happens at the
+      # cap without a `stat` per request.
+      request_log_bytes: 0,
       refresh_fun: Keyword.get(opts, :refresh_fun, &refresh_from_github/0),
       recovery_fun: Keyword.get(opts, :recovery_fun, &notify_orchestrator_recovery/0),
       observed_dispatch_hold?: false,
       recovery_timer_ref: nil,
       recovery_timer_token: nil,
       refresh_interval_ms: Keyword.get(opts, :refresh_interval_ms, @refresh_interval_ms),
-      refresh_ref: nil,
-      # The durable request log's io_device, opened once here in `:delayed_write`
-      # so an observe never pays an open/close/stat on the fleet-gating loop.
-      # `nil` disables the log (test env, or a boot that could not open it).
-      request_log_io: RequestLog.open_writer(request_log_path)
+      refresh_ref: nil
     }
 
     if refresh?, do: Process.send_after(self(), :refresh, 0)
@@ -203,13 +212,20 @@ defmodule Aiur.GitHub.Quota do
     now = state.clock.()
     held_before? = state.observed_dispatch_hold?
 
+    # Durable per-request record (#2255). Every request routed through this
+    # chokepoint lands one row in `daemon-requests.tsv` — timestamp, pid,
+    # caller, method, path/operation, status, cost, credential fingerprint —
+    # so a budget question is answerable from logs alone after the window has
+    # closed. It runs for every observe (including `/rate_limit` probes) and
+    # is deliberately independent of the in-memory attribution below: the log
+    # is the evidence, the attribution is the ranking.
     state =
       state
+      |> log_request(request, result, now)
       |> prune_backoffs(now)
       |> observe_response(request, result, now)
       |> observe_rejection(request, result, now)
       |> attribute_request(request, result, now)
-      |> log_request(request, result, now)
       |> maybe_alert()
 
     status = dispatch_status(state, now)
@@ -269,14 +285,13 @@ defmodule Aiur.GitHub.Quota do
   end
 
   def handle_call(:flush_request_log, _from, state) do
-    RequestLog.sync(state.request_log_io)
-    {:reply, :ok, state}
-  end
+    reply =
+      case state.request_log_io do
+        nil -> :ok
+        io -> RequestLog.sync(io)
+      end
 
-  @impl true
-  def terminate(_reason, state) do
-    RequestLog.close(state.request_log_io)
-    :ok
+    {:reply, reply, state}
   end
 
   @impl true
@@ -306,6 +321,14 @@ defmodule Aiur.GitHub.Quota do
   end
 
   def handle_info({:dispatch_recovery, _stale_token}, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    # Flush and close the request log's delayed-write io_device so the last
+    # buffered rows are not lost on shutdown.
+    if state.request_log_io, do: :file.close(state.request_log_io)
+    :ok
+  end
 
   defp observe_response(state, _request, {:ok, %{body: %{"resources" => resources}}}, now) when is_map(resources) do
     Enum.reduce(@primary_resources, state, fn resource, acc ->
@@ -603,31 +626,6 @@ defmodule Aiur.GitHub.Quota do
   defp attribution_response({:ok, response}) when is_map(response), do: {Map.get(response, :status), response}
   defp attribution_response(_result), do: {nil, %{}}
 
-  # Durable per-request record. Best-effort and fail-open: a write failure must
-  # never refuse or distort a GitHub request, so the io_device is closed and the
-  # log disabled rather than retried on every request. `/rate_limit` probes are
-  # exempt (they cost no quota), matching `attribute_request/4`.
-  defp log_request(%{request_log_io: nil} = state, _request, _result, _now), do: state
-
-  defp log_request(state, request, result, now) do
-    if rate_limit_endpoint?(request) do
-      state
-    else
-      case RequestLog.append_io(state.request_log_io, request, result, now) do
-        :ok ->
-          state
-
-        {:error, _reason} ->
-          RequestLog.close(state.request_log_io)
-          %{state | request_log_io: nil}
-      end
-    end
-  rescue
-    _unavailable ->
-      RequestLog.close(state.request_log_io)
-      %{state | request_log_io: nil}
-  end
-
   # What the call actually cost the budget it was billed to.
   #
   # A `304` is served from GitHub's cache and is not billed at all, so counting
@@ -647,6 +645,42 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp request_cost(_resource, _status, _response), do: {1, :reported}
+
+  # Durable per-request record. Written through the io_device held in state,
+  # so an observe never pays an open/close/stat on this message loop. Rotation
+  # is driven by the byte count tracked here; a failed write (disk full, io
+  # error) drops the device and later observes skip the log rather than retry
+  # a dead device or take this GenServer down.
+  defp log_request(state, request, result, now) do
+    case state.request_log_io do
+      nil ->
+        state
+
+      io ->
+        case RequestLog.append_io(io, request, result, now) do
+          {:ok, bytes} -> account_request_log_bytes(state, bytes)
+          {:error, _reason} -> %{state | request_log_io: nil, request_log_bytes: 0}
+        end
+    end
+  end
+
+  # Tracks bytes written to the current file and rotates at the cap without a
+  # `stat` per request.
+  defp account_request_log_bytes(state, bytes) do
+    total = state.request_log_bytes + bytes
+
+    if total > RequestLog.max_bytes() do
+      rotate_request_log(state)
+    else
+      %{state | request_log_bytes: total}
+    end
+  end
+
+  defp rotate_request_log(state) do
+    if state.request_log_io, do: :file.close(state.request_log_io)
+    RequestLog.rotate(state.request_log_path)
+    %{state | request_log_io: RequestLog.open_writer(state.request_log_path), request_log_bytes: 0}
+  end
 
   defp prune_observations(state, now) do
     cutoff = DateTime.add(now, -@attribution_window_seconds, :second)
@@ -985,9 +1019,14 @@ defmodule Aiur.GitHub.Quota do
 
   # The resource column was added with cost-weighted attribution; rows written
   # before it are still valid and are read as core (see `observation_resource/1`).
-  # An agent shell cannot see what a GraphQL query cost, so its rows carry one
-  # point and are marked estimated rather than silently counted as exact.
-  defp parse_shell_observation(line) do
+  # The credential fingerprint and wrapper pid columns came with #2255 so the
+  # agent record answers "which pool" and names the exact subprocess; rows
+  # written before them simply have no value in those columns. An agent shell
+  # cannot see what a GraphQL query cost, so its rows carry one point and are
+  # marked estimated rather than silently counted as exact.
+  @doc false
+  @spec parse_shell_observation(String.t()) :: map() | nil
+  def parse_shell_observation(line) do
     with [unix, consumer, direction | rest] <- line |> String.trim() |> String.split("\t"),
          {unix, ""} <- Integer.parse(unix),
          {:ok, observed_at} <- DateTime.from_unix(unix),
@@ -1008,6 +1047,8 @@ defmodule Aiur.GitHub.Quota do
         resource: resource,
         cost: 1,
         cost_source: if(resource == "graphql", do: :assumed, else: :reported),
+        token_key: shell_column(rest, 1),
+        pid: shell_pid(rest),
         observed_at: observed_at
       }
     else
@@ -1017,6 +1058,25 @@ defmodule Aiur.GitHub.Quota do
 
   defp shell_resource([resource | _rest]) when resource in @primary_resources, do: resource
   defp shell_resource(_columns), do: "core"
+
+  defp shell_column(columns, index), do: Enum.at(columns, index) |> shell_blank()
+
+  defp shell_pid(columns) do
+    case Enum.at(columns, 2) do
+      pid when is_binary(pid) ->
+        case Integer.parse(pid) do
+          {value, ""} when value > 0 -> value
+          _invalid -> nil
+        end
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp shell_blank(nil), do: nil
+  defp shell_blank(""), do: nil
+  defp shell_blank(value), do: value
 
   # `Path.wildcard/1` does not expand a leading `~`, so a configured workspace
   # root written in tilde form matched nothing and every agent-shell call went
