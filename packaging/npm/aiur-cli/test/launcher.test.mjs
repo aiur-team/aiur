@@ -308,6 +308,12 @@ function setupBackgroundLauncher() {
   );
   chmodSync(binAiur, 0o755);
 
+  const fakeErtsBin = path.join(releaseDir, "erts-test", "bin");
+  mkdirSync(fakeErtsBin, { recursive: true });
+  const fakeEpmd = path.join(fakeErtsBin, "epmd");
+  writeFileSync(fakeEpmd, "#!/usr/bin/env bash\necho 'epmd: up and running on port 4369 with data:'\n");
+  chmodSync(fakeEpmd, 0o755);
+
   const fakeBin = mkdtempSync(path.join(root, "fakebin-"));
   const fakePgrep = path.join(fakeBin, "pgrep");
   writeFileSync(
@@ -466,6 +472,7 @@ test("background start is idempotent when the existing tmux session has a live c
 
   expect(result.status).toBe(0);
   expect(result.stderr).toContain("already running in the background");
+  expect(result.stderr).toContain("Attach with: aiur");
   expect(result.stderr).toContain("aiur status");
   expect(result.stderr).toContain("aiur stop");
 

@@ -5,13 +5,78 @@ defmodule AiurWeb.StreamdeckChannelTest do
   import Plug.Conn, only: [put_req_header: 3]
   import Plug.Test
 
-  alias Aiur.{AgentEvents, IssueLog}
+  alias Aiur.{AgentEvents, DecisionValidation, IssueLog}
   alias Aiur.AgentPubSub
+  alias Aiur.DecisionQuery.Cursor
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckChannel, StreamdeckProjection, StreamdeckSocket}
   alias Phoenix.Socket.Message
   alias Phoenix.Socket.V2.JSONSerializer
+
+  # A decision store that returns one fixed Command regardless of the query, and
+  # reports every `answer` call with its opts so the channel test can assert the
+  # actor the wire recorded. The Decision struct is built through the real
+  # validation path so `StreamdeckCommands.item/1` projects it as production
+  # would.
+  defmodule FakeDecisionStore do
+    use GenServer
+
+    def start_link(decision, report), do: GenServer.start_link(__MODULE__, {decision, report})
+
+    @impl true
+    def init({decision, report}), do: {:ok, %{decision: decision, report: report}}
+
+    @impl true
+    def handle_call({:retained_query, _query}, _from, %{decision: decision} = state) do
+      send(state.report, {:fake_decision_query, :hit})
+
+      {:reply,
+       {:ok,
+        %{
+          decisions: [decision],
+          has_next?: false,
+          next_key: nil,
+          total: 1,
+          partial?: false,
+          partial_reason: nil,
+          counts: %{open: 1, blocking: 1, total: 1},
+          health: :writable
+        }}, state}
+    end
+
+    def handle_call({:retained_lookup, decision_id}, _from, %{decision: decision} = state) do
+      found = if decision_id == decision.decision_id, do: decision
+      send(state.report, {:fake_decision_lookup, decision_id})
+      {:reply, {:ok, %{decision: found, health: :writable}}, state}
+    end
+
+    def handle_call({:answer, decision_id, payload, opts}, _from, %{decision: decision} = state) do
+      send(state.report, {:fake_decision_answer, decision_id, payload, opts})
+      {:reply, {:ok, %{status: :accepted, decision: decision}}, state}
+    end
+
+    def handle_call(_request, _from, state), do: {:reply, {:error, :store_unavailable}, state}
+  end
+
+  defp command_decision(ticket_identifier) do
+    payload = %{
+      "source_id" => "streamdeck-command",
+      "question" => "Ship the change?",
+      "blocking" => true,
+      "authority" => "human_required",
+      "reversibility" => "reversible",
+      "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
+    }
+
+    {:ok, decision} =
+      DecisionValidation.normalize(payload,
+        ticket: %{identifier: ticket_identifier},
+        source: %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-1"}
+      )
+
+    decision
+  end
 
   @endpoint Endpoint
 
@@ -66,6 +131,25 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert {:ok, token} = StreamdeckAuth.issue_token()
     assert {:ok, authenticated} = StreamdeckSocket.connect(%{"token" => token}, socket(StreamdeckSocket, "trusted", %{}), %{})
     assert {:ok, _reply, _socket} = subscribe_and_join(authenticated, "streamdeck:fleet")
+  end
+
+  # The join guard is the defence-in-depth boundary on a channel that writes
+  # decisions, so it must reject an explicitly-false authentication assign —
+  # not only the absent-assign socket the connect flow normally produces. The
+  # first `join/3` clause pattern-matches `streamdeck_authenticated: true`; a
+  # false assign falls through to the unauthorized clause.
+  test "a socket with an explicitly false authentication assign cannot join" do
+    false_assign =
+      %{socket(StreamdeckSocket, "untrusted", %{}) | assigns: %{streamdeck_authenticated: false}}
+
+    assert {:error, %{reason: "unauthorized"}} = join(false_assign, "streamdeck:fleet")
+
+    forged_assign = %{
+      socket(StreamdeckSocket, "untrusted", %{})
+      | assigns: %{streamdeck_authenticated: false, streamdeck_expires_at_ms: 0, streamdeck_generation: 1}
+    }
+
+    assert {:error, %{reason: "unauthorized"}} = join(forged_assign, "streamdeck:fleet")
   end
 
   test "socket tokens are invalidated when dashboard credentials change" do
@@ -439,6 +523,259 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     send(socket.channel_pid, :decision_metrics_changed)
     assert_push("decisions", %{"count" => 2})
+  end
+
+  describe "Commands" do
+    # The channel reads `Endpoint.config(:decision_store)` per call, so each
+    # test points it at a fresh fake store. The restore in `on_exit` uses
+    # `Application.put_env` — never `Endpoint.config_change`, whose ETS table is
+    # torn down before `on_exit` runs. The next test's setup re-applies the full
+    # endpoint config, which drops the stale `decision_store` entry.
+    setup do
+      decision = command_decision("AIUR-1")
+      {:ok, store} = FakeDecisionStore.start_link(decision, self())
+      previous_config = Application.get_env(:aiur, Endpoint)
+      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+
+      on_exit(fn ->
+        Application.put_env(:aiur, Endpoint, previous_config)
+        Aiur.TestSupport.safe_stop(store)
+      end)
+
+      %{decision: decision}
+    end
+
+    test "focus pushes the focused agent's Commands page", %{decision: decision} do
+      store = Endpoint.config(:decision_store)
+      assert is_pid(store) and Process.alive?(store)
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+
+      assert_push("commands", payload)
+      assert_receive {:fake_decision_query, :hit}
+      assert payload["identifier"] == "AIUR-1"
+      assert [item] = payload["items"]
+      assert item["decision_id"] == decision.decision_id
+      assert item["question"] == "Ship the change?"
+      assert item["status"] == "open"
+      assert item["answer"] == nil
+      # The option projection is the device's allowlist.
+      assert item["options"] == [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
+    end
+
+    test "commands_page replies with the next page" do
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+
+      # The cursor is the opaque encoding the store hands back on the previous
+      # page; a client passes it through untouched.
+      cursor =
+        Cursor.encode(%{
+          created_at: ~U[2026-07-12 10:00:00Z],
+          decision_id: command_decision("AIUR-1").decision_id
+        })
+
+      assert_reply(push(socket, "commands_page", %{"cursor" => cursor}), :ok, %{"identifier" => "AIUR-1"} = page)
+      assert [item] = page["items"]
+      assert item["decision_id"] == command_decision("AIUR-1").decision_id
+    end
+
+    test "answer_command records an operator-attributed answer" do
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => command_decision("AIUR-1").decision_id,
+          "version" => 1,
+          "idempotency_key" => "sd-key-1",
+          "option_id" => "ship"
+        }),
+        :ok,
+        %{"status" => "accepted"}
+      )
+
+      # The durable record's actor is the operator on the deck, never the
+      # Executor — the load-bearing attribution decision of this feature.
+      assert_receive {:fake_decision_answer, _decision_id, payload, opts}
+      assert payload["option_id"] == "ship"
+      assert Keyword.get(opts, :actor) == %{kind: :operator, id: "streamdeck"}
+    end
+
+    test "answer_command sends a spoken custom response instead of an option" do
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => command_decision("AIUR-1").decision_id,
+          "version" => 1,
+          "idempotency_key" => "sd-key-2",
+          "custom_response" => "Hold everything — verify first."
+        }),
+        :ok,
+        %{"status" => "accepted"}
+      )
+
+      assert_receive {:fake_decision_answer, _decision_id, payload, _opts}
+      assert payload["custom_response"] == "Hold everything — verify first."
+      refute Map.has_key?(payload, "option_id")
+    end
+
+    test "answer_command refuses a Command that is not the focused agent's" do
+      decision = command_decision("AIUR-999")
+      {:ok, other_store} = FakeDecisionStore.start_link(decision, self())
+      previous_config = Application.get_env(:aiur, Endpoint)
+      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, other_store)}, [])
+
+      on_exit(fn ->
+        Application.put_env(:aiur, Endpoint, previous_config)
+        Aiur.TestSupport.safe_stop(other_store)
+      end)
+
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => decision.decision_id,
+          "version" => 1,
+          "idempotency_key" => "sd-key-3",
+          "option_id" => "ship"
+        }),
+        :error,
+        %{reason: "command_not_focused"}
+      )
+    end
+
+    test "answer_command rejects a malformed payload outright" do
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+
+      # Neither an option nor a custom response.
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => command_decision("AIUR-1").decision_id,
+          "version" => 1,
+          "idempotency_key" => "sd-key-4"
+        }),
+        :error,
+        %{reason: "invalid_answer"}
+      )
+
+      # A blank custom response is not an answer.
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => command_decision("AIUR-1").decision_id,
+          "version" => 1,
+          "idempotency_key" => "sd-key-5",
+          "custom_response" => "   "
+        }),
+        :error,
+        %{reason: "empty_custom_response"}
+      )
+    end
+
+    test "answer_command refuses a dismissed Command as not answerable" do
+      # Dismissal is terminal on the device surface too — the TS client renders
+      # a dismissed Command read-only, so the server must refuse the answer at
+      # the same boundary. Only open and deferred are answerable (allowlisted),
+      # so a newly-added status can never silently become answerable.
+      dismissed = %{command_decision("AIUR-1") | decision_status: :dismissed}
+      {:ok, dismissed_store} = FakeDecisionStore.start_link(dismissed, self())
+      previous_config = Application.get_env(:aiur, Endpoint)
+      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, dismissed_store)}, [])
+
+      on_exit(fn ->
+        Application.put_env(:aiur, Endpoint, previous_config)
+        Aiur.TestSupport.safe_stop(dismissed_store)
+      end)
+
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => dismissed.decision_id,
+          "version" => 1,
+          "idempotency_key" => "sd-key-dismissed",
+          "option_id" => "ship"
+        }),
+        :error,
+        %{reason: reason}
+      )
+
+      assert reason =~ "not_answerable"
+    end
+
+    test "answer_command records an operator answer durably through a real store" do
+      # The other answer_command tests drive a fake store to assert the wire
+      # call; this one goes end to end through a real `DecisionStore` so the
+      # durable actor the channel records is asserted exactly as the dashboard
+      # would read it back.
+      dir = Path.join(System.tmp_dir!(), "aiur-streamdeck-channel-#{System.unique_integer([:positive])}")
+
+      {:ok, store} =
+        Aiur.DecisionStore.start_link(
+          name: nil,
+          state_dir: dir,
+          filesystem_sync_fun: fn -> :ok end
+        )
+
+      previous_config = Application.get_env(:aiur, Endpoint)
+      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+
+      on_exit(fn ->
+        Application.put_env(:aiur, Endpoint, previous_config)
+        Aiur.TestSupport.safe_stop(store)
+        File.rm_rf!(dir)
+      end)
+
+      payload = %{
+        "source_id" => "streamdeck-e2e",
+        "question" => "Ship the e2e change?",
+        "blocking" => true,
+        "authority" => "human_required",
+        "reversibility" => "reversible",
+        "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
+      }
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 payload,
+                 [
+                   ticket: %{identifier: "984", title: "Stream Deck Commands", url: "https://github.com/its-everdred/aiur/issues/984"},
+                   source: %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-e2e"},
+                   now: ~U[2026-07-12 10:00:00Z]
+                 ],
+                 store
+               )
+
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
+      assert_push("commands", _payload)
+
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => decision.decision_id,
+          "version" => decision.version,
+          "idempotency_key" => "sd-e2e-1",
+          "option_id" => "ship"
+        }),
+        :ok,
+        %{"status" => "accepted"}
+      )
+
+      assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
+      assert current.answer.actor == %{kind: :operator, id: "streamdeck"}
+      assert current.answer.selected_option_id == "ship"
+    end
   end
 
   test "external projections convert source values to JSON-safe payloads" do
