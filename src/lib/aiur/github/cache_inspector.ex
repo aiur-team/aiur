@@ -67,8 +67,10 @@ defmodule Aiur.GitHub.CacheInspector do
   # bucket an unrecognised source lands in. `:other` is offered as a filter and
   # not only as a count: it is the bucket a writer nobody has taught this page
   # about shows up in, so being unable to click it is being unable to see the
-  # entries most worth looking at.
-  @writers [:mutation, :webhook, :fetch, :poll, :other]
+  # entries most worth looking at. `:agent` is the source `Issues` records when
+  # it serves a body an agent's `gh api` read already fetched (the #2413 read
+  # direction into the agent store).
+  @writers [:mutation, :webhook, :fetch, :poll, :agent, :other]
   @freshness [:fresh, :stale, :expired, :unknown]
 
   @doc "The canonical writer buckets, in the order the page offers them."

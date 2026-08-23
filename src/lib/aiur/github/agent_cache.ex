@@ -35,6 +35,39 @@ defmodule Aiur.GitHub.AgentCache do
   This is the free half of the plan working end to end: a delivery that cost
   nothing stops sixteen agents from paying to discover the same change.
 
+  ## The daemon also reads here — one direction of a two-store sync (#2413)
+
+  The ownership answer to "three stores with no relationship is not a design"
+  is: **two stores with a documented sync**, joined by identity, and the join is
+  this module. `ResourceStore` is one half (API bodies the daemon reads), the
+  wrapper's replay store is the other (`gh` stdout the agents read), and they
+  deliberately do not share bytes — the replay-vs-read reason above is exactly
+  why. Invalidation has always flowed out of `ResourceStore` into the wrapper
+  (`AgentCacheBridge`). Since #2413 the **read** direction exists too:
+  `read_body/2` serves a number-addressed resource the daemon would otherwise
+  fetch from an entry an agent's raw `gh api` read already stored.
+
+  Reading is safe precisely because most of the store is not readable. The
+  wrapper files `gh api repos/o/r/issues/N` under `<repo>/issue/<N>/` and its
+  stdout is the REST issue body; it files `gh issue view N --json …` under the
+  same directory and that stdout is a projection. `read_body/2` cannot tell
+  which shape a file is by name, so it **validates**: a body is served only if
+  it parses as JSON and carries the resource's own `number` and API `url` — the
+  two fields a projection never has. Every other doubt (a torn entry, an
+  unreadable meta, a non-issue shape, an invalidated entry, a future stamp) is
+  a `:miss`, and the caller fetches exactly as it would without the store. A
+  failed read costs throughput, never correctness — the same fail-open this
+  module's writes use.
+
+  Freshness is a stated backstop, not a delivery guess. The daemon cannot know
+  the wrapper's configured TTL, and trusting delivery-driven retirement here
+  without #2331's gap-recovery path is the risk the issue calls worse than a
+  timer. So `read_body/2` accepts an entry only within `@agent_read_backstop_ms`
+  (or the caller's own tolerance, whichever is tighter) and only when no
+  covering invalidation marker is newer than the entry's fetch stamp — the same
+  marker test the wrapper applies. Once #2331 lands, this backstop is the value
+  to lengthen, not a number to forget about.
+
   ## Numbers are shared between issues and pull requests
 
   GitHub numbers issues and pull requests from one sequence, and `gh issue
@@ -55,6 +88,34 @@ defmodule Aiur.GitHub.AgentCache do
   alias Aiur.GitHub.{Budget, ResourceStore}
 
   @relative_root "state-cache/v1"
+
+  # The backstop an agent-cache entry may be served to the daemon at, in
+  # milliseconds, measured from the entry's own fetch stamp.
+  #
+  # Justification, stated rather than assumed: the wrapper's default freshness
+  # window is 60 seconds and every delivery/mutation that touches the resource
+  # retires the entry through this module, so an entry younger than this that
+  # has not been invalidated is an agent's own recent, un-retired read of the
+  # resource. That is exactly "within the window it remains valid" — the window
+  # the agent store itself honours. It is deliberately NOT longer: delivery
+  # retirement without #2331's gap recovery is not yet safe to lean on, so a
+  # real timer is the ceiling until that lands (see the moduledoc).
+  @agent_read_backstop_ms 60_000
+
+  # The resource types `read_body/2` will serve. Number-addressed only, and only
+  # where a body's shape is unambiguous: `:issue` and `:pull_request` bodies
+  # carry their own `number`/`url`, which is what validation keys on.
+  # `:issue_labels` and `:branch_pull_request` are also number-addressed and also
+  # file under the wrapper's `issue`/`pr` directories, but their readers expect
+  # a different projection than the raw resource, so serving the raw body to
+  # them would be a semantic mismatch — they stay `:miss`.
+  @readable_types [:issue, :pull_request]
+
+  # The daemon-side "reads served from the agent store" counter table. A named
+  # table so it survives across readers and does not need a process;
+  # `record_served_read/0` is called from poll tasks that must never block on a
+  # mailbox.
+  @reads_table :aiur_agent_cache_daemon_reads_served
 
   @doc """
   The store root the `gh` wrapper reads, or `nil` when the budget state
@@ -182,6 +243,117 @@ defmodule Aiur.GitHub.AgentCache do
 
   def invalidate_key(_key, _opts), do: :ok
 
+  @doc """
+  Serves a number-addressed resource from the agents' `gh` replay store, or
+  `:miss` when no usable entry is held.
+
+  This is the daemon's read half of the two-store sync (see the moduledoc). It
+  resolves the wrapper's directory for `key` — the same join the invalidation
+  writers use — and accepts the freshest entry that:
+
+    * parses as JSON;
+    * validates as the full REST resource for the key (`number` and API `url`
+      match — the fields a `gh --json` projection never carries);
+    * is younger than the caller's `freshness_ms` tolerance (or
+      `@agent_read_backstop_ms` when none is given), was not stamped in the
+      future, and is not retired by any covering `.invalidated` marker.
+
+  Every doubt returns `:miss`. A `:miss` costs the caller the fetch it would
+  have made anyway; it never raises and never serves a shape that might not be
+  the resource the key names. The caller is expected to count each `{:ok, body}`
+  with `record_served_read/0` — that count is the measured reduction in
+  duplicate URL fetches this bridge exists to produce.
+
+  `state_dir` is a test seam, matching the rest of this module.
+  """
+  @spec read_body(ResourceStore.key() | nil, keyword()) :: {:ok, term()} | :miss
+  def read_body({type, _owner, _repo, _id} = key, opts) when type in @readable_types do
+    case resource_dir(key, opts) do
+      dir when is_binary(dir) -> first_valid_body(dir, key, opts)
+      nil -> :miss
+    end
+  end
+
+  def read_body(_key, _opts), do: :miss
+
+  @doc """
+  Records one daemon read served from the agent store.
+
+  Called exactly once per `read_body/2` `{:ok, body}` that a daemon reader
+  actually serves. The total is the "measured reduction" the acceptance asks for:
+  every count is a duplicate URL fetch that did not happen.
+  """
+  @spec record_served_read() :: :ok
+  def record_served_read do
+    :ets.update_counter(reads_table(), :served, 1, {:served, 0})
+    :ok
+  end
+
+  @doc "How many daemon reads have been served from the agent store so far."
+  @spec daemon_served_reads() :: non_neg_integer()
+  def daemon_served_reads do
+    case :ets.whereis(@reads_table) do
+      :undefined -> 0
+      table -> :ets.lookup_element(table, :served, 2, 0)
+    end
+  end
+
+  @doc false
+  @spec reset_daemon_served_reads() :: :ok
+  def reset_daemon_served_reads do
+    case :ets.whereis(@reads_table) do
+      :undefined -> :ok
+      table -> :ets.delete_all_objects(table)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Makes sure the daemon-served-reads counter table exists.
+
+  Called by `AgentCacheBridge`'s `init/1` so the table is owned by a long-lived
+  supervised process rather than by whichever poll task happens to be the first
+  caller — a table owned by a transient task would die with it, and the
+  "measured reduction" this counter exists to report would reset with every
+  poll. Idempotent: a second caller finds the existing table and leaves it
+  alone. Counts are since the owning process started, exactly like
+  `Aiur.GitHub.ReadCache.Metrics`, so a bridge restart resets the figure — a
+  fresh boot, honestly labelled.
+  """
+  @spec ensure_daemon_reads_table() :: :ok
+  def ensure_daemon_reads_table do
+    case :ets.whereis(@reads_table) do
+      :undefined ->
+        try do
+          :ets.new(@reads_table, [:named_table, :public, :set, write_concurrency: true])
+        rescue
+          ArgumentError -> :ok
+        end
+
+      _existing ->
+        :ok
+    end
+
+    :ok
+  end
+
+  # The table's stable owner is `AgentCacheBridge` (see
+  # `ensure_daemon_reads_table/0`). This accessor still creates it on demand so
+  # a test harness that does not boot the bridge, or a caller that races boot,
+  # fails open instead of raising — `record_served_read/0` must never block or
+  # crash a poll task.
+  defp reads_table do
+    case :ets.whereis(@reads_table) do
+      :undefined ->
+        ensure_daemon_reads_table()
+        :ets.whereis(@reads_table)
+
+      table ->
+        table
+    end
+  end
+
   # The wrapper's two resource directories, and the store identities that resolve
   # to them. Everything else has no agent-side directory, and is deliberately not
   # invented one here: a name the wrapper does not write is a mark nothing will
@@ -250,6 +422,161 @@ defmodule Aiur.GitHub.AgentCache do
         _ = File.rm(temporary)
         Logger.debug("agent gh cache invalidation skipped path=#{path} reason=#{inspect(reason)}")
         :ok
+    end
+  end
+
+  # -- daemon read of the agent store (#2413) --------------------------------
+
+  # The freshest usable shape wins. The wrapper hashes every argument into the
+  # filename, so one resource's directory can hold several shapes — a raw `gh
+  # api` read, a `--jq` projection, an old paginated page. The daemon cannot
+  # know which is which by name, so it sorts by fetch stamp (freshest first,
+  # unreadable stamps last) and takes the first that validates.
+  defp first_valid_body(dir, key, opts) do
+    dir
+    |> Path.join("*.body")
+    |> Path.wildcard()
+    |> Enum.sort_by(&shape_fetched_at/1, &>=/2)
+    |> Enum.reduce_while(:miss, fn body_path, _acc ->
+      case servable_shape(body_path, dir, key, opts) do
+        {:ok, body} -> {:halt, {:ok, body}}
+        :skip -> {:cont, :miss}
+      end
+    end)
+  end
+
+  defp servable_shape(body_path, entry_dir, {type, owner, repo, id}, opts) do
+    meta_path = String.replace_suffix(body_path, ".body", ".meta")
+
+    with {:ok, fetched_at_s} <- read_fetched_at(meta_path),
+         true <- fresh?(fetched_at_s, opts),
+         false <- retired?(fetched_at_s, entry_dir, opts),
+         {:ok, bytes} <- read_body_bytes(body_path),
+         {:ok, decoded} <- Jason.decode(bytes),
+         true <- valid_shape?(type, owner, repo, id, decoded) do
+      {:ok, decoded}
+    else
+      _doubt -> :skip
+    end
+  end
+
+  # Line 1 of the meta is the entry's fetched-at stamp (epoch seconds); line 2,
+  # when present, is the response ETag the wrapper stored for a later conditional
+  # re-read. Only line 1 decides whether this entry may be served.
+  defp read_fetched_at(meta_path) do
+    case File.read(meta_path) do
+      {:ok, contents} ->
+        case contents |> String.split("\n") |> hd() |> String.trim() do
+          line when line != "" ->
+            case Integer.parse(line) do
+              {stamp, ""} when stamp >= 0 -> {:ok, stamp}
+              _unparseable -> :error
+            end
+
+          _empty ->
+            :error
+        end
+
+      _unreadable ->
+        :error
+    end
+  end
+
+  defp fresh?(fetched_at_s, opts) do
+    now = System.system_time(:second)
+    age_ms = (now - fetched_at_s) * 1000
+
+    fetched_at_s <= now and age_ms <= read_window_ms(opts)
+  end
+
+  # The caller's own tolerance wins when it is stated and tighter; the backstop
+  # is the ceiling either way. A nil or non-positive caller tolerance (a caller
+  # that said nothing) falls back to the backstop alone.
+  defp read_window_ms(opts) do
+    case Keyword.get(opts, :freshness_ms) do
+      ms when is_integer(ms) and ms > 0 -> min(ms, @agent_read_backstop_ms)
+      _unsaid -> @agent_read_backstop_ms
+    end
+  end
+
+  # The same marker test the wrapper applies in `cache_lookup`, against the same
+  # files it reads: a marker newer than the entry's fetch stamp retires it. The
+  # root marker covers every repo, the repo marker covers every entry in it, and
+  # the entry marker covers this resource's own shapes.
+  defp retired?(fetched_at_s, entry_dir, opts) do
+    root = root(opts)
+    repo_dir = entry_dir |> Path.dirname() |> Path.dirname()
+
+    [
+      Path.join(root, ".invalidated"),
+      Path.join(repo_dir, ".invalidated"),
+      Path.join(entry_dir, ".invalidated")
+    ]
+    |> Enum.any?(fn path -> marker_at(path) >= fetched_at_s end)
+  end
+
+  defp marker_at(path) do
+    case File.read(path) do
+      {:ok, contents} ->
+        case Integer.parse(String.trim(contents)) do
+          {value, ""} -> value
+          _unparseable -> 0
+        end
+
+      _unreadable ->
+        0
+    end
+  end
+
+  defp read_body_bytes(path) do
+    case File.read(path) do
+      {:ok, bytes} when is_binary(bytes) and byte_size(bytes) > 0 -> {:ok, bytes}
+      _unreadable -> :error
+    end
+  end
+
+  # A body is the full REST resource only when it carries the resource's own
+  # identity: `number` equal to the key's id and the API `url` for exactly this
+  # resource. A `gh --json` projection (`{"body": …}`, `{"title": …}`) has
+  # neither; a `--jq` selection of the whole object has both, which is fine —
+  # it is the same object. `state` is required because a real issue or pull
+  # request always has one, and requiring it is what keeps a non-resource JSON
+  # object (a rate-limit body, a generic `{}`) from being served.
+  defp valid_shape?(:issue, owner, repo, id, decoded) when is_map(decoded) do
+    Map.get(decoded, "number") == number(id) and
+      api_url_matches?(Map.get(decoded, "url"), owner, repo, "issues", id) and
+      is_binary(Map.get(decoded, "state"))
+  end
+
+  defp valid_shape?(:pull_request, owner, repo, id, decoded) when is_map(decoded) do
+    Map.get(decoded, "number") == number(id) and
+      api_url_matches?(Map.get(decoded, "url"), owner, repo, "pulls", id) and
+      is_binary(Map.get(decoded, "state"))
+  end
+
+  defp valid_shape?(_type, _owner, _repo, _id, _decoded), do: false
+
+  defp number(id) do
+    case Integer.parse(to_string(id)) do
+      {value, ""} -> value
+      _unparseable -> nil
+    end
+  end
+
+  # GitHub's API `url` uses the repository's canonical casing, while the key is
+  # down-cased, so the path comparison is case-insensitive.
+  defp api_url_matches?("https://api.github.com/repos/" <> rest, owner, repo, kind, id) do
+    String.downcase(rest) == "#{owner}/#{repo}/#{kind}/#{id}"
+  end
+
+  defp api_url_matches?(_url, _owner, _repo, _kind, _id), do: false
+
+  # Sorting key: the fetch stamp for a readable meta, `nil` for anything else so
+  # an unreadable shape sorts last and is never chosen over a readable one.
+  defp shape_fetched_at(body_path) do
+    case read_fetched_at(String.replace_suffix(body_path, ".body", ".meta")) do
+      {:ok, fetched_at_s} -> fetched_at_s
+      :error -> nil
     end
   end
 end

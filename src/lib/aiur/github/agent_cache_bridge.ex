@@ -24,6 +24,14 @@ defmodule Aiur.GitHub.AgentCacheBridge do
   length). It carries only "this resource moved", which is exactly the part both
   halves can agree on.
 
+  The bridge also owns the daemon-side "reads served from the agent store"
+  counter (`AgentCache.ensure_daemon_reads_table/0`, called from `init/1`). The
+  counter is incremented from poll tasks and read by the cache page, and its
+  table has to live under a process that outlives both — a table owned by
+  whichever transient task happened to bump it first would reset the measured
+  reduction with every poll. This process is the natural owner because it
+  already exists whenever the daemon does.
+
   ## Failing open
 
   A subscription that cannot be established, an unwritable marker directory, an
@@ -46,6 +54,7 @@ defmodule Aiur.GitHub.AgentCacheBridge do
   @impl GenServer
   def init(opts) do
     ResourceStore.subscribe_all()
+    AgentCache.ensure_daemon_reads_table()
     {:ok, %{opts: Keyword.take(opts, [:state_dir])}}
   end
 

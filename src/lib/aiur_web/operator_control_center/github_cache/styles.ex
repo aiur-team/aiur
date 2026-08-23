@@ -339,6 +339,8 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Styles do
 
   .ghc-bmap-panel-title { margin: 0; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--fg); }
 
+  .ghc-bmap-note { margin: 0; font-size: 0.72rem; color: var(--muted); }
+
   .ghc-bmap-table-scroll { max-width: 100%; overflow-x: auto; }
   .ghc-bmap-table-scroll:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
   .ghc-bmap-table { width: 100%; min-width: 44rem; border-collapse: collapse; font-size: 0.8125rem; }

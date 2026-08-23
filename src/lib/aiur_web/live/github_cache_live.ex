@@ -78,6 +78,7 @@ defmodule AiurWeb.GithubCacheLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.GitHub.AgentCache
   alias Aiur.GitHub.AgentCacheMetrics
   alias Aiur.GitHub.BudgetLedger
   alias Aiur.GitHub.BudgetMap
@@ -1070,6 +1071,11 @@ defmodule AiurWeb.GithubCacheLive do
           <span class="ghc-bmap-type-bodyless">rate {agent_hit_rate(workspace.hit_rate)}</span>
         </li>
       </ul>
+
+      <p class="ghc-bmap-note" data-role="agent-cache-daemon-served">
+        Daemon reads served from this store: {AgentCache.daemon_served_reads()}.
+        Each one is a duplicate URL fetch an agent's earlier read made unnecessary.
+      </p>
     </div>
     """
   end

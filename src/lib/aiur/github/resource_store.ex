@@ -1753,6 +1753,7 @@ defmodule Aiur.GitHub.ResourceStore do
   defp known_source_atom("poll"), do: :poll
   defp known_source_atom("mutation"), do: :mutation
   defp known_source_atom("fetch"), do: :fetch
+  defp known_source_atom("agent"), do: :agent
   defp known_source_atom(_value), do: nil
 
   defp decode_entry(%{} = value) do
