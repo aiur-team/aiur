@@ -582,6 +582,18 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
     end
 
+    # Quarantined for #2397: this integration test reads `configured_repo/0`
+    # through the shared `WorkflowStore` singleton, and under load the store can
+    # serve the previous (valid) config for this path right after the malformed
+    # write + `force_reload` — CI run 32630000223 caught it returning a
+    # `:joinable` identity with `owner/repo`. The same shape reproduces locally
+    # (~2%) when this module runs immediately after `workflow_store_test.exs`,
+    # which manipulates the shared cache directly. The exact residual-state
+    # mechanism is not yet pinned down; the behavior stays covered by the
+    # deterministic pure-layer test in `tracker_identity_test.exs`, and the
+    # quarantine job keeps this integration path exercised non-blockingly so a
+    # regression still surfaces.
+    @tag :quarantine
     test "marks malformed configured repositories explicitly nonjoinable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
