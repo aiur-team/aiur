@@ -93,6 +93,35 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :waiting_for_ci
     end
 
+    test "a duration-capped pause is one consistent paused state across tracker states" do
+      # #2329: #2310 and #2311 paused for the same `max_agent_duration` reason
+      # rendered `waiting_for_human` and `paused` depending on their tracker
+      # state. "maximum agent duration reached" is a local pause, not a tracker
+      # wait, so it must read `:paused` no matter what the tracker says.
+      for tracker_state <- ["in-progress", "rework", "human-review", "ci-wait"] do
+        assert WaitingReason.for_running(%{
+                 tracker_state: tracker_state,
+                 pause_reason: :max_agent_duration,
+                 work_state: :paused,
+                 stale_for_seconds: 999_999,
+                 stall_timeout_seconds: 3600
+               }) == :paused
+      end
+    end
+
+    test "an open decision still wins over a duration-capped pause" do
+      # An open question is a separate cause from the duration cap; it must
+      # not be hidden behind the pause's `:paused` classification.
+      assert WaitingReason.for_running(%{
+               tracker_state: "rework",
+               pause_reason: :max_agent_duration,
+               work_state: :paused,
+               open_decision_count: 1,
+               stale_for_seconds: 999_999,
+               stall_timeout_seconds: 3600
+             }) == :waiting_for_human
+    end
+
     test "tracker state ci-wait wins even without a live pause_reason (deactivated entry)" do
       assert WaitingReason.for_running(%{
                tracker_state: "ci-wait",
@@ -141,6 +170,16 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
                stale_for_seconds: 5,
                stall_timeout_seconds: 3600
              }) == :waiting_for_human
+    end
+
+    test "a GitHub budget hold is transient rather than human-required" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "in-progress",
+               pause_reason: :github_budget_hold,
+               work_state: :paused,
+               stale_for_seconds: 5,
+               stall_timeout_seconds: 3600
+             }) == :paused_transient
     end
 
     test "input_required also waits for a human" do
@@ -206,6 +245,24 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle("merging", false, 0) == :waiting_for_supervisor
       assert WaitingReason.for_idle("todo", false, 0) == :active
       assert WaitingReason.for_idle(nil, false, 0) == :active
+    end
+
+    test "an in-progress tracker claim without a live runner is orphaned" do
+      assert WaitingReason.for_idle("in-progress", false, 0) == :orphaned_claim
+    end
+
+    test "after the startup pass, an in-progress claim without a live runner is a stale claim, never awaiting-dispatch" do
+      assert WaitingReason.for_idle("in-progress", false, 0, startup_reconciliation_complete?: true) ==
+               :stale_claim
+
+      assert WaitingReason.render(:stale_claim) == "stale_claim"
+    end
+
+    test "a capacity hold does not reclassify a stale in-progress claim as dispatchable" do
+      assert WaitingReason.for_idle("in-progress", false, 0,
+               capacity_hold_active?: true,
+               startup_reconciliation_complete?: true
+             ) == :stale_claim
     end
 
     test "an active capacity hold makes a dispatchable row back off instead of reading active" do
@@ -279,6 +336,10 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
   end
 
   describe "render/1" do
+    test "renders the orphaned-claim classifier" do
+      assert WaitingReason.render(:orphaned_claim) == "orphaned_claim"
+    end
+
     test "renders the released-claim classifier (#1475)" do
       assert WaitingReason.render(:claim_released) == "claim_released"
     end

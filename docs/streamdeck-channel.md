@@ -34,6 +34,7 @@ Every payload is JSON and uses `version: 1` in the initial `snapshot` event.
 | `logs` | `{transcript, event_keys, event_starts, …}` | The focused agent's log surface: the event-key strip and the transcript rows it jumps into. Pushed on focus and again whenever a new transcript line lands. |
 | `alert` | `{identifier, name, message, severity, needs_attention, timestamp}` | Focused agent alert. |
 | `control` | `{identifier, state}` | Focused agent's redacted control state. `state` may contain `action`, `status`, and lifecycle timestamps (`requested_at`, `accepted_at`, `applied_at`, `rejected_at`, `expiry`); request, tracker, and requester details are never exposed. |
+| `commands` | `{identifier, items, next_cursor, has_next, total, partial, unavailable}` | The focused agent's Command history page, newest first: `items` are allowlisted Commands, `next_cursor`/`has_next` page the history, and `unavailable` is set when the decision store could not be read so the device says so instead of showing an empty history. Pushed on focus and again whenever a decision for the focused agent changes. |
 
 An agent item may contain `identifier`, `status`, `alert_count`, `title`,
 `runtime_seconds`, `turn_count`, `work_state`, `pause_reason`,
@@ -48,8 +49,8 @@ out subscriptions for every agent. Re-focusing unsubscribes the prior agent.
 
 Physical key toggles send `control` with `{identifier, action}`. The accepted
 actions are exactly `pause` and `resume`, and nothing else is accepted: the
-agent view's four keys are pause, logs, mic and settings, so there is no
-surface that can send a priority action and the channel does not pretend to
+agent view's five keys are pause, logs, mic, settings and commands, so there is
+no surface that can send a priority action and the channel does not pretend to
 offer one. Orchestrator priority itself is unchanged and remains reachable from
 the dashboard's own controls. The channel routes the request through
 `Aiur.AgentChat` and returns the orchestrator result; the device does not
@@ -61,6 +62,41 @@ to the focused agent, so the channel mailbox is not filled by a transcript
 burst. A burst produces one `transcript` event containing the final line from
 that window; intermediate lines are intentionally discarded because the device
 renders only a small live-log region.
+
+## Commands and answering
+
+The Commands page is history-first: opening it shows the focused agent's past
+Commands newest first, with open and deferred ones answerable and completed
+ones read-only.
+
+### Device → Aiur
+
+| Event | Payload | Reply |
+| --- | --- | --- |
+| `commands_page` | `{"cursor": c}` | Next `commands` page, or `{"reason": r}` |
+| `answer_command` | `{"decision_id", "version", "idempotency_key", "option_id" \| "custom_response"}` | `{"status", "decision"}` or `{"reason": r}` |
+
+`commands_page` pages the focused agent's history with the opaque `next_cursor`
+from the previous page; the device never interprets the store's cursor encoding.
+`answer_command` records one operator answer. Exactly one of `option_id` or
+`custom_response` is required, mirroring the CLI's `executor-answer
+--option|--custom-response` contract so a spoken "none of the above" response
+maps onto an already-supported operation.
+
+### Attribution
+
+An answer given on the device is recorded with **operator** attribution — the
+operator physically pressing their own deck is the operator answering. The
+durable record carries actor `{"kind": "operator", "id": "streamdeck"}` and the
+dashboard shows a true operator answer, never an Executor answer with an
+operator flavour in free text. This is also what lets the device answer the
+`human_required` Commands an Executor cannot.
+
+The device may only answer a Command for the agent it is currently focused on
+(focused-ticket enforcement), and it answers the exact `version` it read, so a
+retry after a dropped reply is an idempotent replay of the durable action
+rather than a second decision. `idempotency_key` must be stable for the same
+intended answer across reconnects; the server deduplicates on it.
 
 ## Voice input
 

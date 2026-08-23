@@ -1485,11 +1485,17 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       _state = :sys.get_state(store)
 
       # The oldest entry is spared as an entry: its body is shed, but the
-      # validator and the processed mark survive the eviction.
-      assert [_spared] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "1"})
-      assert ResourceStore.fetch({:issue, "owner", "repo", "1"}) == :miss
-      assert ResourceStore.change_validator({:issue, "owner", "repo", "1"}) == ~s("e1")
-      assert ResourceStore.processed?({:issue, "owner", "repo", "1"}, "v1")
+      # validator and the processed mark survive the eviction. The body is
+      # asserted on the entry itself, not through `fetch/1` — the reader API
+      # declines an absent body on its own, so only the entry map proves the
+      # eviction actually dropped `:data` rather than merely hiding it.
+      oldest = {:issue, "owner", "repo", "1"}
+      assert [{^oldest, kept}] = :ets.lookup(ResourceStore.Table, oldest)
+      refute Map.has_key?(kept, :data)
+      refute Map.has_key?(kept, :data_version)
+      assert ResourceStore.fetch(oldest) == :miss
+      assert ResourceStore.change_validator(oldest) == ~s("e1")
+      assert ResourceStore.processed?(oldest, "v1")
 
       # Exactly the ceiling worth of bodies is left: the newest entry is served
       # without anyone paying for it again.

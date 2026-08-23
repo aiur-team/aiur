@@ -48,9 +48,11 @@ defmodule Aiur.Orchestrator.RuntimeWatchdog do
   # running longer than `agent.max_agent_duration_minutes` (paused/blocked
   # time excluded via `running_seconds/2`). The duration cap is almost
   # always "I want to check in," not "this work is done" — pausing keeps
-  # the agent in the list, holding its slot and its session/turn context,
-  # so the Executor can review and resume with one keystroke instead of
-  # restarting from scratch.
+  # the agent in the list, retaining its session/turn context so the
+  # Executor can review and resume with one keystroke instead of
+  # restarting from scratch. The pause releases its fleet reservation
+  # (`@non_reserving_pause_reasons`), so a parked agent cannot pin a
+  # capacity slot indefinitely (#2329).
   @doc false
   @spec reconcile_overrunning_agents(State.t()) :: State.t()
   def reconcile_overrunning_agents(%State{} = state) do
