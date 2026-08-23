@@ -119,27 +119,25 @@ defmodule Aiur.GitHub.PullRequests do
         request_fun,
         token,
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}",
-        issue_number,
-        "#{owner}/#{repo}"
+        issue_number
       )
     end
   end
 
-  defp fetch_open_ticket_pull_request(_request_fun, _token, nil, _issue_number, _expected_head_repo), do: {:ok, nil}
+  defp fetch_open_ticket_pull_request(_request_fun, _token, nil, _issue_number), do: {:ok, nil}
 
-  defp fetch_open_ticket_pull_request(request_fun, token, url, issue_number, expected_head_repo) do
+  defp fetch_open_ticket_pull_request(request_fun, token, url, issue_number) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         headers = Map.get(response, :headers, [])
 
-        case Enum.find(body, &ticket_pull_request?(&1, issue_number, expected_head_repo)) do
+        case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
           nil ->
             fetch_open_ticket_pull_request(
               request_fun,
               token,
               Transport.parse_next_page_url(headers),
-              issue_number,
-              expected_head_repo
+              issue_number
             )
 
           pull_request ->
@@ -154,18 +152,10 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
-  defp ticket_pull_request?(%{"head" => %{"ref" => branch} = head}, issue_number, expected_head_repo)
-       when is_binary(branch) do
-    TicketBranch.ticket_branch?(branch, issue_number) and
-      same_repo?(get_in(head, ["repo", "full_name"]), expected_head_repo)
-  end
+  defp ticket_pull_request?(%{"head" => %{"ref" => branch}}, issue_number) when is_binary(branch),
+    do: TicketBranch.ticket_branch?(branch, issue_number)
 
-  defp ticket_pull_request?(_pull_request, _issue_number, _expected_head_repo), do: false
-
-  defp same_repo?(actual, expected) when is_binary(actual) and is_binary(expected),
-    do: String.downcase(actual) == String.downcase(expected)
-
-  defp same_repo?(_actual, _expected), do: false
+  defp ticket_pull_request?(_pull_request, _issue_number), do: false
 
   @doc """
   Fetches the GitHub check runs and legacy combined commit status for `sha`.

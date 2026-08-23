@@ -48,10 +48,6 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
       close overwrites this very entry with `"state" => "closed"`. The guard is
       therefore self-healing: the entry that would send a poller to a stale
       number is the entry this check refuses.
-    * **The delivered head repository must be the tracked repository.** A fork
-      can reuse the same ticket branch name, so the cached number is not an
-      identity unless `head.repo.full_name` also matches the repository whose
-      store key was read.
 
   Every fault — store not running, no entry, unreadable body — answers `nil`,
   which puts the caller back on the branch-discovery path it used before. A
@@ -83,7 +79,7 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
     if Keyword.get(opts, :delivered_identity, true) do
       :branch_pull_request
       |> ResourceStore.key(owner, repo, target)
-      |> held_number("#{owner}/#{repo}", opts)
+      |> held_number(opts)
     end
   end
 
@@ -98,11 +94,11 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
     end
   end
 
-  defp held_number(nil, _expected_repo, _opts), do: nil
+  defp held_number(nil, _opts), do: nil
 
-  defp held_number(key, expected_repo, opts) do
+  defp held_number(key, opts) do
     case ResourceStore.fetch(key) do
-      {:ok, entry} -> if delivered?(entry) and fresh?(entry, opts), do: open_number(Map.get(entry, :data), expected_repo)
+      {:ok, entry} -> if delivered?(entry) and fresh?(entry, opts), do: open_number(Map.get(entry, :data))
       :miss -> nil
     end
   end
@@ -118,14 +114,9 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
 
   defp fresh?(_entry, _opts), do: false
 
-  defp open_number(%{"number" => number, "state" => state} = body, expected_repo) when is_integer(number) and number > 0 do
-    if String.downcase(to_string(state)) == "open" and same_repo?(get_in(body, ["head", "repo", "full_name"]), expected_repo), do: number
+  defp open_number(%{"number" => number, "state" => state}) when is_integer(number) and number > 0 do
+    if String.downcase(to_string(state)) == "open", do: number
   end
 
-  defp open_number(_body, _expected_repo), do: nil
-
-  defp same_repo?(actual, expected) when is_binary(actual) and actual != "" and is_binary(expected),
-    do: String.downcase(actual) == String.downcase(expected)
-
-  defp same_repo?(_actual, _expected), do: false
+  defp open_number(_body), do: nil
 end
