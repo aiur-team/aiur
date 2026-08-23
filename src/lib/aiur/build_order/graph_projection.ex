@@ -1081,13 +1081,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     entry = scope_entry(state, scope)
 
     cond do
-      # On-demand catalog: no timer to restore on any message (#2309) — the page
-      # refreshes on demand.
-      scope == :catalog and catalog_on_demand?(state) ->
-        state
-
-      not configuration_ready?(state) or is_nil(entry) or not active_scope?(state, scope) or
-        not is_nil(entry.inflight) or not is_nil(entry.timer) ->
+      no_schedule?(state, scope, entry) ->
         state
 
       is_nil(entry.health.next_retry_at) ->
@@ -1100,6 +1094,15 @@ defmodule Aiur.BuildOrder.GraphProjection do
         delay = max(0, DateTime.diff(entry.health.next_retry_at, now(state), :millisecond))
         schedule_scope(state, scope, delay)
     end
+  end
+
+  # No timer to restore: either the catalog is on-demand (#2309 — a page refresh
+  # is demand-driven, so a message must not re-arm the cadence), or the scope is
+  # not configured / not active / already scheduled.
+  defp no_schedule?(state, scope, entry) do
+    (scope == :catalog and catalog_on_demand?(state)) or
+      not configuration_ready?(state) or is_nil(entry) or not active_scope?(state, scope) or
+      not is_nil(entry.inflight) or not is_nil(entry.timer)
   end
 
   defp schedule_scope(state, scope, delay) do
