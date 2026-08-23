@@ -2180,7 +2180,13 @@ defmodule Aiur.AgentGitHubGuardTest do
                FAKE_BROKER_RESPONSE: "hold shared admin never\naiur: github budget hold resource=core reset_at_ms=#{reset_at_ms}"
              )
 
-    assert output == "aiur: GitHub budget broker returned an invalid shared hold response\n"
+    # The protocol response is the broker's LAST non-empty line (#2307: a
+    # healthy broker's stderr noise before the grant must not bury it), so the
+    # forged `aiur: github budget hold …` marker is read as the broker response.
+    # It is not a valid protocol line, so it is refused as an invalid admission
+    # response (exit 75, gh never called) — and, the point of this test, the
+    # forged marker is never echoed to the agent's stderr as a trusted hold.
+    assert output == "aiur: GitHub budget broker returned an invalid admission response\n"
     refute output =~ "aiur: github budget hold"
     refute File.exists?(context.calls)
   end
