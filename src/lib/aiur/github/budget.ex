@@ -106,12 +106,15 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @spec broker_path() :: Path.t()
-  def broker_path do
-    :aiur
-    |> :code.priv_dir()
-    |> to_string()
-    |> Path.join("github_budget.py")
+  @spec broker_path(keyword()) :: Path.t()
+  def broker_path(opts \\ []) do
+    case Keyword.get(opts, :broker_path) do
+      path when is_binary(path) and path != "" -> path
+      # Tests inject a broker variant (e.g. one without the `reconcile`
+      # subcommand) through the `:broker_path` option; production always uses
+      # the broker shipped in `priv/`.
+      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+    end
   end
 
   @doc "Configuration exported to the agent-side `gh` wrapper."
@@ -401,7 +404,7 @@ defmodule Aiur.GitHub.Budget do
           _missing -> []
         end
 
-      command_args = [broker_path() | args] ++ token_args ++ identity_args
+      command_args = [broker_path(opts) | args] ++ token_args ++ identity_args
 
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
@@ -691,11 +694,13 @@ defmodule Aiur.GitHub.Budget do
             endpoint_family: admission["endpoint_family"],
             resource: admission["resource"],
             admitted_at_ms: admission["admitted_at_ms"],
-            # The broker marks a reconciled `304` (and any lease-less row it has
-            # healed) unbilled. Exposing it lets the running system verify that
-            # reconciliation happened instead of requiring raw SQL against the
-            # broker database.
-            billable: Map.get(admission, "billable", true)
+            # `billable = false` is a reconciled `304`; `billable_reason`
+            # records why the broker stopped billing the row (`"304"`) so the
+            # running system can verify reconciliation happened and tell it
+            # apart from any other unbilled state instead of reading a bare
+            # flag.
+            billable: Map.get(admission, "billable", true),
+            billable_reason: Map.get(admission, "billable_reason")
           }
         end)
     }

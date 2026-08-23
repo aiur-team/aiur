@@ -238,7 +238,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
                etag: "\"old\""
              })
 
-    assert %{admissions: [%{billable: false, endpoint_family: "issues"}]} =
+    assert %{admissions: [%{billable: false, billable_reason: "304", endpoint_family: "issues"}]} =
              Budget.snapshot("conditional-token", state_dir: budget_dir)
   end
 
