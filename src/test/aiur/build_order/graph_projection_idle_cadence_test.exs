@@ -1,18 +1,19 @@
 defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
-  # The other half of #2118's acceptance. Widening the catalog cadence is only a
-  # saving if the catalog still does its job at the wider cadence: a catalog
-  # that never refreshes costs nothing and shows nothing.
+  # The catalog is event-sourced (#2325): it has no sweep cadence at all. These
+  # tests pin the two halves of that contract — a completed read arms no
+  # successor timer, and a root labelled after boot reaches the page through the
+  # store change stream rather than a clock. Both were, before #2325, the
+  # "idle cadence" sweep's job (#2118).
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
 
   @repository {"owner", "repo"}
   @now ~U[2026-07-15 12:00:00Z]
-
-  # The shipped idle cadence: polling.interval_seconds 120 * idle_widen_factor 5.
   @idle_refresh_ms 600_000
 
   setup_all do
@@ -22,10 +23,19 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
       start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
     end
 
+    if Process.whereis(ResourceStore) == nil do
+      Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
+    end
+
     :ok
   end
 
-  test "at the idle cadence the catalog arms its next sweep 600s out, not 120s out" do
+  setup do
+    ResourceStore.reset()
+    :ok
+  end
+
+  test "a completed catalog read arms no successor sweep" do
     {:ok, projection} = start_projection()
 
     reader = await_reader(:catalog)
@@ -33,21 +43,14 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
 
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
+    # The event stream is the refresh, so the completed read arms nothing. A
+    # projection still running a cadence would have armed a timer here.
     entry = catalog_entry(projection)
-
-    assert entry.timer
-    # `read_timer` is the remaining time on the armed timer. A projection still
-    # running at the base interval would show ~120_000 here.
-    remaining = Process.read_timer(entry.timer)
-    assert is_integer(remaining)
-    # Tight enough that a projection still running at the 120s base interval, or
-    # at any other multiple of it, fails. `read_timer` counts down in real time,
-    # so the last millisecond or two is not pinned.
-    assert remaining > @idle_refresh_ms - 1_000
-    assert remaining <= @idle_refresh_ms
+    assert is_nil(entry.timer)
+    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 150
   end
 
-  test "a root labelled while the fleet was idle still reaches the page on the next sweep" do
+  test "a root labelled after boot reaches the page through the store event stream" do
     first = identity(1, "I1")
     newly_labelled = identity(2, "I2")
 
@@ -60,12 +63,10 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
 
     assert Enum.map(published.data.entries, & &1.identity) == [first]
 
-    # Somebody adds the build-order label to a second root. Fire the sweep the
-    # projection armed rather than waiting 600 seconds for it.
-    fire_catalog_timer(projection)
-
-    next_reader = await_reader(:catalog)
-    finish(next_reader, {:ok, ProviderResult.complete(catalog([root(first), root(newly_labelled)]))})
+    # Somebody adds the build-order label to a second root. The deposit wakes the
+    # projection through the store change stream — no sweep, no timer, no GitHub
+    # read.
+    deposit_issue(2, "I2", ["build-order"], "open", "I2")
 
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog} = refreshed}}, 2_000
 
@@ -76,14 +77,124 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
     assert Enum.map(roots, & &1.identity) == [first, newly_labelled]
   end
 
+  # Acceptance #2325: adding a sub-issue outside Aiur is reflected on the page.
+  # The `sub_issues` delivery is deposited, and the projection reconciles the
+  # parent root's membership from the store — the delivery test, with no fetch.
+  test "a sub-issue added outside Aiur raises the root's member count through the store stream" do
+    first = identity(1, "I1")
+    {:ok, _projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    # The root's own issue is deposited, so the projection can derive its
+    # membership from the store; the member edge arrives separately.
+    deposit_issue(1, "I1", ["build-order"], "open", "I1")
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    deposit_sub_issue("IS_member", 1)
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog} = refreshed}}, 2_000
+    assert Enum.at(refreshed.data.entries, 0).member_count == 1
+  end
+
+  # Finding #3 (cold start): before the boot read establishes a baseline, a store
+  # change must not publish a catalog derived from the (nearly empty) store as a
+  # healthy new generation — the "0 roots, healthy" lie. The store stream
+  # *maintains* a baseline; it never substitutes for one, so the change is
+  # declined and the catalog stays `data: nil` until the real GitHub read lands.
+  test "a store change before the boot baseline is declined, not published as an empty healthy catalog" do
+    {:ok, projection} = start_projection()
+
+    # No baseline yet: catalog data is nil and health is unavailable.
+    assert %Snapshot{data: nil, health: %{state: :unavailable}} = GraphProjection.catalog(projection)
+
+    # An issue delivery lands while the boot read is still in flight (the reader
+    # is armed but never finished). The store stream would derive an empty root
+    # set from a store that holds one labelled issue — but that is not evidence
+    # of a complete catalog, so nothing may be published as healthy.
+    deposit_issue(1, "I1", ["build-order"], "open", "I1")
+
+    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 200
+
+    assert %Snapshot{data: nil, health: %{state: :unavailable}} = GraphProjection.catalog(projection),
+           "a store rebuild must not be published before a real GitHub read establishes the baseline"
+  end
+
+  # Acceptance #2325: a blocked-by relationship added outside Aiur is likewise
+  # reflected. The edge lives on the selected-root graph, so the deposit re-reads
+  # the held root rather than changing the catalog itself.
+  test "a dependency added outside Aiur re-reads the held selected root it touches" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    # Hold the page open on the root and let the cold read land.
+    assert {:ok, %Snapshot{}} = GraphProjection.demand(projection, first)
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 100
+
+    # A blocked-by edge is created outside Aiur; the deposit wakes the projection
+    # and the held root is re-read because its edge moved.
+    deposit_dependency("DI_1", 1)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+  end
+
   defp catalog_entry(projection) do
     projection |> :sys.get_state() |> Map.fetch!(:catalog)
   end
 
-  defp fire_catalog_timer(projection) do
-    entry = catalog_entry(projection)
-    Process.cancel_timer(entry.timer)
-    send(projection, {:graph_projection_due, :catalog, entry.timer_token})
+  defp deposit_issue(number, title, labels, state, node_id) do
+    body = %{
+      "number" => number,
+      "node_id" => node_id,
+      "title" => title,
+      "state" => state,
+      "html_url" => "https://github.com/owner/repo/issues/#{number}",
+      "labels" => Enum.map(labels, &%{"name" => &1}),
+      "created_at" => "2026-07-15T10:00:00Z",
+      "updated_at" => "2026-07-15T10:00:00Z",
+      "repository_url" => "https://api.github.com/repos/owner/repo"
+    }
+
+    ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", number), body,
+      source: :webhook,
+      version: "2026-07-15T10:00:00Z"
+    )
+  end
+
+  defp deposit_sub_issue(node_id, parent_number) do
+    edge = %{
+      "node_id" => node_id,
+      "number" => 100,
+      "state" => "open",
+      "parent" => %{"node_id" => "IS_#{parent_number}", "number" => parent_number}
+    }
+
+    ResourceStore.put_resource(ResourceStore.key(:sub_issues, "owner", "repo", node_id), edge,
+      source: :webhook,
+      version: "2026-07-15T10:00:00Z"
+    )
+  end
+
+  defp deposit_dependency(relationship_id, dependant_number) do
+    dependency = %{
+      "dependency_id" => relationship_id,
+      "dependency" => %{"number" => 99, "node_id" => "IS_99", "title" => "a blocker", "state" => "open"},
+      "dependant" => %{"number" => dependant_number, "node_id" => "IS_#{dependant_number}", "state" => "open"}
+    }
+
+    ResourceStore.put_resource(ResourceStore.key(:issue_dependencies, "owner", "repo", relationship_id), dependency,
+      source: :webhook,
+      version: "2026-07-15T10:00:00Z"
+    )
   end
 
   defp start_projection do
@@ -143,6 +254,10 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
   defp finish(reader, result), do: send(reader, {:finish, result})
 
   defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
+
+  defp selected(identity, repository \\ @repository) do
+    SelectedRoot.new(root(identity, repository), [], ProviderHealth.new(1, :healthy, true))
+  end
 
   defp root(identity, {owner, repository} \\ @repository) do
     RootSummary.new(%{
