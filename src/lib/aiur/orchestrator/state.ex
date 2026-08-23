@@ -626,7 +626,7 @@ defmodule Aiur.Orchestrator.State do
   @spec active_running_entry?(term()) :: boolean()
   def active_running_entry?(entry) when is_map(entry) do
     not (completed_running_entry?(entry) or paused_running_entry?(entry) or
-           deactivated_running_entry?(entry))
+           deactivated_running_entry?(entry) or error_running_entry?(entry))
   end
 
   def active_running_entry?(_entry), do: false
@@ -637,6 +637,13 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def paused_running_entry?(_entry), do: false
+
+  @spec error_running_entry?(term()) :: boolean()
+  def error_running_entry?(entry) when is_map(entry) do
+    (get_in(entry, [:control, :status]) || :working) == :error
+  end
+
+  def error_running_entry?(_entry), do: false
 
   @spec sleeping_running_entry?(term()) :: boolean()
   def sleeping_running_entry?(entry) when is_map(entry) do

@@ -372,6 +372,9 @@ defmodule Aiur.Orchestrator do
   def reconcile_stalled_running_issues(state),
     do: RuntimeWatchdog.reconcile_stalled_running_issues(state)
 
+  @spec reconcile_runtime_health(State.t()) :: State.t()
+  def reconcile_runtime_health(state), do: RuntimeWatchdog.reconcile_runtime_health(state)
+
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(entry, now, max_seconds),
     do: RuntimeWatchdog.overrunning_entry?(entry, now, max_seconds)
