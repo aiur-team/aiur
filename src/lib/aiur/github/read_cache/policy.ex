@@ -48,6 +48,26 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | `:comments` | 30 s | 1 h | Per-issue REST comment reads (`Aiur.GitHub.Comments`). A comment observed 30 s late costs one poll cycle of latency and nothing else — agents already wait longer than that between turns. |
   | `:issue_graph` | 30 s | 1 h | Build Order structure: dependency edges, pack status, linked pull requests. A stale edge delays a dispatch rather than corrupting one. |
   | `:repo_config` | 5 min | 1 h | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a five-minute polling body cache costs little; every webhook delivery retires it via the collections marker, which is what lets it ride the same long bucket as the other classes. |
+  | `:issue_timeline` | 30 s | 1 h | An issue's timeline (`/issues/{n}/timeline`, `Aiur.GitHub.DispatchAuthorization`). The single largest REST family measured in #2352 (1,000–1,800 reads/hr); a timeline answered up to one poll cycle late costs a dispatch decision latency, never a wrong verdict. |
+  | `:issue` | 30 s | 1 h | A single issue (`/issues/{n}`). Mixed call sites — some already conditional, some unconditional reads — so the body cache absorbs the unconditional spend. |
+  | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. |
+
+  ## The conditional rows stay refused on purpose
+
+  The other REST families #2352 measured are **already ETag-conditional at
+  their call sites** and answer `304` for free: the open-issue lists, the
+  open-pull-request list, repo events and the repo-wide comment streams
+  (`Transport.fetch_json_list_conditional/4`, `issues.ex:890`,
+  `comments.ex:176`, `repo_events.ex:44`). Holding their bodies in this cache
+  would trade that free revalidation for staleness — the same argument this
+  module already makes for the repo comment streams. They are therefore refused
+  (`{:no_cache, {:unclassified, :issue_list | :pull_list | :repo_events |
+  :comment_stream | :pull_files}}`), **not** cached, and that is load-bearing:
+  the refusal metric keys on the shape, so if a later change silently converts
+  one of these free revalidations into a stale read, the shape disappears from
+  the refusal report and the regression is visible. Do not "fix" them by giving
+  them a TTL; the fix for an expensive conditional row is a cheaper validator,
+  not a body cache.
 
   There are two buckets, and which one applies is decided by the repository's
   delivery mode, not by the class. A repo that is not proven webhook-backed —
@@ -136,8 +156,26 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   alias Aiur.GitHub.ReadCache.Identity
   alias Aiur.Webhooks.ModeTable
 
-  @type class :: :comments | :issue_graph | :repo_config
-  @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom()}
+  @type class :: :comments | :issue_graph | :repo_config | :issue_timeline | :issue | :pull
+
+  # Every REST shape the classifier can name, plus the fallback for a read it
+  # cannot name at all. The set is small and fixed — this list is also the cap
+  # on the refusal metrics, so a pathological URL cannot grow the metric map
+  # without bound (see `shapes/0`).
+  @type shape ::
+          :comments
+          | :repo_config
+          | :issue_timeline
+          | :issue_list
+          | :pull_list
+          | :issue
+          | :pull
+          | :repo_events
+          | :comment_stream
+          | :pull_files
+          | :unclassified
+
+  @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom() | {atom(), shape()}}
 
   # The short bucket, in force for any repo that is not proven webhook-backed:
   # never configured, configured-but-unproven, or degraded from silence. For
@@ -147,7 +185,19 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # assessment cadence (its assessment is itself cached for an hour) rather
   # than the 30-second Build Order window, so its short value is five minutes,
   # not thirty seconds.
-  @default_ttls %{comments: 30_000, issue_graph: 30_000, repo_config: 300_000}
+  #
+  # `:issue_timeline`, `:issue` and `:pull` (the single-resource REST shapes
+  # from #2352) ride the same 30-second short bucket as `:issue_graph`: they
+  # are not verdicts, and a read answered up to one poll cycle late costs
+  # latency, never a wrong merge or a stale dispatch.
+  @default_ttls %{
+    comments: 30_000,
+    issue_graph: 30_000,
+    repo_config: 300_000,
+    issue_timeline: 30_000,
+    issue: 30_000,
+    pull: 30_000
+  }
 
   # The long bucket, in force only for a repo proven webhook-backed. Once a
   # delivery retires what it changes (`Aiur.Events.GithubWebhook.Deposit`),
@@ -171,7 +221,19 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # a push updates `.github/workflows`, branch protection or a ruleset — rather
   # than independently of one, so the delivery is precisely the correction path
   # the long bucket requires.
-  @webhook_backed_ttls %{comments: 3_600_000, issue_graph: 3_600_000, repo_config: 3_600_000}
+  #
+  # `:issue_timeline`, `:issue` and `:pull` are numbered reads, so every
+  # delivery or mutation that touches the number retires them through
+  # `invalidate_number/2` — the same correction path `:issue_graph` rides — and
+  # they earn the same hour.
+  @webhook_backed_ttls %{
+    comments: 3_600_000,
+    issue_graph: 3_600_000,
+    repo_config: 3_600_000,
+    issue_timeline: 3_600_000,
+    issue: 3_600_000,
+    pull: 3_600_000
+  }
 
   # Declared callers, keyed by the string `Transport` stamps on the request from
   # `opts[:caller]`. A caller absent from this table falls through to the REST
@@ -257,48 +319,116 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     end
   end
 
-  # One shape, anchored to a numbered issue or pull request. The repo-wide
-  # comment streams (`/repos/o/r/issues/comments`) deliberately do not match:
-  # they are already conditional reads that revalidate for free with an ETag,
-  # and holding a body instead of sending `If-None-Match` would trade a free
-  # `304` for staleness. A cache is only an improvement where no validator
-  # exists.
-  #
-  # Repository configuration gets its own class because it is the one REST
-  # surface the safety regex above over-matched: `/actions/workflows` is the
-  # workflow *list* — configuration — not a CI verdict, and the same reasoning
-  # covers branch protection, branch existence and rulesets. `CiReadiness`
-  # reads these on every inspection; caching the body lets a repeated check
-  # answer from the meter instead of the socket.
-  #
-  # The bare `/repos/{owner}/{repo}` repository read is deliberately NOT
-  # classified: it is the auth-preflight probe, which must exercise the current
-  # credential rather than be answered from a cache. The open-issue candidate
-  # list is deliberately NOT classified either: dispatch labels are mutable
-  # authority and a stale list is a stale dispatch decision (see the moduledoc's
-  # "what must never be cached").
-  defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
-    cond do
-      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url) ->
-        cache(:comments, request)
-
-      repo_config?(url) ->
-        cache(:repo_config, request)
-
-      true ->
-        {:no_cache, :unclassified}
-    end
-  end
-
-  defp classify_rest(_request), do: {:no_cache, :unclassified}
-
   # Branch existence, branch protection, the workflow contents/state/action
   # listings, and the ruleset list/detail — the CIReadiness config surface,
   # minus the bare repository read and the candidate issue list (see above).
   # The optional query string rides along so `?ref=`/`?per_page=` URLs match.
   @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
 
-  defp repo_config?(url), do: Regex.match?(@repo_config_rest, url)
+  # The ranked REST shapes (#2352), in the order they are matched, mapping a URL
+  # to the call family it belongs to. The tail `(?:contents|branches|rulesets)`
+  # row names the general repository-configuration reads — `/contents/{path}`
+  # for any path, not only `.github/workflows` — while `@repo_config_rest`
+  # above carries the anchored CIReadiness forms (`/actions/workflows`,
+  # branch protection, rulesets) and the query-string boundary.
+  @rest_shapes [
+    # Row 1 — issue timeline (cacheable).
+    {~r{/repos/[^/?#]+/[^/?#]+/issues/\d+/timeline}, :issue_timeline},
+    # Row 2 — labeled open-issue list (ETag-conditional at its call sites; refused).
+    {~r{/repos/[^/?#]+/[^/?#]+/issues\?.*\blabels=}, :issue_list},
+    # Row 3 — open pull-request list (ETag-conditional at its call sites; refused).
+    {~r{/repos/[^/?#]+/[^/?#]+/pulls\?}, :pull_list},
+    # Row 4 — single issue (cacheable).
+    {~r{/repos/[^/?#]+/[^/?#]+/issues/\d+(?:$|\?)}, :issue},
+    # Row 5 — single pull request (cacheable).
+    {~r{/repos/[^/?#]+/[^/?#]+/pulls/\d+(?:$|\?)}, :pull},
+    # Row 6 — unlabeled open-issue list (ETag-conditional; refused).
+    {~r{/repos/[^/?#]+/[^/?#]+/issues\?(?!.*\blabels=)}, :issue_list},
+    # Row 7 — repository events (ETag-conditional; refused).
+    {~r{/repos/[^/?#]+/[^/?#]+/events(?:$|\?)}, :repo_events},
+    # Rows 8/9 — repo-wide comment streams (ETag-conditional; refused).
+    {~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/comments}, :comment_stream},
+    # Row 10 — pull request changed files (refused: single-valued, no validator).
+    {~r{/repos/[^/?#]+/[^/?#]+/pulls/\d+/files}, :pull_files},
+    # Tail — repository configuration (cacheable): /contents, /branches, /rulesets.
+    {~r{/repos/[^/?#]+/[^/?#]+/(?:contents|branches|rulesets)}, :repo_config},
+    # Numbered comment reads (cacheable): /issues/{n}/comments, /pulls/{n}/comments.
+    {~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, :comments},
+    # The anchored CIReadiness config forms, including /actions/workflows.
+    {@repo_config_rest, :repo_config}
+  ]
+
+  # The shapes that earn a body cache. Every other classified shape is a
+  # deliberate refusal, named so the metrics can tell "spend the policy decided
+  # is correct" from "the cache failed to recognise this read".
+  @cached_rest_shapes [:comments, :repo_config, :issue_timeline, :issue, :pull]
+
+  # Every shape the classifier can name, plus the fallback for a read it cannot
+  # name at all. `Metrics.refused/2` keys on this set and folds anything else
+  # back to `:unclassified`, so a pathological URL can never grow the refusal
+  # metric map without bound.
+  @shapes [
+    :comments,
+    :repo_config,
+    :issue_timeline,
+    :issue_list,
+    :pull_list,
+    :issue,
+    :pull,
+    :repo_events,
+    :comment_stream,
+    :pull_files,
+    :unclassified
+  ]
+
+  # REST reads are classified into named shapes so `aiur github-cost` can say
+  # which call family a refusal belongs to instead of folding every
+  # unrecognised read into one `unclassified` total. Two decisions follow from
+  # the shape:
+  #
+  #   * rows 1, 4 and 5 — the issue timeline, the single issue and the single
+  #     pull request — are genuinely cacheable spend and get a real TTL. Row 5
+  #     (`/pulls/{n}`) is the strongest candidate: it is read unconditionally
+  #     with no validator at all, so every repeat is pure waste rather than a
+  #     cheap revalidation.
+  #   * the conditional rows — the issue/pull lists, repo events and the
+  #     repo-wide comment streams — are deliberately NOT body-cached. They are
+  #     already ETag-conditional at their call sites and answer `304` for free,
+  #     and holding a body instead of sending `If-None-Match` would trade that
+  #     free revalidation for staleness. They are still *classified* — the
+  #     shape is what the refusal metric keys on — so a later change cannot
+  #     silently convert a free revalidation into a stale read without the
+  #     refusal disappearing from the report.
+  #
+  # The bare `/repos/{owner}/{repo}` repository read is deliberately left as
+  # the `:unclassified` fallback: it is the auth-preflight probe, which must
+  # exercise the current credential rather than be answered from a cache.
+  defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
+    shape = rest_shape(url)
+
+    if shape in @cached_rest_shapes do
+      cache(shape, request)
+    else
+      {:no_cache, {:unclassified, shape}}
+    end
+  end
+
+  defp classify_rest(_request), do: {:no_cache, :unclassified}
+
+  @doc """
+  Every REST shape the classifier can name.
+
+  This is also the bounded set the refusal metrics key on (see `Metrics`), so
+  the metric map cannot grow without bound no matter what URLs arrive.
+  """
+  @spec shapes() :: [shape()]
+  def shapes, do: @shapes
+
+  defp rest_shape(url) do
+    Enum.find_value(@rest_shapes, :unclassified, fn {regex, shape} ->
+      if Regex.match?(regex, url), do: shape
+    end)
+  end
 
   @doc """
   The TTL in force for a class, after any operator override.
