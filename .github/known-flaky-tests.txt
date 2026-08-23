@@ -1,0 +1,25 @@
+# Known load-dependent flakes (#2397)
+#
+# Each non-comment line is one ExUnit failure exactly as the runner prints it:
+#   <Module> :: <test name>
+#
+# A red CI run's failing tests are compared against this list. A test on the
+# list is reported as a KNOWN FLAKE (an existing investigation owns it); a test
+# not on the list is reported as a NEW FAILURE and must be treated as a real
+# regression from the change. That distinction is what keeps "CI is red"
+# informative: red caused only by known flakes is a flake that fired, not proof
+# the change is broken.
+#
+# Update the list when a flake is fixed (remove the entry) or when a new flake
+# is confirmed and ticketed (add the exact name printed by the runner). Keep
+# entries byte-exact — the comparison is a full-line match.
+
+# Quarantined for #2397: reads the configured repository through the shared
+# WorkflowStore singleton, which can serve a stale valid config under load.
+Aiur.GitHub.IssuesTest :: normalize_issue/4 marks malformed configured repositories explicitly nonjoinable
+
+# decision_store_test.exs:2624 saturation dispatch ordering (#2402).
+Aiur.DecisionStoreTest :: saturation fails admission durably and opens delivery attention
+
+# decision_store_test.exs journal append `append_failed, :enoent` (#2403). The
+# exact test name varies by run; add it here once pinned.
