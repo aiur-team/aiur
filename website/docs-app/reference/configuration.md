@@ -461,10 +461,12 @@ agent:
 
 ## pr_health
 
-Periodic scan of open pull requests for conditions that stall PRs silently:
-a PR authored by a configured human merger (unmergeable by construction, since
+Periodic scan of open pull requests for conditions that stall PRs silently: a
+PR authored by a configured human merger (unmergeable by construction, since
 GitHub blocks self-approval), and a non-draft PR older than `stale_hours` with
-no review. Findings raise needs-attention alerts in the Executor's alert feed
+no review.
+
+Findings raise needs-attention alerts in the Executor's alert feed
 (`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed`).
 
 | Key | Type | Default | Controls |

@@ -182,7 +182,15 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
   describe "tick/1 disabled / non-GitHub tracker" do
     test "no-ops when the feature is disabled" do
       fetched = :atomics.new(1, [])
-      state = base_state(enabled?: fn -> false end, open_prs_fetcher: fn -> :atomics.add(fetched, 1, 1); {:ok, []} end)
+
+      state =
+        base_state(
+          enabled?: fn -> false end,
+          open_prs_fetcher: fn ->
+            :atomics.add(fetched, 1, 1)
+            {:ok, []}
+          end
+        )
 
       result = PRHealthScanner.tick(state)
 
