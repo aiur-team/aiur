@@ -55,7 +55,7 @@ Poll latency. By default the daemon reconciles GitHub state on a poll cadence, s
 
 You want events to arrive immediately and to save the poll spend that would buy them. Base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s.
 
-The daemon read-cache TTL for comment and issue reads rises from 30s to one hour on a proven repo; repository-configuration reads stay at five minutes — see [Optional webhook](/apis/github#optional-webhook).
+The daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads; repository-configuration reads (`:repo_config`) rise from five minutes to one hour — see [Optional webhook](/apis/github#optional-webhook).
 
 ### Configuration
 
