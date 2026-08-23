@@ -30,7 +30,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{DispatchPolicy, StatusReason, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
   # One age shape wherever a stale surface appears — reuse #1814's renderer
@@ -1734,19 +1734,11 @@ defmodule Aiur.AgentControlCLI do
   defp format_observed_at(observed_at) when is_binary(observed_at), do: observed_at
   defp format_observed_at(_observed_at), do: "unknown"
 
-  # `capacity_hold` is the daemon's own persisted admission decision — the only
-  # source allowed to name an admission signal as the fleet's binding
-  # constraint. Nothing here re-derives a gate locally.
-  defp capacity_binding(%{capacity_hold: %{} = hold}),
-    do: {:admission, hold}
-
-  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
-    if capacity_binding_ticket_supply?(capacity) do
-      {:ticket_supply, 0}
-    else
-      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
-    end
-  end
+  # The classification lives in `Aiur.Orchestrator.CapacityBinding` so the CLI
+  # and the dashboards name the same constraint from the same rules. Only the
+  # label text below is CLI-specific — it carries the full admission
+  # measurement, which does not fit a KPI tile.
+  defp capacity_binding(capacity), do: CapacityBinding.binding(capacity)
 
   # A LOCAL host-pressure reading, taken before the control RPC so the
   # saturation signal survives an RPC timeout (the timeout is most likely
@@ -1774,42 +1766,6 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_load_status(_capacity), do: :ok
-
-  defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
-    cond do
-      paused_reservation_binding?(capacity) ->
-        {:paused_reservations, capacity.reserved_paused}
-
-      effective < max and occupied >= effective ->
-        {:envelope, effective}
-
-      occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
-        {:config_cap, configured}
-
-      occupied >= max ->
-        {:session_cap, max}
-
-      true ->
-        {:none, nil}
-    end
-  end
-
-  defp capacity_binding_ticket_supply?(%{available: available, queued_demand?: false})
-       when is_integer(available) and available > 0,
-       do: true
-
-  defp capacity_binding_ticket_supply?(_capacity), do: false
-
-  defp paused_reservation_binding?(%{
-         active: active,
-         effective: effective,
-         available: 0,
-         reserved_paused: reserved_paused
-       })
-       when reserved_paused > 0 and effective > active,
-       do: true
-
-  defp paused_reservation_binding?(_capacity), do: false
 
   @doc """
   Print registry provider headroom from the daemon-owned meter projection.

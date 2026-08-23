@@ -147,7 +147,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
       %{label: "CPU burned", val: "#{k.cpu_hours}h", sub: "this session", tone: nil},
       %{label: "Peak concurrency", val: k.peak_conc, sub: "of #{Presenter.cap_label(model)}", tone: nil},
       %{label: "Members merged", val: "#{k.done} / #{k.total}", sub: "#{k.done_pct}% complete", tone: nil},
-      %{label: "Capacity elsewhere", val: "#{k.wasted_slot_hours}h", sub: "slots not on #{member_word(scope)}", tone: "block"}
+      %{
+        label: "Capacity elsewhere",
+        val: Presenter.wasted_slot_hours_label(k.wasted_slot_hours),
+        sub: "slots not on #{member_word(scope)}",
+        tone: "block"
+      }
     ]
   end
 

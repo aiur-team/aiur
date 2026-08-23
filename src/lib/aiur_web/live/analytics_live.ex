@@ -335,7 +335,7 @@ defmodule AiurWeb.AnalyticsLive do
       provider_spend_item(provider_spend),
       %{
         label: "Wasted capacity",
-        val: "#{k.wasted_slot_hours}h",
+        val: Presenter.wasted_slot_hours_label(k.wasted_slot_hours),
         sub: "idle unit-slots",
         tone: "block"
       }

@@ -45,7 +45,24 @@ defmodule AiurWeb.AnalyticsLiveTest do
     orchestrator = {:global, {__MODULE__, context.test}}
 
     if capacity = Map.get(context, :analytics_capacity) do
+      # A publisher has to be alive under the orchestrator's registered name, or
+      # every read is `:orchestrator_unavailable` — a retained-cache state, not
+      # the live one these tests are about.
+      publisher = start_supervised!({Agent, fn -> :ok end})
+      :yes = :global.register_name({__MODULE__, context.test}, publisher)
+
       SnapshotStore.publish(orchestrator, %{capacity: capacity})
+
+      if age_ms = Map.get(context, :analytics_capacity_age_ms) do
+        # Pin the ceiling: it otherwise derives from the effective poll cadence,
+        # so a test that asked the code for its own ceiling would pass against
+        # one wide enough that staleness is never reported at all.
+        previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+        Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 120_000)
+        on_exit(fn -> reset_env(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
+
+        age_published_snapshot(orchestrator, age_ms)
+      end
     end
 
     endpoint_config =
@@ -89,7 +106,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
-    assert html =~ ~r/\d+ now \/ unknown cap \(configured \d+\)/
+    assert html =~ ~r/\d+ now \/ unknown cap</
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
@@ -99,14 +116,65 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ "No run telemetry to analyze yet"
   end
 
-  @tag analytics_capacity: %{effective: 3, max: 8, configured: 16}
-  test "renders the runtime cap and annotates a different configured cap" do
+  @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 3, available: 0, active: 3, reserved_paused: 0, queued_demand?: true}
+  test "renders the runtime cap with every other ceiling the daemon reports" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
-    assert html =~ ~r/\d+ now \/ 3 cap \(configured 16\)/
+    # The effective cap leads. The session ceiling is the figure `aiur status`
+    # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
+    # contradict each other; the configured value is what #2241 saw alone.
+    assert html =~ ~r/\d+ now \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
     refute html =~ ~r/\d+ now \/ 16 cap/
+    refute html =~ ~r/\d+ now \/ 8 cap/
+  end
+
+  @tag analytics_capacity: %{
+         effective: 8,
+         max: 8,
+         configured: 16,
+         occupied: 4,
+         active: 4,
+         available: 0,
+         reserved_paused: 4,
+         queued_demand?: true,
+         session_override?: true
+       }
+  test "names the binding constraint, which a bare cap figure cannot distinguish" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # Same `8 cap` string as a plain session override; only the binding clause
+    # tells the operator this fleet wants paused reservations reclaimed.
+    assert html =~ "binding: paused reservations=4"
+  end
+
+  @tag analytics_capacity: %{effective: 3, max: 3, configured: 3, occupied: 0, available: 3, queued_demand?: true}
+  @tag analytics_capacity_age_ms: 600_000
+  test "marks a retained snapshot with its age instead of rendering it as current" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # The stale snapshot still renders — that is the SnapshotStore contract —
+    # but never unmarked. A ten-minute-old cap read as current is #1564.
+    assert html =~ "3 cap (stale, 10m old)"
+    refute html =~ "3 cap<"
+  end
+
+  test "reports no wasted-capacity figure when no effective cap is known" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # Idle slot-hours are a subtraction from the cap. With no cap reported the
+    # page must not substitute the local config file and print a precise hour
+    # count under a ceiling it just called unknown.
+    assert html =~ ~r/\d+ now \/ unknown cap</
+    refute html =~ "unknown cap (configured"
+    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—</
   end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
@@ -169,6 +237,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "provider-reported estimate"
   end
 
+  @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 0, available: 3, queued_demand?: true}
   test "scopes analytics and provider spend to typed selected Build Order members" do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
@@ -200,6 +269,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(conn, "/analytics?build_order=77")
 
     assert html =~ "Build Order #77, this session"
+    # The Build Order strip renders the same effective cap as the run strip;
+    # without this the whole Build Order cap path is uncovered.
+    assert html =~ "now / 3 cap (session 8, configured 16)"
+    refute html =~ "now / 16 cap"
     assert html =~ ">#941<"
     refute html =~ ">#942<"
     assert html =~ "PRs merged"
@@ -459,6 +532,24 @@ defmodule AiurWeb.AnalyticsLiveTest do
       turn_id: "turn-1",
       request_id: "request-1"
     }
+  end
+
+  # `publish/2` stamps the current monotonic clock, so restating the observation
+  # time is the only way to read a ten-minute-old snapshot without waiting.
+  defp age_published_snapshot(orchestrator, age_ms) do
+    cached = :persistent_term.get({SnapshotStore, orchestrator})
+
+    :persistent_term.put(
+      {SnapshotStore, orchestrator},
+      %{
+        cached
+        | observed_at_ms: System.monotonic_time(:millisecond) - age_ms,
+          observed_at: DateTime.add(DateTime.utc_now(), -age_ms, :millisecond),
+          recent_gaps_ms: []
+      }
+    )
+
+    :ok
   end
 
   defp build_order_context(root, member) do
