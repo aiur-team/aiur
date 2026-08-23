@@ -178,17 +178,23 @@ defmodule Aiur.GitHub.ViewStateSweep do
     Enum.filter(state.sources, fn source ->
       if Process.whereis(source) do
         source.reseed_demand()
-
-        if source.demanded?() do
-          source.refresh()
-          true
-        else
-          false
-        end
+        refresh_if_demanded(source)
       else
         false
       end
     end)
+  end
+
+  # Kept out of `sweep/1` so the per-source decision stays within Credo's
+  # nesting ceiling; the demand gate is the single `if` that decides whether
+  # the sweep reconciles a running source this tick.
+  defp refresh_if_demanded(source) do
+    if source.demanded?() do
+      source.refresh()
+      true
+    else
+      false
+    end
   end
 
   # Arming cancels first, so this process holds **at most one** timer no matter
