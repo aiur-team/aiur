@@ -27,6 +27,15 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
 
   defp at(seconds), do: DateTime.add(~U[2026-08-09 12:00:00Z], seconds, :second)
 
+  defp ensure_pubsub! do
+    unless Process.whereis(Aiur.PubSub) do
+      {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    end
+
+    :ok
+  end
+
   describe "mode is per repo" do
     test "two tracked repos hold different modes at the same time" do
       registry = start_registry(configured_repos: [@webhook_repo])
@@ -128,6 +137,44 @@ defmodule Aiur.Webhooks.ModeRegistryTest do
       assert_received {:alert, "webhook.recovered", message, opts}
       assert message =~ @webhook_repo
       assert opts[:needs_attention] == false
+    end
+
+    # Finding #1 (recovery edge): the `:degraded` broadcast must repeat on every
+    # sweep while the repo stays degraded, so a gap-based source keeps a coarse
+    # re-list for the whole outage instead of freezing after the one broadcast
+    # that detected it.
+    test "the degraded broadcast repeats while the repo stays degraded" do
+      ensure_pubsub!()
+      assert :ok = ModeRegistry.subscribe()
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
+
+      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
+      assert_received {:webhook_degraded, @webhook_repo}
+
+      # Still degraded: the next sweep re-publishes the gap signal, so a source
+      # that subscribed after the first broadcast still re-lists.
+      {:ok, []} = ModeRegistry.sweep(registry, at(3000))
+      assert_received {:webhook_degraded, @webhook_repo}
+    end
+
+    # Finding #1 (trailing edge): recovery must publish a signal too, so a
+    # projection that rode the event stream through the degraded window re-lists
+    # once the gap has closed — otherwise everything that changed during the
+    # outage is lost permanently.
+    test "a resumed delivery publishes the trailing-edge recovered broadcast" do
+      ensure_pubsub!()
+      assert :ok = ModeRegistry.subscribe_recovered()
+      registry = start_registry(configured_repos: [@webhook_repo])
+      {:ok, _mode} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(0))
+      {:ok, _mode} = ModeRegistry.record_activity(@webhook_repo, server: registry, at: at(901))
+      {:ok, [@webhook_repo]} = ModeRegistry.sweep(registry, at(1802))
+      assert_received {:alert, "webhook.degraded", _message, _opts}
+
+      {:ok, _recovered} = ModeRegistry.record_delivery(@webhook_repo, server: registry, at: at(2000))
+
+      assert_received {:webhook_recovered, @webhook_repo}
     end
 
     test "one repo degrading leaves its neighbours alone" do

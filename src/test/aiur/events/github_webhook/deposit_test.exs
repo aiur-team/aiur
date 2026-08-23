@@ -217,9 +217,15 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       pr_review: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:587)", [ResourceStore.key_for_repo(:pr_review, @repo, 9403)]},
       pr_review_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:650)", [ResourceStore.key_for_repo(:pr_review_comment, @repo, 9402)]},
       issue_labels:
-        {:signal_only,
-         "retires the agent `gh` wrapper's cache through AgentCacheBridge's @invalidating_types; " <>
-           "no module builds an :issue_labels key to read one"},
+        {:read_by,
+         "OpenTicketSource and AdHocSource refresh a held ticket/member's labels " <>
+           "(open_ticket_source.ex, ad_hoc_source.ex)",
+         [
+           ResourceStore.key(:issue_labels, "owner", "repo", 42),
+           # The sub_issues delivery also carries the sub-issue's labels, which
+           # share the same label reader's generic addressing.
+           ResourceStore.key(:issue_labels, "owner", "repo", 41)
+         ]},
       pull_request:
         {:signal_only,
          "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
@@ -575,6 +581,52 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
       assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+    end
+
+    # Acceptance #2325: a `sub_issues` delivery carries one parent↔sub-issue
+    # edge, and the Build Order catalog rebuilds each root's membership from the
+    # store rather than polling GitHub. The edge is deposited keyed by the
+    # sub-issue's node id — the one identity both the added and removed payloads
+    # carry — with the parent relationship the projection needs to attach it to
+    # a root.
+    test "sub_issues sub_issue_added deposits the edge keyed by the sub-issue node id" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:sub_issues, @repo, "IS_sub_1")
+      assert {:ok, %{data: data, source: :webhook, version: "2026-06-24T13:00:00Z"}} = ResourceStore.fetch(key)
+      assert data["number"] == 21
+      assert data["parent"]["number"] == 42
+    end
+
+    test "sub_issues sub_issue_removed drops the edge" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:sub_issues, @repo, "IS_sub_1")
+      assert {:ok, _entry} = ResourceStore.fetch(key)
+
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_removed_delivery(), repo: @repo)
+      assert :miss = ResourceStore.fetch(key)
+    end
+
+    # Acceptance #2325: a blocked-by relationship added outside Aiur is likewise
+    # reflected. The `issue_dependencies` delivery carries the dependency edge —
+    # the relationship id and both issues — deposited under the relationship id
+    # so an event-sourced rebuild can enumerate every edge from the store.
+    test "issue_dependencies created deposits the edge keyed by relationship id" do
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:issue_dependencies, @repo, "DI_1")
+      assert {:ok, %{data: data, source: :webhook}} = ResourceStore.fetch(key)
+      assert data["dependency"]["number"] == 99
+      assert data["dependant"]["number"] == 42
+    end
+
+    test "issue_dependencies removed drops the edge" do
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:issue_dependencies, @repo, "DI_1")
+      assert {:ok, _entry} = ResourceStore.fetch(key)
+
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_removed_delivery(), repo: @repo)
+      assert :miss = ResourceStore.fetch(key)
     end
 
     test "pull_request_review_thread deposits the pull request under both keys" do
@@ -1180,6 +1232,30 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     }
   end
 
+  defp sub_issue_added_delivery do
+    %{
+      "action" => "sub_issue_added",
+      "repository" => %{"full_name" => @repo},
+      "parent_issue_id" => "IS_parent",
+      "sub_issue_id" => "IS_sub_1",
+      "sub_issue" => %{
+        "node_id" => "IS_sub_1",
+        "number" => 21,
+        "title" => "a sub-issue",
+        "state" => "open",
+        "updated_at" => "2026-06-24T13:00:00Z"
+      },
+      "parent_issue" => %{
+        "node_id" => "IS_parent",
+        "number" => 42,
+        "title" => "a build order root",
+        "state" => "open",
+        "updated_at" => "2026-06-24T12:00:00Z"
+      },
+      "sender" => %{"login" => @human}
+    }
+  end
+
   # GitHub's `pull_request_review_thread` delivery (resolved/unresolved) carries
   # the thread and a full pull request; only the PR half is deposited.
   defp pull_request_review_thread_delivery do
@@ -1192,6 +1268,42 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     }
   end
 
+  defp sub_issue_removed_delivery do
+    %{
+      "action" => "sub_issue_removed",
+      "repository" => %{"full_name" => @repo},
+      "parent_issue_id" => "IS_parent",
+      "sub_issue_id" => "IS_sub_1",
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp dependency_created_delivery do
+    %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "dependency" => %{
+        "dependency_id" => "DI_1",
+        "dependant_id" => "IS_parent",
+        "dependency" => %{
+          "node_id" => "IS_99",
+          "number" => 99,
+          "title" => "a blocker",
+          "state" => "open",
+          "updated_at" => "2026-06-24T13:30:00Z"
+        },
+        "dependant" => %{
+          "node_id" => "IS_parent",
+          "number" => 42,
+          "title" => "a build order root",
+          "state" => "open",
+          "updated_at" => "2026-06-24T12:00:00Z"
+        }
+      },
+      "sender" => %{"login" => @human}
+    }
+  end
+
   # GitHub's `sub_issues` delivery carries the full sub-issue and parent issue.
   defp sub_issues_delivery do
     %{
@@ -1199,6 +1311,15 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       "repository" => %{"full_name" => @repo},
       "sub_issue" => %{issue() | "number" => 41, "updated_at" => "2026-06-24T10:30:00Z"},
       "parent_issue" => issue(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp dependency_removed_delivery do
+    %{
+      "action" => "removed",
+      "repository" => %{"full_name" => @repo},
+      "dependency" => %{"dependency_id" => "DI_1"},
       "sender" => %{"login" => @human}
     }
   end
