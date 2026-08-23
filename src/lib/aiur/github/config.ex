@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Config do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, HostCommand, Transport}
 
   @default_label_prefix "agent"
 
@@ -384,9 +384,11 @@ defmodule Aiur.GitHub.Config do
 
   # Query the gh keyring with the env tokens CLEARED so gh returns the stored
   # login rather than echoing the (possibly stale) env var. nil when gh is
-  # absent or not logged in via keyring (headless/CI).
+  # absent or not logged in via keyring (headless/CI). Routed through the host
+  # guard so the keyring lookup is admitted and recorded like every other gh
+  # call (#2353).
   defp keyring_token do
-    case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+    case HostCommand.run(["auth", "token", "--hostname", "github.com"],
            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
            stderr_to_stdout: true
          ) do

@@ -150,9 +150,12 @@ defmodule Aiur.GitHubCostCLITest do
     output = capture_io(fn -> assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> empty end) end)
 
     # Nothing observed and nothing spent are different facts, and reporting the
-    # first as a zero would claim a measurement that was never taken.
+    # first as a zero would claim a measurement that was never taken. The
+    # ledger-window scope note is not a reconciliation figure, so it is still
+    # printed; only the `reconciliation:` section header is suppressed.
     assert output =~ "No GitHub API calls have been attributed"
-    refute output =~ "reconcil"
+    assert output =~ "admission ledger window"
+    refute output =~ ~r/reconciliation/
   end
 
   test "filters to one budget and never sums two budgets into one number" do
@@ -260,6 +263,20 @@ defmodule Aiur.GitHubCostCLITest do
     assert decoded["schema_version"] == 2
     assert decoded["page"] == "github-cost"
     assert decoded["data"]["reconciliation"]["graphql"]["reconciled?"] == true
+  end
+
+  test "states the broker ledger's rolling-hour window beside the totals" do
+    assert {:ok, envelope} = GitHubCostCLI.build(snapshot_fun: fn -> snapshot() end, now: @now)
+
+    assert %{"window_seconds" => 3600} = envelope["data"]["ledger"]
+    assert GitHubCostCLI.ledger_window_seconds() == 3600
+
+    output = capture_io(fn -> assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, format: :records) end)
+
+    # The statement sits on the same screen as the reconciliation totals, so
+    # nobody reconciles a longer interval against a one-hour ledger.
+    assert output =~ "admission ledger window: 1 hour"
+    assert output =~ "reconcile it against at most that span of /rate_limit"
   end
 
   defp snapshot do

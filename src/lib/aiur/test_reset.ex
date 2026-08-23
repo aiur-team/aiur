@@ -36,6 +36,7 @@ defmodule Aiur.TestReset do
   require Logger
 
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.{JsonStore, TicketBranch}
 
@@ -289,7 +290,7 @@ defmodule Aiur.TestReset do
   end
 
   defp prepare_reset_tickets(tickets) do
-    runner = fn argv -> System.cmd("gh", argv, stderr_to_stdout: true) end
+    runner = fn argv -> HostCommand.run(argv, stderr_to_stdout: true, bot_token: true) end
 
     {open_tickets, blocked_tickets} =
       Enum.reduce(tickets, {[], []}, fn id, {open, blocked} ->
@@ -503,10 +504,10 @@ defmodule Aiur.TestReset do
   # previous run's workpad sitting in the issue — agents would dutifully
   # reconcile against it instead of treating the ticket as a clean slate.
   defp delete_workpad_comments(id) do
-    case System.cmd(
-           "gh",
+    case HostCommand.run(
            ["api", "repos/{owner}/{repo}/issues/#{id}/comments", "--paginate"],
-           stderr_to_stdout: true
+           stderr_to_stdout: true,
+           bot_token: true
          ) do
       {body, 0} ->
         case Jason.decode(body) do
@@ -529,15 +530,15 @@ defmodule Aiur.TestReset do
   defp delete_each_workpad(id, comments) do
     failures =
       Enum.reduce(comments, 0, fn comment, acc ->
-        case System.cmd(
-               "gh",
+        case HostCommand.run(
                [
                  "api",
                  "-X",
                  "DELETE",
                  "repos/{owner}/{repo}/issues/comments/#{Map.get(comment, "id")}"
                ],
-               stderr_to_stdout: true
+               stderr_to_stdout: true,
+               bot_token: true
              ) do
           {_, 0} -> acc
           {_, _} -> acc + 1
@@ -687,7 +688,7 @@ defmodule Aiur.TestReset do
   end
 
   defp close_pr_for_branch(id, branch) do
-    case System.cmd("gh", ["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true) do
+    case HostCommand.run(["pr", "close", branch, "--delete-branch=false"], stderr_to_stdout: true, bot_token: true) do
       {_, 0} -> ok("##{id} PR on #{branch} closed")
       {_, _} -> :ok
     end
@@ -719,7 +720,7 @@ defmodule Aiur.TestReset do
 
   defp reset_labels(id) do
     [remove_argv, add_argv] = reset_labels_command_args(id)
-    runner = fn argv -> System.cmd("gh", argv, stderr_to_stdout: true) end
+    runner = fn argv -> HostCommand.run(argv, stderr_to_stdout: true, bot_token: true) end
 
     case apply_label_reset(remove_argv, add_argv, runner, @label_reset_attempts, @label_reset_backoff_ms) do
       :ok ->
