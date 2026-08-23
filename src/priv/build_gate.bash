@@ -1179,7 +1179,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       [[ -e $path || -L $path ]] || continue
 
       case $path in
-        *.owner) continue ;;
+        *.owner | *.hold-timeout) continue ;;
       esac
 
       aiur_build_gate_fail "legacy_state_blocked" "$path"
