@@ -554,6 +554,14 @@ export const main = async (): Promise<void> => {
       selectedMicId: current.selectedMicId,
       micOffset: current.micOffset,
       voice: voiceReadings(),
+      commandsPage: current.commandsPage,
+      commandsView: current.commandsView,
+      historyOffset: current.historyOffset,
+      selectedCommand: current.selectedCommand,
+      optionOffset: current.optionOffset,
+      selectedOption: current.selectedOption,
+      commandDictation: current.commandDictation,
+      commandsError: current.commandsError,
     };
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
@@ -622,6 +630,9 @@ export const main = async (): Promise<void> => {
           transcript: () => undefined,
           logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
+          commands: (page) => { controller.setCommands(page); if (activeBackend !== null) repaintDetached(activeBackend); },
+          commandAnswered: (result) => { controller.commandAnswered(result); if (activeBackend !== null) repaintDetached(activeBackend); },
+          commandsError: (reason) => { controller.commandsError(reason); if (activeBackend !== null) repaintDetached(activeBackend); },
           voiceStarted: (session, reason) => voiceLink.started(session, reason),
           voice: (session, kind, text) => { voiceLink.transcript(session, { kind, text }); voiceRepaints.request(); },
           voiceError: (session, reason) => { voiceLink.failed(session, reason); voiceRepaints.request(); },

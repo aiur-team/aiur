@@ -57,6 +57,54 @@ Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 Executor helper for the reverse lookup: it queries the remote, prints the one
 matching branch, and exits non-zero when no branch or more than one branch exists.
 
+## Collision-proof worktrees
+
+Concurrent agents on one box share a scratchpad root, and a shared default
+write path is the failure: left to choose their own worktree name they pick
+the same obvious one — `wt`, `worktree`, `pr`, `build` — and the second
+silently repoints the first's checkout at a different branch *mid-run*, so a
+mutation test runs against a tree that never contained the change it just
+reverted — a confident wrong verdict that gates a merge (#2362). The
+contamination is bidirectional: another agent writing into your
+correctly-identified worktree is indistinguishable from your own tree. This is
+a cross-skill override: it applies to every worktree you create, however the
+CE skills frame it.
+
+- **Every agent-created worktree path carries the PR number AND a per-agent
+  unique component**, never a generic name. Two agents can legitimately review
+  the same PR, so the PR number alone is not enough. When the repo ships
+  `scripts/agent-worktree`, use it: `scripts/agent-worktree create <n>` fetches
+  the PR head onto a unique local branch and creates
+  `.worktrees/pr-<n>-<unique>`, refusing on collision. Without it, use the same
+  scheme by hand: `git fetch origin pull/<n>/head:pr-<n>-<unique>` then
+  `git worktree add .worktrees/pr-<n>-<unique> pr-<n>-<unique>`, deriving
+  `<unique>` per agent run (hostname + pid + random, or the agent's session id).
+- **Never persist the worktree path in a file.** Shell state does not survive
+  between your tool calls, and a file in a shared scratchpad is itself a
+  collision surface — several agents independently invented `scratchpad/wt.txt`
+  and clobbered each other. Recompute the path inline per command
+  (`scripts/agent-worktree path <n> --unique <component>` prints the same path
+  for the same component) instead of reading a stored value.
+- **Assert the worktree HEAD before every mutation batch.** `git -C <wt>
+  rev-parse HEAD` must equal the intended SHA and the batch aborts loudly on
+  drift. `scripts/agent-worktree head-check <wt> <sha>` makes this one command
+  and exits non-zero on mismatch. The tree must be clean too: the #2362
+  contamination overwrote a file in place without committing, so HEAD alone
+  proves nothing. Pass `--allow-dirty` only for the batch's own reverts,
+  asserted before the first mutation.
+- **Mutation testing requires a worktree.** Never run it in the live checkout:
+  `git checkout <sha> -- <files>` there mutates a tree other agents share and
+  corrupts their runs. A worktree is required, not optional.
+- **An existing path is an error, not a reuse opportunity.** If worktree
+  creation reports the target path already exists, stop and pick a fresh unique
+  path. Never `git -C <existing-worktree> checkout <other-branch>` or
+  `gh pr checkout <n>` inside an existing worktree to "reuse" it — that is the
+  exact repoint that corrupts another agent's run.
+- **Prune stale worktrees before creating.** `git worktree prune` (or
+  `scripts/agent-worktree prune` when available) clears registrations from
+  merged branches so a real collision is visible instead of hidden. Never
+  remove a worktree another live agent is using.
+
 ## Docs ship in the same PR
 
 Documentation is part of the change, not a follow-up ticket. Update
@@ -168,6 +216,14 @@ blocking finding is the only enforcement they have.
    retry through the Executor keyring. An empty commit or API ref update does
    not repair a prior attribution error because it contributes no reviewable
    file change; the next real content push must use the correct identity.
+
+   A guard refusal reading `aiur: github budget hold resource=<resource>
+   reset_at_ms=<milliseconds>` is not an authentication failure. Do not emit a
+   credential attention. Emit `pause.request` once with payload
+   `{reason: "github_budget_hold", resource: <resource>, reset_at_ms:
+   <milliseconds>}`; Aiur resumes that pause automatically when the advertised
+   hold clears. Any other broker diagnostic remains fail-closed and must not be
+   relabelled as this self-clearing condition.
 
    Immediately before pushing, run
    `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact

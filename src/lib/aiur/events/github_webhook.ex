@@ -146,7 +146,7 @@ defmodule Aiur.Events.GithubWebhook do
   # behaviour. A duplicate wake is recoverable; a dropped delivery is not.
   defp maybe_resolve_review_thread("pull_request_review_comment", payload, opts) when is_map(payload) do
     case Normalizer.tracked_repo(payload, opts) do
-      {:ok, _repo} -> resolve_review_thread(payload, opts)
+      {:ok, repo} -> resolve_review_thread(payload, repo, opts)
       _untracked_or_malformed -> payload
     end
   end
@@ -157,9 +157,20 @@ defmodule Aiur.Events.GithubWebhook do
   # `node_id`, or a lookup that fails, falls through to the per-comment key the
   # normalizer already uses — a duplicate wake is recoverable, a dropped
   # delivery is not.
-  defp resolve_review_thread(payload, opts) do
-    with node_id when is_binary(node_id) and node_id != "" <- get_in(payload, ["comment", "node_id"]),
-         {:ok, thread_id} <- ThreadResolver.resolve(node_id, opts) do
+  #
+  # The resolver is handed the delivery's repo and the comment's REST `id`
+  # (its `databaseId`) so it can consult the comment→thread map the poller's
+  # batch already built before spending a GraphQL point (#2326).
+  defp resolve_review_thread(payload, repo, opts) do
+    comment = Map.get(payload, "comment")
+
+    resolver_opts =
+      opts
+      |> Keyword.put(:repo, repo)
+      |> Keyword.put(:comment_id, Map.get(comment, "id"))
+
+    with node_id when is_binary(node_id) and node_id != "" <- Map.get(comment, "node_id"),
+         {:ok, thread_id} <- ThreadResolver.resolve(node_id, resolver_opts) do
       put_in(payload, ["comment", "review_thread_id"], thread_id)
     else
       _other -> payload
