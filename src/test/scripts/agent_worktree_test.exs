@@ -182,6 +182,87 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     assert git!(repo, ["rev-parse", "--show-toplevel"]) == repo
   end
 
+  test "prune default scope leaves non-.worktrees worktrees alone and never the main checkout; --all reaches them" do
+    {repo, _origin} = new_repo!()
+    add_pr!(repo, 123)
+    add_pr!(repo, 456)
+
+    {out1, 0} = run_helper!(repo, ["create", "123", "--unique", "merged"])
+    path_merged = String.trim(out1)
+    branch_merged = git!(path_merged, ["branch", "--show-current"])
+
+    # a human-style worktree outside .worktrees/ on the same commit the helper
+    # worktree is on, with its own branch so git does not refuse the checkout
+    human = Path.join(repo, "wt-human")
+    git!(repo, ["worktree", "add", "-q", "-b", "human-merged", human, branch_merged])
+
+    # merge the branch into main so both the helper worktree and the human one
+    # are stale
+    git!(repo, ["merge", "-q", "--no-edit", "-m", "merge", branch_merged])
+
+    # default scope: only the .worktrees/ helper root is pruned; the human
+    # worktree and the main checkout are untouched
+    {dry, 0} = run_helper!(repo, ["prune", "--base", "main", "--dry-run"])
+    assert dry =~ "would remove stale worktree"
+    assert dry =~ path_merged
+    refute dry =~ human
+    refute String.contains?(dry, "would remove stale worktree #{repo} (branch main")
+    assert File.dir?(human)
+
+    {out, 0} = run_helper!(repo, ["prune", "--base", "main"])
+    assert out =~ "removed stale worktree"
+    assert out =~ path_merged
+    refute File.dir?(path_merged)
+    # the human worktree survives a default-scope prune
+    assert File.dir?(human)
+    assert git!(repo, ["rev-parse", "--show-toplevel"]) == repo
+
+    # --all extends the sweep to the human worktree, but the main checkout is
+    # still never a candidate (the awk `first` skip drops it before any branch
+    # test, so `main`, an ancestor of itself, is not removed)
+    {dry_all, 0} = run_helper!(repo, ["prune", "--base", "main", "--all", "--dry-run"])
+    assert dry_all =~ "would remove stale worktree"
+    assert dry_all =~ human
+    refute String.contains?(dry_all, "would remove stale worktree #{repo} (branch main")
+
+    {out_all, 0} = run_helper!(repo, ["prune", "--base", "main", "--all"])
+    assert out_all =~ "removed stale worktree"
+    assert out_all =~ human
+    refute File.dir?(human)
+    assert git!(repo, ["rev-parse", "--show-toplevel"]) == repo
+  end
+
+  test "create ensures the .worktrees directory is gitignored" do
+    {repo, _origin} = new_repo!()
+    add_pr!(repo, 123)
+
+    {_out, 0} = run_helper!(repo, ["create", "123", "--unique", "ignored"])
+    ignore_file = Path.join(repo, ".gitignore")
+    assert File.exists?(ignore_file)
+    assert File.read!(ignore_file) =~ ".worktrees"
+    # git agrees the worktree root is ignored
+    {ignore_out, 0} = System.cmd(real_git(), ["check-ignore", ".worktrees/"], cd: repo, env: clean_env())
+    assert ignore_out =~ ".worktrees"
+  end
+
+  test "path and create refuse a unique component that is empty, path-escaping, or contains whitespace" do
+    {repo, _origin} = new_repo!()
+    add_pr!(repo, 123)
+
+    {empty_out, 1} = run_helper!(repo, ["path", "123", "--unique", ""])
+    assert empty_out =~ "invalid unique component"
+
+    {slash_out, 1} = run_helper!(repo, ["path", "123", "--unique", "../../escaped"])
+    assert slash_out =~ "invalid unique component"
+
+    {space_out, 1} = run_helper!(repo, ["path", "123", "--unique", "bad name"])
+    assert space_out =~ "invalid unique component"
+
+    # the same validation guards create, not just path
+    {create_out, 1} = run_helper!(repo, ["create", "123", "--unique", "a/b"])
+    assert create_out =~ "invalid unique component"
+  end
+
   test "list shows the registered worktrees with their branches" do
     {repo, _origin} = new_repo!()
     add_pr!(repo, 123)
@@ -219,6 +300,30 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     assert git!(path, ["rev-parse", "HEAD"]) != pr_head
   end
 
+  test "head-check refuses a dirty tree even when HEAD matches, unless --allow-dirty" do
+    {repo, _origin} = new_repo!()
+    pr_head = add_pr!(repo, 123)
+
+    {out, 0} = run_helper!(repo, ["create", "123", "--unique", "dirty"])
+    path = String.trim(out)
+
+    # the #2362 contamination shape: another agent copied files in and
+    # overwrote a test file WITHOUT committing, so HEAD is unchanged but the
+    # tree is not the one the batch would expect
+    write!(path, "feature-123.txt", "overwritten\n")
+    assert git!(path, ["rev-parse", "HEAD"]) == pr_head
+
+    {dirty_out, 65} = run_helper!(repo, ["head-check", path, pr_head])
+    assert dirty_out =~ "DIRTY TREE"
+    assert dirty_out =~ "aborting"
+    assert dirty_out =~ "--allow-dirty"
+
+    # --allow-dirty is the explicit escape for the mutation batch's own
+    # reverts and still asserts HEAD
+    {ok_out, 0} = run_helper!(repo, ["head-check", path, pr_head, "--allow-dirty"])
+    assert ok_out =~ "HEAD ok"
+  end
+
   test "head-check requires a 40-hex sha and reports a path that is not a git worktree" do
     {repo, _origin} = new_repo!()
     add_pr!(repo, 123)
@@ -228,6 +333,12 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
 
     {bad_sha, 1} = run_helper!(repo, ["head-check", path, "not-a-sha"])
     assert bad_sha =~ "40-hex commit sha"
+
+    # a valid-character but wrong-length sha is refused too, not silently
+    # compared (#2362 review nit)
+    {short_sha, 1} = run_helper!(repo, ["head-check", path, "abc"])
+    assert short_sha =~ "40-hex commit sha"
+    assert short_sha =~ "abc"
 
     not_a_repo =
       Path.join(System.tmp_dir!(), "aiur-not-a-worktree-#{System.unique_integer([:positive])}")

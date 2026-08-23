@@ -792,7 +792,10 @@ creates a new shared name one level up. Tracked as #2362.
   rev-parse HEAD` must equal the intended SHA (`gh pr view <n> --json
   headRefOid`), and the batch aborts loudly on drift.
   `scripts/agent-worktree head-check <wt> <sha>` makes this one command and
-  exits non-zero on mismatch.
+  exits non-zero on mismatch. The tree must be clean too: the #2362
+  contamination overwrote a file in place without committing, so HEAD alone
+  proves nothing. Pass `--allow-dirty` only for the batch's own reverts,
+  asserted before the first mutation.
 - **Forbid mutation testing in the live checkout.** A worktree is required,
   not optional: never `git checkout <sha> -- <files>` inside the Executor's
   own checkout.

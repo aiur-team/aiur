@@ -88,7 +88,10 @@ CE skills frame it.
 - **Assert the worktree HEAD before every mutation batch.** `git -C <wt>
   rev-parse HEAD` must equal the intended SHA and the batch aborts loudly on
   drift. `scripts/agent-worktree head-check <wt> <sha>` makes this one command
-  and exits non-zero on mismatch.
+  and exits non-zero on mismatch. The tree must be clean too: the #2362
+  contamination overwrote a file in place without committing, so HEAD alone
+  proves nothing. Pass `--allow-dirty` only for the batch's own reverts,
+  asserted before the first mutation.
 - **Mutation testing requires a worktree.** Never run it in the live checkout:
   `git checkout <sha> -- <files>` there mutates a tree other agents share and
   corrupts their runs. A worktree is required, not optional.
