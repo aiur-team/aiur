@@ -326,7 +326,6 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
             key,
             &accept_thread_transition(&1, &2, action, thread, generation, version),
             source: :webhook,
-            version: version,
             etag: :derive
           )
 
@@ -367,25 +366,34 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     if regression?(held, version), do: :unchanged, else: body
   end
 
-  # GitHub permits a null transition timestamp. In that case the receiver's
-  # admitted delivery id becomes the generation, but a manual redelivery gets a
-  # new delivery id for the same state change. Preserve the held generation
-  # while the action (and any timestamp) is unchanged; an actual
-  # resolved/unresolved transition replaces it.
-  defp accept_thread_transition(held, %{version: held_version}, action, thread, generation, version) do
+  # The transition carries its own ordering clock. The marker stores the
+  # transition's `updated_at` under `"updated_at"`, so it never shares the
+  # entry's version slots — which on this same key the comment pipe also writes
+  # (`mark_processed` records the published comment's version) and which a
+  # mutation's thread deposit records as the body version. The ordering guard
+  # compares the incoming transition's `updated_at` against the held marker's,
+  # not against whatever a different pipe last wrote to the entry: a review
+  # comment edited after a resolve/unresolve transition can no longer occupy the
+  # comparison slot and make the next genuine transition look like `:unchanged`.
+  defp accept_thread_transition(held, _marker, action, thread, generation, version) do
+    held_transition_at = transition_at(held)
+
     cond do
-      regression?(held_version, version) ->
+      regression?(held_transition_at, version) ->
         :unchanged
 
-      same_thread_transition?(held, action, held_version, version) ->
+      same_thread_transition?(held, action, held_transition_at, version) ->
         :unchanged
 
       true ->
-        data = %{
-          "webhook_action" => action,
-          "generation" => generation,
-          "thread" => thread
-        }
+        data =
+          %{
+            "webhook_action" => action,
+            "generation" => generation,
+            "thread" => thread
+          }
+          |> Map.put("updated_at", version)
+          |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
         case latest_unresolved_generation(held, action, generation) do
           value when is_binary(value) and value != "" -> Map.put(data, "latest_unresolved_generation", value)
@@ -394,15 +402,18 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
+  defp transition_at(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
+  defp transition_at(_held), do: nil
+
   defp latest_unresolved_generation(_held, "unresolved", generation), do: generation
   defp latest_unresolved_generation(%{"latest_unresolved_generation" => generation}, _action, _generation), do: generation
   defp latest_unresolved_generation(%{"webhook_action" => "unresolved", "generation" => generation}, _action, _generation), do: generation
   defp latest_unresolved_generation(_held, _action, _generation), do: nil
 
-  defp same_thread_transition?(%{"webhook_action" => action}, action, held_version, version),
-    do: is_nil(version) or held_version == version
+  defp same_thread_transition?(%{"webhook_action" => action}, action, held_transition_at, version),
+    do: is_nil(version) or held_transition_at == version
 
-  defp same_thread_transition?(_held, _action, _held_version, _version), do: false
+  defp same_thread_transition?(_held, _action, _held_transition_at, _version), do: false
 
   # GitHub does not order deliveries, and a single delivery carries more than the
   # object it is about: an `issue_comment` also carries the whole issue and its

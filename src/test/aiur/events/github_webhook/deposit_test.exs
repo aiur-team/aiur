@@ -322,10 +322,15 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
                 data: %{
                   "webhook_action" => "unresolved",
                   "generation" => "2026-08-21T12:00:00Z",
-                  "latest_unresolved_generation" => "2026-08-21T12:00:00Z"
-                },
-                version: "2026-08-21T12:00:00Z"
+                  "latest_unresolved_generation" => "2026-08-21T12:00:00Z",
+                  "updated_at" => "2026-08-21T12:00:00Z"
+                }
               }} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
+
+      # The transition keeps its own clock in the marker data, never the entry's
+      # version slot (which the comment pipe also writes on this same key).
+      assert {:ok, %{version: nil}} =
                ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
     end
 
@@ -969,25 +974,6 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     after
       200 -> :ok
     end
-  end
-
-  # Restarts the store against a real checkpoint file: with no resolvable state
-  # directory it runs in memory, which would make a restart trivially pass
-  # nothing rather than prove the round trip.
-  defp restart_store!(path) do
-    pid = Process.whereis(ResourceStore)
-    ref = Process.monitor(pid)
-    Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
-
-    receive do
-      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-    after
-      5_000 -> flunk("ResourceStore did not stop")
-    end
-
-    Application.put_env(:aiur, :github_resource_store_path, path)
-    {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, ResourceStore)
-    :ok
   end
 
   defp clear_dedup do
