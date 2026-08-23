@@ -1796,21 +1796,27 @@ defmodule Aiur.GitHub.ResourceStore do
 
     Enum.reduce(entries, [], fn {encoded, value}, acc ->
       with key when not is_nil(key) <- decode_key(encoded),
-           %{} = entry <- decode_entry(value) do
-        # The same two-tier decision as the sweep: an entry whose recorded_at is
-        # itself past cutoff is not resurrected at all; a body past retention
-        # inside an entry still in use reloads *without* its body — the mark and
-        # the validator survive a restart, which is exactly when the durable
-        # processed mark is the only defence against a duplicate dispatch.
-        cond do
-          entry_expired?(entry, cutoff) -> acc
-          body_expired?(entry, cutoff) -> [{key, drop_body(entry)} | acc]
-          true -> [{key, entry} | acc]
-        end
+           %{} = entry <- decode_entry(value),
+           {key, reloaded} <- reload_entry(key, entry, cutoff) do
+        [{key, reloaded} | acc]
       else
         _other -> acc
       end
     end)
+  end
+
+  # The same two-tier decision as the sweep, applied at boot: an entry whose
+  # recorded_at is itself past cutoff is not resurrected at all; a body past
+  # retention inside an entry still in use reloads *without* its body — the mark
+  # and the validator survive a restart, which is exactly when the durable
+  # processed mark is the only defence against a duplicate dispatch. Answers
+  # `{key, entry}` to reload, or `:skip` when nothing survives.
+  defp reload_entry(key, entry, cutoff) do
+    cond do
+      entry_expired?(entry, cutoff) -> :skip
+      body_expired?(entry, cutoff) -> {key, drop_body(entry)}
+      true -> {key, entry}
+    end
   end
 
   defp decode_key(encoded) when is_binary(encoded) do
