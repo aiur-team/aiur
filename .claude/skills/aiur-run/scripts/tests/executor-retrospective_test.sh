@@ -272,7 +272,7 @@ set -e
 [ "$url_missing_status" -eq 67 ] || fail "missing dashboard URL did not return its explicit failure status"
 grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit evidence"
 grep -q 'did not run' "$url_missing_retro" || fail "missing dashboard URL verdict did not say did-not-run"
-grep -q 'attention' "$url_missing_retro" && fail "missing dashboard URL verdict must not say attention"
+grep -qiE 'attention|healthy' "$url_missing_retro" && fail "missing dashboard URL verdict must say neither attention nor healthy"
 grep -q 'AIUR_DASHBOARD_URL is required' "$state_root/url-missing.err" || fail "missing dashboard URL did not print the stderr precondition line"
 [ -s "$state_root/url-missing.out" ] && fail "missing dashboard URL must not print a capture report on stdout"
 url_missing_report="$(find "$state_root/url-missing-retrospective.md.d" -name report.json -print -quit)"
@@ -299,7 +299,7 @@ password_missing_status=$?
 set -e
 [ "$password_missing_status" -eq 69 ] || fail "missing dashboard password did not return its explicit failure status"
 grep -q 'did not run' "$password_missing_retro" || fail "missing dashboard password verdict did not say did-not-run"
-grep -q 'attention' "$password_missing_retro" && fail "missing dashboard password verdict must not say attention"
+grep -qiE 'attention|healthy' "$password_missing_retro" && fail "missing dashboard password verdict must say neither attention nor healthy"
 grep -q 'AIUR_DASHBOARD_PASSWORD is required' "$state_root/password-missing.err" || fail "missing dashboard password did not print the stderr precondition line"
 password_missing_report="$(find "$state_root/password-missing-retrospective.md.d" -name report.json -print -quit)"
 [ -n "$password_missing_report" ] || fail "missing dashboard password did not write a did-not-run report.json"

@@ -505,9 +505,16 @@ record() {
     # line naming the failing precondition survives, so a redirected log is
     # never silently empty next to a bare exit code.
     visual_check_err="$(mktemp "$run_dir/visual-check.XXXXXX")"
+    # Scope the temp file to this block so an interrupted shell or a future
+    # `set -e` change cannot strand it in $run_dir.
+    trap 'rm -f "$visual_check_err"' EXIT INT TERM
+    # `$?` must be read immediately after the visual_check call: any command
+    # inserted between the pipeline and this printf would silently change what
+    # $? means, and the forwarded line would name the wrong failure.
     visual_check visual-check >/dev/null 2>"$visual_check_err" || \
       printf 'visual check did not run (status %s): %s\n' "$?" "$(head -n 1 "$visual_check_err")" >&2
     rm -f "$visual_check_err"
+    trap - EXIT INT TERM
   fi
 
   # The terminal is an operator-facing surface too. Keep this outside the
