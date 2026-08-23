@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.ViewStateSweep do
   @moduledoc """
-  The single slow cadence behind every view-state source.
+  The single slow cadence behind view state: reconcile the one remaining
+  writer, and run the issue-family divergence watermark that replaced the
+  deleted polls' corroboration.
 
   ## Why exactly one timer, and why it is not zero
 
@@ -15,54 +17,37 @@ defmodule Aiur.GitHub.ViewStateSweep do
   is not a refresh cadence and it must never be tuned as though shortening it
   made anything fresher.
 
-  ## Demand-driven: it refreshes only what somebody is watching
+  ## What it sweeps, and the divergence watermark it runs
 
-  The three sources are read exclusively by `aiur_web`. Two of them —
-  `Aiur.OpenTicketSource` and `Aiur.BuildOrder.AdHocSource` — are reconciled
-  **only while at least one LiveView session is watching them**. A watching
-  session is a demander, registered when the page subscribes to the source
-  (`OpenTicketSource.subscribe/0` and the Build Order sources' `subscribe/0`,
-  both already called on mount); a monitor releases it when the session dies.
+  `Aiur.OpenTicketSource` and `Aiur.BuildOrder.AdHocSource` are event-sourced
+  (#2325): they subscribe to `Aiur.GitHub.ResourceStore` changes, keep one
+  bootstrap listing per boot, and re-list when `Aiur.Webhooks.ModeRegistry`
+  reports a repo `degraded` or `recovered` — the gap case where deliveries are
+  known to be dropped. They hold no timer and are not swept.
 
-  Two consequences follow from that shape:
+  `Aiur.BuildOrder.PackStatus` remains. It is the "supervised writer for the
+  daemon-owned `status.json` projection beside every discovered Build Order
+  pack", and the planning contract names that file authoritative. Moving it to
+  an event stream changes *when a file on disk is written*, which is a
+  different risk class from the other three sources, so it is deliberately done
+  in a separate PR. Until then it keeps the sweep as its recovery bound: a
+  `status.json` entry whose delivery was lost is rewritten on the next tick. It
+  is also the only source left behind the demand gate #2335 introduced: it
+  answers `demanded?/0` unconditionally, so the sweep reconciles it on every
+  tick whether or not a page is open (see its moduledoc).
 
-    * Opening the page that needs a source renders its held snapshot first, and
-      the first demander also buys one immediate refresh — so a freshly opened
-      page does not wait a full interval for its first fresh read.
-    * With no session open there is no demander, and the sweep refreshes
-      neither of those two sources. An idle daemon with no dashboard session
-      open makes zero requests from either of them, which is the entire reason
-      this gate exists: a 900-second sweep against a 30-second cache TTL is a
-      guaranteed cache miss, so the only honest reason to run it at all is that
-      someone is looking.
-
-  `Aiur.BuildOrder.PackStatus` is the deliberate exception: it reports demanded
-  unconditionally (`demanded?/0` answers `true`), so the sweep reconciles it on
-  every tick whether or not a page is open. It writes the daemon-owned
-  `status.json` projection the planning contract names authoritative, and gating
-  that writer on viewers would change *when a file on disk is written* — a
-  different risk class, kept out of this change. See its moduledoc.
-
-  Because the demander set lives in each source's GenServer, a supervisor
-  restart empties it while the pages watching that source are still open. Every
-  tick therefore asks each running source to re-seed its demanders from its
-  PubSub subscriber presence before deciding whether to reconcile it, so a
-  crash cannot silently strand an open page — recovery just returns on the next
-  tick, as it did before the gate existed.
-
-  ## What this is not, yet
-
-  Stated plainly because the gap is easy to mistake for a bug: the three sources
-  below do **not** yet read the store, subscribe to its change events, or get
-  woken by a webhook delivery. Each still performs its own listing when asked.
-  So today this sweep is not merely closing a gap left by free writers — for
-  these three it is the only thing that refreshes them at all, and a change made
-  outside Aiur surfaces within one sweep interval rather than immediately.
-
-  That is the deliberate order of work: this module removes the cost, and the
-  store subscription that removes the latency — a subscribed view re-rendering
-  the instant any writer deposits — lands with the units that make these sources
-  read the store. The interval is sized for that, not for freshness.
+  On the same cadence, the sweep runs the **divergence watermark** — the one
+  steady-state GitHub read left in the view-state family. The polls #2325
+  deleted were also the *poller corroboration* the silence sweep needs: without
+  an independent observer of the issue family, `Aiur.Webhooks.DeliveryMode`
+  could never tell "no events because nothing changed" from "no events because
+  the webhook broke", so an `issues` delivery loss would never degrade the repo
+  and the projections would sit frozen reporting `:available` forever. A single
+  `updated_at`-ordered head page of the open-issue listing replaces that: it
+  records activity corroboration through `Webhooks.record_activity/2`, and it
+  compares GitHub's newest open-issue `updated_at` against the newest the store
+  holds — when GitHub is ahead, a delivery was dropped and the view-state
+  sources are told to re-list via `{:view_state_diverged, repo}`.
 
   ## What it replaced
 
@@ -77,9 +62,10 @@ defmodule Aiur.GitHub.ViewStateSweep do
   together, is how the burn this ticket exists to remove was built. Measured
   against GitHub's own `rateLimit { cost }`, each of those reads costs one point,
   so the three together were 1.7 requests per minute for state nobody was
-  necessarily looking at. They now hold no timer at all: this process ticks and
-  asks each of them to reconcile only while it is demanded, and each one still
-  refreshes on demand through its own `refresh/1`.
+  necessarily looking at. Two of the three are now event-sourced and cost
+  nothing; PackStatus still reconciles through this process, via a demand gate
+  it answers unconditionally; and the divergence watermark is one page-1 head
+  page per sweep — a bounded prefix, not a paged listing.
 
   ## Bounding the sweep rather than tightening it
 
@@ -95,18 +81,23 @@ defmodule Aiur.GitHub.ViewStateSweep do
   require Logger
 
   alias Aiur.Config
+  alias Aiur.GitHub.{ResourceStore, Transport}
+  alias Aiur.Webhooks
 
   # A source is anything holding view state that GitHub is the origin of. Named
   # here rather than self-registering, so the set of things that can generate
   # view-state traffic is readable in one place and a new one cannot be added
   # without this list changing.
   @sources [
-    Aiur.OpenTicketSource,
-    Aiur.BuildOrder.AdHocSource,
     Aiur.BuildOrder.PackStatus
   ]
 
   @default_interval_ms :timer.minutes(15)
+  # The divergence watermark is a single page of the open listing, so the same
+  # bound the event-sourced open-ticket listing uses applies: an oversized repo
+  # must not be decoded in full.
+  @head_response_bytes 4 * 1024 * 1024
+  @diverged_topic "view_state:diverged"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -116,6 +107,23 @@ defmodule Aiur.GitHub.ViewStateSweep do
   @doc "The sources this sweep reconciles."
   @spec sources() :: [module()]
   def sources, do: @sources
+
+  @doc """
+  Subscribes the caller to `{:view_state_diverged, repo}` broadcasts.
+
+  The divergence watermark publishes this when it observes GitHub state newer
+  than the store holds — the signal that a delivery was dropped and the
+  event-sourced view-state sources must re-list. This is the replacement for
+  the poller corroboration the deleted polls used to provide.
+  """
+  @spec subscribe_diverged() :: :ok | {:error, term()}
+  def subscribe_diverged do
+    Phoenix.PubSub.subscribe(Aiur.PubSub, @diverged_topic)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
 
   @doc "Runs one sweep now and answers the sources it reconciled (test/support)."
   @spec sweep_now(GenServer.server()) :: [module()]
@@ -138,11 +146,26 @@ defmodule Aiur.GitHub.ViewStateSweep do
     state = %{
       interval: Keyword.get(opts, :interval_ms) || configured_interval_ms(),
       sources: Keyword.get(opts, :sources, @sources),
+      repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
+      token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
+      request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+      # Resolved once at boot: the repository is a boot-time configuration fact,
+      # and re-resolving it on every sweep would shell out to `git remote` on
+      # each tick for no benefit.
+      repo: nil,
       timer: nil
     }
 
+    state = %{state | repo: resolve_repo(state.repo_fun)}
     if Keyword.get(opts, :sweep_on_start, false), do: send(self(), :sweep)
     {:ok, schedule(state)}
+  end
+
+  defp resolve_repo(repo_fun) do
+    case repo_fun.() do
+      {:ok, {owner, repo}} when is_binary(owner) and is_binary(repo) -> {String.downcase(owner), String.downcase(repo)}
+      _other -> nil
+    end
   end
 
   @impl true
@@ -161,11 +184,10 @@ defmodule Aiur.GitHub.ViewStateSweep do
   # A source is refreshed only while it reports demanded, and a source that is
   # not running is skipped rather than started: the sweep is recovery for state
   # somebody is holding, and there is nothing to recover for a source this
-  # deployment does not run at all. With no demander the two view-only sources
-  # are skipped too — the recovery is for a page that is open, and an idle
-  # daemon with no dashboard session open costs them nothing. `PackStatus` is
-  # the exception: it answers demanded unconditionally, so it is reconciled on
-  # every tick regardless of viewers (see its moduledoc).
+  # deployment does not run at all. `PackStatus` — the one source left on the
+  # sweep after #2325 event-sourced the view-only two — answers `demanded?`
+  # unconditionally, so the demand gate is a no-op for it and it is reconciled
+  # on every tick regardless of viewers (see its moduledoc).
   #
   # Every running source is asked to re-seed demand first. A source's demander
   # set lives in its own GenServer, so a supervisor restart empties it while
@@ -175,6 +197,8 @@ defmodule Aiur.GitHub.ViewStateSweep do
   # into permanent silence for every open page — the exact self-healing the
   # unconditional pre-gate sweep used to provide (review finding 3).
   defp sweep(state) do
+    check_issue_head(state)
+
     Enum.filter(state.sources, fn source ->
       if Process.whereis(source) do
         source.reseed_demand()
@@ -195,6 +219,114 @@ defmodule Aiur.GitHub.ViewStateSweep do
     else
       false
     end
+  end
+
+  # -- divergence watermark ------------------------------------------------
+  #
+  # The one steady-state GitHub read left in the view-state family: a single
+  # `updated_at`-ordered head page of the open-issue listing, run on the sweep's
+  # own cadence. The deleted polls #2325 removed were also the corroboration the
+  # silence sweep needs, so without this the repo could never degrade on an
+  # `issues` delivery loss. It has two jobs:
+  #
+  # 1. Corroboration. `Webhooks.record_activity/2` feeds `DeliveryMode`, so
+  #    `delivery_was_owed?/2` can fire again: the head advancing while a
+  #    delivery did not land is exactly the "activity a full threshold after the
+  #    last delivery" that proves a delivery was owed and lost.
+  # 2. Divergence. GitHub's newest open-issue `updated_at` is compared against
+  #    the newest the store holds; when GitHub is ahead, a delivery was dropped
+  #    and the view-state sources re-list via `{:view_state_diverged, repo}`.
+  #
+  # Both are deliberately best-effort and quiet on failure: a missing repo or
+  # token is a configuration fact, and a single failed head read should never
+  # take the sweep — the PackStatus recovery bound — down with it.
+  defp check_issue_head(%{repo: nil} = _state), do: :ok
+
+  defp check_issue_head(%{repo: {owner, repo}} = state) do
+    case state.token_fun.() do
+      {:ok, token} ->
+        url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&sort=updated&direction=desc&per_page=100"
+
+        case state.request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @head_response_bytes}) do
+          {:ok, %{status: 200, body: body}} when is_list(body) ->
+            full_name = "#{owner}/#{repo}"
+            head = newest_updated_at(body)
+            record_head_activity(full_name, head)
+            maybe_broadcast_divergence(full_name, head)
+
+          _unexpected ->
+            :ok
+        end
+
+      # A missing repo or token is a configuration fact, never a reason to take
+      # the sweep down with it.
+      _configuration_or_auth_fault ->
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning("ViewStateSweep head check failed: #{Exception.message(error)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("ViewStateSweep head check exited: #{inspect(reason)}")
+      :ok
+  end
+
+  defp newest_updated_at(body) do
+    body
+    |> Enum.map(&Map.get(&1, "updated_at"))
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.max(fn -> nil end)
+  end
+
+  # The observation key rides the head: a head that advanced is novel and records
+  # activity; an unchanged head is a replay the registry ignores. A nil head (an
+  # empty open listing) records nothing — an idle repo must not manufacture
+  # corroboration for activity that never happened.
+  defp record_head_activity(_full_name, nil), do: :ok
+
+  defp record_head_activity(full_name, head) do
+    Webhooks.record_activity(full_name, observation: {:issue_head, head})
+    :ok
+  end
+
+  # Compare open-to-open: GitHub's newest open-issue `updated_at` against the
+  # newest the store holds for an open issue, so a recently-closed issue (which
+  # left the open head but may still hold a newer timestamp in the store) cannot
+  # mask an open-issue divergence.
+  defp maybe_broadcast_divergence(full_name, head) when is_binary(head) do
+    case store_max_open_updated_at(full_name) do
+      # Cold start: the store has no evidence of the repo yet, so there is
+      # nothing to diverge from — the sources' boot listings establish the
+      # baseline, and the next head check once deliveries have landed will.
+      nil -> :ok
+      store_max -> if head > store_max, do: broadcast_diverged(full_name)
+    end
+  end
+
+  defp maybe_broadcast_divergence(_full_name, _head), do: :ok
+
+  defp store_max_open_updated_at(full_name) do
+    full_name
+    |> then(&ResourceStore.list_type(:issue, &1))
+    |> Enum.map(fn {_key, body} -> body end)
+    |> Enum.filter(&(Map.get(&1, "state") == "open"))
+    |> Enum.map(&Map.get(&1, "updated_at"))
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.max(fn -> nil end)
+  end
+
+  defp broadcast_diverged(full_name) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @diverged_topic, {:view_state_diverged, full_name})
+    end
+
+    :ok
+  rescue
+    error -> Logger.warning("ViewStateSweep publish diverged failed: #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("ViewStateSweep publish diverged exited: #{inspect(reason)}")
   end
 
   # Arming cancels first, so this process holds **at most one** timer no matter
