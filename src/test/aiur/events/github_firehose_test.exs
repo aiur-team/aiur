@@ -70,6 +70,19 @@ defmodule Aiur.Events.GithubFirehoseTest do
       refute_receive {:event, _}, 100
     end
 
+    # #2354: the cheapest tick is the 304 revalidation, and the per-tick window
+    # metric must not zero it out. One actual HTTP read happened, so the window
+    # metric reports page 1 of a complete (empty) window — not 0 pages, which
+    # would under-count the poller's steady-state cost.
+    test "304 reports one page fetched and a complete window" do
+      stub = fn %{etag: ~s("e1")} ->
+        {:ok, %{status: 304, headers: [{"ETag", ~s("e1")}], body: ""}}
+      end
+
+      assert {:ok, %{etag: ~s("e1"), count: 0, pages_fetched: 1, partial_window?: false}} =
+               GithubFirehose.poll(etag: ~s("e1"), request_fun: stub)
+    end
+
     test "PushEvent on default branch publishes system.<branch>.branch.push" do
       :ok = Exchange.subscribe("system.main.branch.push")
 

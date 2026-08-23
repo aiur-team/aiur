@@ -97,12 +97,18 @@ defmodule Aiur.Events.GithubFirehose do
 
     case Client.fetch_repo_events(client_opts) do
       {:ok, {:not_modified, etag, poll_interval}} ->
+        # A 304 is one actual HTTP read (the If-None-Match revalidation GitHub
+        # does not bill), so the per-tick window metric must count it as page 1
+        # of an empty, complete window — not 0 pages, which would under-report
+        # the poller's cheapest and most common tick (#2354).
         {:ok,
          %{
            etag: etag,
            last_event_id: last_event_id,
            count: 0,
            poll_interval: poll_interval,
+           pages_fetched: 1,
+           partial_window?: false,
            recent_merge_persistence: :not_attempted
          }}
 
