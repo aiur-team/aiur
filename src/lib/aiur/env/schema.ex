@@ -101,10 +101,10 @@ defmodule Aiur.Env.Schema do
   The only boot-aborting credential requirement.
 
   The daemon must be able to authenticate with GitHub. `GITHUB_TOKEN` alone
-  satisfies it; otherwise the complete `github_app` credential group
-  (`github_credential_groups`) must be present. Absence is a startup failure
-  naming what is missing; the tracker configuration requirement is enforced
-  separately by `Aiur.Config.validate!/0`.
+  satisfies it; otherwise a `gh` keyring login (`gh auth login`) or the
+  complete `github_app` credential group (`github_credential_groups`) must be
+  present. Absence is a startup failure naming what is missing; the tracker
+  configuration requirement is enforced separately by `Aiur.Config.validate!/0`.
   """
   @spec github_credential_requirement() :: %{
           token: String.t(),
@@ -116,9 +116,10 @@ defmodule Aiur.Env.Schema do
       token: "GITHUB_TOKEN",
       alternative_group: :github_app,
       missing_message:
-        "no GitHub credential is configured: set GITHUB_TOKEN, or configure the " <>
-          "complete GitHub App set (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and " <>
-          "one of GITHUB_APP_PRIVATE_KEY_PATH / GITHUB_APP_PRIVATE_KEY)"
+        "no GitHub credential is configured: set GITHUB_TOKEN, run `gh auth login` " <>
+          "to use the gh keyring, or configure the complete GitHub App set " <>
+          "(GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and one of " <>
+          "GITHUB_APP_PRIVATE_KEY_PATH / GITHUB_APP_PRIVATE_KEY)"
     }
   end
 
