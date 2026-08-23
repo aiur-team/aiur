@@ -2422,7 +2422,6 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
       {"FAKE_MIX_ADOPTED_DAEMON_PID", Map.get(context, :adopted_daemon_pid_path, "")},
-      {"FAKE_MIX_ADOPTED_DAEMON_WAKEUP", if(Map.get(context, :adopted_daemon_wakeup, false), do: "1", else: "0")},
       {"FAKE_MIX_DESCENDANT_COMMAND", Map.get(context, :descendant_command, "")},
       {"FAKE_MIX_DESCENDANT_GATE_LOG", Map.get(context, :descendant_gate_log, "")},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
@@ -2436,7 +2435,6 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_BUILD_GATE_HOLDER_START_DELAY_SECONDS", to_string(Map.get(context, :holder_start_delay_seconds, 0))},
       {"AIUR_BUILD_GATE_MAX_HOLD_SECONDS", Integer.to_string(Map.get(context, :max_hold_seconds, 0))},
       {"AIUR_BUILD_GATE_RETAIN_SECONDS", to_string(Map.get(context, :retain_seconds, ""))},
-      {"AIUR_BUILD_GATE_HOLDER_SCHEDSTAT_PATH", if(Map.get(context, :cpu_measure_unavailable, false), do: Path.join(context.gate_dir, "no-schedstat"), else: "")},
       {"AIUR_TEST_STATUS_READ_DELAY_SECONDS", to_string(Map.get(context, :status_read_delay_seconds, 0))},
       {"AIUR_TEST_HANDSHAKE_FIFO_FRAGMENT", Map.get(context, :handshake_fifo_fragment, "")},
       {"AIUR_TEST_DELAY_OWNER_MV", if(Map.get(context, :delay_owner_publication, false), do: "1", else: "0")},
@@ -2449,7 +2447,18 @@ defmodule Aiur.BuildGateTest do
       {"PATH", path}
     ]
 
-    env ++ Map.get(context, :extra_env, [])
+    env ++ build_gate_holder_test_hooks(context) ++ Map.get(context, :extra_env, [])
+  end
+
+  # Holder test-hook env entries kept out of build_gate_env so that function's
+  # cyclomatic complexity stays under the Credo limit. These drive the
+  # #2398 review fixtures: a periodically-waking adopted daemon, and forcing
+  # the no-schedstat measurement path.
+  defp build_gate_holder_test_hooks(%{gate_dir: gate_dir} = context) do
+    [
+      {"FAKE_MIX_ADOPTED_DAEMON_WAKEUP", if(Map.get(context, :adopted_daemon_wakeup, false), do: "1", else: "0")},
+      {"AIUR_BUILD_GATE_HOLDER_SCHEDSTAT_PATH", if(Map.get(context, :cpu_measure_unavailable, false), do: Path.join(gate_dir, "no-schedstat"), else: "")}
+    ]
   end
 
   defp start_gated_port(command, context) do
