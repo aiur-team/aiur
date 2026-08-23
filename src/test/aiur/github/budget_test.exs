@@ -348,6 +348,69 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.release(lease, opts)
   end
 
+  # #2409 root cause: GitHub meters `/search/*` against its own ~30 req/min
+  # pool, so a search response must be classified as `search` — never folded
+  # into `core`. Before this fix a search-pool exhaustion (a `search` header
+  # with `remaining: 0`) fell through `response_resource` to the request's
+  # bucket and created a *core* hold, which then denied every core request —
+  # including dispatch-authorization timeline fetches — until the search pool
+  # reset.
+  test "a search-pool exhaustion holds only search, never core", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    search = request("shared-token", "/search/issues?q=repo:owner/repo+label:agent")
+    reset_at = System.system_time(:second) + 60
+
+    assert Budget.request_resource(search) == "search"
+    assert Budget.request_resource(core) == "core"
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "search"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # The search pool is held...
+    assert {:hold, %{reason: :shared_budget, resource: "search"}} =
+             Budget.acquire(search, Keyword.put(opts, :timeout_ms, 1_000))
+
+    # ...but core is untouched: the timeline fetch that dispatch authorization
+    # relies on still goes through.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "a rate-limit pool the guard does not model never becomes a core hold", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    reset_at = System.system_time(:second) + 60
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "integration_manifest"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # No modeled pool was exhausted, so no resource hold is issued — a core
+    # request must not be held because some other GitHub pool reset.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
   test "simultaneous fan-out is staggered and reports the measured burst width", %{root: root} do
     opts = [state_dir: root, max_inflight: 6, max_inflight_per_endpoint: 6, requests_per_minute: 20, stagger_ms: 10]
     request = request("shared-token", "/repos/owner/repo/pulls/1477/reviews")
