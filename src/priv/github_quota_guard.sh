@@ -2556,13 +2556,16 @@ response_status_is_304() {
 # then the headers are stripped again unless the caller asked for them. The
 # bytes this prints are what the caller sees, so they are also exactly what the
 # cache must store. On a served 304 the response carried no body, so the answer
-# is the cached body (or the 304 headers when the caller asked for `--include`):
-# a 304 means "what you hold is current" (#2307).
+# is the cached body — which for an `--include` entry is already the correct
+# include-shaped bytes (headers and body), and for a plain entry the body alone,
+# exactly as a fresh cache hit serves the same entry. A 304 means "what you hold
+# is current" (#2307), so serving the cached body to an `--include` caller must
+# not be replaced by the bare 304 status line the response actually carried.
 emit_api_output() {
-  if [ "$api_requested_include" -eq 1 ]; then
-    cat "$output_file"
-  elif [ "$cache_served_304" -eq 1 ] && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
+  if [ "$cache_served_304" -eq 1 ] && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
     cat "$cache_body"
+  elif [ "$api_requested_include" -eq 1 ]; then
+    cat "$output_file"
   elif sed -n '1p' "$output_file" | grep -Eq '^HTTP/'; then
     sed '1,/^[[:space:]]*$/d' "$output_file"
   else

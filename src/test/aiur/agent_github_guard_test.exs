@@ -3428,6 +3428,89 @@ defmodule Aiur.AgentGitHubGuardTest do
              |> Enum.sort() == [false, true]
     end
 
+    # A served 304 carries no body, so the answer for an `--include` caller must
+    # be the cached include-shaped bytes (headers AND body) — never the bare 304
+    # status line the response actually carried, which would silently drop the
+    # body. The cache-hit path already serves the same entry unchanged to any
+    # caller, so the 304 path must not answer differently for the same command.
+    test "a 304 answers an --include caller with the full cached headers+body, not bare 304 headers", context do
+      args = ["api", "repos/owner/repo/issues/1670", "--include"]
+      args_file = Path.join(context.workspace, "args")
+      headers200 = "HTTP/2 200\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      headers304 = "HTTP/2 304\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      include_body = headers200 <> "cached-v1\n"
+
+      env = [
+        AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_ARGS: args_file
+      ]
+
+      # Run 1: a 200 --include read stores the include-shaped bytes exactly as
+      # the caller saw them (headers + body).
+      assert {^include_body, 0} =
+               run_cached_guard(context, args, env ++ [FAKE_GH_HEADERS: headers200, FAKE_GH_BODY: "cached-v1\n"])
+
+      Process.sleep(2_100)
+      File.rm(args_file)
+
+      # Run 2: the expired conditional re-fetch answers 304. The --include caller
+      # must be served the full include-shaped cached body — not the bare 304
+      # status line (which has no body).
+      assert {^include_body, 0} =
+               run_cached_guard(context, args, env ++ [FAKE_GH_HEADERS: headers304, FAKE_GH_BODY: "stale-304\n", FAKE_GH_304_ERROR: "1"])
+
+      assert File.read!(args_file) =~ "If-None-Match: \"v1\""
+
+      # The 304 carried no body, so the good include-shaped body must still be
+      # what the store holds — a header-only 304 must never be re-stored over it.
+      [{_key, body}] = cached_shapes(context)
+      assert File.read!(body) == include_body
+    end
+
+    # A served 304 confirms the held body is current, so the fetched-at stamp is
+    # refreshed. Without that refresh the entry would stay permanently expired
+    # and every subsequent read would re-fetch (paying a lease, an admission and
+    # a round trip) to re-learn the same 304.
+    test "a 304 refreshes the entry stamp so the next read is served from the cache", context do
+      args = ["api", "repos/owner/repo/issues/1670"]
+      args_file = Path.join(context.workspace, "args")
+      headers200 = "HTTP/2 200\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      headers304 = "HTTP/2 304\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+
+      env = [
+        AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_ARGS: args_file
+      ]
+
+      # Run 1: 200, cached.
+      assert {"cached-v1\n", 0} =
+               run_cached_guard(context, args, env ++ [FAKE_GH_HEADERS: headers200, FAKE_GH_BODY: "cached-v1\n"])
+
+      Process.sleep(2_100)
+      File.rm(args_file)
+
+      # Run 2: the expired conditional re-fetch answers 304 and refreshes the
+      # fetched-at stamp.
+      assert {"cached-v1\n", 0} =
+               run_cached_guard(context, args, env ++ [FAKE_GH_HEADERS: headers304, FAKE_GH_BODY: "stale-304\n", FAKE_GH_304_ERROR: "1"])
+
+      assert File.read!(args_file) =~ "If-None-Match: \"v1\""
+      calls_after_304 = upstream_calls(context)
+
+      # Run 3 (well inside the refreshed window): served from the cache as a
+      # fresh hit — no new upstream call, no validator sent. Without the stamp
+      # refresh the entry would still be expired and run 3 would re-fetch.
+      File.rm(args_file)
+
+      assert {"cached-v1\n", 0} =
+               run_cached_guard(context, args, env ++ [FAKE_GH_HEADERS: headers200, FAKE_GH_BODY: "stale-again\n"])
+
+      assert upstream_calls(context) == calls_after_304
+      refute File.exists?(args_file)
+    end
+
     test "a re-fetch with no stored ETag sends no validator", context do
       budget_root = Path.join(context.state_path, "host-budget")
       broker = AgentGitHubGuard.budget_broker_path(context.workspace)
