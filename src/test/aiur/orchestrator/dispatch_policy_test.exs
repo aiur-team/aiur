@@ -474,7 +474,12 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       # choice is always deterministic.
       assert DispatchPolicy.resolve_state_labels(["rework", "in-progress"]) == "in-progress"
       assert DispatchPolicy.resolve_state_labels(["in-progress", "rework"]) == "in-progress"
-      assert DispatchPolicy.resolve_state_labels(["rework", "ci-wait"]) == "ci-wait"
+      # `ci-wait` is a transient sub-state and never wins a resolution (#2366):
+      # a `ci-wait`+`rework` ticket is really a rework ticket whose stale
+      # `ci-wait` was never cleared, so rework wins.
+      assert DispatchPolicy.resolve_state_labels(["rework", "ci-wait"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["ci-wait", "human-review"]) == "human-review"
+      assert DispatchPolicy.resolve_state_labels(["ci-wait"]) == "ci-wait"
     end
 
     test "resolve_state_labels handles empty, single, and non-list input" do

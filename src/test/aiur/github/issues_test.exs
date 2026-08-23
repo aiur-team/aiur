@@ -655,7 +655,11 @@ defmodule Aiur.GitHub.IssuesTest do
       refute "parked" in issue.state_labels
     end
 
-    test "does not choose between contradictory workflow state labels" do
+    test "resolves contradictory workflow state labels deterministically" do
+      # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
+      # `extract_state` resolves it deterministically (todo wins; otherwise the
+      # alphabetically-first non-ci-wait label wins) so no consumer sees a nil
+      # state and a stale `agent:ci-wait` can never outlive its CI run (#2366).
       gh = %{
         "number" => 18,
         "title" => "Contradictory labels",
@@ -665,8 +669,22 @@ defmodule Aiur.GitHub.IssuesTest do
 
       issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
 
-      assert issue.state == nil
+      assert issue.state == "todo"
       assert issue.state_labels == ["error", "todo"]
+    end
+
+    test "resolves a ci-wait pair to the real disposition, never ci-wait" do
+      # `ci-wait` is a transient sub-state and never wins a resolution: a
+      # `ci-wait`+`rework` ticket is really rework, a `ci-wait`+`human-review`
+      # ticket is really in review (#2366).
+      for {labels, expected} <- [
+            {["rework", "ci-wait"], "rework"},
+            {["ci-wait", "human-review"], "human-review"},
+            {["ci-wait"], "ci-wait"}
+          ] do
+        gh = %{"number" => 20, "title" => "ci-wait pair", "labels" => Enum.map(labels, &%{"name" => "sym:#{&1}"}), "state" => "open"}
+        assert Issues.normalize_issue(gh, "owner", "repo", "sym").state == expected
+      end
     end
 
     test "keeps the fallback marker out of workflow state selection" do

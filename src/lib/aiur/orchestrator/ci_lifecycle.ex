@@ -75,6 +75,33 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   def ci_wait_state?(_state_name), do: false
 
+  # A ticket carrying contradictory `agent:*` state labels has `state: nil`
+  # (see `Issues.extract_state/3`). The CI lifecycle must still behave
+  # deterministically: `ci-wait` is a transient sub-state, so any other state
+  # label on the ticket is the real disposition and takes precedence — a
+  # `ci-wait`+`rework` ticket is really rework, a `ci-wait`+`human-review`
+  # ticket is really in review and must not be pulled out by a passing verdict.
+  # `DispatchPolicy.resolve_state_labels/1` implements exactly that precedence.
+  defp effective_ci_state(%Issue{state: state}) when is_binary(state), do: state
+
+  defp effective_ci_state(%Issue{state_labels: state_labels}) when is_list(state_labels) do
+    DispatchPolicy.resolve_state_labels(state_labels)
+  end
+
+  defp effective_ci_state(_issue), do: nil
+
+  # The `expected_state` guard that protects CI transitions from clobbering a
+  # newer legitimate state is only meaningful when the polled ticket had a
+  # concrete state. A nil state (contradictory labels) is exactly the case the
+  # guard cannot answer — the swap that follows replaces the whole label set, so
+  # omitting the guard is the honest repair (#2366).
+  defp expected_state_opts(%Issue{} = issue) do
+    case effective_ci_state(issue) do
+      state when is_binary(state) -> [expected_state: state]
+      _ -> []
+    end
+  end
+
   @doc false
   @spec ci_target_for_issue(Issue.t() | term()) :: String.t() | nil
   def ci_target_for_issue(%Issue{identifier: identifier})
@@ -93,7 +120,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     else
       issue_key = issue.id || issue.identifier
 
-      case Tracker.update_issue_state(to_string(issue_key), next_state, expected_state: issue.state) do
+      case Tracker.update_issue_state(to_string(issue_key), next_state, expected_state_opts(issue)) do
         :ok ->
           dispatch_successful_transition(state, issue, next_state)
 
@@ -707,7 +734,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp reconcile_parked_ready_alert_for_target(state, issue, result, target, opts) do
     active_alerts = Map.get(state.ci_lifecycle, :parked_ready_alerts, MapSet.new())
     recovery = parked_ready_recovery(result)
-    in_human_review = HumanReview.human_review_state?(issue.state)
+    in_human_review = HumanReview.human_review_state?(effective_ci_state(issue))
 
     cond do
       in_human_review and recovery == :active ->
@@ -1020,10 +1047,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp apply_ci_poll_result(state, issue, %{decision: :pending} = result) do
     cond do
-      ci_wait_state?(issue.state) ->
+      ci_wait_state?(effective_ci_state(issue)) ->
         state
 
-      HumanReview.human_review_state?(issue.state) and ci_head_approved?(state, issue, result) ->
+      HumanReview.human_review_state?(effective_ci_state(issue)) and ci_head_approved?(state, issue, result) ->
         Reconciler.refresh_running_issue_state(state, issue)
 
       true ->
@@ -1032,10 +1059,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp apply_ci_poll_result(state, issue, %{decision: :passed} = result) do
-    if HumanReview.human_review_state?(issue.state) do
+    if HumanReview.human_review_state?(effective_ci_state(issue)) do
       state
       |> clear_ci_test_failure_retry(issue)
       |> remember_ci_approved_head(issue, result)
+      |> clear_stale_ci_wait(issue)
       |> Reconciler.refresh_running_issue_state(issue)
     else
       transition_ci_pass(state, issue, result)
@@ -1049,6 +1077,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
         state
         |> remember_ci_approved_head(issue, result)
+        |> clear_stale_ci_wait(issue)
         |> Reconciler.refresh_running_issue_state(issue)
 
       retryable_test_failure?(state, issue, result) ->
@@ -1073,7 +1102,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       case Tracker.update_issue_state(
              to_string(issue.id || issue.identifier),
              @active_handoff_state,
-             expected_state: issue.state
+             expected_state_opts(issue)
            ) do
         :ok ->
           active_issue = %{issue | state: @active_handoff_state}
@@ -1105,7 +1134,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       case Tracker.update_issue_state(
              to_string(issue.id || issue.identifier),
              "rework",
-             expected_state: issue.state
+             expected_state_opts(issue)
            ) do
         :ok ->
           rework_issue = %{issue | state: "rework"}
@@ -1163,7 +1192,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp defer_ci_test_failure(state, issue) do
-    if HumanReview.human_review_state?(issue.state) do
+    if HumanReview.human_review_state?(effective_ci_state(issue)) do
       transition_ci_ticket(state, issue, @ci_wait_state)
     else
       state
@@ -1190,7 +1219,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   # review has not seen supersedes that disposition.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
     ci_head_approved?(state, issue, result) or
-      (HumanReview.human_review_state?(issue.state) and not ci_head_superseded?(state, issue, result))
+      (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result))
   end
 
   defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
@@ -1230,6 +1259,31 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp remember_ci_approved_head(state, _issue, _result), do: state
+
+  # A `ci-wait` label that co-owns a ticket with a real disposition (human-review,
+  # rework, …) is a stale leftover: CI finished and the ticket moved on, but the
+  # waiting marker was never cleared. The human-review branches keep the ticket in
+  # its review disposition without a state swap, so they must explicitly drop the
+  # stale `ci-wait` to leave GitHub carrying exactly one state label and keep the
+  # ticket dispatchable (#2366). Best-effort: a failed removal logs and leaves the
+  # state untouched; the next terminal observation retries.
+  defp clear_stale_ci_wait(%State{} = state, %Issue{} = issue) do
+    if @ci_wait_state in List.wrap(issue.state_labels) do
+      label = "#{Aiur.GitHub.Config.label_prefix()}:#{@ci_wait_state}"
+
+      case Tracker.remove_label(to_string(issue.id || issue.identifier), label) do
+        :ok ->
+          state
+
+        {:error, reason} ->
+          Logger.warning("Stale ci-wait removal failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+
+          state
+      end
+    else
+      state
+    end
+  end
 
   defp remember_ci_test_failure_retry(%State{} = state, %Issue{} = issue, %{head_sha: head_sha}) do
     case ci_target_for_issue(issue) do
@@ -1370,7 +1424,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       case Tracker.update_issue_state(
              to_string(issue.id || issue.identifier),
              @active_handoff_state,
-             expected_state: issue.state
+             expected_state_opts(issue)
            ) do
         :ok ->
           active_issue = %{issue | state: @active_handoff_state}

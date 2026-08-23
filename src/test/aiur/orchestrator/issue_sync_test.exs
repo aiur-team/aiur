@@ -2059,6 +2059,62 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # dispatchable on the resolved state and the next poll retries the heal.
       assert healed_state.last_polled_issues == %{}
     end
+
+    test "emits one fleet alert for tickets undispatchable due to contradictory labels" do
+      dual_a = %{issue("dual-a", nil) | state_labels: ["ci-wait", "rework"]}
+      dual_b = %{issue("dual-b", nil) | state_labels: ["ci-wait", "human-review"]}
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      state = %State{
+        contradictory_state_label_tickets: %{
+          dual_a.id => %{identifier: dual_a.identifier, labels: ["ci-wait", "rework"], since_ms: now_ms - 120_000},
+          dual_b.id => %{identifier: dual_b.identifier, labels: ["ci-wait", "human-review"], since_ms: now_ms - 120_000}
+        }
+      }
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual_a, dual_b],
+          fn _id, _target -> :ok end
+        )
+
+      # One actionable line names the whole undispatchable set instead of one
+      # buried warning per ticket (#2366).
+      assert healed_state.contradictory_state_label_alert_active
+      assert map_size(healed_state.contradictory_state_label_tickets) == 2
+
+      assert Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels" and
+                   &1["message"] =~ "2 tickets undispatchable due to contradictory labels")
+             )
+    end
+
+    test "resolves the fleet alert once every ticket carries a single state label" do
+      dual = %{issue("dual-c", nil) | state_labels: ["ci-wait", "rework"]}
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      state = %State{
+        contradictory_state_label_tickets: %{
+          dual.id => %{identifier: dual.identifier, labels: ["ci-wait", "rework"], since_ms: now_ms - 120_000}
+        },
+        contradictory_state_label_alert_active: true
+      }
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(state, [], fn _id, _target -> :ok end)
+
+      assert healed_state.contradictory_state_label_tickets == %{}
+      assert healed_state.contradictory_state_label_alert_active == false
+
+      assert Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()]),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels.resolved")
+             )
+    end
   end
 
   defp issue(id, state) do

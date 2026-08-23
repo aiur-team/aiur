@@ -1048,8 +1048,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   yet to redo". When both are present they contradict, and `todo` wins: a
   ticket that is also `todo` has not been worked, so any `rework` verdict
   stamped alongside it is the artifact of a broken writer, and "pick this up
-  again" (`todo`) is the honest fallback — never a review verdict. Any other
-  pair resolves to the alphabetically-first label so the choice is always
+  again" (`todo`) is the honest fallback — never a review verdict.
+
+  `ci-wait` is a transient sub-state and never wins a resolution: it means "the
+  agent is paused waiting for CI", so any other state label on the ticket is the
+  real disposition and takes precedence (a `ci-wait`+`rework` ticket is really a
+  rework ticket whose stale `ci-wait` was never cleared — #2366). Any other pair
+  resolves to the alphabetically-first label so the choice is always
   deterministic. Empty input resolves to `nil`.
   """
   @spec resolve_state_labels([String.t()]) :: String.t() | nil
@@ -1062,9 +1067,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       |> Enum.sort()
 
     cond do
-      "todo" in normalized -> "todo"
-      normalized == [] -> nil
-      true -> hd(normalized)
+      "todo" in normalized ->
+        "todo"
+
+      normalized == [] ->
+        nil
+
+      true ->
+        case Enum.reject(normalized, &(&1 == "ci-wait")) do
+          [other | _] -> other
+          [] -> hd(normalized)
+        end
     end
   end
 
