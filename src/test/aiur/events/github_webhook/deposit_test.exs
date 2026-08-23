@@ -18,7 +18,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubWebhook, Publisher}
-  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
+  alias Aiur.GitHub.{PollSnapshots, ResourceFetch, ResourceStore}
   alias Aiur.Workflow
 
   @repo "owner/repo"
@@ -283,6 +283,11 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
 
     test "pull_request_review_comment deposits the comment and the pull request" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{"id" => "PRRT_old", "isResolved" => false, "comments" => %{"nodes" => []}}
+               ])
+
       GithubWebhook.handle_delivery("pull_request_review_comment", review_comment_delivery(9203), repo: @repo)
 
       assert {:ok, %{data: %{"id" => 9203}, source: :webhook}} =
@@ -290,6 +295,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert {:ok, %{data: %{"number" => 77}}} =
                ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
+
+      assert :miss = ResourceStore.fetch(PollSnapshots.review_threads_key(@repo, 77))
     end
 
     test "pull_request_review deposits the review with the poller's state casing" do
@@ -360,12 +367,174 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       assert ResourceStore.fetch(ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)) == :miss
     end
 
-    # Acceptance #2126-3: the `:check_run` deposit is removed. No store reader
-    # addresses a check run and it is deliberately excluded from the agent cache
-    # (a CI verdict is never served from a cache at any age), so depositing one
-    # bought nothing — the single legitimate ceasing candidate.
-    test "a check_run delivery deposits nothing" do
-      assert GithubWebhook.Deposit.deposit("check_run", %{"check_run" => %{"id" => 5501}}, @repo) == []
+    test "a check_run delivery advances an existing complete CI-context snapshot" do
+      assert :ok =
+               PollSnapshots.put_ci_contexts(
+                 @repo,
+                 42,
+                 "deadbeef",
+                 [
+                   %{
+                     "id" => 5501,
+                     "name" => "test",
+                     "status" => "queued",
+                     "conclusion" => nil,
+                     "started_at" => "2026-06-24T12:00:00Z",
+                     "completed_at" => nil,
+                     "output" => %{}
+                   }
+                 ],
+                 %{"state" => "pending", "statuses" => []}
+               )
+
+      delivery = %{
+        "action" => "completed",
+        "check_run" => %{
+          "id" => 5501,
+          "name" => "test",
+          "status" => "completed",
+          "conclusion" => "success",
+          "head_sha" => "deadbeef",
+          "started_at" => "2026-06-24T12:00:00Z",
+          "completed_at" => "2026-06-24T12:01:00Z",
+          "output" => %{},
+          "pull_requests" => [%{"head" => %{"ref" => "aiur/42-a-ticket"}}]
+        }
+      }
+
+      assert [PollSnapshots.ci_contexts_key(@repo, 42)] == GithubWebhook.Deposit.deposit("check_run", delivery, @repo)
+
+      assert {:ok, %{"check_runs" => [%{"id" => 5501, "status" => "completed"}]}} =
+               PollSnapshots.ci_contexts(@repo, 42)
+    end
+
+    test "a resolved review-thread delivery advances an existing complete thread collection" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{
+                   "id" => "PRRT_5502",
+                   "isResolved" => false,
+                   "updatedAt" => "2026-06-24T12:00:00Z",
+                   "path" => "src/lib/example.ex",
+                   "line" => 7,
+                   "comments" => %{"nodes" => [%{"databaseId" => 1, "body" => "fix"}]}
+                 }
+               ])
+
+      delivery = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}},
+        "thread" => %{
+          "node_id" => "PRRT_5502",
+          "is_resolved" => true,
+          "updated_at" => "2026-06-24T12:01:00Z",
+          "path" => "src/lib/example.ex",
+          "line" => 7
+        }
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+
+      assert {:ok,
+              [
+                %{
+                  "id" => "PRRT_5502",
+                  "isResolved" => true,
+                  "comments" => %{"nodes" => [%{"databaseId" => 1}]}
+                }
+              ]} = PollSnapshots.review_threads(@repo, 77)
+    end
+
+    test "a resolved delivery for an unknown thread does not bless an incomplete collection" do
+      assert :ok = PollSnapshots.put_review_threads(@repo, 77, [])
+
+      delivery = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77},
+        "thread" => %{"node_id" => "PRRT_unknown", "updated_at" => "2026-06-24T12:01:00Z"}
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+
+      assert :miss = PollSnapshots.review_threads(@repo, 77)
+    end
+
+    test "an unresolved delivery drops a snapshot that says the thread is resolved" do
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{"id" => "PRRT_5504", "isResolved" => false, "updatedAt" => "2026-06-24T12:00:00Z"}
+               ])
+
+      resolved = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77},
+        "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => true, "updated_at" => "2026-06-24T12:01:00Z"}
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", resolved, @repo)
+
+      assert {:ok, [%{"isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
+
+      # The reviewer un-resolves it seconds later. Serving the resolved snapshot
+      # for the rest of the window filters the thread out of the unaddressed set
+      # and drops the re-raised objection silently.
+      unresolved = %{
+        "action" => "unresolved",
+        "pull_request" => %{"number" => 77},
+        "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => false, "updated_at" => "2026-06-24T12:02:00Z"}
+      }
+
+      # An invalidation writes no body, so it reports no key.
+      assert [] == GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
+
+      assert :miss = PollSnapshots.review_threads(@repo, 77)
+    end
+
+    test "a delivered thread collection survives a store restart and is still delivery-fresh" do
+      path = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}.json")
+      on_exit(fn -> File.rm_rf!(path) end)
+
+      # Run against a real checkpoint file before depositing: an in-memory store
+      # would let the restart pass without ever writing the round trip.
+      :ok = restart_store!(path)
+
+      assert :ok =
+               PollSnapshots.put_review_threads(@repo, 77, [
+                 %{
+                   "id" => "PRRT_5503",
+                   "isResolved" => false,
+                   "updatedAt" => "2026-06-24T12:00:00Z",
+                   "path" => "src/lib/example.ex",
+                   "line" => 7,
+                   "comments" => %{"nodes" => [%{"databaseId" => 1, "body" => "fix"}]}
+                 }
+               ])
+
+      delivery = %{
+        "action" => "resolved",
+        "pull_request" => %{"number" => 77, "head" => %{"ref" => "aiur/42-a-ticket"}},
+        "thread" => %{
+          "node_id" => "PRRT_5503",
+          "is_resolved" => true,
+          "updated_at" => "2026-06-24T12:01:00Z",
+          "path" => "src/lib/example.ex",
+          "line" => 7
+        }
+      }
+
+      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
+
+      :ok = ResourceStore.flush()
+      :ok = restart_store!(path)
+
+      # The collection came back complete, still carrying the delivery's advance
+      # and still attributed to the webhook — so a poller that consults it after
+      # a daemon restart still stands down rather than paying to re-ask.
+      assert {:ok, [%{"id" => "PRRT_5503", "isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
     end
 
     test "issues deposits the issue and label set even though the event only reconciles" do
