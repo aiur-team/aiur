@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.StatusReason do
   @type t ::
           :awaiting_dispatch
           | :prewarm_blocked
+          | :orphaned_claim
+          | :stale_claim
           | {:latched, non_neg_integer(), non_neg_integer()}
           | {:claim_released, atom() | String.t(), non_neg_integer() | nil}
           | {:transient, String.t() | nil, non_neg_integer() | nil}
@@ -33,6 +35,8 @@ defmodule Aiur.Orchestrator.StatusReason do
   @spec render(t()) :: String.t()
   def render(:awaiting_dispatch), do: "awaiting-dispatch"
   def render(:prewarm_blocked), do: "prewarm-blocked"
+  def render(:orphaned_claim), do: "orphaned claim: no live agent"
+  def render(:stale_claim), do: "stale in-progress claim: no live agent"
   def render({:latched, lifetime, maximum}), do: "latched #{lifetime}/#{maximum}"
 
   def render({:claim_released, cause, retry_in_ms}) do
