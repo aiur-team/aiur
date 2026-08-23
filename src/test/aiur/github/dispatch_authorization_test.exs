@@ -280,6 +280,133 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert Agent.get(counter, & &1) == 2
   end
 
+  # #2298 item 2: the timeline read carries a validator, so a repeat dispatch
+  # whose decision-cache fingerprint moved (the issue updated) but whose
+  # timeline is unchanged revalidates with `If-None-Match` and reuses the held
+  # timeline instead of refetching it at full price.
+  test "a repeat dispatch on an unchanged issue revalidates rather than refetches" do
+    parent = self()
+    etag = ~s("timeline-v1")
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+
+    request_fun = fn request ->
+      case Map.get(request, :etag) do
+        nil ->
+          send(parent, :unconditional)
+          {:ok, %{status: 200, headers: [{"etag", etag}], body: events}}
+
+        ^etag ->
+          send(parent, :conditional)
+          {:ok, %{status: 304, headers: [{"etag", etag}]}}
+
+        other ->
+          flunk("unexpected If-None-Match validator #{inspect(other)}")
+      end
+    end
+
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-01 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive :unconditional
+
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-02 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive :conditional
+  end
+
+  # #2298 rework B1: a page-1 `304` only vouches for the page it names. Issue
+  # timelines are ordered oldest-first, so new `labeled` events land on the last
+  # page; a multi-page held timeline must therefore be refetched every cycle —
+  # never answered from a validator that cannot see the newer pages.
+  test "a multi-page timeline is refetched, never answered from a page-1 304" do
+    etag = ~s("timeline-v1")
+    first_page = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+    second_page = [labeled_event(11, "agent:todo", "outsider", "2026-01-02T00:00:00Z")]
+    next = ~s(<https://api.github.com/repos/owner/repo/issues/42/timeline?per_page=100&page=2>; rel="next")
+
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    request_fun = fn request ->
+      refute Map.has_key?(request, :etag),
+             "a multi-page held timeline must never revalidate page 1"
+
+      case Agent.get_and_update(counter, fn n -> {n, n + 1} end) do
+        0 -> {:ok, %{status: 200, headers: [{"etag", etag}, {"link", next}], body: first_page}}
+        1 -> {:ok, %{status: 200, headers: [], body: second_page}}
+        2 -> {:ok, %{status: 200, headers: [{"etag", etag}, {"link", next}], body: first_page}}
+        3 -> {:ok, %{status: 200, headers: [], body: second_page}}
+      end
+    end
+
+    # Cycle 1: two pages, so the latest `agent:todo` applier is the outsider.
+    refute DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-01 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    # Cycle 2 with a moved decision-cache fingerprint: the held timeline spanned
+    # two pages, so the read refetches both — and still sees the outsider's
+    # label, proving it was not answered from a stale held snapshot.
+    refute DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-03 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert Agent.get(counter, & &1) == 4
+  end
+
+  # #2298 rework B1: the single→multi transition. Page 1 answers `304` but now
+  # carries a `next` link, which means the timeline grew a page the held single
+  # page cannot see. The read must refetch rather than serve the held snapshot.
+  test "a single-page 304 that reports a new page is refetched, not reused" do
+    parent = self()
+    etag = ~s("timeline-v1")
+    next = ~s(<https://api.github.com/repos/owner/repo/issues/42/timeline?per_page=100&page=2>; rel="next")
+
+    request_fun = fn request ->
+      case Map.get(request, :etag) do
+        nil ->
+          send(parent, :unconditional)
+          {:ok, %{status: 200, headers: [{"etag", etag}], body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+
+        ^etag ->
+          send(parent, :conditional)
+          {:ok, %{status: 304, headers: [{"etag", etag}, {"link", next}]}}
+
+        other ->
+          flunk("unexpected If-None-Match validator #{inspect(other)}")
+      end
+    end
+
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-01 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive :unconditional
+
+    # The fingerprint moved; page 1 304s but reports a new page, so the held
+    # single page cannot be trusted and the whole timeline is refetched.
+    assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-02 00:00:00Z]), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+
+    assert_receive :conditional
+    assert_receive :unconditional
+  end
+
   test "retries an ambiguous timeline fetch on the next poll" do
     counter = start_supervised!({Agent, fn -> 0 end})
 
