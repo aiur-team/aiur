@@ -244,9 +244,16 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   defp bodies(_event_type, _payload), do: []
 
   defp check_run_deposits(check_run, head_sha, normalized) do
+    # A malformed `pull_requests` element (not a map) must not raise here: it
+    # runs inside `deposit/3`'s `bodies` walk, whose rescue would abort the whole
+    # delivery — including `invalidate_read_cache/3`, silently leaving the cache
+    # stale. Skip the element and still merge the valid runs.
     check_run
     |> Map.get("pull_requests", [])
-    |> Enum.map(&(&1 |> get_in(["head", "ref"]) |> TicketBranch.ticket_id()))
+    |> Enum.flat_map(fn
+      pr when is_map(pr) -> [pr |> get_in(["head", "ref"]) |> TicketBranch.ticket_id()]
+      _not_a_map -> []
+    end)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.map(&{:merge_check_run, &1, head_sha, normalized})
@@ -363,7 +370,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   defp pull_request_numbers(nil), do: []
 
   defp pull_request_numbers(pull_requests) when is_list(pull_requests) do
-    Enum.map(pull_requests, &get_in(&1, ["number"]))
+    # A malformed element (not a map) must not raise here: `deposit/3`'s rescue
+    # would swallow the whole `invalidate_read_cache/3` call and leave the cache
+    # stale rather than over-retired. Skip the element and still retire the
+    # pull requests the rest of the array names.
+    Enum.flat_map(pull_requests, fn
+      pr when is_map(pr) -> [get_in(pr, ["number"])]
+      _not_a_map -> []
+    end)
   end
 
   defp pull_request_numbers(_other), do: []
