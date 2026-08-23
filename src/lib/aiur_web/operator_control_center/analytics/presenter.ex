@@ -76,8 +76,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
     result =
       case Keyword.get(opts, :session, :all) do
+        # Forward the caller opts so the latest-run loader's documented test
+        # seams (`:cache_identity`, `:prior_loader`) stay reachable through
+        # this boundary; they default to production reads otherwise.
         :current ->
-          LatestRun.load(file, current_boot_id(), analyzable?)
+          LatestRun.load(file, current_boot_id(), analyzable?, opts)
 
         :cross ->
           cross_session(file)

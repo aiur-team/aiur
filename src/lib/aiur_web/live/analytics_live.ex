@@ -162,7 +162,7 @@ defmodule AiurWeb.AnalyticsLive do
         </div>
 
         <div :if={!@unavailable} class="an-kpis">
-          <div :for={k <- kpi_items(@model, @provider_spend)} class={["an-kpi", k.tone]}>
+          <div :for={k <- kpi_items(@model, @provider_spend, @source.kind)} class={["an-kpi", k.tone]}>
             <span class="an-kpi-label">{k.label}</span>
             <span class="an-kpi-val">{k.val}</span>
             <span class="an-kpi-sub">{k.sub}</span>
@@ -362,14 +362,20 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp assign_time_domain(socket, _domain), do: socket
 
-  defp kpi_items(model, provider_spend) do
+  # The KPI strip speaks in the present tense only about a live boot. When the
+  # page is showing a retained prior run (the restart fallback) or merged
+  # cross-boot history, `conc_now` is the tail of a run that already ended and
+  # the merged count is history, so the subtitles say "at run end" / "that run"
+  # instead of claiming the fleet is acting right now.
+  defp kpi_items(model, provider_spend, source_kind) do
     k = model.kpis
+    present? = source_kind == :live
 
     [
       %{
         label: "Peak concurrency",
         val: k.peak_conc,
-        sub: "#{k.conc_now} now / #{Presenter.cap_label(model)}",
+        sub: "#{k.conc_now} #{if(present?, do: "now", else: "at run end")} / #{Presenter.cap_label(model)}",
         tone: nil
       },
       %{
@@ -384,7 +390,7 @@ defmodule AiurWeb.AnalyticsLive do
         sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}",
         tone: nil
       },
-      %{label: "PRs merged", val: k.merged, sub: "this run", tone: nil},
+      %{label: "PRs merged", val: k.merged, sub: if(present?, do: "this run", else: "that run"), tone: nil},
       %{
         label: "Tickets done",
         val: "#{k.done} / #{k.total}",

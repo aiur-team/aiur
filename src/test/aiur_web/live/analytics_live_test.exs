@@ -164,7 +164,14 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ "9.99 USD"
     assert html =~ ~s(data-source-kind="retained")
     assert html =~ "retained run"
-    assert html =~ "observed"
+    # The retained source must render its elapsed age ("observed 43d 0h ago"),
+    # never "just now" — the age is the only signal this is not the live boot.
+    assert html =~ "ago"
+    assert html =~ ~r/observed \d+[smhd]/
+    # And the KPI strip must not speak in the present tense over a retained run:
+    # the concurrency tail and the merged count belong to that run, not this one.
+    assert html =~ ~r/an-kpi-sub">\d+ at run end \//
+    assert html =~ ~r/an-kpi-sub">that run</
     refute html =~ "No run telemetry to analyze yet"
   end
 
@@ -235,6 +242,10 @@ defmodule AiurWeb.AnalyticsLiveTest do
     refute html =~ ">#941<"
     assert html =~ ~s(data-source-kind="retained")
     assert html =~ "retained run"
+    # Same age guard as the restart test: a retained Build Order source renders
+    # its elapsed age, not the live-boot "just now".
+    assert html =~ "ago"
+    assert html =~ ~r/observed \d+[smhd]/
     refute html =~ "No run telemetry to analyze yet"
   end
 
@@ -255,7 +266,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     {:ok, _view, html} = live(build_conn(), "/analytics")
 
     assert html =~ "Peak concurrency"
-    assert html =~ ~r/\d+ now \/ unknown cap</
+    assert html =~ ~r/\d+ at run end \/ unknown cap</
     assert html =~ "Wasted capacity"
     assert html =~ "Provider spend"
     assert html =~ "Per-unit CPU"
@@ -312,9 +323,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # The effective cap leads. The session ceiling is the figure `aiur status`
     # prints as `AGENTS n/8`, so omitting it is what let the two surfaces
     # contradict each other; the configured value is what #2241 saw alone.
-    assert html =~ ~r/\d+ now \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
-    refute html =~ ~r/\d+ now \/ 16 cap/
-    refute html =~ ~r/\d+ now \/ 8 cap/
+    assert html =~ ~r/\d+ at run end \/ 3 cap \(binding: AIMD envelope, session 8, configured 16\)/
+    refute html =~ ~r/\d+ at run end \/ 16 cap/
+    refute html =~ ~r/\d+ at run end \/ 8 cap/
   end
 
   @tag analytics_capacity: %{
@@ -359,7 +370,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # Idle slot-hours are a subtraction from the cap. With no cap reported the
     # page must not substitute the local config file and print a precise hour
     # count under a ceiling it just called unknown.
-    assert html =~ ~r/\d+ now \/ unknown cap</
+    assert html =~ ~r/\d+ at run end \/ unknown cap</
     refute html =~ "unknown cap (configured"
     assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
   end
@@ -424,6 +435,9 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "provider-reported estimate"
     assert html =~ ~s(data-source-kind="live")
     assert html =~ "live boot"
+    # A live boot is the only source that may speak in the present tense.
+    assert html =~ ~r/an-kpi-sub">\d+ now \//
+    assert html =~ ~r/an-kpi-sub">this run</
   end
 
   @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 0, available: 3, queued_demand?: true}
