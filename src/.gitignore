@@ -5,7 +5,13 @@
 /cover/
 
 # The directory Mix downloads your dependencies sources to.
-/deps/
+#
+# No trailing slash: `/deps/` matches a directory only, so a *symlink* named
+# `deps` — which is how a git worktree is commonly given access to the primary
+# checkout's dependencies — is not matched and `git add -A` will stage it. That
+# happened: an absolute-path symlink reached main and was dangling on every
+# other machine. `/deps` matches both forms.
+/deps
 
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/
