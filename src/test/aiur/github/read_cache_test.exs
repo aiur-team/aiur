@@ -149,7 +149,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
       request = graphql("issue_relationships", safe_document(2073))
 
       assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
-      age_entries_by(181_000)
+      age_entries_by(31_000)
 
       assert {:ok, %{body: "second"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
       assert %{totals: %{hit: 0, miss: 2}} = Metrics.snapshot()

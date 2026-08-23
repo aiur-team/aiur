@@ -1640,8 +1640,14 @@ defmodule Aiur.GitHub.ResourceStore do
     ])
 
     # A hard backstop far above real volume. Crossing it means the retention
-    # window alone is not bounding the set, so shed the oldest *bodies* rather
-    # than let the daemon's memory follow GitHub traffic without limit.
+    # window alone is not bounding the set, so shed the oldest *bodies*. What
+    # the backstop bounds is body memory, not entry count: an entry that sheds
+    # its body survives, so the table can hold more than `@max_entries` keys
+    # and metadata until the 72 h retention sweep catches up. That unbounded
+    # tail is acceptable because the non-body half of an entry is a key plus a
+    # few hundred bytes of metadata, while the bodies shed are the payloads
+    # that run up to 256 KiB — the memory that scales with GitHub traffic is
+    # body memory, and that is what stays capped.
     #
     # The backstop drops only `:data` — never the whole entry — because the
     # rest of the entry is state a later read is still entitled to: the `:etag`
