@@ -177,17 +177,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
         {:ok, "done"}
 
       {:ok, pull_requests} when is_list(pull_requests) ->
-        case blocking_open_pull_requests(pull_requests, opts) do
-          [] ->
-            {:ok, "done"}
-
-          blocking ->
-            if Enum.any?(blocking, &open_pull_request_has_unresolved_findings?(&1, opts)) do
-              {:ok, "rework"}
-            else
-              {:ok, "human-review"}
-            end
-        end
+        merged_ticket_target_for_open_pull_requests(pull_requests, opts)
 
       {:ok, _other} ->
         # An unexpected listing shape must never close the ticket: fail safe so
@@ -200,6 +190,25 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   def merged_ticket_target(_identifier, _opts), do: {:ok, "done"}
+
+  # Classifies a known-valid open-PR listing into the ticket's post-merge
+  # target. Extracted so the caller's case stays flat (Credo's nesting cap):
+  # a non-blocking set means the merge closed the ticket's last live PR, while
+  # a blocking set routes to rework when any of it carries unresolved findings
+  # and to human-review when it merely awaits review.
+  defp merged_ticket_target_for_open_pull_requests(pull_requests, opts) do
+    case blocking_open_pull_requests(pull_requests, opts) do
+      [] ->
+        {:ok, "done"}
+
+      blocking ->
+        if Enum.any?(blocking, &open_pull_request_has_unresolved_findings?(&1, opts)) do
+          {:ok, "rework"}
+        else
+          {:ok, "human-review"}
+        end
+    end
+  end
 
   # The open PRs that still stand between the ticket and `done` after a merge.
   # A stale draft is treated as a superseded attempt and filtered out: a dead
