@@ -942,6 +942,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def issue_dispatch_authorized?(_issue), do: false
 
+  # A deferred authorization (a transient budget hold / rate limit / transport
+  # failure prevented the provenance fetch) is distinct from a verified denial.
+  # Dispatch still skips the ticket this cycle (fail-closed), but the
+  # orchestrator must never read `:deferred` as revocation — that would kill a
+  # running agent over a 30-second throttle (#2409).
+  @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
+  def issue_dispatch_authorization_deferred?(%Issue{dispatch_authorization: :deferred}), do: true
+  def issue_dispatch_authorization_deferred?(_issue), do: false
+
   @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
   def todo_issue_blocked_by_non_terminal?(
         %Issue{state: issue_state, blocked_by: blockers},

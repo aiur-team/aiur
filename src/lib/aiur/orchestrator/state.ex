@@ -122,6 +122,9 @@ defmodule Aiur.Orchestrator.State do
           codex_rate_limits: map() | nil,
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
+          firehose_partial_streak: non_neg_integer(),
+          firehose_truncation_alert_active: boolean(),
+          firehose_truncation_alert_resolution_emitted: boolean(),
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
@@ -242,6 +245,9 @@ defmodule Aiur.Orchestrator.State do
     codex_rate_limits: nil,
     events_etag: nil,
     events_last_id: nil,
+    firehose_partial_streak: 0,
+    firehose_truncation_alert_active: false,
+    firehose_truncation_alert_resolution_emitted: false,
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
@@ -622,10 +628,20 @@ defmodule Aiur.Orchestrator.State do
 
   def paused_running_count(_running), do: 0
 
+  # Paused entries that keep their fleet reservation. A deliberate/Executor
+  # pause holds its slot so the polling loop cannot auto-claim replacement
+  # work. CI-wait, dependency-blocked, and duration-capped pauses are the
+  # exception: the daemon owns that wait (or the agent has simply hit its time
+  # cap and is parked for review), so the parked runner releases normal
+  # dispatch capacity — holding the slot would convert the time cap into a
+  # capacity leak where parked agents accumulate against the fleet limit
+  # (#2329).
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration]
+
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do
     Enum.count(running, fn
-      {_issue_id, %{paused_reason: reason}} when reason in [:ci_wait, :blocker_dependency] -> false
+      {_issue_id, %{paused_reason: reason}} when reason in @non_reserving_pause_reasons -> false
       {_issue_id, entry} -> paused_running_entry?(entry)
     end)
   end

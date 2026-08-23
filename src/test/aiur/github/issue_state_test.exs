@@ -2,6 +2,7 @@ defmodule Aiur.GitHub.IssueStateTest do
   use Aiur.TestSupport
 
   alias Aiur.GitHub.IssueState
+  alias Aiur.GitHub.ResourceStore
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -26,10 +27,48 @@ defmodule Aiur.GitHub.IssueStateTest do
       tracker_label_prefix: "sym"
     )
 
+    ResourceStore.reset()
+    on_exit(&ResourceStore.reset/0)
     :ok
   end
 
   describe "update_issue_state/3" do
+    # Acceptance #2326: a state transition issues a conditional request. When the
+    # store holds the issue body and its validator, the transition's own issue
+    # read sends `If-None-Match` — a free `304` when nothing changed, instead of
+    # the unconditional full-price read it used to make.
+    test "the transition's issue read sends If-None-Match from the store's validator" do
+      key = ResourceStore.key_for_repo(:issue, "owner/repo", "42")
+
+      ResourceStore.put_resource(
+        key,
+        %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]},
+        source: :webhook,
+        version: "2026-06-24T10:00:00Z",
+        etag: ~s("issue-etag")
+      )
+
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+
+        if request.method == :get do
+          assert request.etag == ~s("issue-etag"), "the transition's issue read must send If-None-Match"
+          {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]}}}
+        else
+          {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+
+      # Both issue reads on the transition (the initial and the active-label
+      # re-check) carried the stored validator.
+      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}
+      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}
+    end
+
     test "removes all sym:* labels and adds the single new state label" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:count, 0})
