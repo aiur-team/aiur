@@ -22,11 +22,15 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
   @head_sha "sha-b"
   @base_sha "base-sha"
 
+  # The fixture deliberately gives the PR a number (2346) DIFFERENT from the
+  # issue identifier (2337), so a test can observe which identity production
+  # fetches reviews for: fetching reviews for the ticket would 404 and silently
+  # turn every rework ticket into `:skip` (review finding, 2026-08-23T20Z).
   defp pr(overrides) do
     Map.merge(
       %{
-        "number" => 2337,
-        "title" => "PR #2337",
+        "number" => 2346,
+        "title" => "PR #2346",
         "state" => "open",
         "draft" => false,
         "base" => %{"sha" => @base_sha, "ref" => "main"},
@@ -140,7 +144,13 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
       interval_ms: 60_000,
       tickets_fetcher: Keyword.get(opts, :tickets_fetcher, fn -> {:ok, []} end),
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, fn _ -> {:ok, pr(%{})} end),
-      reviews_fetcher: Keyword.get(opts, :reviews_fetcher, fn _ -> {:ok, [review(%{})]} end),
+      reviews_fetcher:
+        Keyword.get(opts, :reviews_fetcher, fn number ->
+          # Every test that classifies must fetch reviews for the PR (2346),
+          # never the issue identifier (2337).
+          assert number == 2346
+          {:ok, [review(%{})]}
+        end),
       diff_fetcher:
         Keyword.get(opts, :diff_fetcher, fn
           {@base_sha, @review_commit} -> {:ok, default_diff_files()}
@@ -151,6 +161,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
       enabled?: Keyword.get(opts, :enabled?, fn -> true end),
       last_seen: Keyword.get(opts, :last_seen, %{}),
       merge_only_alerted: Keyword.get(opts, :merge_only_alerted, MapSet.new()),
+      requeue_failed_alerted: Keyword.get(opts, :requeue_failed_alerted, MapSet.new()),
       start_paused?: true
     }
   end
@@ -170,6 +181,106 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       assert_receive {:state_write, "2337", "human-review"}
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
+    end
+
+    test "fetches reviews for the PR number, not the issue identifier" do
+      # The PR is #2346 while the ticket is #2337; fetching reviews for the
+      # ticket would 404 and classify every ticket as `:skip` (dead on
+      # arrival). The stub asserts which number production passes.
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          reviews_fetcher: fn number ->
+            send(self(), {:reviews_fetch, number})
+            {:ok, [review(%{})]}
+          end,
+          state_writer: fn id, state_name ->
+            send(self(), {:state_write, id, state_name})
+            :ok
+          end
+        )
+
+      ReworkRequeue.tick(state)
+
+      assert_receive {:reviews_fetch, 2346}
+      refute_received {:reviews_fetch, 2337}
+      assert_receive {:state_write, "2337", "human-review"}
+    end
+
+    test "a re-queue refused by the state writer alerts and is not throttled" do
+      # The human-review write goes through the thread-clearance gate, which
+      # refuses while unresolved review threads remain — the normal state of a
+      # rework ticket. The failure must be surfaced (needs-attention alert) and
+      # must NOT poison the throttle: the next tick has to retry the write.
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          state_writer: fn _, _ -> {:error, {:unverified_review_threads, %{count: 2}}} end,
+          alert_fun: fn name, opts ->
+            send(self(), {:alert, name, opts})
+            :ok
+          end
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      assert_receive {:alert, "system.pr_health.rework_requeue_failed", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :issue) == "2337"
+      # Failed write → head uncached → retried next tick.
+      refute Map.has_key?(result.last_seen, "2337")
+    end
+
+    test "a failed re-queue alerts once but keeps retrying the write every tick" do
+      writes = :atomics.new(1, [])
+      alert_calls = :atomics.new(1, [])
+
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          state_writer: fn _, _ ->
+            :atomics.add(writes, 1, 1)
+            {:error, :gate}
+          end,
+          alert_fun: fn _name, _opts ->
+            :atomics.add(alert_calls, 1, 1)
+            :ok
+          end
+        )
+
+      first = ReworkRequeue.tick(state)
+      assert :atomics.get(writes, 1) == 1
+      assert :atomics.get(alert_calls, 1) == 1
+      refute Map.has_key?(first.last_seen, "2337")
+
+      # No throttle entry → the write is retried, but the alert is deduped.
+      second = ReworkRequeue.tick(first)
+      assert :atomics.get(writes, 1) == 2
+      assert :atomics.get(alert_calls, 1) == 1
+      refute Map.has_key?(second.last_seen, "2337")
+    end
+
+    test "a re-queue write that clears the gate throttles the head for steady state" do
+      # Once the threads are resolved the write succeeds and the head is
+      # cached, so a steady-state tick stops re-reading reviews/compare.
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          state_writer: fn id, state_name ->
+            send(self(), {:state_write, id, state_name})
+            :ok
+          end
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      assert_receive {:state_write, "2337", "human-review"}
+      assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
+
+      # Same head on the next tick: already classified → no finding, no write.
+      second = ReworkRequeue.tick(%{result | open_pr_fetcher: fn _ -> {:ok, pr(%{})} end})
+      refute_receive {:state_write, _, _}
+      assert second.last_seen == result.last_seen
     end
 
     test "does not re-queue a merge-only ticket and reports it distinctly" do
@@ -192,7 +303,9 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       assert_receive {:alert, "system.pr_health.rework_merge_only", opts}
       assert Keyword.get(opts, :needs_attention) == true
-      assert Keyword.get(opts, :issue) == "2337"
+      # The alert names the PR (2346), not the issue identifier (2337).
+      assert Keyword.get(opts, :issue) == "2346"
+      assert Keyword.get(opts, :message) =~ "PR #2346"
       refute_receive {:state_write, _, _}
       assert %{merge_only_alerted: alerted} = result
       assert MapSet.member?(alerted, "2337")

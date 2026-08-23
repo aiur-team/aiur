@@ -16,10 +16,14 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
 
   * `:addressed` — the PR's own contribution diff (`merge-base..head`) changed
     since the blocking review. Re-queue: write `agent:human-review` so the
-    reviewer sees the reworked PR again. This is a direct state write, the
-    mirror of the rework trigger; the thread-clearance gate used by agent-side
-    `human-review` claims does not apply because GitHub holds
-    `reviewDecision=CHANGES_REQUESTED` until a new review.
+    reviewer sees the reworked PR again. The write is the mirror of the rework
+    trigger but goes through the standard state-update path, which applies the
+    same thread-clearance gate as an agent-side `human-review` claim — GitHub
+    holding `reviewDecision=CHANGES_REQUESTED` until a new review is not an
+    exemption from it. A re-queue the gate refuses (unresolved review threads
+    are the normal state of a rework ticket) raises a needs-attention alert and
+    is retried on the next tick: the head is only throttled after a successful
+    write, so the failure cannot silently strand the ticket in rework.
   * `:merge_only` — commits landed since the blocking review but the own
     contribution diff is byte-identical (only merges of the base branch). NOT
     re-queued — a full review on an unchanged PR is the exact waste this
@@ -88,6 +92,9 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
       last_seen: %{},
       # Merge-only tickets already alerted once, pruned when they leave rework.
       merge_only_alerted: MapSet.new(),
+      # Re-queue write failures already alerted once (the thread-clearance gate
+      # refused the human-review write); pruned when they leave rework.
+      requeue_failed_alerted: MapSet.new(),
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
@@ -152,11 +159,22 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   defp scan(state) do
     case state.tickets_fetcher.() do
       {:ok, tickets} when is_list(tickets) ->
-        {last_seen, findings} = collect_findings(tickets, state.last_seen, state)
+        {cached_last_seen, findings} = collect_findings(tickets, state.last_seen, state)
 
-        Enum.reduce(findings, state, &apply_finding/2)
-        |> Map.put(:last_seen, prune_last_seen(last_seen, tickets))
+        state = Enum.reduce(findings, state, &apply_finding/2)
+
+        # The throttle is the union of what classify found stable (merge-only,
+        # not-addressed) and what a successful re-queue write committed. A
+        # failed write leaves the head uncached, so the next tick retries it
+        # instead of treating the classification as settled.
+        last_seen =
+          Map.merge(state.last_seen, cached_last_seen)
+          |> prune_last_seen(tickets)
+
+        state
+        |> Map.put(:last_seen, last_seen)
         |> Map.update!(:merge_only_alerted, &prune_merge_only_alerted(&1, tickets))
+        |> Map.update!(:requeue_failed_alerted, &prune_requeue_failed_alerted(&1, tickets))
 
       {:error, reason} ->
         Logger.warning("ReworkRequeue rework-ticket list failed: reason=#{inspect(reason)}")
@@ -172,16 +190,19 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
         :skip ->
           {last_seen_acc, findings_acc}
 
-        {classification, _head_sha} when classification == :unknown ->
-          # A transient fetch failure must be retried, so it is deliberately not
-          # cached: the head stays "unseen" and the next tick re-reads it.
-          {last_seen_acc, [{issue, classification} | findings_acc]}
+        {classification, pr, head_sha} when classification in [:unknown, :addressed] ->
+          # `:unknown` must be retried, so it is deliberately not cached: the
+          # head stays "unseen" and the next tick re-reads it. `:addressed`'s
+          # throttle entry is committed by apply_finding/2 only after a
+          # successful re-queue write — a write the thread-clearance gate
+          # refuses leaves the head uncached so the next tick retries it.
+          {last_seen_acc, [{issue, classification, pr, head_sha} | findings_acc]}
 
-        {classification, head_sha} ->
+        {classification, pr, head_sha} ->
           updated =
             Map.put(last_seen_acc, key, %{head_sha: head_sha, classification: classification})
 
-          {updated, [{issue, classification} | findings_acc]}
+          {updated, [{issue, classification, pr, head_sha} | findings_acc]}
       end
     end)
   end
@@ -196,7 +217,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
       {:ok, %{"head" => %{"sha" => head_sha}} = pr} when is_binary(head_sha) ->
         case Map.get(last_seen, key) do
           %{head_sha: ^head_sha} -> :skip
-          _ -> classify_new_head(issue, pr, head_sha, state)
+          _ -> classify_new_head(pr, head_sha, state)
         end
 
       _other ->
@@ -204,21 +225,31 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
     end
   end
 
-  defp classify_new_head(issue, pr, head_sha, state) do
-    case latest_blocking_review_for(issue, pr, state) do
+  defp classify_new_head(pr, head_sha, state) do
+    case latest_blocking_review_for(pr, state) do
       nil ->
         :skip
 
       blocking_review ->
         classification = classify(pr, blocking_review, diff_fetcher: state.diff_fetcher)
-        {classification, head_sha}
+        {classification, pr, head_sha}
     end
   end
 
-  defp latest_blocking_review_for(issue, _pr, state) do
-    case state.reviews_fetcher.(pr_number(issue)) do
-      {:ok, reviews} when is_list(reviews) -> latest_blocking_review(reviews)
-      _other -> nil
+  # Reviews are fetched for the PR number, never the ticket's identifier: for
+  # the GitHub tracker the issue identifier is the issue number (2337), which
+  # is not the PR number (2346) — fetching `pulls/<issue>/reviews` 404s and
+  # silently turns every ticket into `:skip` (dead on arrival).
+  defp latest_blocking_review_for(pr, state) do
+    case Map.get(pr, "number") do
+      number when is_integer(number) ->
+        case state.reviews_fetcher.(number) do
+          {:ok, reviews} when is_list(reviews) -> latest_blocking_review(reviews)
+          _other -> nil
+        end
+
+      _other ->
+        nil
     end
   end
 
@@ -226,24 +257,34 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   # Findings
   # ---------------------------------------------------------------------------
 
-  defp apply_finding({issue, :addressed}, state) do
+  defp apply_finding({issue, :addressed, _pr, head_sha}, state) do
     key = issue_key(issue)
 
     case state.state_writer.(to_string(key), "human-review") do
       :ok ->
         Logger.info("ReworkRequeue re-queued reworked PR for review: issue=#{key} -> agent:human-review")
-        state
+
+        # Throttle only a *successful* re-queue: the head is now settled and a
+        # steady-state tick must not re-read it.
+        cache_last_seen(state, key, head_sha, :addressed)
 
       {:error, reason} ->
         Logger.warning("ReworkRequeue re-queue failed: issue=#{key} reason=#{inspect(reason)}")
-        state
+
+        # The write went through the standard state-update path, whose
+        # thread-clearance gate refuses `human-review` while unresolved review
+        # threads remain — the normal state of a rework ticket. Surface it once
+        # as a needs-attention alert and leave the head UNCACHED so the next
+        # tick retries: a re-queue the gate refuses must not silently strand
+        # the ticket in rework forever.
+        alert_requeue_failed(state, key, reason)
     end
   end
 
-  defp apply_finding({issue, :merge_only}, state) do
+  defp apply_finding({issue, :merge_only, pr, _head_sha}, state) do
     key = issue_key(issue)
-    number = pr_number(issue)
-    title = pr_title(issue)
+    number = Map.get(pr, "number")
+    title = pr_title(pr)
 
     if MapSet.member?(state.merge_only_alerted, key) do
       state
@@ -267,11 +308,46 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
     end
   end
 
-  defp apply_finding({_issue, _classification}, state), do: state
+  defp apply_finding({_issue, _classification, _pr, _head_sha}, state), do: state
+
+  # A re-queue write failure is surfaced once per ticket while it stays in
+  # rework; pruned when it leaves rework (see prune_requeue_failed_alerted/2).
+  defp alert_requeue_failed(state, key, reason) do
+    if MapSet.member?(state.requeue_failed_alerted, key) do
+      state
+    else
+      state.alert_fun.(
+        "system.pr_health.rework_requeue_failed",
+        message:
+          "Re-queue of reworked issue #{key} to agent:human-review was refused by the thread-clearance gate " <>
+            "(unresolved review threads remain) and will be retried on the next tick.",
+        issue: key,
+        reason:
+          "ReworkRequeue classified issue #{key} as :addressed but the state write to agent:human-review was refused: " <>
+            "#{inspect(reason)}. The head is not throttled on a failed write, so the next tick retries.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+      %{state | requeue_failed_alerted: MapSet.put(state.requeue_failed_alerted, key)}
+    end
+  end
+
+  defp cache_last_seen(state, key, head_sha, classification) do
+    %{
+      state
+      | last_seen: Map.put(state.last_seen, key, %{head_sha: head_sha, classification: classification})
+    }
+  end
 
   defp prune_merge_only_alerted(merge_only_alerted, tickets) do
     active = MapSet.new(tickets, &issue_key/1)
     MapSet.intersection(merge_only_alerted, active)
+  end
+
+  defp prune_requeue_failed_alerted(requeue_failed_alerted, tickets) do
+    active = MapSet.new(tickets, &issue_key/1)
+    MapSet.intersection(requeue_failed_alerted, active)
   end
 
   # Forget throttle entries for tickets that left `agent:rework` (re-queued,
@@ -359,15 +435,10 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   defp issue_key(%Issue{identifier: identifier}) when is_binary(identifier), do: identifier
   defp issue_key(_issue), do: ""
 
-  defp pr_number(%Issue{identifier: identifier}) when is_binary(identifier) do
-    case Integer.parse(identifier) do
-      {number, ""} -> number
-      _other -> nil
+  defp pr_title(pr) do
+    case Map.get(pr, "title") do
+      title when is_binary(title) and title != "" -> title
+      _other -> "untitled"
     end
   end
-
-  defp pr_number(_issue), do: nil
-
-  defp pr_title(%Issue{title: title}) when is_binary(title), do: title
-  defp pr_title(_issue), do: ""
 end
