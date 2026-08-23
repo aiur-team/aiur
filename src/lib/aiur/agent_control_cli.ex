@@ -2062,11 +2062,28 @@ defmodule Aiur.AgentControlCLI do
         )
 
         print_build_gate_holders(Map.get(status, :holders, []))
+        print_build_gate_timeouts(Map.get(status, :timeouts, []))
 
       %{enabled?: true, capacity: capacity, active: active, queued: queued} = status
       when active > 0 or queued > 0 ->
-        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
-        print_build_gate_holders(Map.get(status, :holders, []))
+        holders = Map.get(status, :holders, [])
+
+        # A slot whose command process group is gone is not doing work: render
+        # it apart from genuinely-busy slots so `BUILD GATE n/n active` never
+        # reads as a confident wrong number (#2349).
+        leaked = Enum.count(holders, &(&1.kind == :slot and &1.command_alive? == false))
+
+        line =
+          if leaked > 0 do
+            "BUILD GATE #{active - leaked}/#{capacity} active, #{leaked} held without a command, " <>
+              "#{queued} queued (max_concurrent_builds=#{capacity})"
+          else
+            "BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})"
+          end
+
+        IO.puts(line)
+        print_build_gate_holders(holders)
+        print_build_gate_timeouts(Map.get(status, :timeouts, []))
 
       _ ->
         :ok
@@ -2083,7 +2100,8 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_holder(%{kind: :slot} = holder) do
     identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
-    print_build_gate_line("HOLDER", identifiers, holder, "held")
+    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: ""
+    print_build_gate_line("HOLDER", identifiers, holder, "held", annotation)
   end
 
   defp print_build_gate_holder(%{kind: :queue} = holder) do
@@ -2092,12 +2110,28 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_holder(_holder), do: :ok
 
+  # A `slot-N.hold-timeout` marker means the detached holder released the lease
+  # at the absolute max-hold cap (#2349). Surface it so `aiur status` shows a
+  # slot that timed out as well as one that is merely still held.
+  defp print_build_gate_timeouts(timeouts) do
+    Enum.each(timeouts, fn timeout ->
+      IO.puts(
+        "BUILD GATE TIMEOUT slot=#{timeout.slot} command=#{inspect(timeout.command)} " <>
+          "held=#{format_gate_hold(timeout.held_for_seconds)} reason=#{timeout.reason}"
+      )
+    end)
+  end
+
   defp print_build_gate_line(kind, identifiers, holder, duration_label) do
+    print_build_gate_line(kind, identifiers, holder, duration_label, "")
+  end
+
+  defp print_build_gate_line(kind, identifiers, holder, duration_label, annotation) do
     with pid when is_integer(pid) <- Map.get(holder, :pid),
          command when is_binary(command) <- Map.get(holder, :command) do
       IO.puts(
         "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
-          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}"
+          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}#{annotation}"
       )
     else
       _ -> :ok

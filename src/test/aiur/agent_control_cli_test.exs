@@ -1299,6 +1299,83 @@ defmodule Aiur.AgentControlCLITest do
     assert_receive {^holder, {:exit_status, 0}}, 2_000
   end
 
+  test "status distinguishes a slot held without a command from a busy gate", %{orchestrator: pid} do
+    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-leaked-#{System.unique_integer([:positive])}")
+    lock_dir = BuildGate.lock_dir(gate_dir)
+    previous = Application.get_env(:aiur, :build_gate_dir_override)
+    release_path = Path.join(gate_dir, "holder.release")
+    slot_lock = Path.join(lock_dir, "slot-1.lock")
+    slot_owner = Path.join(gate_dir, "slot-1.owner")
+    queue_path = Path.join(gate_dir, "queue/lease-v2-status")
+    timeout_path = Path.join(gate_dir, "slot-1.hold-timeout")
+
+    # `command_pgid=999999999` is dead: the slot is locked but no command is
+    # running — the #2349 leaked-holder shape.
+    metadata =
+      "version=2\ntoken=status\npid=2\npgid=1\nholder_pid=2\ncommand_pgid=999999999\n" <>
+        "phase=test\ncommand=mix test\nstarted_at=#{System.os_time(:second) - 90}\n"
+
+    Application.put_env(:aiur, :build_gate_dir_override, gate_dir)
+    assert {:ok, _canonical_gate_dir} = BuildGate.prepare_writable_root(gate_dir: gate_dir, slots: 2)
+    File.mkdir_p!(Path.join(gate_dir, "queue"))
+    File.write!(slot_owner, metadata)
+    File.write!(queue_path, metadata)
+    File.write!(timeout_path, "version=2\ncommand=mix test\nheld_for_seconds=3600\nreason=retained\n")
+
+    bash = System.find_executable("bash") || flunk("bash is required for build-gate status tests")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          exec 8<>"$1"
+          flock 8
+          exec 9<>"$2"
+          flock 9
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-holder",
+          slot_lock,
+          queue_path,
+          release_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :build_gate_dir_override)
+      else
+        Application.put_env(:aiur, :build_gate_dir_override, previous)
+      end
+
+      File.rm_rf!(gate_dir)
+      File.rm_rf!(lock_dir)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      issue = %Issue{id: "issue-idle", identifier: "repo#idle", state: "In Progress", title: "Idle"}
+      %{state | last_polled_issues: %{"issue-idle" => issue}, max_concurrent_agents: 10}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "BUILD GATE 0/2 active, 1 held without a command, 1 queued"
+    assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"mix test\" held="
+    assert output =~ "(command gone)"
+    assert output =~ "BUILD GATE TIMEOUT slot=1 command=\"mix test\" held=1h0m reason=retained"
+    File.touch!(release_path)
+    assert_receive {^holder, {:exit_status, 0}}, 2_000
+  end
+
   test "status reports actionable legacy build-gate degradation" do
     gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-legacy-#{System.unique_integer([:positive])}")
     lock_dir = BuildGate.lock_dir(gate_dir)
