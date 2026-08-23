@@ -88,6 +88,14 @@ export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
   /** Paper plane, filled — see FILLED_ICONS. */
   send: '<path d="M21 3 10 14"/><path d="M21 3l-6.6 18-3.9-7.5L3 9.6z"/>',
   cancel: '<path d="M6 6l12 12M18 6 6 18"/>',
+  /** A pending decision: the question mark, for an answerable Command key. */
+  question: '<circle cx="12" cy="12" r="8.5"/><path d="M9.8 9a2.3 2.3 0 1 1 3.2 2.6c-.9.5-1.2 1-1.2 2"/><path d="M12 17.5h.01"/>',
+  /** A settled decision: the check, for a completed Command key. */
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  /** One choice among many: the option list, for a detail-option key. */
+  option: '<circle cx="7" cy="12" r="2.6"/><path d="M12.5 12h8M12.5 6.5h8M12.5 17.5h8"/>',
+  /** Commit the answer: a check inside a ring, distinct from a plain dial. */
+  approve: '<circle cx="12" cy="12" r="8.5"/><path d="m8 12.5 3 3 5.5-6"/>',
   /**
    * Five bars of rising and falling level: TestMic answers "does this
    * microphone hear me", so its glyph is the meter rather than a second mic.
@@ -183,7 +191,7 @@ const traceElement = (context: SKRSContext2D, kind: string, attrs: string, fille
  * line art. Stroking these paints a hollow outline — a play triangle with a
  * hole in it — instead of the solid glyph.
  */
-const FILLED_ICONS: ReadonlySet<string> = new Set(["pause", "play", "send"]);
+const FILLED_ICONS: ReadonlySet<string> = new Set(["pause", "play", "send", "approve"]);
 
 /**
  * Draws `fragment` as a `size`-pixel square whose top-left corner is (`x`,
