@@ -210,7 +210,6 @@ export interface StreamDeckCommand {
   readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
   readonly options: readonly StreamDeckCommandOption[];
   readonly status: string;
-  readonly blocking?: boolean;
   readonly answer?: StreamDeckCommandAnswer | null;
   readonly created_at?: string;
 }

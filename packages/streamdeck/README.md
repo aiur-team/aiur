@@ -4,8 +4,11 @@ This package ships the deployment artifacts and operator runbook for the
 direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The production
 sidecar opens the device, connects to the authenticated Aiur Phoenix channel,
 renders live fleet/provider state, and routes physical key controls through the
-same AgentChat facade as the browser emulator. It renews its short-lived token
-after disconnects and retains hotplug/suspend recovery. Terminal end-to-end
+same AgentChat facade as the browser emulator. It renews its short-lived socket
+token after disconnects and retains hotplug/suspend recovery — the token expiry
+bounds the socket, not the deck's authority: the sidecar stores the dashboard
+credentials and re-mints the token itself, so a plugged-in deck is a
+permanently-authorized operator client. Terminal end-to-end
 proof remains tracked in
 [#1358](https://github.com/aiur-team/aiur/issues/1358).
 

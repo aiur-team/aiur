@@ -1598,7 +1598,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
            "version" => 1,
            "question" => "Ship the change?",
            "status" => "open",
-           "blocking" => true,
            "context" => %{"short" => "The checks are green."},
            "options" => [
              %{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."},
