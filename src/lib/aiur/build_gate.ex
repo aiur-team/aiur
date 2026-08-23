@@ -210,11 +210,6 @@ defmodule Aiur.BuildGate do
       {:ok, result} ->
         {active, queued, holders, issues} = reduce_scan_result(result)
 
-  defp do_linux_status(base, gate_dir, lock_dir, capacity) do
-    case scan_locks(gate_dir, lock_dir, capacity) do
-      {:ok, result} ->
-        {active, queued, holders, issues} = reduce_scan_result(result)
-
         base
         |> Map.merge(%{
           active: active,
