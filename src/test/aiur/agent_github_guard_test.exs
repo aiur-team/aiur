@@ -22,7 +22,7 @@ defmodule Aiur.AgentGitHubGuardTest do
       fake_gh,
       """
       #!/bin/sh
-      if [ "${1:-} ${2:-}" = "api rate_limit" ]; then
+      if [ "${1:-}" = api ] && { [ "${2:-}" = rate_limit ] || [ "${2:-}" = /rate_limit ]; }; then
         printf '%s' "${FAKE_RATE_LIMIT:-5000 0 5000 0}"
         exit 0
       fi
@@ -1831,22 +1831,29 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
-  test "api rate_limit is admitted through the shared core budget", context do
+  test "api rate_limit is admitted non-billable in either spelling", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
-    assert {"5000 0 5000 0", 0} =
-             run_guard(context, ["api", "rate_limit"],
-               AIUR_GITHUB_BUDGET_ROOT: budget_root,
-               AIUR_GITHUB_BUDGET_KEY: key,
-               AIUR_GITHUB_BUDGET_BROKER: broker
-             )
+    # `/rate_limit` is accepted with or without its leading slash and is never
+    # booked to `rest`/core: family `rate_limit`, resource `none`, billable
+    # false — the same row the daemon's Budget path records through the shared
+    # EndpointPolicy table (#2353).
+    for spelling <- ["rate_limit", "/rate_limit"] do
+      assert {"5000 0 5000 0", 0} =
+               run_guard(context, ["api", spelling],
+                 AIUR_GITHUB_BUDGET_ROOT: budget_root,
+                 AIUR_GITHUB_BUDGET_KEY: key,
+                 AIUR_GITHUB_BUDGET_BROKER: broker
+               )
 
-    assert {snapshot, 0} =
-             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+      assert {snapshot, 0} =
+               System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    assert %{"admissions" => [%{"endpoint_family" => "rate_limit"}]} = Jason.decode!(snapshot)
+      decoded = Jason.decode!(snapshot)
+      assert Enum.any?(decoded["admissions"], &(&1["endpoint_family"] == "rate_limit" and &1["resource"] == "none" and &1["billable"] == false))
+    end
   end
 
   test "a guarded 304 response is reconciled as unbilled", context do

@@ -240,7 +240,10 @@ api_command_endpoint() {
 }
 
 case "${1:-} ${2:-}" in
-  "api rate_limit") resource=none; endpoint_family=rate_limit ;;
+  # `/rate_limit` is accepted with or without its leading slash — the same
+  # spelling tolerance the GraphQL arm below has — so the free endpoint is
+  # never misbooked to `rest`/core (#2353).
+  "api rate_limit"|"api /rate_limit") resource=none; endpoint_family=rate_limit ;;
   "api graphql"|"api /graphql")
     resource=graphql
     endpoint_family=graphql
@@ -343,7 +346,7 @@ if [ "${1:-}" = api ]; then
   resolved_api_endpoint=$(api_command_endpoint "$@") || resolved_api_endpoint=
 
   case "$resolved_api_endpoint" in
-    rate_limit)
+    rate_limit|/rate_limit)
       resource=none
       endpoint_family=rate_limit
       ;;
@@ -587,7 +590,14 @@ fi
 if [ "$validate_only" -eq 1 ]; then exit 0; fi
 
 admission_resource=$resource
-[ "$admission_resource" != none ] || admission_resource=core
+# `none` is the shared EndpointPolicy table's pool for endpoints GitHub does
+# not meter (`/rate_limit`). They are admitted for ordering but their ledger
+# row keeps `resource: none` — the same row the daemon's Budget path writes —
+# rather than being booked onto the core bucket, so the guard and the daemon
+# cannot disagree about what rate-limit probes cost (#2353). No `none`->core
+# mapping is applied: the only admitted `none`-resource command is `api
+# rate_limit`, and non-admitted `none` commands (config/auth token) never
+# reach the broker.
 
 # ---------------------------------------------------------------------------
 # SECURITY INVARIANT — agents never approve or merge a pull request.
@@ -1752,6 +1762,15 @@ PY
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
+  # Free endpoints (the shared EndpointPolicy table marks only `rate_limit`
+  # non-billable) are still admitted and leased for ordering, but their
+  # admission row must be recorded non-billable so the ledger never reports
+  # them as spend — the same `--billable 0` the daemon's Budget path passes
+  # (#2353). The broker defaults to `1`, so omitting this would bill every
+  # `/rate_limit` probe as core spend.
+  budget_billable_flag=
+  [ "$endpoint_family" = rate_limit ] && budget_billable_flag="--billable 0"
+
   while :; do
     # Whatever this loop last waited for — a hold, a full lease table, another
     # agent's identical fetch — the answer may have arrived meanwhile. Looking
@@ -1770,7 +1789,7 @@ budget_acquire() {
       [ "$cache_claim_overtake" -eq 1 ] && budget_cache_flags="$budget_cache_flags --cache-ignore-claim"
     fi
     if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --consumer-label "$budget_consumer_label" --endpoint-family "$endpoint_family" \
-      $budget_ignore_flag $budget_cache_flags \
+      $budget_ignore_flag $budget_cache_flags $budget_billable_flag \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
