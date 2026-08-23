@@ -216,21 +216,25 @@ defmodule Aiur.GitHub.ViewStateSweep do
   defp check_issue_head(%{repo: nil} = _state), do: :ok
 
   defp check_issue_head(%{repo: {owner, repo}} = state) do
-    with {:ok, token} <- state.token_fun.() do
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&sort=updated&direction=desc&per_page=100"
+    case state.token_fun.() do
+      {:ok, token} ->
+        url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&sort=updated&direction=desc&per_page=100"
 
-      case state.request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @head_response_bytes}) do
-        {:ok, %{status: 200, body: body}} when is_list(body) ->
-          full_name = "#{owner}/#{repo}"
-          head = newest_updated_at(body)
-          record_head_activity(full_name, head)
-          maybe_broadcast_divergence(full_name, head)
+        case state.request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @head_response_bytes}) do
+          {:ok, %{status: 200, body: body}} when is_list(body) ->
+            full_name = "#{owner}/#{repo}"
+            head = newest_updated_at(body)
+            record_head_activity(full_name, head)
+            maybe_broadcast_divergence(full_name, head)
 
-        _unexpected ->
-          :ok
-      end
-    else
-      _configuration_or_auth_fault -> :ok
+          _unexpected ->
+            :ok
+        end
+
+      # A missing repo or token is a configuration fact, never a reason to take
+      # the sweep down with it.
+      _configuration_or_auth_fault ->
+        :ok
     end
   rescue
     error ->

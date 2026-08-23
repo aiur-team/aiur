@@ -134,12 +134,9 @@ Dashboard and Build Order state is not on this cadence.
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
 The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
-moment a delivery deposits the changed issue. The sweep's other steady-state
-cost is the single divergence-watermark head page it runs on its own cadence —
-the read that keeps webhook loss detectable and re-converges a dropped
-delivery — and pack status, the one view-state source still on a cadence,
-reflects an outside change within one sweep, the trade for it costing nothing
-while nobody is looking.
+moment a delivery deposits the changed issue; the sweep's only other
+steady-state cost is the single divergence-watermark head page on its own
+cadence, and pack status still reflects an outside change within one sweep.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
