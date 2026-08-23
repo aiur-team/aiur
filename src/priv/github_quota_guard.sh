@@ -223,14 +223,12 @@ case "${1:-} ${2:-}" in
     unset api_options
     ;;
   # `gh pr view|list|status|checks`, `gh issue view|list|status`, and
-  # `gh search *` speak GraphQL on the wire and are billed in points against the
-  # GraphQL window, so they must book to the graphql resource — not core. They
-  # KEEP their descriptive families (pulls / issues / search): `endpoint_family`
-  # is also the lease-pool key and the audit histogram, so collapsing every
-  # GraphQL arm onto one family would merge four in-flight pools into one (a
-  # fleet-wide throughput regression) and destroy the family breakdown this bug
-  # was found with. The broker's hourly accounting buckets on the booked
-  # `resource`, not on the family. `pr diff` is REST and stays in the pulls
+  # `gh search *` speak GraphQL on the wire, so they book to the graphql
+  # resource — not core. They KEEP their descriptive families (pulls / issues /
+  # search): `endpoint_family` is also the lease-pool key and the audit
+  # histogram, so collapsing every GraphQL arm onto one family would merge four
+  # in-flight pools into one. The broker's hourly accounting buckets on the
+  # booked `resource`, not the family. `pr diff` is REST and stays in the pulls
   # family with resource=core (it must not inherit the graphql booking from its
   # read-arm sibling).
   "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=pulls ;;
@@ -238,20 +236,20 @@ case "${1:-} ${2:-}" in
   "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=issues ;;
   "run view"|"run list"|"run watch") endpoint_family=actions ;;
   # `gh search` splits across two wire transports (measured with GH_DEBUG=api):
-  # `search issues|prs` are GraphQL (`X-Ratelimit-Resource: graphql`), while
-  # `search code|commits|repos|users` hit REST `/search/*` and GitHub meters
-  # them as a third pool, `search` (~30 req/min rather than 5,000/hr). The
-  # `search` pool is its own resource so something paces against it; booking it
-  # to core or graphql mis-states the spend and protects the wrong window.
+  # `search issues|prs` are GraphQL (`X-Ratelimit-Resource: graphql`); `search
+  # code|commits|repos|users` hit REST `/search/*`, metered against a third pool,
+  # `search` (~30 req/min). The `search` pool is its own resource so something
+  # paces against it; booking it to core or graphql mis-states the spend and
+  # protects the wrong window.
   "search issues"|"search prs") resource=graphql; endpoint_family=search ;;
   "search code"|"search commits"|"search repos"|"search users") resource=search; endpoint_family=search ;;
   "search "*) resource=search; endpoint_family=search ;;
   # The `pr`/`issue` write subcommands are a GraphQL/REST mix and must be
   # classified per subcommand rather than as one bucket: `pr create|merge|review`
-  # and `issue create` mutate through GraphQL, while the rest (close, reopen,
-  # comment, edit, ready, lock/unlock, update-branch, transfer, ...) go through
-  # REST. Each keeps its descriptive pulls/issues family for the lease pool and
-  # books the resource its wire traffic actually consumes.
+  # and `issue create` mutate through GraphQL; the rest (close, reopen, comment,
+  # edit, ready, lock/unlock, update-branch, transfer, ...) are REST. Each keeps
+  # its descriptive pulls/issues family for the lease pool and books the resource
+  # its wire traffic actually consumes.
   "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=pulls; direction=write ;;
   "pr "*) resource=core; endpoint_family=pulls; direction=write ;;
   "issue create") resource=graphql; endpoint_family=issues; direction=write ;;
@@ -369,8 +367,8 @@ if [ "${1:-}" = api ] && [ "$api_paginated" -eq 0 ]; then
       # or fragment. `?` is escaped so it matches a literal `?`: unescaped it is
       # a glob wildcard, which made this arm claim every issue *subresource*
       # too — `issues/comments/<id>` most visibly, so an agent could not PATCH
-      # its own workpad comment and was told to run `gh issue create` instead.
-      # The #1793 guard is about creating issues, not about editing one.
+      # its own workpad comment. The #1793 guard is about creating issues, not
+      # editing one.
       *repos/*/*/issues|*repos/*/*/issues/|\
       *repos/*/*/issues\?*|*repos/*/*/issues/\?*|\
       *repos/*/*/issues#*|*repos/*/*/issues/#*)
@@ -424,8 +422,8 @@ if [ "${1:-}" = api ] && [ "$api_paginated" -eq 0 ]; then
       # claimed by the #1793 guard. A stdin, unreadable, or otherwise opaque
       # body cannot be confirmed as issue creation, so it is left to the
       # pre-existing merge gate, which denies every unreadable GraphQL body
-      # outright because it cannot rule out a merge. Claiming an opaque body
-      # here would mislabel a possible merge as issue creation.
+      # because it cannot rule out a merge — claiming an opaque body here
+      # would mislabel a possible merge as issue creation.
       if [ -f "$direct_graphql_file" ] && grep -q 'createIssue' "$direct_graphql_file" 2>/dev/null; then
         direct_issue_api=1
       fi
@@ -448,18 +446,17 @@ dispatch_disposition() {
 }
 
 # #1793: a ticket created without a lifecycle label is undispatchable AND
-# invisible - no agent can claim it and it appears in no state-scoped view, so
-# it reads to the operator as "no work left". 29 accumulated in one run. The
+# invisible — no agent can claim it and it appears in no state-scoped view, so
+# it reads to the operator as "no work left" (29 accumulated in one run). The
 # skills tell every filing path to set the disposition in the same request;
-# this refuses the call that does not, because an unlabelled issue that already
-# exists cannot be un-filed. Hierarchy that is deliberately not runnable
-# (Build Order roots, epics) and deliberately parked work still pass by naming
-# their own disposition.
+# this refuses the call that does not, because an unlabelled issue cannot be
+# un-filed. Deliberately non-runnable hierarchy (Build Order roots, epics) and
+# parked work still pass by naming their own disposition.
 command_name=
 subcommand_name=
-# The third positional word, which is where `gh pr view 2073` and its siblings
-# put the resource number. The shared-state cache below reads the identity from
-# exactly this position and from nowhere else, so a rarer spelling such as
+# The third positional word, where `gh pr view 2073` and its siblings put the
+# resource number. The shared-state cache reads the identity from exactly this
+# position and nowhere else, so a rarer spelling such as
 # `gh pr view --json body 2073` resolves to no identity and is simply not
 # cached. Guessing a position instead would risk keying a response under the
 # wrong number, and a wrong cached shape is worse than a cache miss.
@@ -527,9 +524,9 @@ admission_resource=$resource
 # ---------------------------------------------------------------------------
 # SECURITY INVARIANT — agents never approve or merge a pull request.
 #
-# The human merge gate is the last irreversible-action control in Aiur. An agent
-# that can approve its own PR and merge it has removed every human from the
-# loop, and prompt injection from a public issue body is enough to make it try.
+# The human merge gate is the last irreversible-action control in Aiur: an agent
+# that can approve and merge its own PR removes every human from the loop, and
+# prompt injection from a public issue body is enough to make it try.
 #
 # Two facts make this check work where an env-var switch would not:
 #
@@ -539,16 +536,14 @@ admission_resource=$resource
 #     cleared with `env -u`, so `env -u AIUR_AGENT_WORKSPACE gh pr merge` still
 #     lands here as an agent.
 #  2. It is paired with a per-agent `GH_CONFIG_DIR` (see
-#     `Aiur.AgentGitHubGuard.gh_config_dir/1`). That is what stops the real
-#     documented bypass, `env -u GITHUB_TOKEN -u GH_TOKEN gh pr review
-#     --approve`, which made `gh` fall back to the operator keyring — the one
-#     identity in the branch-protection `bypass_actors` list. With an empty
-#     agent-private config dir there is no keyring entry to fall back to, and
-#     that holds even when the real `gh` binary is invoked by absolute path,
-#     because it is process environment rather than a wrapper.
+#     `Aiur.AgentGitHubGuard.gh_config_dir/1`), which stops the documented
+#     bypass `env -u GITHUB_TOKEN -u GH_TOKEN gh pr review --approve`: with no
+#     keyring entry to fall back to, `gh` cannot reach the operator identity in
+#     the branch-protection `bypass_actors` list — even when the real `gh` is
+#     invoked by absolute path, because it is process environment, not a wrapper.
 #
-# Reads stay allowed: an agent must still be able to inspect review state and
-# check whether a PR merged. Only the writes are refused.
+# Reads stay allowed: an agent must still inspect review state and whether a PR
+# merged. Only the writes are refused.
 # ---------------------------------------------------------------------------
 # The redirect belongs to `cd`, not `pwd`: a missing directory must fail this
 # command substitution silently instead of writing a shell error to the agent's
@@ -616,8 +611,8 @@ approve_flag_in_arguments() {
 # gh reads a GraphQL document from a file or standard input as readily as from
 # argv. When it does, this process never sees the document, so the mutation-name
 # scan below has nothing to match and would admit `addPullRequestReview` with
-# the agent's PAT — an approval, which branch protection does not stop. The
-# guard can only permit what it can read, so an unreadable body is a denial.
+# the agent's PAT — an approval branch protection does not stop. The guard can
+# only permit what it can read, so an unreadable body is a denial.
 graphql_body_is_hidden() {
   for deny_argument in "$@"; do
     case "$deny_argument" in
@@ -704,10 +699,9 @@ merge_or_approve_command() {
 # defeats it: `gh alias set zz "pr merge"` followed by `gh zz 7` arrives here as
 # `zz`, matches nothing, and is admitted. The per-workspace `GH_CONFIG_DIR` that
 # closes the keyring bypass also hands the agent a writable place to store that
-# alias. Refusing alias mutation removes the write half; refusing an unknown
-# command name removes the read half, and covers aliases the agent did not have
-# to create. An unrecognised name is not a command this guard has decided is
-# safe — it is a command this guard cannot decide about at all.
+# alias: refusing alias mutation removes the write half; refusing an unknown
+# command name removes the read half — an unrecognised name is not one this
+# guard has decided is safe, but one it cannot decide about at all.
 undecidable_agent_command() {
   case "${1:-} ${2:-}" in
     "alias set"|"alias delete"|"alias import") return 0 ;;
@@ -750,52 +744,33 @@ fi
 # ---------------------------------------------------------------------------
 # SHARED GITHUB STATE CACHE (#2073 U6)
 #
-# The broker above rations permission to spend. It stores no answers, so
-# sixteen agents asking about one pull request take sixteen leases and pay
-# sixteen times. This section serves the answer instead, from a store shared by
-# every agent on the host.
+# The broker rations permission but stores no answers; this section serves each
+# answer once from a store every agent on the host shares. Three rules govern it:
 #
-# Three rules govern everything below.
+#  1. REPLAY BYTES, NEVER RECONSTRUCT THEM. A hit returns the exact stdout the
+#     real `gh` produced for an invocation whose output-affecting arguments
+#     (`--json`, `--jq`, `--template`, tty) hash identically.
 #
-#  1. REPLAY BYTES, NEVER RECONSTRUCT THEM. A hit writes back the exact stdout
-#     the real `gh` produced for an invocation whose output-affecting arguments
-#     hash identically — `--json` field set, `--jq` expression, `--template`,
-#     and whether stdout is a terminal. Nothing is re-serialised, re-filtered or
-#     re-ordered, so `gh pr view N --json body -q .body` is byte-identical to
-#     the uncached path by construction rather than by careful imitation. A
-#     wrong shape silently corrupts agent input, which is worse than paying for
-#     the call.
+#  2. KEYED BY RESOURCE IDENTITY; THE SHAPE ONLY NAMES THE FILE.
+#     `<owner>/<repo>/<kind>/<id>/<shape>` — one marker invalidates every shape.
 #
-#  2. THE ENTRY IS KEYED BY RESOURCE IDENTITY; THE SHAPE ONLY NAMES THE FILE.
-#     `<owner>/<repo>/<kind>/<id>/<shape>` — so a mutation, or a later daemon
-#     writer, invalidates every shape of a resource by touching one marker in
-#     its directory, without knowing which shapes exist.
+#  3. ANY DOUBT FALLS THROUGH: an unrecognised command, unknown repository,
+#     missing store, unparseable entry or non-zero exit leaves `$cache_body`
+#     empty and the call proceeds as today. The cache may cost throughput when
+#     it fails, never correctness.
 #
-#  3. ANY DOUBT FALLS THROUGH. An unrecognised command, an unknown repository, a
-#     missing or unwritable store, an unparseable entry, a non-zero exit — all
-#     of them leave `$cache_body` empty and the call proceeds exactly as it does
-#     today. The cache may cost throughput when it fails. It may never cost
-#     correctness.
-#
-# WHAT THIS IS NOT. Entries are written mode 600 under a 700 directory, which
-# keeps other local users out, but every agent runs as the SAME OS user and
-# therefore may write here — exactly as they may already write the shared budget
-# database beside it. An agent that goes looking can plant a response another
-# agent then reads. This is the same policy-not-capability boundary documented
-# on `Aiur.AgentGitHubGuard.gh_config_dir/1`, and it is not widened here: an
-# agent able to do that can already write the other agent's workspace. Real
-# containment needs a separate UID per agent.
+# WHAT THIS IS NOT. Every agent runs as the SAME OS user and can write here,
+# exactly as beside the shared budget database; real containment needs a
+# separate UID per agent.
 #
 # WHY NO CONDITIONAL REQUEST (#2299): reads here are GraphQL or `gh`-internal
 # REST with no header injection — see apis/github.md.
 # ---------------------------------------------------------------------------
-
-# The store sits beside the budget broker's database because that is already the
-# one directory every agent on a host shares. It is derived from the RAW
-# environment variable rather than from `$budget_root`, which defaults to
-# `$HOME/.aiur/github-budget` when unset — deriving from the default would give
-# a test harness that deliberately clears the budget root a live cache in the
-# operator's own home directory.
+# The store sits beside the budget broker's database, the one directory every
+# agent on a host shares. It derives from the RAW env var rather than
+# `$budget_root` (which defaults to `$HOME/.aiur/github-budget` when unset), so
+# a harness that clears the budget root does not get a live cache in the
+# operator's home directory.
 cache_root=${AIUR_GITHUB_STATE_CACHE_ROOT:-}
 if [ -z "$cache_root" ] && [ -n "${AIUR_GITHUB_BUDGET_ROOT:-}" ]; then
   cache_root=${AIUR_GITHUB_BUDGET_ROOT%/}/state-cache
@@ -807,10 +782,9 @@ esac
 # Whether THIS call reads and writes entries. Kept separate from the store's
 # existence on purpose: the store is shared by every agent on the host, so a
 # process opting out of reading must still retire what it changes. Gating
-# invalidation on the same switch would let one agent's `--json`-free shell, one
-# operator export, or one test harness leave every OTHER agent serving a stale
-# answer for the rest of the window — the store failing open turned into the
-# store being wrong.
+# invalidation on the same switch would let one agent's `--json`-free shell or
+# one test harness leave every OTHER agent serving a stale answer for the rest
+# of the window.
 cache_reads=1
 case "${AIUR_GITHUB_STATE_CACHE_ENABLED:-1}" in
   0|false|FALSE|no|NO|off|OFF) cache_reads=0 ;;
@@ -825,10 +799,10 @@ case "${AIUR_GITHUB_STATE_CACHE_BYPASS:-0}" in
 esac
 
 # Seconds, because that is the resolution `date` gives without a subprocess per
-# comparison. A window below one second is not expressible and rounds to zero,
-# which still serves an entry written in the same second — so the setting is
-# documented in whole seconds and a sub-second value is treated as "off" here
-# rather than pretending to a precision the entry stamps do not carry.
+# comparison. A sub-second value rounds to zero, which still serves an entry
+# written in the same second, so the setting is documented in whole seconds and
+# a sub-second value is treated as "off" rather than pretending to a precision
+# the entry stamps do not carry.
 cache_ttl=${AIUR_GITHUB_STATE_CACHE_TTL_MS:-60000}
 case "$cache_ttl" in ''|*[!0-9]*) cache_ttl=60000 ;; esac
 if [ "$cache_ttl" -lt 1000 ]; then
@@ -880,9 +854,8 @@ cache_valid_digest() {
 # TTY, and an entry written by a piped agent must never be replayed to an
 # interactive Executor shell as if it were the same request.
 #
-# `cache_tty` is sampled at the top level rather than inside this function
-# because the function's own stdout is the fingerprint pipe, where `[ -t 1 ]`
-# is false for every caller and would record nothing.
+# `cache_tty` is sampled at the top level because this function's own stdout is
+# the fingerprint pipe, where `[ -t 1 ]` is false for every caller.
 cache_tty=0
 [ -t 1 ] && cache_tty=1
 
@@ -890,9 +863,9 @@ cache_material() {
   printf 'aiur-gh-cache/v2\n%s\n' "$cache_tty"
   # The credential the answer was fetched with. Everything else the broker keeps
   # — budgets, leases, cooldowns — is already keyed by this fingerprint, and a
-  # response body is more identity-dependent than any of them: a private
-  # repository one token cannot see, the `permissions` object, a collaborator
-  # list. Two identities sharing one store must not share one answer.
+  # response body is more identity-dependent than any of them: a private repo one
+  # token cannot see, the `permissions` object, a collaborator list. Two
+  # identities sharing one store must not share one answer.
   printf '%s\n' "${budget_key:-unkeyed}"
   printf '%s\n%s\n%s\n%s\n%s\n' "${NO_COLOR-}" "${CLICOLOR-}" "${CLICOLOR_FORCE-}" "${GH_FORCE_TTY-}" "${COLUMNS-}"
   printf '%s\n%s\n%s\n' "${GH_HOST-}" "${GH_REPO-}" "$#"
@@ -956,11 +929,10 @@ cache_read_url_identity() {
 
 if [ -n "$cache_root" ]; then
   # `--hostname` and `GH_HOST` move the request to another GitHub deployment
-  # whose numbering is unrelated. Nothing is cached for those, and — because the
-  # entries of THIS host must not be retired by a write against a different one —
-  # nothing is invalidated either. A flag that names github.com explicitly is not
-  # a different deployment, so it is compared rather than merely detected: read as
-  # foreign it would have made such a write leave every other agent stale.
+  # whose numbering is unrelated, so nothing is cached and — because entries of
+  # THIS host must not be retired by a write against a different one — nothing
+  # is invalidated either. A flag that names github.com explicitly is not a
+  # different deployment, so it is compared rather than merely detected.
   cache_hostname_override=0
   cache_hostname_expected=0
   for cache_arg in "$@"; do
@@ -993,9 +965,9 @@ if [ -n "$cache_root" ]; then
   # the subtle one: `AIUR_GITHUB_REPO` is the repo the daemon dispatched this
   # agent against, and `gh` resolves the repo from the working directory, so the
   # two only agree while the agent is inside its own workspace. An agent that
-  # cloned something else and ran `gh pr view 5` there would otherwise have its
-  # answer filed under the wrong repository — so that case resolves to no
-  # identity and is not cached.
+  # cloned something else and ran `gh pr view 5` there would have its answer
+  # filed under the wrong repository — so that case resolves to no identity
+  # and is not cached.
   cache_flag_repo=
   cache_prior=
   for cache_arg in "$@"; do
@@ -1029,11 +1001,10 @@ if [ -n "$cache_root" ]; then
 fi
 
 # The `--json` fields whose value is a verdict rather than a fact: CI state, and
-# whether a pull request can be merged. `gh pr checks` is excluded from the
-# cacheable commands below for the same reason — and would have been unsafe in a
-# second way, because it exits 1 for a failure and 8 for pending while only a
-# zero-status response is ever stored, so the only verdict it could ever replay
-# is "everything passed".
+# whether a pull request can be merged. `gh pr checks` is excluded for the same
+# reason — and would have been unsafe in a second way: it exits 1 for failure
+# and 8 for pending while only a zero-status response is ever stored, so the
+# only verdict it could ever replay is "everything passed".
 cache_volatile_fields() {
   case ",$1," in
     *,statusCheckRollup,*|*,mergeable,*|*,mergeStateStatus,*|*,mergeCommit,*|\
@@ -1048,19 +1019,14 @@ cache_volatile_fields() {
 # bypassing `gh pr view`. The pull-request resource itself is included because
 # its default document carries `mergeable`, `mergeable_state`, `merged` and
 # `state` — the exact fields `gh pr view --json ...` refuses — and nothing that
-# changes them passes through this wrapper (a merge is a human or ruleset
-# action), so even a `pulls/<n>/comments` read filed under that PR can never be
-# retired by the write that would stale it. Refusing the whole family costs
-# throughput, never correctness.
+# changes them passes through this wrapper, so a `pulls/<n>/comments` read filed
+# under that PR can never be retired by the write that would stale it.
 #
 # Deliberate divergence from `Aiur.GitHub.ReadCache.Policy`: the daemon refuses
-# every `/actions` path wholesale (`policy.ex` refuses `actions(?:/|$|\?)`),
-# while this wrapper keeps stable workflow metadata (`actions/workflows`, the
-# definition list) cacheable and refuses only run and job state. A workflow
-# definition changes when its YAML is edited, which is a wrapper-passing write
-# that invalidates it; a run's status is a verdict that nothing retires. So the
-# shell is narrower than the daemon, on purpose, because the two stores serve
-# different callers with different invalidation reach.
+# every `/actions` path wholesale; this wrapper keeps stable workflow metadata
+# (`actions/workflows`) cacheable and refuses only run and job state — a
+# workflow definition changes when its YAML is edited, a run's status is a
+# verdict nothing retires.
 cache_unsafe_rest_endpoint() {
   case "/${1#/}" in
     */check-runs|*/check-runs/*|*/check-suites|*/check-suites/*|\
@@ -1078,9 +1044,9 @@ cache_unsafe_rest_endpoint() {
 # bare `gh pr view` with no number, `gh pr diff`, `gh api graphql`, every write
 # — falls through to the real `gh` untouched.
 #
-# `--json` is required for the high-level commands on purpose. Without it `gh`
-# prints a human table containing relative timestamps and terminal-width
-# layout, which is neither stable across two agents nor meaningful to replay.
+# `--json` is required for the high-level commands on purpose: without it `gh`
+# prints a human table with relative timestamps and terminal-width layout,
+# which is neither stable across agents nor meaningful to replay.
 if [ -n "$cache_root" ]; then
   cache_has_json=0
   cache_has_web=0
@@ -1128,10 +1094,10 @@ if [ -n "$cache_root" ]; then
   # R10. A merge decision and a CI verdict may not be served stale, ever, and
   # neither may be repaired after the fact: an agent that reads "all green" for a
   # commit CI has not seen, or "mergeable" for a branch that has moved, has
-  # already acted on it. Nothing invalidates these either — `git push` and a
-  # check run completing never pass through this wrapper — so the freshness
-  # window is the ONLY thing standing between the read and a wrong answer. These
-  # field names are therefore refused outright rather than given a short window.
+  # already acted on it. Nothing invalidates these — `git push` and a check run
+  # completing never pass through this wrapper — so the freshness window is the
+  # ONLY thing standing between the read and a wrong answer. These field names
+  # are refused outright, never given a short window.
   [ "$cache_volatile" -eq 0 ] || cache_reads=0
 
   case "$command_key" in
@@ -1188,9 +1154,9 @@ if [ -n "$cache_root" ]; then
               # not under the endpoint. `repos/o/r/pulls/1670` and
               # `gh pr view 1670 --json body` are the same pull request, so a
               # writer retiring pull request 1670 must retire both — and it
-              # cannot, if one of them is filed under a digest of a URL the
-              # writer has never seen. The endpoint still separates the two
-              # entries, because every argument is hashed into the shape.
+              # cannot if one is filed under a URL digest the writer has never
+              # seen. The endpoint still separates the two entries via the
+              # hashed shape.
               cache_api_number=
               case "$cache_api_rest" in
                 */issues/*|*/pulls/*)
@@ -1301,10 +1267,9 @@ cache_now=${cache_started_at:-0}
 if [ -n "$cache_root" ] && [ -n "$cache_owner" ] && [ -n "$cache_repo_name" ]; then
   # Down-cased, exactly as `Aiur.GitHub.ResourceStore.key/4` does, because the
   # daemon and this wrapper must name one repository one way. `-R AIUR-Team/Aiur`
-  # and a webhook's `aiur-team/aiur` are the same repository, and filed apart the
-  # daemon would retire entries no agent is reading while the agents keep serving
-  # the ones it meant to retire — a cache that is wrong in the one direction a
-  # cache may not be wrong in.
+  # and a webhook's `aiur-team/aiur` are the same repository; filed apart, the
+  # daemon would retire entries no agent reads while agents keep serving the
+  # ones it meant to retire — wrong in the one direction a cache may not be.
   if command -v tr >/dev/null 2>&1; then
     cache_identity=$(printf '%s/%s' "$cache_owner" "$cache_repo_name" | tr '[:upper:]' '[:lower:]')
     case "$cache_identity" in
@@ -1359,11 +1324,10 @@ cache_record() {
     mv -f "$cache_events_file" "$cache_events_file.$cache_started_at.$$" 2>/dev/null || true
 
     # Pruning is outside the call's output descriptors and keeps a one-hour
-    # safety margin beyond the reader's window. The exact prefix confines the
-    # deletion to this bounded effectiveness log. `-mmin` and `-delete` are
+    # safety margin beyond the reader's window. `-mmin` and `-delete` are
     # non-POSIX, so this is gated exactly as `cache_prune` gates its own use of
     # them: on a host without GNU/BSD find the prune is a no-op rather than a
-    # silent failure that lets archives accumulate with no recovery path.
+    # silent failure that lets archives accumulate.
     if command -v find >/dev/null 2>&1; then
       (
         find "$agent_quota_dir" -type f -name 'agent-cache.tsv.*' -mmin +1500 -delete || true
@@ -1407,12 +1371,11 @@ cache_lookup() {
   if [ "$cache_bypass" -ne 0 ]; then cache_miss_reason=bypassed; return 1; fi
   [ -f "$cache_meta" ] || return 1
   # A meta that survived but whose body did not is a torn entry, not a cold
-  # read: `cache_prune` or a partial disk-full write left the stamp behind. The
-  # old comment called this "the entry's stamp survives its body". Recorded as
-  # `absent` it reads on the dashboard as a cold cache with diverse shapes, and
-  # store-integrity failures go unseen — the misdiagnosis #2207 exists to
-  # prevent. It is a distinct cause from `corrupt` (present but unreadable) and
-  # from `absent` (nothing was ever stored).
+  # read: `cache_prune` or a partial disk-full write left the stamp behind.
+  # Recorded as `absent` it reads on the dashboard as a cold cache with diverse
+  # shapes and store-integrity failures go unseen — the misdiagnosis #2207
+  # exists to prevent. It is a distinct cause from `corrupt` (present but
+  # unreadable) and from `absent` (nothing was ever stored).
   [ -f "$cache_body" ] || { cache_miss_reason=torn; return 1; }
   if [ ! -r "$cache_body" ]; then cache_miss_reason=corrupt; return 1; fi
 
@@ -1425,10 +1388,10 @@ cache_lookup() {
   # A clock that moved backwards, or an entry stamped in the future, is not
   # something to reason about — treat it as a miss and re-fetch.
   #
-  # Compared against `$cache_now` rather than this process's start, because a
-  # coalesced follower looks again after waiting: measured from its start, an
-  # entry the leader wrote one second later reads as stamped in the future and is
-  # refused, which is precisely the duplicate fetch the wait existed to avoid.
+  # Compared against `$cache_now` rather than this process's start: a coalesced
+  # follower looks again after waiting, and measured from its start an entry the
+  # leader wrote one second later would read as stamped in the future and be
+  # refused — precisely the duplicate fetch the wait existed to avoid.
   if [ "$cache_fetched_at" -gt "$cache_now" ]; then cache_miss_reason=clock-skewed; return 1; fi
   if [ $((cache_now - cache_fetched_at)) -gt "$cache_ttl" ]; then cache_miss_reason=expired; return 1; fi
 
@@ -1462,18 +1425,18 @@ cache_write_file() {
   return 1
 }
 
-# Marked with the moment the mutation FINISHED, and entries are stamped with the
-# moment their read STARTED. Those two choices together are what make the marker
-# safe, and both are load-bearing:
+# Marked with the moment the mutation FINISHED, and entries with the moment
+# their read STARTED. Both choices are load-bearing:
 #
-#   * A read that began before the write completed is retired even if its response
-#     arrived afterwards, because its stamp predates the marker. Stamping the
-#     marker at the mutation's start instead would leave that read — which cannot
-#     contain the change — looking newer than the change, and an agent would be
-#     unable to see the comment it had just posted for the whole window.
-#   * The error runs one way only. A read that genuinely postdates the write is
-#     also retired when it began within the same second, which costs one
-#     re-fetch. Over-invalidation is the only acceptable direction here.
+#   * A read that began before the write completed is retired even if its
+#     response arrived afterwards, because its stamp predates the marker.
+#     Stamping the marker at the mutation's start would leave that read — which
+#     cannot contain the change — looking newer than the change, and an agent
+#     would be unable to see the comment it had just posted for the whole
+#     window.
+#   * The error runs one way only: a read that genuinely postdates the write is
+#     also retired when it began within the same second, costing one re-fetch.
+#     Over-invalidation is the only acceptable direction here.
 cache_invalidate_writes() {
   [ -n "$cache_root" ] || return 0
   [ "$direction" = write ] || return 0
@@ -1499,9 +1462,8 @@ cache_invalidate_writes() {
     # a number that is not an issue or pull request number, and the parent it
     # belongs to is not derivable from it. Retiring the repository for it would
     # be correct and ruinous: agents rewrite their workpad comment every few
-    # minutes, so every one of those edits would flush the whole store and the
-    # sharing this exists for would never happen. The collections marker written
-    # above is the honest scope for it.
+    # minutes, so every edit would flush the whole store and the sharing this
+    # exists for would never happen. The collections marker is the honest scope.
     collection|subresource) ;;
     ''|*[!0-9]*) cache_write_file "$cache_repo_dir/.invalidated" "$cache_finished_at" || true ;;
     *)
@@ -1562,11 +1524,10 @@ cache_prune() {
   unset cache_pruned_at
   cache_write_file "$cache_root/v1/.pruned" "$cache_started_at" || return 0
 
-  # The subshell's own descriptors are redirected, not just the `find`'s. A
-  # background job that keeps a copy of this script's stdout holds the pipe
-  # open, and `$(gh pr view ...)` blocks on EOF — so an unredirected sweep would
-  # stall the very command it was meant to be invisible to. Same reason
-  # `budget_start_renewal` redirects its subshell.
+  # The subshell's own descriptors are redirected, not just the `find`'s: a
+  # background job keeping a copy of this script's stdout holds the pipe open,
+  # and `$(gh pr view ...)` blocks on EOF — so an unredirected sweep would stall
+  # the very command it was meant to be invisible to.
   (
     find "$cache_root/v1" -type f \( -name '*.body' -o -name '*.meta' \) -mmin +120 -delete || true
   ) >/dev/null 2>&1 &
@@ -1575,11 +1536,11 @@ cache_prune() {
 }
 
 # Answers with the stored bytes, or refuses. `cat` is checked because the entry
-# can go away between the readability test and the read — a concurrent writer
-# whose stamp failed removes its own body — and an unchecked `cat` would hand the
-# agent empty stdout with exit 0, which `out=$(gh pr view N --json body -q .body)`
-# reads as "the body is empty". A refusal here falls through to the real `gh`,
-# which is the same answer every other doubt in this file produces.
+# can go away between the readability test and the read, and an unchecked `cat`
+# would hand the agent empty stdout with exit 0, which `out=$(gh pr view N
+# --json body -q .body)` reads as "the body is empty". A refusal here falls
+# through to the real `gh`, the same answer every other doubt in this file
+# produces.
 cache_serve() {
   if ! cat "$cache_body"; then
     # Body vanished between lookup and read — the miss is `corrupt`, not `absent`.
@@ -1590,10 +1551,10 @@ cache_serve() {
   return 0
 }
 
-# A second look, with the clock re-sampled. Between a caller's own lookup and the
-# moment it is admitted to spend, another agent's identical fetch can land — so
-# every point where this call is about to reach GitHub asks once more first. One
-# `date` and a handful of stats against a network round trip.
+# A second look, with the clock re-sampled. Between a caller's own lookup and
+# the moment it is admitted to spend, another agent's identical fetch can land —
+# so every point where this call is about to reach GitHub asks once more first.
+# One `date` and a handful of stats against a network round trip.
 cache_recheck() {
   [ -n "$cache_body" ] || return 1
 
@@ -1611,22 +1572,14 @@ fi
 
 # COALESCING (#2073 U6). A hit above costs no `python3` and no network, so the
 # store already removes the second and later reads of a resource. It cannot
-# remove the SIMULTANEOUS ones: thirteen agents that all look before any of them
-# has answered all miss, and all thirteen pay. Nothing in a lookup can fix that,
-# because at lookup time there is nothing to find.
-#
-# So the miss path names the shape it is about to fetch, and the broker — the one
-# place every agent on the host already meets under a transaction — admits one
-# fetcher per shape and tells the rest to wait. They wait, look again, and find
-# the leader's answer. The claim is bounded by its own TTL and by the waiter's
-# patience below, so a leader that dies costs one duplicate fetch and never a
-# stall.
-#
-# A caller demanding strict freshness takes no part in this. It cannot be
-# satisfied by the leader's answer — it refuses stored answers by definition — so
-# waiting behind the claim would spend the whole patience budget and then make
-# the call anyway. The one caller that must not be delayed would have been the
-# one delayed most.
+# remove the SIMULTANEOUS ones: agents that all look before any answers all
+# miss and all pay. So the miss path names the shape it is about to fetch, and
+# the broker — the one place every agent on the host meets under a transaction —
+# admits one fetcher per shape and tells the rest to wait, look again, and find
+# the leader's answer. The claim is bounded by its own TTL and the waiter's
+# patience, so a leader that dies costs one duplicate fetch, never a stall. A
+# caller demanding strict freshness refuses stored answers by definition, so it
+# takes no part in this.
 #
 # The key's members are all constrained: owner and repo pass `cache_valid_slug`
 # (`[A-Za-z0-9./_-]`, no `..`), the kind is a literal, the id is digits, `list`
@@ -1638,13 +1591,12 @@ if [ -n "$cache_body" ] && [ -n "$cache_shape" ] && [ "$cache_bypass" -eq 0 ]; t
   cache_claim_key=$cache_owner/$cache_repo_name/$cache_kind/$cache_id/$cache_shape
 fi
 
-# How long a follower waits for the leader before deciding the leader is not
-# coming and fetching for itself. Bounded on purpose: a wait that could outlast
-# the call it replaces would turn a saving into a hang. Measured against the
-# CLOCK, not against the sleeps the broker advertised — each iteration also pays
-# a `python3` start and a SQLite write transaction, so counting only the
-# advertised sleep understated the real wait by more than a factor of two and the
-# documented bound would not have been the bound.
+# How long a follower waits for the leader before deciding it is not coming and
+# fetching for itself. Bounded on purpose: a wait that could outlast the call it
+# replaces would turn a saving into a hang. Measured against the CLOCK, not the
+# sleeps the broker advertised — each iteration also pays a `python3` start and
+# a SQLite write transaction, so counting only the advertised sleep understated
+# the real wait by more than 2x.
 cache_claim_wait_budget_ms=${AIUR_GITHUB_STATE_CACHE_WAIT_MS:-15000}
 case "$cache_claim_wait_budget_ms" in ''|*[!0-9]*) cache_claim_wait_budget_ms=15000 ;; esac
 cache_claim_wait_budget=$(( (cache_claim_wait_budget_ms + 999) / 1000 ))
@@ -2380,11 +2332,11 @@ write_hold() {
 }
 
 # Exhaustion an agent discovers first is fleet-wide news, but holds used to be
-# written only to the per-workspace dir that no other agent and not the daemon
-# reads — so everyone else rediscovered it on the daemon's next `/rate_limit`
-# probe. Reads already consult both dirs (`consider_resource_holds` below), so
-# writes publish to both too. An unwritable shared dir just fails quietly and
-# leaves the workspace hold in place.
+# written only to the per-workspace dir no other agent and not the daemon reads
+# — so everyone else rediscovered it on the daemon's next `/rate_limit` probe.
+# Reads already consult both dirs (`consider_resource_holds` below), so writes
+# publish to both too; an unwritable shared dir fails quietly and leaves the
+# workspace hold in place.
 publish_hold() {
   if [ -n "$agent_quota_dir" ]; then write_hold "$agent_quota_dir/$1" "$2"; fi
 
@@ -2429,8 +2381,8 @@ consider_resource_holds() {
 # The high-level list commands keep their own pagination loop inside one `gh`
 # process. A shell guard cannot admit those hidden HTTP pages individually, so
 # never let an invocation request more than one GitHub page under one lease.
-# `gh api --paginate` is handled above and remains the supported guarded path
-# for callers that need more than GitHub's maximum 100-item page.
+# `gh api --paginate` is handled above and remains the supported path for
+# callers that need more than GitHub's maximum 100-item page.
 native_page_limit_exceeds_single_request() {
   [ "${1:-}" != api ] || return 1
 
@@ -2541,11 +2493,7 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
       ;;
     pr|issue|run|search|label)
       case "$subcommand_name" in
-        view|list|status|checks|diff|create|merge|review|close|reopen|edit|ready|delete|comment|update-branch) call_site="$command_name $subcommand_name" ;;
-        view|list|status|create|edit|close|reopen|delete|comment|lock|unlock|pin|unpin|transfer) call_site="$command_name $subcommand_name" ;;
-        view|list|watch|rerun|cancel|delete) call_site="$command_name $subcommand_name" ;;
-        issues|prs|repos|code|commits|users) call_site="$command_name $subcommand_name" ;;
-        create|delete|edit) call_site="$command_name $subcommand_name" ;;
+        view|list|status|checks|diff|create|merge|review|close|reopen|edit|ready|delete|comment|update-branch|lock|unlock|pin|unpin|transfer|watch|rerun|cancel|issues|prs|repos|code|commits|users) call_site="$command_name $subcommand_name" ;;
       esac
       ;;
   esac
@@ -2555,8 +2503,7 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   # the call with the subprocess-spawn log of the ticket that made it (#2255).
   # Both are best-effort: an empty fingerprint (budget disabled) or a blank
   # column degrades to an unattributed row, never a refused call. The call-site
-  # column sits between the resource and the fingerprint so the subcommand that
-  # made each call is named on the same row (#2299).
+  # column sits between the resource and the fingerprint (#2299).
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" "${budget_key:-}" "$$" >> "$events_file" 2>/dev/null || true
 fi
 
@@ -2680,9 +2627,9 @@ probe_rate_limit() {
   # original read's shape for it would make every follower wait on an answer this
   # call is never going to write — and, worse, admission is re-entered here AFTER
   # the real `gh` has already failed, so a cached body found during the probe
-  # would be printed onto the stdout of a call that is about to exit non-zero.
-  # `$(gh ... --json ...)` would read that as a successful answer. Both the claim
-  # and the ability to serve are withdrawn for the duration.
+  # would be printed onto the stdout of a call about to exit non-zero
+  # (`$(gh ... --json ...)` would read that as success). Both the claim and the
+  # ability to serve are withdrawn for the duration.
   original_claim_key=$cache_claim_key
   original_cache_body=$cache_body
   cache_claim_key=
