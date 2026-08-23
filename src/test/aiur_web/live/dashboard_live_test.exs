@@ -2661,7 +2661,13 @@ defmodule AiurWeb.DashboardLiveTest do
     # the immediate reload timer, render/1 (whose ping drains the LiveView
     # mailbox) reflects that failure on the next call, so this wait is
     # deterministic rather than a wall-clock guess at the whole async chain.
-    assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
+    #
+    # The remaining async hop is still a wall-clock deadline: under a loaded
+    # CI host the store write or the render drain can stall a scheduler, and
+    # the default 100 attempts x 10ms (~1s) budget is what flaked at load-avg
+    # 88 (#2340). 300 attempts (~3s) keeps the same message-synchronized
+    # assertion while budgeting for the loaded box.
+    assert eventually(fn -> render(view) =~ "Delivery failed" end, 300)
     html = render(view)
     assert html =~ "Recorded answer"
     assert html =~ "Delivery failed"
@@ -2675,7 +2681,10 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :queued
            end)
 
-    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 100)
+    # Same load-sensitivity rationale as the "Delivery failed" wait above: the
+    # retry button disappearing is gated on a broadcast + render that a loaded
+    # box can stall past a 100-attempt (~1s) deadline. 300 attempts (~3s).
+    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 300)
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
     assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1

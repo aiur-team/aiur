@@ -16,13 +16,23 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   end
 
   test "widens the interval while the fleet is idle" do
-    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{}}
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1
+    }
 
     assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 5.0) == 600_000
   end
 
   test "reads the idle widen factor from configured settings" do
-    state = %State{poll_interval_ms: 30_000, github_poll_delays: %{}, running: %{}}
+    state = %State{
+      poll_interval_ms: 30_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1
+    }
 
     assert %{delay_ms: 150_000, idle_backoff?: true, idle_widen_factor: 5.0} =
              TrackerHealth.poll_schedule(state)
@@ -35,27 +45,107 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
       running: %{
         "issue-1" => %{control: %{status: :paused}},
         "issue-2" => %{control: %{status: :completed}}
-      }
+      },
+      poll_cycles_completed: 1
     }
 
     assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 5.0) == 600_000
   end
 
   test "does not widen the interval while an agent is running" do
-    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{"issue-1" => %{}}}
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{"issue-1" => %{}},
+      poll_cycles_completed: 1
+    }
 
     assert TrackerHealth.next_poll_delay_ms(state, idle_widen_factor: 5.0) == 120_000
   end
 
   test "a factor of one disables idle backoff" do
-    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{}}
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1
+    }
 
     assert %{delay_ms: 120_000, idle_backoff?: false} =
              TrackerHealth.poll_schedule(state, idle_widen_factor: 1.0)
   end
 
+  # A freshly started daemon has observed no idleness: it must poll at the base
+  # interval first and only back off once a full cycle has run with nothing to
+  # do (#2138).
+  test "does not widen before the first poll cycle completes" do
+    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, running: %{}}
+
+    assert %{delay_ms: 120_000, idle_backoff?: false} =
+             TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
+  end
+
+  # A live fleet with claimable tickets is not idle — it simply has not looked.
+  # Backing off there is exactly the "idles up to 20 minutes with work waiting"
+  # defect, so dispatchable demand keeps the poll at the base interval (#2138).
+  test "does not widen while dispatchable work is waiting" do
+    issue = %Aiur.Issue{id: "issue-1", identifier: "owner/repo#1", title: "Work", state: "todo", labels: ["agent:todo"]}
+
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1,
+      last_polled_issues: %{"issue-1" => issue}
+    }
+
+    assert %{delay_ms: 120_000, idle_backoff?: false} =
+             TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
+  end
+
+  # A cycle whose candidate fetch failed observed nothing, so the fleet must
+  # not be treated as idle and backed off — an unobserved queue must never
+  # count as an idle one (#2138 review P1, #2278). This is the daemon-side half
+  # of the CLI's "has not polled yet" rule: a stale snapshot means the fleet has
+  # not looked recently enough to know there is no work.
+  test "does not widen while the candidate snapshot is stale (last fetch failed)" do
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1,
+      candidate_snapshot_fresh?: false
+    }
+
+    assert %{delay_ms: 120_000, idle_backoff?: false} =
+             TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
+  end
+
+  # A globally paused fleet cannot dispatch even with tickets waiting, so it
+  # still backs off; unpausing wakes a prompt poll instead (#2138).
+  test "widens a paused fleet even with tickets waiting" do
+    issue = %Aiur.Issue{id: "issue-1", identifier: "owner/repo#1", title: "Work", state: "todo", labels: ["agent:todo"]}
+
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{},
+      running: %{},
+      poll_cycles_completed: 1,
+      globally_paused: true,
+      last_polled_issues: %{"issue-1" => issue}
+    }
+
+    assert %{delay_ms: 600_000, idle_backoff?: true} =
+             TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
+  end
+
   test "idle and webhook widen factors compose before GitHub floors apply" do
-    state = %State{poll_interval_ms: 120_000, github_poll_delays: %{comments: 900_000}, running: %{}}
+    state = %State{
+      poll_interval_ms: 120_000,
+      github_poll_delays: %{comments: 900_000},
+      running: %{},
+      poll_cycles_completed: 1
+    }
 
     assert TrackerHealth.next_poll_delay_ms(state,
              repo: "aiur-team/aiur",

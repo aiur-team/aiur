@@ -81,7 +81,7 @@ defmodule Aiur.GitHub.Comments do
       query = comment_query(opts)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
 
-      Transport.fetch_json_list(request_fun, token, url)
+      Transport.fetch_json_list(request_fun, token, url, caller: "issue_comments")
     end
   end
 
@@ -136,7 +136,7 @@ defmodule Aiur.GitHub.Comments do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?per_page=100"
 
-      case Transport.fetch_json_list(request_fun, token, url) do
+      case Transport.fetch_json_list(request_fun, token, url, caller: "classified_issue_comments") do
         {:ok, comments} ->
           {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
 

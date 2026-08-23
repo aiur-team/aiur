@@ -62,7 +62,7 @@ defmodule Aiur.Upgrade.VersionTest do
 end
 
 defmodule Aiur.UpgradeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
   require Logger

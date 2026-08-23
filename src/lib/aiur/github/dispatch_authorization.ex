@@ -7,6 +7,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   alias Aiur.GitHub.{Config, Errors, StatePolicy, Transport}
 
   @cache_key {__MODULE__, :timeline_cache}
+  # The timeline cache holds full event lists — up to four pages of 100 raw
+  # events per issue. `:persistent_term.put/2` triggers a global literal-area GC
+  # across every process, so holding those lists there (and rewriting them on
+  # every dispatch attempt) is exactly the failure this table avoids: ETS is
+  # reference-counted and GC-agnostic. Only the small fingerprint/decision/alert
+  # caches stay in `:persistent_term` (#2298 rework B4).
+  @timeline_table :aiur_github_dispatch_authorization_timelines
   @max_cache_entries 1_000
 
   # A timeline page requests up to `per_page=100` events (see fetch_decision),
@@ -49,6 +56,11 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   @spec clear_cache() :: :ok
   def clear_cache do
     :persistent_term.erase(@cache_key)
+
+    if :ets.whereis(@timeline_table) != :undefined do
+      :ets.delete_all_objects(@timeline_table)
+    end
+
     :ok
   end
 
@@ -110,10 +122,29 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       event_id
     )
 
-    %{issue | dispatch_authorized?: authorized?}
+    authorization = if authorized?, do: :authorized, else: :denied
+    %{issue | dispatch_authorized?: authorized?, dispatch_authorization: authorization}
   end
 
   defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users, _opts), do: deny_ambiguous(issue, reason)
+
+  # A resource/transport failure on the provenance fetch is NOT a provenance
+  # verdict. `{:deferred, reason}` means "could not check right now" — a budget
+  # hold, rate limit, or transport outage — so the issue is not dispatched this
+  # cycle (fail-closed) but is deliberately not marked revoked: a running agent
+  # must not be killed, and once the cause clears the next poll re-verifies
+  # from a fresh timeline and the ticket returns to dispatchable with no
+  # operator action (#2409).
+  defp apply_label_decision({:deferred, reason}, issue, _allowed_users, _opts) do
+    Logger.warning(
+      "GitHub dispatch authorization deferred issue_id=#{inspect(issue.id)} " <>
+        "issue_identifier=#{inspect(issue.identifier)} reason=#{inspect(reason)} " <>
+        "state=#{inspect(issue.state)}; ticket is not dispatched this cycle and no " <>
+        "running agent is revoked (transient, not a provenance denial)"
+    )
+
+    %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred}
+  end
 
   # Aiur's own identity, never a human decision. Both logins count, and it has
   # to be both: the state label above is written with the *daemon's* credential,
@@ -149,72 +180,174 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       url =
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/timeline?per_page=100"
 
-      case fetch_timeline_pages(request_fun, token, url, @max_timeline_pages, []) do
-        {:ok, events} ->
+      held = held_timeline(issue.id)
+
+      case fetch_timeline(request_fun, token, url, held) do
+        {:ok, events, new_etag, single_page?} ->
+          store_timeline(issue.id, new_etag, events, single_page?)
           timeline_decision(issue, label, prefix, events)
 
+        {:reused, events} ->
+          timeline_decision(issue, label, prefix, events)
+
+        # The timeline could not be fetched or parsed — a budget hold, rate
+        # limit, transport failure, or pagination/truncation limit. None of
+        # these is a provenance finding: the fetch produced no label evidence
+        # either way, so this is a *deferred* authorization (not dispatched this
+        # cycle, never treated as revoked) rather than an `:ambiguous` denial.
+        # A genuinely hostile relabel still revokes — that verdict comes from
+        # `timeline_decision` over a fetched timeline, which this branch never
+        # reaches (#2409).
         {:error, reason} ->
-          {:ambiguous, reason}
+          {:deferred, reason}
       end
     else
       {:ambiguous, :missing_github_token}
     end
   end
 
-  defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events), do: {:error, :timeline_page_limit_exceeded}
+  # The only validator we hold belongs to page 1 of the timeline. A `304`
+  # against it proves page 1 unchanged — and issue timelines are ordered
+  # oldest-first, so page 1 is effectively immutable and a `304` there says
+  # nothing about the later pages where new `labeled` events land. The held
+  # timeline is therefore reusable on a `304` only when it was a *single page*
+  # AND GitHub does not report a new page on the `304` (the single→multi
+  # transition is exactly the staleness this must never serve). A multi-page
+  # held timeline is refetched every cycle: its validator belongs to a page that
+  # cannot move, so it can never buy an answer.
+  defp fetch_timeline(request_fun, token, url, held) do
+    etag = if reusable?(held), do: held.etag, else: nil
 
-  defp fetch_timeline_pages(request_fun, token, url, pages_left, events) do
-    fetch_timeline_page(request_fun, token, url, pages_left, events, false)
+    case request_fun.(timeline_request(url, token, etag)) do
+      {:ok, %{status: 304} = response} ->
+        timeline_not_modified(request_fun, token, url, held, etag, response)
+
+      {:ok, %{status: 200, body: page} = response} when is_list(page) ->
+        continue_timeline_pages(request_fun, token, page, response, @max_timeline_pages, [])
+
+      other ->
+        timeline_fetch_error(other)
+    end
   end
 
-  defp fetch_timeline_page(request_fun, token, url, pages_left, events, retried_without_validator?) do
-    case request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @max_timeline_response_bytes}) do
-      {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        timeline_page_ok(request_fun, token, response, page, pages_left, events)
+  # A `304` with no validator sent is a proxy answering a request that carried
+  # none — not a page.
+  defp timeline_not_modified(_request_fun, _token, _url, _held, nil, _response),
+    do: {:error, :timeline_unexpected_304}
 
-      {:ok, %{status: 200}} ->
-        # A 200 whose body is not a JSON list means the page was truncated at
-        # @max_timeline_response_bytes by the transport (the body becomes ""),
-        # or was otherwise malformed — not an HTTP failure. Name the real cause
-        # instead of the self-contradictory `{:github, :http, %{status: 200}}`
-        # (#1454).
-        {:error, :timeline_truncated}
+  defp timeline_not_modified(request_fun, token, url, held, _etag, response) do
+    if next_page?(response) do
+      # Page 1 is unchanged but the timeline grew a page the held single page
+      # cannot see (or the held timeline spanned pages whose newer content page 1
+      # cannot vouch for). Refetch the whole timeline rather than answer from a
+      # snapshot page 1 cannot confirm.
+      fetch_timeline(request_fun, token, url, nil)
+    else
+      {:reused, held.events}
+    end
+  end
+
+  # Page 1 answered 200: capture its validator (the only one ever reusable,
+  # because it belongs to the immutable head of the list) and follow the `Link`
+  # pages. A single page answers `single_page?: true`, which is what makes a
+  # future `304` trustworthy.
+  defp continue_timeline_pages(request_fun, token, page, response, pages_left, events) do
+    first_etag = response_etag(response, nil)
+
+    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      nil -> {:ok, events ++ page, first_etag, true}
+      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, first_etag)
+    end
+  end
+
+  defp fetch_timeline_pages(_request_fun, _token, _url, 0, _events, _first_etag), do: {:error, :timeline_page_limit_exceeded}
+
+  defp fetch_timeline_pages(request_fun, token, url, pages_left, events, first_etag) do
+    case request_fun.(timeline_request(url, token, nil)) do
+      {:ok, %{status: 200, body: page} = response} when is_list(page) ->
+        case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+          nil -> {:ok, events ++ page, first_etag, false}
+          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, first_etag)
+        end
 
       {:ok, %{status: 304}} ->
-        timeline_page_not_modified(request_fun, token, url, pages_left, events, retried_without_validator?)
+        # Pages after the first are unconditional, so a `304` here is a proxy
+        # answering a request that carried no validator — not a page. Fail
+        # closed rather than serve a truncated timeline.
+        {:error, :timeline_unexpected_304}
 
-      {:ok, %{status: status} = response} ->
-        {:error, {:timeline_fetch_failed, Errors.github_status_error(Map.put(response, :status, status))}}
-
-      {:error, reason} ->
-        {:error, {:timeline_fetch_failed, Errors.classify_error({:error, reason})}}
-
-      _ ->
-        {:error, :invalid_timeline_response}
+      other ->
+        timeline_fetch_error(other)
     end
   end
 
-  defp timeline_page_ok(request_fun, token, response, page, pages_left, events) do
-    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-      nil -> {:ok, events ++ page}
-      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page)
+  # A 200 whose body is not a JSON list means the page was truncated at
+  # @max_timeline_response_bytes by the transport (the body becomes ""), or was
+  # otherwise malformed — not an HTTP failure. Name the real cause instead of
+  # the self-contradictory `{:github, :http, %{status: 200}}` (#1454).
+  defp timeline_fetch_error({:ok, %{status: 200}}), do: {:error, :timeline_truncated}
+
+  defp timeline_fetch_error({:ok, %{status: status} = response}),
+    do: {:error, {:timeline_fetch_failed, Errors.github_status_error(Map.put(response, :status, status))}}
+
+  defp timeline_fetch_error({:error, reason}),
+    do: {:error, {:timeline_fetch_failed, Errors.classify_error({:error, reason})}}
+
+  defp timeline_fetch_error(_response), do: {:error, :invalid_timeline_response}
+
+  defp timeline_request(url, token, etag) do
+    request = %{
+      method: :get,
+      url: url,
+      token: token,
+      max_response_bytes: @max_timeline_response_bytes,
+      caller: "dispatch_authorization"
+    }
+
+    if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+  end
+
+  defp response_etag(response, fallback) do
+    Transport.header(Map.get(response, :headers, []), "etag") || fallback
+  end
+
+  defp next_page?(response), do: not is_nil(Transport.parse_next_page_url(Map.get(response, :headers, [])))
+
+  # The timeline cache is keyed by issue id and holds the validator for page 1,
+  # the held events, and whether those events came from a single page — the only
+  # case a page-1 `304` is allowed to answer.
+  defp held_timeline(issue_id) when is_binary(issue_id) do
+    case :ets.lookup(timeline_table(), issue_id) do
+      [{^issue_id, held}] -> held
+      [] -> nil
     end
   end
 
-  # A 304 answers "nothing changed since the validator you sent" — and the
-  # dispatch timeline never sends one, so a 304 here is unexpected. It cannot be
-  # trusted even for the page it answers (nothing is held to serve a "not
-  # modified" page), and it cannot certify any later page: a page-1 validator
-  # cannot answer a multi-page question, and dispatch gating must never be
-  # answered without asking (see the conditional-read rules in
-  # website/docs-app/apis/github.md). Re-ask the page once unconditionally so
-  # the label event that landed on a later page is still observed (#2330); a
-  # second 304 is an upstream refusal and fails closed.
-  defp timeline_page_not_modified(request_fun, token, url, pages_left, events, retried_without_validator?) do
-    if retried_without_validator? do
-      {:error, {:timeline_fetch_failed, :not_modified}}
-    else
-      fetch_timeline_page(request_fun, token, url, pages_left, events, true)
+  defp held_timeline(_issue_id), do: nil
+
+  defp store_timeline(issue_id, etag, events, single_page?) when is_binary(issue_id) do
+    table = timeline_table()
+    :ets.insert(table, {issue_id, %{etag: etag, events: events, single_page?: single_page?}})
+
+    if :ets.info(table, :size) > @max_cache_entries do
+      :ets.delete_all_objects(table)
+    end
+
+    :ok
+  end
+
+  defp store_timeline(_issue_id, _etag, _events, _single_page?), do: :ok
+
+  defp reusable?(%{single_page?: true, etag: etag, events: events})
+       when is_binary(etag) and etag != "" and is_list(events),
+       do: true
+
+  defp reusable?(_held), do: false
+
+  defp timeline_table do
+    case :ets.whereis(@timeline_table) do
+      :undefined -> :ets.new(@timeline_table, [:named_table, :public, :set, read_concurrency: true])
+      _other -> @timeline_table
     end
   end
 
@@ -357,7 +490,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       alerted: cache.alerted
     }
 
-    :persistent_term.put(@cache_key, if(map_size(updated.decisions) > @max_cache_entries, do: %{fingerprints: %{}, decisions: %{}, alerted: %{}}, else: updated))
+    :persistent_term.put(
+      @cache_key,
+      if(map_size(updated.decisions) > @max_cache_entries,
+        do: %{fingerprints: %{}, decisions: %{}, alerted: %{}},
+        else: updated
+      )
+    )
   end
 
   defp cache_decision(_issue, _label, _event_id, _decision), do: :ok
@@ -384,7 +523,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp deny_ambiguous(issue, reason) do
     log_decision(:deny, issue, "ambiguous", nil, nil, reason)
     maybe_alert_ambiguity(issue, reason)
-    %{issue | dispatch_authorized?: false}
+    %{issue | dispatch_authorized?: false, dispatch_authorization: :denied}
   end
 
   defp maybe_alert_ambiguity(%Issue{id: id, updated_at: updated_at} = issue, reason)
