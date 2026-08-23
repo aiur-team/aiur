@@ -154,10 +154,11 @@ that does, without reading the source.
 The **Broker admissions** panel reads the rolling-hour ledger directly (billable
 vs 304-free, by consumer and family). The **ResourceStore** panel shows size,
 retention and per-type entries. The **Webhook delivery** panel shows each repo's
-delivery mode and freshness. The **Agent-side cache** panel shows per-workspace
-`agent-cache.tsv` hit rates, plus a count of **daemon reads served from the
-agent store** — the number of duplicate URL fetches an agent's earlier read made
-unnecessary (#2413).
+delivery mode and freshness.
+
+The **Agent-side cache** panel shows per-workspace `agent-cache.tsv` hit rates,
+plus a count of **daemon reads served from the agent store** — the number of
+duplicate URL fetches an agent's earlier read made unnecessary (#2413).
 
 Two caveats render next to the numbers they qualify.
 

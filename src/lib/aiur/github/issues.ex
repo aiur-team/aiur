@@ -197,11 +197,20 @@ defmodule Aiur.GitHub.Issues do
           {:ok, body, :fresh}
 
         nil ->
-          case agent_cached_issue(key, opts) do
-            {:ok, body} -> {:ok, body, :fresh}
-            :miss -> revalidate_raw_issue(issue_number, owner, repo, token, key, opts, false)
-          end
+          fetch_issue_from_agent_or_upstream(issue_number, owner, repo, token, key, opts)
       end
+    end
+  end
+
+  # The store is cold; the daemon's read half of the two-store sync (#2413) gets
+  # one look at the agents' store before spending a request. `agent_cached_issue/2`
+  # serves only a body that parses and validates as the full REST issue for this
+  # number, so a projected `gh --json` shape is never mistaken for the resource;
+  # a `:miss` costs the caller the fetch it would have made anyway.
+  defp fetch_issue_from_agent_or_upstream(issue_number, owner, repo, token, key, opts) do
+    case agent_cached_issue(key, opts) do
+      {:ok, body} -> {:ok, body, :fresh}
+      :miss -> revalidate_raw_issue(issue_number, owner, repo, token, key, opts, false)
     end
   end
 
@@ -807,7 +816,6 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp fetch_conditional_issue(ctx, issue_id, issues, cache, retried_without_cache?) do
-    url = "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues/#{issue_id}"
     cached_entry = Map.get(cache, issue_id, %{})
     store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
 
@@ -829,7 +837,7 @@ defmodule Aiur.GitHub.Issues do
         {:cont, {:ok, [issue | issues], updated_cache}}
 
       :miss ->
-        poll_issue_from_upstream(ctx, issue_id, url, issues, cache, cached_entry, store_key, etag, retried_without_cache?)
+        poll_issue_from_upstream(ctx, issue_id, issues, cache, retried_without_cache?)
     end
   end
 
@@ -862,7 +870,18 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp poll_issue_from_upstream(ctx, issue_id, url, issues, cache, cached_entry, store_key, etag, retried_without_cache?) do
+  # The ordinary upstream read, reached only when the agent store had nothing to
+  # serve. Everything it needs is re-derived from `ctx`/`issue_id`/`cache` so the
+  # arity stays small: `url`, `cached_entry`, `store_key` and `etag` are pure
+  # functions of those three, and recomputing them here cannot disagree with the
+  # values `fetch_conditional_issue` already used, because they are the same
+  # expressions.
+  defp poll_issue_from_upstream(ctx, issue_id, issues, cache, retried_without_cache?) do
+    url = "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues/#{issue_id}"
+    cached_entry = Map.get(cache, issue_id, %{})
+    store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
+    etag = Map.get(cached_entry, :etag) || store_validator(store_key, retried_without_cache?)
+
     case conditional_get(ctx, url, etag) do
       {:ok, body, retained_etag, _response} when is_map(body) ->
         # Publish the raw body, not the normalized `Issue`. Other readers of this

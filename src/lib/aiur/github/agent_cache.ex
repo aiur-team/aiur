@@ -470,21 +470,29 @@ defmodule Aiur.GitHub.AgentCache do
   # when present, is the response ETag the wrapper stored for a later conditional
   # re-read. Only line 1 decides whether this entry may be served.
   defp read_fetched_at(meta_path) do
-    case File.read(meta_path) do
-      {:ok, contents} ->
-        case contents |> String.split("\n") |> hd() |> String.trim() do
-          line when line != "" ->
-            case Integer.parse(line) do
-              {stamp, ""} when stamp >= 0 -> {:ok, stamp}
-              _unparseable -> :error
-            end
+    with {:ok, contents} <- File.read(meta_path),
+         {:ok, line} <- first_meta_line(contents),
+         {:ok, stamp} <- stamp_from(line) do
+      {:ok, stamp}
+    else
+      _unusable -> :error
+    end
+  end
 
-          _empty ->
-            :error
-        end
+  # Line 1 of the meta is the entry's fetched-at stamp (epoch seconds); line 2,
+  # when present, is the response ETag the wrapper stored for a later conditional
+  # re-read. Only line 1 decides whether this entry may be served.
+  defp first_meta_line(contents) do
+    case contents |> String.split("\n") |> List.first() |> String.trim() do
+      "" -> :error
+      line -> {:ok, line}
+    end
+  end
 
-      _unreadable ->
-        :error
+  defp stamp_from(line) do
+    case Integer.parse(line) do
+      {stamp, ""} when stamp >= 0 -> {:ok, stamp}
+      _unparseable -> :error
     end
   end
 
