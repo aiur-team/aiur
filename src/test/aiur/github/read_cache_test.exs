@@ -541,18 +541,26 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
     end
 
-    # #2326: a commit's timestamp and a PR's changed paths are immutable per sha,
-    # so they are cacheable without ever serving a verdict that has moved.
-    test "caches an immutable-per-sha commit read and a PR files read" do
-      commit = rest("https://api.github.com/repos/aiur-team/aiur/commits/abc123")
-      files = rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100")
-
+    # #2326: a commit's timestamp is immutable per sha, so the bare commit read
+    # is cacheable without ever serving a verdict that has moved. The sha is
+    # matched exactly — a commit read by branch ref is highly mutable, and a
+    # PR's changed paths carry no sha in their URL, so neither is cached (review
+    # #2332).
+    test "caches a commit read keyed by a real sha, and nothing keyed by ref or by PR" do
+      commit = rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234")
       assert {:cache, :comments, _ttl} = Policy.classify(commit)
-      assert {:cache, :comments, _ttl} = Policy.classify(files)
 
       # The verdict refusal is not weakened: a commit *status* read — CI — is
       # still refused even though the bare commit read is now cacheable.
-      assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc123/status"))
+      assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234/status"))
+
+      # A branch ref is not a sha: `/commits/main` returns the mutable head
+      # commit, so it must not be cached under a key that never changes.
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
+
+      # `/pulls/:n/files` carries no head sha, so a push changes the response
+      # under a fixed cache key; it is deliberately left uncached.
+      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
     end
 
     # Acceptance #2326: no verdict field becomes cacheable. Every selection the

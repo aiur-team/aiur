@@ -243,20 +243,23 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   # `304` for staleness. A cache is only an improvement where no validator
   # exists.
   #
-  # `/commits/:sha` and `/pulls/:n/files` are immutable per sha — a commit's
-  # timestamp and a PR's changed paths cannot change while the head is the same
-  # — so their TTL can never serve a verdict that has moved. The verdict shapes
-  # (`/commits/:sha/status`, check runs, reviews, merge gating) are refused
-  # earlier, on content, by `@unsafe_rest`.
+  # `/commits/:sha` is immutable per sha — a commit's timestamp cannot change
+  # while the sha is the same — so its TTL can never serve a verdict that has
+  # moved. The verdict shapes (`/commits/:sha/status`, check runs, reviews,
+  # merge gating) are refused earlier, on content, by `@unsafe_rest`. The sha
+  # is matched exactly (7–40 hex digits), never a branch ref: a commit read
+  # by ref returns the head commit and is highly mutable.
+  #
+  # `/pulls/:n/files` deliberately does NOT match. The URL carries no head sha,
+  # so a push changes the response while the cache key does not — a stale
+  # changed-paths answer would be served for the TTL (review #2332). Nothing is
+  # cached that the URL cannot pin to an immutable object.
   defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
     cond do
       Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, url) ->
         cache(:comments, request)
 
-      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/commits/[^/?#]+\z}, url) ->
-        cache(:comments, request)
-
-      Regex.match?(~r{/repos/[^/?#]+/[^/?#]+/pulls/\d+/files(?:\?|\z)}, url) ->
+      Regex.match?(~r"/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}\z", url) ->
         cache(:comments, request)
 
       true ->

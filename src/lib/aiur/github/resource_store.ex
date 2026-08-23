@@ -326,9 +326,21 @@ defmodule Aiur.GitHub.ResourceStore do
   # `:branch_pull_request` is written by both the webhook deposit and
   # `Aiur.GitHub.ResourceFetch` (the human-review gate's strict read stores its
   # fetch), so a late delivery can roll the held PR back — the same reason
-  # `:pull_request` is here. `:check_run` was removed from the store entirely
-  # when its deposit was ceased (#2126); a CI verdict is never cached.
-  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :branch_pull_request]
+  # `:pull_request` is here. `:issue_blocked_by` is written by the webhook edge
+  # deposit, the dependency mutation and the full `blocked_by` fetch, and a late
+  # `blocked_by_added` arriving after a `blocked_by_removed` would roll the held
+  # list back to claiming an edge the removal already dropped — so it is ordered
+  # too, and the merge writes carry the delivery's own marker. `:check_run` was
+  # removed from the store entirely when its deposit was ceased (#2126); a CI
+  # verdict is never cached.
+  @order_sensitive_types [
+    :issue,
+    :issue_labels,
+    :pull_request,
+    :pr_review_thread,
+    :branch_pull_request,
+    :issue_blocked_by
+  ]
 
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}

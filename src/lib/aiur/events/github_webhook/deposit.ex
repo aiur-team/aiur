@@ -230,13 +230,17 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   end
 
   # An `issue_dependencies` delivery carries the issue whose dependency edge
-  # changed, plus the blocker edge it created or removed. The issue is deposited
-  # like any carried issue; the edge is merged into the `:issue_blocked_by` list
-  # the dependency reader serves, so a delivery that announces an edge does not
-  # make the next `fetch_blocked_by` pay for it again (#2326).
+  # changed, plus the blocker edge it created or removed, and the action tells
+  # which. The issue is deposited like any carried issue; the edge is then
+  # deposited according to the action — `blocked_by_added` merges it into the
+  # `:issue_blocked_by` list the dependency reader serves (so a delivery that
+  # announces an edge does not make the next `fetch_blocked_by` pay for it
+  # again), `blocked_by_removed` drops the held list entirely (#2326).
   defp bodies("issue_dependencies", payload) do
     issue = Map.get(payload, "issue")
-    carried_issue_deposits(issue) ++ blocked_by_edge_deposits(issue, Map.get(payload, "blocked_by_issue"))
+
+    carried_issue_deposits(issue) ++
+      blocked_by_edge_deposits(Map.get(payload, "action"), issue, Map.get(payload, "blocked_by_issue"))
   end
 
   defp bodies(_event_type, _payload), do: []
@@ -371,20 +375,30 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     [{:issue, number, issue, issue_version}] ++ label_deposits
   end
 
-  # The `issue_dependencies` delivery names one edge: `issue` is now blocked by
-  # `edge`. That is a fact about the blocked issue's dependency list, so it is
-  # written into the `:issue_blocked_by` entry the reader serves — merged, never
-  # replacing a fuller list the reader already holds (#2326). A missing edge is
-  # a delivery about the other direction (`blocking_issue`), which has no stored
-  # reader, so it deposits nothing.
-  defp blocked_by_edge_deposits(issue, edge) when is_map(issue) and is_map(edge) do
+  # The `issue_dependencies` delivery names one edge, and its `action` tells the
+  # direction. `blocked_by_added` makes `issue` blocked by `edge`; that is a fact
+  # about the blocked issue's dependency list, so it is written into the
+  # `:issue_blocked_by` entry the reader serves (#2326). `blocked_by_removed` is
+  # the death of the edge, and the held list stops naming it by being dropped
+  # wholesale — the next read pays for the truth rather than trusting a merge
+  # against a list that may never have been complete. A delivery about the other
+  # direction (`blocking_issue`) has no stored reader, so it deposits nothing
+  # about the edge.
+  defp blocked_by_edge_deposits("blocked_by_added", issue, edge) when is_map(issue) and is_map(edge) do
     case Map.get(issue, "number") do
-      number when is_integer(number) -> [{:issue_blocked_by, number, edge, nil}]
+      number when is_integer(number) -> [{:issue_blocked_by, number, edge, version(edge)}]
       _other -> []
     end
   end
 
-  defp blocked_by_edge_deposits(_issue, _edge), do: []
+  defp blocked_by_edge_deposits("blocked_by_removed", issue, _edge) when is_map(issue) do
+    case Map.get(issue, "number") do
+      number when is_integer(number) -> [{:drop, :issue_blocked_by, number}]
+      _other -> []
+    end
+  end
+
+  defp blocked_by_edge_deposits(_action, _issue, _edge), do: []
 
   # A pull request is deposited under BOTH keys a consumer can address it by
   # (#2126):
@@ -426,16 +440,30 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # `GET .../dependencies/blocked_by`, so it must hold the full blocker list —
   # a single webhook edge overwriting a held list would silently forget every
   # blocker the reader already knew. The edge is therefore merged, inside the
-  # store's compare-and-swap, into whatever the entry already holds; an absent
-  # entry starts as the one edge the delivery carried.
-  defp store(:issue_blocked_by, repo, id, blocker, _version) when is_map(blocker) do
+  # store's compare-and-swap, into the list the entry already holds — and only
+  # into an *existing* list: an absent entry is not a hole to fill with one
+  # edge, it is the store's statement that it has no complete answer, and
+  # fabricating `[edge]` would have `fetch_blocked_by` serve a partial list as
+  # the whole truth for up to the retention window (#2326, review). The write
+  # carries the delivery's own marker and derives a content validator, so the
+  # dispatch gate's later revalidating read sends `If-None-Match` and costs a
+  # free `304` when nothing changed.
+  defp store(:issue_blocked_by, repo, id, blocker, version) when is_map(blocker) do
     case ResourceStore.key_for_repo(:issue_blocked_by, repo, id) do
       nil ->
         []
 
       key ->
-        ResourceStore.update_resource(key, &merge_blocked_by_edge(&1, blocker), source: :webhook)
-        confirm(key)
+        case ResourceStore.update_resource(
+               key,
+               &merge_blocked_by_edge(&1, blocker),
+               source: :webhook,
+               version: version,
+               etag: :derive
+             ) do
+          :unchanged -> []
+          :ok -> confirm(key)
+        end
     end
   end
 
@@ -456,14 +484,16 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   # The one edge a delivery names is merged into whatever the entry already
   # holds, never replacing a fuller list the reader holds. A repeat delivery of
-  # the same edge is declined inside the store's swap.
+  # the same edge is declined inside the store's swap. An absent entry is left
+  # alone (answered `:unchanged`) rather than being started from a single edge,
+  # which would serve an incomplete list as the complete answer.
   defp merge_blocked_by_edge(held, blocker) when is_list(held) do
     if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker, "id"))),
       do: :unchanged,
       else: held ++ [blocker]
   end
 
-  defp merge_blocked_by_edge(_absent, blocker), do: [blocker]
+  defp merge_blocked_by_edge(_absent, _blocker), do: :unchanged
 
   # The ordering guard runs *inside* the store's compare-and-swap, against the
   # marker the entry holds at the instant of the write. Asking the store first and

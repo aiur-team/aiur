@@ -229,14 +229,24 @@ defmodule Aiur.GitHub.DependenciesApi do
   # holds for the blocked issue rather than claimed as a full answer. The declare
   # path has already fetched the list to check idempotency, so in production the
   # merge lands on a full list and the next `fetch_blocked_by` is served without
-  # a confirming read (#2326).
+  # a confirming read (#2326). A cold entry is left alone, never started from a
+  # single edge: the merge must not fabricate the very list it was asked to grow
+  # (review #2332). The write carries the blocker's own marker and derives a
+  # content validator so a revalidating read stays free.
   defp record_blocked_edge(blocked_number, blocker_issue, owner, repo) do
     case ResourceStore.key(:issue_blocked_by, owner, repo, blocked_number) do
       nil ->
         :ok
 
       key ->
-        ResourceStore.update_resource(key, &merge_blocked_edge(&1, blocker_issue), source: :mutation)
+        ResourceStore.update_resource(
+          key,
+          &merge_blocked_edge(&1, blocker_issue),
+          source: :mutation,
+          version: Map.get(blocker_issue, "updated_at"),
+          etag: :derive
+        )
+
         :ok
     end
   end
@@ -247,5 +257,5 @@ defmodule Aiur.GitHub.DependenciesApi do
       else: held ++ [blocker_issue]
   end
 
-  defp merge_blocked_edge(_absent, blocker_issue), do: [blocker_issue]
+  defp merge_blocked_edge(_absent, _blocker_issue), do: :unchanged
 end

@@ -97,18 +97,36 @@ defmodule Aiur.GitHub.DependenciesApiTest do
     test "the mutation's own edge is served by the next blocked_by read, with zero confirming calls" do
       blocker = %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"}
 
-      request_fun = fn %{method: :post} ->
-        {:ok, %{status: 201, body: blocker, headers: []}}
-      end
+      # The declare path fetches the full list for its idempotency check *before*
+      # mutating, so the store already holds a complete list when the mutation's
+      # edge is merged onto it — the only shape the merge may grow (review #2332).
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      ResourceStore.put_resource(key, [%{"id" => 90_001, "number" => 90}], source: :fetch, etag: ~s("e1"))
+
+      request_fun = fn %{method: :post} -> {:ok, %{status: 201, body: blocker, headers: []}} end
 
       assert {:ok, ^blocker} = DependenciesApi.add_dependency(7, 80_001, request_fun: request_fun)
 
-      # The confirming read — what `IssueDependencies.declare`'s idempotency
-      # check and post-write verification would issue — is served from the store.
-      assert {:ok, [^blocker]} =
+      # The confirming read — what `IssueDependencies.declare`'s post-write
+      # verification would issue — is served from the store, now holding both edges.
+      assert {:ok, blockers} =
                DependenciesApi.fetch_blocked_by(7,
                  request_fun: fn _request -> flunk("the confirming read must be served from the store") end
                )
+
+      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
+    end
+
+    test "a mutation on a cold store does not fabricate a partial list" do
+      blocker = %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"}
+      request_fun = fn %{method: :post} -> {:ok, %{status: 201, body: blocker, headers: []}} end
+
+      assert {:ok, ^blocker} = DependenciesApi.add_dependency(7, 80_001, request_fun: request_fun)
+
+      # The mutation response is one blocker issue, never a full answer: on a
+      # cold store it must leave the entry absent (review #2332) so the next
+      # read pays for the complete list instead of serving `[blocker]` as it.
+      assert ResourceStore.fetch(ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)) == :miss
     end
 
     test "a 304 revalidates the held list without a full read" do
