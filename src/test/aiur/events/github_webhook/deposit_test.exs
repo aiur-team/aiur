@@ -219,7 +219,13 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       issue_labels:
         {:read_by,
          "OpenTicketSource and AdHocSource refresh a held ticket/member's labels " <>
-           "(open_ticket_source.ex, ad_hoc_source.ex)", [ResourceStore.key(:issue_labels, "owner", "repo", 42)]},
+           "(open_ticket_source.ex, ad_hoc_source.ex)",
+         [
+           ResourceStore.key(:issue_labels, "owner", "repo", 42),
+           # The sub_issues delivery also carries the sub-issue's labels, which
+           # share the same label reader's generic addressing.
+           ResourceStore.key(:issue_labels, "owner", "repo", 41)
+         ]},
       pull_request:
         {:signal_only,
          "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
