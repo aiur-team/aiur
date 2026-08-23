@@ -573,9 +573,14 @@ them log anything. Work this ladder before any per-agent triage:
    restarted fleet needs ~30 minutes to reach 32, which reads as idle rather
    than ramping. Do not measure capacity within minutes of a restart.
 
-Review feedback does not wake agents into rework (issue #1389): tickets sit in
-`agent:human-review` with `CHANGES_REQUESTED` PRs and nothing picks them up.
-After posting reviews, relabel `agent:human-review` -> `agent:rework` by hand.
+A `CHANGES_REQUESTED` (or non-blank `COMMENTED`) review on an open PR moves its
+ticket to `agent:rework` automatically — the `pull_request_review` webhook and
+the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
+routes through `CommentWake` to the rework transition. No manual relabel is
+required. After posting a review, verify the ticket actually left
+`agent:human-review` (posted is not verified); only touch the label by hand if
+the automatic transition did not fire, and then check the delivery — review
+state, trusted author, open PR — before relabelling.
 
 Alerts persist across daemon restarts and tokens (full-history scan, #1231), so
 the `ACTIONABLE` list keeps naming long-merged tickets. Check timestamps before
@@ -903,7 +908,8 @@ What a review agent needs in its prompt, every time:
   review — the unknown-path, computed-age and collapsed-cause rules — live in
   the repo's `AGENTS.md` (`Tests must fail without the production change they
   guard` and `Computed ages and collapsed causes`); cross-reference those
-  sections rather than restating them.
+  sections rather than restating them, so the reviewer's check is a formality,
+  not the first time it is performed.
 - **The test-run hazard.** `mix test test/some_dir/` silently excludes
   `test/aiur/*.exs` one level up. Require the exact command run to be reported.
 - **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,
@@ -918,8 +924,10 @@ that the production files conflict while every test file auto-merges cleanly, so
 the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
 explicitly for a merge-order recommendation.
 
-After posting, relabel — see the rework note above. A review that does not move
-the ticket out of `agent:human-review` is a review nobody acts on.
+The ticket leaves `agent:human-review` automatically on a `CHANGES_REQUESTED`
+review — verify it did, rather than relabelling by hand (see the rework note
+above). A review that does not move the ticket out of `agent:human-review` is a
+review nobody acts on.
 
 ### Merge mechanics
 

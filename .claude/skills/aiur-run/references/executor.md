@@ -266,10 +266,13 @@ Alerts persist across daemon restarts and tokens (#1231), so the actionable list
 keeps naming long-merged tickets. Check alert timestamps and trust the live
 state table over the alert list.
 
-Review feedback does not wake agents into rework (#1389). Tickets stay in
-`agent:human-review` with `CHANGES_REQUESTED` pull requests and nothing picks
-them up, which breaks the entire review-to-rework loop. After posting reviews,
-relabel `agent:human-review` to `agent:rework` by hand.
+A `CHANGES_REQUESTED` review on an open PR moves its ticket to `agent:rework`
+automatically — the `pull_request_review` webhook and the review-submission
+poll route through `CommentWake`, so the manual `agent:human-review` to
+`agent:rework` relabel is no longer required. After posting a review, verify
+the ticket left `agent:human-review`; only relabel by hand when the automatic
+transition did not fire, and check the delivery (review state, trusted author,
+open PR) before doing so.
 
 For an agent with stale activity, ignored feedback, repeated retries, or a
 ticket it will not pick up:
