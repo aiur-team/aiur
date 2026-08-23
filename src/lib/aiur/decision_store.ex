@@ -51,6 +51,7 @@ defmodule Aiur.DecisionStore do
     DecisionValidation,
     ExecutorCommandAttention,
     ExecutorEvents,
+    Issue,
     JsonStore,
     SecretRedactor
   }
@@ -94,9 +95,16 @@ defmodule Aiur.DecisionStore do
   # Delivery failures whose target is structurally unreachable cannot be made
   # actionable by re-raising them as needs-attention: an agent that no longer
   # exists cannot act, so the alert would assert the opposite of its own
-  # reason. They are still recorded (visible in the full feed and in the
-  # decision audit) but never raised, and the boot reprojection never re-fires
-  # them (#2419).
+  # reason. These are never raised as needs-attention and always clear the
+  # delivery topic via its `.resolved` record, so a raised entry from an older
+  # build (or an earlier attempt) is retired rather than left active (#2419).
+  #
+  # "Non-actionable" is an alert-surface verdict, not a liveness one: the same
+  # class is transient in the revision retry ladder
+  # (`@revision_transient_failure_classes`), and an answered decision stays
+  # visible and explicitly retryable on the decision surface (the Control
+  # Center renders it `delivery_failed` with a retry affordance), so a
+  # temporarily-restarting agent is never silently dropped.
   @non_actionable_failure_classes ["target_agent_unavailable"]
   @system_follow_up_actor %{kind: :system, id: "decision-store"}
 
@@ -2757,8 +2765,11 @@ defmodule Aiur.DecisionStore do
   # used to re-fire a needs-attention alert for every failed delivery, which
   # produced a sub-second burst of stale entries for decisions whose tickets
   # closed long ago. Failures whose reason is structurally non-actionable
-  # (`target_agent_unavailable`) are never re-considered at all, and the rest
-  # are checked against the tracker's current ticket state so a decision on a
+  # (`target_agent_unavailable`) are never raised; the boot pass resolves
+  # (clears) the delivery topic once for each of them — retiring any alert an
+  # older build already raised — and never consults the terminal resolver,
+  # because they are non-actionable regardless of ticket state. The rest are
+  # checked against the tracker's current ticket state so a decision on a
   # terminal ticket is *resolved* (its active alert cleared) rather than
   # re-raised. The tracker round-trip is batch and runs in a detached Task so
   # boot never blocks on GitHub; a resolver failure fails open (nothing treated
@@ -2768,19 +2779,22 @@ defmodule Aiur.DecisionStore do
       state.current
       |> Map.values()
       |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(Decision.active_answer(&1))))
-      |> Enum.reject(&non_actionable_failure?/1)
 
-    case failed do
+    {non_actionable, checkable} = Enum.split_with(failed, &non_actionable_failure?/1)
+
+    Enum.each(non_actionable, &emit_failure_resolution(&1, :non_actionable))
+
+    case checkable do
       [] ->
         :ok
 
-      _failed ->
+      _checkable ->
         store = self()
         resolver = state.terminal_ticket_resolver
 
         _ =
           Task.start(fn ->
-            reproject_failure_attentions(store, resolver, failed)
+            reproject_failure_attentions(store, resolver, checkable)
           end)
 
         :ok
@@ -2840,16 +2854,31 @@ defmodule Aiur.DecisionStore do
   defp default_terminal_ticket_resolver(ticket_identifiers) do
     with {:ok, issues} <- Tracker.fetch_issue_states_by_ids(ticket_identifiers) do
       terminal_states = DispatchPolicy.terminal_state_set()
-
-      terminal =
-        issues
-        |> Enum.filter(&DispatchPolicy.terminal_issue_state?(&1.state, terminal_states))
-        |> Enum.map(& &1.identifier)
-        |> MapSet.new()
-
-      {:ok, terminal}
+      {:ok, terminal_identities(issues, terminal_states)}
     end
   end
+
+  @doc false
+  # Terminal ticket identities from one fetched issue-state batch. Mirrors the
+  # established reader in `Aiur.DecisionRevisionDispatch`, which falls back to
+  # `id` when `identifier` is blank: an adapter returning id-only issues must
+  # still resolve as terminal, or this fix silently becomes a no-op on that
+  # adapter with only a log line to say so.
+  @spec terminal_identities([term()], MapSet.t(String.t())) :: MapSet.t(String.t())
+  def terminal_identities(issues, terminal_states)
+      when is_list(issues) and is_struct(terminal_states, MapSet) do
+    issues
+    |> Enum.filter(&DispatchPolicy.terminal_issue_state?(&1.state, terminal_states))
+    |> Enum.map(&issue_terminal_identity/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp issue_terminal_identity(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "",
+    do: identifier
+
+  defp issue_terminal_identity(%Issue{id: id}) when is_binary(id) and id != "", do: id
+  defp issue_terminal_identity(_issue), do: nil
 
   defp non_actionable_failure?(decision) do
     case List.last(Decision.active_dispatch_attempts(decision)) do
@@ -2861,7 +2890,25 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  # Raising a delivery failure as needs-attention is only meaningful when the
+  # target could still act. A structurally non-actionable failure
+  # (`target_agent_unavailable`) must never raise: re-raising would demand
+  # action nothing can take, and a `needs_attention: false` record on the bare
+  # topic would only prepend to the feed, leaving any earlier raised entry
+  # active. So the non-actionable branch clears the topic's `.resolved` record
+  # instead — the only form `AlertFeed.resolve_attention_alerts/1` treats as a
+  # clear — which both retires a prior raise (e.g. an earlier `send_failed`
+  # attempt on the same topic) and keeps the decision off the needs-attention
+  # feed (#2419, review).
   defp emit_failure_attention(decision) do
+    if non_actionable_failure?(decision) do
+      emit_failure_resolution(decision, :non_actionable)
+    else
+      emit_actionable_failure_attention(decision)
+    end
+  end
+
+  defp emit_actionable_failure_attention(decision) do
     active_answer = Decision.active_answer(decision)
 
     reason_class =
@@ -2870,23 +2917,15 @@ defmodule Aiur.DecisionStore do
         _attempt -> "delivery_failed"
       end
 
-    actionable = reason_class not in @non_actionable_failure_classes
-
     Alerts.emit_custom(
       failure_attention_topic(decision),
       "Decision answer delivery failed for #{decision.decision_id} (#{reason_class}).",
       issue: decision.ticket.identifier,
       reason:
-        if actionable do
-          "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
-            "remains actionable after #{reason_class}."
-        else
-          "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
-            "could not be delivered after #{reason_class}; the target agent is absent, " <>
-            "so the decision is recorded without a needs-attention alert."
-        end,
-      needs_attention: actionable,
-      severity: if(actionable, do: "warning", else: "info")
+        "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
+          "remains actionable after #{reason_class}.",
+      needs_attention: true,
+      severity: "warning"
     )
   end
 
@@ -2900,6 +2939,29 @@ defmodule Aiur.DecisionStore do
       "Decision answer delivery recovered for #{decision.decision_id}.",
       issue: decision.ticket.identifier,
       reason: "Decision #{decision.decision_id} action #{active_answer.action_id} delivery recovered.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  # A delivery that failed for a structurally non-actionable reason clears the
+  # delivery topic exactly like a recovery or a terminal ticket does: the
+  # `.resolved` record is the only form `AlertFeed` treats as a clear, so this
+  # retires a raised entry from an older build or an earlier attempt on the
+  # same topic while raising nothing new. Idempotent — re-emitting against a
+  # topic with no active raise is a no-op via the alert emitter's edge-trigger.
+  defp emit_failure_resolution(decision, :non_actionable) do
+    active_answer = Decision.active_answer(decision)
+
+    Alerts.emit_custom(
+      failure_attention_topic(decision) <> ".resolved",
+      "Decision answer delivery is not actionable for #{decision.decision_id}: " <>
+        "the target agent is absent.",
+      issue: decision.ticket.identifier,
+      reason:
+        "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
+          "cannot be delivered while the target agent is absent; the delivery alert is " <>
+          "cleared and the decision stays visible on the decision surface.",
       needs_attention: false,
       severity: "info"
     )
