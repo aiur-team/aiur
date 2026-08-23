@@ -601,6 +601,67 @@ defmodule Aiur.GitHub.BudgetTest do
     assert actor.core.used == 0
   end
 
+  test "a non-billable rate_limit admission still consumes a rate-per-minute pacing slot", %{root: root} do
+    # The #2328 shape: a probe the caller knows GitHub bills at zero is written
+    # to the ledger non-billable but still occupies a pacing slot, exactly as a
+    # billed call would (#2284's "a request that costs no quota can still cost
+    # a slot").
+    db = Budget.database_path(state_dir: root)
+    broker = Budget.broker_path()
+    token = "rate-limit-pacing-token"
+    key = Budget.token_key(token)
+
+    assert {"granted " <> _lease, 0} =
+             System.cmd("python3", [
+               broker,
+               "acquire",
+               "--db",
+               db,
+               "--token-key",
+               key,
+               "--resource",
+               "core",
+               "--consumer-key",
+               Budget.token_key("workspace:/agent-2328"),
+               "--consumer-label",
+               "workspace:/agent-2328",
+               "--endpoint-family",
+               "rate_limit",
+               "--billable",
+               "0",
+               "--max-inflight",
+               "4",
+               "--max-inflight-per-endpoint",
+               "2",
+               "--requests-per-minute",
+               "1",
+               "--stagger-ms",
+               "0",
+               "--lease-ttl-ms",
+               "35000",
+               "--core-limit",
+               "0",
+               "--graphql-limit",
+               "0"
+             ])
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", db, "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
+
+    # One free admission fills the single requests-per-minute slot, so a second
+    # admission in the same minute is paced even though the first cost nothing.
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               request(token, "/repos/owner/repo/issues/1477"),
+               state_dir: root,
+               requests_per_minute: 1,
+               stagger_ms: 0,
+               timeout_ms: 300
+             )
+  end
+
   test "an existing admissions table migrates before response reconciliation", %{root: root} do
     db = Budget.database_path(state_dir: root)
     create_legacy_budget_database(db)
