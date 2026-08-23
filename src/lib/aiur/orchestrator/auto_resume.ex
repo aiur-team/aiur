@@ -70,10 +70,12 @@ defmodule Aiur.Orchestrator.AutoResume do
   # A local GitHub budget hold is a transient infrastructure fault — the guard
   # is throttling a resource for a bounded window, not rejecting the work — so
   # a ticket parked in `agent:error` by one must auto-resume once the hold
-  # lifts instead of waiting for an operator. Recognized in both the raw
-  # `{:aiur, :locally_held, hold}` form and the transport-classified
-  # `{:github, :transport, %{reason: ...}}` form (#2409).
+  # lifts instead of waiting for an operator. Recognized in the raw
+  # `{:aiur, :locally_held, hold}` form, the `:local_hold` classification
+  # `Errors.classify_error` now assigns, and the legacy transport-classified
+  # `{:github, :transport, %{reason: ...}}` form (#2409, #2429).
   defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
+  defp local_budget_hold?({:github, :local_hold, _detail}), do: true
   defp local_budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: true
   defp local_budget_hold?(_reason), do: false
 

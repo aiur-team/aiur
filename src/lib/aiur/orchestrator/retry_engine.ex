@@ -860,13 +860,23 @@ defmodule Aiur.Orchestrator.RetryEngine do
     defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
   end
 
-  # The broker classifies a held GitHub request as `{:github, :transport,
-  # %{reason: {:aiur, :locally_held, hold}}}` (`Errors.classify_error` wraps the
-  # raw `{:aiur, :locally_held, hold}` into the transport taxonomy), so the raw
-  # form never reaches this path from a tracker fetch. Recognize both shapes so
-  # a transient budget hold always takes the non-consuming `:local_budget_hold`
-  # retry instead of counting against the retry budget meant for genuine agent
-  # failures (#2409).
+  # `Errors.classify_error` now classifies a held GitHub request as
+  # `{:github, :local_hold, %{reason: ..., hold: hold}}` (#2429), so that is the
+  # shape a tracker poll sees today. The raw `{:aiur, :locally_held, hold}` form
+  # is matched above; the legacy `{:github, :transport, %{reason: ...}}` wrapper
+  # old classifier versions produced is matched below as a defensive fallback.
+  # All three must take the non-consuming `:local_budget_hold` retry instead of
+  # counting against the retry budget meant for genuine agent failures (#2409).
+  def handle_retry_poll_failure(
+        %State{} = state,
+        issue_id,
+        attempt,
+        metadata,
+        {:github, :local_hold, %{hold: %{} = hold}} = reason
+      ) do
+    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
+  end
+
   def handle_retry_poll_failure(
         %State{} = state,
         issue_id,
@@ -933,11 +943,17 @@ defmodule Aiur.Orchestrator.RetryEngine do
     )
   end
 
-  # Unwraps a local GitHub budget hold from either its raw `{:aiur, :locally_held,
-  # hold}` shape or the transport-classified `{:github, :transport, %{reason:
+  # Unwraps a local GitHub budget hold from its raw `{:aiur, :locally_held,
+  # hold}` shape, the `:local_hold` classification `Errors.classify_error` now
+  # assigns, or the legacy transport-classified `{:github, :transport, %{reason:
   # ...}}` shape, so `recovery_delay_options/1` can name the hold's own release
-  # time for the automatic resume (#2409).
+  # time for the automatic resume (#2409, #2429).
   defp local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
+  defp local_budget_hold_reason({:github, :local_hold, %{hold: hold}}) when is_map(hold), do: hold
+
+  defp local_budget_hold_reason({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold),
+    do: hold
+
   defp local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
   defp local_budget_hold_reason(_reason), do: nil
 
@@ -982,8 +998,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   # A local budget hold names its own release time (`reset_at`); the automatic
   # resume should not fire before it, or it would re-dispatch straight back into
-  # the same hold. Handles both the raw `{:aiur, :locally_held, hold}` and the
-  # classified `{:github, :transport, %{reason: ...}}` form (#2409).
+  # the same hold. Handles the raw `{:aiur, :locally_held, hold}` and the
+  # `:local_hold` / legacy transport-classified `{:github, ...}` forms (#2409,
+  # #2429).
   defp recovery_delay_options(reason) do
     case local_budget_hold_reason(reason) do
       %{reset_at: %DateTime{} = reset_at} ->

@@ -30,6 +30,14 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     classification = connectivity_classification(reason)
     detail = Orchestrator.connectivity_detail(reason)
 
+    if classification == :unclassified do
+      # F2 of #2429: a reason this classifier does not recognize is itself a
+      # finding. Surface the raw term instead of silently stamping it `:transport`
+      # (which asserted "connectivity lost" for failures that have nothing to do
+      # with the network).
+      Logger.warning("github_connectivity_unclassified source=#{source} reason=#{inspect(reason)} classification=#{classification}")
+    end
+
     {streaks, alerts} =
       GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
 
@@ -47,9 +55,25 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     }
   end
 
+  # A local budget hold is not connectivity: it must not ride the transport
+  # escalation curve and must not emit `system.github.connectivity_lost` (#2429).
+  # Recognized in the raw `{:aiur, :locally_held, hold}` shape and in the
+  # transport-classified `{:github, :transport, %{reason: ...}}` shape old
+  # `Errors.classify_error` versions produced, so a hold is never misread as a
+  # network break.
+  defp connectivity_classification({:aiur, :locally_held, _hold}), do: :local_hold
+  defp connectivity_classification({:github, :local_hold, _detail}), do: :local_hold
+
+  defp connectivity_classification({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}),
+    do: :local_hold
+
   defp connectivity_classification({:github, classification, _detail}), do: classification
   defp connectivity_classification({:github_api_status, 429}), do: :rate_limited
-  defp connectivity_classification(_reason), do: :transport
+
+  # Catch-all that assigns no specific meaning: an unknown reason is `:unclassified`
+  # (handled conservatively, surfaced with its raw term by the caller) rather than
+  # being asserted to be `:transport` (#2429 F2).
+  defp connectivity_classification(_reason), do: :unclassified
 
   defp connectivity_streak_count(streaks, source) do
     case Map.get(streaks, source) do

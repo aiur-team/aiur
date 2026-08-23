@@ -440,14 +440,13 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert final.retry_attempts[issue_id].retry_poll_failures == 0
     end
 
-    # #2409 regression: the broker classifies a held GitHub request as
-    # `{:github, :transport, %{reason: {:aiur, :locally_held, hold}}}` because
-    # `Errors.classify_error` wraps the raw `{:aiur, :locally_held, hold}` into
-    # the transport taxonomy, so that is the shape a tracker poll actually sees.
-    # It must take the same non-consuming `:local_budget_hold` retry as the raw
-    # form — otherwise three 30-second throttles exhaust the retry budget and
-    # park the ticket in `agent:error` (the incident's "released claim after 3
-    # tracker failures").
+    # #2409 regression: older `Errors.classify_error` versions wrapped a held
+    # GitHub request as `{:github, :transport, %{reason: {:aiur, :locally_held,
+    # hold}}}`. #2429 now classifies it `{:github, :local_hold, ...}`, but the
+    # legacy wrapper must still take the same non-consuming `:local_budget_hold`
+    # retry as the raw form — otherwise three 30-second throttles exhaust the
+    # retry budget and park the ticket in `agent:error` (the incident's
+    # "released claim after 3 tracker failures").
     test "the transport-classified hold shape also preserves the claim and poll-failure budget" do
       issue_id = "issue-wrapped-local-budget"
 
@@ -463,6 +462,39 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       final =
         Enum.reduce(1..3, {initial, seed_metadata()}, fn attempt, {state, metadata} ->
           next = RetryEngine.handle_retry_poll_failure(state, issue_id, attempt, metadata, wrapped)
+
+          retry = next.retry_attempts[issue_id]
+          Process.cancel_timer(retry.timer_ref)
+          {next, retry}
+        end)
+        |> elem(0)
+
+      assert MapSet.member?(final.claimed, issue_id)
+      assert final.released_claims == %{}
+      assert final.retry_attempts[issue_id].error =~ "retry poll locally held"
+      assert final.retry_attempts[issue_id].retry_poll_failures == 0
+      assert final.retry_attempts[issue_id].attempt == 3
+    end
+
+    # #2429: `Errors.classify_error` now classifies a held request as
+    # `{:github, :local_hold, %{reason: ..., hold: hold}}` — the shape a tracker
+    # poll actually sees today. It must take the same non-consuming
+    # `:local_budget_hold` retry as the raw form.
+    test "the :local_hold shape also preserves the claim and poll-failure budget" do
+      issue_id = "issue-local-hold-shape"
+
+      initial = %State{
+        claimed: MapSet.new([issue_id]),
+        released_claims: %{},
+        retry_attempts: %{}
+      }
+
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+      reason = {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}
+
+      final =
+        Enum.reduce(1..3, {initial, seed_metadata()}, fn attempt, {state, metadata} ->
+          next = RetryEngine.handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)
 
           retry = next.retry_attempts[issue_id]
           Process.cancel_timer(retry.timer_ref)

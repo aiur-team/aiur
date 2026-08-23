@@ -103,13 +103,15 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
     # #2409: a local GitHub budget hold is a transient infrastructure fault, so
     # a ticket parked in `agent:error` by one auto-resumes once the hold lifts
-    # instead of waiting for an operator. Recognized in both the raw
-    # `{:aiur, :locally_held, hold}` shape and the transport-classified shape a
-    # tracker poll actually sees (`Errors.classify_error` wraps it).
+    # instead of waiting for an operator. Recognized in the raw
+    # `{:aiur, :locally_held, hold}` shape, the `:local_hold` classification
+    # `Errors.classify_error` now assigns (#2429), and the legacy
+    # transport-classified shape a tracker poll used to see.
     test "classifies a local GitHub budget hold as transient" do
       hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
 
       assert AutoResume.classify({:aiur, :locally_held, hold}) == :local_budget_hold
+      assert AutoResume.classify({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}) == :local_budget_hold
       assert AutoResume.classify({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) == :local_budget_hold
     end
 

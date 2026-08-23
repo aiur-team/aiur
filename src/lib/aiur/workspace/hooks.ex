@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.Hooks do
 
   require Logger
   alias Aiur.{AgentBuildGuard, Alerts, BuildGate, Config, RepoBase}
+  alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -238,7 +239,16 @@ defmodule Aiur.Workspace.Hooks do
           :ok
 
         {:error, reason} ->
-          emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+          # A local budget hold is a local counter trip, not lost connectivity:
+          # raising `system.github.connectivity_lost` for it would send the
+          # operator on a DNS/credential hunt for a condition no network or App
+          # change can fix (#2429). Provisioning still fails closed — the hold
+          # has to clear before the workspace can be used — it just does not
+          # fire the wrong blocker.
+          unless AuthPreflight.local_hold_reason?(reason) do
+            emit_workspace_github_preflight_alert(workspace, issue_context, worker_host, reason)
+          end
+
           {:error, {:workspace_github_connectivity_failed, workspace, reason}}
 
         other ->
