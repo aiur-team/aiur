@@ -23,6 +23,12 @@ executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 polling:
   idle_widen_factor: 5.0
+  # Per-class cadences override interval_seconds for one class (#2309).
+  #   intervals:
+  #     dispatch: 120
+  #     ci: 60
+  #     review: 300
+  #     planning: 600
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

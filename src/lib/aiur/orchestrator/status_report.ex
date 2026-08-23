@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
+  alias Aiur.PollCadence
   alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
@@ -412,7 +413,8 @@ defmodule Aiur.Orchestrator.StatusReport do
         poll_interval_ms: state.poll_interval_ms,
         effective_interval_ms: state.effective_poll_interval_ms || state.poll_interval_ms,
         idle_backoff: state.idle_poll_backoff,
-        tracker_snapshot_fresh?: state.candidate_snapshot_fresh?
+        tracker_snapshot_fresh?: state.candidate_snapshot_fresh?,
+        class_intervals: PollCadence.effective_intervals()
       }
     }
   end

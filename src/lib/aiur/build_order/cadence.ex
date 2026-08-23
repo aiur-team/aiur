@@ -141,6 +141,12 @@ defmodule Aiur.BuildOrder.Cadence do
   interval by exactly the widening factors the dispatcher applied — at the
   shipped defaults, a factor of 5 while the fleet is idle.
 
+  The catalog is a `:planning`-class read: its cadence resolves from the
+  planning interval (`polling.intervals.planning`, falling back to
+  `polling.interval_seconds`) rather than the bare global interval, so an
+  operator can run the expensive Build Order reads at 10 minutes while dispatch
+  stays at 2 (#2309).
+
   Before the dispatcher has published anything — which is every boot, since
   `:persistent_term` does not survive a VM restart, and `GraphProjection` starts
   ahead of the `Orchestrator` — this falls back to the **base** interval rather
@@ -159,7 +165,7 @@ defmodule Aiur.BuildOrder.Cadence do
   defp effective_interval_ms(opts) do
     case Keyword.get(opts, :effective_interval_ms) do
       ms when is_integer(ms) and ms > 0 -> ms
-      _unset -> PollCadence.published_effective_interval_ms() || PollCadence.base_interval_ms(opts)
+      _unset -> PollCadence.published_effective_interval_ms(class: :planning) || PollCadence.base_interval_ms(Keyword.put(opts, :class, :planning))
     end
   end
 

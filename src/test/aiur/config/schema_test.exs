@@ -448,6 +448,43 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.polling.usage_interval_seconds == 120
     end
 
+    # Per-class cadences (#2309): `polling.intervals` names a class and
+    # overrides `interval_seconds` for that class only. The map is optional and
+    # empty by default, so existing configs keep today's single-interval
+    # behaviour.
+    test "intervals defaults to an empty map" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.polling.intervals == %{}
+    end
+
+    test "intervals accepts a per-class map of positive seconds" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "polling" => %{
+            "interval_seconds" => 120,
+            "intervals" => %{"dispatch" => 120, "planning" => 600, "review" => 300}
+          }
+        })
+
+      assert settings.polling.intervals == %{"dispatch" => 120, "planning" => 600, "review" => 300}
+    end
+
+    test "intervals rejects an unknown class" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"intervals" => %{"plannning" => 600}}})
+
+      assert message =~ "unknown poll class"
+      assert message =~ "planning"
+    end
+
+    test "intervals rejects a non-positive value" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"intervals" => %{"planning" => 0}}})
+
+      assert message =~ "planning"
+      assert message =~ "positive integer"
+    end
+
     test "usage_interval_seconds defaults above the floor" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.polling.usage_interval_seconds == 300

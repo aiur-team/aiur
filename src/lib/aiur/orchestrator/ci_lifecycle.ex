@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, Tracker}
+  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
   alias Aiur.Config.Paths
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
@@ -37,11 +37,33 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       # configured cadence rather than widening on quiet, so CI detection
       # latency is unchanged at the same polling interval.
       "github" ->
-        do_poll_github_ci(state, opts)
+        if within_ci_cadence?(state, System.monotonic_time(:millisecond)) do
+          state
+        else
+          do_poll_github_ci(state, opts)
+        end
 
       _ ->
         state
     end
+  end
+
+  # Throttles the CI poll to the `:ci` class cadence (#2309). CI is
+  # demand-scoped — it only polls pull requests with work in flight — so the
+  # throttle deliberately only binds while demand is continuous: the timestamp
+  # advances only when there are in-flight targets to poll, never on the
+  # no-target skip, so a PR that enters `ci-wait` between polls is read promptly
+  # on the very next tick.
+  #
+  # Like the comment poll's gate, this is a no-op at default config: nothing
+  # published yet runs every tick, and once the dispatcher publishes, a class
+  # that falls back to `interval_seconds` (120s) is not wider than the dispatch
+  # tick the poll rides on. It only slows CI when an operator sets
+  # `intervals.ci` wider than the tick — which is deliberately *not* the
+  # recommended shape (#2309): CI staleness has agent-visible consequences, so
+  # keep `ci` at or below `dispatch`.
+  defp within_ci_cadence?(state, now_ms) do
+    PollCadence.within_class_cadence?(state.last_ci_poll_started_at_ms, now_ms, :ci)
   end
 
   @spec maybe_resume_for_ci_failure(State.t(), String.t()) :: State.t()
@@ -367,8 +389,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     targets = Map.keys(issues_by_target)
 
     if targets == [] do
+      # Demand-scoped: nothing in flight, nothing to read. The throttle
+      # timestamp must NOT advance here, or a PR that enters ci-wait shortly
+      # after would be held back by the previous poll's cadence (#2309).
       state
     else
+      state = %{state | last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
       poll_github_ci_targets(state, issues_by_target, targets, poller, opts)
     end
   end

@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
+  alias Aiur.PollCadence
   alias Aiur.Webhooks.IntervalPolicy
 
   @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
@@ -117,6 +118,33 @@ defmodule Aiur.Orchestrator.TrackerHealth do
       end
 
     %{delay_ms: delay_ms, idle_backoff?: idle_backoff?, idle_widen_factor: idle_factor}
+  end
+
+  @doc false
+  @spec publish_poll_cadence(State.t(), map()) :: :ok
+  def publish_poll_cadence(%State{} = _state, %{delay_ms: delay_ms} = schedule)
+      when is_integer(delay_ms) and delay_ms > 0 do
+    # `:dispatch` is the interval the tick actually scheduled — GitHub
+    # `X-Poll-Interval` / connectivity backoff floors included. Every other
+    # class composes the same widening the schedule applied (webhook factor for
+    # a proven webhook-backed repo, idle factor while the fleet is idle) on top
+    # of its own class base, so a class whose `polling.intervals` entry differs
+    # from `interval_seconds` resolves its own live cadence instead of silently
+    # inheriting the dispatch one (#2309).
+    PollCadence.publish_effective_interval_ms(delay_ms, class: :dispatch)
+    idle_factor = if schedule.idle_backoff?, do: schedule.idle_widen_factor, else: 1.0
+    repo = Aiur.GitHub.Config.repo()
+
+    if is_binary(repo) do
+      for class <- PollCadence.poll_classes() -- [:dispatch] do
+        base_ms = PollCadence.base_interval_ms(class: class)
+        webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
+        effective_ms = if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+        PollCadence.publish_effective_interval_ms(effective_ms, class: class)
+      end
+    end
+
+    :ok
   end
 
   # The fleet is only actually idle when it has nothing to do AND has observed

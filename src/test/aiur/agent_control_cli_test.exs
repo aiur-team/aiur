@@ -630,6 +630,33 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "POLL idle backoff active: interval=600s base=120s factor=5.0x next=590s"
   end
 
+  # #2309 acceptance: `aiur status` shows the live interval per class, so an
+  # operator can see planning is at 10 minutes while dispatch is at 2 without
+  # reading config.
+  test "status prints the live poll interval per class" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 590_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0},
+        class_intervals: %{dispatch: 120_000, ci: 60_000, review: 300_000, planning: 600_000, firehose: 120_000}
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~ "POLL class intervals: ci=60s dispatch=120s firehose=120s planning=600s review=300s"
+  end
+
   defp unconstrained_capacity(overrides \\ %{}) do
     Map.merge(
       %{
