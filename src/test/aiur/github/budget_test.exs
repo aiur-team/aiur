@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.BudgetTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
@@ -142,6 +144,35 @@ defmodule Aiur.GitHub.BudgetTest do
 
     assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "a box without python3 fails open to :bypass so requests stay unmetered (#2376)", %{root: root} do
+    # No explicit `:python` (equivalent to `System.find_executable("python3")`
+    # returning nil on a stock box): the broker cannot run, so `acquire/2` must
+    # fail open to unmetered operation rather than erroring every request.
+    opts = [state_dir: root, enabled?: true, python: nil]
+
+    assert :bypass = Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "warn_metering_unavailable/0 logs once, clearly, when python3 is absent", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: nil)
+      end)
+
+    assert log =~ "budget metering is disabled"
+    assert log =~ "python3 was not found"
+    assert log =~ "run unmetered"
+  end
+
+  test "warn_metering_unavailable/0 stays silent when the broker can run", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: "python3")
+      end)
+
+    assert log == ""
   end
 
   test "lease duration can outlive the broker command timeout" do
@@ -317,6 +348,69 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.release(lease, opts)
   end
 
+  # #2409 root cause: GitHub meters `/search/*` against its own ~30 req/min
+  # pool, so a search response must be classified as `search` — never folded
+  # into `core`. Before this fix a search-pool exhaustion (a `search` header
+  # with `remaining: 0`) fell through `response_resource` to the request's
+  # bucket and created a *core* hold, which then denied every core request —
+  # including dispatch-authorization timeline fetches — until the search pool
+  # reset.
+  test "a search-pool exhaustion holds only search, never core", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    search = request("shared-token", "/search/issues?q=repo:owner/repo+label:agent")
+    reset_at = System.system_time(:second) + 60
+
+    assert Budget.request_resource(search) == "search"
+    assert Budget.request_resource(core) == "core"
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "search"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # The search pool is held...
+    assert {:hold, %{reason: :shared_budget, resource: "search"}} =
+             Budget.acquire(search, Keyword.put(opts, :timeout_ms, 1_000))
+
+    # ...but core is untouched: the timeline fetch that dispatch authorization
+    # relies on still goes through.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "a rate-limit pool the guard does not model never becomes a core hold", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    reset_at = System.system_time(:second) + 60
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "integration_manifest"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # No modeled pool was exhausted, so no resource hold is issued — a core
+    # request must not be held because some other GitHub pool reset.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
   test "simultaneous fan-out is staggered and reports the measured burst width", %{root: root} do
     opts = [state_dir: root, max_inflight: 6, max_inflight_per_endpoint: 6, requests_per_minute: 20, stagger_ms: 10]
     request = request("shared-token", "/repos/owner/repo/pulls/1477/reviews")
@@ -342,6 +436,38 @@ defmodule Aiur.GitHub.BudgetTest do
     refute key =~ "secret"
     assert Budget.endpoint_family(request("token", "/repos/owner/repo/issues/1477/comments")) == "issues"
     assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
+  end
+
+  test "a daemon /rate_limit poll is recorded non-billable with its own family", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:primary:aiur-daemon[bot]")]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/rate_limit"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # GitHub meters `/rate_limit` at zero quota, so the ledger must not report
+    # it as spend: family `rate_limit` (not `rest`), resource `none` (not a
+    # pool), billable false (#2353).
+    assert %{admissions: [%{endpoint_family: "rate_limit", resource: "none", billable: false}]} =
+             Budget.snapshot("token", opts)
+
+    # And the pool usage the acceptance reconciles against never counts it.
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 0
+    assert actor.graphql.used == 0
+    assert actor.search.used == 0
+  end
+
+  test "a billable core call stays billable in the ledger", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert %{admissions: [%{endpoint_family: "issues", resource: "core", billable: true}]} =
+             Budget.snapshot("token", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 1
   end
 
   test "resolves the broker from the installed application private directory" do

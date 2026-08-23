@@ -52,6 +52,30 @@ defmodule Aiur.Orchestrator.SlotsTest do
       assert Slots.dispatch_slots_available?(%Issue{state: "todo"}, state)
     end
 
+    test "a duration-capped pause releases its reservation like CI-wait" do
+      # #2329: a max_agent_duration pause is "check in", not "still working".
+      # Holding the slot converts the time cap into a capacity leak — parked
+      # agents accumulate against the fleet limit and `AGENTS n/m` reports more
+      # occupied slots than the configured cap. The cap must not consume a
+      # slot, exactly as it already does for CI-wait and blocker pauses.
+      state = %State{
+        max_concurrent_agents: 2,
+        running: %{
+          "active" => running_entry(:working),
+          "duration" => running_entry(:paused, nil, :max_agent_duration),
+          "operator" => running_entry(:paused, nil, :operator_pause)
+        }
+      }
+
+      assert Slots.used_slots(state) == 2
+      assert Slots.available_slots(state) == 0
+
+      status = Slots.max_concurrent_agent_status(state)
+      assert status.paused == 2
+      assert status.reserved_paused == 1
+      assert status.occupied == 2
+    end
+
     test "reports no slots when globally paused, regardless of free capacity" do
       state = %State{max_concurrent_agents: 3, running: %{}, globally_paused: true}
 

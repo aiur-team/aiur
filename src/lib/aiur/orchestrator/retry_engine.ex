@@ -856,26 +856,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @doc false
   @spec handle_retry_poll_failure(State.t(), String.t(), integer(), map(), term()) :: State.t()
-  def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, {:aiur, :locally_held, hold} = reason)
-      when is_map(hold) do
-    identifier = metadata[:identifier] || issue_id
+  def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, {:aiur, :locally_held, %{} = hold} = reason) do
+    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
+  end
 
-    Logger.warning(
-      "Retry poll deferred by local GitHub budget for issue_id=#{issue_id} issue_identifier=#{identifier} " <>
-        "agent_attempt=#{attempt} hold=#{inspect(hold)}"
-    )
-
-    schedule_issue_retry(
-      state,
-      issue_id,
-      attempt,
-      Map.merge(metadata, %{
-        delay_type: :local_budget_hold,
-        local_budget_hold: hold,
-        error: "retry poll locally held: #{inspect(reason)}",
-        retry_poll_failures: normalize_retry_poll_failures(metadata[:retry_poll_failures])
-      })
-    )
+  # The broker classifies a held GitHub request as `{:github, :transport,
+  # %{reason: {:aiur, :locally_held, hold}}}` (`Errors.classify_error` wraps the
+  # raw `{:aiur, :locally_held, hold}` into the transport taxonomy), so the raw
+  # form never reaches this path from a tracker fetch. Recognize both shapes so
+  # a transient budget hold always takes the non-consuming `:local_budget_hold`
+  # retry instead of counting against the retry budget meant for genuine agent
+  # failures (#2409).
+  def handle_retry_poll_failure(
+        %State{} = state,
+        issue_id,
+        attempt,
+        metadata,
+        {:github, :transport, %{reason: {:aiur, :locally_held, %{} = hold}}} = reason
+      ) do
+    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
   end
 
   def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
@@ -912,6 +911,35 @@ defmodule Aiur.Orchestrator.RetryEngine do
       )
     end
   end
+
+  defp defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason) do
+    identifier = metadata[:identifier] || issue_id
+
+    Logger.warning(
+      "Retry poll deferred by local GitHub budget for issue_id=#{issue_id} issue_identifier=#{identifier} " <>
+        "agent_attempt=#{attempt} hold=#{inspect(hold)}"
+    )
+
+    schedule_issue_retry(
+      state,
+      issue_id,
+      attempt,
+      Map.merge(metadata, %{
+        delay_type: :local_budget_hold,
+        local_budget_hold: hold,
+        error: "retry poll locally held: #{inspect(reason)}",
+        retry_poll_failures: normalize_retry_poll_failures(metadata[:retry_poll_failures])
+      })
+    )
+  end
+
+  # Unwraps a local GitHub budget hold from either its raw `{:aiur, :locally_held,
+  # hold}` shape or the transport-classified `{:github, :transport, %{reason:
+  # ...}}` shape, so `recovery_delay_options/1` can name the hold's own release
+  # time for the automatic resume (#2409).
+  defp local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
+  defp local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
+  defp local_budget_hold_reason(_reason), do: nil
 
   defp local_budget_reset_delay(hold) do
     case Map.get(hold, :reset_at) || Map.get(hold, "reset_at") do
@@ -952,7 +980,19 @@ defmodule Aiur.Orchestrator.RetryEngine do
     [retry_after: details[:retry_after], reset_at: details[:reset_at]]
   end
 
-  defp recovery_delay_options(_reason), do: []
+  # A local budget hold names its own release time (`reset_at`); the automatic
+  # resume should not fire before it, or it would re-dispatch straight back into
+  # the same hold. Handles both the raw `{:aiur, :locally_held, hold}` and the
+  # classified `{:github, :transport, %{reason: ...}}` form (#2409).
+  defp recovery_delay_options(reason) do
+    case local_budget_hold_reason(reason) do
+      %{reset_at: %DateTime{} = reset_at} ->
+        [reset_at: DateTime.to_iso8601(reset_at)]
+
+      _other ->
+        []
+    end
+  end
 
   # Identify the credential that actually made the rate-limited request, not the
   # one the operator configured. `GitHubConfig.bot_account/0` is a config string:
@@ -987,6 +1027,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp claim_recovery_message(%{cause: :rate_limit, attempt: attempt}) do
     "Automatic re-claim is scheduled after rate-limit recovery (attempt #{attempt}/#{AutoResume.max_attempts()})."
+  end
+
+  defp claim_recovery_message(%{cause: :local_budget_hold, attempt: attempt}) do
+    "Automatic re-claim is scheduled after the local GitHub budget hold lifts (attempt #{attempt}/#{AutoResume.max_attempts()})."
   end
 
   defp claim_recovery_message(%{cause: cause, attempt: attempt}) do

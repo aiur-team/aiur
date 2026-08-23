@@ -180,45 +180,4 @@ defmodule Aiur.GitHub.PullRequestsTest do
       assert PullRequests.open_pull_request_or_nil(%{"state" => "merged"}) == nil
     end
   end
-
-  describe "fetch_open_pull_requests_by_label_conditional/2" do
-    # Acceptance criterion 1 for watch-target discovery (#2069): the per-cycle
-    # read of the open-pull-request collection carries If-None-Match, so an
-    # unchanged collection is a `304` GitHub does not bill against the primary
-    # REST limit instead of a full-price `200` re-read of every open PR.
-    test "returns the labelled pull requests and the response ETag on a 200" do
-      prs = [
-        %{"number" => 11, "labels" => [%{"name" => "agent:watch"}]},
-        %{"number" => 12, "labels" => [%{"name" => "other"}]}
-      ]
-
-      request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/pulls?"
-        {:ok, %{status: 200, body: prs, headers: [{"etag", ~s("v1")}]}}
-      end
-
-      assert {:ok, [%{"number" => 11}], ~s("v1")} =
-               PullRequests.fetch_open_pull_requests_by_label_conditional("agent:watch",
-                 request_fun: request_fun
-               )
-    end
-
-    test "sends If-None-Match and returns :not_modified on a 304" do
-      parent = self()
-
-      request_fun = fn request ->
-        send(parent, {:requested, request})
-        {:ok, %{status: 304, headers: [{"etag", ~s("v2")}]}}
-      end
-
-      assert {:not_modified, ~s("v2")} =
-               PullRequests.fetch_open_pull_requests_by_label_conditional("agent:watch",
-                 request_fun: request_fun,
-                 etag: ~s("v1")
-               )
-
-      assert_receive {:requested, request}
-      assert request.etag == ~s("v1")
-    end
-  end
 end

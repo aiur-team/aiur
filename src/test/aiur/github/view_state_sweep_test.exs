@@ -12,6 +12,12 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
   # A view-state source is a module the sweep calls `refresh/0` on, registered
   # under its own name — so the stand-ins have to be real modules, not named
   # processes, or the test would not exercise the call the sweep actually makes.
+  # Each also answers `demanded?/0`, which the sweep consults before reconciling;
+  # the stand-in defaults to demanded so the "every running source is
+  # reconciled" tests keep passing, and a test can start one undemanded to
+  # assert the sweep skips it. `reseed_demand/0` is the uniform re-seed the
+  # sweep calls on every source; the stand-ins are not PubSub-backed, so theirs
+  # is a no-op (a `ReseedableSource` below has a real one).
   defmodule Source do
     @moduledoc false
     defmacro __using__(_opts) do
@@ -21,12 +27,19 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
         def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
         def refresh, do: GenServer.cast(__MODULE__, :refresh)
         def calls, do: GenServer.call(__MODULE__, :calls)
+        def demanded?, do: GenServer.call(__MODULE__, :demanded?)
+        def demander_count, do: GenServer.call(__MODULE__, :demander_count)
+        def reseed_demand, do: :ok
 
         @impl true
-        def init(_opts), do: {:ok, %{calls: 0}}
+        def init(opts), do: {:ok, %{calls: 0, demanders: if(Keyword.get(opts, :demanded, true), do: 1, else: 0)}}
 
         @impl true
         def handle_call(:calls, _from, state), do: {:reply, state.calls, state}
+
+        def handle_call(:demanded?, _from, state), do: {:reply, state.demanders > 0, state}
+
+        def handle_call(:demander_count, _from, state), do: {:reply, state.demanders, state}
 
         @impl true
         def handle_cast(:refresh, state), do: {:noreply, %{state | calls: state.calls + 1}}
@@ -49,6 +62,34 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     use Source
   end
 
+  # A stand-in whose `reseed_demand/0` restores demand, standing in for the real
+  # sources' re-seed from PubSub subscriber presence. It starts undemanded — the
+  # post-restart state — and the sweep's re-seed is what brings it back, so the
+  # sweep's recovery loop is the thing under test (review finding 3).
+  defmodule ReseedableSource do
+    @moduledoc false
+    use GenServer
+
+    def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+    def refresh, do: GenServer.cast(__MODULE__, :refresh)
+    def calls, do: GenServer.call(__MODULE__, :calls)
+    def demanded?, do: GenServer.call(__MODULE__, :demanded?)
+    def reseed_demand, do: GenServer.cast(__MODULE__, :reseed_demand)
+
+    @impl true
+    def init(_opts), do: {:ok, %{calls: 0, demanders: 0}}
+
+    @impl true
+    def handle_call(:calls, _from, state), do: {:reply, state.calls, state}
+
+    def handle_call(:demanded?, _from, state), do: {:reply, state.demanders > 0, state}
+
+    @impl true
+    def handle_cast(:refresh, state), do: {:noreply, %{state | calls: state.calls + 1}}
+
+    def handle_cast(:reseed_demand, state), do: {:noreply, %{state | demanders: 1}}
+  end
+
   # A stand-in for a real reconciliation source: on each sweep it reads its whole
   # upstream back and publishes only what nothing has claimed, which is exactly
   # the shape the comment sweep has.
@@ -61,6 +102,8 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
     def refresh, do: GenServer.cast(__MODULE__, :refresh)
     def published, do: GenServer.call(__MODULE__, :published)
+    def demanded?, do: true
+    def reseed_demand, do: :ok
 
     @impl true
     def init(opts), do: {:ok, %{upstream: Keyword.fetch!(opts, :upstream), published: []}}
@@ -119,12 +162,12 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       end
     end
 
-    test "the sources it sweeps are the three that hold GitHub view state" do
-      assert ViewStateSweep.sources() == [
-               Aiur.OpenTicketSource,
-               Aiur.BuildOrder.AdHocSource,
-               Aiur.BuildOrder.PackStatus
-             ]
+    test "the source it sweeps is the one view-state writer left on a cadence" do
+      # OpenTicketSource and AdHocSource were event-sourced (#2325) and hold no
+      # timer; PackStatus writes `status.json` on disk and stays on the sweep
+      # until its own event-stream PR lands. The acceptance for #2325 is that the
+      # sweep "is deleted, or documents what it still sweeps and why".
+      assert ViewStateSweep.sources() == [Aiur.BuildOrder.PackStatus]
     end
 
     test "one tick reconciles every running source exactly once" do
@@ -132,7 +175,11 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       start_supervised!(SourceB)
 
       pid =
-        start_supervised!({ViewStateSweep, name: :sweep_under_test, sources: [SourceA, SourceB], interval_ms: 3_600_000})
+        start_sweep(
+          name: :sweep_under_test,
+          sources: [SourceA, SourceB],
+          interval_ms: 3_600_000
+        )
 
       assert ViewStateSweep.sweep_now(pid) == [SourceA, SourceB]
 
@@ -144,10 +191,49 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       start_supervised!(SourceA)
 
       pid =
-        start_supervised!({ViewStateSweep, name: :sweep_skip_test, sources: [SourceA, SourceAbsent], interval_ms: 3_600_000})
+        start_sweep(
+          name: :sweep_skip_test,
+          sources: [SourceA, SourceAbsent],
+          interval_ms: 3_600_000
+        )
 
       assert ViewStateSweep.sweep_now(pid) == [SourceA]
       assert Process.whereis(SourceAbsent) == nil
+    end
+
+    # The demand half of the same rule: a running source with no watching
+    # LiveView is not reconciled either. This is the entire saving the ticket
+    # exists for — a 900-second sweep against a 30-second cache TTL is a
+    # guaranteed miss, so the only honest reason to run it is that someone is
+    # looking.
+    test "a source nobody is watching is skipped rather than reconciled" do
+      start_supervised!({SourceA, demanded: false})
+
+      pid =
+        start_supervised!({ViewStateSweep, name: :sweep_skip_undemanded_test, sources: [SourceA], interval_ms: 3_600_000})
+
+      assert ViewStateSweep.sweep_now(pid) == []
+      assert SourceA.calls() == 0
+    end
+
+    # The recovery half of the same rule. A source's demander set lives in its
+    # GenServer, so a supervisor restart empties it while the pages that watch
+    # it are still alive and still subscribed to its PubSub topic; without
+    # re-seeding, the gate would then skip the source forever and the open page
+    # would go silently stale. The stand-in starts undemanded (the post-restart
+    # state) and its `reseed_demand/0` restores the demand, so one sweep tick
+    # both re-seeds and reconciles it (review finding 3).
+    test "a source whose demander set was emptied by a restart is re-seeded and reconciled, not skipped" do
+      start_supervised!(ReseedableSource)
+
+      pid =
+        start_supervised!({ViewStateSweep, name: :sweep_reseed_test, sources: [ReseedableSource], interval_ms: 3_600_000})
+
+      refute ReseedableSource.demanded?()
+
+      assert ViewStateSweep.sweep_now(pid) == [ReseedableSource]
+
+      assert ReseedableSource.calls() == 1
     end
 
     # Without this the module could sweep once at boot and never again — every
@@ -155,7 +241,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     # because they all drive `sweep_now/1` by hand.
     test "the timer re-arms, so the sweep keeps running unattended" do
       start_supervised!(SourceA)
-      start_supervised!({ViewStateSweep, name: :sweep_timer_test, sources: [SourceA], interval_ms: 20})
+      start_sweep(name: :sweep_timer_test, sources: [SourceA], interval_ms: 20)
 
       assert eventually(fn -> SourceA.calls() >= 3 end),
              "the sweep did not tick repeatedly; it scheduled once and stopped"
@@ -169,7 +255,12 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       start_supervised!(SourceA)
 
       pid =
-        start_supervised!({ViewStateSweep, name: :sweep_on_start_test, sources: [SourceA], interval_ms: 3_600_000, sweep_on_start: true})
+        start_sweep(
+          name: :sweep_on_start_test,
+          sources: [SourceA],
+          interval_ms: 3_600_000,
+          sweep_on_start: true
+        )
 
       assert eventually(fn -> SourceA.calls() >= 1 end)
 
@@ -186,7 +277,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     end
 
     test "it runs slowly, because it recovers losses rather than providing freshness" do
-      pid = start_supervised!({ViewStateSweep, name: :sweep_interval_test, sources: []})
+      pid = start_sweep(name: :sweep_interval_test, sources: [])
 
       # A recovery bound, not a refresh knob. Anything under a minute would mean
       # somebody had started treating it as the latter.
@@ -231,7 +322,11 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       )
 
       pid =
-        start_supervised!({ViewStateSweep, name: :sweep_a6, sources: [RecoveringSource], interval_ms: 3_600_000})
+        start_sweep(
+          name: :sweep_a6,
+          sources: [RecoveringSource],
+          interval_ms: 3_600_000
+        )
 
       assert ViewStateSweep.sweep_now(pid) == [RecoveringSource]
       assert eventually(fn -> RecoveringSource.published() == [dropped] end)
@@ -260,7 +355,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
       # Every source is asked on every tick regardless of what the store holds:
       # suppression is decided per resource, never by skipping the pass.
       start_supervised!(SourceA)
-      pid = start_supervised!({ViewStateSweep, name: :sweep_no_skip, sources: [SourceA], interval_ms: 3_600_000})
+      pid = start_sweep(name: :sweep_no_skip, sources: [SourceA], interval_ms: 3_600_000)
 
       for _tick <- 1..5, do: ViewStateSweep.sweep_now(pid)
 
@@ -323,7 +418,140 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
     end
   end
 
+  describe "the divergence watermark" do
+    setup do
+      ResourceStore.reset()
+      on_exit(fn -> ResourceStore.reset() end)
+      :ok
+    end
+
+    # Finding #4: the polls #2325 deleted were also the corroboration the silence
+    # sweep needs, so the sweep now runs one `updated_at`-ordered head page of the
+    # open-issue listing in their place. When GitHub's newest open issue is newer
+    # than the newest the store holds, a delivery was dropped — the event-sourced
+    # sources are told to re-list via `{:view_state_diverged, repo}` instead of
+    # sitting frozen reporting `:available` forever.
+    test "a GitHub head ahead of the store broadcasts divergence for that repo" do
+      ensure_pubsub!()
+      assert :ok = ViewStateSweep.subscribe_diverged()
+
+      seed_open_issue("owner", "repo", 7001, "2026-08-17T10:00:00Z")
+
+      pid =
+        start_sweep(
+          name: :sweep_watermark_diverged,
+          sources: [],
+          interval_ms: 3_600_000,
+          request_fun: fn %{method: :get} ->
+            {:ok, %{status: 200, body: [head_issue("2026-08-17T11:00:00Z")], headers: []}}
+          end
+        )
+
+      ViewStateSweep.sweep_now(pid)
+
+      assert_received {:view_state_diverged, "owner/repo"}
+    end
+
+    # The reverse: a store that already holds GitHub's newest open issue is not
+    # divergent, so a sweep must not manufacture a re-list for state that is
+    # current. A recently-closed issue (which left the open head but may still
+    # hold a newer timestamp in the store) must not mask an open divergence
+    # either, so the comparison is open-to-open.
+    test "a GitHub head equal to the store's newest open issue does not broadcast" do
+      ensure_pubsub!()
+      assert :ok = ViewStateSweep.subscribe_diverged()
+
+      seed_open_issue("owner", "repo", 7002, "2026-08-17T11:00:00Z")
+
+      pid =
+        start_sweep(
+          name: :sweep_watermark_current,
+          sources: [],
+          interval_ms: 3_600_000,
+          request_fun: fn %{method: :get} ->
+            {:ok, %{status: 200, body: [head_issue("2026-08-17T11:00:00Z")], headers: []}}
+          end
+        )
+
+      ViewStateSweep.sweep_now(pid)
+
+      refute_received {:view_state_diverged, "owner/repo"}
+    end
+
+    # Cold start: the store has no evidence of the repo yet, so there is nothing
+    # to diverge from — the sources' boot listings establish the baseline, and
+    # the next head check once deliveries have landed will. Broadcasting here
+    # would send every source re-listing at boot for no reason.
+    test "an empty store (cold start) does not broadcast divergence" do
+      ensure_pubsub!()
+      assert :ok = ViewStateSweep.subscribe_diverged()
+
+      pid =
+        start_sweep(
+          name: :sweep_watermark_cold,
+          sources: [],
+          interval_ms: 3_600_000,
+          request_fun: fn %{method: :get} ->
+            {:ok, %{status: 200, body: [head_issue("2026-08-17T11:00:00Z")], headers: []}}
+          end
+        )
+
+      ViewStateSweep.sweep_now(pid)
+
+      refute_received {:view_state_diverged, "owner/repo"}
+    end
+
+    # The head check records poller-observed activity through
+    # `Webhooks.record_activity/2` so the silence sweep can still tell "no
+    # events because nothing changed" from "no events because the webhook
+    # broke". An unchanged head is a replay the registry ignores; a head that
+    # advanced is a novel observation that moves `last_activity_at`.
+    test "a newer head records corroborating activity for the repo" do
+      ensure_pubsub!()
+      alias Aiur.Webhooks.ModeRegistry
+
+      {:ok, _configured} = ModeRegistry.configure("owner/repo", true)
+      {:ok, _mode} = ModeRegistry.record_delivery("owner/repo", at: ~U[2026-08-17 10:00:00Z])
+
+      pid =
+        start_sweep(
+          name: :sweep_watermark_activity,
+          sources: [],
+          interval_ms: 3_600_000,
+          request_fun: fn %{method: :get} ->
+            {:ok, %{status: 200, body: [head_issue("2026-08-17T11:00:00Z")], headers: []}}
+          end
+        )
+
+      ViewStateSweep.sweep_now(pid)
+
+      assert eventually(fn ->
+               %{last_activity_at: %DateTime{} = at} = ModeRegistry.mode("owner/repo")
+               DateTime.compare(at, ~U[2026-08-17 11:00:00Z]) != :lt
+             end),
+             "the head observation did not advance the repo's last_activity_at"
+    end
+  end
+
   # -- helpers --------------------------------------------------------------
+
+  # Starts the sweep with stub repo/token/request functions so the divergence
+  # watermark never hits the network in a test that is not about it. A stub
+  # request answering an empty open listing makes the head check a clean no-op
+  # (no head, no activity, no divergence).
+  defp start_sweep(opts) do
+    start_supervised!(
+      {ViewStateSweep,
+       Keyword.merge(
+         [
+           repo_fun: fn -> {:ok, {"owner", "repo"}} end,
+           token_fun: fn -> {:ok, "test-token"} end,
+           request_fun: &stub_request/1
+         ],
+         opts
+       )}
+    )
+  end
 
   defp age_mark!(key, by_ms) do
     table = ResourceStore.Table
@@ -345,6 +573,33 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
   end
 
   defp stub_request(_request), do: {:ok, %{status: 200, body: [], headers: []}}
+
+  # A head page's GitHub issue shape: the watermark reads `updated_at` and the
+  # open/closed state, nothing else.
+  defp head_issue(updated_at, state \\ "open") do
+    %{"number" => 9001, "state" => state, "updated_at" => updated_at}
+  end
+
+  # Deposits an open issue the watermark compares GitHub's head against.
+  defp seed_open_issue(owner, repo, number, updated_at) do
+    key = ResourceStore.key(:issue, owner, repo, number)
+
+    ResourceStore.put_resource(key, %{"number" => number, "state" => "open", "updated_at" => updated_at},
+      source: :webhook,
+      version: updated_at
+    )
+
+    :ok
+  end
+
+  defp ensure_pubsub! do
+    unless Process.whereis(Aiur.PubSub) do
+      {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
+    end
+
+    :ok
+  end
 
   defp source_path(module) do
     root = Application.app_dir(:aiur) |> Path.join("../../../..") |> Path.expand()
