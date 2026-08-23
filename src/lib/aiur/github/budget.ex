@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.Budget do
   """
 
   alias Aiur.{Alerts, Config}
-  alias Aiur.GitHub.{CredentialHeadroom, GraphQLErrors, Transport}
+  alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger
 
@@ -29,13 +29,23 @@ defmodule Aiur.GitHub.Budget do
   # responses one actor (the daemon, or each agent workspace) may consume in a
   # rolling hour before its own requests hold. A completed `304` is reconciled
   # as free. These remain request counts, not GraphQL point budgets. `0`
-  # disables a ceiling. Defaults reserve 3,000 Core / 2,000 GraphQL for the
-  # daemon and divide the remaining independent 5,000-unit windows across the
-  # documented eight-agent fleet.
-  @default_daemon_core_limit_per_hour 3000
-  @default_daemon_graphql_limit_per_hour 2000
+  # disables a ceiling.
+  #
+  # Re-derived against the corrected bucket counts (#2297): the measured
+  # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core. The
+  # GraphQL windows are now the load-bearing ones — `daemon_graphql` covers the
+  # daemon's dominant share, `agent_graphql` must clear a single agent's normal
+  # loop (which crossed the old 375 and stalled it) — while the Core windows
+  # come down because the volume they were sized against was mostly miscounted
+  # GraphQL.
+  @default_daemon_core_limit_per_hour 1000
+  @default_daemon_graphql_limit_per_hour 3000
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 375
+  @default_agent_graphql_limit_per_hour 750
+  # GitHub meters `/search/*` against a third pool (~30 req/min), so `search`
+  # has its own per-actor ceilings rather than folding into core (#2297).
+  @default_daemon_search_limit_per_hour 1000
+  @default_agent_search_limit_per_hour 250
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -43,6 +53,29 @@ defmodule Aiur.GitHub.Budget do
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
     Keyword.get(opts, :enabled?, Application.get_env(:aiur, :github_budget_enabled?, true))
+  end
+
+  @doc """
+  Logs, once at boot, that GitHub budget metering is disabled because the
+  broker cannot run (python3 not found on the box).
+
+  Metering is an optimization: `acquire/2` and `command/3` both fail open to
+  `:bypass` when the broker is unavailable, so the daemon keeps running
+  unmetered. This notice is the "says so once, clearly" counterpart to that
+  fail-open behaviour (#2376). A no-op when metering is enabled, the broker is
+  runnable, or an explicit `:python` is configured.
+  """
+  @spec warn_metering_unavailable(keyword()) :: :ok
+  def warn_metering_unavailable(opts \\ []) do
+    if enabled?(opts) and is_nil(python_executable(opts)) do
+      Logger.warning(
+        "aiur_boot phase=budget_metering_disabled reason=python3_not_found " <>
+          "GitHub budget metering is disabled because python3 was not found on this box; " <>
+          "GitHub requests run unmetered. Install python3 to enable the budget broker."
+      )
+    end
+
+    :ok
   end
 
   @spec token_key(String.t()) :: String.t()
@@ -112,9 +145,18 @@ defmodule Aiur.GitHub.Budget do
   def acquire(request, opts \\ []) do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
-         key when is_binary(key) <- token_key(token),
-         python when is_binary(python) <- python_executable(opts) do
-      do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+         key when is_binary(key) <- token_key(token) do
+      case python_executable(opts) do
+        python when is_binary(python) ->
+          do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+
+        nil ->
+          # No python3 on the box, so the broker cannot run at all. Fail open to
+          # unmetered operation exactly like `command/3` does: a budget broker is
+          # an optimization, and its absence must degrade to unmetered requests,
+          # never to a dead daemon (#2376).
+          :bypass
+      end
     else
       false -> :bypass
       _unavailable -> {:error, :github_budget_broker_unavailable}
@@ -203,21 +245,11 @@ defmodule Aiur.GitHub.Budget do
   end
 
   @spec endpoint_family(map()) :: String.t()
-  def endpoint_family(%{url: url}) when is_binary(url) do
-    case URI.parse(url).path do
-      "/graphql" -> "graphql"
-      "/repos/" <> path -> path |> String.split("/", trim: true) |> Enum.at(2, "rest")
-      _path -> "rest"
-    end
-  end
-
+  def endpoint_family(%{url: url}) when is_binary(url), do: EndpointPolicy.endpoint_family(url)
   def endpoint_family(_request), do: "rest"
 
   @spec request_resource(map()) :: String.t()
-  def request_resource(%{url: url}) when is_binary(url) do
-    if URI.parse(url).path == "/graphql", do: "graphql", else: "core"
-  end
-
+  def request_resource(%{url: url}) when is_binary(url), do: EndpointPolicy.resource(url)
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
@@ -230,11 +262,33 @@ defmodule Aiur.GitHub.Budget do
       {:ok, "wait actor " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :actor_budget)
 
+      {:ok, "hold shared " <> metadata} ->
+        shared_hold(request, key, python, opts, deadline_at, metadata)
+
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
+    end
+  end
+
+  defp shared_hold(request, key, python, opts, deadline_at, metadata) do
+    with [resource, reset_at_ms] <- String.split(String.trim(metadata), " ", parts: 2),
+         true <- resource in ["core", "graphql", "search"],
+         {reset_at_ms, ""} when reset_at_ms > 0 <- Integer.parse(reset_at_ms),
+         {:ok, reset_at} <- DateTime.from_unix(reset_at_ms, :millisecond),
+         true <- reset_at_ms > System.system_time(:millisecond) do
+      delay_ms = reset_at_ms - System.system_time(:millisecond)
+
+      if System.monotonic_time(:millisecond) + delay_ms >= deadline_at do
+        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
+      else
+        Process.sleep(max(delay_ms, @retry_floor_ms))
+        do_acquire(request, key, python, opts, deadline_at)
+      end
+    else
+      _invalid -> {:error, :github_budget_broker_unavailable}
     end
   end
 
@@ -309,7 +363,14 @@ defmodule Aiur.GitHub.Budget do
 
   defp acquire_args(request, opts) do
     settings = settings(opts)
-    {core_limit, graphql_limit} = actor_limits(consumer_identity(opts), settings)
+    {core_limit, graphql_limit, search_limit} = actor_limits(consumer_identity(opts), settings)
+    family = endpoint_family(request)
+
+    # Endpoints GitHub does not meter (e.g. `/rate_limit`) are admitted for
+    # ordering but recorded non-billable, so the ledger never reports them as
+    # spend — the same decision `Quota` reaches through the shared
+    # `EndpointPolicy` table (#2353).
+    billable_args = if EndpointPolicy.billable_for(family), do: [], else: ["--billable", "0"]
 
     [
       "acquire",
@@ -320,7 +381,7 @@ defmodule Aiur.GitHub.Budget do
       "--consumer-label",
       consumer_identity(opts),
       "--endpoint-family",
-      endpoint_family(request),
+      family,
       "--max-inflight",
       Integer.to_string(settings.max_inflight),
       "--max-inflight-per-endpoint",
@@ -334,8 +395,10 @@ defmodule Aiur.GitHub.Budget do
       "--core-limit",
       Integer.to_string(core_limit),
       "--graphql-limit",
-      Integer.to_string(graphql_limit)
-    ]
+      Integer.to_string(graphql_limit),
+      "--search-limit",
+      Integer.to_string(search_limit)
+    ] ++ billable_args
   end
 
   # The daemon and each agent workspace are separate actors with separate hourly
@@ -345,9 +408,9 @@ defmodule Aiur.GitHub.Budget do
   # get the agent ceiling if it ever acquired here.
   defp actor_limits(identity, settings) do
     if String.starts_with?(identity, "workspace:") do
-      {settings.agent_core_limit_per_hour, settings.agent_graphql_limit_per_hour}
+      {settings.agent_core_limit_per_hour, settings.agent_graphql_limit_per_hour, settings.agent_search_limit_per_hour}
     else
-      {settings.daemon_core_limit_per_hour, settings.daemon_graphql_limit_per_hour}
+      {settings.daemon_core_limit_per_hour, settings.daemon_graphql_limit_per_hour, settings.daemon_search_limit_per_hour}
     end
   end
 
@@ -521,6 +584,11 @@ defmodule Aiur.GitHub.Budget do
           Keyword.get(opts, :daemon_graphql_limit_per_hour, Map.get(github, :daemon_graphql_limit_per_hour, @default_daemon_graphql_limit_per_hour)),
           @default_daemon_graphql_limit_per_hour
         ),
+      daemon_search_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :daemon_search_limit_per_hour, Map.get(github, :daemon_search_limit_per_hour, @default_daemon_search_limit_per_hour)),
+          @default_daemon_search_limit_per_hour
+        ),
       agent_core_limit_per_hour:
         nonnegative(
           Keyword.get(opts, :agent_core_limit_per_hour, Map.get(github, :agent_core_limit_per_hour, @default_agent_core_limit_per_hour)),
@@ -530,6 +598,11 @@ defmodule Aiur.GitHub.Budget do
         nonnegative(
           Keyword.get(opts, :agent_graphql_limit_per_hour, Map.get(github, :agent_graphql_limit_per_hour, @default_agent_graphql_limit_per_hour)),
           @default_agent_graphql_limit_per_hour
+        ),
+      agent_search_limit_per_hour:
+        nonnegative(
+          Keyword.get(opts, :agent_search_limit_per_hour, Map.get(github, :agent_search_limit_per_hour, @default_agent_search_limit_per_hour)),
+          @default_agent_search_limit_per_hour
         )
     }
   end
@@ -577,9 +650,22 @@ defmodule Aiur.GitHub.Budget do
     resource = response_resource(headers, request)
 
     case limit_hold(response, headers) do
-      {:resource, delay} -> hold(key, :resource, resource, delay, opts)
-      {:token, delay} -> hold(key, :token, resource, delay, opts)
-      :none -> :ok
+      {:resource, delay} when is_binary(resource) ->
+        log_resource_hold(resource, headers, request, delay)
+        hold(key, :resource, resource, delay, opts)
+
+      {:resource, _delay} ->
+        # The response names a rate-limit pool we do not model (GitHub also
+        # meters `integration_manifest`, `code_scanning_upload`, …). Attributing
+        # its exhaustion to the request's bucket would create a false hold on
+        # `core`; skip rather than guess (#2409).
+        :ok
+
+      {:token, delay} ->
+        hold(key, :token, resource, delay, opts)
+
+      :none ->
+        :ok
     end
   end
 
@@ -636,12 +722,41 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
+  # A resource hold is only ever issued for a pool the request actually targets
+  # or that the response names as one we model. The response's
+  # `x-ratelimit-resource` header is authoritative when it names `core`,
+  # `graphql`, or `search`; an absent header falls back to the request's own
+  # pool; a header naming any other pool (which GitHub uses for
+  # `integration_manifest`, `code_scanning_upload`, …) resolves to `nil` so the
+  # caller skips the hold instead of misattributing that pool's exhaustion to
+  # `core` (#2409).
   defp response_resource(headers, request) do
     case Transport.header(headers, "x-ratelimit-resource") do
-      resource when resource in ["core", "graphql"] -> resource
-      _other -> request_resource(request)
+      resource when resource in ["core", "graphql", "search"] -> resource
+      nil -> request_resource(request)
+      _other_pool -> nil
     end
   end
+
+  # Acceptance #2409: a hold decision must say which ceiling it hit and what was
+  # measured. Log every issued resource hold with the observed remaining (0 is
+  # what triggered it), the ceiling (`x-ratelimit-limit`), and the reset so a
+  # post-incident read of the daemon log can tell a real exhaustion from a
+  # misattribution without guessing.
+  defp log_resource_hold(resource, headers, request, delay_ms) do
+    Logger.warning(
+      "github_budget_resource_hold resource=#{resource} " <>
+        "remaining=#{inspect(remaining(headers))} " <>
+        "limit=#{inspect(nonnegative_parse(Transport.header(headers, "x-ratelimit-limit")))} " <>
+        "reset_after_ms=#{delay_ms} " <>
+        "x_ratelimit_reset=#{inspect(Transport.header(headers, "x-ratelimit-reset"))} " <>
+        "url=#{inspect(Map.get(request, :url))}"
+    )
+  end
+
+  defp nonnegative_parse(nil), do: nil
+  defp nonnegative_parse(value) when is_binary(value), do: parse_integer(value)
+  defp nonnegative_parse(value) when is_integer(value), do: value
 
   defp parse_integer(value) do
     case Integer.parse(value) do
@@ -654,7 +769,16 @@ defmodule Aiur.GitHub.Budget do
     %{
       cooldown_until_ms: cooldown,
       inflight: inflight,
-      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], admitted_at_ms: &1["admitted_at_ms"]})
+      admissions:
+        Enum.map(
+          admissions,
+          &%{
+            endpoint_family: &1["endpoint_family"],
+            resource: &1["resource"],
+            admitted_at_ms: &1["admitted_at_ms"],
+            billable: &1["billable"]
+          }
+        )
     }
   end
 
@@ -666,11 +790,20 @@ defmodule Aiur.GitHub.Budget do
       consumer_key: Map.get(actor, "consumer_key", ""),
       consumer_label: Map.get(actor, "consumer_label", ""),
       core: atomize_usage_figure(Map.get(actor, "core")),
-      graphql: atomize_usage_figure(Map.get(actor, "graphql"))
+      graphql: atomize_usage_figure(Map.get(actor, "graphql")),
+      search: atomize_usage_figure(Map.get(actor, "search"))
     }
   end
 
-  defp atomize_actor(_actor), do: %{token_key: "", consumer_key: "", consumer_label: "", core: atomize_usage_figure(nil), graphql: atomize_usage_figure(nil)}
+  defp atomize_actor(_actor),
+    do: %{
+      token_key: "",
+      consumer_key: "",
+      consumer_label: "",
+      core: atomize_usage_figure(nil),
+      graphql: atomize_usage_figure(nil),
+      search: atomize_usage_figure(nil)
+    }
 
   defp atomize_usage_figure(figure) when is_map(figure) do
     %{

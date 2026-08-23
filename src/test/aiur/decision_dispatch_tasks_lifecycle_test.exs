@@ -2,6 +2,7 @@ defmodule Aiur.DecisionDispatchTasksLifecycleTest do
   use ExUnit.Case, async: true
 
   import Aiur.DecisionDispatchTestSupport
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.DecisionDispatchTasks
 
@@ -42,7 +43,15 @@ defmodule Aiur.DecisionDispatchTasksLifecycleTest do
 
   test "timeout terminates the worker and ignores its actual late terminal messages" do
     name = unique_name(__MODULE__, "Timeout")
-    start_supervised!({DecisionDispatchTasks, name: name, operation_timeout_ms: 20})
+    test_pid = self()
+
+    timeout_scheduler = fn ref, timeout ->
+      send(test_pid, {:timeout_scheduled, ref, timeout})
+      nil
+    end
+
+    start_supervised!({DecisionDispatchTasks, name: name, operation_timeout_ms: 20, timeout_scheduler: timeout_scheduler})
+
     callback = callback(self())
 
     assert :pending =
@@ -50,8 +59,9 @@ defmodule Aiur.DecisionDispatchTasksLifecycleTest do
 
     assert :pending = DecisionDispatchTasks.enqueue("AIUR-1", :after_timeout, fn -> :ok end, callback, name)
     assert_receive {:started, :timed_out, worker}, 2_000
-    task_ref = :sys.get_state(name).active["AIUR-1"].ref
+    {:timeout_scheduled, task_ref, 20} = receive_barrier({:timeout_scheduled, _, 20})
     worker_ref = Process.monitor(worker)
+    send(name, {:decision_dispatch_timeout, task_ref})
 
     assert_receive {:terminal, :timed_out, {:error, :decision_dispatch_timeout}}, 2_000
     assert_receive {:DOWN, ^worker_ref, :process, ^worker, _reason}, 2_000

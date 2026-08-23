@@ -31,11 +31,21 @@ defmodule Aiur.GitHub.CommentPollBatch do
       whose threads were actually part of the query; a target discovered
       through a branch alias omits the key entirely so the poller falls back to
       a per-pull-request read rather than mistaking "not asked for" for "none".
+
+  ## A free side effect: the comment→thread map
+
+  Every thread this document parses also deposits its comment→thread mapping
+  (`:pr_review_comment_thread`, keyed by comment `databaseId`) into the shared
+  store. A `pull_request_review_comment` webhook delivery consults that map
+  before paying for a GraphQL node lookup (`Aiur.Events.GithubWebhook.ThreadResolver`),
+  so a comment the batch has already seen never costs a point on delivery
+  (#2326). A comment's thread is immutable, so the mapping never goes stale and
+  a repeat deposit of the same value is declined inside the store's swap.
   """
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -85,7 +95,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, owner, repo, opts)) |> Enum.chunk_every(@targets_per_query)
+      repo_identity = owner <> "/" <> repo
+      started_at_ms = System.system_time(:millisecond)
+
+      chunks =
+        targets
+        |> Enum.map(&target_entry(&1, owner, repo, opts, repo_identity, started_at_ms))
+        |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github comment GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -105,13 +121,40 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  # The store is consulted before the query is written, not after it comes back:
-  # a delivered number removes aliases from the document rather than discarding
-  # their answers.
-  defp target_entry(target, owner, repo, opts) do
-    case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-      number when is_integer(number) -> %{target: target, pull_request_number: number}
-      nil -> branch_target_entry(target, opts)
+  # DeliveredPullRequest owns exact identity freshness. The review-thread
+  # snapshot composes onto that result, or onto the already-known PR number
+  # supplied by orchestration when delivery identity is unavailable.
+  defp target_entry(target, owner, repo, opts, repo_identity, started_at_ms) do
+    entry =
+      case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
+        number when is_integer(number) -> %{target: target, pull_request_number: number}
+        nil -> branch_target_entry(target, opts)
+      end
+
+    snapshot_pr_number = Map.get(entry, :pull_request_number) || known_pull_request_number(target, opts)
+
+    cached_threads =
+      case PollSnapshots.review_threads(repo_identity, snapshot_pr_number, opts) do
+        {:ok, threads} -> threads
+        :miss -> nil
+      end
+
+    Map.merge(entry, %{
+      cached_threads: cached_threads,
+      repo_identity: repo_identity,
+      snapshot_pr_number: snapshot_pr_number,
+      started_at_ms: started_at_ms
+    })
+  end
+
+  defp known_pull_request_number(target, opts) do
+    case opts |> Keyword.get(:open_pull_requests_by_target, %{}) |> Map.get(target) do
+      %{"number" => number} when not is_nil(number) -> number
+      # No known PR for this target. The ticket id is *not* a substitute: it
+      # would key the snapshot of whichever pull request happens to carry that
+      # number. `cached_threads_match?/2` re-checks the number before use, so
+      # the wrong key only wasted a lookup, but a nil key cannot be wrong.
+      _other -> nil
     end
   end
 
@@ -161,13 +204,64 @@ defmodule Aiur.GitHub.CommentPollBatch do
     case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
         case get_in(body, ["data", "repository"]) do
-          %{} = repository -> {:ok, build_target_batch(indexed, repository, opts)}
-          _other -> {:error, :comment_poll_batch_missing}
+          %{} = repository ->
+            deposit_comment_thread_map(owner, repo, repository)
+            {:ok, build_target_batch(indexed, repository, opts)}
+
+          _other ->
+            {:error, :comment_poll_batch_missing}
         end
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # This document parses `reviewThreads { comments { databaseId } }` on every
+  # cycle — the same fact a `pull_request_review_comment` webhook delivery pays a
+  # GraphQL point to learn (`Aiur.Events.GithubWebhook.ThreadResolver`). Depositing
+  # the comment→thread mapping here means the delivery resolves from the store
+  # instead (#2326). The nodes are only the ones this document actually included
+  # (delivered-number and issueOrPullRequest aliases); a comment's thread is
+  # immutable, so a stored mapping never goes stale.
+  defp deposit_comment_thread_map(owner, repo, repository) do
+    repository
+    |> Enum.flat_map(fn {_alias, node} -> batch_threads(node) end)
+    |> Enum.each(&deposit_thread_mapping(owner, repo, &1))
+  end
+
+  defp batch_threads(%{"reviewThreads" => %{"nodes" => nodes}}) when is_list(nodes), do: nodes
+  defp batch_threads(_node), do: []
+
+  defp deposit_thread_mapping(owner, repo, thread) do
+    with thread_id when is_binary(thread_id) and thread_id != "" <- Map.get(thread, "id"),
+         nodes when is_list(nodes) <- get_in(thread, ["comments", "nodes"]) do
+      Enum.each(nodes, &deposit_thread_comment(owner, repo, thread_id, &1))
+    else
+      _other -> :ok
+    end
+  end
+
+  defp deposit_thread_comment(owner, repo, thread_id, comment) do
+    with database_id when is_integer(database_id) <- Map.get(comment, "databaseId"),
+         key when not is_nil(key) <- ResourceStore.key(:pr_review_comment_thread, owner, repo, database_id) do
+      remember_comment_thread(key, thread_id)
+    else
+      _other -> :ok
+    end
+  end
+
+  # The mapping is a constant fact, so a repeat deposit of the same value is
+  # declined inside the store's swap rather than re-stamped every cycle.
+  defp remember_comment_thread(key, thread_id) do
+    ResourceStore.update_resource(
+      key,
+      fn
+        ^thread_id -> :unchanged
+        _held -> thread_id
+      end,
+      source: :poll
+    )
   end
 
   defp query(indexed) do
@@ -188,13 +282,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # `:branch_pull_request` body for is a *ticket* — GitHub numbers issues and
   # pull requests in one sequence, so the pull request opened for ticket N always
   # has a number greater than N and can never be N itself.
-  defp target_aliases(%{pull_request_number: number}, index) when is_integer(number) do
+  defp target_aliases(%{pull_request_number: number} = entry, index) when is_integer(number) do
     """
-    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields()} }
+    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields(entry)} }
     """
   end
 
-  defp target_aliases(%{target: target, branches: branches}, index) do
+  defp target_aliases(%{target: target, branches: branches} = entry, index) do
     branch_aliases =
       branches
       |> Enum.with_index()
@@ -203,7 +297,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
       ... on Issue { __typename }
-      ... on PullRequest { #{pull_request_fields()} }
+      ... on PullRequest { #{pull_request_fields(entry)} }
     }
     #{branch_aliases}
     """
@@ -232,7 +326,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp pull_request_fields do
+  defp pull_request_fields(%{cached_threads: threads}) when is_list(threads), do: pull_request_identity_fields()
+
+  defp pull_request_fields(_entry) do
     """
     #{pull_request_identity_fields()}
     reviewThreads(first: 100) {
@@ -250,7 +346,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
       case pull_request_for_entry(entry, direct, repository, index) do
         {:ok, pull_request} ->
-          Map.put(acc, entry.target, target_batch(entry.target, direct, pull_request, opts))
+          Map.put(acc, entry.target, target_batch(entry, direct, pull_request, opts))
 
         :unknown ->
           # The PR lookup was inconclusive (overflowed branch listing or a
@@ -280,7 +376,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_for_entry(%{pull_request_number: _number} = entry, _direct, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: {:ok, normalize_pull_request(node, true)}, else: :unknown
+        if open_pull_request_node?(node),
+          do: {:ok, normalize_pull_request(node, Map.has_key?(node, "reviewThreads"))},
+          else: :unknown
 
       _other ->
         Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
@@ -329,10 +427,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # goes through the conditional REST path. That is the inversion: the priced
   # request is no longer the default and the free one no longer the error
   # handler.
-  defp target_batch(target, _direct, pull_request, opts) do
+  defp target_batch(entry, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
 
     cond do
+      cached_threads_match?(entry, pull_request) ->
+        Map.put(batch, :review_thread_comments, ReviewThreads.unaddressed_thread_comments(entry.cached_threads, opts))
+
       not threads_included?(pull_request) ->
         # Identity came from a branch alias, which does not carry threads.
         # Omitting the key is the whole point: an empty list here would read as
@@ -341,10 +442,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
         batch
 
       review_threads_overflow?(pull_request) ->
-        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{target}")
+        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{entry.target}")
         batch
 
       true ->
+        PollSnapshots.put_review_threads(
+          entry.repo_identity,
+          Map.get(pull_request, "number"),
+          Map.get(pull_request, :review_threads, []),
+          started_at_ms: entry.started_at_ms
+        )
+
         Map.put(
           batch,
           :review_thread_comments,
@@ -352,6 +460,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
         )
     end
   end
+
+  defp cached_threads_match?(%{cached_threads: threads, snapshot_pr_number: pr_number}, %{} = pull_request) when is_list(threads) do
+    to_string(Map.get(pull_request, "number")) == to_string(pr_number)
+  end
+
+  defp cached_threads_match?(_entry, _pull_request), do: false
 
   defp threads_included?(%{threads_included?: true}), do: true
   defp threads_included?(_pull_request), do: false
@@ -365,7 +479,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   end
 
   defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request),
-    do: normalize_pull_request(pull_request, true)
+    do: normalize_pull_request(pull_request, Map.has_key?(pull_request, "reviewThreads"))
 
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 

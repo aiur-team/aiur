@@ -1175,16 +1175,25 @@ defmodule Aiur.Orchestrator.StatusReport do
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
       reason:
-        idle_status_reason(
-          work_state,
-          pause_reason,
-          prewarm_blocked?,
-          budget,
-          max_dispatches,
-          latch_status,
-          release && release.cause,
-          idle_evidence.auto_resume_retry_in_ms
-        ),
+        cond do
+          waiting_reason == :orphaned_claim ->
+            :orphaned_claim
+
+          waiting_reason == :stale_claim ->
+            :stale_claim
+
+          true ->
+            idle_status_reason(
+              work_state,
+              pause_reason,
+              prewarm_blocked?,
+              budget,
+              max_dispatches,
+              latch_status,
+              release && release.cause,
+              idle_evidence.auto_resume_retry_in_ms
+            )
+        end,
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
@@ -1217,7 +1226,8 @@ defmodule Aiur.Orchestrator.StatusReport do
           tracker_paused: Issue.paused?(issue),
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           dispatch_hold_reason: dispatch_hold_reason,
-          capacity_hold_active?: capacity_hold_active?
+          capacity_hold_active?: capacity_hold_active?,
+          startup_reconciliation_complete?: state.startup_claim_reconciliation_complete?
         )
     }
   end

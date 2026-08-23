@@ -32,13 +32,63 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
-  alias Aiur.Webhooks.DeliveryMode
+  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
 
   @type server :: GenServer.server()
+
+  # Published to PubSub when a proven repo degrades, and again on every sweep
+  # while it stays degraded. The event-sourced view-state sources subscribe to
+  # this so they can re-list on the gap — the one case where deliveries are
+  # known to be dropped — rather than on a clock. The re-publish on each later
+  # sweep is what keeps that re-list alive for the whole outage instead of
+  # firing once at the moment the gap opens.
+  @degraded_topic "webhooks:mode:degraded"
+  # Published to PubSub the moment a resumed delivery proves a degraded repo's
+  # gap has closed. Recovery re-lists on this trailing edge — after the gap is
+  # over — so everything that changed during the degraded window is re-read
+  # once deliveries are flowing again.
+  @recovered_topic "webhooks:mode:recovered"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
+
+  @doc """
+  Subscribes the caller to `{:webhook_degraded, repo}` broadcasts.
+
+  A degradation means the repo's webhook deliveries are known to be dropped, so
+  any projection that rides the event stream must re-list to re-converge. This
+  is the gap-based counterpart to a bootstrap listing: re-list on boot, and
+  re-list when the stream is known to have gaps. The broadcast repeats on every
+  sweep while the repo stays degraded, so the re-list is a coarse cadence that
+  only runs during the outage itself.
+  """
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe do
+    Phoenix.PubSub.subscribe(Aiur.PubSub, @degraded_topic)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  @doc """
+  Subscribes the caller to `{:webhook_recovered, repo}` broadcasts.
+
+  A recovered repo is one whose gap has closed: a delivery resumed after
+  degradation. Re-listing on this trailing edge — rather than only when the gap
+  opened — is what recovers everything that changed during the degraded window,
+  because a repo sitting degraded is frozen by definition (no event stream is
+  carrying the truth to it).
+  """
+  @spec subscribe_recovered() :: :ok | {:error, term()}
+  def subscribe_recovered do
+    Phoenix.PubSub.subscribe(Aiur.PubSub, @recovered_topic)
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
   end
 
   @doc """
@@ -192,7 +242,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
     {updated, transition} = DeliveryMode.record_delivery(current, at)
     announce(state, updated, transition)
 
-    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+    {:reply, {:ok, updated}, persist(state, repo, updated)}
   end
 
   def handle_call({:record_activity, repo, observation, at}, _from, state) do
@@ -210,7 +260,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   def handle_call({:configure, repo, configured?}, _from, state) do
     repo = normalize(repo)
     {updated, _transition} = state |> fetch(repo) |> DeliveryMode.configure(configured?)
-    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+    {:reply, {:ok, updated}, persist(state, repo, updated)}
   end
 
   def handle_call(:list, _from, state) do
@@ -262,7 +312,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   # A `nil` observation has no stable identity to compare, so it always counts.
   defp record_novel_activity(state, repo, mode, nil, at) do
     {updated, _transition} = DeliveryMode.record_activity(mode, at)
-    {:ok, updated, put_in(state.repos[repo], updated)}
+    {:ok, updated, persist(state, repo, updated)}
   end
 
   defp record_novel_activity(state, repo, mode, observation, at) do
@@ -276,7 +326,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       {:replay, state}
     else
       {updated, _transition} = DeliveryMode.record_activity(mode, at)
-      {:ok, updated, put_in(state.repos[repo], updated)}
+      {:ok, updated, persist(state, repo, updated)}
     end
   end
 
@@ -293,6 +343,16 @@ defmodule Aiur.Webhooks.ModeRegistry do
       Enum.reduce(state.repos, {%{}, []}, fn {repo, mode}, {acc, degraded} ->
         {updated, transition} = DeliveryMode.sweep(mode, now, state.silence_threshold_ms)
         announce(state, updated, transition)
+
+        # `announce/3` publishes `:degraded` on the transition *into* degraded
+        # mode. A repo that stays degraded re-publishes on every later sweep, so
+        # the gap-based view-state sources keep a coarse re-list for the whole
+        # outage instead of freezing after the one that detected it. That clock
+        # only runs while the event stream is known to be lying, which is exactly
+        # the case #2325's zero-poll steady state is not built for.
+        if transition == :none and updated.state == :degraded, do: publish_degraded(repo)
+
+        ModeTable.put(repo, updated)
 
         {Map.put(acc, repo, updated), if(transition == :degraded, do: [repo | degraded], else: degraded)}
       end)
@@ -318,6 +378,17 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   defp fetch(state, repo), do: Map.get_lazy(state.repos, repo, fn -> DeliveryMode.new(repo) end)
 
+  # Every mode change is published to `ModeTable` so a hot read path
+  # (`Aiur.GitHub.ReadCache.Policy`) can read the transport without a round
+  # trip through this process. Publishing here — at each write site — rather
+  # than on read keeps the two views from drifting: a repo this process knows
+  # is a repo the table knows, and the sweep cannot degrade one without the
+  # other seeing it.
+  defp persist(state, repo, mode) do
+    ModeTable.put(repo, mode)
+    put_in(state.repos[repo], mode)
+  end
+
   # The degradation alert names the repo because an operator reading "webhooks
   # degraded" across a multi-repo fleet cannot act on it otherwise, and it
   # carries the evidence that justified it — deliveries seen, when the last one
@@ -326,6 +397,8 @@ defmodule Aiur.Webhooks.ModeRegistry do
   # operator who has been shown enough false ones stops reading the true one.
   defp announce(state, %DeliveryMode{repo: repo} = mode, :degraded) do
     seconds = div(state.silence_threshold_ms, 1_000)
+
+    publish_degraded(repo)
 
     emit(
       state,
@@ -360,6 +433,11 @@ defmodule Aiur.Webhooks.ModeRegistry do
   end
 
   defp announce(state, %DeliveryMode{repo: repo}, :recovered) do
+    # The trailing-edge signal: the gap has closed, so every projection that
+    # rode the event stream through the degraded window re-lists to recover what
+    # the gap dropped.
+    publish_recovered(repo)
+
     emit(
       state,
       "webhook.recovered",
@@ -384,5 +462,36 @@ defmodule Aiur.Webhooks.ModeRegistry do
     error -> Logger.warning("Webhooks.ModeRegistry alert #{name} failed: #{Exception.message(error)}")
   catch
     :exit, reason -> Logger.warning("Webhooks.ModeRegistry alert #{name} exited: #{inspect(reason)}")
+  end
+
+  # Best-effort, and deliberately quiet on failure: a subscriber that misses
+  # the broadcast re-converges on the next degradation or an explicit refresh,
+  # and the alert is the operator-facing signal for the same transition. A
+  # broadcast must never take down the sweep that just did real work.
+  defp publish_degraded(repo) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @degraded_topic, {:webhook_degraded, repo})
+    end
+
+    :ok
+  rescue
+    error -> Logger.warning("Webhooks.ModeRegistry publish degraded failed: #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("Webhooks.ModeRegistry publish degraded exited: #{inspect(reason)}")
+  end
+
+  # Same best-effort discipline as `publish_degraded/1`: recovery is a
+  # convenience for projections, and the alert that follows is the durable
+  # operator-facing record of the same transition.
+  defp publish_recovered(repo) do
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @recovered_topic, {:webhook_recovered, repo})
+    end
+
+    :ok
+  rescue
+    error -> Logger.warning("Webhooks.ModeRegistry publish recovered failed: #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("Webhooks.ModeRegistry publish recovered exited: #{inspect(reason)}")
   end
 end

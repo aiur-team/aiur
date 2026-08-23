@@ -70,6 +70,11 @@ __pycache__/
 # Runtime build-gate lock namespace created by agent-launched Mix verification.
 .aiur/build-gate.locks/
 
+# Per-repo GitHub budget state-cache written by the test/daemon runtimes
+# (invalidation markers and collection ticks). Generated on every verification
+# run; committing it would track test noise.
+.aiur/github-budget/
+
 # Provider model catalogue cache (Aiur.ModelDiscovery). Refetched on a 24h TTL;
 # a cold start falls back to the curated registry list, so it is never a
 # dependency worth committing.

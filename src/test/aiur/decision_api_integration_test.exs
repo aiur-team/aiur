@@ -18,8 +18,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     dir = Path.join(System.tmp_dir!(), "aiur-decision-api-integration-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
-    endpoint_started? = ensure_endpoint_running()
-    original_writable = Endpoint.config(:dashboard_writable)
+    ensure_endpoint_running()
     configure_endpoint(dashboard_writable: true)
 
     parent = self()
@@ -46,7 +45,6 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(store)
-      restore_endpoint_config(original_writable, endpoint_started?)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_token)
 
       case original_dir do
@@ -250,34 +248,49 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
   defp maybe_put_mutation_headers(conn, _method), do: conn
 
+  # This test always starts and owns its own `AiurWeb.Endpoint`, so it never
+  # depends on another test's process. `start_supervised/1` (not `!`) returns
+  # `{:error, {:already_started, pid}}` when a prior test's `start_supervised!`
+  # endpoint is still registered while its ExUnit supervisor tears it down
+  # (#2288): the registered name can outlive the endpoint's config ETS table
+  # for a short window, and relying on that pid would hit a missing table
+  # mid-test (`Endpoint.call/2` raising `ArgumentError`). Instead of betting on
+  # a wall-clock grace window, wait deterministically for the dying endpoint's
+  # DOWN (guaranteed to arrive — it is mid-teardown) and then start our own.
   defp ensure_endpoint_running do
-    if is_nil(Process.whereis(Endpoint)) do
-      endpoint_config = Application.get_env(:aiur, Endpoint, [])
+    endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
-      Application.put_env(
-        :aiur,
-        Endpoint,
-        Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
-      )
+    Application.put_env(
+      :aiur,
+      Endpoint,
+      Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+    )
 
-      start_supervised!({Endpoint, []})
-      on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
-      true
-    else
-      false
+    {:ok, _pid} = start_owned_endpoint()
+
+    on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
+    true
+  end
+
+  defp start_owned_endpoint do
+    case start_supervised({Endpoint, []}) do
+      {:ok, pid} ->
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} ->
+        ref = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> start_owned_endpoint()
+        end
+
+      {:error, reason} ->
+        raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
     end
   end
 
   defp configure_endpoint(changed) do
     Endpoint.config_change(%{Endpoint => changed}, [])
-  end
-
-  defp restore_endpoint_config(_original_writable, true), do: :ok
-
-  defp restore_endpoint_config(original_writable, false) do
-    if Process.whereis(Endpoint) do
-      configure_endpoint(dashboard_writable: original_writable)
-    end
   end
 
   defp audit_type(%DecisionEvent{type: type}), do: type

@@ -28,6 +28,13 @@ HOURLY_WINDOW_MS = 3600000
 # not keep its old max_inflight constraining the fleet for the whole hour that
 # the usage report now retains it for.
 POLICY_RECONCILE_WINDOW_MS = 120000
+# A shared *resource* hold below this duration is reported as an in-guard
+# `wait <ms>` (sleep-and-retry) rather than the typed `hold shared <resource>
+# <until>` response that aborts the command and pauses the agent's whole turn.
+# A token-wide secondary-rate-limit cooldown (default 60 seconds) always keeps
+# sleeping inside the guard, exactly as it did before typed holds existed; only
+# a real resource hold long enough to warrant a pause is surfaced to the agent.
+SHARED_HOLD_MIN_MS = 10000
 
 
 def now_ms():
@@ -92,6 +99,7 @@ def connection(path):
           consumer_key TEXT NOT NULL DEFAULT '',
           lease_id TEXT,
           endpoint_family TEXT NOT NULL,
+          resource TEXT,
           admitted_at_ms INTEGER NOT NULL,
           billable INTEGER NOT NULL DEFAULT 1
         );
@@ -106,6 +114,7 @@ def connection(path):
           stagger_ms INTEGER NOT NULL,
           core_limit_per_hour INTEGER NOT NULL DEFAULT 0,
           graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0,
+          search_limit_per_hour INTEGER NOT NULL DEFAULT 0,
           observed_at_ms INTEGER NOT NULL,
           PRIMARY KEY (token_key, consumer_key)
         );
@@ -136,6 +145,13 @@ def migrate(conn):
         conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
     if "billable" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
+    # The resource the guard booked this admission to (core / graphql / unknown).
+    # The broker's accounting buckets on `endpoint_family`, so this column does
+    # not change how a row is counted; it records what the caller *said* it was
+    # spending, which makes a guard that books a GraphQL call to core detectable
+    # from the ledger instead of only inferable from the family-to-bucket map.
+    if "resource" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN resource TEXT")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -153,6 +169,8 @@ def migrate(conn):
         conn.execute("ALTER TABLE policies ADD COLUMN core_limit_per_hour INTEGER NOT NULL DEFAULT 0")
     if "graphql_limit_per_hour" not in policies_columns:
         conn.execute("ALTER TABLE policies ADD COLUMN graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0")
+    if "search_limit_per_hour" not in policies_columns:
+        conn.execute("ALTER TABLE policies ADD COLUMN search_limit_per_hour INTEGER NOT NULL DEFAULT 0")
 
 
 def cleanup(conn, now):
@@ -205,7 +223,13 @@ def resolve_credential_identity(conn, args):
 
 
 # The rolling-hour billable responses of one actor and one resource, oldest
-# first. Core is every REST family; GraphQL is the graphql family. A `resource`
+# first. Core is every REST booking; GraphQL is the graphql booking. The bucket
+# is the booked `resource` column, NOT the descriptive `endpoint_family`:
+# high-level GraphQL commands keep their family (pulls/issues/search) for the
+# lease pool and the audit histogram while booking `resource=graphql`, so a
+# family can no longer double as the bucket — bucketing on family again would
+# count `pr view` against the core window. Anything not booked graphql (core,
+# or an unclassified `unknown`) counts against the core window. A `resource`
 # ceiling is a request-count ceiling: the broker sees admissions, never the
 # GraphQL point price GitHub charged, so this is the coarsest thing that still
 # stops one actor from exhausting the shared hourly budget. A reconciled 304 is
@@ -213,22 +237,36 @@ def resolve_credential_identity(conn, args):
 # excluded here.
 def actor_usage_rows(conn, token_key, consumer_key, resource, now):
     if resource == "graphql":
-        family_clause = "endpoint_family = ?"
-        family_value = "graphql"
+        resource_clause = "resource = 'graphql'"
+    elif resource == "search":
+        # GitHub meters `/search/*` against a third pool (`X-Ratelimit-Resource:
+        # search`, ~30 req/min rather than 5,000/hr), so `search` is a
+        # first-class resource of its own — booking it to core or graphql
+        # mis-states the spend and paces nothing against the pool that throttles
+        # first.
+        resource_clause = "resource = 'search'"
     else:
-        family_clause = "endpoint_family != ?"
-        family_value = "graphql"
+        # Parentheses are load-bearing: without them `AND resource IS NULL OR
+        # resource != ?` binds as `(AND resource IS NULL) OR (resource != ?)`,
+        # and the OR branch then matches every non-graphql row on any token or
+        # consumer regardless of billable.
+        resource_clause = "(resource IS NULL OR resource NOT IN ('graphql', 'search'))"
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
         "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
-        + family_clause
+        + resource_clause
         + " ORDER BY admitted_at_ms ASC",
-        (token_key, consumer_key, now - HOURLY_WINDOW_MS, family_value),
+        (token_key, consumer_key, now - HOURLY_WINDOW_MS),
     ).fetchall()
 
 
 def actor_ceiling_hold(conn, args, now):
-    limit = args.graphql_limit if args.resource == "graphql" else args.core_limit
+    if args.resource == "graphql":
+        limit = args.graphql_limit
+    elif args.resource == "search":
+        limit = args.search_limit
+    else:
+        limit = args.core_limit
     if not limit or limit <= 0:
         return 0
 
@@ -258,8 +296,8 @@ def acquire(args):
         conn.execute(
             "INSERT INTO policies("
             "token_key, consumer_key, consumer_label, max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms, "
-            "core_limit_per_hour, graphql_limit_per_hour, observed_at_ms"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "core_limit_per_hour, graphql_limit_per_hour, search_limit_per_hour, observed_at_ms"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(token_key, consumer_key) DO UPDATE SET "
             "consumer_label = excluded.consumer_label, "
             "max_inflight = excluded.max_inflight, "
@@ -268,6 +306,7 @@ def acquire(args):
             "stagger_ms = excluded.stagger_ms, "
             "core_limit_per_hour = excluded.core_limit_per_hour, "
             "graphql_limit_per_hour = excluded.graphql_limit_per_hour, "
+            "search_limit_per_hour = excluded.search_limit_per_hour, "
             "observed_at_ms = excluded.observed_at_ms",
             (
                 args.token_key,
@@ -279,6 +318,7 @@ def acquire(args):
                 args.stagger_ms,
                 args.core_limit,
                 args.graphql_limit,
+                args.search_limit,
                 now,
             ),
         )
@@ -287,11 +327,12 @@ def acquire(args):
         ).fetchone()
         if args.resource == "unknown":
             resource_hold = conn.execute(
-                "SELECT MAX(until_ms) FROM resource_holds WHERE token_key = ?", (args.token_key,)
+                "SELECT resource, until_ms FROM resource_holds WHERE token_key = ? ORDER BY until_ms DESC LIMIT 1",
+                (args.token_key,),
             ).fetchone()
         else:
             resource_hold = conn.execute(
-                "SELECT until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
+                "SELECT resource, until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
             ).fetchone()
         # SINGLE FLIGHT (#2073 U6). Thirteen agents asking for one pull request in
         # the same moment are thirteen separate processes with nothing between
@@ -314,7 +355,7 @@ def acquire(args):
             ).fetchone()
 
         token_hold = 0 if args.ignore_token_cooldown else cooldown
-        hold_until = max(token_hold, resource_hold[0] if resource_hold and resource_hold[0] else 0)
+        hold_until = max(token_hold, resource_hold[1] if resource_hold and resource_hold[1] else 0)
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
             "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
@@ -325,7 +366,30 @@ def acquire(args):
 
         if hold_until > now:
             conn.execute("COMMIT")
-            print(f"wait {hold_until - now}")
+            remaining = hold_until - now
+            # Only a *resource* hold surfaces as the typed `hold shared
+            # <resource> <until>` that aborts the command and pauses the agent's
+            # whole turn. `hold_until` is the max of the token cooldown and the
+            # resource hold, so the hold is resource-driven only when the
+            # resource hold is the longer-lived one. A token-wide cooldown — the
+            # routine secondary-rate-limit backoff the guard has always absorbed
+            # by sleeping, default 60 seconds — keeps sleeping inside the guard
+            # regardless of duration, exactly as it did before typed holds
+            # existed.
+            resource_driven = resource_hold is not None and resource_hold[1] == hold_until
+            if resource_driven and remaining >= SHARED_HOLD_MIN_MS:
+                hold_resource = resource_hold[0]
+                if hold_resource == "unknown":
+                    # Defensive fallback: the resource_holds table only ever
+                    # stores concrete resource names, but never pause on a
+                    # bucket we cannot name.
+                    hold_resource = "core"
+                print(f"hold shared {hold_resource} {hold_until}")
+            else:
+                # A token-wide cooldown, or a resource hold too short to
+                # warrant a pause, is absorbed in the guard's sleep-and-retry
+                # loop instead of aborting the command and pausing the turn.
+                print(f"wait {remaining}")
             return
 
         # Per-actor hourly ceiling (#2181). An actor — the daemon, or one agent
@@ -405,8 +469,8 @@ def acquire(args):
             (lease_id, args.token_key, args.endpoint_family, expires_at),
         )
         conn.execute(
-            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms) VALUES (?, ?, ?, ?, ?)",
-            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, now),
+            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, resource, admitted_at_ms, billable) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, args.resource, now, args.billable),
         )
         conn.execute(
             "UPDATE budgets SET next_admission_ms = ? WHERE token_key = ?", (now + stagger, args.token_key)
@@ -529,7 +593,7 @@ def snapshot(args):
             (args.token_key,),
         ).fetchall()
         admissions = conn.execute(
-            "SELECT endpoint_family, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
+            "SELECT endpoint_family, resource, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
         ).fetchall()
         conn.execute("COMMIT")
         print(
@@ -538,8 +602,8 @@ def snapshot(args):
                     "cooldown_until_ms": cooldown[0] if cooldown else 0,
                     "inflight": dict(leases),
                     "admissions": [
-                        {"endpoint_family": endpoint_family, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
-                        for endpoint_family, admitted_at_ms, billable in admissions
+                        {"endpoint_family": endpoint_family, "resource": resource, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
+                        for endpoint_family, resource, admitted_at_ms, billable in admissions
                     ],
                 }
             )
@@ -583,7 +647,8 @@ def usage(args):
         cleanup(conn, now)
         policies = conn.execute(
             "SELECT COALESCE(bindings.identity_key, policies.token_key), policies.token_key, "
-            "policies.consumer_key, policies.consumer_label, policies.core_limit_per_hour, policies.graphql_limit_per_hour "
+            "policies.consumer_key, policies.consumer_label, policies.core_limit_per_hour, "
+            "policies.graphql_limit_per_hour, policies.search_limit_per_hour "
             "FROM policies LEFT JOIN credential_bindings AS bindings ON bindings.token_key = policies.token_key "
             "ORDER BY COALESCE(bindings.identity_key, policies.token_key), policies.consumer_key"
         ).fetchall()
@@ -594,8 +659,9 @@ def usage(args):
                 "consumer_label": consumer_label,
                 "core": usage_figure(conn, storage_key, consumer_key, "core", core_limit, now),
                 "graphql": usage_figure(conn, storage_key, consumer_key, "graphql", graphql_limit, now),
+                "search": usage_figure(conn, storage_key, consumer_key, "search", search_limit, now),
             }
-            for reported_key, storage_key, consumer_key, consumer_label, core_limit, graphql_limit in policies
+            for reported_key, storage_key, consumer_key, consumer_label, core_limit, graphql_limit, search_limit in policies
         ]
         conn.execute("COMMIT")
         print(json.dumps({"schema_version": 1, "actors": actors}))
@@ -615,11 +681,18 @@ def meter(args):
         conn.execute("BEGIN IMMEDIATE")
         cleanup(conn, now)
         limits = conn.execute(
-            "SELECT core_limit_per_hour, graphql_limit_per_hour FROM policies "
+            "SELECT core_limit_per_hour, graphql_limit_per_hour, search_limit_per_hour FROM policies "
             "WHERE token_key = ? AND consumer_key = ?",
             (args.token_key, args.consumer_key),
         ).fetchone()
-        limit = 0 if limits is None else limits[1 if args.resource == "graphql" else 0]
+        if limits is None:
+            limit = 0
+        elif args.resource == "graphql":
+            limit = limits[1]
+        elif args.resource == "search":
+            limit = limits[2]
+        else:
+            limit = limits[0]
         figure = usage_figure(conn, args.token_key, args.consumer_key, args.resource, limit, now)
         conn.execute("COMMIT")
         print(json.dumps(figure))
@@ -655,10 +728,16 @@ def parser():
     # print each actor's limit without another round trip.
     acquire_parser.add_argument("--core-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     acquire_parser.add_argument("--graphql-limit", type=lambda value: clamp(value, 0, 100000), default=0)
+    acquire_parser.add_argument("--search-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     # Display-only actor label (the raw consumer identity, e.g.
     # `daemon:node@host` or `workspace:/path/to/2181`). The consumer_key remains
     # the fingerprint; this is what `usage` prints so the report is readable.
     acquire_parser.add_argument("--consumer-label", default="")
+    # Free endpoints (`/rate_limit`, anything the shared EndpointPolicy table
+    # marks non-billable) are still admitted and leased for ordering, but their
+    # admission row is recorded non-billable so the ledger never reports them
+    # as spend (#2353). Absent, `1` preserves the original behavior.
+    acquire_parser.add_argument("--billable", type=lambda value: 0 if int(value) == 0 else 1, default=1)
     # Coalescing (#2073 U6). Absent, admission behaves exactly as it did before.
     acquire_parser.add_argument("--cache-key", default=None)
     acquire_parser.add_argument("--cache-claim-ttl-ms", type=lambda value: clamp(value, 1000, 600000), default=35000)
@@ -697,7 +776,7 @@ def parser():
 
     meter_parser = commands.add_parser("meter", parents=[common])
     meter_parser.add_argument("--consumer-key", required=True)
-    meter_parser.add_argument("--resource", choices=("core", "graphql"), required=True)
+    meter_parser.add_argument("--resource", choices=("core", "graphql", "search"), required=True)
     meter_parser.set_defaults(fun=meter)
     return root
 
