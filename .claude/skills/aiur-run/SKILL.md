@@ -901,7 +901,9 @@ What a review agent needs in its prompt, every time:
   matches any map, a vacuous global-pause test, an assertion pinned to a constant
   the change never touches. The author-side rules that move these checks before
   review — the unknown-path, computed-age and collapsed-cause rules — live in
-  the repo's `AGENTS.md`; cross-reference that section rather than restating it.
+  the repo's `AGENTS.md` (`Tests must fail without the production change they
+  guard` and `Computed ages and collapsed causes`); cross-reference those
+  sections rather than restating them.
 - **The test-run hazard.** `mix test test/some_dir/` silently excludes
   `test/aiur/*.exs` one level up. Require the exact command run to be reported.
 - **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,
