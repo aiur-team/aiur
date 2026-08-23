@@ -457,6 +457,15 @@ defmodule Aiur.Application do
     process_identity = Aiur.DaemonLifecycle.process_identity()
     log_process_identity(process_identity)
     Aiur.DaemonLifecycle.record_start(Map.to_list(process_identity))
+  rescue
+    error ->
+      # Best-effort by contract: identity resolution and the journal write both
+      # sit on the boot path. `process_identity/0` builds its record from a hard
+      # hostname match and `Boot.run_id/0`, and `record_start/1` takes the
+      # journal lock — none of that may take the application down, so the whole
+      # call is wrapped here, not just the write.
+      Logger.warning("aiur_boot phase=daemon_start_failed error=#{inspect(error)}")
+      :ok
   end
 
   @doc """

@@ -11,6 +11,13 @@ defmodule Aiur.HttpServer do
   @secret_key_bytes 48
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
+  # A failed endpoint start can leave a linked child's `{:EXIT, pid, reason}`
+  # in this caller's mailbox, delivered a beat after the child dies. The drain
+  # waits this long for it rather than checking once with a zero timeout, so a
+  # non-trapping caller is left with a clean mailbox after a degraded `:ignore`
+  # start and the drain cannot be deleted silently. Bounded to the degraded
+  # start path only; successful starts never reach it.
+  @exit_drain_timeout_ms 100
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -105,11 +112,15 @@ defmodule Aiur.HttpServer do
     end
   end
 
+  # Drain an `{:EXIT, pid, reason}` left by the failed endpoint's linked child.
+  # Exit signals are delivered asynchronously, so a zero-timeout receive would
+  # miss one that arrives a beat after the child dies and leave a stale message
+  # in a non-trapping caller's mailbox; wait the bounded window instead.
   defp drain_failed_start_exit({:error, reason}) do
     receive do
       {:EXIT, _pid, ^reason} -> :ok
     after
-      0 -> :ok
+      @exit_drain_timeout_ms -> :ok
     end
   end
 

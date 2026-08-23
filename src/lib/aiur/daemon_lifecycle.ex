@@ -24,6 +24,13 @@ defmodule Aiur.DaemonLifecycle do
   alias Aiur.Boot
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
 
+  # Boot (`record_daemon_start`) and shutdown (`record_stop`) are on the
+  # daemon's critical path. A journal lock held by a live peer must cost them a
+  # few hundred milliseconds, never the full store timeout — otherwise a second
+  # daemon holding the lock stalls boot for the whole 5s store default.
+  # Control-request writes (runtime) keep the longer store default.
+  @critical_path_lock_timeout_ms 500
+
   @doc """
   Records a daemon `:start` for the current BEAM. Idempotent per run — a
   re-marked boot within the same VM does not append a second start.
@@ -78,7 +85,14 @@ defmodule Aiur.DaemonLifecycle do
 
   defp record(kind, opts) do
     identity = process_identity(opts)
-    :ok = ControlLifecycleStore.update(&ControlLifecycle.record_daemon_event(&1, kind, identity))
+    lock_timeout_ms = Keyword.get(opts, :lock_timeout_ms, @critical_path_lock_timeout_ms)
+
+    :ok =
+      ControlLifecycleStore.update(
+        &ControlLifecycle.record_daemon_event(&1, kind, identity),
+        lock_timeout_ms: lock_timeout_ms
+      )
+
     :ok
   rescue
     error ->

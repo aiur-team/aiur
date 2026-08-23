@@ -3,7 +3,6 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
 
   require Logger
 
-  alias Aiur.Config.Paths
   alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
   alias Aiur.Orchestrator.ControlLifecycle
@@ -29,13 +28,13 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   @doc "Best-effort durable write after each lifecycle transition."
   @spec save(ControlLifecycle.t()) :: :ok
   def save(%ControlLifecycle{} = lifecycle) do
-    persist(&ControlLifecycle.merge(lifecycle, &1))
+    persist(&ControlLifecycle.merge(lifecycle, &1), [])
   end
 
   @doc false
-  @spec update((ControlLifecycle.t() -> ControlLifecycle.t())) :: :ok
-  def update(fun) when is_function(fun, 1) do
-    persist(fun)
+  @spec update((ControlLifecycle.t() -> ControlLifecycle.t()), keyword()) :: :ok
+  def update(fun, opts \\ []) when is_function(fun, 1) do
+    persist(fun, opts)
   end
 
   @doc "Converts any persisted unresolved request to `:expired` during daemon recovery."
@@ -50,17 +49,27 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   @spec path_for() :: Path.t()
   def path_for do
     Application.get_env(:aiur, :control_lifecycle_store_path) ||
-      Path.join(StatePaths.dir(), "#{Paths.repo_name()}.control-lifecycle.json")
+      StatePaths.path_for(:control_lifecycle)
   end
 
-  defp persist(fun) do
+  defp persist(fun, opts) do
     path = path_for()
+    lock_timeout_ms = Keyword.get(opts, :lock_timeout_ms, @lock_timeout_ms)
+
+    # Import any legacy per-boot journal into the durable state dir (one-time
+    # copy), then make sure the exact journal directory exists — an explicit
+    # override path may point somewhere other than the default state dir.
+    :ok = StatePaths.ensure()
     :ok = File.mkdir_p(Path.dirname(path))
 
-    case with_lock(path, fn ->
-           lifecycle = fun.(load())
-           JsonStore.write!(path, ControlLifecycle.dump(lifecycle))
-         end) do
+    case with_lock(
+           path,
+           fn ->
+             lifecycle = fun.(load())
+             JsonStore.write!(path, ControlLifecycle.dump(lifecycle))
+           end,
+           lock_timeout_ms
+         ) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Control lifecycle journal lock failed at #{path}: #{inspect(reason)}")
     end
@@ -72,7 +81,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
       :ok
   end
 
-  defp with_lock(path, fun), do: acquire_lock(path <> ".lock", fun, @lock_timeout_ms)
+  defp with_lock(path, fun, lock_timeout_ms), do: acquire_lock(path <> ".lock", fun, lock_timeout_ms)
 
   defp acquire_lock(lock, fun, remaining_ms) do
     owner = lock_owner()

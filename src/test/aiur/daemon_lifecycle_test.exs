@@ -135,6 +135,27 @@ defmodule Aiur.DaemonLifecycleTest do
       assert Enum.count(events, &(&1.kind == :stop)) == 1
     end
 
+    test "a contended journal write does not block boot or shutdown for the full store timeout" do
+      # Hold the journal lock with a fresh non-stale lock file no one owns, so
+      # the daemon record path must wait out its short critical-path deadline
+      # (~500ms) instead of stalling boot/stop for the store's 5s default.
+      lock = ControlLifecycleStore.path_for() <> ".lock"
+      File.mkdir_p!(Path.dirname(lock))
+      File.write!(lock, "held")
+
+      started = System.monotonic_time(:millisecond)
+      assert :ok = DaemonLifecycle.record_start(run_id: "run-a", at: @now)
+      elapsed = System.monotonic_time(:millisecond) - started
+
+      assert elapsed < 2_500,
+             "record_start blocked ~#{elapsed}ms on a live journal lock; expected the short critical-path deadline, not the 5s store timeout"
+
+      assert elapsed > 200,
+             "record_start returned in ~#{elapsed}ms without waiting on the held journal lock; the short deadline should still bound a real wait"
+
+      File.rm!(lock)
+    end
+
     test "process_identity/0 resolves the real invoking process fields" do
       identity = DaemonLifecycle.process_identity(run_id: "run-probe", os_pid: "1234")
 
