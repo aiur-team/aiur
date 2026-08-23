@@ -29,6 +29,21 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 | `aiur build-orders [<root>]` | The same projection in a terminal. |
 | `--json` | Machine-readable Build Order rows. |
 
+On the catalog, ticket, epic and wave counts remain numeric when resolution succeeds, including a real `0`. A count that could not be resolved never renders as `0` or as a bare dash—it names its cause instead:
+
+| Cell | Meaning | What to do |
+| --- | --- | --- |
+| `Budget exhausted` | The planning query budget or a local GraphQL hold blocked the read. Shows the reset time when the hold reports one. | Wait for the reset, or raise `tracker.github.planning_page_budget` / `planning_call_budget`. |
+| `Rate limited` | The tracker rate limited the read. Shows the reset time when reported. | Wait for the reset; reduce concurrent agents if it repeats. |
+| `Timed out` | The request exceeded its deadline. | Usually transient; it retries on the next labelled read. |
+| `Unreachable` | The connection was refused or dropped. | Check network reachability to the tracker—not latency. |
+| `Not authorized` | The credential was missing or rejected. | Check the configured GitHub token. |
+| `Unreadable response` | The response did not match the expected shape. | Likely an Aiur or tracker schema change; report it. |
+| `Partial read` | The read succeeded but hit Aiur's own planning page limit before every member. This is an Aiur bound, not a tracker fault. | Raise `planning_page_budget`. |
+| `Unresolved` | The failure could not be classified. | No cause is claimed on purpose—a wrong reason is worse than none. |
+
+These states are intentionally not estimates. `aiur build-orders --json` reports the same cause as `count_resolution_failure`, with `count_resolution_reset_at` when a reset horizon is known.
+
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
 ## The repository state node
