@@ -2679,6 +2679,10 @@ defmodule AiurWeb.DashboardLiveTest do
     # notify_lifecycle after the store appends the failed event, so receiving
     # it proves the failure is durable — the assert_receive waits out the
     # background dispatch task, with no wall-clock budget on the store state.
+    #
+    # This supersedes main's #2340 widening of this poll to 300 attempts (~3s):
+    # a longer wall-clock budget on a render poll is the #2337 anti-pattern.
+    # Waiting on the broadcast removes the deadline entirely.
     assert_receive {:decision_changed, ^decision_id, 1}, 2_000
     assert {:ok, %{delivery_status: :failed}} = DecisionStore.get(decision.decision_id, store)
 
@@ -2705,7 +2709,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     # The retry affordance must be gone from the rendered page — same reasoning
     # as the fresh mount above: read the :queued state through a new mount's
-    # synchronous initial render rather than racing the old view's async diff.
+    # synchronous initial render rather than racing the old view's async diff
+    # (also superseding main's #2340 300-attempt widening of this poll).
     {:ok, _refreshed_view, refreshed_html} =
       live(build_conn(), "/commands/#{decision.decision_id}")
 

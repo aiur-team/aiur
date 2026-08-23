@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   cycle exactly as it is today.
   """
 
-  alias Aiur.GitHub.{AppCredentials, Errors, Transport}
+  alias Aiur.GitHub.{AppCredentials, Errors, HostCommand, Transport}
 
   require Logger
 
@@ -403,15 +403,17 @@ defmodule Aiur.GitHub.AuthPreflight do
   defp human_gh_keyring_status(_), do: "`gh` keyring auth status could not be determined."
 
   defp default_gh_auth_status_fun do
-    case System.find_executable("gh") do
+    case HostCommand.find_executable() do
       nil ->
         {:ok, :not_installed}
 
-      gh ->
-        case System.cmd(gh, ["auth", "status"],
-               env: [{"GITHUB_TOKEN", nil}],
-               stderr_to_stdout: true
-             ) do
+      _gh ->
+        # This check deliberately inspects the operator's keyring: GITHUB_TOKEN
+        # is unset so `gh auth status` reports the keyring account, not the
+        # daemon's credential. Routing it through the host guard means that
+        # deliberate keyring check is admitted and recorded under the keyring
+        # identity (#2353) instead of spending silently.
+        case HostCommand.run(["auth", "status"], env: [{"GITHUB_TOKEN", nil}], stderr_to_stdout: true) do
           {_output, 0} -> {:ok, :available}
           {_output, _status} -> {:ok, :unavailable}
         end
