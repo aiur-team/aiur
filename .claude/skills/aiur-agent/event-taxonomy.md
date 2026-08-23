@@ -28,7 +28,7 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | `unblocked` | You're no longer blocked (real or stubbed-then-fetch) | `ticket.<id>.agent.unblocked` |
 | `attention.<slug>` | Need the Executor to answer something (opens ❗ in the agent list) | `ticket.<id>.agent.attention.<slug>` |
 | `attention.resolved` | Closing a previously-opened attention; pass `payload: {slug: "<the-slug>"}` | `ticket.<id>.agent.attention.resolved` |
-| `pause.request` | Ask the Executor to pause your turn at the next checkpoint | `ticket.<id>.agent.pause.request` |
+| `pause.request` | Ask Aiur to pause your turn at the next checkpoint. A guard-reported GitHub budget hold uses payload `{reason: "github_budget_hold", resource, reset_at_ms}` and resumes automatically without an attention. | `ticket.<id>.agent.pause.request` |
 | `custom.<slug>` | Anything else — a name no other category fits | `ticket.<id>.agent.custom.<slug>` |
 
 > **Also allowed, but Executor-facing (not cross-ticket coordination):** the bare

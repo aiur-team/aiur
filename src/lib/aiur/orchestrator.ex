@@ -198,6 +198,18 @@ defmodule Aiur.Orchestrator do
   # invalidate the persisted admission verdict immediately; otherwise `status`
   # can keep reporting the historical hold until some unrelated poll succeeds.
   def handle_info(:github_quota_recovered, state) do
+    state = PushRouting.recover_github_budget_pauses(state)
+    {:reply, _result, state} = Lifecycle.request_refresh(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:github_budget_pause_expired, identifier, generation}, state)
+      when is_binary(identifier) and is_integer(generation) and generation > 0 do
+    # The per-agent expiry path must also request a poll refresh. A fleet whose
+    # agents are all budget-paused has active_running_count == 0 and is
+    # classified idle under #2160, so without the refresh its poll backs off
+    # and the capacity-deferred pending_auto_resume hint is never drained.
+    state = PushRouting.recover_github_budget_pause(state, identifier, generation)
     {:reply, _result, state} = Lifecycle.request_refresh(state)
     {:noreply, state}
   end
@@ -371,6 +383,9 @@ defmodule Aiur.Orchestrator do
   @spec reconcile_stalled_running_issues(State.t()) :: State.t()
   def reconcile_stalled_running_issues(state),
     do: RuntimeWatchdog.reconcile_stalled_running_issues(state)
+
+  @spec reconcile_runtime_health(State.t()) :: State.t()
+  def reconcile_runtime_health(state), do: RuntimeWatchdog.reconcile_runtime_health(state)
 
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(entry, now, max_seconds),
