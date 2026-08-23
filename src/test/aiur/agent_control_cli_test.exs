@@ -283,6 +283,13 @@ defmodule Aiur.AgentControlCLITest do
           poll_frozen: true,
           candidate_snapshot_fresh?: true,
           snapshot_ready?: false,
+          # Pin the pre-reconciliation baseline. The "orphaned claim" case below
+          # asserts the `[waiting=orphaned_claim]` classification, which only
+          # holds before startup reconciliation completes; the shared
+          # Orchestrator may already have finished it (or a prior test may have
+          # set it), so leaking the live value made that case order-dependent
+          # (#2387 CI flake). The "stale claim" case pins `true` explicitly.
+          startup_claim_reconciliation_complete?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
@@ -2288,6 +2295,39 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "aiur: resumed #44 (was: paused)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "resume of a duration-capped agent succeeds and clears the pause", %{orchestrator: pid} do
+    # #2329 acceptance: `aiurdev resume <id>` on an agent paused by
+    # `max_agent_duration` succeeds and the ticket leaves `paused`. The
+    # duration marker is owned by the resume control path, so after the worker
+    # acknowledges the resume the reason is cleared and the agent is working.
+    agent = acknowledging_agent("issue-44")
+
+    entry =
+      "issue-44"
+      |> modern_running_entry("repo#44", :paused, agent)
+      |> Map.put(:paused_reason, :max_agent_duration)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => entry},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    output =
+      with_resume_confirm_timeout(3_000, fn ->
+        capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      end)
+
+    assert output =~ "aiur: resumed #44 (was: paused)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+
+    resumed = :sys.get_state(pid).running["issue-44"]
+    assert get_in(resumed, [:control, :status]) == :working
+    refute Map.has_key?(resumed, :paused_reason)
   end
 
   test "resume exits non-zero when one of several targets fails", %{orchestrator: pid} do
