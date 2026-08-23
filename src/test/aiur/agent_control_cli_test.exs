@@ -630,6 +630,125 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "POLL idle backoff active: interval=600s base=120s factor=5.0x next=590s"
   end
 
+  defp unconstrained_capacity(overrides \\ %{}) do
+    Map.merge(
+      %{
+        occupied: 0,
+        max: 2,
+        effective: 2,
+        configured: 2,
+        available: 2,
+        queued_demand?: false,
+        session_override?: false,
+        active: 0,
+        reserved_paused: 0,
+        capacity_hold: nil
+      },
+      overrides
+    )
+  end
+
+  # The core #2138 status defect: `binding: ticket supply` was reported while
+  # claimable tickets existed, because the daemon had not polled recently enough
+  # to see them. While idle backoff is active (or the candidate snapshot is not
+  # fresh), the line must say the fleet has not polled, never blame ticket
+  # supply.
+  test "status never blames ticket supply while the fleet is idle-backed off" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(),
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 590_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 600_000,
+        idle_backoff: %{active?: true, factor: 5.0},
+        tracker_snapshot_fresh?: true
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~
+             "AGENTS 0/2 (binding: has not polled yet (POLL backed off, next poll in 590s; ceiling: config max_concurrent_agents))"
+
+    refute output =~ "binding: ticket supply"
+  end
+
+  test "status never blames ticket supply when the last candidate fetch failed" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(),
+      polling: %{
+        checking?: false,
+        next_poll_in_ms: 1_000,
+        poll_interval_ms: 120_000,
+        effective_interval_ms: 120_000,
+        idle_backoff: %{active?: false, factor: 5.0},
+        tracker_snapshot_fresh?: false
+      }
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~ "AGENTS 0/2 (binding: has not polled yet (ceiling: config max_concurrent_agents))"
+    refute output =~ "binding: ticket supply"
+  end
+
+  # Criterion 5 of #2138: `set max-agents` is a session cap and does not
+  # survive a restart, so an unconstrained fleet's AGENTS line must show where
+  # the effective ceiling came from — an operator whose live cap was silently
+  # dropped reads `config` rather than their last command.
+  test "status shows the effective ceiling source when the fleet is unconstrained" do
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    polling = %{
+      checking?: false,
+      next_poll_in_ms: 1_000,
+      poll_interval_ms: 120_000,
+      effective_interval_ms: 120_000,
+      idle_backoff: %{active?: false, factor: 5.0},
+      tracker_snapshot_fresh?: true
+    }
+
+    session_snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(%{max: 2, configured: 16, session_override?: true}),
+      polling: polling
+    }
+
+    session_output =
+      capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, session_snapshot, freshness}) end)
+
+    assert session_output =~ "AGENTS 0/2 (binding: ticket supply; ceiling: session max_concurrent_agents)"
+
+    config_snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity: unconstrained_capacity(%{max: 16, configured: 16, session_override?: false}),
+      polling: polling
+    }
+
+    config_output =
+      capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, config_snapshot, freshness}) end)
+
+    assert config_output =~ "AGENTS 0/16 (binding: ticket supply; ceiling: config max_concurrent_agents)"
+    refute config_output =~ "ceiling: session"
+  end
+
   test "status surfaces whether the Executor listener is currently listening", %{orchestrator: _pid} do
     previous = Application.get_env(:aiur, :executor_listener_alive_fun)
 
@@ -757,6 +876,33 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
+  end
+
+  test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
+    orphan = %Issue{id: "issue-orphan", identifier: "repo#2076", state: "in-progress", title: "Orphaned claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{orphan.id => orphan}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#2076  idle    Orphaned claim (orphaned claim: no live agent) [waiting=orphaned_claim]"
+    refute output =~ "Orphaned claim (awaiting-dispatch)"
+  end
+
+  test "status names a post-reconciliation in-progress claim as stale, not awaiting-dispatch", %{orchestrator: pid} do
+    stale = %Issue{id: "issue-stale", identifier: "repo#2076b", state: "in-progress", title: "Stale claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | startup_claim_reconciliation_complete?: true, last_polled_issues: %{stale.id => stale}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "Stale claim (stale in-progress claim: no live agent) [waiting=stale_claim]"
+    refute output =~ "Stale claim (awaiting-dispatch)"
+    refute output =~ "Stale claim (orphaned claim"
   end
 
   test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
@@ -1056,7 +1202,7 @@ defmodule Aiur.AgentControlCLITest do
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert fallback_output =~ "AGENTS 0/10 (binding: none)"
+    assert fallback_output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
     refute fallback_output =~ "AGENTS 0/10 (binding: load"
 
     assert fallback_output =~
@@ -1121,6 +1267,13 @@ defmodule Aiur.AgentControlCLITest do
         | max_concurrent_agents: 2,
           effective_concurrent_agents: 2,
           capacity_hold: nil,
+          # A recent successful poll found nothing dispatchable (every row is
+          # paused or unauthorized), so "ticket supply" is the honest binding
+          # here. This requires the fleet NOT to be idle-backed-off: a backed
+          # off / failed-fetch fleet is "has not polled yet", never a claim
+          # about ticket supply (#2138).
+          candidate_snapshot_fresh?: true,
+          idle_poll_backoff: %{active?: false, factor: 5.0},
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
             "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
@@ -1130,7 +1283,7 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "AGENTS 0/2 (binding: ticket supply)"
+    assert output =~ "AGENTS 0/2 (binding: ticket supply; ceiling: config max_concurrent_agents)"
     refute output =~ "AGENTS 0/2 (binding: load"
 
     # The local reading is still reported — just as a local host sample, not as
@@ -1291,7 +1444,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: none)"
+    assert output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
     assert output =~ "BUILD GATE 1/2 active, 1 queued"
     assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
     assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
