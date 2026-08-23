@@ -279,17 +279,18 @@ export function commandDescription(command: StreamDeckCommand, selectedOption: n
  * after a dropped reply reuses the same key and the server records a duplicate
  * (replay) rather than a second decision. It deliberately does not include a
  * timestamp or a counter: either would make every retry a brand-new decision.
+ * The content is hashed with a truncated SHA-256 (not a 32-bit rolling hash),
+ * so distinct answers cannot collide in the key even though the server keeps
+ * its own `content_hash` comparison as the second layer of dedup.
  */
-export function commandIdempotencyKey(
+export async function commandIdempotencyKey(
   decisionId: string,
   answer: { option_id?: string; custom_response?: string },
-): string {
+): Promise<string> {
   const content = answer.option_id ?? answer.custom_response ?? "";
-  let hash = 0;
-  for (let i = 0; i < content.length; i += 1) {
-    hash = (hash * 31 + content.charCodeAt(i)) | 0;
-  }
-  return `sd_${decisionId}_${(hash >>> 0).toString(36)}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${decisionId}:${content}`));
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `sd_${hex.slice(0, 32)}`;
 }
 
 /** The number of open/deferred Commands in a page — the "current" count. */

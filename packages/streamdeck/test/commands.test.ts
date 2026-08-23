@@ -234,25 +234,25 @@ describe("Commands description", () => {
 });
 
 describe("Commands idempotency keys", () => {
-  it("derives a stable key from the Command and the answer content", () => {
-    const first = commandIdempotencyKey("dec-1", { option_id: "ship" });
-    const second = commandIdempotencyKey("dec-1", { option_id: "ship" });
+  it("derives a stable key from the Command and the answer content", async () => {
+    const first = await commandIdempotencyKey("dec-1", { option_id: "ship" });
+    const second = await commandIdempotencyKey("dec-1", { option_id: "ship" });
     expect(first).toBe(second);
-    expect(commandIdempotencyKey("dec-1", { option_id: "wait" })).not.toBe(first);
-    expect(commandIdempotencyKey("dec-2", { option_id: "ship" })).not.toBe(first);
+    expect(await commandIdempotencyKey("dec-1", { option_id: "wait" })).not.toBe(first);
+    expect(await commandIdempotencyKey("dec-2", { option_id: "ship" })).not.toBe(first);
   });
 
-  it("uses the custom response content when present", () => {
-    expect(commandIdempotencyKey("dec-1", { custom_response: "Hold everything" })).toBe(
-      commandIdempotencyKey("dec-1", { custom_response: "Hold everything" }),
+  it("uses the custom response content when present", async () => {
+    expect(await commandIdempotencyKey("dec-1", { custom_response: "Hold everything" })).toBe(
+      await commandIdempotencyKey("dec-1", { custom_response: "Hold everything" }),
     );
-    expect(commandIdempotencyKey("dec-1", { custom_response: "Hold" })).not.toBe(
-      commandIdempotencyKey("dec-1", { custom_response: "Hold everything" }),
+    expect(await commandIdempotencyKey("dec-1", { custom_response: "Hold" })).not.toBe(
+      await commandIdempotencyKey("dec-1", { custom_response: "Hold everything" }),
     );
   });
 
-  it("falls back to a stable key when neither option nor response is present", () => {
-    expect(commandIdempotencyKey("dec-1", {})).toBe(commandIdempotencyKey("dec-1", {}));
+  it("falls back to a stable key when neither option nor response is present", async () => {
+    expect(await commandIdempotencyKey("dec-1", {})).toBe(await commandIdempotencyKey("dec-1", {}));
   });
 });
 

@@ -650,7 +650,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       return;
     }
     if (index === COMMANDS_APPROVE && state.commandDictation && isAnswerable(command.status)) {
-      approveCommand(command);
+      // Fire-and-forget: the key derivation is async (SHA-256), so the answer
+      // is sent once the digest resolves.
+      void approveCommand(command);
       return;
     }
     if (index === COMMANDS_CANCEL && state.commandDictation) {
@@ -678,7 +680,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
    * idempotency key is derived from the Command and the answer content, so a
    * dropped reply that is retried records a replay, never a second decision.
    */
-  const approveCommand = (command: StreamDeckCommand): void => {
+  const approveCommand = async (command: StreamDeckCommand): Promise<void> => {
     const port = voice();
     const response = port?.hasMessage() === true ? port.message() : null;
     const answer =
@@ -688,7 +690,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
           ? { option_id: command.options[state.selectedOption]?.id ?? "" }
           : null;
     if (answer === null || answer.option_id === "") return;
-    const idempotencyKey = commandIdempotencyKey(command.decision_id, answer);
+    const idempotencyKey = await commandIdempotencyKey(command.decision_id, answer);
     options.channel()?.answerCommand(command.decision_id, command.version, idempotencyKey, answer);
     // The buffer is consumed by the answer; it must not also sit in the cmd
     // surface's Send buffer later.
@@ -838,7 +840,11 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         // that turns a read option or a dictated response into the answer. It
         // does nothing while nothing is armed, so it can never commit by
         // accident.
-        return approveCommand(state.selectedCommand);
+        // The key derivation is async (SHA-256), so the answer is sent after
+        // the digest resolves; the deliberate second action has already
+        // happened, so there is nothing else to block on here.
+        void approveCommand(state.selectedCommand);
+        return;
       }
       if (state.commandsView === "detail" && state.selectedCommand !== null) {
         return pageOptions();

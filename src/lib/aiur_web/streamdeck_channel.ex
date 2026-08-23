@@ -434,16 +434,19 @@ defmodule AiurWeb.StreamdeckChannel do
   # A `decision_changed` broadcast carries only the decision id; the focused
   # Command surface must be refreshed only when that decision belongs to the
   # agent being watched, so the device is not repainted for every Command in
-  # the fleet.
+  # the fleet. On an error the page repaints anyway (fail-open): skipping a
+  # repaint would silently freeze a stale Commands page with no later event to
+  # refresh it, while `commands_projection/1` already surfaces an unreadable
+  # store as an explicit "unavailable" page.
   defp focused_command?(socket, decision_id, identifier) do
     case StreamdeckCommands.detail(decision_id, store: command_store(socket)) do
       {:ok, item} -> get_in(item, ["ticket", "identifier"]) == identifier
-      {:error, _reason} -> false
+      {:error, _reason} -> true
     end
   rescue
-    _error -> false
+    _error -> true
   catch
-    _kind, _reason -> false
+    _kind, _reason -> true
   end
 
   # The device may only answer a Command that belongs to the agent it is
@@ -460,7 +463,12 @@ defmodule AiurWeb.StreamdeckChannel do
           Map.get(item, "version") != version ->
             {:error, {:stale_version, version, Map.get(item, "version")}}
 
-          Map.get(item, "status") in ["expired", "resolved"] ->
+          # Only open and deferred Commands are answerable, allowlisted rather
+          # than blocklisted: every newly-added terminal status would otherwise
+          # silently become answerable the moment it exists. The TS client
+          # renders the same two statuses as answerable (`commands.ts`), so
+          # client and server agree on what "answerable" means.
+          Map.get(item, "status") not in ["open", "deferred"] ->
             {:error, {:not_answerable, Map.get(item, "status")}}
 
           true ->
