@@ -75,11 +75,14 @@ Read the column as follows:
 
 - A positive read count means low spend may be the cache doing its job.
 - **none this boot** means `ReadCache` observed the caller but served no reads.
+- **N reads not deposited** means the caller's reads reached the cache but its
+  responses were not written into it — a failed or partial GraphQL response, or
+  the entry ceiling. The gap between a caller's misses and deposits lives here.
 - A **policy refusal** means the caller reached `ReadCache` but was deliberately not cached.
 - **not observed by ReadCache** means the caller did not reach that store.
 - **cache unavailable** means there is no cache measurement.
 
-None of the four non-count states is rendered as a bare zero.
+None of the non-count states is rendered as a bare zero.
 
 Served-free reads cost no GitHub budget. They are shown alongside the ranking for diagnosis, but are excluded from points, calls, rates, shares, charts, attributed totals and outside-spend figures.
 

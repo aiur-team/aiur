@@ -1009,6 +1009,24 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert reading(quota) == before
     end
 
+    test "says when a caller's reads were not deposited, rather than pretending none happened" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+
+      # A caller whose reads all missed and failed to deposit would otherwise
+      # read as "none this boot" — the same text as a caller with no traffic.
+      ReadCacheProvider.install(%{
+        available?: true,
+        callers: %{"issue_relationships" => %{hit: 0, miss: 3, not_deposited: 3}}
+      })
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html |> budget_block() |> served_free("issue_relationships") == "3 reads not deposited"
+    end
+
     test "keeps the widened ranking keyboard-reachable on narrow viewports" do
       Source.install(entries(2))
       install_graphql_quota()
