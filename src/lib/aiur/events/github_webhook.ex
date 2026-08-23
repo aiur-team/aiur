@@ -284,7 +284,7 @@ defmodule Aiur.Events.GithubWebhook do
   defp default_actionable_label?(label) when is_binary(label) do
     active = active_state_labels()
     prefix = GitHubConfig.label_prefix()
-    Enum.any?(Issues.extract_state_labels([label], prefix), &MapSet.member?(active, &1))
+    Enum.any?(Issues.extract_state_labels([label], prefix), &Enum.member?(active, &1))
   rescue
     _error -> false
   end
@@ -295,18 +295,17 @@ defmodule Aiur.Events.GithubWebhook do
   # so a new issue the webhook would wake on is exactly one a poll would
   # dispatch: `StatePolicy.normalize_state/1` turns "In Progress" into
   # "in-progress", the same shape `Issues.extract_state_labels/2` derives from
-  # a label like `agent:in-progress`. Fails toward an empty set so an
+  # a label like `agent:in-progress`. Fails toward an empty list so an
   # unreadable config means "not actionable" (no wake), never a wake storm.
-  @spec active_state_labels() :: MapSet.t()
+  @spec active_state_labels() :: [String.t()]
   defp active_state_labels do
     case Config.settings() do
       {:ok, settings} ->
         settings.tracker.active_states
         |> Enum.map(&StatePolicy.normalize_state/1)
-        |> MapSet.new()
 
       _error ->
-        MapSet.new()
+        []
     end
   end
 
