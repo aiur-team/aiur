@@ -1491,17 +1491,39 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert [_kept] = :ets.lookup(ResourceStore.Table, fresh)
     end
 
-    # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
-    # fails both ways: a lower ceiling leaves fewer entries, a higher one leaves
-    # the overflow in place.
-    test "the entry ceiling evicts the oldest down to exactly its limit" do
+    # The hard backstop. It used to delete whole entries, which destroyed the
+    # `:etag` and `:processed_at_ms` beside the body — a comment an agent had
+    # already handled would republish once the in-memory dedup window closed or
+    # the daemon restarted, which is the one loss the retention window does not
+    # cause. The backstop now sheds only the body, so the state that is still
+    # correct survives, and the newest entries keep their answers.
+    #
+    # Asserted as "drops bodies from the oldest down to exactly the ceiling",
+    # which fails both ways: a lower ceiling leaves more bodies, a higher one
+    # leaves the overflow body in place.
+    test "the entry ceiling drops the oldest bodies and keeps their marks and validators" do
       ResourceStore.reset()
       now = System.system_time(:millisecond)
       store = Process.whereis(ResourceStore)
 
       rows =
         for index <- 1..100_001 do
-          {{:issue, "owner", "repo", Integer.to_string(index)}, %{recorded_at_ms: now - (100_001 - index)}}
+          {{:issue, "owner", "repo", Integer.to_string(index)},
+           %{
+             data: %{"number" => index, "state" => "open"},
+             etag: ~s("e#{index}"),
+             processed_at_ms: now,
+             # `:version` is the version the pipe processed; `:data_version` is
+             # the version of the body held (`fetch/1` reports it as the answer's
+             # `:version`). Both must be present so the eviction assertion can
+             # pin that `:data_version` is shed with its body.
+             version: "v1",
+             data_version: "v1",
+             # `fetch/1` judges freshness on the body's own stamp, so a body
+             # with no `fetched_at_ms` reads as ancient and is declined.
+             fetched_at_ms: now,
+             recorded_at_ms: now - (100_001 - index)
+           }}
         end
 
       :ets.insert(ResourceStore.Table, rows)
@@ -1512,9 +1534,28 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       # so the sweep has finished by the time it answers.
       _state = :sys.get_state(store)
 
-      assert ResourceStore.size() == 100_000
-      assert :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "1"}) == []
-      assert [_kept] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "2"})
+      # The oldest entry is spared as an entry: its body is shed, but the
+      # validator and the processed mark survive the eviction. The body is
+      # asserted on the entry itself, not through `fetch/1` — the reader API
+      # declines an absent body on its own, so only the entry map proves the
+      # eviction actually dropped `:data` rather than merely hiding it.
+      oldest = {:issue, "owner", "repo", "1"}
+      assert [{^oldest, kept}] = :ets.lookup(ResourceStore.Table, oldest)
+      refute Map.has_key?(kept, :data)
+      refute Map.has_key?(kept, :data_version)
+      assert ResourceStore.fetch(oldest) == :miss
+      assert ResourceStore.change_validator(oldest) == ~s("e1")
+      assert ResourceStore.processed?(oldest, "v1")
+
+      # Exactly the ceiling worth of bodies is left: only the overflow body was
+      # shed, so the second-oldest entry still serves its `:data` — pinning the
+      # count, so shedding 50,001 bodies instead of one could not pass — and the
+      # newest entry is served without anyone paying for it again.
+      second = {:issue, "owner", "repo", "2"}
+      assert [{^second, kept2}] = :ets.lookup(ResourceStore.Table, second)
+      assert Map.has_key?(kept2, :data)
+      assert ResourceStore.size() == 100_001
+      assert {:ok, %{data: %{"number" => 100_001}}} = ResourceStore.fetch({:issue, "owner", "repo", "100001"})
     end
 
     # The bound an unversioned mark suppresses for. `view_state_sweep_test.exs`
