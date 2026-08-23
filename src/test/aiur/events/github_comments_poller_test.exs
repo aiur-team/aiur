@@ -2,7 +2,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, Publisher}
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.GitHub.{CodeOwners, ResourceStore}
   alias Aiur.Workflow
 
   setup do
@@ -32,7 +32,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       # review ids (e.g. `WebhookPollReconciliationTest`) would be silently
       # suppressed by the leaked marks/keys when this suite runs first. Clean
       # both up so the shared state is self-contained per module.
-      Aiur.GitHub.ResourceStore.reset()
+      ResourceStore.reset()
 
       case :ets.whereis(Aiur.Events.Publisher.Dedup) do
         :undefined -> :ok
