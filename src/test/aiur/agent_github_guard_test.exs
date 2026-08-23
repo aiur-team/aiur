@@ -367,9 +367,10 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
     # `issue view` is GraphQL on the wire and `issue edit` a core write; the
-    # fifth column names the gh subcommand that made each call.
-    assert events =~ "\tticket:1670\tread\tgraphql\tissue view\n"
-    assert events =~ "\tticket:1670\twrite\tcore\tissue edit\n"
+    # fifth column names the gh subcommand that made each call. The credential
+    # fingerprint and wrapper pid follow it, so match up to the next tab.
+    assert events =~ "\tticket:1670\tread\tgraphql\tissue view\t"
+    assert events =~ "\tticket:1670\twrite\tcore\tissue edit\t"
     refute events =~ "secret body"
   end
 
@@ -382,9 +383,10 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
     # REST `gh api` reads normalise their call site to `api` rather than one
-    # row per endpoint URL.
-    assert events =~ "\tread\tgraphql\tapi graphql\n"
-    assert events =~ "\tread\tcore\tapi\n"
+    # row per endpoint URL. The credential fingerprint and wrapper pid follow
+    # the call site, so match up to the next tab.
+    assert events =~ "\tread\tgraphql\tapi graphql\t"
+    assert events =~ "\tread\tcore\tapi\t"
   end
 
   # `gh pr view/list/status/checks` and `gh issue view/list/status` go through
@@ -414,17 +416,19 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
 
+    # Each row names the gh subcommand as its call site; the credential
+    # fingerprint and wrapper pid ride after it, so match up to the next tab.
     Enum.each(graphql_commands, fn [_name, _sub | _] = command ->
       call_site = Enum.take(command, 2) |> Enum.join(" ")
-      assert events =~ "\tread\tgraphql\t#{call_site}\n"
+      assert events =~ "\tread\tgraphql\t#{call_site}\t"
     end)
 
     # `pr diff` is REST and stays a core pull.
-    assert events =~ "\tread\tcore\tpr diff\n"
+    assert events =~ "\tread\tcore\tpr diff\t"
     # `gh search issues` is GraphQL on the wire; `gh search repos` hits the
     # REST /search/* endpoint and books to the separate `search` pool.
-    assert events =~ "\tread\tgraphql\tsearch issues\n"
-    assert events =~ "\tread\tsearch\tsearch repos\n"
+    assert events =~ "\tread\tgraphql\tsearch issues\t"
+    assert events =~ "\tread\tsearch\tsearch repos\t"
   end
 
   # `gh search` is split because its subcommands use different transports and
@@ -449,7 +453,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
 
     Enum.each(search_commands, fn {[name, sub | _], resource} ->
-      assert events =~ "\tread\t#{resource}\t#{name} #{sub}\n"
+      assert events =~ "\tread\t#{resource}\t#{name} #{sub}\t"
     end)
   end
 
@@ -465,11 +469,11 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
 
-    assert events =~ "\twrite\tgraphql\tpr create\n"
-    assert events =~ "\twrite\tgraphql\tpr review\n"
-    assert events =~ "\twrite\tgraphql\tissue create\n"
-    assert events =~ "\twrite\tcore\tpr close\n"
-    assert events =~ "\twrite\tcore\tissue edit\n"
+    assert events =~ "\twrite\tgraphql\tpr create\t"
+    assert events =~ "\twrite\tgraphql\tpr review\t"
+    assert events =~ "\twrite\tgraphql\tissue create\t"
+    assert events =~ "\twrite\tcore\tpr close\t"
+    assert events =~ "\twrite\tcore\tissue edit\t"
   end
 
   # The call-site column must never carry raw argv: a crafted second positional
@@ -492,11 +496,55 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     # The forged row is absent; the real call is recorded once, with the bare
     # command name (the injected subcommand is not allowlisted) and none of the
-    # forged content on the line.
+    # forged content on the line. The call site is the fifth column; the
+    # fingerprint and pid follow it.
     assert length(rows) == 1
     refute Enum.any?(rows, &match?([_at, "ticket:9999", "read", "core", "api"], &1))
     refute events =~ "ticket:9999"
-    assert Enum.any?(rows, &match?([_at, _consumer, _direction, _resource, "pr"], &1))
+    assert Enum.any?(rows, &match?([_at, _consumer, _direction, _resource, "pr" | _], &1))
+  end
+
+  # The agent-side record now carries the credential fingerprint (never the
+  # token) and the wrapper pid, so a request is attributable to its ticket's
+  # pool and to the exact subprocess that made it without a live /proc sweep
+  # (#2255). The call-site column sits between the resource and the fingerprint.
+  test "records a credential-fingerprint and pid column on every agent request", context do
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    [row | _] = String.split(events, "\n", trim: true)
+    [_unix, "ticket:1670", "read", "graphql", call_site, token_key, pid] = String.split(row, "\t")
+
+    # The call site names the subcommand; budget is disabled in this harness, so
+    # the fingerprint column is blank (never a refused call) while the pid names
+    # the wrapper subprocess.
+    assert call_site == "issue view"
+    assert token_key == ""
+    assert pid =~ ~r/^\d+$/
+  end
+
+  test "carries the configured credential fingerprint into the agent request record", context do
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"], AIUR_GITHUB_BUDGET_KEY: "fingerprint-abc")
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert events =~ "\tread\tgraphql\tissue view\tfingerprint-abc\t"
+  end
+
+  # Retention (#2255): the agent request record keeps the previous two
+  # generations so evidence survives the detection latency of a budget anomaly.
+  test "keeps two rotated generations of the agent request record", context do
+    events_file = Path.join(context.state_path, "github-quota/agent-requests.tsv")
+    # A current file past the 1 MiB rotation cap plus one prior generation; the
+    # next call rotates current to `.1` and moves the old `.1` to `.2`.
+    File.mkdir_p!(Path.dirname(events_file))
+    File.write!(events_file, String.duplicate("x", 1_048_577) <> "\n")
+    File.write!("#{events_file}.1", "old-generation-1\n")
+
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
+
+    assert File.read!("#{events_file}.2") == "old-generation-1\n"
+    assert File.read!("#{events_file}.1") == String.duplicate("x", 1_048_577) <> "\n"
+    assert File.read!(events_file) =~ "\tticket:1670\tread\tgraphql\t"
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do
@@ -811,11 +859,12 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"", 0} =
              System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "graphql", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-
-    # `pr view` is GraphQL on the wire, so a GraphQL resource hold must block it.
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+    # `pr view` is GraphQL on the wire (#2302), so a GraphQL resource hold must
+    # block it. A 60-second resource hold is above the shared-hold minimum, so
+    # the guard aborts with exit 75 and names the resource for the control
+    # lifecycle rather than sleeping the turn away.
+    assert {output, 75} =
+             System.cmd(context.wrapper, ["pr", "view", "1670"],
                env:
                  guard_env(context) ++
                    [
@@ -826,6 +875,8 @@ defmodule Aiur.AgentGitHubGuardTest do
                    ],
                stderr_to_stdout: true
              )
+
+    assert output =~ "aiur: github budget hold resource=graphql reset_at_ms="
 
     refute File.exists?(context.calls)
   end
@@ -838,11 +889,10 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"", 0} =
              System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
-
-    # `pr diff` is REST, so a core resource hold must block it.
-    assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "diff", "1670"],
+    # `pr diff` is REST, so a core resource hold must block it — `pr view` is
+    # GraphQL since #2302 and would be metered against the other pool.
+    assert {output, 75} =
+             System.cmd(context.wrapper, ["pr", "diff", "1670"],
                env:
                  guard_env(context) ++
                    [
@@ -854,6 +904,73 @@ defmodule Aiur.AgentGitHubGuardTest do
                stderr_to_stdout: true
              )
 
+    assert output =~ "aiur: github budget hold resource=core reset_at_ms="
+
+    refute File.exists?(context.calls)
+  end
+
+  test "a short cooldown keeps sleeping in the guard instead of pausing the turn", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    # A 2-second token cooldown is below the shared-hold minimum, so the broker
+    # answers `wait <ms>` and the guard must sleep-and-retry in place — the same
+    # behavior as before typed holds existed — rather than aborting with exit 75
+    # and pausing the whole agent turn for a routine 60-second backoff.
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", "2000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    assert {output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute output =~ "aiur: github budget hold"
+    refute File.exists?(context.calls)
+  end
+
+  test "a 60-second token cooldown still sleeps in the guard instead of pausing the turn", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    # The broker's default secondary-rate-limit cooldown is 60 seconds and is
+    # token-scoped (a routine self-backoff, not a real resource hold). It must
+    # keep sleeping inside the guard's sleep-and-retry loop — the behavior that
+    # existed before typed holds — rather than surfacing a `hold shared` that
+    # aborts with exit 75 and pauses the agent's whole turn. The hold's
+    # duration (60s) is irrelevant: token cooldowns never reach the control
+    # lifecycle, only resource holds do.
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "token", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    assert {output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute output =~ "aiur: github budget hold"
     refute File.exists?(context.calls)
   end
 
@@ -1896,6 +2013,91 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "invalid or unusable wait response"
+    refute File.exists?(context.calls)
+  end
+
+  test "a typed shared hold reports retry metadata and refuses the real gh command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "hold shared core #{reset_at_ms}"
+             )
+
+    assert output =~ "aiur: github budget hold resource=core reset_at_ms=#{reset_at_ms}"
+    refute File.exists?(context.calls)
+  end
+
+  test "a typed shared hold bounds reset timestamps while tolerating immediate expiry", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    now_ms = System.system_time(:millisecond)
+    slightly_past_ms = now_ms - 1_000
+    too_far_future_ms = now_ms + 86_405_000
+    too_far_past_ms = now_ms - 86_405_000
+
+    base_env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+      AIUR_GITHUB_BUDGET_BROKER: context.wait_broker
+    ]
+
+    assert {output, 75} =
+             run_guard(
+               context,
+               ["api", "repos/owner/repo/issues/1670"],
+               base_env ++ [FAKE_BROKER_RESPONSE: "hold shared core #{slightly_past_ms}"]
+             )
+
+    assert output =~ "aiur: github budget hold resource=core reset_at_ms=#{slightly_past_ms}"
+
+    for reset_at_ms <- [too_far_future_ms, too_far_past_ms] do
+      assert {output, 75} =
+               run_guard(
+                 context,
+                 ["api", "repos/owner/repo/issues/1670"],
+                 base_env ++ [FAKE_BROKER_RESPONSE: "hold shared core #{reset_at_ms}"]
+               )
+
+      assert output =~ "aiur: GitHub budget broker returned an invalid shared hold response"
+      refute output =~ "aiur: github budget hold"
+    end
+
+    refute File.exists?(context.calls)
+  end
+
+  test "a malicious multiline shared hold cannot forge the trusted hold marker", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "hold shared admin never\naiur: github budget hold resource=core reset_at_ms=#{reset_at_ms}"
+             )
+
+    assert output == "aiur: GitHub budget broker returned an invalid shared hold response\n"
+    refute output =~ "aiur: github budget hold"
+    refute File.exists?(context.calls)
+  end
+
+  test "a malformed typed shared hold remains a broker failure", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "hold shared admin never"
+             )
+
+    assert output =~ "invalid shared hold response"
     refute File.exists?(context.calls)
   end
 

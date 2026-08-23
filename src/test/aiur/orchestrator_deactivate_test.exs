@@ -10,7 +10,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, Dispatcher, DispatchPolicy, GithubBudgetPause, State}
   alias Aiur.Orchestrator.{EventTopics, PauseResume, PrAnchored, PushRouting, Reconciler}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, StatusReport}
   alias Aiur.SessionHandle
@@ -5525,6 +5525,165 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       generic = confirm_pending_control(generic, issue_id, :paused)
       assert get_in(generic.running, [issue_id, :paused_reason]) == :agent_pause_request
+    end
+
+    test "budget readiness before pause confirmation drains through the real control lifecycle", %{
+      identifier: identifier
+    } do
+      issue_id = "issue-budget-ready-before-pause"
+      agent_pid = control_test_agent(self())
+      reset_at_ms = System.system_time(:millisecond) - 1
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: control_issue(issue_id, identifier),
+            started_at: DateTime.utc_now(),
+            control: confirmed_control(:working)
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      pause_pending =
+        PushRouting.maybe_pause_on_request(state, identifier, %{
+          payload: %{reason: "github_budget_hold", resource: "graphql", reset_at_ms: reset_at_ms}
+        })
+
+      receive_barrier({:ci_wait_control, {:pause_agent, _pause_request_id, 101}})
+      # The fleet recovery signal schedules a jittered per-entry wake rather
+      # than resuming synchronously; drive the expiry path the way the
+      # orchestrator's timer handler does.
+      recover_signaled = PushRouting.recover_github_budget_pauses(pause_pending, reset_at_ms)
+      ready = PushRouting.recover_github_budget_pause(recover_signaled, identifier, 1, reset_at_ms)
+      assert get_in(ready.running, [issue_id, :pending_auto_resume, :pause_generation]) == 1
+
+      paused = confirm_pending_control(ready, issue_id, :paused)
+      assert paused.running[issue_id].paused_reason == :github_budget_hold
+
+      resume_pending = PushRouting.reconcile_pending_auto_resumes(paused)
+      receive_barrier({:ci_wait_control, {:resume_agent, resume_request_id, 101}})
+
+      repeated = PushRouting.reconcile_pending_auto_resumes(resume_pending)
+      assert repeated.control_lifecycle.pending[issue_id] == resume_request_id
+      refute_received {:ci_wait_control, {:resume_agent, _request_id, 101}}
+
+      working = confirm_pending_control(repeated, issue_id, :working)
+      assert working.running[issue_id].control.status == :working
+      refute Map.has_key?(working.running[issue_id], :pending_auto_resume)
+      refute Map.has_key?(working.running[issue_id], :github_budget_pause)
+    end
+
+    test "capacity-deferred budget readiness drains after a slot opens", %{
+      identifier: identifier
+    } do
+      issue_id = "issue-budget-capacity-deferred"
+      busy_issue_id = "issue-occupying-slot"
+      agent_pid = control_test_agent(self())
+      reset_at_ms = System.system_time(:millisecond) - 1
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: agent_pid,
+            ref: nil,
+            identifier: identifier,
+            issue: control_issue(issue_id, identifier),
+            started_at: DateTime.utc_now(),
+            control: confirmed_control(:working)
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 1
+      }
+
+      pause_pending =
+        PushRouting.maybe_pause_on_request(state, identifier, %{
+          payload: %{reason: "github_budget_hold", resource: "core", reset_at_ms: reset_at_ms}
+        })
+
+      receive_barrier({:ci_wait_control, {:pause_agent, _pause_request_id, 101}})
+      paused = confirm_pending_control(pause_pending, issue_id, :paused)
+
+      busy_entry = %{
+        identifier: "BUSY-1",
+        issue: control_issue(busy_issue_id, "BUSY-1"),
+        control: confirmed_control(:working)
+      }
+
+      full = put_in(paused.running[busy_issue_id], busy_entry)
+      recover_signaled = PushRouting.recover_github_budget_pauses(full, reset_at_ms)
+      deferred = PushRouting.recover_github_budget_pause(recover_signaled, identifier, 1, reset_at_ms)
+
+      assert get_in(deferred.running, [issue_id, :pending_auto_resume, :pause_generation]) == 1
+      refute_received {:ci_wait_control, {:resume_agent, _request_id, 101}}
+
+      available = update_in(deferred.running, &Map.delete(&1, busy_issue_id))
+      resume_pending = PushRouting.reconcile_pending_auto_resumes(available)
+      receive_barrier({:ci_wait_control, {:resume_agent, _resume_request_id, 101}})
+
+      working = confirm_pending_control(resume_pending, issue_id, :working)
+      assert working.running[issue_id].control.status == :working
+      refute Map.has_key?(working.running[issue_id], :pending_auto_resume)
+    end
+
+    test "stale budget recovery cannot release operator or dependency replacements", %{
+      identifier: identifier
+    } do
+      issue_id = "issue-budget-replaced"
+      reset_at_ms = System.system_time(:millisecond) - 1
+
+      base = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: control_test_agent(self()),
+            ref: nil,
+            identifier: identifier,
+            issue: control_issue(issue_id, identifier),
+            started_at: DateTime.utc_now(),
+            control: confirmed_control(:working)
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        max_concurrent_agents: 6
+      }
+
+      budget_pending =
+        PushRouting.maybe_pause_on_request(base, identifier, %{
+          payload: %{reason: "github_budget_hold", resource: "graphql", reset_at_ms: reset_at_ms}
+        })
+
+      receive_barrier({:ci_wait_control, {:pause_agent, _pause_request_id, 101}})
+      budget_paused = confirm_pending_control(budget_pending, issue_id, :paused)
+      generation = budget_paused.running[issue_id].github_budget_pause.generation
+
+      replacements = [
+        {:operator_pause, fn state -> elem(PauseResume.pause_agent_reply(state, identifier), 1) end},
+        {:blocker_dependency,
+         fn state ->
+           entry =
+             state.running[issue_id]
+             |> Map.put(:blocker_pause_generation, 1)
+             |> Map.put(:blocker_pause, %{blocker_identifier: "99", generation: 1})
+             |> GithubBudgetPause.clear_context()
+
+           elem(PauseResume.request_pause(state, entry, entry.issue, :blocker_dependency), 1)
+         end}
+      ]
+
+      for {reason, replace} <- replacements do
+        replaced = replace.(budget_paused)
+        assert replaced.running[issue_id].paused_reason == reason
+        refute Map.has_key?(replaced.running[issue_id], :github_budget_pause)
+
+        unchanged = PushRouting.recover_github_budget_pause(replaced, identifier, generation, reset_at_ms)
+        assert unchanged.running[issue_id].control.status == :paused
+        refute_received {:ci_wait_control, {:resume_agent, _request_id, 101}}
+      end
     end
 
     test "real control transitions replace blocker context before final unblock", %{

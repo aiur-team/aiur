@@ -1672,6 +1672,24 @@ valid_budget_lease() {
   [ "${#1}" -eq 32 ]
 }
 
+valid_budget_hold_reset() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+
+  python3 - "$1" <<'PY'
+import sys
+import time
+
+# Mirrors the Elixir-side bounded window in `GithubBudgetPause.parse/3`: a
+# reset no more than 24h in the future or 5 minutes in the past is a live
+# hold; anything older in the past is a stale or forged value and must not be
+# accepted as a typed hold (which would clamp to a zero delay and re-pause
+# immediately).
+reset_at_ms = int(sys.argv[1])
+now_ms = time.time_ns() // 1_000_000
+sys.exit(0 if now_ms - 300_000 <= reset_at_ms <= now_ms + 86_400_000 else 1)
+PY
+}
+
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
@@ -1724,6 +1742,22 @@ budget_acquire() {
           return 0
         fi
         printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
+        return 75
+        ;;
+      "hold shared "*)
+        budget_hold=${budget_result#hold shared }
+        budget_hold_resource=${budget_hold%% *}
+        budget_hold_reset_at_ms=${budget_hold#* }
+        case "$budget_hold_resource:$budget_hold_reset_at_ms" in
+          core:*|graphql:*)
+            if valid_budget_hold_reset "$budget_hold_reset_at_ms"; then
+              printf 'aiur: github budget hold resource=%s reset_at_ms=%s\n' \
+                "$budget_hold_resource" "$budget_hold_reset_at_ms" >&2
+              return 75
+            fi
+            ;;
+        esac
+        printf '%s\n' 'aiur: GitHub budget broker returned an invalid shared hold response' >&2
         return 75
         ;;
       "wait "*)
@@ -2473,7 +2507,13 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   case "$size" in
     ''|*[!0-9]*) size=0 ;;
   esac
-  if [ "$size" -gt 1048576 ]; then mv -f "$events_file" "$events_file.1" 2>/dev/null || true; fi
+  # Retention (#2255): keep the previous two generations so the agent-side
+  # request record survives the whole detection latency of a budget anomaly
+  # (hours), not just the rolling hour the broker's `admissions` table keeps.
+  if [ "$size" -gt 1048576 ]; then
+    if [ -f "$events_file.1" ]; then mv -f "$events_file.1" "$events_file.2" 2>/dev/null || true; fi
+    mv -f "$events_file" "$events_file.1" 2>/dev/null || true
+  fi
 
   # The resource column tells the daemon which budget the call was billed to.
   # Without it every agent call was counted against core, and a GraphQL query —
@@ -2510,8 +2550,14 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
       ;;
   esac
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" \
-    >> "$events_file" 2>/dev/null || true
+  # The token fingerprint (never the token) answers "which pool did this bill"
+  # without a live /proc sweep, and the wrapper pid lets the daemon correlate
+  # the call with the subprocess-spawn log of the ticket that made it (#2255).
+  # Both are best-effort: an empty fingerprint (budget disabled) or a blank
+  # column degrades to an unattributed row, never a refused call. The call-site
+  # column sits between the resource and the fingerprint so the subcommand that
+  # made each call is named on the same row (#2299).
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" "${budget_key:-}" "$$" >> "$events_file" 2>/dev/null || true
 fi
 
 error_file=
