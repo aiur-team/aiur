@@ -84,6 +84,14 @@ defmodule Aiur.AlertFeedTest do
 
       assert AlertFeed.condition_state("system.dispatch.prewarm_blocked", ledger_paths: [ledger]) == :resolved
       assert AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked.resolved", ledger_paths: [ledger])
+
+      assert AlertFeed.condition_states(
+               ["system.dispatch.prewarm_blocked", "system.dispatch.never_seen"],
+               ledger_paths: [ledger]
+             ) == %{
+               "system.dispatch.prewarm_blocked" => :resolved,
+               "system.dispatch.never_seen" => :unknown
+             }
     end
 
     test "never treat a non-resolution topic as a duplicate", %{ledger: ledger} do

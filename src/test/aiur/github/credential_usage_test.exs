@@ -103,6 +103,16 @@ defmodule Aiur.GitHub.CredentialUsageTest do
     assert pool["core"].observed_credentials == 0
   end
 
+  test "an unavailable credential keeps its recorded admissions", %{actors: actors} do
+    unavailable = credential("primary", primary?: true, writes?: true)
+    opts = [credentials: [unavailable], windows: %{}, now: @now, usage_fun: fn -> %{actors: actors} end]
+
+    assert [row] = CredentialUsage.rows(opts)
+    refute row.available?
+    assert row.admissions["graphql"].used == 1_900
+    assert row.actors == ["daemon:aiur@host"]
+  end
+
   describe "aiur github-usage" do
     test "reports per credential and the pool", %{opts: opts, actors: actors} do
       {:ok, envelope} = Aiur.GitHubUsageCLI.build(Keyword.put(opts, :usage_fun, fn -> %{actors: actors} end))

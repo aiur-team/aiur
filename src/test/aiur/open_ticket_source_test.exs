@@ -1,6 +1,7 @@
 defmodule Aiur.OpenTicketSourceTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.GitHub.RequestOrigin
   alias Aiur.OpenTicketSource
   alias Aiur.OpenTicketSource.Snapshot
 
@@ -132,6 +133,52 @@ defmodule Aiur.OpenTicketSourceTest do
 
   test "snapshot/1 answers unavailable instead of exiting when the poller is gone" do
     assert %Snapshot{status: :unavailable} = OpenTicketSource.snapshot(:no_such_open_ticket_source)
+  end
+
+  test "propagates a LiveView request origin into an asynchronous refresh" do
+    test_pid = self()
+
+    request_fun = fn request ->
+      send(test_pid, {:view_originated, RequestOrigin.view_originated?(), request})
+      {:ok, %{status: 200, body: [], headers: []}}
+    end
+
+    server = start_source(request_fun: request_fun)
+
+    RequestOrigin.carry(true, fn ->
+      assert :ok = OpenTicketSource.refresh(server)
+    end)
+
+    assert_receive {:view_originated, true, %{method: :get}}, 2_000
+  end
+
+  test "keeps a background request origin out of an asynchronous refresh" do
+    test_pid = self()
+
+    request_fun = fn request ->
+      send(test_pid, {:view_originated, RequestOrigin.view_originated?(), request})
+      {:ok, %{status: 200, body: [], headers: []}}
+    end
+
+    server = start_source(request_fun: request_fun)
+
+    assert :ok = OpenTicketSource.refresh(server)
+    assert_receive {:view_originated, false, %{method: :get}}, 2_000
+  end
+
+  test "keeps the periodic poll outside the LiveView request origin" do
+    test_pid = self()
+
+    request_fun = fn request ->
+      send(test_pid, {:view_originated, RequestOrigin.view_originated?(), request})
+      {:ok, %{status: 200, body: [], headers: []}}
+    end
+
+    server = start_source(request_fun: request_fun)
+
+    RequestOrigin.carry(true, fn -> send(server, :poll) end)
+
+    assert_receive {:view_originated, false, %{method: :get}}, 2_000
   end
 
   defp start_source(opts) do

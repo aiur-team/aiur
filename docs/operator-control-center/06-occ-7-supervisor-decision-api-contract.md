@@ -22,9 +22,15 @@ Authorization: Bearer <AIUR_SUPERVISOR_TOKEN>
 
 `AIUR_SUPERVISOR_TOKEN` is independent of dashboard Basic Auth. It must be at
 least 32 bearer-safe bytes, contain no surrounding whitespace, and is read on
-each request so rotation is immediate. Missing, weak, malformed, duplicated, or
-mismatched credentials all return the same redacted `401` response. The token
-is never accepted from JSON, persisted, published, or logged.
+each request so rotation is immediate. Generate one with
+`openssl rand -base64 32`, then set `AIUR_SUPERVISOR_TOKEN=<generated-token>` in
+`~/.aiur/.env` for all projects or the repository `.env` for one project. An
+exported value wins, followed by the global file and then the repository file.
+An absent or empty token disables the API, while a present non-empty unusable
+value aborts startup. Requests without a usable instance credential, requests
+with a missing or malformed Authorization header, and valid-shaped credential
+mismatches return distinct redacted `401` responses. The token is never
+accepted from JSON, persisted, published, or logged.
 
 Bearer credentials do not encrypt traffic. Keep the dashboard on loopback or a
 private tunnel, or put it behind an HTTPS reverse proxy before allowing remote

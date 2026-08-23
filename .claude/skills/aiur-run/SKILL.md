@@ -22,7 +22,23 @@ Identify the working repository and first read its machine-local Executor
 handoff at `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`, then read its
 `AGENTS.md`, `CONTRIBUTING.md`, and Aiur config. The handoff is the first
 source of truth for run-specific context, ahead of repository documentation;
-it does not replace GitHub or Aiur for live facts. Record the authority envelope from the
+it does not replace GitHub or Aiur for live facts.
+
+That last clause is the one runs keep violating. A handoff's *standing items* are
+claims about live state — what is broken, what is disabled, what is blocked — and
+they are exactly the content that goes stale. **Re-verify each one against the
+system that owns it before acting on it or repeating it**, and prefer the
+external system of record over any local file: `gh api` over `.aiur/config`,
+delivery history over a tunnel's status, the running daemon's behaviour over a
+merge commit.
+
+On 2026-08-22 a run inherited "webhook ingress was never enabled", confirmed it
+by checking a tunnel that was never the transport in use, repeated it in five
+hourly logs, and asked the operator to build infrastructure that already
+existed. One `gh api /repos/O/R/hooks/<id>/deliveries` would have shown `202 OK`
+at any point. Treat an inherited claim as a lead, never as a finding.
+
+Record the authority envelope from the
 Executor reference: scope, issue creation/comment, review, merge, self-fix,
 concurrency, cadence, debug mode, and terminal condition. Record external issue
 mutation authority separately from debug mode; one never implies the other.
@@ -541,7 +557,11 @@ On every observation:
   busywork or agents that pause repeatedly with nothing to do;
 - do not inflate utilization by waking `ci-wait`, human-review, dependency-
   blocked, or conflict-bound tickets. Those are external gates, not idle worker
-  lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine;
+  lanes. Instead fill reviewer capacity and staff the unblocker/fan-out spine.
+  **Reviewer capacity is something you create, not something you wait for** —
+  fan background agents out across the open PRs in parallel, one per PR, per
+  "Review the queue in parallel" below. When the queue is growing and nothing is
+  approved, raising `max-agents` makes it worse;
 - classify discoveries before ticket creation, prefer contained rework, and
   freeze creation when promoted/created tickets outpace completions;
 - keep feature critical-path counts/ETA separate from the deferred reliability
@@ -699,6 +719,98 @@ must remember. `scope` is `aiur` when the finding reproduces on any repository
 and `repo` when it names this repository's tests, CI, or code. `status` moves
 `open` -> `filed` -> `resolved`. A record left at `ticket: null` is deliberately
 visible to the unfiled gate, not an accepted completed state.
+
+### Review the queue in parallel, with background agents
+
+**Review is the Executor's own throughput ceiling, and reviewing serially is the
+single easiest way to become the bottleneck.** A fleet of N agents produces PRs
+at N times the rate one reader clears them. On 2026-08-22 twelve agents ran
+against one reviewer and the queue reached 32 non-draft PRs with **zero
+approved** — every PR had been looked at, and none could merge.
+
+So do not read PRs one at a time. **Dispatch one background agent per PR (or per
+tightly-coupled pair) and run them concurrently**, then post the reviews
+yourself. This is the same parallelism the run applies to implementation, applied
+to the lane that gates it.
+
+**Check load before every fan-out, and again before topping up.** Review agents
+run `mix test`; each one is a BEAM plus a compile. They are *not* governed by
+`agent.max_load_average` — that gate holds the Aiur fleet, and nothing holds
+these. On 2026-08-22 a fan-out of eight reviewers alongside eleven fleet agents
+drove a 16-core box to **load 45 against a threshold of 24**, with an 83 five-minute
+average and 31 concurrent BEAMs. The fleet correctly reported `binding: load+cpu
+contention` and stopped dispatching; the reviewers kept going, because nothing
+told them not to.
+
+Read `/proc/loadavg` and `free -g` first. If one-minute load is already near the
+threshold, dispatch fewer and top up as they return rather than launching the
+whole set. Prefer batching several small PRs into one agent over one agent per PR
+when the box is busy — the wall-clock cost of a queued agent is lower than the
+cost of freezing the host the fleet is working on.
+
+**Watch for rework while you review.** Rework lands minutes after a review, and
+`gh pr list` shows `CHANGES_REQUESTED` identically whether the author has
+responded or not. The only way to see it is to compare each PR's last commit
+timestamp against its last review timestamp. Measured on this repo:
+**15 of 20 PRs showing `CHANGES_REQUESTED` had been reworked since the review
+that blocked them, and 12 of those were mergeable with zero failing checks.** The
+queue was not blocked — it was unattended, and three quarters of it was already
+finished work waiting for a second look nobody scheduled.
+
+One asymmetry explains why this only ever accumulates: a branch ruleset with
+`dismiss_stale` dismisses stale **approvals** on push, and nothing dismisses a
+stale **`CHANGES_REQUESTED`**. Worse, the stale block keeps re-routing the ticket
+to `agent:rework`, sending an agent to redo work that is already done. A
+re-review is far cheaper than the first pass: scope it to *"were these named
+blockers fixed?"*, passing the original findings with their file:line, and ask
+for FIXED / NOT FIXED / PARTIAL per blocker rather than a fresh read.
+
+**Name a unique worktree path in the prompt.** Concurrent review agents share a
+scratchpad root, and left to choose for themselves they pick the same obvious
+name — `wt`, `worktree`, `pr`, `build`. When two collide, the second repoints the
+checkout at a different branch *mid-run*, and the first agent's mutation test
+then runs against a tree that never contained the change it just reverted. That
+returns "the test still passed with the production change reverted" — which reads
+as missing coverage and is actually a wrong-checkout artifact. It is the
+confident-wrong-number failure applied to the evidence that gates a merge.
+
+One agent caught this and redid its run; the cost of not catching it is a false
+verdict on a PR. Give each agent a path carrying both the PR number and a
+per-agent unique component, since two agents may legitimately review the same PR.
+Tracked as #2362.
+
+What a review agent needs in its prompt, every time:
+
+- **The established facts it must not re-derive.** Measured numbers, the file:line
+  of the mechanism, which claims were already corrected. A reviewer that
+  re-discovers context spends its budget on what you already know, and a
+  reviewer given a stale "fact" will confidently confirm it.
+- **The boundaries that make an approval wrong.** Name the invariants a change
+  must not violate — on this repo, the `@unsafe_selections` refusals in
+  `read_cache/policy.ex` are correct and a PR that "improves the cache hit rate"
+  by caching verdict state is a reject, not a nitpick.
+- **Mutation-testing discipline, explicitly.** Require the agent to check whether
+  each new test still passes with the production change reverted, and to **name
+  any test that does**. This is what separates a review from a summary. It has
+  repeatedly found tests that assert pre-existing behaviour: a `%{}` pattern that
+  matches any map, a vacuous global-pause test, an assertion pinned to a constant
+  the change never touches.
+- **The test-run hazard.** `mix test test/some_dir/` silently excludes
+  `test/aiur/*.exs` one level up. Require the exact command run to be reported.
+- **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,
+  push, or run a mutation. Two agents in one checkout is a data-loss bug: one
+  `git reset --hard` destroyed another agent's uncommitted work.
+- **Instruction not to post to GitHub.** The agent returns text; you post the
+  review under the merge identity. Keep authorship and authority in one place.
+
+Review **coupled PRs together in one agent**, not separately. Two PRs touching
+the same seam can each be sound and still be incoherent merged — and the trap is
+that the production files conflict while every test file auto-merges cleanly, so
+the resolver sees no markers and inherits a mutually unsatisfiable suite. Ask
+explicitly for a merge-order recommendation.
+
+After posting, relabel — see the rework note above. A review that does not move
+the ticket out of `agent:human-review` is a review nobody acts on.
 
 ### Merge mechanics
 

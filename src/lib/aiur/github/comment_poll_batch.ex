@@ -35,7 +35,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, PollSnapshots, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -64,6 +64,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # estimate predicts, and a smaller thread page would push every busy pull
   # request onto the paginated fallback each cycle. There is no budget worth
   # buying with review-comment risk.
+  #
+  # A target whose pull request a **webhook delivery already identified**
+  # (`Aiur.GitHub.DeliveredPullRequest`) skips the speculation entirely: it
+  # contributes one `pullRequest(number:)` alias instead of an
+  # `issueOrPullRequest` alias plus up to two `pullRequests(headRefName:)`
+  # connections. Three aliases become one, and because the surviving alias is a
+  # pull request rather than a maybe-issue it carries `reviewThreads` that are
+  # actually used, so the poller's separate per-pull-request
+  # `review_threads_unaddressed` call for that target does not happen at all.
+  # Nothing whose staleness could mislead the daemon is taken from the store —
+  # only the number.
   @targets_per_query 33
   @pull_requests_per_branch 2
 
@@ -74,7 +85,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      chunks = targets |> Enum.map(&target_entry(&1, opts)) |> Enum.chunk_every(@targets_per_query)
+      repo_identity = owner <> "/" <> repo
+      started_at_ms = System.system_time(:millisecond)
+
+      chunks =
+        targets
+        |> Enum.map(&target_entry(&1, owner, repo, opts, repo_identity, started_at_ms))
+        |> Enum.chunk_every(@targets_per_query)
 
       if length(chunks) > 1 do
         Logger.warning("Github comment GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
@@ -94,7 +111,44 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp target_entry(target, opts) do
+  # DeliveredPullRequest owns exact identity freshness. The review-thread
+  # snapshot composes onto that result, or onto the already-known PR number
+  # supplied by orchestration when delivery identity is unavailable.
+  defp target_entry(target, owner, repo, opts, repo_identity, started_at_ms) do
+    entry =
+      case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
+        number when is_integer(number) -> %{target: target, pull_request_number: number}
+        nil -> branch_target_entry(target, opts)
+      end
+
+    snapshot_pr_number = Map.get(entry, :pull_request_number) || known_pull_request_number(target, opts)
+
+    cached_threads =
+      case PollSnapshots.review_threads(repo_identity, snapshot_pr_number, opts) do
+        {:ok, threads} -> threads
+        :miss -> nil
+      end
+
+    Map.merge(entry, %{
+      cached_threads: cached_threads,
+      repo_identity: repo_identity,
+      snapshot_pr_number: snapshot_pr_number,
+      started_at_ms: started_at_ms
+    })
+  end
+
+  defp known_pull_request_number(target, opts) do
+    case opts |> Keyword.get(:open_pull_requests_by_target, %{}) |> Map.get(target) do
+      %{"number" => number} when not is_nil(number) -> number
+      # No known PR for this target. The ticket id is *not* a substitute: it
+      # would key the snapshot of whichever pull request happens to carry that
+      # number. `cached_threads_match?/2` re-checks the number before use, so
+      # the wrong key only wasted a lookup, but a nil key cannot be wrong.
+      _other -> nil
+    end
+  end
+
+  defp branch_target_entry(target, opts) do
     case known_branch(target, opts) do
       nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
       branch -> %{target: target, branches: [branch], known_branch: true}
@@ -161,7 +215,19 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp target_aliases(%{target: target, branches: branches}, index) do
+  # A delivery already named the pull request, so the speculative half of the
+  # document goes away. The `issueOrPullRequest` alias goes with it: it exists to
+  # catch a target that is itself a pull request, and a target the store holds a
+  # `:branch_pull_request` body for is a *ticket* — GitHub numbers issues and
+  # pull requests in one sequence, so the pull request opened for ticket N always
+  # has a number greater than N and can never be N itself.
+  defp target_aliases(%{pull_request_number: number} = entry, index) when is_integer(number) do
+    """
+    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields(entry)} }
+    """
+  end
+
+  defp target_aliases(%{target: target, branches: branches} = entry, index) do
     branch_aliases =
       branches
       |> Enum.with_index()
@@ -170,7 +236,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
       ... on Issue { __typename }
-      ... on PullRequest { #{pull_request_fields()} }
+      ... on PullRequest { #{pull_request_fields(entry)} }
     }
     #{branch_aliases}
     """
@@ -199,7 +265,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp pull_request_fields do
+  defp pull_request_fields(%{cached_threads: threads}) when is_list(threads), do: pull_request_identity_fields()
+
+  defp pull_request_fields(_entry) do
     """
     #{pull_request_identity_fields()}
     reviewThreads(first: 100) {
@@ -217,7 +285,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
       case pull_request_for_entry(entry, direct, repository, index) do
         {:ok, pull_request} ->
-          Map.put(acc, entry.target, target_batch(entry.target, direct, pull_request, opts))
+          Map.put(acc, entry.target, target_batch(entry, direct, pull_request, opts))
 
         :unknown ->
           # The PR lookup was inconclusive (overflowed branch listing or a
@@ -236,6 +304,26 @@ defmodule Aiur.GitHub.CommentPollBatch do
   end
 
   defp pull_request_for_entry(_entry, %{kind: :pull_request} = direct, _repository, _index), do: {:ok, direct}
+
+  # The delivered number is an identity claim, and this is where GitHub either
+  # confirms it or does not. A pull request that has since closed is *not*
+  # answered as "no open pull request for this ticket" — a closed one is exactly
+  # the state in which a newer one may exist — so the target falls out to the
+  # poller's own lookup for this cycle. The next `pull_request` delivery
+  # overwrites the store entry with `"state" => "closed"` and the identity stops
+  # being offered at all.
+  defp pull_request_for_entry(%{pull_request_number: _number} = entry, _direct, repository, index) do
+    case Map.get(repository, "delivered_#{index}") do
+      %{"headRefName" => _ref} = node ->
+        if open_pull_request_node?(node),
+          do: {:ok, normalize_pull_request(node, Map.has_key?(node, "reviewThreads"))},
+          else: :unknown
+
+      _other ->
+        Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
+        :unknown
+    end
+  end
 
   defp pull_request_for_entry(entry, _direct, repository, index) do
     connections =
@@ -267,6 +355,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
+  defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
+
   defp branch_pull_request(%{known_branch: false}, []), do: :unknown
   defp branch_pull_request(_entry, []), do: {:ok, nil}
   defp branch_pull_request(_entry, [node | _rest]), do: {:ok, normalize_pull_request(node, false)}
@@ -276,10 +366,13 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # goes through the conditional REST path. That is the inversion: the priced
   # request is no longer the default and the free one no longer the error
   # handler.
-  defp target_batch(target, _direct, pull_request, opts) do
+  defp target_batch(entry, _direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
 
     cond do
+      cached_threads_match?(entry, pull_request) ->
+        Map.put(batch, :review_thread_comments, ReviewThreads.unaddressed_thread_comments(entry.cached_threads, opts))
+
       not threads_included?(pull_request) ->
         # Identity came from a branch alias, which does not carry threads.
         # Omitting the key is the whole point: an empty list here would read as
@@ -288,10 +381,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
         batch
 
       review_threads_overflow?(pull_request) ->
-        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{target}")
+        Logger.warning("Github comment GraphQL batch overflow: review_threads target=#{entry.target}")
         batch
 
       true ->
+        PollSnapshots.put_review_threads(
+          entry.repo_identity,
+          Map.get(pull_request, "number"),
+          Map.get(pull_request, :review_threads, []),
+          started_at_ms: entry.started_at_ms
+        )
+
         Map.put(
           batch,
           :review_thread_comments,
@@ -299,6 +399,12 @@ defmodule Aiur.GitHub.CommentPollBatch do
         )
     end
   end
+
+  defp cached_threads_match?(%{cached_threads: threads, snapshot_pr_number: pr_number}, %{} = pull_request) when is_list(threads) do
+    to_string(Map.get(pull_request, "number")) == to_string(pr_number)
+  end
+
+  defp cached_threads_match?(_entry, _pull_request), do: false
 
   defp threads_included?(%{threads_included?: true}), do: true
   defp threads_included?(_pull_request), do: false
@@ -312,7 +418,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   end
 
   defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request),
-    do: normalize_pull_request(pull_request, true)
+    do: normalize_pull_request(pull_request, Map.has_key?(pull_request, "reviewThreads"))
 
   defp normalize_issue_or_pull_request(_issue), do: %{kind: :issue}
 

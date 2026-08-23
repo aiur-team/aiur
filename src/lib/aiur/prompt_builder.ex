@@ -111,6 +111,28 @@ defmodule Aiur.PromptBuilder do
     """
   end
 
+  @doc """
+  Restates the exhaustive test-tree audit for continuation prompts.
+
+  Cold-start prompts carry the full policy in shared agent instructions, but
+  in-process and resumed-session continuations intentionally do not replay that
+  block. Restating this narrow safety rule keeps long-lived agents from missing
+  a policy added after their original prompt was built.
+  """
+  @spec rename_test_audit_restatement() :: String.t()
+  def rename_test_audit_restatement do
+    """
+
+    ## Rename and signature-change test audit (restated)
+
+    Before pushing a function rename, option-key rename, or signature change, search the complete test tree with
+    `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` and account for every hit. Directory-scoped runs do
+    not cover sibling root-level files: `test/aiur/github/` does not collect `test/aiur/github_client_test.exs`.
+    `mix aiur.affected_tests` also adds every test file matching a reference deleted from a source diff hunk.
+
+    """
+  end
+
   # Appends the dev-configured guidance for the issue's complexity level
   # (agent.complexity_prompts) to the end of the rendered prompt. No label
   # or no configured string for that level leaves the prompt untouched.

@@ -119,7 +119,7 @@ there is.
 hand unless something is broken.
 
 ```text
-aiurdev                       # foreground run, local-only bind (full interactive UI)
+aiurdev                       # start foreground, or attach to this checkout's live session
 aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
 aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
 aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
@@ -213,7 +213,12 @@ The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
 from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
 credential precedence is: an already-exported environment value, then
 `~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
-fills unset names. Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
+fills unset names. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
+generate one with `openssl rand -base64 32`. The value must be at least 32
+bearer-safe bytes with no surrounding whitespace. An absent or empty value
+disables the API, while a present non-empty unusable value aborts startup.
+Provider keys use
+`MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
 `OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
 Keep the global per-user file outside Git trees and never commit either dotenv
 file. `aiur init` also reads `.env` for the GitHub token during setup.
@@ -227,6 +232,20 @@ policy.
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
+
+**Before changing anything that talks to GitHub — polling, budgets, the read
+cache, webhooks, credentials — read
+[`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
+the source of truth for how Aiur uses the GitHub API: what it polls and how
+often, how the Core/GraphQL budgets are metered and attributed, how to read
+`aiur github-cost` without misinterpreting it, which reads the cache refuses on
+purpose, the webhook delivery states and how they widen polling, and the
+Cloudflare tunnel boundary that keeps the dashboard off the public internet.
+
+Keep that page current when you change the behaviour it describes, and link to
+it rather than restating it — a second copy is a copy that goes stale. A run in
+2026-08 spent a day planning around webhook ingress it believed was missing and
+a reconciliation gap it read as a leak; that page already documented both.
 
 ## Compound Engineering
 

@@ -11,6 +11,7 @@ defmodule Aiur.Events.LsRemoteTickerTest do
   alias Aiur.Events.{BranchRefStore, LsRemoteTicker}
 
   setup do
+    :ok = Aiur.TestSupport.ensure_runtime_children_running()
     :ok = BranchRefStore.reset()
     parent = self()
 

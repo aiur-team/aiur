@@ -4,7 +4,7 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
-  alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.{Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Workspace.Remote
 
@@ -30,6 +30,17 @@ defmodule Aiur.AgentEnvironment do
   @operator_only_env_names ~w(AIUR_CI_READINESS_TOKEN)
   @provider_credential_env_names ~w(DEEPSEEK_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY OPENROUTER_MANAGEMENT_KEY)
   @provider_api_key_pattern ~r/_API_KEY\z/
+  # The GitHub App credentials are the DAEMON's identity (#2266). Agents publish
+  # as the bot account and carry its `GITHUB_TOKEN` PAT; the App installation is
+  # deliberately a different login (see `AgentGitHubGuard`), and it is the
+  # branch-protection bypass actor. An agent holding the App id, installation id
+  # and private key can mint its own installation token, which passes through
+  # neither `Aiur.GitHub.Transport` (so `Quota` never sees it) nor the `gh` guard
+  # (so no `admissions` row exists) — unmetered spend against the App's GraphQL
+  # pool. Scrubbed by prefix rather than by name so a credential added later
+  # (`GITHUB_APP_CLIENT_SECRET`, …) is covered the day it is introduced.
+  @app_credential_env_names ~w(GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH)
+  @app_credential_env_pattern ~r/\AGITHUB_APP_/
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
@@ -96,13 +107,14 @@ defmodule Aiur.AgentEnvironment do
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
            @restart_build_env_names ++
-           @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
+           @parent_log_env_names ++
+           @operator_only_env_names ++ @provider_credential_env_names ++ @app_credential_env_names,
          " "
        ) <>
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|GITHUB_APP_*) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -178,6 +190,18 @@ defmodule Aiur.AgentEnvironment do
   end
 
   @doc """
+  Every GitHub App credential variable to remove from an agent's environment:
+  the known names plus anything the daemon inherited under the same
+  `GITHUB_APP_` prefix. See the attribute comment for why agents must not hold
+  these (#2266).
+  """
+  @spec app_credential_env_names() :: [String.t()]
+  def app_credential_env_names do
+    inherited = System.get_env() |> Map.keys() |> Enum.filter(&Regex.match?(@app_credential_env_pattern, &1))
+    Enum.uniq(@app_credential_env_names ++ inherited)
+  end
+
+  @doc """
   Return Port-compatible env tuples (`{charlist_name, charlist_value}`) for
   repository-node `HEX_HOME` / `MIX_HOME` / `MISE_TRUSTED_CONFIG_PATHS` plus the
   workflow's authoritative `AIUR_BASE_BRANCH`. The agent inherits these so it
@@ -208,7 +232,8 @@ defmodule Aiur.AgentEnvironment do
           @daemon_dump_env_names ++
           @restart_build_env_names ++
           @parent_log_env_names ++
-          @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
+          @operator_only_env_names ++
+          provider_credential_env_names() ++ app_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
       )
 
@@ -245,12 +270,14 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
+        {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", publication_credential_key(opts) |> String.to_charlist()},
         {~c"AIUR_GITHUB_MAX_INFLIGHT", github_budget.max_inflight |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_STAGGER_MS", github_budget.stagger_ms |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", github_budget.agent_core_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", github_budget.agent_graphql_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR", github_budget.agent_search_limit_per_hour |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
@@ -376,6 +403,7 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
       "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
+      publication_credential_export(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
       "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
@@ -384,6 +412,7 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_GITHUB_STAGGER_MS=#{github_budget.stagger_ms}\n" <>
       "export AIUR_GITHUB_CORE_LIMIT_PER_HOUR=#{github_budget.agent_core_limit_per_hour}\n" <>
       "export AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR=#{github_budget.agent_graphql_limit_per_hour}\n" <>
+      "export AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR=#{github_budget.agent_search_limit_per_hour}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
       ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
@@ -394,6 +423,23 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
+
+  defp publication_credential_key(opts) do
+    %Credential{id: "primary", kind: :machine_user, identity: publication_credential_identity(opts)}
+    |> Credential.identity_key()
+  end
+
+  defp publication_credential_identity(opts) do
+    Keyword.get_lazy(opts, :github_budget_identity, &GitHubConfig.bot_account/0)
+  rescue
+    _unavailable -> nil
+  catch
+    :exit, _reason -> nil
+  end
+
+  defp publication_credential_export(opts) do
+    "export AIUR_GITHUB_BUDGET_IDENTITY_KEY=#{Aiur.Shell.escape(publication_credential_key(opts))}\n"
+  end
 
   defp build_gate_export_prefix(workspace, opts) do
     if Keyword.get(opts, :build_gate, false) do

@@ -638,6 +638,16 @@ textarea:focus-visible,
   padding: 0 0.35rem;
 }
 
+/* A zero-member Build Order is empty, not unstarted work at 0%. */
+.bo-catalog-progress-empty {
+  display: inline-block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /* An unresolved catalog count reads as a word rather than a fabricated zero. */
 .bo-catalog-count-unresolved {
   display: inline-block;
@@ -9030,6 +9040,87 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: 0.22rem;
   padding: 0.3rem 0.45rem;
+}
+
+/* The Commands readout: a history heading with the open count, or the selected
+   Command's question and reading. The strip sits in the same full-width slot as
+   cmd and logs so the four surfaces read alike. */
+.sd-strip-commands {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.28rem;
+  height: 100%;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  grid-column: 1 / -2;
+}
+
+.sd-strip-commands-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.53rem;
+  font-weight: 800;
+}
+
+.sd-strip-commands-title {
+  color: var(--fg);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-commands-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--accent-ink);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-commands-status::before {
+  content: "";
+  flex: none;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sd-strip-commands-ticket {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.sd-strip-commands-title + .sd-strip-commands-reading,
+.sd-strip-commands-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.sd-strip-commands-reading {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-strip-commands-note,
+.sd-strip-commands-page {
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-weight: 700;
+}
+
+/* The Commands key grid reuses the cmd-key face so history and option keys
+   read like the other surfaces. */
+.sd-commands-view {
+  display: contents;
+}
+
+.sd-command-keys {
+  min-height: 0;
 }
 
 .sd-log-strip-entry {

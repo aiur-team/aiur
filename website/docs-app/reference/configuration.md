@@ -83,10 +83,12 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
 | `tracker.github.requests_per_minute` | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
 | `tracker.github.stagger_ms` | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
-| `tracker.github.daemon_core_limit_per_hour` | integer | 3000 | Hourly Core (REST) request ceiling for the daemon actor. When the daemon hits it, only the daemon's requests hold until the rolling hour rolls back under it. `0` disables the ceiling. Request-count, not points: the broker sees requests, never the GraphQL point price. |
-| `tracker.github.daemon_graphql_limit_per_hour` | integer | 2000 | Hourly GraphQL request ceiling for the daemon actor. `0` disables. |
-| `tracker.github.agent_core_limit_per_hour` | integer | 1000 | Hourly Core (REST) request ceiling for each agent workspace. When one agent hits it, only that agent's requests hold — the daemon and other agents are unaffected. `0` disables. |
-| `tracker.github.agent_graphql_limit_per_hour` | integer | 500 | Hourly GraphQL request ceiling for each agent workspace. `0` disables. |
+| `tracker.github.daemon_core_limit_per_hour` | integer | 1000 | Hourly billable Core (REST) response ceiling for the daemon actor. A `304` is reconciled as free. When the daemon hits the ceiling, only its requests hold until the rolling hour rolls back under it. `0` disables. Re-derived down against the corrected Core volume after GraphQL commands stopped booking to Core (#2297). |
+| `tracker.github.daemon_graphql_limit_per_hour` | integer | 3000 | Hourly billable GraphQL response ceiling for the daemon actor. `0` disables. Raised from 2000 because `gh pr view`/`gh issue view`/`gh search` are GraphQL on the wire and now book to the GraphQL window (#2297). |
+| `tracker.github.daemon_search_limit_per_hour` | integer | 1000 | Hourly billable `search` response ceiling for the daemon actor. GitHub meters `/search/*` against a third pool (~30 req/min), so `gh search repos|code|commits|users` books there and gets its own pacing rather than folding into core (#2297). `0` disables. |
+| `tracker.github.agent_core_limit_per_hour` | integer | 250 | Hourly billable Core (REST) response ceiling for each agent workspace. When one agent hits it, only that agent holds. `0` disables. Core volume is a small fraction of the measured ledger, so per-agent Core stays small. |
+| `tracker.github.agent_graphql_limit_per_hour` | integer | 750 | Hourly billable GraphQL response ceiling for each agent workspace. `0` disables. Raised from 375: a single agent's normal loop (`pr view`/`issue view`/`pr checks`) crossed the old ceiling in a rolling hour and stalled it, because high-level GraphQL commands now book to the GraphQL window (#2297). |
+| `tracker.github.agent_search_limit_per_hour` | integer | 250 | Hourly billable `search` response ceiling for each agent workspace. GitHub meters `/search/*` against a third pool (~30 req/min), so `gh search repos|code|commits|users` books there and gets its own pacing rather than folding into core (#2297). `0` disables. |
 | `tracker.github.credentials` | array | `[]` | Additional GitHub credentials the daemon spreads read traffic across, so one exhausted budget does not stop the fleet. Empty — the default — means one credential resolved exactly as before. See [Credential pooling](/apis/github#credential-pooling). |
 | `tracker.github.credentials.id` | string | required | Lowercase identifier naming this credential in `aiur github-usage` and `aiur github-cost`. Must be unique. |
 | `tracker.github.credentials.kind` | string | `machine_user` | One of `app_installation`, `machine_user` or `human`. Set it to `human` for a real person's token so Aiur keeps writes off that identity. |
@@ -126,9 +128,15 @@ Freshness thresholds follow this cadence. You do not set them separately.
   staleness against that effective interval.
 - Build Order's own refresh cadences are derived from it too, so an idle fleet
   widens the Build Order catalog sweep exactly as it widens the tracker poll.
+  Since #2312 that sweep runs only while a Build Order page is open; the cadence
+  still follows the effective interval for the pages that are open.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+- The idle widening only applies once the daemon has observed an idle cycle:
+  a freshly restarted fleet starts at the base interval, and a live fleet with
+  dispatchable tickets keeps the base interval so work is not left waiting
+  behind a backed-off sweep (#2138).
 
 ## webhooks
 
@@ -170,6 +178,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
+| `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
 | `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
@@ -296,8 +305,9 @@ Local Codex turns use Aiur's shared build admission.
 | --- | --- |
 | Admission failure | Mix does not run and the ticket reports status `125`. Repair the reported metadata or lock directory, `flock`, or `python3` dependency, then restart or re-dispatch the agent. |
 | `BUILD GATE DEGRADED` | Stop the old fleet, confirm no old Mix verification remains, then clear only the legacy records named in the message. |
-| `BUILD GATE HOLDER` / `BUILD GATE QUEUED` | `aiur status` names every held lease: `slot=`, the owning `pid`, the quoted `command`, and how long it has been `held` (or `waiting` while queued). This tells a correctly-busy gate apart from one pinned by a leaked or dead process. |
-| Dead holder | A lease whose holder has exited is released automatically: Linux releases the flock with the process, and the PID fallback reclaims a slot whose recorded owner and process group are gone. A legitimately long-running build with a live holder keeps its lease — nothing reaps by elapsed time. |
+| `BUILD GATE HOLDER` / `BUILD GATE QUEUED` | `aiur status` names every held lease: `slot=`, the owning `pid`, the quoted `command`, and how long it has been `held` (or `waiting` while queued). This tells a correctly-busy gate apart from one pinned by a leaked or dead process. A slot whose command process group is gone renders as `held without a command` (and its HOLDER line gains `(command gone)`), so `BUILD GATE n/n active` never claims work is happening when nothing is. |
+| Hold-timeout backstop | A slot held past `agent.build_gate_max_hold_seconds` (default 1h) is released by the lease holder itself, which logs and leaves a durable `slot-N.hold-timeout` marker. `aiur status` prints those as `BUILD GATE TIMEOUT` lines, and the daemon raises a needs-attention alert naming the command — the same backstop bounds both a leaked holder waiting on reparented daemons and a `--trace` run that monopolises a slot. |
+| Dead holder | A lease whose holder has exited is released automatically: Linux releases the flock with the process, and the PID fallback reclaims a slot whose recorded owner and process group are gone. A legitimately long-running build with a live holder keeps its lease; only the absolute max-hold backstop reaps by elapsed time. |
 | Explicit opt-out | Set `agent.max_concurrent_builds: 0`, set `agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This removes every build safeguard. |
 
 Build admission covers direct `mix compile` / `mix test`, `mix do` compounds using `+`
@@ -346,7 +356,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
 | `agent.codex.approval_policy` | string or map | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
 | `agent.codex.thread_sandbox` | string | `workspace-write` | Thread sandbox mode. |
-| `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. |
+| `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. For local `workspaceWrite`, `writableRoots` contains optional daemon-host extras; every entry must already exist and be writable. Aiur derives the current issue workspace and enabled shared GitHub budget root. Configured extras are not forwarded to SSH workers. |
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
@@ -519,7 +529,9 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set.
 
-The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
+The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential. Generate it with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local).
+
+An exported value wins, followed by the global file and then the repository file. The value must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup; an absent or empty value leaves the API disabled.
 
 ## decisions
 
@@ -560,7 +572,7 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence while a Build Order page is open. Since #2312 the catalog is demand-gated: no page open, no refresh. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
@@ -582,8 +594,16 @@ identity, member count and update time, plus a digest of its members' states —
 a watched root whose marker moved is re-read once, as is a watched root that has
 never been read.
 
-Opening the Build Order page, selecting a root, and holding it open consume zero
-GitHub reads.
+Selecting a root and holding it open consume zero GitHub reads.
+
+The **catalog** itself is different: it is the most expensive single query in the
+system, and since #2312 it is demand-gated on an open Build Order page. Opening
+`/build-orders` renders the stored snapshot immediately (with its age), then buys
+one refresh on mount.
+
+While any Build Order page stays open the catalog reconciles on the cadence
+below; closing the last page stops it entirely, so a headless run — the normal
+case — buys none of it.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
@@ -615,8 +635,9 @@ actually scheduled.
 - It is the value `aiur status` reports as `interval=`.
 - So an idle fleet widens the Build Order catalog exactly as it widens the
   tracker, and a fleet that picks up work narrows both back together.
-- Deriving from the base interval instead made the catalog poll five times more
-  often than the tracker it projects, with nobody watching.
+- The widening matters only while a page is open: since #2312 the catalog does
+  not poll at all when no Build Order page is open, so "with nobody watching"
+  it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts

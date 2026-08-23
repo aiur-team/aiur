@@ -160,7 +160,8 @@ defmodule Aiur.Env.Schema do
     {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/executor-control-center"},
 
     # --- Supervisor Decision API ---
-    {"AIUR_SUPERVISOR_TOKEN", type: :secret, group: :decision_api, purpose: "Bearer token for the Supervisor Decision API; unset refuses those requests.", fetch: "openssl rand -base64 32"},
+    {"AIUR_SUPERVISOR_TOKEN",
+     type: :secret, group: :decision_api, purpose: "Bearer-safe token (at least 32 bytes) for the Supervisor Decision API; generate one with `openssl rand -base64 32`; unset or empty disables it."},
     {"AIUR_CI_READINESS_TOKEN", type: :secret, group: :decision_api, purpose: "Operator token `aiur init` uses to confirm PRs can auto-merge."},
 
     # --- Provider API keys ---
@@ -187,6 +188,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_OPERATOR_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Shell that launched aiur; exported by the launcher."},
     {"AIUR_LAUNCHER_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Launcher process id; exported by the launcher."},
     {"AIUR_GITHUB_BUDGET_CONSUMER", type: :string, validate: false, example: false, group: :runtime, purpose: "Workspace budget consumer id; set by the launcher."},
+    {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Stable publication-credential budget identity; set by the launcher."},
     {"AIUR_AGENT_IR_SANDBOX", type: :boolean, validate: false, example: false, group: :runtime, purpose: "Test-reset guard inside an agent IR sandbox."},
     {"AIUR_TELEMETRY_CALLER_CWD", type: :path, validate: false, example: false, group: :runtime, purpose: "Working directory captured by the telemetry CLI wrapper."},
     {"AIUR_RELEASE_DIR", type: :path, validate: false, example: false, group: :runtime, purpose: "Release directory the launcher resolved; detects a dev launcher run."},

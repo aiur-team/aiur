@@ -244,7 +244,9 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.AgentProcessLog,
       Aiur.SaturationSentinel,
+      Aiur.BuildGateHoldMonitor,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
@@ -299,7 +301,7 @@ defmodule Aiur.Application do
       # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
       # observations — a GenServer call, no client and no transport — so it too
       # changes nothing about the page's zero-fetch property.
-      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory]),
+      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory, Aiur.GitHub.AgentCacheMetrics]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
@@ -309,6 +311,16 @@ defmodule Aiur.Application do
       # Per-repo delivery mode. Starts before anything that polls or receives
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
+      #
+      # `ModeTable` owns the ETS view the read-cache TTL consults on every
+      # cacheable request, and starts first so the registry has somewhere to
+      # publish the moment it records its first mode. The reverse is not
+      # guaranteed: if the registry crashes, its `state.repos` rebuilds as
+      # configured-unproven while the table briefly keeps its old `:webhook`
+      # records, so a repo can hold the long TTL until the next sweep
+      # republishes. Bounded (the TTL is a backstop, never a freshness claim)
+      # and corrected automatically, so it is a note, not a fix.
+      Aiur.Webhooks.ModeTable,
       Aiur.Webhooks.ModeRegistry,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,

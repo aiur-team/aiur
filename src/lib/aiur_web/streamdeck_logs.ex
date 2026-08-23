@@ -499,7 +499,7 @@ defmodule AiurWeb.StreamdeckLogs do
           path: value(entry, :path),
           additions: value(entry, :additions, 0),
           deletions: value(entry, :deletions, 0),
-          line: value(entry, :line),
+          line: value(entry, :signed_line, value(entry, :line)),
           lines: diff_lines(value(entry, :lines, [])),
           timestamp: value(entry, :timestamp)
         }

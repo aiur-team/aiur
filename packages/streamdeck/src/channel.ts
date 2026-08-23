@@ -171,6 +171,75 @@ export interface StreamDeckLogs {
   readonly transcript_max_offset?: number;
 }
 
+/**
+ * One option of a Command, in the daemon's allowlisted shape.
+ *
+ * The server projects only the option fields the device renders (id, label,
+ * description and the cost/benefit detail), never internal store fields.
+ */
+export interface StreamDeckCommandOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly benefits?: string;
+  readonly drawbacks?: string;
+  readonly risk?: string;
+}
+
+/** The recorded outcome of a Command, when it has one. */
+export interface StreamDeckCommandAnswer {
+  /** The chosen option id, when the answer selected a listed option. */
+  readonly selected_option_id?: string | null;
+  /** The free-text response, when the operator spoke instead of choosing. */
+  readonly custom_response?: string | null;
+  readonly actor?: { readonly kind?: string; readonly id?: string } | null;
+}
+
+/**
+ * One Command in the focused agent's history, in the daemon's allowlisted
+ * shape. `status` is the durable lifecycle (`open`, `deferred`, `decided`,
+ * `acknowledged`, ...); only `open`/`deferred` are answerable, and `answer`
+ * lets a completed Command be read back as what was asked and what was decided.
+ */
+export interface StreamDeckCommand {
+  readonly decision_id: string;
+  /** The exact version the device read — the version it must answer. */
+  readonly version: number;
+  readonly ticket?: { readonly identifier?: string } | null;
+  readonly question: string;
+  readonly context?: { readonly short?: string | null; readonly long?: string | null } | null;
+  readonly options: readonly StreamDeckCommandOption[];
+  readonly status: string;
+  readonly blocking?: boolean;
+  readonly answer?: StreamDeckCommandAnswer | null;
+  readonly created_at?: string;
+}
+
+/**
+ * One page of the focused agent's Command history.
+ *
+ * History is newest-first and cursor-paged: the server pushes the first page on
+ * focus and the client requests more with `commands_page` when it scrolls past
+ * the end. `unavailable` is explicit — the store could not be read — so the
+ * device says so instead of showing an empty history that could mean "no
+ * Commands".
+ */
+export interface StreamDeckCommandsPage {
+  readonly identifier?: string;
+  readonly items: readonly StreamDeckCommand[];
+  readonly next_cursor?: string | null;
+  readonly has_next?: boolean;
+  readonly total?: number;
+  readonly partial?: boolean;
+  readonly unavailable?: boolean;
+}
+
+/** The channel's reply to `answer_command`. */
+export interface StreamDeckCommandAnswerResult {
+  readonly status: string;
+  readonly decision: StreamDeckCommand;
+}
+
 export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
@@ -190,6 +259,15 @@ export interface StreamDeckChannelEvents {
   voiceClosed(session: string): void;
   /** The snapshot's view of whether Aiur can transcribe at all. */
   voiceAvailability(state: StreamDeckVoiceState): void;
+  /**
+   * A `commands` push: the focused agent's Command history page. Sent on focus
+   * and again whenever a decision for the focused agent changes.
+   */
+  commands(page: StreamDeckCommandsPage): void;
+  /** The reply to `answer_command`: the recorded result and the refreshed Command. */
+  commandAnswered(result: StreamDeckCommandAnswerResult): void;
+  /** An error reply to `commands_page` or `answer_command`. */
+  commandsError(reason: string): void;
   closed(error: unknown): void;
 }
 
@@ -247,6 +325,29 @@ export interface StreamDeckChannel {
   voiceAudio(session: string, base64: string): void;
   /** Asks Aiur to commit the final utterance and close the provider session. */
   voiceStop(session: string): void;
+  /**
+   * Requests the next page of the focused agent's Command history.
+   *
+   * `cursor` is the opaque `next_cursor` from the previous page; the server
+   * replies through {@link StreamDeckChannelEvents.commands} or
+   * {@link StreamDeckChannelEvents.commandsError}.
+   */
+  commandsPage(cursor: string): void;
+  /**
+   * Records an operator answer given on the device.
+   *
+   * The answer is attributed to the operator (never the Executor), so it may
+   * answer `human_required` Commands. `idempotencyKey` must be stable for the
+   * same intended answer across reconnects: the server deduplicates on it, so
+   * a retry after a dropped reply is a replay, never a second decision.
+   * `version` is the exact Command version the device read.
+   */
+  answerCommand(
+    decisionId: string,
+    version: number,
+    idempotencyKey: string,
+    answer: { option_id?: string; custom_response?: string },
+  ): void;
   close(): void;
 }
 
@@ -302,6 +403,10 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   let joinRef: string | null = null;
   /** Refs of `voice_start` requests still waiting for their reply. */
   const voiceStartRefs = new Set<string>();
+  /** Refs of `commands_page` requests still waiting for their reply. */
+  const commandsPageRefs = new Set<string>();
+  /** Refs of `answer_command` requests still waiting for their reply. */
+  const answerCommandRefs = new Set<string>();
   const send = (event: string, payload: Record<string, unknown>): void => {
     if (!joined) {
       pending.push({ event, payload });
@@ -311,6 +416,8 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     // sent before the join is re-sent from `pending` and gets its ref then.
     const ref = String(++reference);
     if (event === "voice_start") voiceStartRefs.add(ref);
+    else if (event === "commands_page") commandsPageRefs.add(ref);
+    else if (event === "answer_command") answerCommandRefs.add(ref);
     socket.send(JSON.stringify(["4", ref, "streamdeck:fleet", event, payload]));
   };
 
@@ -335,6 +442,25 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
           options.events.voiceStarted(response.session, null);
         } else {
           options.events.voiceStarted(null, typeof response.reason === "string" ? response.reason : null);
+        }
+        return;
+      }
+      if (commandsPageRefs.delete(ref)) {
+        if (reply?.status === "ok" && Array.isArray(response.items)) {
+          options.events.commands(response as unknown as StreamDeckCommandsPage);
+        } else {
+          options.events.commandsError(typeof response.reason === "string" ? response.reason : "Commands page failed");
+        }
+        return;
+      }
+      if (answerCommandRefs.delete(ref)) {
+        if (reply?.status === "ok" && typeof response.decision === "object" && response.decision !== null) {
+          options.events.commandAnswered({
+            status: typeof response.status === "string" ? response.status : "accepted",
+            decision: response.decision as unknown as StreamDeckCommand,
+          });
+        } else {
+          options.events.commandsError(typeof response.reason === "string" ? response.reason : "Answer failed");
         }
         return;
       }
@@ -409,6 +535,9 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
       const frame = payload as { session?: unknown };
       options.events.voiceClosed(typeof frame.session === "string" ? frame.session : "");
     }
+    else if (event === "commands") {
+      options.events.commands(payload as StreamDeckCommandsPage);
+    }
   };
   const notifyClosed = (error: unknown): void => {
     if (heartbeat !== null) clearInterval(heartbeat);
@@ -429,7 +558,19 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     voiceStart: () => send("voice_start", {}),
     voiceAudio: (session, base64) => send("voice_audio", { session, audio: base64 }),
     voiceStop: (session) => send("voice_stop", { session }),
-    close: () => { stopped = true; joined = false; voiceStartRefs.clear(); if (heartbeat !== null) clearInterval(heartbeat); heartbeat = null; socket.close(); },
+    commandsPage: (cursor) => send("commands_page", { cursor }),
+    answerCommand: (decisionId, version, idempotencyKey, answer) =>
+      send("answer_command", { decision_id: decisionId, version, idempotency_key: idempotencyKey, ...answer }),
+    close: () => {
+      stopped = true;
+      joined = false;
+      voiceStartRefs.clear();
+      commandsPageRefs.clear();
+      answerCommandRefs.clear();
+      if (heartbeat !== null) clearInterval(heartbeat);
+      heartbeat = null;
+      socket.close();
+    },
   };
 };
 
