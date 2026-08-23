@@ -334,13 +334,28 @@ A webhook delivery is the cheapest writer of all — GitHub has already paid for
 | Review submitted, edited or dismissed | The review, and the pull request. |
 | Pull request, any action | The pull request — including a `synchronize` push, which wakes CI reconciliation rather than publishing. |
 | Issue, any action | The issue and its label set, whether or not the action is one Aiur reacts to. |
-| Check run | That check run. It says nothing about the other runs on the same head, so a reader asking about the head still reads. |
+| Check run | The matching run inside a complete CI-context snapshot already established for the same head. A lone delivery never invents the rest of the collection. |
+| Review thread resolved | The matching thread inside a complete review-thread snapshot already established for the pull request. |
 | A comment or issue is deleted | Nothing is deposited and the held body is discarded, because serving an object that no longer exists is worse than not holding one. |
 | A delayed delivery carrying older state | Refused. A body cannot walk a resource backwards and then be reported as freshly fetched. |
 
 A deposit records what Aiur is *holding*, never what it has *handled*. The two are separate facts: only a successful publish marks a comment processed, so caching a body can never suppress the event for it — including for a change Aiur made itself, where the body is cached and the self-loop stays filtered.
 
 The record is a cache, never the system of record. If it is cold, corrupt, or not running, every read behaves exactly as it did before it existed: Aiur fetches. A cache that cannot answer costs throughput, never correctness.
+
+Comment, CI, and review-thread pollers consult these complete snapshots before
+building their GraphQL documents. A poll-written snapshot is only a baseline;
+it does not suppress the next poll. When a verified delivery advances that
+baseline, the matching collection is eligible for 30 seconds.
+
+During that window Aiur omits `reviewThreads` or the delivered `CheckRun`
+fields. Legacy commit statuses, `reviewDecision`, `mergeable`, and other strict
+verdict state remain live reads.
+
+Successful polls write complete selections back so the next delivery and poll
+converge on the same state. Partial, stale, poll-only, head-mismatched, or
+unavailable entries fall back to GitHub. A review-comment delivery invalidates
+the complete thread snapshot because one comment cannot prove the collection.
 
 ## Shared agent reads
 
@@ -362,7 +377,52 @@ A verdict is refused rather than kept briefly because a push and a completing
 check run do not pass through the wrapper, so nothing could retire the answer
 before an agent acted on it.
 
+The same refusal applies to direct REST paths for check runs, check suites,
+commit statuses, reviews, requested reviewers, the pull-request resource
+itself, merge state, and Actions run or job state. Spelling a verdict read as
+`gh api` does not make it safe to cache.
+
+Stable Actions workflow *definitions* (`actions/workflows`) are still shared.
+
+A workflow definition changes when its YAML is edited, which is a
+wrapper-passing write that retires it, while a run's status is a verdict that
+nothing retires. This is a deliberate divergence from the daemon's `ReadCache`
+policy, which refuses every `/actions` path wholesale — the two stores serve
+different callers with different invalidation reach.
+
 An answer is kept for 60 seconds.
+
+The GitHub cache page reports whether this sharing is effective. Its **Agent gh
+exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
+alongside the raw hit and miss counts.
+
+It reads the durable `agent-cache.tsv` counters from agent workspaces on the
+daemon host; workspaces on remote SSH workers are not included.
+
+If no readable counter exists, or the readable files contain no hit or miss in
+that window, the page says **Not measured** instead of presenting zero as a
+measurement. Malformed or unreadable sources are retained as partial coverage
+rather than hiding the valid samples.
+
+The cache key intentionally includes the exact requested output shape. Two
+reads of one pull request that request different JSON fields, templates, or
+queries cannot share an answer without changing `gh`'s output, so each shape
+misses independently.
+
+Likewise, a write or daemon delivery retires every shape of the changed
+resource to protect correctness.
+
+Different output requests cannot share bytes, and a changed resource cannot
+safely reuse an older answer. The cache therefore keeps its byte-exact key,
+correctness invalidation, and 60-second lifetime.
+
+The wrapper now records a reason with every miss (`absent`, `expired`,
+`invalidated`, `bypassed`, `clock-skewed`, `corrupt`, or `torn`).
+
+That lets a later regression distinguish expected correctness misses from
+entries expiring before reuse, and can tell a cold cache from a
+store-integrity failure — a present stamp whose body has vanished is `torn`,
+never `absent`.
 
 Editing a ticket or a pull request discards the kept answers for it at once, so
 an agent never reads back what it just replaced.

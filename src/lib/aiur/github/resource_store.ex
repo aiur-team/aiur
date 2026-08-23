@@ -209,10 +209,12 @@ defmodule Aiur.GitHub.ResourceStore do
   same way, `Aiur.Events.GitHubWebhook.Deposit` deposits delivered issues, labels,
   pull requests and the open pull request for a ticket's head branch,
   `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
-  merges its own responses, and `Aiur.Events.Publisher` marks individual comment
-  resources processed. Readers: the poller and the
+  merges its own responses, `Aiur.GitHub.PollSnapshots` converges complete
+  review-thread and CI-context selections, and `Aiur.Events.Publisher` marks
+  individual comment resources processed. Readers: the poller and the
   command scan both serve their own `304` from the held list, `Aiur.GitHub.Issues`
-  and the dashboard read bodies.
+  and the dashboard read bodies, and the three GraphQL poll paths consult
+  delivery-fresh selection snapshots before spending.
 
   ## Two versions, deliberately kept apart
 
@@ -279,6 +281,10 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # Complete selection families shared by the GraphQL pollers and webhook
+    # deltas. They deliberately exclude strict review/merge verdict fields.
+    :pr_review_threads,
+    :ci_contexts,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
@@ -295,12 +301,7 @@ defmodule Aiur.GitHub.ResourceStore do
     # The open pull request belonging to a ticket's head branch. Keyed by the
     # ticket number rather than the PR number, because that is the only identity
     # the caller holds before the lookup answers.
-    :branch_pull_request,
-    # A delivered check run, keyed by the ticket its head branch belongs to —
-    # the identity `Aiur.GitHub.CIPollBatch` holds before it builds its query.
-    # The CI poll pipe reads this to skip a target a webhook delivery already
-    # answered; it never answers a verdict from it (R10).
-    :check_run
+    :branch_pull_request
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable
@@ -312,12 +313,9 @@ defmodule Aiur.GitHub.ResourceStore do
   # `:branch_pull_request` is written by both the webhook deposit and
   # `Aiur.GitHub.ResourceFetch` (the human-review gate's strict read stores its
   # fetch), so a late delivery can roll the held PR back — the same reason
-  # `:pull_request` is here. `:check_run` is written by the webhook deposit
-  # alone, but a late delivery can still roll the held run backwards, and its
-  # marker is what the CI poll's "deposited since the last read" check keys on,
-  # so a version-less write must be loud rather than silently disarming the
-  # ordering guard.
-  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :branch_pull_request, :check_run]
+  # `:pull_request` is here. `:check_run` was removed from the store entirely
+  # when its deposit was ceased (#2126); a CI verdict is never cached.
+  @order_sensitive_types [:issue, :issue_labels, :pull_request, :pr_review_thread, :branch_pull_request]
 
   @type resource_type :: atom()
   @type key :: {resource_type(), String.t(), String.t(), String.t()}

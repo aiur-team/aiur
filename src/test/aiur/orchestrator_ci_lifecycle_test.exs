@@ -287,8 +287,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                  pr_number: 941,
                  head_sha: "failed-head",
                  draft?: false,
-                 review_decision: nil,
-                 check_run_ids: []
+                 review_decision: nil
                }
              }
 
@@ -383,8 +382,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                  pr_number: 941,
                  head_sha: "stalled-head",
                  draft?: true,
-                 review_decision: "APPROVED",
-                 check_run_ids: []
+                 review_decision: "APPROVED"
                }
              }
 
@@ -637,8 +635,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                  pr_number: nil,
                  head_sha: "same-head",
                  draft?: false,
-                 review_decision: nil,
-                 check_run_ids: []
+                 review_decision: nil
                }
              }
 

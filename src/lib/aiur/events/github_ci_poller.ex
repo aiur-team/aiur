@@ -109,8 +109,8 @@ defmodule Aiur.Events.GithubCIPoller do
     # batch would have paid for; this result carries no verdict and the
     # lifecycle treats it as inert (`delivered: true`), because a CI verdict is
     # never answered from a held body at any age (R10). The real verdict comes
-    # from the next non-displaced read, which the served delivery's processed
-    # mark guarantees.
+    # from the next non-displaced read, which `PollSnapshots`'s delivery-fresh
+    # window bounds — once the snapshot ages out, the poll fetches again.
     %{
       target: target,
       delivered: true,
@@ -133,7 +133,7 @@ defmodule Aiur.Events.GithubCIPoller do
         {:ok, :unchanged} ->
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
-          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, check_run_ids: check_run_ids(check_runs)})
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
           |> Map.merge(merge_queue_observation(pr))
           |> log_classification()
 
@@ -156,16 +156,6 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_batched_target(target, _batch, _opts), do: poll_error(target, :invalid_ci_poll_batch)
-
-  # The check-run ids the last poll actually saw, carried on the poll result so
-  # `Orchestrator.CiLifecycle` can record them and the next cycle's displacement
-  # can tell a known run from a new one (the #2276 id-match gate).
-  defp check_run_ids(check_runs) do
-    Enum.flat_map(check_runs, fn
-      %{"id" => id} when is_integer(id) or is_binary(id) -> [id]
-      _other -> []
-    end)
-  end
 
   defp ci_batch_value(opts, target) do
     with %{} = batch <- Keyword.get(opts, :ci_batch),
@@ -306,8 +296,7 @@ defmodule Aiur.Events.GithubCIPoller do
           pr_number: pr_number,
           head_sha: observed_head_sha,
           draft?: pr_draft?(current_pr),
-          review_decision: Map.get(current_pr, "review_decision"),
-          check_run_ids: check_run_ids(check_runs)
+          review_decision: Map.get(current_pr, "review_decision")
         })
         |> log_classification()
 

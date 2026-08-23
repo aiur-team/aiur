@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredCheckRun, DeliveredPullRequest, MergeQueue, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, MergeQueue, PollSnapshots, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -41,18 +41,18 @@ defmodule Aiur.GitHub.CIPollBatch do
   # still asked of GitHub on every cycle, because a CI verdict served from a
   # cache at any age is precisely what `Aiur.GitHub.ReadCache.Policy` refuses.
   #
-  # A target whose CI a **webhook check-run delivery already answered**
-  # (`Aiur.GitHub.DeliveredCheckRun`) is dropped from the document entirely
-  # (#2310): a delivery that landed since the last poll read, on the head the
-  # poll last observed, for a run that poll actually saw, has already bought
-  # the read this document would pay for. The target's batch entry is then
-  # served from the deposit — never as a verdict. `GithubCIPoller` carries the
-  # served entry through as inert and the lifecycle makes no transition on it,
-  # because a CI verdict is never answered from a held body at any age (R10);
-  # the real verdict comes from the next non-displaced read. An unmatched or
-  # unknown check-run id, a moved head, a consumed delivery, or a poll-written
-  # entry all keep the target in the document: this displacement fails toward
-  # polling, which is the #2276 lesson.
+  # A target whose CI a **webhook check-run delivery already answered** is
+  # dropped from the document entirely (#2310): `PollSnapshots.ci_contexts`
+  # answers when a complete snapshot the poll established has been advanced by
+  # a delivery on the same head within the delivery-fresh window — "deposited
+  # since the last read". The batch entry is then served from the delivery,
+  # never as a verdict. `GithubCIPoller` carries the served entry through as
+  # inert and the lifecycle makes no transition on it, because a CI verdict is
+  # never answered from a held body at any age (R10); the real verdict comes
+  # from the next non-displaced read. An unknown or unmatched check-run id
+  # marked the snapshot incomplete (`PollSnapshots.merge_check_run`), so
+  # `ci_contexts` answers `:miss` and the target keeps its place in the
+  # document: this displacement fails toward polling, which is the #2276 lesson.
   @targets_per_query 50
   @pull_requests_per_branch 2
 
@@ -71,16 +71,22 @@ defmodule Aiur.GitHub.CIPollBatch do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      repo_identity = owner <> "/" <> repo
 
+      # Per-target displacement (#2310): a target a delivery answered is dropped
+      # from the document entirely, so a cycle whose targets were all answered
+      # issues zero GraphQL calls. `PollSnapshots.ci_contexts` answers `:miss`
+      # for every state that must fetch — no snapshot, poll-written, not
+      # complete, expired, or a delivery an unknown/unmatched id marked
+      # incomplete — so those targets keep their normal place in the document.
       {delivered, to_fetch} =
         targets
-        |> Enum.map(&{&1, delivered_signal(&1, owner, repo, opts)})
-        |> Enum.split_with(fn {_target, signal} -> signal != :miss end)
+        |> Enum.map(&{&1, PollSnapshots.ci_contexts(repo_identity, &1, opts)})
+        |> Enum.split_with(fn {_target, contexts} -> contexts != :miss end)
 
       result =
-        Map.new(delivered, fn {target, signal} ->
-          DeliveredCheckRun.mark_served(signal)
-          {target, delivered_entry(target, owner, repo, opts, signal)}
+        Map.new(delivered, fn {target, {:ok, %{"head_sha" => head_sha} = contexts}} ->
+          {target, delivered_entry(target, owner, repo, opts, head_sha, Map.get(contexts, "check_runs", []))}
         end)
 
       fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result)
@@ -93,14 +99,18 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result) do
     fetch_targets = Enum.map(to_fetch, &elem(&1, 0))
+    started_at_ms = System.system_time(:millisecond)
 
     chunks =
       fetch_targets
-      |> Enum.map(&target_entry(&1, owner, repo, opts))
+      |> Enum.map(&target_entry(&1, owner, repo, opts, started_at_ms))
       |> Enum.chunk_every(@targets_per_query)
 
     warn_on_chunk_overflow(chunks, fetch_targets)
-    fetch_chunks(chunks, request_fun, token, owner, repo, result)
+
+    Enum.reduce_while(chunks, {:ok, result}, fn chunk, {:ok, acc} ->
+      reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
+    end)
   end
 
   defp warn_on_chunk_overflow(chunks, fetch_targets) do
@@ -109,37 +119,18 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  # The per-chunk fetch loop is a named function so the anonymous reducer stays
-  # at nesting depth 2 (credo Refactor.Nesting, strict).
-  defp fetch_chunks(chunks, request_fun, token, owner, repo, result) do
-    Enum.reduce_while(chunks, {:ok, result}, fn chunk, {:ok, acc} ->
-      reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
-    end)
-  end
-
-  # The store is consulted before the query is written, never after it comes
-  # back. `DeliveredCheckRun.signal_for_target/4` answers `:miss` for every
-  # state that must fetch — no entry, not delivered, stale, already processed,
-  # head mismatch, or an unmatched/unknown check-run id — so those targets keep
-  # their normal place in the document.
-  defp delivered_signal(target, owner, repo, opts) do
-    case DeliveredCheckRun.signal_for_target(target, owner, repo, opts) do
-      {:ok, signal} -> signal
-      :miss -> :miss
-    end
-  end
-
   # The served batch entry for a displaced target. It carries no pull-request
   # rollup and no verdict fields — the poller passes it through as inert and the
   # lifecycle makes no transition on it (R10: a CI verdict is never answered
   # from a held body at any age). `pr_number` rides along from the
   # delivered-pull-request store when available so the lifecycle can name the
-  # PR if a later real poll acts.
-  defp delivered_entry(target, owner, repo, opts, signal) do
+  # PR if a later real poll acts, and the delivered check runs are carried so
+  # the served entry documents exactly what the delivery answered.
+  defp delivered_entry(target, owner, repo, opts, head_sha, check_runs) do
     %{
       delivered: true,
-      head_sha: Map.fetch!(signal, :head_sha),
-      check_run: Map.fetch!(signal, :check_run),
+      head_sha: head_sha,
+      check_runs: check_runs,
       pr_number: DeliveredPullRequest.number_for_target(target, owner, repo, opts)
     }
   end
@@ -151,12 +142,14 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  # The store is consulted before the query is written, not after it comes back.
-  defp target_entry(target, owner, repo, opts) do
-    case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
-      number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
-      nil -> branch_target_entry(target, opts)
-    end
+  defp target_entry(target, owner, repo, opts, started_at_ms) do
+    entry =
+      case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
+        number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
+        nil -> branch_target_entry(target, opts)
+      end
+
+    Map.merge(entry, %{owner: owner, repo: repo, started_at_ms: started_at_ms})
   end
 
   defp branch_target_entry(target, opts) do
@@ -225,33 +218,39 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp branch_aliases(%{pull_request_number: number}, index) when is_integer(number) do
+  defp branch_aliases(%{pull_request_number: number} = entry, index) when is_integer(number) do
     """
-    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields()} }
+    delivered_#{index}: pullRequest(number: #{number}) { #{pull_request_fields(entry)} }
     """
   end
 
-  defp branch_aliases(%{branches: branches}, index) do
+  defp branch_aliases(%{branches: branches} = entry, index) do
     branches
     |> Enum.with_index()
-    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, index, candidate) end)
+    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, entry, index, candidate) end)
   end
 
-  defp branch_alias(branch, index, candidate) do
+  defp branch_alias(branch, entry, index, candidate) do
     """
     branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
-      nodes { #{pull_request_fields()} }
+      nodes { #{pull_request_fields(entry)} }
     }
     """
   end
 
-  defp pull_request_fields do
+  defp pull_request_fields(_entry) do
     """
     number state headRefName headRefOid baseRefName
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
+    #{contexts_selection()}
+    """
+  end
+
+  defp contexts_selection do
+    """
     commits(last: 1) {
       nodes {
         commit {
@@ -355,11 +354,22 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_first_pull_request(acc, entry, node) do
     result = normalize_pull_request(node)
 
-    if Map.get(result, :contexts_overflow) do
-      Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
-      acc
-    else
-      Map.put(acc, entry.target, result)
+    cond do
+      Map.get(result, :contexts_overflow) ->
+        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+        acc
+
+      true ->
+        PollSnapshots.put_ci_contexts(
+          entry.owner <> "/" <> entry.repo,
+          entry.target,
+          get_in(result, [:pull_request, "head", "sha"]),
+          result.check_runs,
+          result.commit_status,
+          started_at_ms: entry.started_at_ms
+        )
+
+        Map.put(acc, entry.target, result)
     end
   end
 
@@ -397,17 +407,32 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp status_contexts(nil), do: {[], false}
 
   defp status_contexts(commit_node) when is_map(commit_node) do
-    contexts = get_in(commit_node, ["commit", "statusCheckRollup", "contexts"]) || %{}
-    {Map.get(contexts, "nodes", []), get_in(contexts, ["pageInfo", "hasNextPage"]) == true}
+    commit = Map.get(commit_node, "commit") || %{}
+
+    case Map.fetch(commit, "status") do
+      {:ok, %{"contexts" => statuses}} when is_list(statuses) ->
+        {Enum.map(statuses, &Map.put(&1, "__typename", "StatusContext")), false}
+
+      {:ok, _nil_or_malformed} ->
+        {[], false}
+
+      :error ->
+        contexts = get_in(commit, ["statusCheckRollup", "contexts"]) || %{}
+        {Map.get(contexts, "nodes", []), get_in(contexts, ["pageInfo", "hasNextPage"]) == true}
+    end
   end
 
   defp status_contexts(_commit_node), do: {[], false}
 
-  # `"id"` is the run's numeric database id (`databaseId` in GraphQL), the same
-  # numeric id a REST `check_run` delivery carries — that identity is the
-  # contract between this poll-side shape and the webhook deposit
-  # (`Aiur.Events.GithubWebhook.Deposit`), and the id-match gate in
-  # `Aiur.GitHub.DeliveredCheckRun` reads it. Change one, change both.
+  # Paired with `Aiur.Events.GithubWebhook.Deposit.normalize_check_run/1`, which
+  # shapes the same run out of a REST delivery so the two merge into one
+  # snapshot. The keys here are the contract between them: `"id"` must be the
+  # numeric database id on both sides or the merge cannot join a delivery to the
+  # polled baseline, and a key one side emits and the other omits silently
+  # changes shape when a delivery overwrites a polled run. The one deliberate
+  # asymmetry is `"updated_at"`, which only the delivery carries and which
+  # `PollSnapshots.check_run_marker/1` uses to refuse a late delivery. Change
+  # one, change both.
   defp normalize_check_run(check_run) do
     %{
       "id" => Map.get(check_run, "databaseId"),
