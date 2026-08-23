@@ -92,8 +92,8 @@ defmodule Aiur.WorkflowStoreReadPathTest do
     # cannot be keyed on the config generation alone.
     var = "AIUR_TEST_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     path = Workflow.workflow_file_path()
-    first = Path.join(System.tmp_dir!(), "aiur-env-first-#{System.unique_integer([:positive])}")
-    second = Path.join(System.tmp_dir!(), "aiur-env-second-#{System.unique_integer([:positive])}")
+    first = Aiur.TestSupport.tmp_root!("aiur-env-first")
+    second = Aiur.TestSupport.tmp_root!("aiur-env-second")
 
     System.put_env(var, first)
     on_exit(fn -> System.delete_env(var) end)

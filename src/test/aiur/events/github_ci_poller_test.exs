@@ -9,7 +9,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
 
     store_path =
-      Path.join(System.tmp_dir!(), "github_ci_poller_#{System.unique_integer([:positive])}.json")
+      Aiur.TestSupport.tmp_root!("github_ci_poller") <> ".json"
 
     System.put_env("GITHUB_TOKEN", "test-gh-token")
     Application.put_env(:aiur, :ci_approval_store_path, store_path)

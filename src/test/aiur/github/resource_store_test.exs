@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   alias Aiur.GitHub.{ResourceFetch, ResourceStore}
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-resource-store")
     File.mkdir_p!(dir)
     path = Path.join(dir, "github_resources.json")
 

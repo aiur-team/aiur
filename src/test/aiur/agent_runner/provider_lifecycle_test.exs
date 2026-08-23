@@ -82,7 +82,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   test "cancelled pause retires the old provider turn before the resumed real turn" do
-    pause_marker = Path.join(System.tmp_dir!(), "aiur-cancelled-pause-#{System.unique_integer([:positive])}")
+    pause_marker = Aiur.TestSupport.tmp_root!("aiur-cancelled-pause")
     {late_marker, release} = lifecycle_barrier("cancelled-pause-late")
     paths = prepare_case("cancelled-pause", cancelled_pause_script(pause_marker, late_marker, release))
     issue = issue("MT-CANCELLED-PAUSE")
@@ -108,7 +108,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   test "quota pause retires the failed provider turn before the resumed real turn" do
-    pause_marker = Path.join(System.tmp_dir!(), "aiur-quota-pause-#{System.unique_integer([:positive])}")
+    pause_marker = Aiur.TestSupport.tmp_root!("aiur-quota-pause")
     {late_marker, release} = lifecycle_barrier("quota-pause-late")
     paths = prepare_case("quota-pause", quota_pause_script(pause_marker, late_marker, release))
     issue = issue("MT-QUOTA-PAUSE")
@@ -133,7 +133,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   test "operator interrupt consumes the anonymous fallback before its queued turn" do
-    ready = Path.join(System.tmp_dir!(), "aiur-operator-interrupt-#{System.unique_integer([:positive])}")
+    ready = Aiur.TestSupport.tmp_root!("aiur-operator-interrupt")
     {late_marker, release} = lifecycle_barrier("operator-interrupt-late")
     paths = prepare_case("operator-interrupt", operator_interrupt_script(ready, late_marker, release))
     orchestrator_name = Module.concat(__MODULE__, :OperatorInterruptOrchestrator)
@@ -193,7 +193,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   defp prepare_case(name, script) do
-    root = Path.join(System.tmp_dir!(), "aiur-provider-lifecycle-#{name}-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-provider-lifecycle-#{name}")
     source = Path.join(root, "source")
     workspace_root = Path.join(root, "workspaces")
     codex = Path.join(root, "fake-codex")
@@ -487,7 +487,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
   end
 
   defp lifecycle_barrier(name) do
-    root = Path.join(System.tmp_dir!(), "aiur-#{name}-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-#{name}")
     marker = Path.join(root, "reached")
     release = Path.join(root, "release")
 

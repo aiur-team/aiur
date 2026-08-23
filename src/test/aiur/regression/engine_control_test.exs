@@ -8,7 +8,7 @@ defmodule Aiur.Regression.EngineControlTest do
     test "a control RPC from an unrelated cwd never adopts another instance's record" do
       rel = fake_release()
       state = tmp_state()
-      base = Path.join(System.tmp_dir!(), "aiur-control-iso-#{System.unique_integer([:positive])}")
+      base = Aiur.TestSupport.tmp_root!("aiur-control-iso")
       home = Path.join(base, "home")
       launch_root = Path.join(base, "project")
       other = Path.join(base, "other")
@@ -145,7 +145,7 @@ defmodule Aiur.Regression.EngineControlTest do
       esac
       """
 
-      path = Path.join(System.tmp_dir!(), "aiur-reap-#{System.unique_integer([:positive])}.sh")
+      path = Aiur.TestSupport.tmp_root!("aiur-reap") <> ".sh"
       File.write!(path, script)
       on_exit(fn -> File.rm(path) end)
 
@@ -164,7 +164,7 @@ defmodule Aiur.Regression.EngineControlTest do
     end
 
     test "reap_aiur_agents honors the pid-reuse comm guard and ignores pane lines" do
-      tmp = Path.join(System.tmp_dir!(), "aiur-agent-reap-#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur-agent-reap")
       live_dir = Path.join(tmp, "live")
       reused_dir = Path.join(tmp, "reused")
       File.mkdir_p!(live_dir)
@@ -654,7 +654,7 @@ defmodule Aiur.Regression.EngineControlTest do
     test "a background start whose control plane never becomes ready exits 1" do
       rel = fake_release()
       state = tmp_state()
-      tmp = Path.join(System.tmp_dir!(), "aiur-bg-never-ready-#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur-bg-never-ready")
       events = Path.join(tmp, "events.log")
       tmux_state = Path.join(tmp, "tmux-session")
       File.mkdir_p!(tmp)
@@ -711,7 +711,7 @@ defmodule Aiur.Regression.EngineControlTest do
     test "a live session with a responsive control plane is a no-op exit 0" do
       rel = fake_release()
       state = tmp_state()
-      tmp = Path.join(System.tmp_dir!(), "aiur-bg-live-#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur-bg-live")
       events = Path.join(tmp, "events.log")
       File.mkdir_p!(tmp)
       File.write!(events, "")
@@ -761,7 +761,7 @@ defmodule Aiur.Regression.EngineControlTest do
     test "a session that becomes responsive during stale confirmation is preserved" do
       rel = fake_release()
       state = tmp_state()
-      tmp = Path.join(System.tmp_dir!(), "aiur-bg-race-#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur-bg-race")
       events = Path.join(tmp, "events.log")
       counter = Path.join(tmp, "control-probes")
       File.mkdir_p!(tmp)
@@ -820,7 +820,7 @@ defmodule Aiur.Regression.EngineControlTest do
     test "a stale session (control plane down) is reaped before relaunch" do
       rel = fake_release()
       state = tmp_state()
-      tmp = Path.join(System.tmp_dir!(), "aiur-bg-stale-#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur-bg-stale")
       events = Path.join(tmp, "events.log")
       tmux_state = Path.join(tmp, "tmux-session")
       reaped = Path.join(tmp, "reaped")
@@ -883,7 +883,7 @@ defmodule Aiur.Regression.EngineControlTest do
   # A minimal stub release: start_erl.data + a fake `elixir` that echoes its args
   # so dispatch/boot-shape can be asserted without a real BEAM.
   defp fake_release do
-    dir = Path.join(System.tmp_dir!(), "aiur-engine-rel-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-engine-rel")
     vsn = Path.join([dir, "releases", "0.1.1"])
     File.mkdir_p!(vsn)
     File.mkdir_p!(Path.join(dir, "bin"))
@@ -897,7 +897,7 @@ defmodule Aiur.Regression.EngineControlTest do
     dir
   end
 
-  defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+  defp tmp_state, do: Aiur.TestSupport.tmp_root!("aiur-st")
 
   defp spawn_sleeper(cwd) do
     port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])
@@ -954,8 +954,8 @@ defmodule Aiur.Regression.EngineControlTest do
   end
 
   defp run_control_captured(function, expression, env, prelude \\ "") do
-    stdout_path = Path.join(System.tmp_dir!(), "aiur-control-stdout-#{System.unique_integer([:positive])}")
-    stderr_path = Path.join(System.tmp_dir!(), "aiur-control-stderr-#{System.unique_integer([:positive])}")
+    stdout_path = Aiur.TestSupport.tmp_root!("aiur-control-stdout")
+    stderr_path = Aiur.TestSupport.tmp_root!("aiur-control-stderr")
 
     on_exit(fn ->
       File.rm(stdout_path)
@@ -985,7 +985,7 @@ defmodule Aiur.Regression.EngineControlTest do
   end
 
   defp fake_tmux_script(body) do
-    dir = Path.join(System.tmp_dir!(), "aiur-fake-tmux-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-fake-tmux")
     File.mkdir_p!(dir)
     path = Path.join(dir, "tmux")
     File.write!(path, "#!/usr/bin/env bash\n#{body}\n")
