@@ -92,11 +92,23 @@ defmodule Aiur.Usage.PriceTable do
           (entry.window == :flat or entry.window == window)
       end)
 
+    available = Enum.filter(sorted, &(Date.compare(&1.effective_date, date) in [:lt, :eq]))
     future = Enum.filter(sorted, &(Date.compare(&1.effective_date, date) == :gt))
 
-    case eligible do
-      [] -> {:error, :price_not_yet_effective}
-      _ -> {:ok, List.last(eligible), next_date(future)}
+    cond do
+      eligible == [] and available == [] ->
+        # No revision exists on or before the query date at all.
+        {:error, :price_not_yet_effective}
+
+      eligible == [] ->
+        # The price IS effective, but no revision covers the requested
+        # window (e.g. only a `:peak` revision exists and `:off_peak` was
+        # asked for). A different failure than "not yet effective": it would
+        # send a caller down the wrong path.
+        {:error, :price_window_uncovered}
+
+      true ->
+        {:ok, List.last(eligible), next_date(future)}
     end
   end
 

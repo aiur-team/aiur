@@ -136,9 +136,11 @@ defmodule Aiur.Usage.PriceTable.Window do
   end
 
   defp future_candidates(now, start_date, schedule) do
+    times = candidate_times(schedule)
+
     for day_offset <- 0..@default_horizon_days,
         date = Date.add(start_date, day_offset),
-        time <- candidate_times(),
+        time <- times,
         boundary = DateTime.new!(date, time, "Etc/UTC"),
         DateTime.compare(boundary, now) == :gt,
         classify(boundary, schedule) != classify(DateTime.add(boundary, -1, :second), schedule) do
@@ -146,14 +148,23 @@ defmodule Aiur.Usage.PriceTable.Window do
     end
   end
 
-  defp candidate_times do
-    # The daily peak-window boundaries, plus 16:00 UTC = 00:00 Beijing (the
-    # weekday/weekend calendar boundary). Under the current schedule the
-    # 16:00 UTC instants never flip the *rate* (both sides are off-peak), but
-    # they are retained so a future weekend-rule change cannot silently extend
-    # the scan past a real boundary.
-    [~T[01:00:00], ~T[04:00:00], ~T[06:00:00], ~T[10:00:00], ~T[16:00:00]]
+  # A window flips only at the daily peak-window boundaries or at the
+  # provider-offset midnight (where the weekday/weekend calendar switches).
+  # Deriving the candidates from the schedule keeps the boundary scan in
+  # lockstep with the hand-maintained table: editing `weekday_peak_windows_utc`
+  # or the offset changes both the classification AND the scan, so a boundary
+  # can never be reported for a window that does not exist.
+  defp candidate_times(schedule) do
+    {:ok, offset} = offset_hours(schedule)
+    {:ok, windows} = weekday_peak_windows(schedule)
+    [offset_midnight(offset) | Enum.flat_map(windows, fn {start, finish} -> [start, finish] end)]
   end
+
+  # The UTC hour at which the provider's calendar day rolls over: 00:00 in the
+  # provider's local time. For Beijing (UTC+8) that is 16:00 UTC; the weekend
+  # rule depends on the provider-local date, so this is the third boundary type
+  # the scan must watch.
+  defp offset_midnight(offset), do: Time.new!(Integer.mod(24 - offset, 24), 0, 0)
 
   defp offset_hours(schedule) do
     case Map.get(schedule, :utc_offset_hours) do

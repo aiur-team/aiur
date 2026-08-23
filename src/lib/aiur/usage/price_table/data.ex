@@ -173,22 +173,32 @@ defmodule Aiur.Usage.PriceTable.Data do
     for {provider, models} <- @openai_compat_models,
         {model, revisions} <- models,
         {effective_date, rates, tag} <- revisions,
-        {dimension, price} <- openai_compat_rates(rates) do
+        {dimension, price} <- openai_compat_rates(provider, rates) do
       openai_compat_entry(provider, model, dimension, price, effective_date, tag)
     end
   end
 
-  defp openai_compat_rates(rates) do
-    [
-      input: rates.input,
-      cached_input: rates.cached_input,
-      # OpenAI-compatible providers bill cache-write tokens as input, and the
-      # relationship definition makes `cache_creation_input` a subset of input,
-      # so the subset remainder prices exactly at the input rate.
-      cache_creation_input: rates.input,
-      output: rates.output,
-      reasoning_output: rates.output
-    ]
+  # OpenAI-compatible providers bill cache-write tokens as input, so the
+  # `cache_creation_input` subset remainder prices exactly at the input rate.
+  # Only DeepSeek declares that dimension in its usage relationship today, and
+  # without an entry its per-occurrence estimate stays partial (amount nil);
+  # Kimi and OpenRouter have no per-occurrence envelope path yet, so their
+  # cost reporting is left exactly as it was.
+  defp openai_compat_rates(provider, rates) do
+    cache_creation =
+      if provider == :deepseek do
+        [cache_creation_input: rates.input]
+      else
+        []
+      end
+
+    cache_creation ++
+      [
+        input: rates.input,
+        cached_input: rates.cached_input,
+        output: rates.output,
+        reasoning_output: rates.output
+      ]
   end
 
   # The revision tag becomes the entry's `window` field: `:flat` for rates with

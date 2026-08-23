@@ -105,6 +105,61 @@ defmodule Aiur.Usage.PriceTable.WindowTest do
     test "an unparseable schedule cannot report a boundary" do
       assert {:error, :unknown_window} = Window.next_boundary(~U[2026-08-24 12:00:00Z], %{})
     end
+
+    test "the boundary scan follows the schedule's own peak windows, not a hardcoded list" do
+      # A synthetic schedule whose peak windows differ from the DeepSeek
+      # defaults: the scan must derive its candidate instants from the
+      # schedule, or the 13:00 boundary would never be found (and a boundary
+      # for a window that no longer exists could be reported).
+      synth = %{
+        utc_offset_hours: 8,
+        weekday_peak_windows_utc: [{~T[02:00:00], ~T[03:00:00]}, {~T[13:00:00], ~T[14:00:00]}],
+        weekend_off_peak_effective: ~D[2026-08-01]
+      }
+
+      assert {:ok, ~U[2026-08-24 13:00:00Z], :peak} = Window.next_boundary(~U[2026-08-24 12:00:00Z], synth)
+      assert {:ok, ~U[2026-08-24 14:00:00Z], :off_peak} = Window.next_boundary(~U[2026-08-24 13:30:00Z], synth)
+
+      # From a Beijing Saturday the weekend rule ends at the first weekday
+      # peak window of Monday.
+      assert {:ok, ~U[2026-08-31 02:00:00Z], :peak} = Window.next_boundary(~U[2026-08-29 12:00:00Z], synth)
+    end
+  end
+
+  describe "the Beijing offset is load-bearing" do
+    # A synthetic schedule where the offset flips the answer. The DeepSeek
+    # schedule itself cannot distinguish UTC+8 from UTC+0: its peak windows are
+    # defined in UTC and never overlap the 16:00-23:59 UTC band where the
+    # Beijing calendar date has already rolled over, so every pinned instant
+    # lands on the same weekday in both zones. This schedule puts a peak window
+    # *inside* that band so the shift decides between weekend-off-peak and
+    # weekday-peak.
+    @synthetic_offset_schedule %{
+      utc_offset_hours: 8,
+      weekday_peak_windows_utc: [{~T[16:00:00], ~T[21:00:00]}],
+      weekend_off_peak_effective: ~D[2026-08-01]
+    }
+
+    test "UTC Sunday 20:00 is Beijing Monday (weekday) inside the peak window, not weekend-off-peak" do
+      # 2026-08-30 20:00Z is UTC Sunday but Beijing Monday 04:00. Under the
+      # real +08:00 shift it is a weekday inside 16:00-21:00 -> peak.
+      assert Window.classify(~U[2026-08-30 20:00:00Z], @synthetic_offset_schedule) == :peak
+
+      # Neutralising the shift (offset 0) reads the same instant as Beijing
+      # Sunday and the weekend rule wins -> off-peak. The assertion above is
+      # what fails if the offset is ever dropped from `shift/2`.
+      assert Window.classify(
+               ~U[2026-08-30 20:00:00Z],
+               Map.put(@synthetic_offset_schedule, :utc_offset_hours, 0)
+             ) == :off_peak
+    end
+
+    test "UTC Friday 18:00 is Beijing Saturday, which the weekend rule makes off-peak" do
+      # 2026-08-28 18:00Z is UTC Friday but Beijing Saturday 02:00. Only the
+      # real offset turns it into a weekend day, so under the shifted calendar
+      # the peak window is overridden even though the UTC hour is inside it.
+      assert Window.classify(~U[2026-08-28 18:00:00Z], @synthetic_offset_schedule) == :off_peak
+    end
   end
 
   test "the Beijing offset is a named constant with the no-DST justification documented" do

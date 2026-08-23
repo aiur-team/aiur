@@ -762,13 +762,19 @@ defmodule Aiur.CodingAgent do
   # the operator's preference cannot be read, the route is kept and
   # `agent.priority` is used exactly as written — a stale window that wrongly
   # believes it is peak would silently move work to another provider, and that
-  # is far harder to notice than paying a visible peak rate. See
-  # `Aiur.Config.Schema.PricingPolicy`.
+  # is far harder to notice than paying a visible peak rate. And when rejecting
+  # the peak-priced routes would leave **no** candidate at all, the original
+  # list is kept rather than emptied: an empty list falls through to a
+  # bare dispatch with no pinned model (whatever `agent.kind` resolves to),
+  # which silently discards the model segment of a sole `deepseek:model`
+  # priority entry. See `Aiur.Config.Schema.PricingPolicy`.
   defp apply_peak_pricing_policy(routes, opts) do
     if peak_pricing_avoidance?(opts) do
       now = Keyword.get(opts, :now, DateTime.utc_now())
       schedule_for = Keyword.get(opts, :window_schedule_for, &Data.window_schedule/1)
-      Enum.reject(routes, &peak_priced_route?(&1, now, schedule_for))
+      kept = Enum.reject(routes, &peak_priced_route?(&1, now, schedule_for))
+
+      if kept == [], do: routes, else: kept
     else
       routes
     end
@@ -780,14 +786,21 @@ defmodule Aiur.CodingAgent do
         value
 
       :error ->
-        case Config.settings() do
-          {:ok, %{agent: %{pricing_policy: %{avoid_peak_pricing: value}}}} when is_boolean(value) -> value
-          {:ok, _settings} -> true
-          # Config unreadable (including unit-test contexts): never reroute on
-          # a preference we cannot determine.
-          {:error, _reason} -> false
-        end
+        # Production reads the documented accessor — the single source of
+        # truth for the knob (see `Aiur.Config.avoid_peak_pricing?/0`), whose
+        # default-on `true` is what an operator with no `pricing_policy` key
+        # gets. The reader is injectable so the policy branches are testable
+        # without a live config. A config that cannot be read must never move
+        # work, so it maps to "do not reroute".
+        reader = Keyword.get(opts, :avoid_peak_pricing_reader, &Config.avoid_peak_pricing?/0)
+        read_avoid_peak_pricing(reader)
     end
+  end
+
+  defp read_avoid_peak_pricing(reader) do
+    reader.()
+  rescue
+    _ -> false
   end
 
   @doc """

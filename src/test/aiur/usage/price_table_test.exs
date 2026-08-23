@@ -37,7 +37,7 @@ defmodule Aiur.Usage.PriceTableTest do
   ]
   test "resolves every reviewed model dimension on its inclusive boundary" do
     assert {:ok, catalog} = PriceTable.default()
-    assert length(catalog.entries) == 118
+    assert length(catalog.entries) == 111
 
     for {model, context_tier, input, cached, creation, output} <- @codex_rates,
         {dimension, expected} <- [
@@ -272,6 +272,28 @@ defmodule Aiur.Usage.PriceTableTest do
       assert price.window == :flat
       assert price.expires_before == ~D[2026-08-16]
     end
+  end
+
+  test "a window-coverage gap is distinct from a price that is not yet effective" do
+    entries = [
+      entry(%{price: "2.00", effective_date: ~D[2026-08-16], price_revision: "price-peak", window: :peak})
+    ]
+
+    assert {:ok, catalog} = PriceTable.new("table-windowed", entries)
+
+    # The :peak window prices fine on the effective date.
+    assert {:ok, %{price: price}} =
+             PriceTable.lookup(catalog, query(~D[2026-08-16]) |> Map.put(:pricing_window, :peak))
+
+    assert Decimal.equal?(price, Decimal.new("2.00"))
+
+    # Asking for :off_peak on the same date is a *coverage* gap — the price is
+    # effective, just not for that window — not a "not yet effective".
+    assert {:error, :price_window_uncovered} =
+             PriceTable.lookup(catalog, query(~D[2026-08-16]) |> Map.put(:pricing_window, :off_peak))
+
+    # A date before the first revision is genuinely not yet effective.
+    assert {:error, :price_not_yet_effective} = PriceTable.lookup(catalog, query(~D[2026-08-15]))
   end
 
   test "peak and off-peak revisions on the same date are a valid interval, not ambiguous" do

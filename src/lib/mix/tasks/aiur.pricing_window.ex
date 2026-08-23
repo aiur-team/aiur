@@ -64,7 +64,7 @@ defmodule Mix.Tasks.Aiur.PricingWindow do
         window = Window.classify(now, schedule)
 
         if window == :peak do
-          "  avoid_peak_pricing: on; DeepSeek routes are skipped at dispatch while peak is in force"
+          "  avoid_peak_pricing: on; peak-priced DeepSeek routes are dropped when a non-peak alternative remains"
         else
           "  avoid_peak_pricing: on; DeepSeek routes are kept (off-peak is in force)"
         end
@@ -73,7 +73,7 @@ defmodule Mix.Tasks.Aiur.PricingWindow do
 
   defp avoid_peak_pricing_preference do
     case Aiur.Config.settings() do
-      {:ok, %{agent: %{pricing_policy: %{avoid_peak_pricing: value}}}} when is_boolean(value) -> value
+      {:ok, settings} -> Aiur.Config.avoid_peak_pricing_value(settings)
       _ -> nil
     end
   end
