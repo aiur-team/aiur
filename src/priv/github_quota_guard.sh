@@ -70,6 +70,43 @@ case "$budget_requested" in
 esac
 unset budget_requested
 
+# ---------------------------------------------------------------------------
+# CREDENTIAL SOURCE (#2356)
+#
+# Agents do not inherit GITHUB_TOKEN/GH_TOKEN: Aiur.AgentEnvironment scrubs
+# them from every agent environment, so a raw `curl`, a dependency build
+# script, or anything else that speaks HTTP directly is unauthenticated. The
+# daemon writes the bot PAT to a file and exports its path as
+# AIUR_GITHUB_CREDENTIAL_FILE; this wrapper reads the credential from that file so
+# it can (a) derive the broker's budget key and (b) inject the token into the
+# real `gh` ONLY for the duration of this governed call — never into the agent
+# environment and never into the wrapper's own siblings (the python broker and
+# cache tools are spawned without it). The env fallback keeps the host /
+# Executor wrapper and the test harness working unchanged.
+# ---------------------------------------------------------------------------
+guard_token_file=${AIUR_GITHUB_CREDENTIAL_FILE:-}
+guard_token=
+if [ -n "$guard_token_file" ] && [ -f "$guard_token_file" ]; then
+  guard_token=$(sed -n '1p' "$guard_token_file" 2>/dev/null || true)
+fi
+if [ -z "$guard_token" ]; then
+  guard_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+fi
+
+# The only process that ever receives the credential is the real `gh` child of
+# a governed call, and it receives it on ITS environment, for the duration of
+# this one invocation. `run_gh` never exports the token, so nothing this
+# wrapper spawns — the budget broker, the pagination renderer, the cache
+# tools — inherits it, and nothing leaks back to the agent shell that invoked
+# the wrapper.
+run_gh() {
+  if [ -n "${guard_token:-}" ]; then
+    GH_TOKEN="$guard_token" GITHUB_TOKEN= "$real_gh" "$@"
+  else
+    GITHUB_TOKEN= GH_TOKEN= "$real_gh" "$@"
+  fi
+}
+
 fingerprint_value() {
   if command -v shasum >/dev/null 2>&1; then
     printf '%s' "$1" | shasum -a 256 2>/dev/null | awk '{print $1}'
@@ -100,9 +137,14 @@ if [ "$budget_required" -eq 1 ]; then
     budget_unavailable_reason='state directory is unavailable'
   else
     if [ -z "$budget_key" ]; then
-      budget_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+      # `guard_token` is the file credential (agents), the inherited env token
+      # (host/Executor), or — via the keyring read below — the stored login.
+      budget_token=$guard_token
       if [ -z "$budget_token" ]; then
         budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
+        # The keyring fallback feeds the governed call too, so the host wrapper
+        # does not depend on `gh` re-resolving the same stored login by itself.
+        [ -n "$budget_token" ] && guard_token=$budget_token
       fi
 
       if [ -z "$budget_token" ]; then
@@ -2587,13 +2629,13 @@ if [ -n "$error_file" ]; then
     # stdout is already being captured for header parsing, so there is no live
     # output to interleave with; buffering stderr here costs nothing.
     if [ "$api_requested_include" -eq 1 ]; then
-      "$real_gh" "$@" > "$output_file" 2> "$error_file"
+      run_gh "$@" > "$output_file" 2> "$error_file"
     else
-      "$real_gh" "$@" --include > "$output_file" 2> "$error_file"
+      run_gh "$@" --include > "$output_file" 2> "$error_file"
     fi
     status=$?
   elif [ -n "$cache_stage" ]; then
-    "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+    run_gh "$@" > "$cache_stage" 2> "$error_file"
     status=$?
     cat "$cache_stage"
   elif [ -n "$status_file" ] && command -v tee > /dev/null 2>&1; then
@@ -2602,7 +2644,7 @@ if [ -n "$error_file" ]; then
     # Replaying a buffered copy after exit stalls `gh run watch` progress — an
     # allowlisted read — and swallows interactive prompts. `tee` ends the
     # pipeline, so the real exit status travels via `status_file`.
-    { { "$real_gh" "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
+    { { run_gh "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
     stderr_streamed=1
     # An unreadable or non-numeric status means the real exit code could not be
     # confirmed. Reporting 0 there would turn a failed `gh` into an apparent
@@ -2612,7 +2654,7 @@ if [ -n "$error_file" ]; then
       ''|*[!0-9]*) status=1 ;;
     esac
   else
-    "$real_gh" "$@" 2> "$error_file"
+    run_gh "$@" 2> "$error_file"
     status=$?
   fi
 
@@ -2634,7 +2676,7 @@ if [ -n "$error_file" ]; then
     while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line" >&2; done < "$error_file"
   fi
 else
-  "$real_gh" "$@"
+  run_gh "$@"
   status=$?
 fi
 
@@ -2662,7 +2704,7 @@ probe_rate_limit() {
   budget_ignore_token_cooldown=1
   if budget_acquire; then
     budget_start_renewal
-    rate_limit_observation=$("$real_gh" api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
+    rate_limit_observation=$(run_gh api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
   else
     rate_limit_observation=
   fi

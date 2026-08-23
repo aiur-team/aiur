@@ -159,6 +159,42 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert File.stat!(AgentGitHubGuard.budget_broker_path(context.workspace)).mode |> Bitwise.band(0o111) != 0
   end
 
+  # #2356: the guard's credential file sits in the shared budget root so every
+  # workspace's wrapper resolves the same host credential without a token in
+  # any environment.
+  test "the guard credential file lives in the shared budget root", _context do
+    assert AgentGitHubGuard.agent_token_path() == Path.join(Budget.state_dir(), "agent-token")
+  end
+
+  test "ensure_agent_token_file writes the credential at mode 0600", context do
+    token_file = Path.join(context.state_path, "agent-token")
+
+    assert :ok = AgentGitHubGuard.ensure_agent_token_file(token: "bot-pat", path: token_file)
+
+    assert File.read!(token_file) == "bot-pat\n"
+    assert Bitwise.band(File.stat!(token_file).mode, 0o077) == 0
+  end
+
+  test "ensure_agent_token_file removes a stale file when no credential is available", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "stale-token\n")
+
+    assert :no_credential = AgentGitHubGuard.ensure_agent_token_file(token: nil, path: token_file)
+    refute File.exists?(token_file)
+  end
+
+  test "remote install writes the guard credential file for SSH workers", _context do
+    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: "remote-bot-pat")
+    assert script =~ "agent-token"
+    assert script =~ "remote-bot-pat"
+    assert script =~ "chmod 600"
+
+    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: nil)
+    assert script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+    refute script =~ "remote-bot-pat"
+  end
+
   test "keeps the Executor wrapper outside the budget state directory" do
     refute String.starts_with?(AgentGitHubGuard.host_bin_dir(), Budget.state_dir())
   end
@@ -409,6 +445,80 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
     assert events =~ "\tread\tgraphql\tfingerprint-abc\t"
+  end
+
+  # #2356: the agent environment carries no GITHUB_TOKEN/GH_TOKEN — the guard
+  # reads the credential from the file the daemon wrote and injects it ONLY
+  # into the real `gh` child of the governed call. A bare curl or a dependency
+  # build script never sees it.
+  test "governed gh injects the token-file credential only into the real gh child", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    observed = Path.join(context.state_path, "observed-token-env")
+    custom_gh = Path.join(context.state_path, "custom-gh")
+    File.mkdir_p!(context.state_path)
+
+    File.write!(token_file, "file-credential\n")
+    File.mkdir_p!(Path.dirname(custom_gh))
+
+    File.write!(custom_gh, """
+    #!/bin/sh
+    printf 'GH_TOKEN=%s\\nGITHUB_TOKEN=%s\\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}" > #{observed}
+    printf 'ok\\n'
+    """)
+
+    File.chmod!(custom_gh, 0o755)
+
+    env =
+      Enum.map(guard_env(context), fn
+        {"AIUR_REAL_GH", _} -> {"AIUR_REAL_GH", custom_gh}
+        {"AIUR_GITHUB_CREDENTIAL_FILE", _} -> {"AIUR_GITHUB_CREDENTIAL_FILE", token_file}
+        entry -> entry
+      end)
+
+    assert {"ok\n", 0} = run_agent_guard(context, ["api", "repos/owner/repo/issues/2356"], env)
+    assert File.read!(observed) == "GH_TOKEN=file-credential\nGITHUB_TOKEN=\n"
+  end
+
+  # #2356 acceptance: a governed `gh` call with the credential supplied ONLY
+  # through the token file still succeeds AND records an admission under the
+  # credential's own budget key — no environment token involved.
+  test "a governed call with a token-file-only credential records an admission", context do
+    budget_root = Path.join(context.state_path, "token-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "file-credential\n")
+
+    identity_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    key = Budget.token_key("file-credential")
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/2356"],
+               AIUR_GITHUB_CREDENTIAL_FILE: token_file,
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_BUDGET_IDENTITY_KEY: identity_key,
+               AIUR_GITHUB_STAGGER_MS: "0"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               broker,
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               key,
+               "--identity-key",
+               identity_key
+             ])
+
+    assert length(Jason.decode!(snapshot)["admissions"]) == 1
+
+    # The agent request record carries the credential fingerprint (never the
+    # token), so the admission is attributable to the file-backed credential.
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert events =~ "\tread\tcore\t#{key}\t"
   end
 
   # Retention (#2255): the agent request record keeps the previous two
@@ -2162,6 +2272,28 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute output =~ "agent-token"
   end
 
+  # #2356: agents carry no GITHUB_TOKEN/GH_TOKEN; the git guard's credential
+  # helper reads the token from the same credential file the `gh` guard uses,
+  # so a governed `git push` still authenticates without a token in the env.
+  test "git authentication reads the token file when the environment carries no token", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "file-git-token\n")
+
+    input = "protocol=https\nhost=github.com\n\n"
+
+    assert {output, 0} =
+             run_git_credential(context, input,
+               AIUR_GITHUB_CREDENTIAL_FILE: token_file,
+               GITHUB_TOKEN: nil,
+               GH_TOKEN: nil,
+               HOME: context.workspace
+             )
+
+    assert output =~ "username=x-access-token"
+    assert output =~ "password=file-git-token"
+  end
+
   test "git push rejects a credential-bearing GitHub remote", context do
     repo = Path.join(context.workspace, "repo")
     File.mkdir_p!(repo)
@@ -3663,6 +3795,10 @@ defmodule Aiur.AgentGitHubGuardTest do
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls},
       {"GITHUB_TOKEN", ""},
+      # #2356: the guard reads the credential from this file. Pointed at a
+      # path that never exists so the harness never picks up a real host token;
+      # tests that exercise the file supply their own.
+      {"AIUR_GITHUB_CREDENTIAL_FILE", Path.join(context.state_path, "no-agent-token")},
       {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
       {"AIUR_GITHUB_BUDGET_ROOT", ""},
       {"AIUR_GITHUB_BUDGET_KEY", ""},

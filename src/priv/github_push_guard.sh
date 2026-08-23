@@ -42,7 +42,7 @@ if [ -z "$real_git" ] || [ ! -x "$real_git" ]; then
   exit 127
 fi
 
-credential_helper='!f() { if test "$1" = get; then if test -z "${GITHUB_TOKEN:-}"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; fi; }; f'
+credential_helper='!f() { if test "$1" = get; then t=""; f="${AIUR_GITHUB_CREDENTIAL_FILE:-}"; if [ -n "$f" ] && [ -f "$f" ]; then t=$(sed -n "1p" "$f" 2>/dev/null || true); fi; if [ -z "$t" ]; then t=${GITHUB_TOKEN:-${GH_TOKEN:-}}; fi; if [ -z "$t" ]; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$t"; fi; fi; }; f'
 
 # Destructive commands must name the ticket workspace explicitly. Derive that
 # authority from this installed wrapper's location rather than an environment

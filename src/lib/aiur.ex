@@ -49,6 +49,11 @@ defmodule Aiur.Application do
     install_signal_handlers()
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
+    # #2356: keep the bot PAT out of every agent environment. The daemon writes
+    # it to the guard's credential file so a governed `gh` call can inject it
+    # for its own duration, while a bare `curl` or a dependency build script
+    # finds no token in the environment.
+    _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)

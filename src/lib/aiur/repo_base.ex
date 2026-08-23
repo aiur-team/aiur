@@ -536,7 +536,7 @@ defmodule Aiur.RepoBase do
     # both `latest` and the agent-writable sidecars, so materialized workspaces
     # inherit only the repository tree and prewarm never executes agent-controlled
     # package cache content.
-    scrubbed = AgentEnvironment.scrub_shell_command(command)
+    scrubbed = AgentEnvironment.scrub_shell_command(command, github_credential: false)
 
     {out, status} =
       System.cmd("sh", ["-c", scrubbed],
