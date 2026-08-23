@@ -117,6 +117,11 @@ class RunSummaryKpisTest(unittest.TestCase):
                             "fleet_agents_max": 16,
                             "fleet_agents_configured": 16,
                             "fleet_capacity_observed_at_ms": 900,
+                            "fleet_capacity_age_ms": 0,
+                            "fleet_admission_signal": "build",
+                            "fleet_load": 3.77,
+                            "fleet_load_threshold": 24,
+                            "fleet_schedulers": 16,
                             "build_gate_status": "measured",
                             "build_gate_capacity": 2,
                             "build_gate_observed_at_ms": 950,
@@ -146,11 +151,88 @@ class RunSummaryKpisTest(unittest.TestCase):
         self.assertEqual(pressure["latest_build_capacity"], 2)
         self.assertEqual(pressure["latest_fleet_observed_at_ms"], 900)
         self.assertEqual(pressure["latest_build_observed_at_ms"], 950)
+        # The binding admission signal and host load let an operator tell a
+        # build-gate-saturated fleet from a host-saturated one.
+        self.assertEqual(pressure["latest_admission_signal"], "build")
+        self.assertEqual(pressure["latest_load"], 3.77)
+        self.assertEqual(pressure["latest_load_threshold"], 24)
         self.assertFalse(pressure["legacy_fallback"])
 
         text = render.render_run_summary(summary)
         self.assertIn("capacity 2", text)
-        self.assertIn("fleet 1970-01-01T00:00:00.900000Z; build 1970-01-01T00:00:00.950000Z", text)
+        self.assertIn("Binding admission signal: build; load 3.77 / threshold 24", text)
+        self.assertIn("fleet 1970-01-01T00:00:00.900000Z (aged 0s old); build 1970-01-01T00:00:00.950000Z", text)
+
+    def test_peak_capacity_range_renders_when_capacity_changed_mid_run(self):
+        summary = {
+            "actors": {
+                "_daemon": {
+                    "samples": [
+                        {
+                            "timestamp_ms": 1000,
+                            "fleet_capacity_status": "current",
+                            "fleet_agents_occupied": 3,
+                            "fleet_capacity_observed_at_ms": 900,
+                            "build_gate_status": "measured",
+                            "build_gate_capacity": 2,
+                            "build_gate_active": 2,
+                            "build_gate_queued": 6,
+                            "build_gate_observed_at_ms": 950,
+                        },
+                        {
+                            "timestamp_ms": 2000,
+                            "fleet_capacity_status": "current",
+                            "fleet_agents_occupied": 3,
+                            "fleet_capacity_observed_at_ms": 1900,
+                            "build_gate_status": "measured",
+                            "build_gate_capacity": 4,
+                            "build_gate_active": 3,
+                            "build_gate_queued": 1,
+                            "build_gate_observed_at_ms": 1950,
+                        },
+                    ]
+                }
+            }
+        }
+
+        pressure = render.fleet_pressure(summary)
+        self.assertEqual(pressure["min_build_capacity"], 2)
+        self.assertEqual(pressure["max_build_capacity"], 4)
+        self.assertEqual(pressure["peak_queued_builds"], 6)
+        self.assertEqual(pressure["latest_build_capacity"], 4)
+
+        text = render.render_run_summary(summary)
+        # The queued peak (6) occurred under capacity 2; the range makes that
+        # visible instead of presenting the latest 4 as the peak's capacity.
+        self.assertIn("capacity 2..4 (latest 4)", text)
+        self.assertIn("queued 6; capacity 2..4", text)
+
+    def test_missing_peak_concurrency_renders_unavailable_never_zero(self):
+        summary = {
+            "actors": {
+                "_daemon": {
+                    "samples": [
+                        {
+                            "timestamp_ms": 1000,
+                            "availability": "measured",
+                            "fleet_capacity_status": "current",
+                            "fleet_capacity_observed_at_ms": 900,
+                            "fleet_agents_configured": 16,
+                            "fleet_agents_max": 16,
+                            "fleet_agents_effective": 12,
+                            "build_gate_status": "unavailable",
+                        }
+                    ]
+                }
+            }
+        }
+        # The exact-fleet path is taken but no numeric occupied was ever
+        # recorded, so the peak is unknown. Zero is a legitimate peak ("idle");
+        # a missing peak must stay None so the reader can tell the difference.
+        kpis = render.run_summary_kpis(summary, cap=10)
+        self.assertIsNone(kpis["peak_concurrency"])
+        text = render.render_run_summary(summary, cap=10)
+        self.assertIn("Peak concurrency: unavailable of 10 cap", text)
 
     def test_partial_build_with_missing_wait_and_observation_renders_unavailable(self):
         summary = {
@@ -192,7 +274,7 @@ class RunSummaryKpisTest(unittest.TestCase):
         text = render.render_run_summary(summary)
         self.assertIn("longest live wait: unavailable", text)
         self.assertNotIn("unavailables", text)
-        self.assertIn("fleet unavailable; build unavailable", text)
+        self.assertIn("fleet unavailable (aged unavailable); build unavailable", text)
 
     def test_legacy_concurrency_fallback_is_explicitly_labelled(self):
         pressure = render.fleet_pressure(self.summary, cap=10)

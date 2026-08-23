@@ -217,6 +217,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         %{cap: cap, cap_available?: cap_available?, cores: cores, host_mem: host_mem, bw: bw, dataset: dataset},
         opts
       )
+
     complexity_breakdown = complexity_breakdown(tickets)
 
     rows =
@@ -437,6 +438,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     cell
     |> put_latest_state(:fleet_capacity_status, :fleet_state_ts, fleet_status, ts)
     |> put_latest_state(:build_gate_status, :build_state_ts, build_status, ts)
+    |> put_latest_state(:fleet_admission_signal, :fleet_signal_ts, field(sample, :fleet_admission_signal), ts)
     |> put_latest_observation(:fleet_capacity_observed_at_ms, :fleet_observed_ts, field(sample, :fleet_capacity_observed_at_ms), ts)
     |> put_latest_observation(:build_gate_observed_at_ms, :build_observed_ts, field(sample, :build_gate_observed_at_ms), ts)
     |> then(fn acc ->
@@ -446,7 +448,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         |> put_latest_metrics(ts,
           fleet_agents_configured: field(sample, :fleet_agents_configured),
           fleet_agents_max: field(sample, :fleet_agents_max),
-          fleet_agents_effective: field(sample, :fleet_agents_effective)
+          fleet_agents_effective: field(sample, :fleet_agents_effective),
+          fleet_load: field(sample, :fleet_load),
+          fleet_load_threshold: field(sample, :fleet_load_threshold),
+          fleet_schedulers: field(sample, :fleet_schedulers)
         )
       else
         acc
@@ -458,6 +463,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         |> put_max(:build_gate_active, field(sample, :build_gate_active))
         |> put_max(:build_gate_queued, field(sample, :build_gate_queued))
         |> put_max(:build_queue_oldest_wait_seconds, field(sample, :build_queue_oldest_wait_seconds))
+        |> put_min_max(:build_gate_capacity, field(sample, :build_gate_capacity))
         |> put_latest_metrics(ts, build_gate_capacity: field(sample, :build_gate_capacity))
       else
         acc
@@ -495,6 +501,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp put_max(cell, _key, value) when not is_number(value), do: cell
   defp put_max(cell, key, value), do: Map.update(cell, key, value, &max(&1, value))
 
+  # Tracks both edges of a capacity that changes mid-run so a peak can never be
+  # presented beside a single "latest" capacity it may not have occurred under.
+  defp put_min_max(cell, _key, value) when not is_number(value), do: cell
+
+  defp put_min_max(cell, key, value) do
+    cell
+    |> Map.update({key, :min}, value, &min(&1, value))
+    |> Map.update({key, :max}, value, &max(&1, value))
+  end
+
   defp field(sample, key), do: Map.get(sample, key, Map.get(sample, Atom.to_string(key)))
 
   defp build_series(bucketed, pressure_buckets, display, display_keys, t0, bw, buckets) do
@@ -530,7 +546,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp drop_unavailable_fleet(cell, "current"), do: cell
 
   defp drop_unavailable_fleet(cell, _status),
-    do: Map.drop(cell, [:fleet_agents_occupied, :fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective])
+    do:
+      Map.drop(cell, [
+        :fleet_agents_occupied,
+        :fleet_agents_configured,
+        :fleet_agents_max,
+        :fleet_agents_effective,
+        :fleet_load,
+        :fleet_load_threshold,
+        :fleet_schedulers,
+        :fleet_admission_signal
+      ])
 
   defp drop_unavailable_build(cell, status) when status in ["measured", "disabled", "partial"], do: cell
 
@@ -548,7 +574,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       latest_configured_capacity: latest_value(series, :fleet_agents_configured),
       latest_max_capacity: latest_value(series, :fleet_agents_max),
       latest_effective_capacity: latest_value(series, :fleet_agents_effective),
+      latest_admission_signal: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_admission_signal),
+      latest_load: latest_value(series, :fleet_load),
+      latest_load_threshold: latest_value(series, :fleet_load_threshold),
+      latest_schedulers: latest_value(series, :fleet_schedulers),
       latest_build_capacity: latest_source_value(series, :build_gate_status, ["measured", "disabled", "partial"], :build_gate_capacity),
+      min_build_capacity: series_min_value(series, :build_gate_capacity),
+      max_build_capacity: series_max_value(series, :build_gate_capacity),
       latest_fleet_observed_at_ms: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_capacity_observed_at_ms),
       latest_build_observed_at_ms:
         latest_source_value(
@@ -573,6 +605,16 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp max_value(series, key) do
     values = series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1)
+    Enum.max(values, fn -> nil end)
+  end
+
+  defp series_min_value(series, key) do
+    values = series |> Enum.map(&Map.get(&1, {key, :min})) |> Enum.filter(&is_number/1)
+    Enum.min(values, fn -> nil end)
+  end
+
+  defp series_max_value(series, key) do
+    values = series |> Enum.map(&Map.get(&1, {key, :max})) |> Enum.filter(&is_number/1)
     Enum.max(values, fn -> nil end)
   end
 

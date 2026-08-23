@@ -260,10 +260,12 @@ defmodule Aiur.RunTelemetry.Summaries do
     read_bytes_per_second write_bytes_per_second
     system_fd_used system_fd_limit system_fd_available system_fd_headroom_ratio
     fleet_agents_occupied fleet_agents_configured fleet_agents_max fleet_agents_effective
+    fleet_load fleet_load_threshold fleet_schedulers
     build_gate_capacity build_gate_active build_gate_queued build_queue_oldest_wait_seconds
   )
   @resource_evidence ~w(
     fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms
+    fleet_admission_signal
     build_gate_enabled build_gate_status build_gate_observed_at_ms
   )a
 

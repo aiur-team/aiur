@@ -130,7 +130,9 @@ def run_summary_kpis(summary: dict, cap: int) -> dict:
     cpu_hours = round(sum(cpu_seconds(actor) for actor in agents.values()) / 3600, 1)
 
     pressure = fleet_pressure(summary, cap)
-    peak_concurrency = pressure["peak_occupied"] or 0
+    # A `None` peak is unavailable evidence, never zero — zero is a legitimate
+    # value (an idle fleet), so coercing `None` to 0 would lie about it.
+    peak_concurrency = pressure["peak_occupied"]
     wasted_slot_hours = pressure["wasted_slot_hours"]
 
     top_cost = sorted(
@@ -169,7 +171,7 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
         "Tickets:        %d (dispatched %d, merged %d, open %d)"
         % (kpis["tickets"], kpis["dispatched"], kpis["merged"], kpis["open"]),
         "CPU burned:     %.1f CPU-hours" % kpis["cpu_hours"],
-        "Peak concurrency: %d of %d cap" % (kpis["peak_concurrency"], kpis["cap"]),
+        "Peak concurrency: %s of %d cap" % (_display(kpis["peak_concurrency"]), kpis["cap"]),
         "Wasted capacity: %.1f slot-hours" % kpis["wasted_slot_hours"],
         "",
         "Top cost (CPU-seconds):",
@@ -195,18 +197,27 @@ def render_run_summary(summary: dict, cap: int = 10) -> str:
             )
         )
     lines.append(
+        "  Binding admission signal: %s; load %s / threshold %s"
+        % (
+            _display(pressure["latest_admission_signal"]),
+            _display(pressure["latest_load"]),
+            _display(pressure["latest_load_threshold"]),
+        )
+    )
+    lines.append(
         "  Peak builds: active %s, queued %s; capacity %s; longest live wait: %s"
         % (
             _display(pressure["peak_active_builds"]),
             _display(pressure["peak_queued_builds"]),
-            _display(pressure["latest_build_capacity"]),
+            _build_capacity_range(pressure),
             _duration_display(pressure["longest_wait_seconds"]),
         )
     )
     lines.append(
-        "  Latest source observations: fleet %s; build %s"
+        "  Latest source observations: fleet %s (aged %s); build %s"
         % (
             _timestamp_display(pressure["latest_fleet_observed_at_ms"]),
+            _age_display(pressure["latest_fleet_age_ms"]),
             _timestamp_display(pressure["latest_build_observed_at_ms"]),
         )
     )
@@ -248,7 +259,14 @@ def fleet_pressure(summary: dict, cap: int = 10) -> dict:
         "latest_configured_capacity": _number(latest.get("fleet_agents_configured")),
         "latest_max_capacity": _number(latest.get("fleet_agents_max")),
         "latest_effective_capacity": _number(latest.get("fleet_agents_effective")),
+        "latest_admission_signal": latest.get("fleet_admission_signal"),
+        "latest_load": _number(latest.get("fleet_load")),
+        "latest_load_threshold": _number(latest.get("fleet_load_threshold")),
+        "latest_schedulers": _number(latest.get("fleet_schedulers")),
+        "latest_fleet_age_ms": _number(latest.get("fleet_capacity_age_ms")),
         "latest_build_capacity": _number(latest_build.get("build_gate_capacity")),
+        "min_build_capacity": _minimum(build, "build_gate_capacity"),
+        "max_build_capacity": _maximum(build, "build_gate_capacity"),
         "latest_fleet_observed_at_ms": _number(latest.get("fleet_capacity_observed_at_ms")),
         "latest_build_observed_at_ms": _number(latest_build.get("build_gate_observed_at_ms")),
         "peak_active_builds": _maximum(build, "build_gate_active"),
@@ -267,6 +285,38 @@ def _maximum(samples: list[dict], key: str):
     values = [_number(sample.get(key)) for sample in samples]
     values = [value for value in values if value is not None]
     return max(values, default=None)
+
+
+def _minimum(samples: list[dict], key: str):
+    values = [_number(sample.get(key)) for sample in samples]
+    values = [value for value in values if value is not None]
+    return min(values, default=None)
+
+
+def _build_capacity_range(pressure: dict) -> str:
+    """Render the observed capacity range rather than the latest single value.
+
+    A queued peak can occur under a capacity that was changed mid-run; showing
+    the latest value alone would present the peak as if it happened under it.
+    """
+    minimum = pressure.get("min_build_capacity")
+    maximum = pressure.get("max_build_capacity")
+    if minimum is not None and maximum is not None:
+        if minimum == maximum:
+            return str(minimum)
+        return "%s..%s (latest %s)" % (
+            _display(minimum),
+            _display(maximum),
+            _display(pressure.get("latest_build_capacity")),
+        )
+    return _display(pressure.get("latest_build_capacity"))
+
+
+def _age_display(age_ms) -> str:
+    numeric = _number(age_ms)
+    if numeric is None:
+        return "unavailable"
+    return "%ss old" % int(round(numeric / 1000))
 
 
 def _sampled_waste(samples: list[dict], fallback_cap: int) -> float:

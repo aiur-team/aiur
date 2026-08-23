@@ -162,8 +162,20 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
   test "buckets exact fleet pressure independently of process availability" do
     daemon = %{
       samples: [
-        pressure_sample(@t0 + 10_000, availability: "unavailable", occupied: 3, max_agents: 4, effective: 2, active: 1, queued: 7, wait: 12),
-        pressure_sample(@t0 + 20_000, occupied: 5, max_agents: 6, effective: 4, active: 2, queued: 9, wait: 18),
+        pressure_sample(@t0 + 10_000,
+          availability: "unavailable",
+          occupied: 3,
+          max_agents: 4,
+          effective: 2,
+          active: 1,
+          queued: 7,
+          wait: 12,
+          admission_signal: "build",
+          load: 3.77,
+          load_threshold: 24,
+          schedulers: 16
+        ),
+        pressure_sample(@t0 + 20_000, occupied: 5, max_agents: 6, effective: 4, active: 2, queued: 9, wait: 18, admission_signal: "build", load: 3.77, load_threshold: 24, schedulers: 16),
         pressure_sample(@t0 + 300_000, fleet_status: "stale", build_status: "degraded", occupied: 99, max_agents: 99, effective: 99, active: 99, queued: 99, wait: 99)
       ],
       profile: profile(0, 0, 0, 0)
@@ -182,12 +194,24 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert measured.fleet_capacity_observed_at_ms == @t0 + 19_998
     assert measured.build_gate_observed_at_ms == @t0 + 19_999
     assert Enum.any?(model.series, &(&1.pressure_state == :stale_fleet))
+    # The first sample is "current" despite an unavailable process table, so
+    # its binding signal and host load are part of the exact pressure evidence.
+    assert model.pressure.latest_admission_signal == "build"
+    assert model.pressure.latest_load == 3.77
+    assert model.pressure.latest_load_threshold == 24
+    assert model.pressure.latest_schedulers == 16
     assert model.pressure.peak_occupied == 5
     assert model.pressure.latest_effective_capacity == 4
     assert model.pressure.latest_build_capacity == 2
     assert model.pressure.latest_fleet_observed_at_ms == @t0 + 19_998
     assert model.pressure.latest_build_observed_at_ms == @t0 + 19_999
     assert model.pressure.longest_wait_seconds == 18
+    # A non-"current" fleet sample must never populate the pressure metrics:
+    # the third sample is stale, so its 99s must not surface anywhere.
+    refute Enum.any?(model.series, &(Map.get(&1, :fleet_agents_occupied) == 99))
+    refute Enum.any?(model.series, &(Map.get(&1, :fleet_load) == 99))
+    refute model.pressure.peak_occupied == 99
+    refute model.pressure.latest_effective_capacity == 99
   end
 
   test "keeps missing source observation times unavailable in a later bucket" do
@@ -232,6 +256,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
       "fleet_agents_configured" => Keyword.fetch!(opts, :max_agents),
       "fleet_agents_max" => Keyword.fetch!(opts, :max_agents),
       "fleet_agents_effective" => Keyword.fetch!(opts, :effective),
+      :fleet_admission_signal => Keyword.get(opts, :admission_signal),
+      "fleet_load" => Keyword.get(opts, :load),
+      "fleet_load_threshold" => Keyword.get(opts, :load_threshold),
+      "fleet_schedulers" => Keyword.get(opts, :schedulers),
       :fleet_capacity_observed_at_ms => ts - 2,
       :build_gate_status => Keyword.get(opts, :build_status, "measured"),
       "build_gate_capacity" => 2,

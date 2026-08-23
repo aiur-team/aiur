@@ -61,12 +61,16 @@ Analytics records fleet and build-gate whole-host sources alongside daemon proce
 telemetry. The pressure chart shows occupied agents, configured/max/effective
 agent capacity, active and queued builds, and the oldest live build wait. Its source
 state strip and timestamped data table distinguish current, stale, degraded, partial,
-and empty observations.
+and empty observations, and the table additionally reports the binding admission
+signal and the measured load against its threshold — so a growing build queue with
+load far below threshold reads as build-gate-saturated, not host-saturated.
 
 A gap means the source was not current enough to support that value; it is never
 silently plotted as zero. Build-queue wait is the oldest waiter still live at the
 sample time, not a completed-build latency. These measurements expose when the build
-gate is the fleet constraint; they do not automatically change the agent cap.
+gate is the fleet constraint; they do not automatically change the agent cap. The
+build-gate scan runs on a reduced cadence (with the last observation carried forward)
+so measuring the gate never perturbs a real build acquisition.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 

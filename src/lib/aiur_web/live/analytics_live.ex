@@ -207,7 +207,7 @@ defmodule AiurWeb.AnalyticsLive do
             <div class="an-card-head">
               <div>
                 <h3 class="an-card-title">Fleet-wide build pressure</h3>
-                <p class="an-card-sub">Whole-host occupied agents, measured capacities, active and queued builds, and oldest live wait. Gaps are unavailable evidence, never zero.</p>
+                <p class="an-card-sub">Whole-host occupied agents, measured capacities, active and queued builds, oldest live wait, and the binding admission signal. Gaps are unavailable evidence, never zero.</p>
               </div>
             </div>
             <div id="analytics-pressure-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.fleet_pressure(@chart_model))}</div>
@@ -219,7 +219,7 @@ defmodule AiurWeb.AnalyticsLive do
               <div class="table-scroll">
                 <table id="analytics-pressure-table">
                   <caption>Timestamped whole-host fleet and build-pressure samples</caption>
-                  <thead><tr><th>Sample time</th><th>State</th><th>Fleet source</th><th>Fleet observed</th><th>Build source</th><th>Build observed</th><th>Occupied</th><th>Configured / max / effective</th><th>Build capacity</th><th>Active / queued builds</th><th>Oldest wait</th></tr></thead>
+                  <thead><tr><th>Sample time</th><th>State</th><th>Fleet source</th><th>Fleet observed</th><th>Build source</th><th>Build observed</th><th>Binding</th><th>Load</th><th>Occupied</th><th>Configured / max / effective</th><th>Build capacity</th><th>Active / queued builds</th><th>Oldest wait</th></tr></thead>
                   <tbody>
                     <tr :for={sample <- @chart_model.series}>
                       <td>{pressure_time(sample.t_ms)}</td>
@@ -228,6 +228,8 @@ defmodule AiurWeb.AnalyticsLive do
                       <td>{pressure_time(Map.get(sample, :fleet_capacity_observed_at_ms))}</td>
                       <td>{pressure_value(Map.get(sample, :build_gate_status))}</td>
                       <td>{pressure_time(Map.get(sample, :build_gate_observed_at_ms))}</td>
+                      <td>{pressure_value(Map.get(sample, :fleet_admission_signal))}</td>
+                      <td>{pressure_load(Map.get(sample, :fleet_load), Map.get(sample, :fleet_load_threshold))}</td>
                       <td>{pressure_value(Map.get(sample, :fleet_agents_occupied))}</td>
                       <td>{pressure_values(sample, [:fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective])}</td>
                       <td>{pressure_value(Map.get(sample, :build_gate_capacity))}</td>
@@ -458,6 +460,17 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp pressure_seconds(nil), do: "—"
   defp pressure_seconds(value), do: "#{value}s"
+
+  # The load gate holds at `load > threshold * schedulers`, so render both the
+  # raw load and the scaled threshold the operator compares it against.
+  defp pressure_load(load, threshold) when is_number(load) and is_number(threshold),
+    do: "#{format_load(load)} / #{format_load(threshold)}"
+
+  defp pressure_load(load, nil) when is_number(load), do: format_load(load)
+  defp pressure_load(_load, _threshold), do: "—"
+
+  defp format_load(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
+  defp format_load(value), do: to_string(value)
 
   # The live route defaults to the daemon-owned aggregate. The configurable
   # source exists only to keep the route's protected-query contract testable

@@ -17,8 +17,10 @@ defmodule Aiur.RunTelemetry.Sampler do
 
   @default_interval_ms 5_000
   @default_pressure_probe_timeout_ms 500
+  @default_build_probe_cadence 5
   @metric_fields [:rss_bytes, :fd_count, :read_bytes, :write_bytes]
   @fleet_fields [:fleet_agents_occupied, :fleet_agents_configured, :fleet_agents_max, :fleet_agents_effective]
+  @fleet_admission_fields [:fleet_admission_signal, :fleet_load, :fleet_load_threshold, :fleet_schedulers]
   @build_fields [
     :build_gate_enabled,
     :build_gate_capacity,
@@ -38,10 +40,15 @@ defmodule Aiur.RunTelemetry.Sampler do
   end
 
   @doc false
-  @spec sample_once(map(), keyword()) :: %{records: [map()], warnings: [map()], previous: map()}
+  @spec sample_once(map(), keyword()) :: %{
+          records: [map()],
+          warnings: [map()],
+          previous: map(),
+          build_pressure: map() | nil
+        }
   def sample_once(previous, opts \\ []) when is_map(previous) and is_list(opts) do
     table_fun = Keyword.get(opts, :process_table_fun, &Procfs.process_table/0)
-    pressure = pressure_observation(opts)
+    {pressure, build_pressure, pressure_warnings} = pressure_observation(opts)
 
     context = %{
       entries: safe_entries(Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0)),
@@ -57,19 +64,24 @@ defmodule Aiur.RunTelemetry.Sampler do
       opts: opts
     }
 
-    case safe_call(table_fun, {:error, {:procfs_unavailable, :reader_failed}}) do
-      {:ok, table, table_warnings} when is_map(table) ->
-        successful_sample(previous, table, table_warnings, context)
-        |> attach_pressure(pressure)
+    result =
+      case safe_call(table_fun, {:error, {:procfs_unavailable, :reader_failed}}) do
+        {:ok, table, table_warnings} when is_map(table) ->
+          successful_sample(previous, table, table_warnings, context)
+          |> attach_pressure(pressure)
 
-      {:error, reason} ->
-        unavailable_sample(context, reason)
-        |> attach_pressure(pressure)
+        {:error, reason} ->
+          unavailable_sample(context, reason)
+          |> attach_pressure(pressure)
 
-      _other ->
-        unavailable_sample(context, :invalid_process_table)
-        |> attach_pressure(pressure)
-    end
+        _other ->
+          unavailable_sample(context, :invalid_process_table)
+          |> attach_pressure(pressure)
+      end
+
+    result
+    |> Map.put(:build_pressure, build_pressure)
+    |> Map.update!(:warnings, &(&1 ++ pressure_warnings))
   end
 
   @impl true
@@ -81,7 +93,11 @@ defmodule Aiur.RunTelemetry.Sampler do
         Procfs.clock_ticks_per_second()
       end)
 
-    sample_fun = Keyword.get(opts, :sample_fun, fn previous -> sample_once(previous, sample_opts) end)
+    sample_fun =
+      Keyword.get(opts, :sample_fun, fn previous, tick_opts ->
+        sample_once(previous, Keyword.merge(sample_opts, tick_opts))
+      end)
+
     recorder = Keyword.get(opts, :recorder, &RunTelemetry.record_batch/1)
 
     state = %{
@@ -89,7 +105,9 @@ defmodule Aiur.RunTelemetry.Sampler do
       sample_fun: sample_fun,
       recorder: recorder,
       previous: %{},
-      scan: nil
+      scan: nil,
+      tick: 0,
+      last_build_pressure: nil
     }
 
     if Keyword.get(opts, :start_immediately?, true), do: send(self(), :tick), else: schedule_tick(state.interval_ms)
@@ -104,11 +122,12 @@ defmodule Aiur.RunTelemetry.Sampler do
 
     {pid, monitor_ref} =
       spawn_monitor(fn ->
-        result = safe_sample(state.sample_fun, state.previous)
+        tick_opts = [build_probe_tick: state.tick, last_build_pressure: state.last_build_pressure]
+        result = safe_sample(state.sample_fun, state.previous, tick_opts)
         send(parent, {:sample_complete, token, result})
       end)
 
-    {:noreply, %{state | scan: %{pid: pid, monitor_ref: monitor_ref, token: token}}}
+    {:noreply, %{state | scan: %{pid: pid, monitor_ref: monitor_ref, token: token}, tick: state.tick + 1}}
   end
 
   def handle_info(:tick, state) do
@@ -118,13 +137,13 @@ defmodule Aiur.RunTelemetry.Sampler do
   end
 
   def handle_info(
-        {:sample_complete, token, %{records: records, warnings: warnings, previous: previous}},
+        {:sample_complete, token, %{records: records, warnings: warnings, previous: previous} = result},
         %{scan: %{monitor_ref: monitor_ref, token: token}} = state
       ) do
     Process.demonitor(monitor_ref, [:flush])
     batch = Enum.map(records, &{:resource, &1}) ++ Enum.map(warnings, &{:warning, warning_record(&1)})
     record(state.recorder, batch)
-    {:noreply, %{state | previous: previous, scan: nil}}
+    {:noreply, %{state | previous: previous, scan: nil, last_build_pressure: result[:build_pressure] || state.last_build_pressure}}
   end
 
   def handle_info({:sample_complete, _token, _result}, state), do: {:noreply, state}
@@ -197,19 +216,51 @@ defmodule Aiur.RunTelemetry.Sampler do
   defp pressure_observation(opts) do
     system_ms_fun = Keyword.get(opts, :system_ms_fun, fn -> System.system_time(:millisecond) end)
     timeout_ms = Keyword.get(opts, :pressure_probe_timeout_ms, @default_pressure_probe_timeout_ms)
+    build_probe? = build_probe_tick?(opts)
 
-    sources = [
-      {:fleet, Keyword.get(opts, :fleet_snapshot_fun, fn -> Orchestrator.dashboard_snapshot(Orchestrator, 100) end), :orchestrator_unavailable},
-      {:build, Keyword.get(opts, :build_status_fun, &BuildGate.status/0), :build_gate_unavailable}
-    ]
+    sources =
+      [{:fleet, fleet_snapshot_fun(opts), :orchestrator_unavailable}] ++
+        if build_probe? do
+          [{:build, Keyword.get(opts, :build_status_fun, &BuildGate.status/0), :build_gate_unavailable}]
+        else
+          []
+        end
 
-    results = bounded_pressure_probes(sources, timeout_ms)
+    {results, probe_timeouts} = bounded_pressure_probes(sources, timeout_ms)
 
-    build_observed_at_ms = safe_call(system_ms_fun, nil)
+    build =
+      if build_probe? do
+        build_observation(Map.fetch!(results, :build), safe_call(system_ms_fun, nil))
+      else
+        # The lock-scanning build probe is expensive and, on a loaded host, the
+        # only one that can disturb a real acquisition, so it runs on a reduced
+        # cadence. Between probes the last observed build pressure is carried
+        # forward with its original observed-at timestamp rather than dropped,
+        # so a reduced cadence never renders as an availability gap.
+        Keyword.get(opts, :last_build_pressure) || unavailable_build("unavailable")
+      end
 
-    fleet_observation(Map.fetch!(results, :fleet))
-    |> Map.merge(build_observation(Map.fetch!(results, :build), build_observed_at_ms))
+    fleet = fleet_observation(Map.fetch!(results, :fleet))
+    warnings = Enum.map(probe_timeouts, &pressure_probe_timeout_warning/1)
+
+    {Map.merge(fleet, build), build, warnings}
   end
+
+  defp fleet_snapshot_fun(opts) do
+    Keyword.get(opts, :fleet_snapshot_fun, fn -> Orchestrator.dashboard_snapshot(Orchestrator, 100) end)
+  end
+
+  defp build_probe_tick?(opts) do
+    cadence = Keyword.get(opts, :build_probe_cadence, @default_build_probe_cadence)
+    tick = Keyword.get(opts, :build_probe_tick, 0)
+    rem(tick, max(cadence, 1)) == 0
+  end
+
+  defp pressure_probe_timeout_warning({source, :timeout}) do
+    %{event: :pressure_probe_timeout, source: source, reason: :timeout}
+  end
+
+  defp pressure_probe_timeout_warning({source, reason}), do: %{event: :pressure_probe_timeout, source: source, reason: reason}
 
   defp bounded_pressure_probes(sources, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
     sources
@@ -221,14 +272,17 @@ defmodule Aiur.RunTelemetry.Sampler do
       on_timeout: :kill_task
     )
     |> Enum.zip(sources)
-    |> Map.new(fn
-      {{:ok, {source, result}}, {source, _fun, _fallback}} -> {source, result}
-      {{:exit, _reason}, {source, _fun, fallback}} -> {source, fallback}
+    |> Enum.reduce({%{}, []}, fn
+      {{:ok, {source, result}}, {source, _fun, _fallback}}, {acc, timeouts} ->
+        {Map.put(acc, source, result), timeouts}
+
+      {{:exit, _reason}, {source, _fun, _fallback}}, {acc, timeouts} ->
+        {Map.put(acc, source, :probe_timeout), [{source, :timeout} | timeouts]}
     end)
   end
 
   defp bounded_pressure_probes(sources, _timeout_ms),
-    do: Map.new(sources, fn {source, _fun, fallback} -> {source, fallback} end)
+    do: {Map.new(sources, fn {source, _fun, fallback} -> {source, fallback} end), []}
 
   defp fleet_observation({:current, %{capacity: capacity}, freshness})
        when is_map(capacity) and is_map(freshness) do
@@ -240,11 +294,14 @@ defmodule Aiur.RunTelemetry.Sampler do
     }
 
     if Enum.all?(@fleet_fields, &is_integer(Map.get(fields, &1))) do
-      Map.merge(fields, %{
+      admission = fleet_admission(capacity)
+
+      Map.merge(fields, admission.fields)
+      |> Map.merge(%{
         fleet_capacity_status: "current",
         fleet_capacity_age_ms: integer_value(freshness, :age_ms),
         fleet_capacity_observed_at_ms: freshness_observed_at_ms(freshness),
-        fleet_partial_fields: []
+        fleet_partial_fields: admission.partial_fields
       })
     else
       unavailable_fleet("unavailable", integer_value(freshness, :age_ms))
@@ -258,6 +315,34 @@ defmodule Aiur.RunTelemetry.Sampler do
   defp fleet_observation(:snapshot_unpublished), do: unavailable_fleet("unpublished", nil)
   defp fleet_observation(_result), do: unavailable_fleet("unavailable", nil)
 
+  # The daemon's own persisted admission decision (`capacity_hold`) names the
+  # binding host-pressure signal (`:build` | `:load` | ...) with its measured
+  # value and threshold, and the snapshot carries the raw load dimension beside
+  # it. Sampling them lets an operator tell a build-gate-saturated fleet (queue
+  # growing, load far below threshold) from a host-saturated one (load gate
+  # holding dispatch) — the distinction a queue depth alone cannot make.
+  defp fleet_admission(capacity) do
+    hold = Map.get(capacity, :capacity_hold, Map.get(capacity, "capacity_hold"))
+    signal = admission_signal(hold)
+
+    fields = %{
+      fleet_admission_signal: signal,
+      fleet_load: number_value(capacity, :load),
+      fleet_load_threshold: number_value(capacity, :load_threshold),
+      fleet_schedulers: integer_value(capacity, :schedulers)
+    }
+
+    partial_fields =
+      fields
+      |> Enum.filter(fn {_key, value} -> is_nil(value) end)
+      |> Enum.map(&elem(&1, 0))
+
+    %{fields: fields, partial_fields: partial_fields}
+  end
+
+  defp admission_signal(%{signal: signal}) when is_atom(signal), do: Atom.to_string(signal)
+  defp admission_signal(_hold), do: nil
+
   defp unavailable_fleet(status, age_ms, observed_at_ms \\ nil) do
     %{
       fleet_capacity_status: status,
@@ -267,7 +352,11 @@ defmodule Aiur.RunTelemetry.Sampler do
       fleet_agents_configured: nil,
       fleet_agents_max: nil,
       fleet_agents_effective: nil,
-      fleet_partial_fields: @fleet_fields
+      fleet_admission_signal: nil,
+      fleet_load: nil,
+      fleet_load_threshold: nil,
+      fleet_schedulers: nil,
+      fleet_partial_fields: @fleet_fields ++ @fleet_admission_fields
     }
   end
 
@@ -358,6 +447,13 @@ defmodule Aiur.RunTelemetry.Sampler do
   defp integer_value(map, key) do
     case Map.get(map, key, Map.get(map, Atom.to_string(key))) do
       value when is_integer(value) -> value
+      _other -> nil
+    end
+  end
+
+  defp number_value(map, key) do
+    case Map.get(map, key, Map.get(map, Atom.to_string(key))) do
+      value when is_number(value) -> value
       _other -> nil
     end
   end
@@ -685,17 +781,24 @@ defmodule Aiur.RunTelemetry.Sampler do
     end
   end
 
-  defp safe_sample(sample_fun, previous) do
-    case sample_fun.(previous) do
+  defp safe_sample(sample_fun, previous, tick_opts) do
+    result =
+      case :erlang.fun_info(sample_fun, :arity) do
+        {:arity, 1} -> sample_fun.(previous)
+        _arity -> sample_fun.(previous, tick_opts)
+      end
+
+    case result do
       %{records: records, warnings: warnings, previous: next_previous} = result
       when is_list(records) and is_list(warnings) and is_map(next_previous) ->
-        result
+        Map.put_new(result, :build_pressure, nil)
 
       _other ->
         %{
           records: [],
           warnings: [%{event: :resource_sample_failed, reason: :invalid_result}],
-          previous: %{}
+          previous: %{},
+          build_pressure: nil
         }
     end
   rescue
@@ -703,14 +806,16 @@ defmodule Aiur.RunTelemetry.Sampler do
       %{
         records: [],
         warnings: [%{event: :resource_sample_failed, reason: Exception.message(error)}],
-        previous: %{}
+        previous: %{},
+        build_pressure: nil
       }
   catch
     kind, reason ->
       %{
         records: [],
         warnings: [%{event: :resource_sample_failed, reason: {kind, reason}}],
-        previous: %{}
+        previous: %{},
+        build_pressure: nil
       }
   end
 

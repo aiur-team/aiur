@@ -135,6 +135,23 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "2026-07-11T00:00:55.000Z"
     assert html =~ ">current<"
     assert html =~ ">measured<"
+  end
+
+  test "renders unavailable pressure evidence as em-dash, never a confident zero" do
+    boot_id = RunTelemetry.boot_id()
+    Application.put_env(:aiur, :analytics_telemetry_file, pressure_fixture_with_gap!(boot_id))
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    # The gap row's degraded build must render its missing wait as "—", and a
+    # missing fleet figure must never be coerced into a confident "0".
+    assert html =~ "—"
+    assert html =~ ">degraded<"
+    refute html =~ ">0s<"
+    # The measured row still carries its exact values (not blurred by the gap).
+    assert html =~ "13"
+    assert html =~ "189s"
+  end
 
   @tag analytics_capacity: %{effective: 3, max: 8, configured: 16, occupied: 3, available: 0, active: 3, reserved_paused: 0, queued_demand?: true}
   test "renders the runtime cap with every other ceiling the daemon reports" do
@@ -194,7 +211,8 @@ defmodule AiurWeb.AnalyticsLiveTest do
     # count under a ceiling it just called unknown.
     assert html =~ ~r/\d+ now \/ unknown cap</
     refute html =~ "unknown cap (configured"
-    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—</  end
+    assert html =~ ~r/Wasted capacity<\/span>\s*<span class="an-kpi-val">—/
+  end
 
   test "unconfigured dashboard authentication refuses the analytics route with its cause" do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
@@ -475,6 +493,73 @@ defmodule AiurWeb.AnalyticsLiveTest do
       route_record(current_boot_id, 2, "dispatch", ~U[2026-07-11 00:01:01Z], "941"),
       route_record(current_boot_id, 3, "pr_opened", ~U[2026-07-11 00:01:02Z], "941"),
       route_record(current_boot_id, 4, "pr_merged", ~U[2026-07-11 00:01:03Z], "941")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")
+    on_exit(fn -> File.rm_rf!(root) end)
+    path
+  end
+
+  defp pressure_fixture_with_gap!(boot_id) do
+    root = Path.join(System.tmp_dir!(), "aiur-analytics-pressure-gap-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    path = Path.join(root, "telemetry.ndjson")
+    timestamp = ~U[2026-07-11 00:01:01Z]
+    gap_timestamp = ~U[2026-07-11 00:11:01Z]
+
+    records = [
+      route_record(boot_id, 1, "restart", ~U[2026-07-11 00:01:00Z], nil),
+      %{
+        schema_version: 2,
+        kind: "resource",
+        timestamp: DateTime.to_iso8601(timestamp),
+        recorded_at: DateTime.to_iso8601(timestamp),
+        boot_id: boot_id,
+        sequence: 2,
+        record_id: "#{boot_id}:2",
+        attributes: %{
+          "actor" => "_daemon",
+          "actor_type" => "daemon",
+          "availability" => "unavailable",
+          "fleet_capacity_status" => "current",
+          "fleet_agents_occupied" => 13,
+          "fleet_agents_configured" => 16,
+          "fleet_agents_max" => 16,
+          "fleet_agents_effective" => 12,
+          "fleet_capacity_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:40Z], :millisecond),
+          "build_gate_status" => "measured",
+          "build_gate_capacity" => 2,
+          "build_gate_observed_at_ms" => DateTime.to_unix(~U[2026-07-11 00:00:55Z], :millisecond),
+          "build_gate_active" => 2,
+          "build_gate_queued" => 8,
+          "build_queue_oldest_wait_seconds" => 189
+        }
+      },
+      %{
+        schema_version: 2,
+        kind: "resource",
+        timestamp: DateTime.to_iso8601(gap_timestamp),
+        recorded_at: DateTime.to_iso8601(gap_timestamp),
+        boot_id: boot_id,
+        sequence: 3,
+        record_id: "#{boot_id}:3",
+        attributes: %{
+          "actor" => "_daemon",
+          "actor_type" => "daemon",
+          "availability" => "unavailable",
+          "fleet_capacity_status" => "stale",
+          "fleet_agents_occupied" => nil,
+          "fleet_agents_configured" => nil,
+          "fleet_agents_max" => nil,
+          "fleet_agents_effective" => nil,
+          "build_gate_status" => "degraded",
+          "build_gate_capacity" => nil,
+          "build_gate_active" => nil,
+          "build_gate_queued" => nil,
+          "build_queue_oldest_wait_seconds" => nil
+        }
+      },
+      route_record(boot_id, 4, "dispatch", ~U[2026-07-11 00:01:02Z], "941")
     ]
 
     File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\n")

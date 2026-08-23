@@ -101,6 +101,42 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ ~s(data-time-brush="true")
   end
 
+  test "fleet pressure breaks the SVG path at a gap instead of drawing through it" do
+    # A gap (degraded/unavailable sample with no numeric evidence) must split
+    # the line into two segments. Drawing through the gap at y=0 would render
+    # one connecting path and mislead the operator into reading zeros.
+    series = [
+      %{
+        t_ms: @t0,
+        pressure_state: :measured,
+        fleet_agents_occupied: 13,
+        build_gate_active: 2,
+        build_gate_queued: 8
+      },
+      %{t_ms: @t0 + 60_000, pressure_state: :degraded_build},
+      %{
+        t_ms: @t0 + 120_000,
+        pressure_state: :measured,
+        fleet_agents_occupied: 5,
+        build_gate_active: 1,
+        build_gate_queued: 2
+      }
+    ]
+
+    svg = Charts.fleet_pressure(%{model() | series: series})
+
+    # Occupied agents render with var(--accent): exactly two segments, one per
+    # measured run, never one path bridging the degraded gap.
+    assert count_paths(svg, "var(--accent)") == 2
+    assert svg =~ "M"
+    # A degraded gap must never inject a y=0 vertex into the occupied line.
+    refute svg =~ ~r/M[^"]*?L[^"]*?,0[^"]*?L/
+  end
+
+  defp count_paths(svg, color) do
+    Regex.scan(~r/<path[^>]*stroke="#{Regex.escape(color)}"/, svg) |> length()
+  end
+
   test "memory renders against the host ceiling" do
     assert Charts.memory(model()) =~ "host"
   end
