@@ -7,9 +7,9 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
-  alias Aiur.GitHub.Errors
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Codex.SessionRecovery
+  alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
