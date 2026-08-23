@@ -738,6 +738,18 @@ defmodule Aiur.Config do
     settings!().agent.build_gate_max_hold_seconds || 0
   end
 
+  @doc """
+  Maximum post-command courtesy window (seconds) the detached lease holder
+  keeps a slot after the wrapped command exits, gated on a descendant still
+  consuming CPU (#2398). The holder releases the moment the retained tree goes
+  idle, so this bounds only genuinely-busy descendants. `0` disables the
+  courtesy.
+  """
+  @spec build_gate_retain_seconds() :: non_neg_integer()
+  def build_gate_retain_seconds do
+    settings!().agent.build_gate_retain_seconds || 0
+  end
+
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do

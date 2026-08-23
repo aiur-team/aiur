@@ -69,6 +69,17 @@ defmodule Aiur.BuildGateTest do
              build_gate_status(gate_dir: gate_dir, capacity: 2, strategy: :pid)
   end
 
+  test "status reports the effective post-command retain window", %{gate_dir: gate_dir} do
+    # The retain duration in effect is observable on the status surface so the
+    # gate's throughput trade is measurable next time, not inferred from
+    # `fuser` (#2398).
+    assert %{enabled?: true, retain_seconds: 120} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert %{enabled?: true, retain_seconds: 120} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :linux_lock)
+  end
+
   test "reports a slot with a dead owner and live process group as active", %{gate_dir: gate_dir} do
     slot_path = Path.join(gate_dir, "slot-1")
     {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
@@ -846,31 +857,36 @@ defmodule Aiur.BuildGateTest do
     # fifteen minutes.
     #
     # The daemon is never going to exit, so the release has to come from the
-    # bounded retain window rather than from `waitpid` — and it has to come
-    # without signalling the daemon.
+    # CPU-gated retain (#2398) rather than from `waitpid` — and it has to come
+    # without signalling the daemon. The daemon is idle (0% CPU), so the holder
+    # releases the slot after the one-second idle window, long before the 120s
+    # default retain window expires.
     daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon.pid")
 
     gated_context =
       Map.merge(context, %{
         adopted_daemon_pid_path: daemon_pid_path,
-        retain_seconds: 2,
-        max_hold_seconds: 0,
         started_path: ""
       })
 
     assert {output, 0} = run_bash("mix test", gated_context)
     assert output =~ "aiur_build_gate acquired slot=1 command=test"
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    # The effective retain window is observable on the gate log.
+    assert output =~ "retain_seconds=120"
     wait_for_file!(daemon_pid_path)
     daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
     on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true) end)
 
-    # The slot comes back on its own, well inside the retain window.
+    # The slot comes back on its own, well inside the default retain window:
+    # the idle daemon is not doing build work, so the courtesy is over in ~1s.
     wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
 
-    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
-    assert marker =~ "mix test"
-    assert marker =~ "reason=retained"
+    # An early release is the expected steady state, not a timeout: it must not
+    # leave a `reason=retained` marker that the daemon turns into a
+    # needs-attention alert for every build that saw an adopted daemon.
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
 
     # The daemon is left running, deliberately. gnome-keyring-daemon holds the
     # credential the fleet's GitHub access depends on: cleanup must scope
@@ -886,13 +902,16 @@ defmodule Aiur.BuildGateTest do
 
   @tag @linux_only
   test "a holder whose wrapped command exited releases its slot at the max-hold cap", context do
-    # The leak (#2349): the wrapped command exits but a descendant keeps the
-    # subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot is held
-    # long after the command is gone. The absolute wall-clock cap is the
-    # backstop that frees it regardless of how the child exited.
+    # The leak (#2349): the wrapped command exits but a CPU-burning descendant
+    # keeps the subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot
+    # is held long after the command is gone. The descendant is genuinely busy
+    # (#2398), so the holder keeps the lease while it compiles; the absolute
+    # wall-clock cap is the backstop that frees the slot regardless.
+    release_descendant_on_exit(context)
+
     gated_context =
       Map.merge(context, %{
-        descendant_sleep_seconds: 60,
+        descendant_release_barrier: true,
         max_hold_seconds: 3,
         started_path: ""
       })
@@ -901,7 +920,8 @@ defmodule Aiur.BuildGateTest do
     assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
     wait_for_file!(context.descendant_path)
 
-    # The retained descendant is still alive, so the slot stays protected.
+    # The retained descendant is still alive and busy, so the slot stays
+    # protected (it must not be released by the idle window).
     assert %{active: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
 
     # The cap expires and the holder releases the slot, leaving a durable
@@ -915,6 +935,30 @@ defmodule Aiur.BuildGateTest do
     assert marker =~ "reason=retained"
     assert marker =~ "held_for_seconds="
     assert %{active: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+  end
+
+  @tag @linux_only
+  test "an idle retained Mix descendant releases the slot well inside the retain window", context do
+    # A retained descendant that consumes no CPU (here a long `sleep`) is not
+    # doing build work. The holder keeps the slot only while a descendant is
+    # compiling (#2398), so it releases after the one-second idle window
+    # instead of holding the default 120s retain window.
+    gated_context =
+      Map.merge(context, %{
+        descendant_sleep_seconds: 30,
+        max_hold_seconds: 0,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    wait_for_file!(context.descendant_path)
+
+    # The slot frees long before the 120s retain window, and without a timeout
+    # marker — an early release is the expected steady state, not a defect.
+    wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
   end
 
@@ -986,9 +1030,13 @@ defmodule Aiur.BuildGateTest do
 
   @tag @linux_only
   test "cancellation after direct Mix exit reaps retained descendants before releasing capacity", context do
+    # The descendant must be CPU-burning (#2398) so the holder is still
+    # retaining when the parent is cancelled — an idle descendant would be
+    # released by the idle window before the TERM arrives, which is correct for
+    # an adopted daemon but not what this cancellation path is testing.
     gated_context =
       Map.merge(context, %{
-        descendant_sleep_seconds: 30,
+        descendant_release_barrier: true,
         status_read_delay_seconds: 5,
         started_path: ""
       })
@@ -1006,6 +1054,13 @@ defmodule Aiur.BuildGateTest do
       |> File.read!()
       |> String.trim()
       |> String.to_integer()
+
+    # The busy descendant is normally reaped by the holder's cancellation
+    # cleanup; guard the early-failure window so a failed test never leaks a
+    # CPU-burning loop.
+    on_exit(fn ->
+      System.cmd("kill", ["-KILL", Integer.to_string(descendant_pid)], stderr_to_stdout: true)
+    end)
 
     assert_process_gone!(mix_pid)
 
