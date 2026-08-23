@@ -40,6 +40,19 @@ defmodule Aiur.GitHub.CIPollBatch do
   # from the store: `statusCheckRollup`, `mergeable` and `reviewDecision` are
   # still asked of GitHub on every cycle, because a CI verdict served from a
   # cache at any age is precisely what `Aiur.GitHub.ReadCache.Policy` refuses.
+  #
+  # A target whose CI a **webhook check-run delivery already answered** is
+  # dropped from the document entirely (#2310): `PollSnapshots.ci_contexts`
+  # answers when a complete snapshot the poll established has been advanced by
+  # a delivery on the same head within the delivery-fresh window — "deposited
+  # since the last read". The batch entry is then served from the delivery,
+  # never as a verdict. `GithubCIPoller` carries the served entry through as
+  # inert and the lifecycle makes no transition on it, because a CI verdict is
+  # never answered from a held body at any age (R10); the real verdict comes
+  # from the next non-displaced read. An unknown or unmatched check-run id
+  # marked the snapshot incomplete (`PollSnapshots.merge_check_run`), so
+  # `ci_contexts` answers `:miss` and the target keeps its place in the
+  # document: this displacement fails toward polling, which is the #2276 lesson.
   @targets_per_query 50
   @pull_requests_per_branch 2
 
@@ -59,21 +72,67 @@ defmodule Aiur.GitHub.CIPollBatch do
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       repo_identity = owner <> "/" <> repo
-      started_at_ms = System.system_time(:millisecond)
 
-      chunks =
+      # Per-target displacement (#2310): a target a delivery answered is dropped
+      # from the document entirely, so a cycle whose targets were all answered
+      # issues zero GraphQL calls. `PollSnapshots.ci_contexts` answers `:miss`
+      # for every state that must fetch — no snapshot, poll-written, not
+      # complete, expired, or a delivery an unknown/unmatched id marked
+      # incomplete — so those targets keep their normal place in the document.
+      {delivered, to_fetch} =
         targets
-        |> Enum.map(&target_entry(&1, owner, repo, opts, repo_identity, started_at_ms))
-        |> Enum.chunk_every(@targets_per_query)
+        |> Enum.map(&{&1, PollSnapshots.ci_contexts(repo_identity, &1, opts)})
+        |> Enum.split_with(fn {_target, contexts} -> contexts != :miss end)
 
-      if length(chunks) > 1 do
-        Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(targets)} calls=#{length(chunks)}")
-      end
+      result =
+        Map.new(delivered, fn {target, {:ok, %{"head_sha" => head_sha} = contexts}} ->
+          {target, delivered_entry(target, owner, repo, opts, head_sha, Map.get(contexts, "check_runs", []))}
+        end)
 
-      Enum.reduce_while(chunks, {:ok, %{}}, fn chunk, {:ok, acc} ->
-        reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
-      end)
+      fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result)
     end
+  end
+
+  # Every target's CI was answered by a delivery since the last read; there is
+  # no document to write and nothing to ask GitHub.
+  defp fetch_remaining([], _request_fun, _token, _owner, _repo, _opts, result), do: {:ok, result}
+
+  defp fetch_remaining(to_fetch, request_fun, token, owner, repo, opts, result) do
+    fetch_targets = Enum.map(to_fetch, &elem(&1, 0))
+    started_at_ms = System.system_time(:millisecond)
+
+    chunks =
+      fetch_targets
+      |> Enum.map(&target_entry(&1, owner, repo, opts, started_at_ms))
+      |> Enum.chunk_every(@targets_per_query)
+
+    warn_on_chunk_overflow(chunks, fetch_targets)
+
+    Enum.reduce_while(chunks, {:ok, result}, fn chunk, {:ok, acc} ->
+      reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc)
+    end)
+  end
+
+  defp warn_on_chunk_overflow(chunks, fetch_targets) do
+    if length(chunks) > 1 do
+      Logger.warning("Github CI GraphQL batch alias overflow: targets=#{length(fetch_targets)} calls=#{length(chunks)}")
+    end
+  end
+
+  # The served batch entry for a displaced target. It carries no pull-request
+  # rollup and no verdict fields — the poller passes it through as inert and the
+  # lifecycle makes no transition on it (R10: a CI verdict is never answered
+  # from a held body at any age). `pr_number` rides along from the
+  # delivered-pull-request store when available so the lifecycle can name the
+  # PR if a later real poll acts, and the delivered check runs are carried so
+  # the served entry documents exactly what the delivery answered.
+  defp delivered_entry(target, owner, repo, opts, head_sha, check_runs) do
+    %{
+      delivered: true,
+      head_sha: head_sha,
+      check_runs: check_runs,
+      pr_number: DeliveredPullRequest.number_for_target(target, owner, repo, opts)
+    }
   end
 
   defp reduce_ci_chunk(request_fun, token, owner, repo, chunk, acc) do
@@ -83,23 +142,14 @@ defmodule Aiur.GitHub.CIPollBatch do
     end
   end
 
-  # Both store reads happen before the query is written. DeliveredPullRequest
-  # chooses the exact identity; PollSnapshots decides whether delivered check
-  # run fields can be omitted for that target. Legacy statuses remain live.
-  defp target_entry(target, owner, repo, opts, repo_identity, started_at_ms) do
+  defp target_entry(target, owner, repo, opts, started_at_ms) do
     entry =
       case DeliveredPullRequest.number_for_target(target, owner, repo, opts) do
         number when is_integer(number) -> %{target: target, pull_request_number: number, known_branch: true}
         nil -> branch_target_entry(target, opts)
       end
 
-    cached_contexts =
-      case PollSnapshots.ci_contexts(repo_identity, target, opts) do
-        {:ok, contexts} -> contexts
-        :miss -> nil
-      end
-
-    Map.merge(entry, %{cached_contexts: cached_contexts, repo_identity: repo_identity, started_at_ms: started_at_ms})
+    Map.merge(entry, %{owner: owner, repo: repo, started_at_ms: started_at_ms})
   end
 
   defp branch_target_entry(target, opts) do
@@ -189,31 +239,17 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp pull_request_fields(entry) do
+  defp pull_request_fields(_entry) do
     """
     number state headRefName headRefOid baseRefName
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
-    #{contexts_selection(entry)}
+    #{contexts_selection()}
     """
   end
 
-  defp contexts_selection(%{cached_contexts: %{} = _contexts}) do
-    """
-    commits(last: 1) {
-      nodes {
-        commit {
-          status {
-            contexts { context state targetUrl createdAt description }
-          }
-        }
-      }
-    }
-    """
-  end
-
-  defp contexts_selection(_entry) do
+  defp contexts_selection do
     """
     commits(last: 1) {
       nodes {
@@ -318,47 +354,21 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp put_first_pull_request(acc, entry, node) do
     result = normalize_pull_request(node)
 
-    cond do
-      cached_contexts_match?(entry, result) and not Map.get(result, :contexts_overflow) ->
-        Map.put(acc, entry.target, put_cached_contexts(result, entry.cached_contexts))
+    if Map.get(result, :contexts_overflow) do
+      Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
+      acc
+    else
+      PollSnapshots.put_ci_contexts(
+        entry.owner <> "/" <> entry.repo,
+        entry.target,
+        get_in(result, [:pull_request, "head", "sha"]),
+        result.check_runs,
+        result.commit_status,
+        started_at_ms: entry.started_at_ms
+      )
 
-      cached_contexts_match?(entry, result) ->
-        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
-        acc
-
-      is_map(entry.cached_contexts) ->
-        # The held selection belongs to an older head. This query deliberately
-        # omitted check-run fields, so leave the target to its exact fallback
-        # rather than returning an invented empty CI result.
-        acc
-
-      Map.get(result, :contexts_overflow) ->
-        Logger.warning("Github CI GraphQL batch overflow: status_contexts target=#{entry.target}")
-        acc
-
-      true ->
-        PollSnapshots.put_ci_contexts(
-          entry.repo_identity,
-          entry.target,
-          get_in(result, [:pull_request, "head", "sha"]),
-          result.check_runs,
-          result.commit_status,
-          started_at_ms: entry.started_at_ms
-        )
-
-        Map.put(acc, entry.target, result)
+      Map.put(acc, entry.target, result)
     end
-  end
-
-  defp cached_contexts_match?(%{cached_contexts: %{"head_sha" => head_sha}}, result),
-    do: get_in(result, [:pull_request, "head", "sha"]) == head_sha
-
-  defp cached_contexts_match?(_entry, _result), do: false
-
-  defp put_cached_contexts(result, cached_contexts) do
-    result
-    |> Map.put(:check_runs, Map.fetch!(cached_contexts, "check_runs"))
-    |> Map.put(:contexts_overflow, false)
   end
 
   defp normalize_pull_request(node) do
