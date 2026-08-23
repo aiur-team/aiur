@@ -91,7 +91,7 @@ defmodule Mix.Tasks.Specs.CheckTaskTest do
   end
 
   defp in_temp_project(fun) do
-    root = Path.join(System.tmp_dir!(), "specs-check-task-test-#{System.unique_integer([:positive, :monotonic])}")
+    root = Aiur.TestSupport.tmp_root!("specs-check-task-test")
     original_cwd = File.cwd!()
 
     File.rm_rf!(root)

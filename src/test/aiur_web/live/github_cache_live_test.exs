@@ -827,7 +827,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
   defp seed_ledger do
     path =
-      Path.join(System.tmp_dir!(), "aiur-ghc-live-ledger-#{System.unique_integer([:positive])}.sqlite3")
+      Aiur.TestSupport.tmp_root!("aiur-ghc-live-ledger") <> ".sqlite3"
 
     {:ok, conn} = Basic.open(path)
     _ = Basic.exec(conn, @ledger_admissions_schema)
