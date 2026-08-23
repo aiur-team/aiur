@@ -31,7 +31,10 @@ defmodule Aiur.GitHub.ViewStateSweep do
   an event stream changes *when a file on disk is written*, which is a
   different risk class from the other three sources, so it is deliberately done
   in a separate PR. Until then it keeps the sweep as its recovery bound: a
-  `status.json` entry whose delivery was lost is rewritten on the next tick.
+  `status.json` entry whose delivery was lost is rewritten on the next tick. It
+  is also the only source left behind the demand gate #2335 introduced: it
+  answers `demanded?/0` unconditionally, so the sweep reconciles it on every
+  tick whether or not a page is open (see its moduledoc).
 
   On the same cadence, the sweep runs the **divergence watermark** — the one
   steady-state GitHub read left in the view-state family. The polls #2325
@@ -60,9 +63,9 @@ defmodule Aiur.GitHub.ViewStateSweep do
   against GitHub's own `rateLimit { cost }`, each of those reads costs one point,
   so the three together were 1.7 requests per minute for state nobody was
   necessarily looking at. Two of the three are now event-sourced and cost
-  nothing; PackStatus still reconciles on demand and through this process; and
-  the divergence watermark is one page-1 head page per sweep — a bounded prefix,
-  not a paged listing.
+  nothing; PackStatus still reconciles through this process, via a demand gate
+  it answers unconditionally; and the divergence watermark is one page-1 head
+  page per sweep — a bounded prefix, not a paged listing.
 
   ## Bounding the sweep rather than tightening it
 
@@ -178,20 +181,44 @@ defmodule Aiur.GitHub.ViewStateSweep do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  # A source that is not running is skipped rather than started: the sweep is
-  # recovery for state somebody is holding, and there is nothing to recover for a
-  # source this deployment does not run at all.
+  # A source is refreshed only while it reports demanded, and a source that is
+  # not running is skipped rather than started: the sweep is recovery for state
+  # somebody is holding, and there is nothing to recover for a source this
+  # deployment does not run at all. `PackStatus` — the one source left on the
+  # sweep after #2325 event-sourced the view-only two — answers `demanded?`
+  # unconditionally, so the demand gate is a no-op for it and it is reconciled
+  # on every tick regardless of viewers (see its moduledoc).
+  #
+  # Every running source is asked to re-seed demand first. A source's demander
+  # set lives in its own GenServer, so a supervisor restart empties it while
+  # the pages that watch it are still alive and still subscribed to its PubSub
+  # topic; re-seeding from subscriber presence restores the demand and, with
+  # it, the reconcile. Without it a single crash would convert the demand gate
+  # into permanent silence for every open page — the exact self-healing the
+  # unconditional pre-gate sweep used to provide (review finding 3).
   defp sweep(state) do
     check_issue_head(state)
 
     Enum.filter(state.sources, fn source ->
       if Process.whereis(source) do
-        source.refresh()
-        true
+        source.reseed_demand()
+        refresh_if_demanded(source)
       else
         false
       end
     end)
+  end
+
+  # Kept out of `sweep/1` so the per-source decision stays within Credo's
+  # nesting ceiling; the demand gate is the single `if` that decides whether
+  # the sweep reconciles a running source this tick.
+  defp refresh_if_demanded(source) do
+    if source.demanded?() do
+      source.refresh()
+      true
+    else
+      false
+    end
   end
 
   # -- divergence watermark ------------------------------------------------
