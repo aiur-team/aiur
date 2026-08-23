@@ -24,12 +24,18 @@ defmodule Aiur.BuildOrder.AdHocSource do
   open *and* closed, so merged/deferred/duplicate tickets stay visible)
   establishes the baseline the event stream then maintains. Re-listing also
   happens when `Aiur.Webhooks.ModeRegistry` reports the repository `degraded`
-  — the one case where deliveries are known to be dropped — and on an explicit
-  `refresh/1`. That is gap-based re-convergence, never a clock.
+  — the one case where deliveries are known to be dropped — when it reports
+  `recovered` (the trailing edge, where the gap's dropped deliveries are
+  re-read), and on an explicit `refresh/1`. That is gap-based re-convergence,
+  never a clock.
 
   It holds **no timer** and performs **no GitHub reads** in steady state.
   `Aiur.GitHub.ViewStateSweep` does not sweep it; the event stream is the
-  refresh.
+  refresh. The one steady-state read left anywhere is the low-frequency
+  divergence watermark `Aiur.GitHub.ViewStateSweep` runs — a single cheap
+  `updated_at`-ordered head page that records poller corroboration for the
+  issue family (so webhook loss can still degrade the repo) and re-lists the
+  sources when GitHub is ahead of the store.
 
   The overlay is rendered separately and never contributes to the core
   completion denominator, complexity total, critical path, or feature ETA.
@@ -40,7 +46,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   require Logger
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot
-  alias Aiur.GitHub.{Config, Issues, ResourceStore, Transport}
+  alias Aiur.GitHub.{Config, Issues, ResourceStore, Transport, ViewStateSweep}
   alias Aiur.Issue
   alias Aiur.Webhooks.ModeRegistry
 
@@ -83,6 +89,11 @@ defmodule Aiur.BuildOrder.AdHocSource do
       # The projection: issue number (string) => member. The event stream
       # reconciles one entry at a time; the snapshot is derived from this map.
       members: %{},
+      # Whether a bootstrap listing has ever succeeded. Only a successful listing
+      # establishes that the projection is complete; until one lands — or after
+      # one fails — the projection may be missing events the stream never carried,
+      # and a store event must not upgrade it back to `:available`.
+      baseline_ok?: false,
       repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
@@ -124,8 +135,19 @@ defmodule Aiur.BuildOrder.AdHocSource do
   end
 
   # The gap-based re-convergence: deliveries are known to be dropped while the
-  # repo is degraded, so re-list to re-establish the baseline.
+  # repo is degraded, so re-list to re-establish the baseline. ModeRegistry
+  # re-publishes this on every sweep while the repo stays degraded, so the
+  # re-list is a coarse cadence that only runs during the outage itself.
   def handle_info({:webhook_degraded, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # The trailing edge: a resumed delivery proves the gap has closed, so re-list
+  # once to recover everything that changed during the degraded window.
+  def handle_info({:webhook_recovered, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # The divergence watermark (Aiur.GitHub.ViewStateSweep): a low-frequency head
+  # check observed GitHub state newer than what the store holds, so a delivery
+  # was dropped and the projection must re-list to re-converge.
+  def handle_info({:view_state_diverged, repo}, state), do: {:noreply, maybe_relist(state, repo)}
 
   # A store change for the source's repository. Every `issues` delivery
   # deposits the issue body before publishing, so the current body is already
@@ -283,6 +305,14 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp lifecycle("Closed"), do: :closed
   defp lifecycle(_state), do: :open
 
+  # A member whose `tracker_identity` is nil must never enter the overlay: the
+  # downstream projection joins members to execution/progress/activity by
+  # identity, and a nil one is unjoinable. This clause is defense-in-depth
+  # matching the pre-#2325 contract — `Issues.normalize_issue/4` always assigns
+  # a joinable or unjoinable struct, so a nil identity cannot reach the listing
+  # or the event path today, but a future construction that skips normalization
+  # must not silently enter the overlay.
+  defp adhoc?(%Issue{tracker_identity: nil}), do: false
   defp adhoc?(%Issue{labels: labels}), do: @label in List.wrap(labels)
 
   # -- snapshot plumbing ----------------------------------------------------
@@ -295,33 +325,43 @@ defmodule Aiur.BuildOrder.AdHocSource do
   end
 
   defp do_apply_result(state, {:ok, members}) do
-    %{state | members: Map.new(members, &{&1.identifier, &1})}
+    %{state | members: Map.new(members, &{&1.identifier, &1}), baseline_ok?: true}
     |> rebuild_snapshot()
   end
 
-  defp do_apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
-       when is_integer(generation) do
-    %{state | snapshot: %{previous | status: :stale}}
-  end
-
+  # A failed listing drops the baseline flag. The projection may now be missing
+  # events the stream did not carry, so no subsequent store event may claim
+  # `:available` again. Last-known-good content is retained and reported
+  # `:stale` rather than being dressed up as current.
   defp do_apply_result(state, {:error, _reason}) do
-    %{state | snapshot: %Snapshot{status: :unavailable}, members: %{}}
+    %{state | baseline_ok?: false}
+    |> rebuild_snapshot()
   end
 
-  # The projection map -> a snapshot. Status is `:available` because the map is
-  # maintained from the event stream; a listing failure is reported separately
-  # by `do_apply_result/2` before this runs.
+  # The projection map -> a snapshot. Status is decided by `snapshot_status/1`:
+  # the map is maintained from the event stream, but only a successful listing
+  # proves the map is complete, so a projection whose baseline has never landed
+  # (or whose re-list failed) stays `:stale`/`:unavailable` no matter how many
+  # store events arrive.
   defp rebuild_snapshot(state) do
     %{
       state
       | snapshot: %Snapshot{
-          status: :available,
+          status: snapshot_status(state),
           generation: (state.snapshot.generation || 0) + 1,
           observed_at: now(state),
           members: state.members |> Map.values() |> Enum.sort_by(& &1.identifier)
         }
     }
   end
+
+  # Only a successful listing establishes that the projection is complete.
+  # Until one lands — or after one fails — the projection may be missing events
+  # the stream never carried, so it reports `:stale` while it holds content and
+  # `:unavailable` while it holds none.
+  defp snapshot_status(%{baseline_ok?: true}), do: :available
+  defp snapshot_status(%{baseline_ok?: false, members: members}) when map_size(members) > 0, do: :stale
+  defp snapshot_status(_state), do: :unavailable
 
   # Ignore observed_at/generation churn: only status or membership changes warrant
   # waking subscribed LiveViews to reload.
@@ -348,6 +388,8 @@ defmodule Aiur.BuildOrder.AdHocSource do
     ResourceStore.subscribe(:issue)
     ResourceStore.subscribe(:issue_labels)
     ModeRegistry.subscribe()
+    ModeRegistry.subscribe_recovered()
+    ViewStateSweep.subscribe_diverged()
     :ok
   end
 

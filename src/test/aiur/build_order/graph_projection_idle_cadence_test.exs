@@ -98,6 +98,29 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
     assert Enum.at(refreshed.data.entries, 0).member_count == 1
   end
 
+  # Finding #3 (cold start): before the boot read establishes a baseline, a store
+  # change must not publish a catalog derived from the (nearly empty) store as a
+  # healthy new generation — the "0 roots, healthy" lie. The store stream
+  # *maintains* a baseline; it never substitutes for one, so the change is
+  # declined and the catalog stays `data: nil` until the real GitHub read lands.
+  test "a store change before the boot baseline is declined, not published as an empty healthy catalog" do
+    {:ok, projection} = start_projection()
+
+    # No baseline yet: catalog data is nil and health is unavailable.
+    assert %Snapshot{data: nil, health: %{state: :unavailable}} = GraphProjection.catalog(projection)
+
+    # An issue delivery lands while the boot read is still in flight (the reader
+    # is armed but never finished). The store stream would derive an empty root
+    # set from a store that holds one labelled issue — but that is not evidence
+    # of a complete catalog, so nothing may be published as healthy.
+    deposit_issue(1, "I1", ["build-order"], "open", "I1")
+
+    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 200
+
+    assert %Snapshot{data: nil, health: %{state: :unavailable}} = GraphProjection.catalog(projection),
+           "a store rebuild must not be published before a real GitHub read establishes the baseline"
+  end
+
   # Acceptance #2325: a blocked-by relationship added outside Aiur is likewise
   # reflected. The edge lives on the selected-root graph, so the deposit re-reads
   # the held root rather than changing the catalog itself.

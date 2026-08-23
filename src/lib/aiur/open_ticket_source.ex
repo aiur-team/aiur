@@ -23,25 +23,33 @@ defmodule Aiur.OpenTicketSource do
   baseline the event stream then maintains, so a restart never starts empty.
   Re-listing also happens when `Aiur.Webhooks.ModeRegistry` reports the
   repository `degraded` — the one case where deliveries are known to be dropped
-  — and on an explicit `refresh/1` (a real demand, e.g. after the dashboard's
-  own mutation). That is gap-based re-convergence, never a clock.
+  — when it reports `recovered` (the trailing edge, where the gap's dropped
+  deliveries are re-read), and on an explicit `refresh/1` (a real demand, e.g.
+  after the dashboard's own mutation). That is gap-based re-convergence, never a
+  clock.
 
   It holds **no timer** and performs **no GitHub reads** in steady state.
   `Aiur.GitHub.ViewStateSweep` does not sweep it; the event stream is the
-  refresh.
+  refresh. The one steady-state read left anywhere is the low-frequency
+  divergence watermark `Aiur.GitHub.ViewStateSweep` runs — a single cheap
+  `updated_at`-ordered head page that records poller corroboration for the
+  issue family (so webhook loss can still degrade the repo) and re-lists the
+  sources when GitHub is ahead of the store.
 
   The projection keeps the last successful listing as last-known-good and
   reports a named stale/unavailable status on failure rather than presenting an
-  empty list as fresh truth. It is modelled on
-  `Aiur.BuildOrder.AdHocSource`, which solves the same problem for the Ad Hoc
-  overlay.
+  empty list as fresh truth. Only a successful listing marks the projection
+  `:available`; a failed listing leaves it `:stale`/`:unavailable` until the
+  next one succeeds, no matter how many store events arrive in between. It is
+  modelled on `Aiur.BuildOrder.AdHocSource`, which solves the same problem for
+  the Ad Hoc overlay.
   """
 
   use GenServer
 
   require Logger
 
-  alias Aiur.GitHub.{Config, Issues, RequestOrigin, ResourceStore, Transport}
+  alias Aiur.GitHub.{Config, Issues, RequestOrigin, ResourceStore, Transport, ViewStateSweep}
   alias Aiur.Issue
   alias Aiur.OpenTicketSource.Snapshot
   alias Aiur.Webhooks.ModeRegistry
@@ -100,6 +108,11 @@ defmodule Aiur.OpenTicketSource do
       # The projection: issue number (string) => ticket. The event stream
       # reconciles one entry at a time; the snapshot is derived from this map.
       tickets: %{},
+      # Whether a bootstrap listing has ever succeeded. Only a successful listing
+      # establishes that the projection is complete; until one lands — or after
+      # one fails — the projection may be missing events the stream never carried,
+      # and a store event must not upgrade it back to `:available`.
+      baseline_ok?: false,
       truncated?: false,
       repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
@@ -145,8 +158,19 @@ defmodule Aiur.OpenTicketSource do
   end
 
   # The gap-based re-convergence: deliveries are known to be dropped while the
-  # repo is degraded, so re-list to re-establish the baseline.
+  # repo is degraded, so re-list to re-establish the baseline. ModeRegistry
+  # re-publishes this on every sweep while the repo stays degraded, so the
+  # re-list is a coarse cadence that only runs during the outage itself.
   def handle_info({:webhook_degraded, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # The trailing edge: a resumed delivery proves the gap has closed, so re-list
+  # once to recover everything that changed during the degraded window.
+  def handle_info({:webhook_recovered, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # The divergence watermark (Aiur.GitHub.ViewStateSweep): a low-frequency head
+  # check observed GitHub state newer than what the store holds, so a delivery
+  # was dropped and the projection must re-list to re-converge.
+  def handle_info({:view_state_diverged, repo}, state), do: {:noreply, maybe_relist(state, repo)}
 
   # A store change for the source's repository. Every `issues` delivery
   # deposits the issue body before publishing, and Aiur's own mutations write
@@ -354,7 +378,7 @@ defmodule Aiur.OpenTicketSource do
   end
 
   defp do_apply_result(state, {:ok, tickets, truncated?}) do
-    %{state | tickets: Map.new(tickets, &{&1.identifier, &1}), truncated?: truncated?}
+    %{state | tickets: Map.new(tickets, &{&1.identifier, &1}), truncated?: truncated?, baseline_ok?: true}
     |> rebuild_snapshot()
   end
 
@@ -362,23 +386,26 @@ defmodule Aiur.OpenTicketSource do
     %{state | snapshot: %Snapshot{status: :unsupported}, tickets: %{}}
   end
 
-  defp do_apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
-       when is_integer(generation) do
-    %{state | snapshot: %{previous | status: :stale}}
-  end
-
+  # A failed listing drops the baseline flag. The projection may now be missing
+  # events the stream did not carry, so no subsequent store event may claim
+  # `:available` again — that is exactly how "an empty list presented as fresh
+  # truth" used to happen. Last-known-good content is retained and reported
+  # `:stale` rather than being dressed up as current.
   defp do_apply_result(state, {:error, _reason}) do
-    %{state | snapshot: %Snapshot{status: :unavailable}, tickets: %{}}
+    %{state | baseline_ok?: false}
+    |> rebuild_snapshot()
   end
 
-  # The projection map -> a snapshot. Status is `:available` because the map is
-  # maintained from the event stream; a listing failure is reported separately
-  # by `do_apply_result/2` before this runs.
+  # The projection map -> a snapshot. Status is decided by `snapshot_status/1`:
+  # the map is maintained from the event stream, but only a successful listing
+  # proves the map is complete, so a projection whose baseline has never landed
+  # (or whose re-list failed) stays `:stale`/`:unavailable` no matter how many
+  # store events arrive.
   defp rebuild_snapshot(state) do
     %{
       state
       | snapshot: %Snapshot{
-          status: :available,
+          status: snapshot_status(state),
           generation: (state.snapshot.generation || 0) + 1,
           observed_at: now(state),
           truncated?: state.truncated?,
@@ -386,6 +413,14 @@ defmodule Aiur.OpenTicketSource do
         }
     }
   end
+
+  # Only a successful listing establishes that the projection is complete.
+  # Until one lands — or after one fails — the projection may be missing events
+  # the stream never carried, so it reports `:stale` while it holds content and
+  # `:unavailable` while it holds none.
+  defp snapshot_status(%{baseline_ok?: true}), do: :available
+  defp snapshot_status(%{baseline_ok?: false, tickets: tickets}) when map_size(tickets) > 0, do: :stale
+  defp snapshot_status(_state), do: :unavailable
 
   # Newest ticket first, with the identifier as a total-order tiebreak so the
   # table never reshuffles between two equally-numbered reads.
@@ -431,6 +466,8 @@ defmodule Aiur.OpenTicketSource do
     ResourceStore.subscribe(:issue)
     ResourceStore.subscribe(:issue_labels)
     ModeRegistry.subscribe()
+    ModeRegistry.subscribe_recovered()
+    ViewStateSweep.subscribe_diverged()
     :ok
   end
 

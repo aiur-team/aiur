@@ -195,6 +195,63 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
       send(server, {:webhook_degraded, "someone/else"})
       refute_receive :listed, 200
     end
+
+    # The trailing edge of the gap: a resumed delivery proves the gap has closed,
+    # so the source re-lists once to recover what the degraded window dropped.
+    test "a recovered event for the source's repo triggers a re-list" do
+      test_pid = self()
+
+      server =
+        start_source(
+          poll_on_start: false,
+          request_fun: fn _request ->
+            send(test_pid, :listed)
+            {:ok, %{status: 200, body: [], headers: []}}
+          end
+        )
+
+      send(server, {:webhook_recovered, "owner/repo"})
+      assert_receive :listed, 2_000
+    end
+
+    # The divergence watermark (ViewStateSweep): GitHub observed ahead of the
+    # store means a delivery was dropped, so the source re-lists to re-converge.
+    test "a divergence event for the source's repo triggers a re-list" do
+      test_pid = self()
+
+      server =
+        start_source(
+          poll_on_start: false,
+          request_fun: fn _request ->
+            send(test_pid, :listed)
+            {:ok, %{status: 200, body: [], headers: []}}
+          end
+        )
+
+      send(server, {:view_state_diverged, "owner/repo"})
+      assert_receive :listed, 2_000
+    end
+
+    # Finding #2: a failed re-list must not be laundered back to `:available` by
+    # the next unrelated delivery. A boot listing fails (unavailable, no
+    # baseline), then a webhook deposits one adhoc issue — the projection holds
+    # real content, but the projection is *not* complete, so it must report
+    # `:stale`, never `:available`.
+    test "a delivery after a failed listing does not republish the projection as available" do
+      server = start_source(poll_on_start: false, request_fun: failing())
+
+      assert AdHocSource.refresh_sync(server).status == :unavailable
+
+      deposit_issue(5, title: "Deposited after the failed listing", labels: ["build-lane:adhoc"])
+
+      assert eventually(fn -> AdHocSource.snapshot(server).members != [] end)
+      snapshot = AdHocSource.snapshot(server)
+
+      assert snapshot.status == :stale,
+             "a projection whose baseline listing failed must stay stale, never claim :available"
+
+      assert Enum.map(snapshot.members, & &1.identifier) == ["5"]
+    end
   end
 
   defp start_source(opts) do

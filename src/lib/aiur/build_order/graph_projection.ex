@@ -13,6 +13,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   alias Aiur.BuildOrder.GitHubGraph.Settings
   alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, StoreCatalog, TaskLifecycle}
   alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.ViewStateSweep
   alias Aiur.TrackerIdentity
   alias Aiur.Webhooks.ModeRegistry
 
@@ -253,26 +254,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  # The gap-based re-convergence: while the repo is degraded, deliveries are
-  # known to be dropped, so re-read the catalog from GitHub to re-establish the
-  # baseline the event stream then maintains. One listing, on the gap — never a
-  # clock.
-  def handle_info({:webhook_degraded, degraded_repo}, state) do
-    case active_repository_for(state) do
-      {owner, repo} when is_binary(owner) and is_binary(repo) ->
-        if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
-          {state, events} = reconcile(state)
-          {state, refresh_events} = request_scope(state, :catalog)
-          broadcast_all(state, events ++ refresh_events)
-          {:noreply, state}
-        else
-          {:noreply, state}
-        end
+  def handle_info({:webhook_degraded, degraded_repo}, state), do: relist_catalog_for(state, degraded_repo)
 
-      _other ->
-        {:noreply, state}
-    end
-  end
+  def handle_info({:webhook_recovered, degraded_repo}, state), do: relist_catalog_for(state, degraded_repo)
+
+  def handle_info({:view_state_diverged, degraded_repo}, state), do: relist_catalog_for(state, degraded_repo)
 
   def handle_info({ref, result}, state) when is_reference(ref) do
     {state, reconcile_events} = reconcile(state)
@@ -355,6 +341,32 @@ defmodule Aiur.BuildOrder.GraphProjection do
     |> cancel_all_timers()
 
     :ok
+  end
+
+  # The gap-based re-convergence: while the repo is degraded, deliveries are
+  # known to be dropped, so re-read the catalog from GitHub to re-establish the
+  # baseline the event stream then maintains. ModeRegistry re-publishes the
+  # degraded broadcast on every sweep while the repo stays degraded, so this is
+  # a coarse cadence that only runs during the outage itself. The `recovered`
+  # broadcast is the trailing edge — the gap has closed, so re-read once more to
+  # recover what the degraded window dropped. And the divergence watermark
+  # (ViewStateSweep) fires when GitHub is observed ahead of the store. All three
+  # are gap-based, never a clock in steady state.
+  defp relist_catalog_for(state, degraded_repo) do
+    case active_repository_for(state) do
+      {owner, repo} when is_binary(owner) and is_binary(repo) ->
+        if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
+          {state, events} = reconcile(state)
+          {state, refresh_events} = request_scope(state, :catalog)
+          broadcast_all(state, events ++ refresh_events)
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
+
+      _other ->
+        {:noreply, state}
+    end
   end
 
   defp reconcile(state, notified_generation \\ nil) do
@@ -1292,6 +1304,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
     ResourceStore.subscribe(:sub_issues)
     ResourceStore.subscribe(:issue_dependencies)
     ModeRegistry.subscribe()
+    ModeRegistry.subscribe_recovered()
+    ViewStateSweep.subscribe_diverged()
     :ok
   rescue
     _error -> :ok
@@ -1478,13 +1492,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # publishes a new generation and re-reads any selected root whose catalog
   # marker moved.
   defp apply_catalog_update(state, fun) do
-    catalog = state.catalog.data
+    case state.catalog.data do
+      # No baseline catalog exists yet — cold start before the boot read lands,
+      # or a boot read that failed and is backing off. A store rebuild here
+      # would publish a catalog derived from a near-empty store as a healthy
+      # new generation: the "confident wrong number" the #2325 review forbids.
+      # The store stream *maintains* a baseline; it never substitutes for one,
+      # so decline until a real GitHub read establishes the baseline.
+      nil ->
+        {state, []}
 
-    if is_nil(catalog) do
-      repository = active_repository_for(state)
-      apply_store_catalog_result(state, StoreCatalog.build(repo_name(repository)))
-    else
-      apply_catalog_update_entries(state, catalog, fun)
+      catalog ->
+        apply_catalog_update_entries(state, catalog, fun)
     end
   end
 
@@ -1509,9 +1528,6 @@ defmodule Aiur.BuildOrder.GraphProjection do
     {state, follow_up} = request_changed_selected_roots(state, :catalog)
     {state, events ++ follow_up}
   end
-
-  defp repo_name(nil), do: nil
-  defp repo_name({owner, repo}), do: "#{owner}/#{repo}"
 
   defp root_number(%RootSummary{identity: %TrackerIdentity{identifier: identifier}}) when is_binary(identifier),
     do: identifier

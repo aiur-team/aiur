@@ -92,6 +92,14 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalogTest do
     assert %Catalog{entries: []} = StoreCatalog.build("norepo")
   end
 
+  # Finding #3 (cold start): a store-derived catalog with no roots must not claim
+  # `:healthy`. Right after a restart the store holds almost nothing — an empty
+  # derivation is not evidence that there are no roots, so it reports
+  # `:unavailable` until the store demonstrably holds planning data.
+  test "an empty store derives an unavailable catalog, never a healthy one" do
+    assert %Catalog{entries: [], provider: %{state: :unavailable}} = StoreCatalog.build(@repo)
+  end
+
   # -- fixtures ---------------------------------------------------------------
 
   defp deposit_issue(number, title, labels, state, state_reason \\ nil, opts \\ []) do

@@ -58,7 +58,20 @@ defmodule Aiur.BuildOrder.GraphProjection.StoreCatalog do
       |> Enum.filter(&root?/1)
       |> Enum.map(&root_summary(&1, ctx))
 
-    Catalog.new(roots, ProviderHealth.new(1, :healthy, true), [])
+    # The store has no completeness marker of its own: a near-empty store right
+    # after a restart is not evidence that there are no roots, so an empty
+    # derivation must not claim `:healthy`. Report `:unavailable` until the
+    # store demonstrably holds planning data — and even then this is a fallback
+    # health, because `GraphProjection.apply_catalog_update/2` only publishes a
+    # catalog once a real GitHub read has established the baseline.
+    health =
+      if roots == [] do
+        ProviderHealth.new(1, :unavailable, false)
+      else
+        ProviderHealth.new(1, :healthy, true)
+      end
+
+    Catalog.new(roots, health, [])
   end
 
   def build(_repo_full_name), do: Catalog.new([], ProviderHealth.new(1, :unavailable, false), [])

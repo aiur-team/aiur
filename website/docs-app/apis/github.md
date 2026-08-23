@@ -128,14 +128,18 @@ Dashboard and Build Order state is not on this cadence.
 | View state | Behaviour |
 | --- | --- |
 | Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline, and a `webhooks` degradation (deliveries known to be dropped) re-lists to re-converge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
+| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
+| Divergence watermark | On the same sweep cadence, one bounded `updated_at`-ordered head page of the open-issue listing. It does two jobs the deleted polls used to do: it records poller corroboration for the silence sweep (so an `issues` delivery loss can degrade the repo instead of looking like an idle one), and it re-lists the event-sourced sources when GitHub's newest open issue is newer than the store's — the proof that a delivery was dropped. One page, never a paged listing. |
 | Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, so moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
 The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
-moment a delivery deposits the changed issue, while pack status — the one
-view-state source still on a cadence — reflects an outside change within one
-sweep, the trade for it costing nothing while nobody is looking.
+moment a delivery deposits the changed issue. The sweep's other steady-state
+cost is the single divergence-watermark head page it runs on its own cadence —
+the read that keeps webhook loss detectable and re-converges a dropped
+delivery — and pack status, the one view-state source still on a cadence,
+reflects an outside change within one sweep, the trade for it costing nothing
+while nobody is looking.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
