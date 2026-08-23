@@ -148,9 +148,16 @@ defmodule Aiur.Webhooks.EventKey do
         # `sub_issues` / `issue_dependencies` carry no `repository` object;
         # their endpoint repos live in `*_repo` fields. Any one of them names
         # the delivery's repo for the purpose of a dedup key.
-        payload
-        |> Map.take(["parent_issue_repo", "sub_issue_repo", "blocked_issue_repo", "blocking_issue_repo"])
-        |> Enum.find_value(fn {_key, value} -> if is_binary(value) and value != "", do: value end)
+        edge_repository(payload)
     end
   end
+
+  defp edge_repository(payload) do
+    payload
+    |> Map.take(["parent_issue_repo", "sub_issue_repo", "blocked_issue_repo", "blocking_issue_repo"])
+    |> Enum.find_value(&repo_field/1)
+  end
+
+  defp repo_field({_key, value}) when is_binary(value) and value != "", do: value
+  defp repo_field(_entry), do: nil
 end

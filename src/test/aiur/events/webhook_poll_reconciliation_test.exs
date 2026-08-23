@@ -43,6 +43,7 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
       end
 
       ResourceStore.reset()
+      clear_replay_window()
       File.rm_rf(dir)
     end)
 

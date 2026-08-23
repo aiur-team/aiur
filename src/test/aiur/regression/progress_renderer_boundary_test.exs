@@ -19,6 +19,7 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   # These files define or populate the RootSummary progress contract itself
   # rather than presenting it, so they name the resolution fields by necessity.
   @contract_boundary_files [
+    "aiur/build_order/catalog_store.ex",
     "aiur/build_order/github_graph/normalizer.ex",
     "aiur/build_order/progress_renderer.ex",
     "aiur/build_order/root_summary.ex",

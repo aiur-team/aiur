@@ -578,14 +578,16 @@ selected cadence repeated for as long as the page stayed open.
 No value makes that correct, because it makes API cost track how many people are
 looking rather than what has changed. They were removed rather than retuned.
 
-A selected root is now read by the daemon's own catalog reconciliation and by
-store change events, and by nothing viewer-driven. The catalog is event-sourced
-from the daemon's resource store: a delivery or Aiur-originated mutation that
-changes a root's identity, member count or member states rebuilds the catalog
-and re-reads any watched root whose marker moved, and a dependency edge set
-outside Aiur re-reads the root it touches. The only GitHub reads left are the
-rare reconciliation — daemon boot and degraded webhook delivery — and an
-explicit `GraphProjection.refresh/2`.
+A selected root is now read only by the daemon's own catalog reconciliation and
+by store change events — nothing viewer-driven.
+
+The catalog is event-sourced from the daemon's resource store. A delivery or
+Aiur-originated mutation that changes a root's identity, member count or member
+states rebuilds the catalog and re-reads any watched root whose marker moved,
+and a dependency edge set outside Aiur re-reads the root it touches.
+
+The only GitHub reads left are the rare reconciliation (daemon boot and degraded
+webhook delivery) and an explicit `GraphProjection.refresh/2`.
 
 Opening the Build Order page, selecting a root, and holding it open consume zero
 GitHub reads.
@@ -617,10 +619,12 @@ actually scheduled.
 
 `graph_catalog_refresh_ms` no longer schedules a periodic catalog poll — the
 catalog is event-sourced and rebuilt from daemon-owned store state when a
-delivery or mutation changes it. The value survives as the failure-backoff base
-for the catalog scope, the window after which the catalog snapshot is shown as
-ageing, and the floor the labelled-read cadence rides on, so it still follows
-the effective interval and the derivation table below stays accurate.
+delivery or mutation changes it.
+
+The value survives as the failure-backoff base for the catalog scope, the window
+after which the catalog snapshot is shown as ageing, and the floor the
+labelled-read cadence rides on. It still follows the effective interval, so the
+derivation table below stays accurate.
 
 - It is not `polling.interval_seconds` alone. It includes
   `polling.idle_widen_factor` and `webhooks.poll_widen_factor`.

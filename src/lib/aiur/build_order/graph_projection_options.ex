@@ -157,7 +157,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   # stands in for an unreadable value.
   defp default_delivery_staleness_ms do
     case Aiur.Config.settings() do
-      %{webhooks: %{silence_threshold_seconds: seconds}} when is_integer(seconds) and seconds > 0 -> seconds * 1_000
+      {:ok, %{webhooks: %{silence_threshold_seconds: seconds}}} when is_integer(seconds) and seconds > 0 -> seconds * 1_000
       _other -> @defaults[:delivery_staleness_ms]
     end
   rescue

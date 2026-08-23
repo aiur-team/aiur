@@ -21,7 +21,7 @@ defmodule Aiur.BuildOrder.CatalogStore do
   """
 
   alias Aiur.BuildOrder.{Catalog, Diagnostic, Lifecycle, Metadata, ProviderHealth, ProviderResult, RootSummary}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{Config, ResourceStore}
   alias Aiur.TrackerIdentity
 
   @root_label "build-order"
@@ -285,7 +285,7 @@ defmodule Aiur.BuildOrder.CatalogStore do
         {:ok, repository}
 
       _unset ->
-        case Aiur.GitHub.Config.configured_repo() do
+        case Config.configured_repo() do
           {:ok, repository} -> {:ok, repository}
           {:error, reason} -> {:error, reason}
         end
