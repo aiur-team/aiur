@@ -37,6 +37,10 @@ agent:
   # Coordination errors fail the requested mix command with status 125.
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
   # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
+  # build_gate_max_hold_seconds: 3600    # absolute wall-clock cap on one build-gate slot; the holder releases
+  #                                      # at the cap and a needs-attention alert names the command; 0 disables
+  # build_gate_retain_seconds: 120       # max post-command courtesy for a still-compiling descendant; the holder
+  #                                      # releases earlier the moment the retained tree goes idle; 0 disables
   # Full emergency opt-out: set both build settings above to 0 and leave min_free_memory_mb omitted.
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets

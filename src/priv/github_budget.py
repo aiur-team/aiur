@@ -28,6 +28,13 @@ HOURLY_WINDOW_MS = 3600000
 # not keep its old max_inflight constraining the fleet for the whole hour that
 # the usage report now retains it for.
 POLICY_RECONCILE_WINDOW_MS = 120000
+# A shared *resource* hold below this duration is reported as an in-guard
+# `wait <ms>` (sleep-and-retry) rather than the typed `hold shared <resource>
+# <until>` response that aborts the command and pauses the agent's whole turn.
+# A token-wide secondary-rate-limit cooldown (default 60 seconds) always keeps
+# sleeping inside the guard, exactly as it did before typed holds existed; only
+# a real resource hold long enough to warrant a pause is surfaced to the agent.
+SHARED_HOLD_MIN_MS = 10000
 
 
 def now_ms():
@@ -320,11 +327,12 @@ def acquire(args):
         ).fetchone()
         if args.resource == "unknown":
             resource_hold = conn.execute(
-                "SELECT MAX(until_ms) FROM resource_holds WHERE token_key = ?", (args.token_key,)
+                "SELECT resource, until_ms FROM resource_holds WHERE token_key = ? ORDER BY until_ms DESC LIMIT 1",
+                (args.token_key,),
             ).fetchone()
         else:
             resource_hold = conn.execute(
-                "SELECT until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
+                "SELECT resource, until_ms FROM resource_holds WHERE token_key = ? AND resource = ?", (args.token_key, args.resource)
             ).fetchone()
         # SINGLE FLIGHT (#2073 U6). Thirteen agents asking for one pull request in
         # the same moment are thirteen separate processes with nothing between
@@ -347,7 +355,7 @@ def acquire(args):
             ).fetchone()
 
         token_hold = 0 if args.ignore_token_cooldown else cooldown
-        hold_until = max(token_hold, resource_hold[0] if resource_hold and resource_hold[0] else 0)
+        hold_until = max(token_hold, resource_hold[1] if resource_hold and resource_hold[1] else 0)
 
         max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms = conn.execute(
             "SELECT MIN(max_inflight), MIN(max_inflight_per_endpoint), "
@@ -358,7 +366,30 @@ def acquire(args):
 
         if hold_until > now:
             conn.execute("COMMIT")
-            print(f"wait {hold_until - now}")
+            remaining = hold_until - now
+            # Only a *resource* hold surfaces as the typed `hold shared
+            # <resource> <until>` that aborts the command and pauses the agent's
+            # whole turn. `hold_until` is the max of the token cooldown and the
+            # resource hold, so the hold is resource-driven only when the
+            # resource hold is the longer-lived one. A token-wide cooldown — the
+            # routine secondary-rate-limit backoff the guard has always absorbed
+            # by sleeping, default 60 seconds — keeps sleeping inside the guard
+            # regardless of duration, exactly as it did before typed holds
+            # existed.
+            resource_driven = resource_hold is not None and resource_hold[1] == hold_until
+            if resource_driven and remaining >= SHARED_HOLD_MIN_MS:
+                hold_resource = resource_hold[0]
+                if hold_resource == "unknown":
+                    # Defensive fallback: the resource_holds table only ever
+                    # stores concrete resource names, but never pause on a
+                    # bucket we cannot name.
+                    hold_resource = "core"
+                print(f"hold shared {hold_resource} {hold_until}")
+            else:
+                # A token-wide cooldown, or a resource hold too short to
+                # warrant a pause, is absorbed in the guard's sleep-and-retry
+                # loop instead of aborting the command and pausing the turn.
+                print(f"wait {remaining}")
             return
 
         # Per-actor hourly ceiling (#2181). An actor — the daemon, or one agent
@@ -709,6 +740,11 @@ def parser():
     # `daemon:node@host` or `workspace:/path/to/2181`). The consumer_key remains
     # the fingerprint; this is what `usage` prints so the report is readable.
     acquire_parser.add_argument("--consumer-label", default="")
+    # Free endpoints (`/rate_limit`, anything the shared EndpointPolicy table
+    # marks non-billable) are still admitted and leased for ordering, but their
+    # admission row is recorded non-billable so the ledger never reports them
+    # as spend (#2353). Absent, `1` preserves the original behavior.
+    acquire_parser.add_argument("--billable", type=lambda value: 0 if int(value) == 0 else 1, default=1)
     # Coalescing (#2073 U6). Absent, admission behaves exactly as it did before.
     acquire_parser.add_argument("--cache-key", default=None)
     acquire_parser.add_argument("--cache-claim-ttl-ms", type=lambda value: clamp(value, 1000, 600000), default=35000)

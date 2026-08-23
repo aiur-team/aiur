@@ -74,6 +74,21 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "a delivered (displaced) result is inert: no transition, no cache projection" do
+      identifier = unique_identifier("ci-delivered-inert")
+      issue = issue(identifier, "ci-wait")
+      state = %State{}
+
+      next = poll_ci(state, issue, %{delivered: true, head_sha: "head-77", pr_number: 77})
+
+      # A target the batch displaced because a webhook delivery answered it
+      # must not move state and must not cache a projection: the real verdict
+      # comes from the next non-displaced read (R10 — a CI verdict is never
+      # answered from a held body at any age).
+      assert next.ci_lifecycle.poll_cache == %{}
+      assert next.claimed == MapSet.new()
+    end
+
     test "a locally held GraphQL batch skips the REST fallback cycle" do
       issue = issue(unique_identifier("locally-held-ci-batch"), "ci-wait")
       state = %State{}
@@ -267,7 +282,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running == state.running
 
       assert next.ci_lifecycle.poll_cache == %{
-               identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head", draft?: false, review_decision: nil}
+               identifier => %{
+                 decision: :failed,
+                 pr_number: 941,
+                 head_sha: "failed-head",
+                 draft?: false,
+                 review_decision: nil
+               }
              }
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
@@ -609,7 +630,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running == armed.running
 
       assert next.ci_lifecycle.poll_cache == %{
-               identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head", draft?: false, review_decision: nil}
+               identifier => %{
+                 decision: :pending,
+                 pr_number: nil,
+                 head_sha: "same-head",
+                 draft?: false,
+                 review_decision: nil
+               }
              }
 
       assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==

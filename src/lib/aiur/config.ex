@@ -517,7 +517,10 @@ defmodule Aiur.Config do
   How often the single view-state reconciliation sweep runs.
 
   A recovery bound for lost webhook deliveries, not a freshness knob. See
-  `Aiur.GitHub.ViewStateSweep`.
+  `Aiur.GitHub.ViewStateSweep`. The two view-only sources it sweeps
+  (`OpenTicketSource`, `AdHocSource`) are reconciled only while a LiveView is
+  watching them, so with no dashboard session open the sweep refreshes neither;
+  `PackStatus` stays reconciled on every tick regardless of viewers.
   """
   @spec view_state_sweep_seconds() :: pos_integer()
   def view_state_sweep_seconds do
@@ -726,6 +729,28 @@ defmodule Aiur.Config do
   @spec min_free_memory_mb() :: pos_integer() | nil
   def min_free_memory_mb do
     settings!().agent.min_free_memory_mb
+  end
+
+  @doc """
+  Absolute wall-clock cap (seconds) on how long any one build-gate slot may be
+  held before the detached lease holder releases it (#2349). `0` disables the
+  backstop.
+  """
+  @spec build_gate_max_hold_seconds() :: non_neg_integer()
+  def build_gate_max_hold_seconds do
+    settings!().agent.build_gate_max_hold_seconds || 0
+  end
+
+  @doc """
+  Maximum post-command courtesy window (seconds) the detached lease holder
+  keeps a slot after the wrapped command exits, gated on a descendant still
+  consuming CPU (#2398). The holder releases the moment the retained tree goes
+  idle, so this bounds only genuinely-busy descendants. `0` disables the
+  courtesy.
+  """
+  @spec build_gate_retain_seconds() :: non_neg_integer()
+  def build_gate_retain_seconds do
+    settings!().agent.build_gate_retain_seconds || 0
   end
 
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
