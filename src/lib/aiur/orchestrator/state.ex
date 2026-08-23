@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.State do
           snapshot_generation: reference() | nil,
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
+          poll_cycles_completed: non_neg_integer(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -256,6 +257,11 @@ defmodule Aiur.Orchestrator.State do
     merged_ticket_reconciliation_failures: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
+    # Full poll cycles completed since this daemon started. The idle poll
+    # backoff is only permitted once at least one cycle has run, so a freshly
+    # restarted daemon — which has observed no idleness yet — polls at the base
+    # interval first instead of starting already backed off (#2138).
+    poll_cycles_completed: 0,
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0
