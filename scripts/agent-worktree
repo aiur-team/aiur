@@ -11,7 +11,7 @@
 # production change reverted" - a confident wrong verdict that gates a merge.
 #
 # This helper gives every agent-created worktree a collision-proof path and
-# local branch:
+# local branch, and makes the pre-mutation HEAD assertion a single command:
 #
 #     .worktrees/pr-<pr>-<unique>
 #
@@ -20,27 +20,37 @@
 # agents that are legitimately reviewing the same PR apart. Creation FAILS
 # LOUDLY when the target path already exists rather than reusing or
 # repointing it - reuse is what converts a collision into a wrong answer
-# instead of an error.
+# instead of an error. The unique component is recomputed per invocation and
+# never stored in a file: a path persisted in a shared scratchpad is itself a
+# collision surface (#2362).
 #
 # Usage:
 #   agent-worktree path <pr> [--root <dir>] [--unique <component>]
 #       Print a collision-proof worktree path for PR <pr> (creates nothing).
+#       Deterministic for a fixed --unique, so callers recompute the path
+#       inline per command instead of persisting it.
 #   agent-worktree create <pr> [--root <dir>] [--unique <component>]
 #       [--base <branch>] [--remote <name>]
 #       Create a worktree for PR <pr> at a unique path and print the path.
+#   agent-worktree head-check <path> <sha>
+#       Assert the worktree at <path> is checked out at commit <sha>. Run
+#       before every mutation batch: a HEAD that drifted from the intended
+#       SHA means results would be meaningless against the wrong checkout.
 #   agent-worktree prune [--root <dir>] [--base <branch>] [--dry-run]
 #       Remove worktrees whose branch is merged into <base> (default: main).
 #       Live or dirty worktrees are left alone.
 #   agent-worktree list [--root <dir>]
 #       List registered worktrees (path + branch) so collisions are visible.
 #
-# Exit codes: 0 ok; 64 refusal (path exists / not a repository); 1 usage or
-# operational failure.
+# Exit codes: 0 ok; 64 refusal (path exists / not a repository / not a
+# worktree); 65 HEAD drift; 1 usage or operational failure.
 
 set -u
 
 command=
 pr=
+head_path=
+head_sha=
 root=
 unique=
 base=main
@@ -49,7 +59,7 @@ dry_run=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    path|create|prune|list)
+    path|create|prune|list|head-check)
       command=$1
       ;;
     --root)
@@ -79,19 +89,33 @@ while [ "$#" -gt 0 ]; do
       exit 1
       ;;
     *)
-      if [ -z "$pr" ]; then
-        pr=$1
-      else
-        printf 'agent-worktree: unexpected argument %s\n' "$1" >&2
-        exit 1
-      fi
+      case "$command" in
+        head-check)
+          if [ -z "$head_path" ]; then
+            head_path=$1
+          elif [ -z "$head_sha" ]; then
+            head_sha=$1
+          else
+            printf 'agent-worktree: unexpected argument %s\n' "$1" >&2
+            exit 1
+          fi
+          ;;
+        *)
+          if [ -z "$pr" ]; then
+            pr=$1
+          else
+            printf 'agent-worktree: unexpected argument %s\n' "$1" >&2
+            exit 1
+          fi
+          ;;
+      esac
       ;;
   esac
   shift
 done
 
 if [ "$command" = help ] || [ -z "$command" ]; then
-  sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -108,6 +132,12 @@ case "$command" in
         exit 1
         ;;
     esac
+    ;;
+  head-check)
+    if [ -z "$head_path" ] || [ -z "$head_sha" ]; then
+      printf 'agent-worktree: head-check requires a worktree path and a commit sha\n' >&2
+      exit 1
+    fi
     ;;
 esac
 
@@ -286,6 +316,42 @@ list_worktrees() {
     }
   '
 }
+
+# Assert the worktree at `path` is checked out at commit `sha` before a
+# mutation batch. A HEAD that has drifted from the intended SHA means the
+# batch would run against a tree that never contained the change it is
+# testing - a confident wrong verdict (#2362). Exits 0 on match, 64 when the
+# path is not a git worktree, and 65 on drift so a caller's `set -e` aborts
+# the run loudly instead of proceeding.
+head_check_worktree() {
+  path=$1
+  expected=$2
+
+  case "$expected" in
+    '' | *[!0-9a-fA-F]*)
+      printf 'agent-worktree: head-check requires a 40-hex commit sha\n' >&2
+      exit 1
+      ;;
+  esac
+
+  actual=$(git -C "$path" rev-parse HEAD 2>/dev/null) || {
+    printf 'agent-worktree: head-check: %s is not a git worktree\n' "$path" >&2
+    exit 64
+  }
+
+  if [ "$actual" != "$expected" ]; then
+    printf 'agent-worktree: HEAD DRIFT: %s is at %s, expected %s\n' "$path" "$actual" "$expected" >&2
+    printf 'agent-worktree: aborting: mutation results against the wrong checkout would be meaningless\n' >&2
+    exit 65
+  fi
+
+  printf 'agent-worktree: HEAD ok: %s at %s\n' "$path" "$actual"
+}
+
+if [ "$command" = head-check ]; then
+  head_check_worktree "$head_path" "$head_sha"
+  exit $?
+fi
 
 repo_root=$(resolve_repo_root)
 

@@ -6,7 +6,8 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
   checkout at a different branch mid-run so mutation tests ran against the
   wrong tree. `scripts/agent-worktree` gives every worktree a collision-proof
   path and branch (PR number + per-agent unique component), fails loudly when
-  the target path already exists, and prunes stale worktrees.
+  the target path already exists, prunes stale worktrees, and asserts a
+  worktree's HEAD matches the intended SHA before a mutation batch.
   """
   use ExUnit.Case, async: true
 
@@ -191,5 +192,55 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     {list_out, 0} = run_helper!(repo, ["list"])
     assert list_out =~ path
     assert list_out =~ "pr-123-listed"
+  end
+
+  test "head-check passes when the worktree is at the intended SHA and fails loudly on drift" do
+    {repo, _origin} = new_repo!()
+    pr_head = add_pr!(repo, 123)
+
+    {out, 0} = run_helper!(repo, ["create", "123", "--unique", "checked"])
+    path = String.trim(out)
+
+    # matching SHA passes (exit 0)
+    {ok_out, 0} = run_helper!(repo, ["head-check", path, pr_head])
+    assert ok_out =~ "HEAD ok"
+
+    # drift from the intended SHA aborts loudly (exit 65), like a worktree
+    # repointed at a different branch mid-run would
+    write!(path, "drift.txt", "drift\n")
+    git!(path, ["add", "-A"])
+    git!(path, ["commit", "-q", "-m", "drift"])
+    assert git!(path, ["rev-parse", "HEAD"]) != pr_head
+
+    {drift_out, 65} = run_helper!(repo, ["head-check", path, pr_head])
+    assert drift_out =~ "HEAD DRIFT"
+    assert drift_out =~ "aborting"
+    # the worktree still has the drifted content; only the check refused
+    assert git!(path, ["rev-parse", "HEAD"]) != pr_head
+  end
+
+  test "head-check requires a 40-hex sha and reports a path that is not a git worktree" do
+    {repo, _origin} = new_repo!()
+    add_pr!(repo, 123)
+
+    {out, 0} = run_helper!(repo, ["create", "123", "--unique", "strict"])
+    path = String.trim(out)
+
+    {bad_sha, 1} = run_helper!(repo, ["head-check", path, "not-a-sha"])
+    assert bad_sha =~ "40-hex commit sha"
+
+    not_a_repo =
+      Path.join(System.tmp_dir!(), "aiur-not-a-worktree-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(not_a_repo)
+    on_exit(fn -> File.rm_rf!(not_a_repo) end)
+
+    # A real directory under the workspace would inherit the workspace repo via
+    # git's upward walk, so give it a `.git` gitfile pointing nowhere to make it
+    # genuinely not a git worktree.
+    File.write!(Path.join(not_a_repo, ".git"), "gitdir: /nonexistent-aiur-#{System.unique_integer([:positive])}\n")
+
+    {not_wt, 64} = run_helper!(repo, ["head-check", not_a_repo, String.duplicate("a", 40)])
+    assert not_wt =~ "not a git worktree"
   end
 end

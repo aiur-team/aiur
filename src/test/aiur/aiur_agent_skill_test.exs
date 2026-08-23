@@ -99,6 +99,23 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "Two agents can legitimately review"
     assert content =~ "`scripts/agent-worktree create <n>`"
 
+    # naming discipline alone is not the fix: the path is recomputed inline per
+    # command, never persisted in a shared file (that was the rework lesson)
+    assert content =~ "Never persist the worktree path in a file"
+    assert content =~ "Recompute the path inline per command"
+    assert content =~ "`scripts/agent-worktree path <n> --unique <component>`"
+
+    # the worktree HEAD must be asserted before every mutation batch and drift
+    # must abort loudly
+    assert content =~ "Assert the worktree HEAD before every mutation batch"
+    assert content =~ "`scripts/agent-worktree head-check <wt> <sha>`"
+    assert content =~ "aborts loudly on\n  drift"
+
+    # mutation testing requires a worktree, never the live checkout
+    assert content =~ "Mutation testing requires a worktree"
+    assert content =~ "Never run it in the live checkout"
+    assert content =~ "A worktree is required, not optional"
+
     # an existing path is an error, never a reuse/repoint
     assert content =~ "An existing path is an error, not a reuse opportunity"
     assert content =~ "Never `git -C <existing-worktree> checkout <other-branch>`"
@@ -114,6 +131,26 @@ defmodule Aiur.AiurAgentSkillTest do
     assert helper =~ "#2362"
     assert helper =~ "refusing create"
     assert helper =~ "do not reuse or repoint"
+    assert helper =~ "head-check"
+  end
+
+  test "Executor guidance gives review subagents per-agent scratchpads and worktree isolation (#2362)" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+
+    # the class-closing fix: each subagent gets its own scratchpad, mirroring
+    # the already-per-agent tasks/<agentId>.output, and sharing is explicit
+    assert content =~ "Give every review subagent its own scratchpad"
+    assert content =~ "per-agent scratchpad"
+    assert content =~ "`tasks/<agentId>.output`"
+    assert content =~ "`shared/`"
+
+    # the prompt-level mitigations that are necessary but not sufficient
+    assert content =~ "Never persist the worktree path in a file"
+    assert content =~ "recompute the path inline per command"
+    assert content =~ "Assert the worktree HEAD before every mutation batch"
+    assert content =~ "`git -C <wt>\n  rev-parse HEAD`"
+    assert content =~ "head-check <wt> <sha>"
+    assert content =~ "Forbid mutation testing in the live checkout"
   end
 
   test "aiur-agent dev loop audits the complete test tree for renames" do

@@ -59,13 +59,16 @@ matching branch, and exits non-zero when no branch or more than one branch exist
 
 ## Collision-proof worktrees
 
-Concurrent agents on one box share a scratchpad root, and left to choose for
-themselves they pick the same obvious worktree name — `wt`, `worktree`, `pr`,
-`build`. When two collide, the second silently repoints the checkout at a
-different branch *mid-run*, and the first agent's mutation test then runs
-against a tree that never contained the change it just reverted — a confident
-wrong verdict that gates a merge (#2362). This is a cross-skill override: it
-applies to every worktree you create, however the CE skills frame it.
+Concurrent agents on one box share a scratchpad root, and a shared default
+write path is the failure: left to choose their own worktree name they pick
+the same obvious one — `wt`, `worktree`, `pr`, `build` — and the second
+silently repoints the first's checkout at a different branch *mid-run*, so a
+mutation test runs against a tree that never contained the change it just
+reverted — a confident wrong verdict that gates a merge (#2362). The
+contamination is bidirectional: another agent writing into your
+correctly-identified worktree is indistinguishable from your own tree. This is
+a cross-skill override: it applies to every worktree you create, however the
+CE skills frame it.
 
 - **Every agent-created worktree path carries the PR number AND a per-agent
   unique component**, never a generic name. Two agents can legitimately review
@@ -76,6 +79,19 @@ applies to every worktree you create, however the CE skills frame it.
   scheme by hand: `git fetch origin pull/<n>/head:pr-<n>-<unique>` then
   `git worktree add .worktrees/pr-<n>-<unique> pr-<n>-<unique>`, deriving
   `<unique>` per agent run (hostname + pid + random, or the agent's session id).
+- **Never persist the worktree path in a file.** Shell state does not survive
+  between your tool calls, and a file in a shared scratchpad is itself a
+  collision surface — several agents independently invented `scratchpad/wt.txt`
+  and clobbered each other. Recompute the path inline per command
+  (`scripts/agent-worktree path <n> --unique <component>` prints the same path
+  for the same component) instead of reading a stored value.
+- **Assert the worktree HEAD before every mutation batch.** `git -C <wt>
+  rev-parse HEAD` must equal the intended SHA and the batch aborts loudly on
+  drift. `scripts/agent-worktree head-check <wt> <sha>` makes this one command
+  and exits non-zero on mismatch.
+- **Mutation testing requires a worktree.** Never run it in the live checkout:
+  `git checkout <sha> -- <files>` there mutates a tree other agents share and
+  corrupts their runs. A worktree is required, not optional.
 - **An existing path is an error, not a reuse opportunity.** If worktree
   creation reports the target path already exists, stop and pick a fresh unique
   path. Never `git -C <existing-worktree> checkout <other-branch>` or
