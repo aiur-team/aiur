@@ -87,6 +87,16 @@ Cache counters do not identify a GitHub budget, so callers seen only by the cach
 
 Reads served by `ResourceStore` are also outside this column. The header explicitly names `ReadCache`, so absence from one store is not presented as absence from every shared-state path.
 
+The **Agent gh exact-shape hit rate** tile measures the separate cache used by
+agent `gh` subprocesses.
+
+It shows `hits / (hits + misses)` plus the raw counts for the previous 24 hours
+across agent workspaces on the daemon host; remote SSH workers are outside that
+coverage.
+
+Missing counters and a zero denominator read **Not measured**, never `0%`, and
+skipped or malformed sources are labeled as partial coverage.
+
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
 Three layers, each addressable and each reachable from the one above:

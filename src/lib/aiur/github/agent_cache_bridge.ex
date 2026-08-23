@@ -68,9 +68,10 @@ defmodule Aiur.GitHub.AgentCacheBridge do
   # answer is wrong because a poll re-recorded an `ETag`. The repo-wide comment
   # streams alone publish twice a dispatch tick.
   #
-  # `:check_run` is ignored too — and since #2126 it is not even deposited. A
-  # CI verdict is never served from the agent store at any age, so there is
-  # nothing about a check run for this to retire.
+  # CI snapshot types are ignored too. They suppress only daemon poll
+  # selections after a webhook advances a complete baseline; CI verdicts are
+  # never served from the agent store at any age, so there is no agent answer
+  # for this bridge to retire.
   #
   # The trade-off, stated plainly: a resource type added later retires nothing
   # here until it is added to this list. That direction is chosen because the
