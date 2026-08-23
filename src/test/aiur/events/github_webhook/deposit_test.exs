@@ -524,7 +524,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     end
 
     test "a delivered thread collection survives a store restart and is still delivery-fresh" do
-      path = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("aiur-resource-store") <> ".json"
       on_exit(fn -> File.rm_rf!(path) end)
 
       # Run against a real checkpoint file before depositing: an in-memory store

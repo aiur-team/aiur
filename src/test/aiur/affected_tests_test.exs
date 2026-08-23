@@ -118,7 +118,7 @@ defmodule Aiur.AffectedTestsTest do
   end
 
   test "finds root-level tests containing deleted references" do
-    root = Path.join(System.tmp_dir!(), "affected-reference-tests-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("affected-reference-tests")
     root_test = Path.join(root, "src/test/aiur/github_client_test.exs")
     nested_test = Path.join(root, "src/test/aiur/github/reply_test.exs")
     File.mkdir_p!(Path.dirname(root_test))
@@ -136,7 +136,7 @@ defmodule Aiur.AffectedTestsTest do
   end
 
   test "reference matching does not confuse an identifier with a longer word" do
-    root = Path.join(System.tmp_dir!(), "affected-reference-boundary-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("affected-reference-boundary")
     header_test = Path.join(root, "src/test/aiur/header_test.exs")
     head_test = Path.join(root, "src/test/aiur/github_client_test.exs")
     File.mkdir_p!(Path.dirname(header_test))

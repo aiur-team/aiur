@@ -65,7 +65,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   end
 
   test "Codex adapter treats idle thread status as turn completion" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-codex-idle-status-#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-codex-idle-status")
 
     try do
       workspace = Path.join(Config.workspace_root(), "MT-CODEX-IDLE")
@@ -113,7 +113,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   end
 
   test "Codex adapter ignores idle thread status before a turn starts" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-codex-prestart-idle-#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-codex-prestart-idle")
 
     try do
       workspace = Path.join(Config.workspace_root(), "MT-CODEX-PRESTART-IDLE")
@@ -173,7 +173,7 @@ defmodule Aiur.CodingAgentCheckpointTest do
   # trace_file)`, and tears everything down. Keeps each behavioral test focused
   # on its assertions rather than the workspace/session boilerplate.
   defp with_checkpoint_workspace(identifier, backend, script, body) do
-    test_root = Path.join(System.tmp_dir!(), "aiur-checkpoint-#{identifier}-#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-checkpoint-#{identifier}")
 
     {agent, trace_env} =
       case backend do

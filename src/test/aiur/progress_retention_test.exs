@@ -4,7 +4,7 @@ defmodule Aiur.ProgressRetentionTest do
   alias Aiur.{ProgressRetention, TrackerIdentity}
 
   setup do
-    state_dir = Path.join(System.tmp_dir!(), "progress-retention-test-#{System.unique_integer([:positive])}")
+    state_dir = Aiur.TestSupport.tmp_root!("progress-retention-test")
     on_exit(fn -> File.rm_rf!(state_dir) end)
     %{state_dir: state_dir}
   end

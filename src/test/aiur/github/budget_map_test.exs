@@ -217,7 +217,7 @@ defmodule Aiur.GitHub.BudgetMapTest do
     end
 
     test "agent-cache files are parsed into per-workspace hit rates" do
-      path = Path.join(System.tmp_dir!(), "aiur-bmap-agent-#{System.unique_integer([:positive])}")
+      path = Aiur.TestSupport.tmp_root!("aiur-bmap-agent")
       File.mkdir_p!(Path.join([path, ".aiur-runtime", "github-quota"]))
 
       tsv = Path.join([path, ".aiur-runtime", "github-quota", "agent-cache.tsv"])
