@@ -707,7 +707,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     suffix = System.unique_integer([:positive])
     workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "planning-source-duplicate-#{suffix}.json")
-    state_root = Path.join(System.tmp_dir!(), "planning-source-duplicate-state-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("planning-source-duplicate-state")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
     repository = Config.repo()
@@ -768,7 +768,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     suffix = System.unique_integer([:positive])
     workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "planning-source-root-collision-#{suffix}.json")
-    state_root = Path.join(System.tmp_dir!(), "planning-source-root-collision-state-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("planning-source-root-collision-state")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
     repository = Config.repo()

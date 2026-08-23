@@ -248,7 +248,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   test "a daemon restart does not refund persisted lifetime dispatches" do
     _state = dispatch_n(%Orchestrator.State{}, 10)
     stable_path = DispatchBudgetStore.path_for()
-    Application.put_env(:aiur, :log_file, Path.join([System.tmp_dir!(), "session-two", "aiur.log"]))
+    Application.put_env(:aiur, :log_file, Path.join(Aiur.TestSupport.tmp_root!("aiur-lifetime-restart"), "aiur.log"))
 
     assert DispatchBudgetStore.path_for() == stable_path
     assert {:trip, restarted_state} = run(%Orchestrator.State{}, 11 * (@window_ms + 1))

@@ -2997,7 +2997,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
   test "generated local sandbox policy admits package-manager cache-miss writes only to sidecars" do
     test_id = System.unique_integer([:positive])
-    test_root = Path.join(System.tmp_dir!(), "aiur-elixir-package-cache-sandbox-#{test_id}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-package-cache-sandbox")
     repo_url = "https://github.com/owner/cache-miss-#{test_id}.git"
     repo_state = Aiur.RepoBase.repo_path(repo_url)
 

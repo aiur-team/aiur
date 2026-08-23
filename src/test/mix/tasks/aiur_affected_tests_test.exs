@@ -87,7 +87,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests.XrefSinksTest do
   alias Mix.Tasks.Aiur.AffectedTests
 
   test "excludes paths that do not exist on disk from xref sinks" do
-    dir = System.tmp_dir!()
+    dir = Aiur.TestSupport.tmp_root!("affected-xref-sinks")
     existing = "src/lib/aiur/existing.ex"
     deleted = "src/lib/aiur/deleted.ex"
     File.mkdir_p!(Path.join(dir, "src/lib/aiur"))
