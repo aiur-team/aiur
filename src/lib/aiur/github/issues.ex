@@ -1053,7 +1053,14 @@ defmodule Aiur.GitHub.Issues do
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
       creator_login: get_in(gh_issue, ["user", "login"]),
       dispatch_revision: dispatch_revision,
+      # `dispatch_authorized?: false` means "not verified to dispatch", and the
+      # tri-state `dispatch_authorization` starts `:deferred` ("not yet checked")
+      # until `authorize_dispatches` resolves it to `:authorized` or `:denied`
+      # from a fetched timeline. `:deferred` must never be read as revoked, so a
+      # poll that re-normalizes a running issue without (yet) re-verifying it
+      # cannot terminate its agent (#2409).
       dispatch_authorized?: false,
+      dispatch_authorization: :deferred,
       paused: paused_label?(label_names, prefix),
       parked: parked_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
