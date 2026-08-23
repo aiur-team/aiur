@@ -129,11 +129,10 @@ prompt_file: prompt.md
 # The build command lives in a sibling `.aiur/prewarm` script (path relative to
 # this config), keeping the multi-line shell out of the main config.
 prewarm:
-  # Disabled 2026-08-21 to unblock dispatch: #2237 — RepoBase's `:checking` phase is
-  # absorbing, so a lost `git ls-remote` probe holds the dispatch gate forever and no
-  # refresh can start a new probe (repo_base.ex:335). Two consecutive daemon starts
-  # stalled with 31 ready tickets and 0 agents. Cold-clone workspaces are slower but
-  # they dispatch. Re-enable once #2237 lands.
-  enabled: false
+  enabled: true
   base_build_file: prewarm
+  # Periodic refresh is an independent recovery path alongside the dispatch
+  # watchdog: #2237 showed a single probe can be lost, so polling stays enabled
+  # even though dispatch-time freshness checks and the idle watchdog cover the
+  # hold on their own.
   poll_seconds: 30

@@ -90,7 +90,7 @@ alerts:
     sound:
       - "~/alerts/advisor/advisor-not-enough-minerals.wav"
   "system.dispatch.prewarm_blocked.resolved":
-    message: Shared prewarm recovered
+    message: Shared prewarm released dispatch
   "system.dispatch.capacity_starved":
     message: Fleet dispatch capacity is constrained
     sound:
