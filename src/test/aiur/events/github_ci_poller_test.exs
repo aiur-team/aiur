@@ -285,10 +285,10 @@ defmodule Aiur.Events.GithubCIPollerTest do
   describe "superseded runs on the same head sha" do
     test "passes when the latest run per (workflow, name) is green despite an older failed run" do
       check_runs = [
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
-        %{"name" => "coverage (2/4)", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"},
-        %{"name" => "coverage (2/4)", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"}
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "coverage (2/4)", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"},
+        %{"name" => "coverage (2/4)", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"}
       ]
 
       assert %{decision: :passed, failures: []} =
@@ -297,8 +297,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
     test "fails when the latest run on a (workflow, name) is itself failed" do
       check_runs = [
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T20:00:00Z"},
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T21:00:00Z"}
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T21:00:00Z"}
       ]
 
       assert %{decision: :failed} =
@@ -307,8 +307,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
     test "waits when the latest run is still in progress" do
       check_runs = [
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "in_progress", "conclusion" => nil, "started_at" => "2026-08-22T21:00:00Z"}
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "in_progress", "conclusion" => nil, "started_at" => "2026-08-22T21:00:00Z"}
       ]
 
       assert %{decision: :pending, pending_reason: :check_runs_incomplete} =
@@ -322,8 +322,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
       # a gate that reports green on a red required check is the failure this
       # scoping exists to prevent.
       check_runs = [
-        %{"name" => "build", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-23T01:41:39Z"},
-        %{"name" => "build", "check_suite_id" => 883_762_123_45, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-23T01:42:00Z"}
+        %{"name" => "build", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-23T01:41:39Z"},
+        %{"name" => "build", "check_suite_id" => 88_376_212_345, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-23T01:42:00Z"}
       ]
 
       assert %{decision: :failed, failures: [%{name: "build"}]} =
@@ -348,10 +348,10 @@ defmodule Aiur.Events.GithubCIPollerTest do
       # later completed_at; whichever order the list arrives in, recency must
       # keep the failure, not the last-listed run.
       success =
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-22T20:00:00Z"}
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-22T20:00:00Z"}
 
       failure =
-        %{"name" => "test", "check_suite_id" => 883_762_093_94, "status" => "completed", "conclusion" => "failure", "completed_at" => "2026-08-22T21:00:00Z"}
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "completed_at" => "2026-08-22T21:00:00Z"}
 
       assert %{decision: :failed} =
                GithubCIPoller.evaluate_for_test([success, failure], %{"state" => "pending", "statuses" => []})
