@@ -2489,6 +2489,125 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {_output, 0} = run_host_guard(host_bin, main, ["status", "--short"])
   end
 
+  # #2362: concurrent review agents on one box picked the same generic worktree
+  # path and the second silently repointed the first's checkout at a different
+  # branch mid-run, so mutation tests ran against the wrong tree. Creating a
+  # worktree at a path that already exists must fail loudly rather than reuse
+  # or repoint it. git itself refuses a registered or non-empty path but
+  # silently proceeds when the existing path is an empty directory - the gap
+  # the guard closes.
+  test "git worktree add refuses an existing worktree path instead of repointing it", context do
+    worktree = make_workspace_worktree(context, "wt-existing")
+
+    {output, 64} =
+      run_git_guard(context, ["-C", context.workspace, "worktree", "add", worktree, "-b", "second"])
+
+    assert output =~ "refusing git worktree add"
+    assert output =~ "already exists"
+    assert output =~ "pick a fresh unique path"
+  end
+
+  test "git worktree add refuses an existing empty directory that git would silently reuse", context do
+    init_git_workspace(context)
+    empty_dir = Path.join(context.workspace, "wt-empty")
+    File.mkdir_p!(empty_dir)
+
+    {output, 64} =
+      run_git_guard(context, [
+        "-C",
+        context.workspace,
+        "worktree",
+        "add",
+        "wt-empty",
+        "-b",
+        "wt-empty-branch"
+      ])
+
+    assert output =~ "refusing git worktree add"
+    assert output =~ "already exists"
+    # nothing was created inside the existing directory
+    refute File.exists?(Path.join(empty_dir, "HEAD"))
+  end
+
+  test "git worktree add refuses a registered worktree whose directory was removed", context do
+    worktree = make_workspace_worktree(context, "wt-registered")
+    File.rm_rf!(worktree)
+
+    {output, 64} =
+      run_git_guard(context, ["-C", context.workspace, "worktree", "add", worktree, "-b", "other"])
+
+    assert output =~ "refusing git worktree add"
+    assert output =~ "already a registered worktree"
+  end
+
+  test "git worktree add -b branch value is not mistaken for the target path", context do
+    init_git_workspace(context)
+    existing = Path.join(context.workspace, "wt-flag")
+    File.mkdir_p!(existing)
+
+    # `-b some-branch` names a branch; the real target path `wt-flag` exists,
+    # so the guard must refuse on the path (naming `wt-flag`) rather than
+    # reading the branch value as a fresh path and passing through. The names
+    # are distinct so a guard that wrongly reads `some-branch` as the target
+    # checks a path that does not exist and passes through - the exact
+    # regression this test exists to catch.
+    {output, 64} =
+      run_git_guard(context, [
+        "-C",
+        context.workspace,
+        "worktree",
+        "add",
+        "-b",
+        "some-branch",
+        "wt-flag"
+      ])
+
+    assert output =~ "refusing git worktree add"
+    assert output =~ "wt-flag"
+  end
+
+  test "git worktree add -b branch value that matches an existing directory still passes through to the real fresh path", context do
+    init_git_workspace(context)
+    branch_like_dir = Path.join(context.workspace, "some-branch")
+    File.mkdir_p!(branch_like_dir)
+
+    # The branch value `some-branch` happens to match an existing directory,
+    # but the real target path `wt-fresh` does not exist. A guard that reads
+    # the branch value as the path would refuse on `some-branch`; the correct
+    # parse skips the branch value and passes through to create `wt-fresh`.
+    {output, 0} =
+      run_git_guard(context, [
+        "-C",
+        context.workspace,
+        "worktree",
+        "add",
+        "-b",
+        "some-branch",
+        "wt-fresh"
+      ])
+
+    refute output =~ "refusing"
+    assert File.dir?(Path.join(context.workspace, "wt-fresh"))
+  end
+
+  test "git worktree add at a fresh path passes through and creates the worktree", context do
+    init_git_workspace(context)
+
+    {output, 0} =
+      run_git_guard(context, [
+        "-C",
+        context.workspace,
+        "worktree",
+        "add",
+        "wt-fresh",
+        "-b",
+        "wt-fresh-branch"
+      ])
+
+    refute output =~ "refusing"
+    assert File.dir?(Path.join(context.workspace, "wt-fresh"))
+  end
+
   # #1793: 29 tickets were filed mid-run with no `agent:*` label. Each one was
   # undispatchable and absent from every state-scoped view, so the fleet read as
   # having no work left. The skills instruct every filing path to set the
