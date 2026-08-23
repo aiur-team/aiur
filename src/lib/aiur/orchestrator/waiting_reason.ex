@@ -53,6 +53,15 @@ defmodule Aiur.Orchestrator.WaitingReason do
       # reached" is a local pause, not a tracker wait, so it always reads
       # `paused` (an open decision above still wins — it is a separate cause).
       duration_capped_pause?(attrs) -> :paused
+      true -> running_reason(attrs, tracker_reason)
+    end
+  end
+
+  # The residual classification once the overrides (open decision, completed,
+  # unresponsive, duration cap) are ruled out: tracker state first, then the
+  # pause-reason-specific labels, then the `:paused`/`:sleeping` work state.
+  defp running_reason(attrs, tracker_reason) do
+    cond do
       tracker_reason != :active -> tracker_reason
       agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human
       Map.get(attrs, :pause_reason) == :global_pause -> :run_paused
