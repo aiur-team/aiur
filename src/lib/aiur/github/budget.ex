@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.Budget do
   """
 
   alias Aiur.{Alerts, Config}
-  alias Aiur.GitHub.{CredentialHeadroom, GraphQLErrors, Transport}
+  alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger
 
@@ -213,21 +213,11 @@ defmodule Aiur.GitHub.Budget do
   end
 
   @spec endpoint_family(map()) :: String.t()
-  def endpoint_family(%{url: url}) when is_binary(url) do
-    case URI.parse(url).path do
-      "/graphql" -> "graphql"
-      "/repos/" <> path -> path |> String.split("/", trim: true) |> Enum.at(2, "rest")
-      _path -> "rest"
-    end
-  end
-
+  def endpoint_family(%{url: url}) when is_binary(url), do: EndpointPolicy.endpoint_family(url)
   def endpoint_family(_request), do: "rest"
 
   @spec request_resource(map()) :: String.t()
-  def request_resource(%{url: url}) when is_binary(url) do
-    if URI.parse(url).path == "/graphql", do: "graphql", else: "core"
-  end
-
+  def request_resource(%{url: url}) when is_binary(url), do: EndpointPolicy.resource(url)
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
@@ -342,6 +332,13 @@ defmodule Aiur.GitHub.Budget do
   defp acquire_args(request, opts) do
     settings = settings(opts)
     {core_limit, graphql_limit, search_limit} = actor_limits(consumer_identity(opts), settings)
+    family = endpoint_family(request)
+
+    # Endpoints GitHub does not meter (e.g. `/rate_limit`) are admitted for
+    # ordering but recorded non-billable, so the ledger never reports them as
+    # spend — the same decision `Quota` reaches through the shared
+    # `EndpointPolicy` table (#2353).
+    billable_args = if EndpointPolicy.billable_for(family), do: [], else: ["--billable", "0"]
 
     [
       "acquire",
@@ -352,7 +349,7 @@ defmodule Aiur.GitHub.Budget do
       "--consumer-label",
       consumer_identity(opts),
       "--endpoint-family",
-      endpoint_family(request),
+      family,
       "--max-inflight",
       Integer.to_string(settings.max_inflight),
       "--max-inflight-per-endpoint",
@@ -369,7 +366,7 @@ defmodule Aiur.GitHub.Budget do
       Integer.to_string(graphql_limit),
       "--search-limit",
       Integer.to_string(search_limit)
-    ]
+    ] ++ billable_args
   end
 
   # The daemon and each agent workspace are separate actors with separate hourly
@@ -698,7 +695,16 @@ defmodule Aiur.GitHub.Budget do
     %{
       cooldown_until_ms: cooldown,
       inflight: inflight,
-      admissions: Enum.map(admissions, &%{endpoint_family: &1["endpoint_family"], resource: &1["resource"], admitted_at_ms: &1["admitted_at_ms"]})
+      admissions:
+        Enum.map(
+          admissions,
+          &%{
+            endpoint_family: &1["endpoint_family"],
+            resource: &1["resource"],
+            admitted_at_ms: &1["admitted_at_ms"],
+            billable: &1["billable"]
+          }
+        )
     }
   end
 

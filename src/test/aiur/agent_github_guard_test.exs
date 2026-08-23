@@ -31,6 +31,26 @@ defmodule Aiur.AgentGitHubGuardTest do
           if [ "$fake_arg" = --include ]; then printf '%s\n' 'unexpected include' >&2; exit 99; fi
         done
       fi
+      # Emit a `GH_DEBUG=api`-shaped transcript to stderr, including an HTTP
+      # status line, so high-level 304 reconciliation can be exercised. The
+      # transcript must end with `* Request took` (the strip boundary), and
+      # `FAKE_GH_DEBUG_ERROR` — if set — lands after it exactly where `gh`
+      # prints real errors.
+      if [ -n "${FAKE_GH_DEBUG_STATUS:-}" ]; then
+        printf '%s\n' "* Request at 2026-08-22 19:20:31 -0700 PDT m=+0.030400534" >&2
+        printf '%s\n' "* Request to https://api.github.com/graphql" >&2
+        printf '%s\n' "> POST /graphql HTTP/2" >&2
+        printf '%s\n' "> Host: api.github.com" >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "< HTTP/2.0 ${FAKE_GH_DEBUG_STATUS}" >&2
+        printf '%s\n' "< X-RateLimit-Limit: 5000" >&2
+        printf '%s\n' "< X-RateLimit-Remaining: 4999" >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' '{"data":{"viewer":{"login":"fake"}}}' >&2
+        printf '%s\n' "" >&2
+        printf '%s\n' "* Request took 12.345ms" >&2
+      fi
+      if [ -n "${FAKE_GH_DEBUG_ERROR:-}" ]; then printf '%s\n' "$FAKE_GH_DEBUG_ERROR" >&2; fi
       if [ "${FAKE_GH_PASSTHROUGH_LOCAL:-0}" = 1 ]; then
         case " $* " in
           *" api http://127.0.0.1:"*)
@@ -1851,6 +1871,172 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{"billable" => false}]} = Jason.decode!(snapshot)
   end
 
+  test "a high-level pr view 304 is reconciled as unbilled and its transcript is stripped", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {output, 0} =
+             run_guard(context, ["pr", "view", "1670", "--json", "body"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_DEBUG_STATUS: "304",
+               FAKE_GH_DEBUG_ERROR: "gh: a real error after the transcript"
+             )
+
+    # `gh` prints the 304 status only under GH_DEBUG=api; the wrapper consumes
+    # it for reconciliation and strips the transcript so the caller's stderr is
+    # unchanged, while a genuine error printed after the request survives.
+    assert output =~ "gh: a real error after the transcript"
+    refute output =~ "Request at"
+    refute output =~ "HTTP/2.0 304"
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "pulls", "billable" => false}]} = Jason.decode!(snapshot)
+  end
+
+  test "a high-level issue view 304 is reconciled as unbilled", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["issue", "view", "1670", "--json", "body"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_DEBUG_STATUS: "304"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "issues", "billable" => false}]} = Jason.decode!(snapshot)
+  end
+
+  test "a high-level search 304 is reconciled as unbilled", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["search", "issues", "state:open"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_DEBUG_STATUS: "304"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "search", "billable" => false}]} = Jason.decode!(snapshot)
+  end
+
+  test "a 304 in every gh api family is reconciled as unbilled", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    api_families = [
+      {"pulls", "repos/owner/repo/pulls/1670"},
+      {"issues", "repos/owner/repo/issues/1670"},
+      {"actions", "repos/owner/repo/actions/runs/123"},
+      {"labels", "repos/owner/repo/labels/bug"},
+      {"rest", "repos/owner/repo"},
+      {"graphql", "graphql"}
+    ]
+
+    for {family, endpoint} <- api_families do
+      assert {"ok\n", 0} =
+               run_guard(context, ["api", endpoint],
+                 AIUR_GITHUB_BUDGET_ROOT: budget_root,
+                 AIUR_GITHUB_BUDGET_KEY: key,
+                 AIUR_GITHUB_BUDGET_BROKER: broker,
+                 AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+                 FAKE_GH_INCLUDE_HEADERS: "1",
+                 FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+               )
+
+      assert {snapshot, 0} =
+               System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+      decoded = Jason.decode!(snapshot)
+      assert Enum.any?(decoded["admissions"], &(&1["endpoint_family"] == family and &1["billable"] == false))
+    end
+  end
+
+  test "a host gh call with no explicit key binds the resolved credential identity", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+
+    # No AIUR_GITHUB_BUDGET_KEY: the Executor wrapper resolves the token itself
+    # (`gh auth token`) and derives the credential's stable identity from the
+    # login that token authenticates as — here the keyring login the fake gh
+    # reports, standing in for its-everdred (#2353).
+    assert {"ok\n", 0} =
+             run_executor_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_FORMAT_OUTPUT: "its-everdred\n",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    token_key = sha256_hex("ok")
+    identity_key = sha256_hex("aiur-github-credential-v1\0machine_user:primary:its-everdred")
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               broker,
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               token_key,
+               "--identity-key",
+               identity_key
+             ])
+
+    assert %{"admissions" => [%{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
+
+    # A second host call reuses the cached identity (one `api user` derivation
+    # per credential), still binding the same key.
+    assert {"ok\n", 0} =
+             run_executor_guard(context, ["api", "repos/owner/repo/pulls/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_FORMAT_OUTPUT: "its-everdred\n",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               broker,
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               token_key,
+               "--identity-key",
+               identity_key
+             ])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert Enum.map(admissions, & &1["endpoint_family"]) == ["issues", "pulls"]
+  end
+
+  defp sha256_hex(value), do: :crypto.hash(:sha256, value) |> Base.encode16(case: :lower)
+
   test "auth token remains local when a configured budget cannot start", context do
     budget_root = Path.join(context.state_path, "host-budget")
     path = isolated_command_path(context, ~w(shasum))
@@ -3506,10 +3692,19 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.cp!(context.wrapper, wrapper)
     File.chmod!(wrapper, 0o755)
 
+    # An Executor shell has none of the agent-workspace budget exports: the
+    # identity key and consumer are scrubbed (the inherited values from an
+    # agent test VM would otherwise make the wrapper bind the publication
+    # credential and label the caller `workspace:...` instead of exercising
+    # the host path under test).
     env =
       Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end) ++
-        [{"AIUR_GITHUB_BUDGET_ENABLED", "1"}, {"AIUR_AGENT_WORKSPACE", ""}] ++
-        Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+        [
+          {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+          {"AIUR_AGENT_WORKSPACE", ""},
+          {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", ""},
+          {"AIUR_GITHUB_BUDGET_CONSUMER", ""}
+        ] ++ Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
 
     System.cmd(wrapper, args, env: env, stderr_to_stdout: true)
   end

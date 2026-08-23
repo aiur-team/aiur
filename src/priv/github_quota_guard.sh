@@ -63,6 +63,11 @@ budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
 budget_ignore_token_cooldown=0
 budget_consumer=${AIUR_GITHUB_BUDGET_CONSUMER:-"executor:${PPID:-$$}"}
 budget_consumer_key=
+# Set when THIS wrapper resolved the credential key from a token rather than
+# receiving `AIUR_GITHUB_BUDGET_KEY` from a caller. Only then does it derive the
+# credential's stable identity — a caller that already picked the key has made
+# the identity decision itself (#2353).
+budget_key_derived=0
 
 case "$budget_requested" in
   0|false|FALSE|no|NO|off|OFF) budget_required=0 ;;
@@ -78,6 +83,58 @@ fingerprint_value() {
   else
     return 1
   fi
+}
+
+# The broker's stable one-way identity for a credential, domain-separated
+# exactly as `Aiur.GitHub.Budget.identity_key/1` computes it for a machine
+# user: sha256 of `aiur-github-credential-v1<NUL>machine_user:primary:<login>`.
+# `\000` is the octal NUL so the hashed input is byte-identical to the Elixir
+# side; a literal `\0` in the string would hash different bytes and split the
+# same credential across two identities in the usage report.
+identity_fingerprint() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf 'aiur-github-credential-v1\000machine_user:primary:%s' "$1" | shasum -a 256 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf 'aiur-github-credential-v1\000machine_user:primary:%s' "$1" | sha256sum 2>/dev/null | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+# Derives the credential's stable identity key for a host (non-agent) run that
+# resolved its own token. `gh api user` reports the login of whichever
+# credential the wrapper resolved (the bot's GITHUB_TOKEN, or the operator's
+# keyring account), so the binding matches the token's identity. The derivation
+# costs one Core request per new credential and is cached by token key under
+# the budget root, so subsequent host calls reuse it. A failed derivation
+# degrades to no identity key — the raw token hash is recorded, exactly as
+# today — never to a wrong identity.
+budget_derive_identity() {
+  [ -n "$budget_key" ] || return 0
+  [ -z "$budget_identity_key" ] || return 0
+  [ "$budget_key_derived" -eq 1 ] || return 0
+
+  identity_cache="$budget_root/identity-$budget_key"
+  if [ -f "$identity_cache" ]; then
+    budget_identity_key=$(sed -n '1p' "$identity_cache" 2>/dev/null || true)
+    case "$budget_identity_key" in
+      ''|*[!0-9a-f]*) budget_identity_key= ;;
+      *) return 0 ;;
+    esac
+  fi
+
+  budget_login=$("$real_gh" api user --jq .login 2>/dev/null || true)
+  case "$budget_login" in
+    ''|*[!A-Za-z0-9_-]*) return 0 ;;
+    *)
+      budget_identity_key=$(identity_fingerprint "$budget_login") || budget_identity_key=
+      if [ -n "$budget_identity_key" ]; then
+        printf '%s\n' "$budget_identity_key" > "$identity_cache" 2>/dev/null || true
+      fi
+      ;;
+  esac
+  unset budget_login
+  return 0
 }
 
 if [ -n "$state_root" ]; then
@@ -110,6 +167,7 @@ if [ "$budget_required" -eq 1 ]; then
       else
         budget_key=$(fingerprint_value "$budget_token") || budget_key=
         [ -n "$budget_key" ] || budget_unavailable_reason='credential fingerprint is unavailable'
+        budget_key_derived=1
       fi
       unset budget_token
     fi
@@ -122,6 +180,7 @@ if [ "$budget_required" -eq 1 ]; then
 fi
 
 if [ "$budget_enabled" -eq 1 ]; then
+  budget_derive_identity
   budget_consumer_key=$(fingerprint_value "$budget_consumer") || budget_consumer_key=
   [ -n "$budget_consumer_key" ] || budget_consumer_key=shared
 fi
@@ -138,6 +197,12 @@ admission_required=1
 admission_resource=unknown
 endpoint_family=rest
 api_paginated=0
+# High-level (non-`gh api`) budgeted commands run with `GH_DEBUG=api` so this
+# wrapper can observe the HTTP response status. `gh` keeps the status internal
+# for those commands, which left every 304 from `pr view`/`issue view`/`search`
+# billed as if it had cost quota (#2353). The debug transcript is consumed for
+# the reconcile and then stripped, so the caller's stderr is unchanged.
+high_level_debug=0
 
 api_command_endpoint() {
   shift
@@ -1813,6 +1878,49 @@ budget_reconcile_response() {
   fi
 }
 
+# 304 reconciliation for high-level commands. `gh` only exposes the HTTP status
+# under `GH_DEBUG=api`, so the guarded run above captured it in `$error_file` as
+# `< HTTP/... <status>` lines. The last response status is the one the lease
+# actually paid for, so it wins; then the whole debug transcript is stripped so
+# every later consumer (rate-limit classification, stderr replay) sees only the
+# real stderr. A command that produced no debug (budget disabled, no request, a
+# caller that already set its own debug) is a no-op here.
+budget_reconcile_debug() {
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ -n "$budget_lease" ] || return 0
+  [ -n "$error_file" ] && [ -f "$error_file" ] || return 0
+
+  debug_status=$(sed -n -E 's/^< HTTP\/[^[:space:]]+[[:space:]]+([0-9]{3}).*/\1/p' "$error_file" | tail -n 1)
+  case "$debug_status" in
+    304) budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true ;;
+  esac
+
+  strip_gh_debug "$error_file"
+  return 0
+}
+
+# Drops `GH_DEBUG=api`'s transcript from a stderr capture, keeping only what
+# gh printed outside it (pre-request warnings and post-request errors). The
+# transcript is contiguous: every debug line between the request's start and
+# its `Request took` marker — request headers, request body, response headers,
+# response body — is removed so the caller's stderr and the error classifiers
+# see exactly what they saw before high-level debug was enabled.
+strip_gh_debug() {
+  [ -f "$1" ] || return 0
+  strip_tmp="$1.dbg.$$"
+  if awk '
+    /^\* Request at / { in_debug = 1; next }
+    in_debug && /^\* Request took / { in_debug = 0; next }
+    !in_debug { print }
+  ' "$1" > "$strip_tmp" 2>/dev/null; then
+    mv -f "$strip_tmp" "$1" 2>/dev/null || rm -f "$strip_tmp" 2>/dev/null || true
+  else
+    rm -f "$strip_tmp" 2>/dev/null || true
+  fi
+  unset strip_tmp
+  return 0
+}
+
 budget_start_renewal() {
   [ -n "$budget_lease" ] || return 0
   budget_renew_interval=$((budget_lease_ttl_ms / 3 / 1000))
@@ -2554,6 +2662,22 @@ if [ "$resource" != none ]; then
   umask "$old_umask"
 fi
 
+# High-level budgeted commands (anything but `gh api`, which already captures
+# its status through `--include`) run under `GH_DEBUG=api` so the wrapper can
+# see whether the response was a free 304. `gh` prints the status line only in
+# that transcript; without it every `pr view`/`issue view`/`search` 304 is
+# billed as if it had cost quota (#2353). `run watch` is the one interactive
+# streamer and is deliberately excluded: its stderr must stay live, and a debug
+# transcript interleaved with its progress would be worse than the accounting
+# gap. Every other high-level command is buffered (below) so the transcript is
+# consumed for reconciliation and then stripped before the caller sees stderr.
+if [ "$budget_enabled" -eq 1 ] && [ "$resource" != none ] && [ "${1:-}" != api ]; then
+  case "${1:-} ${2:-}" in
+    "run watch") : ;;
+    *) high_level_debug=1 ;;
+  esac
+fi
+
 if [ -n "$error_file" ]; then
   if [ "${1:-}" = api ]; then
     for api_arg in "$@"; do
@@ -2593,10 +2717,14 @@ if [ -n "$error_file" ]; then
     fi
     status=$?
   elif [ -n "$cache_stage" ]; then
-    "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+    if [ "$high_level_debug" -eq 1 ]; then
+      GH_DEBUG=api "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+    else
+      "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+    fi
     status=$?
     cat "$cache_stage"
-  elif [ -n "$status_file" ] && command -v tee > /dev/null 2>&1; then
+  elif [ -n "$status_file" ] && command -v tee > /dev/null 2>&1 && [ "$high_level_debug" -eq 0 ]; then
     # Pass stderr through `tee` so it reaches the terminal as it is written
     # while still being captured for the rate-limit classification below.
     # Replaying a buffered copy after exit stalls `gh run watch` progress — an
@@ -2612,7 +2740,11 @@ if [ -n "$error_file" ]; then
       ''|*[!0-9]*) status=1 ;;
     esac
   else
-    "$real_gh" "$@" 2> "$error_file"
+    if [ "$high_level_debug" -eq 1 ]; then
+      GH_DEBUG=api "$real_gh" "$@" 2> "$error_file"
+    else
+      "$real_gh" "$@" 2> "$error_file"
+    fi
     status=$?
   fi
 
@@ -2628,6 +2760,13 @@ if [ -n "$error_file" ]; then
       umask "$old_umask"
       if [ -n "$cache_stage" ]; then emit_api_output > "$cache_stage" 2>/dev/null || cache_stage=; fi
     fi
+  fi
+
+  # High-level 304s reconcile here, before the transcript would otherwise leak:
+  # the status is read for reconciliation and then the debug is stripped so the
+  # replay below is exactly the stderr the caller would have seen without it.
+  if [ "$high_level_debug" -eq 1 ]; then
+    budget_reconcile_debug
   fi
 
   if [ "$stderr_streamed" -eq 0 ]; then
