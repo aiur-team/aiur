@@ -51,6 +51,12 @@ defmodule Aiur.GitHub.EndpointPolicy do
     case URI.parse(url).path do
       "/rate_limit" -> "rate_limit"
       "/graphql" -> "graphql"
+      # GitHub meters `/search/*` against its own ~30 req/min pool, not the
+      # core pool. Routing a search URL to `core` here — and, worse, attributing
+      # a search-pool exhaustion response to a `core` hold — is exactly how a
+      # search rate limit became a fleet-wide `core` hold that denied dispatch
+      # authorization (#2409).
+      "/search/" <> _path -> "search"
       "/repos/" <> path -> path |> String.split("/", trim: true) |> Enum.at(2, "rest")
       _path -> "rest"
     end

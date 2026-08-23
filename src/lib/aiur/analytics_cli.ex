@@ -206,7 +206,7 @@ defmodule Aiur.AnalyticsCLI do
         IO.puts(["Memory headroom: ", to_string(metrics["mem_headroom_pct"]), "%"])
         IO.puts(["PRs merged: ", to_string(metrics["merged"])])
         IO.puts(["Tickets done: ", to_string(metrics["done"]), "/", to_string(metrics["total"])])
-        IO.puts(["Wasted capacity: ", to_string(metrics["wasted_slot_hours"]), "h"])
+        IO.puts(["Wasted capacity: ", wasted_capacity(metrics["wasted_slot_hours"])])
         IO.puts("Complexity tiers:")
 
         Enum.each(model["complexity_breakdown"], fn tier ->
@@ -226,6 +226,11 @@ defmodule Aiur.AnalyticsCLI do
   defp iso(ms) when is_integer(ms), do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
   defp iso(value) when is_binary(value), do: value
   defp iso(_ms), do: "unknown"
+
+  # Idle slot-hours are measured against the effective cap, so with no known cap
+  # there is no figure. Printing a bare "h" would read as zero waste.
+  defp wasted_capacity(hours) when is_number(hours), do: "#{hours}h"
+  defp wasted_capacity(_hours), do: "unknown (no effective cap reported)"
 
   defp elapsed(nil), do: nil
   defp elapsed(ms) when ms <= 0, do: "0m"

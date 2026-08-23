@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   @backoff_ms [120_000, 300_000, 900_000]
   @max_attempts 3
 
-  @type cause :: :transient_tracker | :rate_limit | :provider_timeout
+  @type cause :: :transient_tracker | :rate_limit | :provider_timeout | :local_budget_hold
 
   @doc "Bounded backoff schedule for the given 1-based attempt."
   @spec backoff_ms(pos_integer()) :: pos_integer()
@@ -56,6 +56,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   @spec classify(term()) :: cause() | nil
   def classify(reason) do
     cond do
+      local_budget_hold?(reason) -> :local_budget_hold
       tracker_rate_limited?(reason) -> :rate_limit
       tracker_transient?(reason) -> :transient_tracker
       provider_timeout?(reason) -> :provider_timeout
@@ -65,6 +66,16 @@ defmodule Aiur.Orchestrator.AutoResume do
 
   defp tracker_rate_limited?({:github, :rate_limited, _detail}), do: true
   defp tracker_rate_limited?(_reason), do: false
+
+  # A local GitHub budget hold is a transient infrastructure fault — the guard
+  # is throttling a resource for a bounded window, not rejecting the work — so
+  # a ticket parked in `agent:error` by one must auto-resume once the hold
+  # lifts instead of waiting for an operator. Recognized in both the raw
+  # `{:aiur, :locally_held, hold}` form and the transport-classified
+  # `{:github, :transport, %{reason: ...}}` form (#2409).
+  defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
+  defp local_budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: true
+  defp local_budget_hold?(_reason), do: false
 
   defp tracker_transient?(reason) do
     Errors.retryable_github_error?(reason)
