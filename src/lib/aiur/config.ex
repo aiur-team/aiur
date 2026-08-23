@@ -731,6 +731,16 @@ defmodule Aiur.Config do
     settings!().agent.min_free_memory_mb
   end
 
+  @doc """
+  Absolute wall-clock cap (seconds) on how long any one build-gate slot may be
+  held before the detached lease holder releases it (#2349). `0` disables the
+  backstop.
+  """
+  @spec build_gate_max_hold_seconds() :: non_neg_integer()
+  def build_gate_max_hold_seconds do
+    settings!().agent.build_gate_max_hold_seconds || 0
+  end
+
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do

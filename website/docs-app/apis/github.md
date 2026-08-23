@@ -16,6 +16,8 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 
+The CI poll drops from its batch a target a `check_run` delivery already answered since the last read — the read is not bought again. Displacement is per target: a ticket with no delivery keeps its cadence, and only the read is skipped; no verdict is served from the held body. An unmatched check-run id keeps the target polled; polling stays the fallback.
+
 ## Who Aiur trusts
 
 | Source | Trust rule |
@@ -112,7 +114,7 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 
 | Widening | Effect |
 | --- | --- |
-| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is actively running, turning the 120-second base into a 10-minute sweep. |
+| Idle fleet (`polling.idle_widen_factor`, default 5.0) | Multiplies the effective interval while no agent is running and nothing dispatchable is waiting — turning the 120-second base into a 10-minute sweep. A live fleet with claimable tickets, or a freshly started daemon that has not yet observed a full idle cycle, keeps the base interval so work dispatches promptly (#2138). |
 | Proven webhook repo (`webhooks.poll_widen_factor`, default 2.0) | Multiplies the interval for reconciliation polls. |
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
@@ -135,9 +137,9 @@ authoritative.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
-| First startup sweep | Always immediate. |
+| First startup sweep | Always immediate, and the first scheduling decision after a restart stays at the base interval (no idleness has been observed yet). |
 | Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
-| `aiur --todo`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed before its first dispatch. |
+| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
 
@@ -516,7 +518,11 @@ The webhook shortens reaction time for repository events while polling continues
 | Delivering | Uses the configured `webhooks.poll_widen_factor` for slower reconciliation polls. |
 | Silent past the threshold | Returns to full polling and raises an attention; a later delivery restores webhook mode. |
 
-A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop. A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
+A proven webhook also lengthens the daemon's read-cache TTL: a delivering repo gets hour-long `ReadCache` TTLs, because a delivery retires the reads it makes stale — the TTL is only a backstop.
+
+A repo that is not proven (or degraded back to full polling) keeps 30-second TTLs, and degradation collapses the TTL immediately.
+
+Repository-configuration reads are the one exception: branch protection, rulesets and workflow-file reads (`:repo_config`) ride a five-minute TTL in polling mode and still rise to an hour under a proven webhook, because every delivery also retires a repository's config reads.
 
 See [Configuration](/reference/configuration#webhooks) for the repository list, silence threshold, sweep interval, and widen factor.
 

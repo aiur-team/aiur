@@ -114,6 +114,17 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
     state = %{
       snapshot: %Snapshot{},
+      # The first-page validator for the adhoc listing. Held here (not in the
+      # store) because the listing is a repo collection with no single resource
+      # identity, and because this GenServer owns the last-known-good snapshot a
+      # `304` serves back.
+      etag: nil,
+      # Whether the held snapshot came from a single listing page. A page-1
+      # `304` only vouches for the whole listing when it did: GitHub sorts
+      # `issues` `created`-desc, so page 1 is the newest issues and freezes once
+      # no new adhoc issue is filed, while label changes on older issues land on
+      # later pages a page-1 `304` cannot see (#2298 rework B2).
+      single_page?: false,
       inflight: nil,
       demanders: MapSet.new(),
       demand_monitors: %{},
@@ -185,39 +196,118 @@ defmodule Aiur.BuildOrder.AdHocSource do
     %{state | inflight: task.ref}
   end
 
-  @spec fetch(map()) :: {:ok, [Snapshot.member()]} | {:error, term()}
+  @spec fetch(map()) ::
+          {:ok, [Snapshot.member()], String.t() | nil, boolean()}
+          | {:not_modified, String.t() | nil}
+          | {:error, term()}
   defp fetch(state) do
     with {:ok, {owner, repo}} <- state.repo_fun.(),
          {:ok, token} <- state.token_fun.() do
       url =
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(@label)}&state=all&per_page=100"
 
-      case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, []) do
-        {:ok, issues} -> {:ok, issues |> Enum.map(&member/1) |> Enum.filter(&adhoc?/1)}
-        {:error, _reason} = error -> error
+      case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, state.etag, state.single_page?) do
+        {:ok, issues, etag, single_page?} ->
+          {:ok, issues |> Enum.map(&member/1) |> Enum.filter(&adhoc?/1), etag, single_page?}
+
+        {:not_modified, etag} ->
+          {:not_modified, etag}
+
+        {:error, _reason} = error ->
+          error
       end
     end
   end
 
-  defp fetch_pages(request_fun, url, token, owner, repo, prefix, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+  # The first page carries the only validator we hold. A `304` reuses the held
+  # snapshot only when that snapshot was a *single page* AND GitHub does not
+  # report a new page on the `304`: the listing is `created`-desc, so page 1 is
+  # the newest issues and freezes once no new adhoc issue is filed, while label
+  # changes on older issues land on later pages a page-1 `304` cannot vouch for.
+  # A multi-page held listing is refetched unconditionally every poll — its
+  # validator belongs to a page that cannot move, so it can never buy an answer.
+  # #2298 item 6.
+  defp fetch_pages(request_fun, url, token, owner, repo, prefix, etag, single_page?) do
+    request_etag = if single_page?, do: etag, else: nil
+
+    case request_fun.(adhoc_request(url, token, request_etag)) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        adhoc_page(request_fun, token, owner, repo, prefix, [], response)
+
+      {:ok, %{status: 304} = response} ->
+        case listing_status(etag, request_etag, response) do
+          {:reuse, etag} -> {:not_modified, etag}
+          :refetch -> fetch_pages(request_fun, url, token, owner, repo, prefix, nil, false)
+          {:error, reason} -> {:error, reason}
+        end
+
+      other ->
+        adhoc_fetch_error(other)
+    end
+  end
+
+  # Decides what a page-1 `304` is allowed to mean. With no validator sent it is
+  # a proxy answering an unconditional request — not a page. With a new `next`
+  # link it means the listing grew a page the held single page cannot see (or
+  # the held listing spanned pages whose newer content page 1 cannot vouch for),
+  # so it must be refetched. Only a single-page listing with no new page may be
+  # served from the held snapshot.
+  defp listing_status(_etag, nil, _response), do: {:error, :unexpected_304}
+
+  defp listing_status(etag, _request_etag, response) do
+    if next_page?(response) do
+      :refetch
+    else
+      {:reuse, etag}
+    end
+  end
+
+  defp adhoc_fetch_error({:ok, %{status: status}}) do
+    Logger.warning("Ad Hoc overlay fetch failed status=#{status}")
+    {:error, {:github_status, status}}
+  end
+
+  defp adhoc_fetch_error({:error, reason}) do
+    Logger.warning("Ad Hoc overlay fetch failed: #{inspect(reason)}")
+    {:error, reason}
+  end
+
+  defp adhoc_request(url, token, etag) do
+    request = %{method: :get, url: url, token: token, caller: "adhoc_source"}
+    if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+  end
+
+  defp adhoc_page(request_fun, token, owner, repo, prefix, acc, response) do
+    issues = Enum.map(response.body, &Issues.normalize_issue(&1, owner, repo, prefix))
+    first_etag = Transport.header(Map.get(response, :headers, []), "etag")
+
+    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
+      nil -> {:ok, acc ++ issues, first_etag, true}
+      next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, first_etag, acc ++ issues)
+    end
+  end
+
+  defp fetch_pages_unconditional(request_fun, url, token, owner, repo, prefix, first_etag, acc) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "adhoc_source"}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
 
         case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, acc ++ issues}
-          next_url -> fetch_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)
+          nil -> {:ok, acc ++ issues, first_etag, false}
+          next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, first_etag, acc ++ issues)
         end
 
-      {:ok, %{status: status}} ->
-        Logger.warning("Ad Hoc overlay fetch failed status=#{status}")
-        {:error, {:github_status, status}}
+      {:ok, %{status: 304}} ->
+        # Later pages are unconditional, so a `304` here is a proxy answering a
+        # request that carried no validator — not a page.
+        {:error, :unexpected_304}
 
-      {:error, reason} ->
-        Logger.warning("Ad Hoc overlay fetch failed: #{inspect(reason)}")
-        {:error, reason}
+      other ->
+        adhoc_fetch_error(other)
     end
   end
+
+  defp next_page?(response), do: not is_nil(Transport.parse_next_page_url(Map.get(response, :headers, [])))
 
   defp member(%Issue{} = issue) do
     %{
@@ -236,7 +326,7 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp adhoc?(%{identity: nil}), do: false
   defp adhoc?(%{labels: labels}), do: @label in labels
 
-  defp apply_result(state, {:ok, members}) do
+  defp apply_result(state, {:ok, members, etag, single_page?}) do
     generation = (state.snapshot.generation || 0) + 1
 
     snapshot = %Snapshot{
@@ -246,8 +336,20 @@ defmodule Aiur.BuildOrder.AdHocSource do
       members: Enum.sort_by(members, & &1.identifier)
     }
 
-    %{state | snapshot: snapshot}
+    %{state | snapshot: snapshot, etag: etag, single_page?: single_page?}
   end
+
+  defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:not_modified, etag})
+       when is_integer(generation) do
+    # A trusted (single-page) `304`: the listing is confirmed unchanged. Keep the
+    # held snapshot, but advance the generation so a reader can tell the overlay
+    # is live — checked and confirmed — rather than frozen at an old revision.
+    %{state | snapshot: %{previous | status: :available, generation: generation + 1}, etag: etag}
+  end
+
+  # Unreachable with a validator held (a 304 implies a prior 200), but fail
+  # closed rather than raise if it ever arrives.
+  defp apply_result(state, {:not_modified, _etag}), do: %{state | snapshot: %Snapshot{status: :unavailable}}
 
   defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
        when is_integer(generation) do
